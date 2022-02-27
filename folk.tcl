@@ -39,4 +39,9 @@ Claim the dog is out
 
 When the /animal/ is out {
     puts "there is a $animal out there somewhere"
+    Claim the $animal is around
+}
+
+When the /animal/ is around {
+    puts "hello $animal"
 }
