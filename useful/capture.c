@@ -32,7 +32,7 @@ int xioctl(int fd, int request, void* arg)
 {
   for (int i = 0; i < 100; i++) {
     int r = ioctl(fd, request, arg);
-    printf("%s\n", strerror(errno));
+    printf("[%x][%d] %s\n", request, i, strerror(errno));
     if (r != -1 || errno != EINTR) return r;
   }
   return -1;
@@ -75,17 +75,17 @@ void camera_init(camera_t* camera) {
   if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
   if (!(cap.capabilities & V4L2_CAP_STREAMING)) quit("no streaming");
 
-  struct v4l2_cropcap cropcap;
-  memset(&cropcap, 0, sizeof cropcap);
-  cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  if (xioctl(camera->fd, VIDIOC_CROPCAP, &cropcap) == 0) {
-    struct v4l2_crop crop;
-    crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    crop.c = cropcap.defrect;
-    if (xioctl(camera->fd, VIDIOC_S_CROP, &crop) == -1) {
-      // cropping not supported
-    }
-  }
+  /* struct v4l2_cropcap cropcap; */
+  /* memset(&cropcap, 0, sizeof cropcap); */
+  /* cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; */
+  /* if (xioctl(camera->fd, VIDIOC_CROPCAP, &cropcap) == 0) { */
+  /*   struct v4l2_crop crop; */
+  /*   crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; */
+  /*   crop.c = cropcap.defrect; */
+  /*   if (xioctl(camera->fd, VIDIOC_S_CROP, &crop) == -1) { */
+  /*     // cropping not supported */
+  /*   } */
+  /* } */
   
   struct v4l2_format format;
   memset(&format, 0, sizeof format);
@@ -261,7 +261,7 @@ uint8_t* yuyv2rgb(uint8_t* yuyv, uint32_t width, uint32_t height)
 
 int main()
 {
-  camera_t* camera = camera_open("/dev/video0", 352, 288);
+  camera_t* camera = camera_open("/dev/video0", 800, 448);
   camera_init(camera);
   camera_start(camera);
   
@@ -276,6 +276,7 @@ int main()
 
   unsigned char* rgb = 
     yuyv2rgb(camera->head.start, camera->width, camera->height);
+
   FILE* out = fopen("result.jpg", "w");
   jpeg(out, rgb, camera->width, camera->height, 100);
   fclose(out);
