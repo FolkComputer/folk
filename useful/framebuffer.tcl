@@ -10,12 +10,15 @@ fconfigure $fb -translation binary
 # endmode
 
 # bgr
-# blue: set color [binary format b16 1111100000000000]
-set color [binary format b16 1111100000000000]
-for {set y 0} {$y < 1080} {incr y} {
-    for {set x 0} {$x < 1920} {incr x} {
-        puts -nonewline $fb $color
+set blue  [binary format b16 [join {11111 000000 00000} ""]]
+set green [binary format b16 [join {00000 111111 00000} ""]]
+
+proc clearTcl {fb color} {
+    for {set y 0} {$y < 1080} {incr y} {
+        for {set x 0} {$x < 1920} {incr x} {
+            puts -nonewline $fb $color
+        }
     }
 }
 
-
+clearTcl $fb $blue
