@@ -1,4 +1,4 @@
-set ::statements [dict create]
+set ::statements [dict create] ;# should this be `axioms` or something?
 set ::whens [list]
 
 proc Claim {args} {
@@ -36,6 +36,9 @@ proc matches {clause statement} {
 }
 
 proc frame {} {
+    # empty this out. it should be except for givens (the time is t etc)
+    # set ::statements [dict create]
+
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
 
@@ -82,6 +85,7 @@ set red   [binary format b16 [join {00000 000000 11111} ""]]
 
 proc fbFillRect {fb x0 y0 x1 y1 color} {
     for {set y $y0} {$y < $y1} {incr y} {
+        seek $fb [expr (($y * 1920) + $x0) * 2]
         for {set x $x0} {$x < $x1} {incr x} {
             puts -nonewline $fb $color
         }
@@ -93,15 +97,17 @@ proc fbFillScreen {fb color} {
 
 When /someone/ wishes /device/ shows a rectangle with \
     x /x/ y /y/ width /width/ height /height/ fill /color/ {
-        fbFillRect $fb $x $y [expr $x + $width] [expr $y + $height] $color
+        fbFillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
 }
+
+Wish $fb shows a rectangle with x 50 y 50 width 30 height 40 fill $red
 
 # with key1 /value1/ key2 /value2/
 # With all /matches/
 # To know when
 
 proc step {} {
-    global fb black
+    global fb black green
 
     # clear the screen
     fbFillScreen $fb $black
