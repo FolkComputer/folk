@@ -1,4 +1,4 @@
-set ::statements [dict create] ;# should this be `axioms` or something?
+set ::statements [dict create]
 set ::whens [list]
 
 proc Claim {args} {
@@ -97,6 +97,9 @@ proc fbFillScreen {fb color} {
 
 When /someone/ wishes /device/ shows a rectangle with \
     x /x/ y /y/ width /width/ height /height/ fill /color/ {
+        # it's not really correct to just stick a side-effect in the
+        # When handler like this. but we did it in Realtalk, and it
+        # was ok, so whatever for now
         fbFillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
 }
 
@@ -124,5 +127,7 @@ proc step {} {
     # (for now, draw all the graphics requests)
 }
 after 0 step
+
+# we want to be able to asynchronously receive statements
 
 vwait forever
