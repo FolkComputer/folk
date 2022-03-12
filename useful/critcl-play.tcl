@@ -5,11 +5,11 @@ package require critcl
 
 for {set i 0} {$i < 50} {incr i} {
     puts [time {
-        puts [llength [namespace which prn]]
-        critcl::cproc prn {} void {
-            printf("hello %s\n", __BASE_FILE__);
+        if {[llength [namespace which prn]] < 1} {
+            critcl::cproc prn {} void {
+                printf("hello %s\n", __BASE_FILE__);
+            }
         }
-        puts [namespace which prn]
         prn
     }]
 }
