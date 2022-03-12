@@ -1,4 +1,5 @@
 set ::statements [dict create]
+set ::whens [list]
 
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
@@ -7,6 +8,13 @@ proc Claim {args} {
 proc Wish {args} {
     # TODO: get the caller instead of `someone`
     dict set ::statements [list someone wishes {*}$args] true
+}
+
+proc When {args} {
+    set clause [lreplace $args end end]
+    set cb [lindex $args end]
+
+    lappend ::whens [list $clause $cb]
 }
 
 proc matches {clause statement} {
@@ -27,17 +35,21 @@ proc matches {clause statement} {
     return $match
 }
 
-proc When {args} {
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
+proc frame {} {
+    # TODO: implement incremental evaluation
+    # there is a function frame' that is in terms of diffs ...
 
-    dict for {statement _} $::statements {
-        set match [matches $clause $statement]
-        if {$match == false} {
-            set match [matches [list /someone/ claims {*}$clause] $statement]
-        }
-        if {$match != false} {
-            dict with match $cb
+    foreach when $::whens {
+        set clause [lindex $when 0]
+        set cb [lindex $when 1]
+        dict for {statement _} $::statements {
+            set match [matches $clause $statement]
+            if {$match == false} {
+                set match [matches [list /someone/ claims {*}$clause] $statement]
+            }
+            if {$match != false} {
+                dict with match $cb
+            }
         }
     }
 }
@@ -54,8 +66,8 @@ When the /animal/ is around {
     puts "hello $animal"
 }
 
-# Wish "/dev/fb0" draws a rectangle with x 0 y
-# "<window UUID>" wishes "/dev/fb0" draws a rectangle with x 0 y 0
+# Wish "/dev/fb0" shows a rectangle with x 0 y
+# "<window UUID>" wishes "/dev/fb0" shows a rectangle with x 0 y 0
 # (I want to invoke that from a window on my laptop which has a UUID.)
 
 When the time is /t/ {
@@ -69,3 +81,5 @@ When the time is /t/ {
 # with key1 /value1/ key2 /value2/
 # With all /matches/
 # To know when
+
+frame
