@@ -37,11 +37,12 @@ proc matches {clause statement} {
 
 proc frame {} {
     # TODO: implement incremental evaluation
-    # there is a function frame' that is in terms of diffs ...
+    # there must be a function frame' that is in terms of diffs ...
 
     foreach when $::whens {
         set clause [lindex $when 0]
         set cb [lindex $when 1]
+        # TODO: use a trie or regexes or something
         dict for {statement _} $::statements {
             set match [matches $clause $statement]
             if {$match == false} {
@@ -70,16 +71,42 @@ When the /animal/ is around {
 # "<window UUID>" wishes "/dev/fb0" shows a rectangle with x 0 y 0
 # (I want to invoke that from a window on my laptop which has a UUID.)
 
-When the time is /t/ {
-    Claim page 3000 has width 30 height 20
+# TODO: use Vulkan (-:
+set fb [open "/dev/fb0" w]
+fconfigure $fb -translation binary
 
-    When page /pageId/ has width /width/ height /height/ {
-        # issue a draw call to vkvg
-    }
+When /someone/ wishes /device/ shows a rectangle with \
+    x /x/ y /y/ width /width/ height /height/ fill /rgb/ {
+        
+}
+
+func fbBlank {} {
+    # red or black
+    # write one pixel
+    []
+    binary format c4 {0 0 255 0}
+    # b g r a
 }
 
 # with key1 /value1/ key2 /value2/
 # With all /matches/
 # To know when
 
-frame
+proc step {} {
+    # clear the screen
+    fbBlank
+    
+    # infinite event loop
+    # event: an incoming statement bundle
+    # a statement bundle includes statements and statement-retractions
+    # do peers need to connect? or is it like a message thing?
+    # there needs to be a persistent statement database?
+    frame
+    # is there an effect set that comes out of the frame?
+    
+    # stream effects/output statement set outward?
+    # (for now, draw all the graphics requests)
+}
+after 0 step
+
+vwait forever
