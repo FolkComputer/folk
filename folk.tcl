@@ -69,3 +69,11 @@ When the /animal/ is out {
 When the /animal/ is around {
     puts "hello $animal"
 }
+
+# we want to be able to asynchronously receive statements
+# we want to be able to asynchronously share statements(?)
+proc accept {chan addr port} {
+    puts $chan $::statements
+    close $chan
+}
+socket -server accept 4273

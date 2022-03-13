@@ -58,7 +58,4 @@ proc step {} {
 }
 after 0 step
 
-# we want to be able to asynchronously receive statements
-# we want to be able to asynchronously share statements(?)
-
 vwait forever
