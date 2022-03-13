@@ -42,18 +42,19 @@ puts [time {clearTcl $fb $blue}]
 # this doesn't work right, but it's close:
 # (it's also not actually faster, lol)
 package require critcl
-critcl::cproc clearC {char* fbHandle char* color} void {
+critcl::cproc clearCInner {char* fbHandle int width int height char* color} void {
     int fb;
     sscanf(fbHandle, "file%d", &fb);
 
     lseek(fb, 0, SEEK_SET);
-    for (int y = 0; y < $::HEIGHT; y++) {
-        for (int x = 0; x < $::WIDTH; x++) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
             write(fb, color, 2);
         }
     }
     lseek(fb, 0, SEEK_SET);
 }
+proc clearC {fbHandle color} { clearCInner fbHandle $::WIDTH $::HEIGHT color}
 
 puts {clearC $fb $green}
 puts [time {clearC $fb $green}]
