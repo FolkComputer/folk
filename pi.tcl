@@ -8,6 +8,8 @@ source "folk.tcl"
 set fb [open "/dev/fb0" w]
 fconfigure $fb -translation binary
 
+regexp {mode "(\d+)x(\d+)"} [exec fbset] -> ::WIDTH ::HEIGHT
+
 set black [binary format b16 [join {00000 000000 00000} ""]]
 set blue  [binary format b16 [join {11111 000000 00000} ""]]
 set green [binary format b16 [join {00000 111111 00000} ""]]
@@ -15,14 +17,14 @@ set red   [binary format b16 [join {00000 000000 11111} ""]]
 
 proc fbFillRect {fb x0 y0 x1 y1 color} {
     for {set y $y0} {$y < $y1} {incr y} {
-        seek $fb [expr (($y * 1920) + $x0) * 2]
+        seek $fb [expr (($y * $::WIDTH) + $x0) * 2]
         for {set x $x0} {$x < $x1} {incr x} {
             puts -nonewline $fb $color
         }
     }
 }
 proc fbFillScreen {fb color} {
-    fbFillRect $fb 0 0 1920 1080 $color
+    fbFillRect $fb 0 0 $::WIDTH $::HEIGHT $color
 }
 
 When /someone/ wishes /device/ shows a rectangle with \
