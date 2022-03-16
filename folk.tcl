@@ -18,11 +18,7 @@ proc When {args} {
     lappend ::whens [list $clause $cb]
 }
 
-proc Top {cb} {
-    # you can't run Claim/When/etc outside a valid Folk context --
-    # this is a root context so you can hardcode stuff
-    
-}
+# TODO: top/prelude/boot context ?
 
 proc runWhen {clause cb match} {
     dict with match $cb
@@ -67,20 +63,6 @@ proc frame {} {
         }
     }
 }
-
-# Top {
-#     Claim the fox is out
-#     Claim the dog is out
-
-#     When the /animal/ is out {
-#         puts "there is a $animal out there somewhere"
-#         Claim the $animal is around
-
-#         When the /animal/ is around {
-#             puts "hello $animal"
-#         }
-#     }
-# }
 
 # we want to be able to asynchronously receive statements
 # we want to be able to asynchronously share statements(?)
@@ -127,14 +109,22 @@ after 0 { Step {} }
 
 after 200 {
     Step {
-        puts assume1
-        Wish rectangle blue
+        puts Step1
+        Claim the fox is out
+        Claim the dog is out
+        When the /animal/ is out {
+            When the /animal/ is around {
+                puts "the $animal is around"
+            }
+            puts "there is a $animal out there somewhere"
+            Claim the $animal is around
+        }
     }
 }
 
 after 400 {
     Step {
-        puts assume2
+        puts Step2
         Wish rectangle orange
     }
 }
