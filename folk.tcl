@@ -48,7 +48,8 @@ proc frame {} {
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
 
-    foreach when $::whens {
+    for {set i 0} {$i <= [llength $::whens]} {incr i} {
+        set when [lindex $::whens $i]
         set clause [lindex $when 0]
         set cb [lindex $when 1]
         # TODO: use a trie or regexes or something
@@ -127,6 +128,15 @@ after 400 {
         puts Step2
         Wish rectangle orange
     }
+}
+
+if {$tcl_platform(os) eq "Darwin"} {
+    if {$tcl_version eq 8.5} {
+        error "Don't use system Tcl. Quitting."
+    }
+    source laptop.tcl
+} else {
+    source pi.tcl
 }
 
 vwait forever

@@ -7,11 +7,11 @@ $ brew install tcl-tk
 
 
 ```
-$ /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh laptop.tcl
+$ /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
 ```
 or (on M1)
 ```
-$ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh laptop.tcl
+$ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
 ```
 
 ## setup notes
