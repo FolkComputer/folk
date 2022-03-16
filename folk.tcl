@@ -43,8 +43,6 @@ proc matches {clause statement} {
 }
 
 proc frame {} {
-    # empty this out. it should be except for givens (the time is t etc)
-
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
 
@@ -79,6 +77,7 @@ socket -server accept 4273
 
 proc Step {cb} {
     # clear the statement set
+    # TODO: support 'assumed'/'prelude' statements
     set ::statements [dict create]
     set ::whens [list]
 
@@ -96,6 +95,8 @@ proc Step {cb} {
     # stream effects/output statement set outward?
     # (for now, draw all the graphics requests)
 }
+
+# we probably don't need this
 after 0 { Step {} }
 
 # on each frame {
@@ -107,6 +108,7 @@ after 0 { Step {} }
 
 # With all matches -> clear screen, do rendering
 # or When unmatched -> clear that thing
+# or just have a custom frame hook that pi.tcl can hit
 
 after 200 {
     Step {
@@ -132,7 +134,7 @@ after 400 {
 
 if {$tcl_platform(os) eq "Darwin"} {
     if {$tcl_version eq 8.5} {
-        error "Don't use system Tcl. Quitting."
+        error "Don't use macOS system Tcl. Quitting."
     }
     source laptop.tcl
 } else {

@@ -6,23 +6,27 @@
 set fb [open "/dev/fb0" w]
 fconfigure $fb -translation binary
 
-regexp {mode "(\d+)x(\d+)"} [exec fbset] -> ::WIDTH ::HEIGHT
+namespace eval Display {
+    variable WIDTH
+    variable HEIGHT
+    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
 
-set black [binary format b16 [join {00000 000000 00000} ""]]
-set blue  [binary format b16 [join {11111 000000 00000} ""]]
-set green [binary format b16 [join {00000 111111 00000} ""]]
-set red   [binary format b16 [join {00000 000000 11111} ""]]
+    variable black [binary format b16 [join {00000 000000 00000} ""]]
+    variable blue  [binary format b16 [join {11111 000000 00000} ""]]
+    variable green [binary format b16 [join {00000 111111 00000} ""]]
+    variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
-proc fbFillRect {fb x0 y0 x1 y1 color} {
-    for {set y $y0} {$y < $y1} {incr y} {
-        seek $fb [expr (($y * $::WIDTH) + $x0) * 2]
-        for {set x $x0} {$x < $x1} {incr x} {
-            puts -nonewline $fb $color
+    proc fillRect {fb x0 y0 x1 y1 color} {
+        for {set y $y0} {$y < $y1} {incr y} {
+            seek $fb [expr (($y * $WIDTH) + $x0) * 2]
+            for {set x $x0} {$x < $x1} {incr x} {
+                puts -nonewline $fb $color
+            }
         }
     }
-}
-proc fbFillScreen {fb color} {
-    fbFillRect $fb 0 0 $::WIDTH $::HEIGHT $color
+    proc fillScreen {fb color} {
+        fillRect $fb 0 0 $WIDTH $HEIGHT $color
+    }
 }
 
 When /someone/ wishes /device/ shows a rectangle with \
@@ -30,7 +34,7 @@ When /someone/ wishes /device/ shows a rectangle with \
         # it's not really correct to just stick a side-effect in the
         # When handler like this. but we did it in Realtalk, and it
         # was ok, so whatever for now
-        fbFillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
+        Display::fillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
 }
 
-Wish $fb shows a rectangle with x 50 y 50 width 30 height 40 fill $green
+Wish $fb shows a rectangle with x 50 y 50 width 30 height 40 fill $Display::green
