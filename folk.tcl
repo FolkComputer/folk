@@ -135,7 +135,7 @@ after 400 {
                 # was ok, so whatever for now
                 Display::fillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
         }
-        Wish display shows a rectangle with x 50 y 50 width 30 height 40 fill $Display::green
+        Wish display shows a rectangle with x 300 y 400 width 50 height 60 fill $Display::green
     }
 }
 
