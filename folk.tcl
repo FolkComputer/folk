@@ -1,5 +1,6 @@
-set ::statements [dict create]
-set ::whens [list]
+# a When Trace has
+# - childWhenTraces
+# - statements
 
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
@@ -15,6 +16,16 @@ proc When {args} {
     set cb [lindex $args end]
 
     lappend ::whens [list $clause $cb]
+}
+
+proc Top {cb} {
+    # you can't run Claim/When/etc outside a valid Folk context --
+    # this is a root context so you can hardcode stuff
+    
+}
+
+proc runWhen {clause cb match} {
+    dict with match $cb
 }
 
 proc matches {clause statement} {
@@ -37,7 +48,6 @@ proc matches {clause statement} {
 
 proc frame {} {
     # empty this out. it should be except for givens (the time is t etc)
-    # set ::statements [dict create]
 
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
@@ -52,23 +62,25 @@ proc frame {} {
                 set match [matches [list /someone/ claims {*}$clause] $statement]
             }
             if {$match != false} {
-                dict with match $cb
+                runWhen $clause $cb $match
             }
         }
     }
 }
 
-Claim the fox is out
-Claim the dog is out
+# Top {
+#     Claim the fox is out
+#     Claim the dog is out
 
-When the /animal/ is out {
-    puts "there is a $animal out there somewhere"
-    Claim the $animal is around
-}
+#     When the /animal/ is out {
+#         puts "there is a $animal out there somewhere"
+#         Claim the $animal is around
 
-When the /animal/ is around {
-    puts "hello $animal"
-}
+#         When the /animal/ is around {
+#             puts "hello $animal"
+#         }
+#     }
+# }
 
 # we want to be able to asynchronously receive statements
 # we want to be able to asynchronously share statements(?)
@@ -77,3 +89,54 @@ proc accept {chan addr port} {
     close $chan
 }
 socket -server accept 4273
+
+# with key1 /value1/ key2 /value2/
+# With all /matches/
+# To know when
+
+proc Step {cb} {
+    # clear the statement set
+    set ::statements [dict create]
+    set ::whens [list]
+
+    eval $cb
+
+    # infinite event loop
+    # event: an incoming statement bundle
+    # a statement bundle includes statements and statement-retractions
+    # do peers need to connect? or is it like a message thing?
+    # there needs to be a persistent statement database?
+    frame
+    # is there an effect set that comes out of the frame?
+
+    puts $::statements
+    # stream effects/output statement set outward?
+    # (for now, draw all the graphics requests)
+}
+after 0 { Step {} }
+
+# on each frame {
+#     global fb black green
+
+#     # clear the screen
+#     fbFillScreen $fb $black
+# }
+
+# With all matches -> clear screen, do rendering
+# or When unmatched -> clear that thing
+
+after 200 {
+    Step {
+        puts assume1
+        Wish rectangle blue
+    }
+}
+
+after 400 {
+    Step {
+        puts assume2
+        Wish rectangle orange
+    }
+}
+
+vwait forever

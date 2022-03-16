@@ -1,4 +1,3 @@
-source "folk.tcl"
 package require Tk
 
 text .t
