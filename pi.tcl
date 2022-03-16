@@ -28,13 +28,3 @@ namespace eval Display {
         fillRect $fb 0 0 $WIDTH $HEIGHT $color
     }
 }
-
-When /someone/ wishes /device/ shows a rectangle with \
-    x /x/ y /y/ width /width/ height /height/ fill /color/ {
-        # it's not really correct to just stick a side-effect in the
-        # When handler like this. but we did it in Realtalk, and it
-        # was ok, so whatever for now
-        Display::fillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
-}
-
-Wish $fb shows a rectangle with x 50 y 50 width 30 height 40 fill $Display::green

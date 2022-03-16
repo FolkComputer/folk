@@ -28,5 +28,3 @@ namespace eval Display {
         fillRect $fb 0 0 $WIDTH $HEIGHT $color
     }
 }
-
-Display::fillRect hi 20 20 30 40 $Display::red

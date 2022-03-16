@@ -42,7 +42,7 @@ proc matches {clause statement} {
     return $match
 }
 
-proc frame {} {
+proc evaluate {} {
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
 
@@ -83,12 +83,11 @@ proc Step {cb} {
 
     eval $cb
 
-    # infinite event loop
     # event: an incoming statement bundle
     # a statement bundle includes statements and statement-retractions
     # do peers need to connect? or is it like a message thing?
     # there needs to be a persistent statement database?
-    frame
+    evaluate
     # is there an effect set that comes out of the frame?
 
     puts $::statements
@@ -128,7 +127,15 @@ after 200 {
 after 400 {
     Step {
         puts Step2
-        Wish rectangle orange
+
+        When /someone/ wishes /device/ shows a rectangle with \
+            x /x/ y /y/ width /width/ height /height/ fill /color/ {
+                # it's not really correct to just stick a side-effect in the
+                # When handler like this. but we did it in Realtalk, and it
+                # was ok, so whatever for now
+                Display::fillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
+        }
+        Wish display shows a rectangle with x 50 y 50 width 30 height 40 fill $Display::green
     }
 }
 
