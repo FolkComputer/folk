@@ -2,11 +2,11 @@
 # "<window UUID>" wishes "/dev/fb0" shows a rectangle with x 0 y 0
 # (I want to invoke that from a window on my laptop which has a UUID.)
 
-# TODO: use Vulkan (-:
-set fb [open "/dev/fb0" w]
-fconfigure $fb -translation binary
-
 namespace eval Display {
+    # TODO: use Vulkan (-:
+    variable fb [open "/dev/fb0" w]
+    fconfigure $fb -translation binary
+
     variable WIDTH
     variable HEIGHT
     regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
@@ -18,9 +18,9 @@ namespace eval Display {
 
     proc fillRect {fb x0 y0 x1 y1 color} {
         for {set y $y0} {$y < $y1} {incr y} {
-            seek $fb [expr (($y * $WIDTH) + $x0) * 2]
+            seek $Display::fb [expr (($y * $Display::WIDTH) + $x0) * 2]
             for {set x $x0} {$x < $x1} {incr x} {
-                puts -nonewline $fb $color
+                puts -nonewline $Display::fb $color
             }
         }
     }

@@ -140,7 +140,7 @@ after 400 {
                 Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
             }
         }
-        Claim "rect1" is a rectangle with x 50 y 50 width 30 height 40
+        Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
         Wish "rect1" is highlighted $Display::green
     }
 }
