@@ -142,6 +142,13 @@ after 400 {
         }
         Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
         Wish "rect1" is highlighted $Display::green
+
+        Claim "rect2" is a rectangle with x 300 y 460 width 20 height 20
+        Wish "rect2" is highlighted $Display::red
+
+        When "rect2" points up at "rect1" { # FIXME
+            puts "points up"
+        }
     }
 }
 
