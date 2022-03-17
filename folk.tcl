@@ -15,13 +15,14 @@ proc When {args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
 
-    lappend ::whens [list $clause $cb]
+    lappend ::whens [list $clause $cb $::currentMatchStack]
 }
 
 # TODO: top/prelude/boot context ?
 
-proc runWhen {clause cb match} {
-    dict with match $cb
+proc runWhen {clause cb enclosingMatchStack match} {
+    set ::currentMatchStack [dict merge $enclosingMatchStack $match]
+    dict with ::currentMatchStack $cb
 }
 
 proc matches {clause statement} {
@@ -50,6 +51,7 @@ proc evaluate {} {
         set when [lindex $::whens $i]
         set clause [lindex $when 0]
         set cb [lindex $when 1]
+        set enclosingMatchStack [lindex $when 2]
         # TODO: use a trie or regexes or something
         dict for {statement _} $::statements {
             set match [matches $clause $statement]
@@ -57,7 +59,7 @@ proc evaluate {} {
                 set match [matches [list /someone/ claims {*}$clause] $statement]
             }
             if {$match != false} {
-                runWhen $clause $cb $match
+                runWhen $clause $cb $enclosingMatchStack $match
             }
         }
     }
@@ -80,6 +82,8 @@ proc Step {cb} {
     # TODO: support 'assumed'/'prelude' statements
     set ::statements [dict create]
     set ::whens [list]
+
+    set ::currentMatchStack [dict create]
 
     eval $cb
 
@@ -128,14 +132,16 @@ after 400 {
     Step {
         puts Step2
 
-        When /someone/ wishes /device/ shows a rectangle with \
-            x /x/ y /y/ width /width/ height /height/ fill /color/ {
+        When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+            When /someone/ wishes $rect is highlighted /color/ {
                 # it's not really correct to just stick a side-effect in the
                 # When handler like this. but we did it in Realtalk, and it
                 # was ok, so whatever for now
-                Display::fillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
+                Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
+            }
         }
-        Wish display shows a rectangle with x 50 y 50 width 30 height 40 fill $Display::green
+        Claim "rect1" is a rectangle with x 50 y 50 width 30 height 40
+        Wish "rect1" is highlighted $Display::green
     }
 }
 
