@@ -18,6 +18,11 @@ proc When {args} {
     lappend ::whens [list $clause $cb $::currentMatchStack]
 }
 
+proc To {_know _when args} { # FIXME
+    set clause [lreplace $args end end]
+    set cb [lindex $args end]
+}
+
 # TODO: top/prelude/boot context ?
 
 proc runWhen {clause cb enclosingMatchStack match} {
@@ -146,6 +151,17 @@ after 400 {
         Claim "rect2" is a rectangle with x 300 y 460 width 20 height 20
         Wish "rect2" is highlighted $Display::red
 
+        To know when /known a/ points up at /unknown b/ { # FIXME
+            When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
+                # TODO: we'll probably need join support
+                When $b is a rectangle with x /bx/ y /by/ width /bwidth/ height /bheight/ {
+                    if {$ay + $aheight < $by && $by - ($ay + $aheight) < 10} {
+                        Claim $a points up at $b
+                    }
+                }
+            }
+        }
+        
         When "rect2" points up at "rect1" { # FIXME
             puts "points up"
         }
