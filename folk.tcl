@@ -21,9 +21,25 @@ proc When {args} {
 proc To {_know _when args} { # FIXME
     set clause [lreplace $args end end]
     set cb [lindex $args end]
+
+    Claim to know when {*}$args
 }
 
 # TODO: top/prelude/boot context ?
+set ::assertedStatements [dict create]
+proc Assert {args} {
+    set statement $args
+    dict set ::assertedStatements $statement true
+}
+proc Retract {args} {
+    set clause $args
+    dict for {statement _} $::assertedStatements {
+        set match [matches $clause $statement]
+        if {$match != false} {
+            dict unset ::assertedStatements $statement
+        }
+    }
+}
 
 proc runWhen {clause cb enclosingMatchStack match} {
     set ::currentMatchStack [dict merge $enclosingMatchStack $match]
@@ -51,6 +67,8 @@ proc matches {clause statement} {
 proc evaluate {} {
     # TODO: implement incremental evaluation
     # there must be a function frame' that is in terms of diffs ...
+    # Claim should add a +1 diff to an append-only log ...
+    # then the evaluator can reduce over the log ...
 
     for {set i 0} {$i <= [llength $::whens]} {incr i} {
         set when [lindex $::whens $i]
@@ -85,12 +103,12 @@ socket -server accept 4273
 proc Step {cb} {
     # clear the statement set
     # TODO: support 'assumed'/'prelude' statements
-    set ::statements [dict create]
+    set ::statements $::assertedStatements
     set ::whens [list]
 
     set ::currentMatchStack [dict create]
 
-    eval $cb
+    uplevel 1 $cb
 
     # event: an incoming statement bundle
     # a statement bundle includes statements and statement-retractions
