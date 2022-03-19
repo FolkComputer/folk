@@ -1,9 +1,5 @@
 package require Tk
 
-# text .t
-# pack .t -expand true -fill both
-# .t insert end {blah blah blah}
-
 # periodically request samples
 # connect to the peer
 # set chan [socket folk.local 4273]
@@ -25,11 +21,12 @@ namespace eval Display {
         .display create rectangle $x0 $y0 $x1 $y1 -fill $color
     }
     proc fillScreen {fb color} {
-        fillRect $fb 0 0 $WIDTH $HEIGHT $color
+        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
     }
 }
 
 proc StepFromProgramConfigure {} {
+    Display::fillScreen device $Display::black
     Step {
         puts StepFromProgramConfigure
         When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
@@ -41,29 +38,48 @@ proc StepFromProgramConfigure {} {
             }
             Wish $rect is highlighted $Display::blue
         }
+
+        When /program/ has program code /code/ {
+            set this $program
+            eval $code
+        }
     }
 }
 
 set ::nextProgramNum 0
 proc newProgram {} {
     set programNum [incr ::nextProgramNum]
-    set program .program$programNum
+    set program program$programNum
 
-    toplevel $program
-    wm title $program $program
-    wm geometry $program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
+    toplevel .$program
+    wm title .$program $program
+    wm geometry .$program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
 
-    text $program.t
-    pack $program.t -expand true -fill both
-    # TODO: respond to Save and exec code
+    text .$program.t
+    pack .$program.t -expand true -fill both
 
-    bind $program <Configure> [subst -nocommands {
+    proc handleSave {program} {
+        # display save
+        catch {destroy .$program.saved}
+        label .$program.saved -text Saved!
+        place .$program.saved -x 40 -y 100
+        after 500 "catch {destroy .$program.saved}"
+
+        Retract "laptop.tcl" claims $program has program code /something/
+        Assert "laptop.tcl" claims $program has program code [.$program.t get 1.0 end]
+
+        StepFromProgramConfigure
+    }
+    bind .$program <Control-Key-s> [list handleSave $program]
+    proc handleConfigure {program x y w h} {
+        Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
+        Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
+
+        StepFromProgramConfigure
+    }
+    bind .$program <Configure> [subst -nocommands {
         if {"%W" eq [winfo toplevel %W]} {
-            puts "reconfigured %W: (%x,%y) %wx%h"
-            Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something
-            Assert "laptop.tcl" claims $program is a rectangle with x "%x" y "%y" width "%w" height "%h"
-
-            StepFromProgramConfigure
+            handleConfigure $program %x %y %w %h
         }
     }]
 }
