@@ -28,3 +28,32 @@ namespace eval Display {
         fillRect $fb 0 0 $WIDTH $HEIGHT $color
     }
 }
+
+if 0 {
+sudo apt install git build-essential
+
+# TODO: clone folk
+
+https://forums.libretro.com/t/retroarch-raspberry-pi-4-vulkan-without-x-howto/31164
+
+sudo apt install python3-pip ninja-build
+sudo pip3 install meson
+sudo pip3 install mako
+
+sudo apt install libdrm-dev
+sudo apt install bison flex
+
+git clone -b 20.3 https://gitlab.freedesktop.org/mesa/mesa.git mesa_vulkan
+cd mesa_vulkan
+meson -Dplatforms= -Dglx=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=kmsro,v3d,vc4 -Dbuildtype=release build
+sudo ninja -C build install
+}
+
+if 0 {
+git clone --recursive https://github.com/SaschaWillems/Vulkan.git
+cd Vulkan
+
+mkdir build
+cd build
+cmake .. -DUSE_D2D_WSI=ON
+}

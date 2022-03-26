@@ -1,7 +1,3 @@
-# a When Trace has
-# - childWhenTraces
-# - statements
-
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
     dict set ::statements [list someone claims {*}$args] true
@@ -100,6 +96,10 @@ socket -server accept 4273
 # With all /matches/
 # To know when
 
+set ::alwaysCbs [list]
+proc Always {cb} {
+    lappend ::alwaysCbs $cb
+}
 proc Step {cb} {
     # clear the statement set
     # TODO: support 'assumed'/'prelude' statements
@@ -108,6 +108,7 @@ proc Step {cb} {
 
     set ::currentMatchStack [dict create]
 
+    foreach alwaysCb $::alwaysCbs {uplevel 1 $alwaysCb}
     uplevel 1 $cb
 
     # event: an incoming statement bundle
@@ -122,15 +123,25 @@ proc Step {cb} {
     # (for now, draw all the graphics requests)
 }
 
+Always {
+    When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+        When /someone/ wishes $rect is highlighted /color/ {
+            # it's not really correct to just stick a side-effect in the
+            # When handler like this. but we did it in Realtalk, and it
+            # was ok, so whatever for now
+            Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
+        }
+        Wish $rect is highlighted $Display::blue
+    }
+
+    When /program/ has program code /code/ {
+        set this $program
+        eval $code
+    }
+}
+
 # we probably don't need this
 after 0 { Step {} }
-
-# on each frame {
-#     global fb black green
-
-#     # clear the screen
-#     fbFillScreen $fb $black
-# }
 
 # With all matches -> clear screen, do rendering
 # or When unmatched -> clear that thing
@@ -155,14 +166,6 @@ after 400 {
     Step {
         puts Step2
 
-        When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
-            When /someone/ wishes $rect is highlighted /color/ {
-                # it's not really correct to just stick a side-effect in the
-                # When handler like this. but we did it in Realtalk, and it
-                # was ok, so whatever for now
-                Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
-            }
-        }
         Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
         Wish "rect1" is highlighted $Display::green
 

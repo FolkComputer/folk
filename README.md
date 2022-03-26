@@ -19,3 +19,9 @@ $ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
 - make as solid / permanent a mount as you can. you shouldn't be
   scared of it falling and you shouldn't have to take it apart and put
   it back together every time
+
+## stuff
+- implement generators
+- implement even-better fake lexical scope
+- share (axiom) statements from laptop -> Pi
+- mmap or otherwise hw-accelerate pi graphics
