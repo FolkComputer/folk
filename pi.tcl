@@ -27,6 +27,10 @@ namespace eval Display {
     proc fillScreen {fb color} {
         fillRect $fb 0 0 $WIDTH $HEIGHT $color
     }
+
+    proc text {fb x y fontSize text} {
+        
+    }
 }
 
 if 0 {

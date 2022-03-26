@@ -115,11 +115,13 @@ proc Step {cb} {
     # a statement bundle includes statements and statement-retractions
     # do peers need to connect? or is it like a message thing?
     # there needs to be a persistent statement database?
+
     while 1 {
         set prevStatements $::statements
         evaluate
-        if {$::statements eq $prevStatements} break
+        if {$::statements eq $prevStatements} break ;# fixpoint
     }
+
     # is there an effect set that comes out of the frame?
 
     puts $::statements
