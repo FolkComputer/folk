@@ -131,11 +131,18 @@ Always {
             # was ok, so whatever for now
             Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
         }
+
+        When /someone/ wishes $rect is labelled /text/ {
+            set longestLineLength [tcl::mathfunc::max {*}[lmap line [split $text "\n"] {string length $line}]]
+            set fontSize [expr $width / $longestLineLength]
+            Display::text device [expr $x+$width/2] [expr $y+$height/2] $fontSize $text
+        }
+
         Wish $rect is highlighted $Display::blue
     }
 
-    When /program/ has program code /code/ {
-        set this $program
+    # this defines $this in the contained scopes
+    When /this/ has program code /code/ {
         eval $code
     }
 }

@@ -23,26 +23,16 @@ namespace eval Display {
     proc fillScreen {fb color} {
         fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
     }
+
+    proc text {fb x y fontSize text} {
+        .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white
+    }
 }
 
 proc StepFromProgramConfigure {} {
     Display::fillScreen device $Display::black
     Step {
         puts StepFromProgramConfigure
-        When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
-            When /someone/ wishes $rect is highlighted /color/ {
-                # it's not really correct to just stick a side-effect in the
-                # When handler like this. but we did it in Realtalk, and it
-                # was ok, so whatever for now
-                Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
-            }
-            Wish $rect is highlighted $Display::blue
-        }
-
-        When /program/ has program code /code/ {
-            set this $program
-            eval $code
-        }
     }
 }
 
