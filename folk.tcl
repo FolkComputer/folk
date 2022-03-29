@@ -13,6 +13,14 @@ proc When {args} {
 
     lappend ::whens [list $clause $cb $::currentMatchStack]
 }
+proc With {_all matches _for args} {
+    set clause [lreplace $args end end]
+    set cb [lindex $args end]
+
+    # FIXME: lappend ::withs
+    # run withs when all else is resolved
+    # then do another evaluation round
+}
 
 proc To {_know _when args} { # FIXME
     set clause [lreplace $args end end]
@@ -21,7 +29,6 @@ proc To {_know _when args} { # FIXME
     Claim to know when {*}$args
 }
 
-# TODO: top/prelude/boot context ?
 set ::assertedStatements [dict create]
 proc Assert {args} {
     set statement $args
@@ -84,13 +91,26 @@ proc evaluate {} {
     }
 }
 
-# we want to be able to asynchronously receive statements
-# we want to be able to asynchronously share statements(?)
+
 proc accept {chan addr port} {
+    # we want to be able to asynchronously receive statements
+    set script ""
+    while {[gets $chan line] != -1} {
+        append script $line\n
+        if {[info complete $script]} {
+            eval $script
+            set script ""
+        }
+    }
+
+    # we want to be able to asynchronously share statements(?)
     puts $chan $::statements
+
     close $chan
 }
-socket -server accept 4273
+if {[catch {socket -server accept 4273}]} {
+    socket -server accept 4274
+}
 
 # with key1 /value1/ key2 /value2/
 # With all /matches/
