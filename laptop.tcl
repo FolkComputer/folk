@@ -1,8 +1,4 @@
-source "folk.tcl"
 package require Tk
-
-text .t
-pack .t -expand true -fill both
 
 # periodically request samples
 # connect to the peer
@@ -10,4 +6,72 @@ pack .t -expand true -fill both
 # puts "got [gets $chan]"
 # close $chan
 
-.t insert end {blah blah blah}
+namespace eval Display {
+    variable WIDTH 800
+    variable HEIGHT 600
+    canvas .display -background black -width $WIDTH -height $HEIGHT
+    pack .display
+
+    variable black black
+    variable blue  blue
+    variable green green
+    variable red   red
+
+    proc fillRect {fb x0 y0 x1 y1 color} {
+        .display create rectangle $x0 $y0 $x1 $y1 -fill $color
+    }
+    proc fillScreen {fb color} {
+        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
+    }
+
+    proc text {fb x y fontSize text} {
+        .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white
+    }
+}
+
+proc StepFromProgramConfigure {} {
+    Display::fillScreen device $Display::black
+    Step {
+        puts StepFromProgramConfigure
+    }
+}
+
+set ::nextProgramNum 0
+proc newProgram {} {
+    set programNum [incr ::nextProgramNum]
+    set program program$programNum
+
+    toplevel .$program
+    wm title .$program $program
+    wm geometry .$program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
+
+    text .$program.t
+    pack .$program.t -expand true -fill both
+
+    proc handleSave {program} {
+        # display save
+        catch {destroy .$program.saved}
+        label .$program.saved -text Saved!
+        place .$program.saved -x 40 -y 100
+        after 500 "catch {destroy .$program.saved}"
+
+        Retract "laptop.tcl" claims $program has program code /something/
+        Assert "laptop.tcl" claims $program has program code [.$program.t get 1.0 end]
+
+        StepFromProgramConfigure
+    }
+    bind .$program <Control-Key-s> [list handleSave $program]
+    proc handleConfigure {program x y w h} {
+        Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
+        Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
+
+        StepFromProgramConfigure
+    }
+    bind .$program <Configure> [subst -nocommands {
+        if {"%W" eq [winfo toplevel %W]} {
+            handleConfigure $program %x %y %w %h
+        }
+    }]
+}
+button .btn -text "New Program" -command newProgram
+pack .btn
