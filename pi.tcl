@@ -35,7 +35,7 @@ When /someone/ wishes /device/ shows a rectangle with \
         fbFillRect $device $x $y [expr $x + $width] [expr $y + $height] $color
 }
 
-Wish $fb shows a rectangle with x 50 y 50 width 30 height 40 fill $green
+Wish $fb shows a rectangle with x 150 y 50 width 30 height 40 fill $blue
 
 # with key1 /value1/ key2 /value2/
 # With all /matches/
@@ -45,7 +45,7 @@ proc step {} {
     global fb black green
 
     # clear the screen
-    fbFillScreen $fb $black
+    fbFillScreen $fb $green
 
     # infinite event loop
     # event: an incoming statement bundle
