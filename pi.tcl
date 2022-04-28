@@ -25,7 +25,7 @@ namespace eval Display {
         }
     }
     proc fillScreen {fb color} {
-        fillRect $fb 0 0 $WIDTH $HEIGHT $color
+        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
     }
 
     proc text {fb x y fontSize text} {
@@ -33,13 +33,13 @@ namespace eval Display {
     }
 }
 
-TestStep {
-Step {
-    Display::fillScreen $Display::fb $Display::green
-    Wish $fb shows a rectangle with x 150 y 50 width 30 height 40 fill $blue
+proc TestStep {} {
+    Step {
+        Display::fillScreen $Display::fb $Display::green
+        Wish $Display::fb shows a rectangle with x 150 y 50 width 30 height 40 fill $Display::blue
 
-    # clear the screen
-}
+        # clear the screen3
+    }
 }
 
 after 0 TestStep
