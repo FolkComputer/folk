@@ -35,10 +35,7 @@ namespace eval Display {
 
 proc TestStep {} {
     Step {
-        Display::fillScreen $Display::fb $Display::green
-        Wish $Display::fb shows a rectangle with x 150 y 50 width 30 height 40 fill $Display::blue
-
-        # clear the screen3
+        Display::fillScreen $Display::fb $Display::red
     }
 }
 

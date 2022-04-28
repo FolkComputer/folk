@@ -164,7 +164,7 @@ Always {
             Display::text device [expr $x+$width/2] [expr $y+$height/2] $fontSize $text
         }
 
-        Wish $rect is highlighted $Display::blue
+        # Wish $rect is highlighted $Display::blue
     }
 
     # this defines $this in the contained scopes
@@ -202,8 +202,8 @@ after 400 {
         Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
         Wish "rect1" is highlighted $Display::green
 
-        Claim "rect2" is a rectangle with x 300 y 460 width 20 height 20
-        Wish "rect2" is highlighted $Display::red
+        Claim "rect2" is a rectangle with x 100 y 160 width 20 height 20
+        Wish "rect2" is highlighted $Display::blue
 
         To know when /known a/ points up at /unknown b/ { # FIXME
             When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
