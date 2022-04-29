@@ -38,7 +38,7 @@ proc StepFromGUI {} {
     # folk0.local 4273
     set sock [socket "folk0.local" 4273]
     # FIXME: should _retract_ only our asserted statements
-    puts $sock "set ::assertedStatements $::statements; Step {}"
+    puts $sock "set ::assertedStatements {$::statements}; Step {}"
     close $sock
 }
 
