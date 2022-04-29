@@ -29,11 +29,17 @@ namespace eval Display {
     }
 }
 
-proc StepFromProgramConfigure {} {
+proc StepFromGUI {} {
     Display::fillScreen device $Display::black
     Step {
         puts StepFromProgramConfigure
     }
+    # share statement set to Pi
+    # folk0.local 4273
+    set sock [socket "folk0.local" 4273]
+    # FIXME: should _retract_ only our asserted statements
+    puts $sock "set ::assertedStatements $::statements; Step {}"
+    close $sock
 }
 
 set ::nextProgramNum 0
@@ -58,14 +64,14 @@ proc newProgram {} {
         Retract "laptop.tcl" claims $program has program code /something/
         Assert "laptop.tcl" claims $program has program code [.$program.t get 1.0 end]
 
-        StepFromProgramConfigure
+        StepFromGUI
     }
     bind .$program <Control-Key-s> [list handleSave $program]
     proc handleConfigure {program x y w h} {
         Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
         Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
 
-        StepFromProgramConfigure
+        StepFromGUI
     }
     bind .$program <Configure> [subst -nocommands {
         if {"%W" eq [winfo toplevel %W]} {

@@ -93,6 +93,7 @@ proc evaluate {} {
 
 
 proc accept {chan addr port} {
+    # (mostly for the Pi)
     # we want to be able to asynchronously receive statements
     set script ""
     while {[gets $chan line] != -1} {
@@ -102,9 +103,6 @@ proc accept {chan addr port} {
             set script ""
         }
     }
-
-    # we want to be able to asynchronously share statements(?)
-    puts $chan $::statements
 
     close $chan
 }
