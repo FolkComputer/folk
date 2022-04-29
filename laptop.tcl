@@ -32,7 +32,7 @@ namespace eval Display {
 proc StepFromGUI {} {
     Display::fillScreen device $Display::black
     Step {
-        puts StepFromProgramConfigure
+        puts "StepFromGUI"
     }
     # share statement set to Pi
     # folk0.local 4273
