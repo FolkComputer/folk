@@ -1,11 +1,5 @@
 package require Tk
 
-# periodically request samples
-# connect to the peer
-# set chan [socket folk.local 4273]
-# puts "got [gets $chan]"
-# close $chan
-
 namespace eval Display {
     variable WIDTH 800
     variable HEIGHT 600
