@@ -119,6 +119,9 @@ proc Always {cb} {
     lappend ::alwaysCbs $cb
 }
 proc Step {cb} {
+    # FIXME: hack
+    Display::fillScreen device $Display::black 
+
     # clear the statement set
     # TODO: support 'assumed'/'prelude' statements
     set ::statements $::assertedStatements

@@ -2,11 +2,30 @@
 # "<window UUID>" wishes "/dev/fb0" shows a rectangle with x 0 y 0
 # (I want to invoke that from a window on my laptop which has a UUID.)
 
-namespace eval Display {
-    # TODO: use Vulkan (-:
-    variable fb [open "/dev/fb0" w]
-    fconfigure $fb -translation binary
 
+# prep stuff
+# ----------
+package require critcl
+critcl::ccode {
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #include <sys/mman.h>
+    unsigned short* fbmem;
+}
+critcl::cproc mmapFb {int width int height} void {
+    int fb = open("/dev/fb0", O_RDWR);
+    fbmem = mmap(NULL, width * height * 2, PROT_WRITE, MAP_SHARED, fb, 0);
+}
+critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 bytes color} void {
+    unsigned short colorShort = (color.s[1] << 8) | color.s[0];
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            fbmem[(y * width) + x] = colorShort;
+        }
+    }
+}
+
+namespace eval Display {
     variable WIDTH
     variable HEIGHT
     regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
@@ -16,13 +35,13 @@ namespace eval Display {
     variable green [binary format b16 [join {00000 111111 00000} ""]]
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
+    mmapFb $WIDTH $HEIGHT
+
+    # functions
+    # ---------
     proc fillRect {fb x0 y0 x1 y1 color} {
-        for {set y $y0} {$y < $y1} {incr y} {
-            seek $Display::fb [expr (($y * $Display::WIDTH) + $x0) * 2]
-            for {set x $x0} {$x < $x1} {incr x} {
-                puts -nonewline $Display::fb $color
-            }
-        }
+        puts "fillrect $x0 $y0 $x1 $y1 $color"
+        clearCInner $Display::WIDTH $x0 $y0 $x1 $y1 $color
     }
     proc fillScreen {fb color} {
         fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
@@ -32,15 +51,6 @@ namespace eval Display {
         
     }
 }
-
-proc TestStep {} {
-    Step {
-        Display::fillScreen $Display::fb $Display::red
-    }
-}
-
-after 0 TestStep
-vwait forever
 
 # random garbage below
 # --------------------

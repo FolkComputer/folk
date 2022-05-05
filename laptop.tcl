@@ -24,7 +24,6 @@ namespace eval Display {
 }
 
 proc StepFromGUI {} {
-    Display::fillScreen device $Display::black
     Step {
         puts "StepFromGUI"
     }
