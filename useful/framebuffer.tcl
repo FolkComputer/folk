@@ -48,22 +48,8 @@ proc clearTcl {fb color} {
 package require critcl
 
 critcl::cproc clearCInner {char* fbHandle int width int height bytes color} void {
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)  \
-  (byte & 0x80 ? '1' : '0'), \
-  (byte & 0x40 ? '1' : '0'), \
-  (byte & 0x20 ? '1' : '0'), \
-  (byte & 0x10 ? '1' : '0'), \
-  (byte & 0x08 ? '1' : '0'), \
-  (byte & 0x04 ? '1' : '0'), \
-  (byte & 0x02 ? '1' : '0'), \
-  (byte & 0x01 ? '1' : '0')
-
     int fb;
-  sscanf(fbHandle, "file%d", &fb);
-  printf("fbh %s fb %d\n", fbHandle, fb);
-
-  printf("color " BYTE_TO_BINARY_PATTERN BYTE_TO_BINARY_PATTERN "\n", BYTE_TO_BINARY(color.s[0]), BYTE_TO_BINARY(color.s[1]));
+    sscanf(fbHandle, "file%d", &fb);
 
     lseek(fb, 0, SEEK_SET);
     for (int y = 0; y < height; y++) {
