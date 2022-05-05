@@ -42,32 +42,30 @@ proc clearTcl {fb color} {
 # puts {clearTcl $fb $red}
 # puts [time {clearTcl $fb $red}]
 
-
-# this doesn't work right, but it's close:
-# (it's also not actually faster, lol)
 package require critcl
+critcl::ccode {
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #include <sys/mman.h>
+    char* fbmem;
+}
+critcl::cproc mmapFb {char* fbHandle int width int height} void {
+    int fb = open("/dev/fb0", O_RDWR);
+    fbmem = mmap(NULL, width * height * 2, PROT_WRITE, MAP_SHARED, fb, 0);
+}
 
-critcl::cproc clearCInner {char* fbHandle int width int height bytes color} void {
-    int fb;
-    sscanf(fbHandle, "file%d", &fb);
-
-    lseek(fb, 0, SEEK_SET);
+critcl::cproc clearCInner {int width int height bytes color} void {
+    int i = 0;
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            write(fb, color.s, 2);
+            fbmem[i++] = color.s[0];
+            fbmem[i++] = color.s[1];
         }
     }
-    lseek(fb, 0, SEEK_SET);
 }
-proc clearC {fbHandle color} { clearCInner $fbHandle $::WIDTH $::HEIGHT $color }
+proc clearC {fbHandle color} { clearCInner $::WIDTH $::HEIGHT $color }
 
-# set routine {clearC $fb $green}
-# puts $routine
-# puts [time $routine]
-
-# set routine {clearC $fb $red}
-# puts $routine
-# puts [time $routine]
+mmapFb $fb $::WIDTH $::HEIGHT
 
 set routine {clearC $fb $blue}
 puts $routine
