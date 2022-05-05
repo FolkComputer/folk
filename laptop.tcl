@@ -1,11 +1,5 @@
 package require Tk
 
-# periodically request samples
-# connect to the peer
-# set chan [socket folk.local 4273]
-# puts "got [gets $chan]"
-# close $chan
-
 namespace eval Display {
     variable WIDTH 800
     variable HEIGHT 600
@@ -32,13 +26,13 @@ namespace eval Display {
 proc StepFromGUI {} {
     Display::fillScreen device $Display::black
     Step {
-        puts StepFromProgramConfigure
+        puts "StepFromGUI"
     }
     # share statement set to Pi
     # folk0.local 4273
     set sock [socket "folk0.local" 4273]
     # FIXME: should _retract_ only our asserted statements
-    puts $sock "set ::assertedStatements $::statements; Step {}"
+    puts $sock "set ::assertedStatements {$::statements}; Step {}"
     close $sock
 }
 
