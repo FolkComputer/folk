@@ -47,7 +47,7 @@ critcl::ccode {
     #include <sys/stat.h>
     #include <fcntl.h>
     #include <sys/mman.h>
-    char* fbmem;
+    unsigned short* fbmem;
 }
 critcl::cproc mmapFb {char* fbHandle int width int height} void {
     int fb = open("/dev/fb0", O_RDWR);
@@ -55,17 +55,25 @@ critcl::cproc mmapFb {char* fbHandle int width int height} void {
 }
 
 critcl::cproc clearCInner {int width int height bytes color} void {
+    unsigned short colorShort = (color.s[1] << 8) | color.s[0];
     int i = 0;
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            fbmem[i++] = color.s[0];
-            fbmem[i++] = color.s[1];
+            fbmem[i++] = colorShort;
         }
     }
 }
 proc clearC {fbHandle color} { clearCInner $::WIDTH $::HEIGHT $color }
 
 mmapFb $fb $::WIDTH $::HEIGHT
+
+set routine {clearC $fb $blue}
+puts $routine
+puts [time $routine]
+
+set routine {clearC $fb $red}
+puts $routine
+puts [time $routine]
 
 set routine {clearC $fb $blue}
 puts $routine
