@@ -31,7 +31,7 @@ proc StepFromGUI {} {
     }
     # share statement set to Pi
     # folk0.local 4273
-    thread::send $::sharerThread -async [format {
+    thread::send -async $::sharerThread [format {
         catch {
             set sock [socket "folk0.local" 4273]
             # FIXME: should _retract_ only our asserted statements
