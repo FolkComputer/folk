@@ -23,16 +23,22 @@ namespace eval Display {
     }
 }
 
+package require Thread
+set ::sharerThread [thread::create]
 proc StepFromGUI {} {
     Step {
         puts "StepFromGUI"
     }
     # share statement set to Pi
     # folk0.local 4273
-    set sock [socket "folk0.local" 4273]
-    # FIXME: should _retract_ only our asserted statements
-    puts $sock "set ::assertedStatements {$::statements}; Step {}"
-    close $sock
+    thread::send $::sharerThread -async [format {
+        catch {
+            set sock [socket "folk0.local" 4273]
+            # FIXME: should _retract_ only our asserted statements
+            puts $sock "set ::assertedStatements {%s}; Step {}"
+            close $sock
+        }
+    } $::statements]
 }
 
 set ::nextProgramNum 0
