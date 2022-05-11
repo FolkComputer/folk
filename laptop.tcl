@@ -5,6 +5,7 @@ namespace eval Display {
     variable HEIGHT 600
     canvas .display -background black -width $WIDTH -height $HEIGHT
     pack .display
+    wm geometry . [set WIDTH]x[set HEIGHT]-0+0 ;# align to top-right of screen
 
     variable black black
     variable blue  blue
@@ -51,6 +52,7 @@ proc newProgram {} {
     wm geometry .$program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
 
     text .$program.t
+    .$program.t insert 1.0 {Wish $this is highlighted blue}
     pack .$program.t -expand true -fill both
 
     proc handleSave {program} {
@@ -77,6 +79,8 @@ proc newProgram {} {
             handleConfigure $program %x %y %w %h
         }
     }]
+
+    handleSave $program
 }
 button .btn -text "New Program" -command newProgram
 pack .btn
