@@ -1,2 +1,8 @@
+TCL_HOME := /opt/homebrew/Cellar/tcl-tk/8.6*
+ifeq ($(wildcard $(TCL_HOME)/*),)
+	TCL_HOME := /usr/local/Cellar/tcl-tk/8.6*
+else ifeq ($(wildcard $(TCL_HOME)/*),)
+	TCL_HOME := /usr
+endif
 run:
-	TCL_LIBRARY=/opt/homebrew/Cellar/tcl-tk/8.6*/lib/tcl8.6 TK_LIBRARY=/opt/homebrew/Cellar/tcl-tk/8.6*/lib/tcl8.6 /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
+	$(TCL_HOME)/bin/tclsh folk.tcl

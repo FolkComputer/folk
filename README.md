@@ -23,5 +23,5 @@ $ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
 ## stuff
 - implement generators
 - implement even-better fake lexical scope
-- share (axiom) statements from laptop -> Pi
+- ~share (axiom) statements from laptop -> Pi~
 - mmap or otherwise hw-accelerate pi graphics
