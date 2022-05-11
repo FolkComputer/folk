@@ -54,6 +54,7 @@ proc newProgram {} {
     text .$program.t
     .$program.t insert 1.0 {Wish $this is highlighted blue}
     pack .$program.t -expand true -fill both
+    focus .$program.t
 
     proc handleSave {program} {
         # display save
@@ -75,7 +76,9 @@ proc newProgram {} {
         StepFromGUI
     }
     bind .$program <Configure> [subst -nocommands {
-        if {"%W" eq [winfo toplevel %W]} {
+        # HACK: we get some weird stray Configure event
+        # where w and h are 1, so ignore that
+        if {"%W" eq [winfo toplevel %W] && %w > 1} {
             handleConfigure $program %x %y %w %h
         }
     }]
@@ -84,3 +87,4 @@ proc newProgram {} {
 }
 button .btn -text "New Program" -command newProgram
 pack .btn
+bind . <Control-Key-n> newProgram
