@@ -5,7 +5,7 @@ namespace eval Display {
     variable HEIGHT 600
     canvas .display -background black -width $WIDTH -height $HEIGHT
     pack .display
-    wm geometry . [set WIDTH]x[set HEIGHT]-0+0 ;# align to top-right of screen
+    wm geometry . [set WIDTH]x[expr {$HEIGHT + 40}]-0+0 ;# align to top-right of screen
 
     variable black black
     variable blue  blue
