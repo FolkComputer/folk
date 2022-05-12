@@ -27,6 +27,16 @@ proc When {args} {
     Wish to know when {*}$clause
 }
 
+# To know when /a/ points up at /b/
+proc To {_know _when args} {
+    set clause [lreplace $args end end]
+    set cb [lindex $args end]
+
+    When /someone/ wishes to know when {*}$clause {
+        eval $cb
+    }
+}
+
 # With all /matches/ for /blah/ is a rectangle 
 proc With {_all matches _for args} {
     set clause [lreplace $args end end]
@@ -37,15 +47,6 @@ proc With {_all matches _for args} {
     # then do another evaluation round
 }
 
-# To know when /known a/ points up at /unknown b/
-proc To {_know _when args} { # FIXME
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
-
-    When /someone/ wishes to know when {*}$clause {
-        eval $cb
-    }
-}
 
 set ::assertedStatements [dict create]
 proc Assert {args} {
@@ -185,6 +186,17 @@ Always {
         # Wish $rect is highlighted $Display::blue
     }
 
+    To know when /a/ points up at /b/ {
+        When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
+            # TODO: we'll probably need join support
+            When $b is a rectangle with x /bx/ y /by/ width /bwidth/ height /bheight/ {
+                if {$by + $bheight <= $ay && $ay - ($by + $bheight) < 10} {
+                    Claim $a points up at $b
+                }
+            }
+        }
+    }
+
     # this defines $this in the contained scopes
     When /this/ has program code /code/ {
         eval $code
@@ -201,7 +213,7 @@ after 200 {
         Claim the dog is out
         When the /animal/ is out {
             When the /animal/ is around {
-                puts "the $animal is around"
+                 puts "the $animal is around"
             }
             puts "there is a $animal out there somewhere"
             Claim the $animal is around
@@ -218,17 +230,6 @@ after 400 {
 
         Claim "rect2" is a rectangle with x 300 y 460 width 20 height 20
         Wish "rect2" is highlighted $Display::blue
-
-        To know when /a/ points up at /b/ { # FIXME
-            When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
-                # TODO: we'll probably need join support
-                When $b is a rectangle with x /bx/ y /by/ width /bwidth/ height /bheight/ {
-                    if {$by + $bheight <= $ay && $ay - ($by + $bheight) < 10} {
-                        Claim $a points up at $b
-                    }
-                }
-            }
-        }
         
         When "rect2" points up at "rect1" { # FIXME
             puts "points up"
