@@ -11,8 +11,23 @@ proc When {args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
 
-    lappend ::whens [list $clause $cb $::currentMatchStack]
+    # get local variables and serialize them
+    # (to fake lexical scope)
+    set locals [uplevel 1 {
+        set localNames [info locals]
+        set locals [dict create]
+        foreach localName $localNames {
+            dict set locals $localName [set $localName]
+        }
+        set locals
+    }]
+    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
+
+    # meta-statement, used for generators
+    Wish to know when {*}$clause
 }
+
+# With all /matches/ for /blah/ is a rectangle 
 proc With {_all matches _for args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
@@ -22,11 +37,14 @@ proc With {_all matches _for args} {
     # then do another evaluation round
 }
 
+# To know when /known a/ points up at /unknown b/
 proc To {_know _when args} { # FIXME
     set clause [lreplace $args end end]
     set cb [lindex $args end]
 
-    Claim to know when {*}$args
+    When /someone/ wishes to know when {*}$clause {
+        eval $cb
+    }
 }
 
 set ::assertedStatements [dict create]
@@ -52,10 +70,12 @@ proc runWhen {clause cb enclosingMatchStack match} {
 proc matches {clause statement} {
     set match [dict create]
 
+    # puts "matches? $clause $statement"
     for {set i 0} {$i < [llength $clause]} {incr i} {
         set clauseWord [lindex $clause $i]
         set statementWord [lindex $statement $i]
-        if {[string index $clauseWord 0] eq "/"} {
+        # puts "  matches? $clauseWord $statementWord"
+        if {[regexp {^/[^ ]+/$} $clauseWord]} {
             set clauseVarName [string range $clauseWord 1 [expr [string length $clauseWord] - 2]]
             set clauseVarValue $statementWord
             dict set match $clauseVarName $clauseVarValue
@@ -110,9 +130,6 @@ if {[catch {socket -server accept 4273}]} {
     socket -server accept 4274
 }
 
-# with key1 /value1/ key2 /value2/
-# With all /matches/
-# To know when
 
 set ::alwaysCbs [list]
 proc Always {cb} {
@@ -177,10 +194,6 @@ Always {
 # we probably don't need this
 after 0 { Step {} }
 
-# With all matches -> clear screen, do rendering
-# or When unmatched -> clear that thing
-# or just have a custom frame hook that pi.tcl can hit
-
 after 200 {
     Step {
         puts Step1
@@ -203,14 +216,14 @@ after 400 {
         Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
         Wish "rect1" is highlighted $Display::green
 
-        Claim "rect2" is a rectangle with x 100 y 160 width 20 height 20
+        Claim "rect2" is a rectangle with x 300 y 460 width 20 height 20
         Wish "rect2" is highlighted $Display::blue
 
-        To know when /known a/ points up at /unknown b/ { # FIXME
+        To know when /a/ points up at /b/ { # FIXME
             When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
                 # TODO: we'll probably need join support
                 When $b is a rectangle with x /bx/ y /by/ width /bwidth/ height /bheight/ {
-                    if {$ay + $aheight < $by && $by - ($ay + $aheight) < 10} {
+                    if {$by + $bheight <= $ay && $ay - ($by + $bheight) < 10} {
                         Claim $a points up at $b
                     }
                 }
