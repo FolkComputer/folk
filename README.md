@@ -5,13 +5,9 @@ to run on (Mac) laptop:
 $ brew install tcl-tk
 ```
 
-
+then (on laptop or Pi):
 ```
-$ /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
-```
-or (on M1)
-```
-$ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
+make
 ```
 
 ## setup notes
@@ -21,7 +17,10 @@ $ /opt/homebrew/Cellar/tcl-tk/8.6*/bin/tclsh folk.tcl
   it back together every time
 
 ## stuff
-- implement generators
+- implement generators (point at)
 - implement even-better fake lexical scope
 - ~share (axiom) statements from laptop -> Pi~
-- mmap or otherwise hw-accelerate pi graphics
+- ~mmap or otherwise hw-accelerate pi graphics~
+- bareword/nicer colors for Pi
+- keyboard support for Pi
+- watchdog on Pi, autoupdate on Pi
