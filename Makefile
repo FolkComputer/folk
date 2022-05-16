@@ -6,4 +6,4 @@ ifeq ($(wildcard $(TCL_HOME)/*),)
 	TCL_HOME := /usr
 endif
 run:
-	$(TCL_HOME)/bin/tclsh folk.tcl
+	$(TCL_HOME)/bin/tclsh main.tcl
