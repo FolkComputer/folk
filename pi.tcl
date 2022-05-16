@@ -40,8 +40,7 @@ namespace eval Display {
     # functions
     # ---------
     proc fillRect {fb x0 y0 x1 y1 color} {
-        puts "fillrect $x0 $y0 $x1 $y1 $color"
-        clearCInner $Display::WIDTH $x0 $y0 $x1 $y1 $color
+        clearCInner $Display::WIDTH $x0 $y0 $x1 $y1 [set Display::$color]
     }
     proc fillScreen {fb color} {
         fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color

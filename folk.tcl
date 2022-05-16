@@ -120,7 +120,7 @@ proc Always {cb} {
 }
 proc Step {cb} {
     # FIXME: hack
-    Display::fillScreen device $Display::black 
+    Display::fillScreen device black 
 
     # clear the statement set
     # TODO: support 'assumed'/'prelude' statements
@@ -201,10 +201,10 @@ after 400 {
         puts Step2
 
         Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
-        Wish "rect1" is highlighted $Display::green
+        Wish "rect1" is highlighted green
 
         Claim "rect2" is a rectangle with x 100 y 160 width 20 height 20
-        Wish "rect2" is highlighted $Display::blue
+        Wish "rect2" is highlighted blue
 
         To know when /known a/ points up at /unknown b/ { # FIXME
             When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
