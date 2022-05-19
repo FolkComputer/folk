@@ -7,3 +7,9 @@ ifeq ($(wildcard $(TCL_HOME)/*),)
 endif
 run:
 	$(TCL_HOME)/bin/tclsh main.tcl
+
+TCLKIT = ~/Downloads/tclkit-8.6.3*
+Folk.app:
+	rm -r /tmp/folk.vfs; mkdir /tmp/folk.vfs
+	cp -r * /tmp/folk.vfs
+	cd /tmp; tclsh ~/Downloads/sdx*kit wrap folk -runtime $(TCLKIT)

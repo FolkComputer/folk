@@ -36,10 +36,10 @@ proc StepFromGUI {} {
         catch {
             set sock [socket "folk0.local" 4273]
             # FIXME: should _retract_ only our asserted statements
-            puts $sock {set ::assertedStatements {%s}; Step {}}
+            puts $sock {dict set ::assertedStatementsFrom "%s" {%s}; Step {}}
             close $sock
         }
-    } $::statements]
+    } [info hostname] $::statements]
 }
 
 set ::nextProgramNum 0

@@ -1,3 +1,8 @@
+catch {
+    package require starkit
+    starkit::startup
+}
+
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
     dict set ::statements [list someone claims {*}$args] true
@@ -22,24 +27,19 @@ proc With {_all matches _for args} {
     # then do another evaluation round
 }
 
-proc To {_know _when args} { # FIXME
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
-
-    Claim to know when {*}$args
-}
-
-set ::assertedStatements [dict create]
+set ::assertedStatementsFrom [dict create]
 proc Assert {args} {
     set statement $args
-    dict set ::assertedStatements $statement true
+    dict set ::assertedStatementsFrom SELF $statement true
 }
 proc Retract {args} {
     set clause $args
-    dict for {statement _} $::assertedStatements {
-        set match [matches $clause $statement]
-        if {$match != false} {
-            dict unset ::assertedStatements $statement
+    dict for {origin assertedStatements} $::assertedStatementsFrom {
+        dict for {statement _} $assertedStatements {
+            set match [matches $clause $statement]
+            if {$match != false} {
+                dict unset ::assertedStatementsFrom $origin $statement
+            }
         }
     }
 }
@@ -123,8 +123,7 @@ proc Step {cb} {
     Display::fillScreen device black 
 
     # clear the statement set
-    # TODO: support 'assumed'/'prelude' statements
-    set ::statements $::assertedStatements
+    set ::statements [dict merge {*}[dict values $::assertedStatementsFrom]]
     set ::whens [list]
 
     set ::currentMatchStack [dict create]
@@ -164,8 +163,13 @@ Always {
             set fontSize [expr $width / $longestLineLength]
             Display::text device [expr $x+$width/2] [expr $y+$height/2] $fontSize $text
         }
+    }
 
-        # Wish $rect is highlighted $Display::blue
+    When /someone/ wishes /rect/ points up {
+        When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+            # FIXME: construct whisker
+            # FIXME: declare intersections as points-up claims
+        }
     }
 
     # this defines $this in the contained scopes
@@ -206,17 +210,6 @@ after 400 {
         Claim "rect2" is a rectangle with x 100 y 160 width 20 height 20
         Wish "rect2" is highlighted blue
 
-        To know when /known a/ points up at /unknown b/ { # FIXME
-            When $a is a rectangle with x /ax/ y /ay/ width /awidth/ height /aheight/ {
-                # TODO: we'll probably need join support
-                When $b is a rectangle with x /bx/ y /by/ width /bwidth/ height /bheight/ {
-                    if {$ay + $aheight < $by && $by - ($ay + $aheight) < 10} {
-                        Claim $a points up at $b
-                    }
-                }
-            }
-        }
-        
         When "rect2" points up at "rect1" { # FIXME
             puts "points up"
         }
@@ -225,9 +218,11 @@ after 400 {
 
 if {$tcl_platform(os) eq "Darwin"} {
     if {$tcl_version eq 8.5} {
-        error "Don't use macOS system Tcl. Quitting."
+        error "Don't use Tcl 8.5 / macOS system Tcl. Quitting."
     }
-    source laptop.tcl
+    if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} {
+        source laptop.tcl
+    }
 } else {
     source pi.tcl
 }
