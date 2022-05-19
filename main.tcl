@@ -106,7 +106,10 @@ proc accept {chan addr port} {
 
     close $chan
 }
+set ::nodename [info hostname]
 if {[catch {socket -server accept 4273}]} {
+    # there's already a Folk node running on this machine
+    set ::nodename "[info hostname]-1"
     socket -server accept 4274
 }
 

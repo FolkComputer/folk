@@ -39,13 +39,13 @@ proc StepFromGUI {} {
             puts $sock {dict set ::assertedStatementsFrom "%s" {%s}; Step {}}
             close $sock
         }
-    } [info hostname] $::statements]
+    } $::nodename $::statements]
 }
 
 set ::nextProgramNum 0
 proc newProgram {} {
     set programNum [incr ::nextProgramNum]
-    set program program$programNum
+    set program [string map {. ^} $::nodename]:program$programNum
 
     toplevel .$program
     wm title .$program $program
