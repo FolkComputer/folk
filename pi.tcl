@@ -7,6 +7,8 @@ critcl::ccode {
     #include <sys/mman.h>
     unsigned short* fbmem;
 }
+# i think you need to run critcl::ccode here, not in the imported module
+# for it to get compiled with all our other C code in this file?
 critcl::ccode [source "vendor/font.tcl"]
 
 critcl::cproc mmapFb {int width int height} void {
@@ -23,13 +25,14 @@ critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 bytes color} vo
 }
 critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
     char c = cs[0];
-    printf("[%c] (%d)\n", c, c);
+    /* printf("%d x %d\n", font.char_width, font.char_height); */
+    /* printf("[%c] (%d)\n", c, c); */
 
     for (unsigned y = 0; y < font.char_height; y++) {
         for (unsigned x = 0; x < font.char_width; x++) {
-            int idx = (c * font.char_height * 2) + y + (x >= 8 ? 1 : 0);
-            int bit = (font.font_bitmap[idx] >> (x % 8)) & 0x01;
-            fbmem[((y + y0) * width) + (x + x0)] = bit ? 0xFFFF : 0x0000;
+            int idx = (c * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+            int bit = (font.font_bitmap[idx] >> (7 - (x % 8))) & 0x01;
+            fbmem[((y0 + y) * width) + (x0 + x)] = bit ? 0xFFFF : 0x0000;
         }
     }
 }
