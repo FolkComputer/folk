@@ -21,11 +21,17 @@ critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 bytes color} vo
         }
     }
 }
-critcl::cproc drawChar {int width int x int y char* cs} void {
+critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
     char c = cs[0];
-    printf("[%c]\n", c);
+    printf("[%c] (%d)\n", c, c);
 
-    fbmem[0] = 0x0000;
+    for (unsigned y = 0; y < font.char_height; y++) {
+        for (unsigned x = 0; x < font.char_width; x++) {
+            int idx = (c * font.char_height * 2) + y + (x >= 8 ? 1 : 0);
+            int bit = (font.font_bitmap[idx] >> (x % 8)) & 0x01;
+            fbmem[((y + y0) * width) + (x + x0)] = bit ? 0xFFFF : 0x0000;
+        }
+    }
 }
 
 namespace eval Display {
@@ -59,7 +65,9 @@ namespace eval Display {
 if {$::argv0 eq [info script]} {
     # WIP: working on text rendering
     Display::init
-    drawChar "s"
+    drawChar $Display::WIDTH 300 400 "A"
+    drawChar $Display::WIDTH 309 400 "B"
+    drawChar $Display::WIDTH 318 400 "O"
 }
 
 # random garbage below
