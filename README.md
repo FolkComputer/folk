@@ -17,10 +17,10 @@ make
   it back together every time
 
 ## stuff
-- implement generators (point at)
-- implement even-better fake lexical scope
+- implement generators (~point at~)
+- ~implement even-better fake lexical scope~
 - ~share (axiom) statements from laptop -> Pi~
 - ~mmap or otherwise hw-accelerate pi graphics~
-- bareword/nicer colors for Pi
+- ~bareword/nicer colors for Pi~ (could support more colors)
 - keyboard support for Pi
 - watchdog on Pi, autoupdate on Pi
