@@ -61,7 +61,10 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text} {
-        
+        foreach char [split $text ""] {
+            drawChar $Display::WIDTH $x $y $char
+            incr x 9 ;# TODO: don't hardcode font width
+        }
     }
 }
 
@@ -71,6 +74,8 @@ if {$::argv0 eq [info script]} {
     drawChar $Display::WIDTH 300 400 "A"
     drawChar $Display::WIDTH 309 400 "B"
     drawChar $Display::WIDTH 318 400 "O"
+
+    Display::text fb 300 420 PLACEHOLDER "Hello"
 }
 
 # random garbage below
