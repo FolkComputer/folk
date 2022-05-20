@@ -1,10 +1,5 @@
-package require critcl
-
-source "/home/pi/folk/pi.tcl"
-
 # From https://github.com/idispatch/raster-fonts/blob/fa0910194ed232c0a709bddd7f0cd6ae6c73466f/font-9x16.c
-
-critcl::ccode {
+return {
 
 typedef struct {
     unsigned char_width;
@@ -5147,15 +5142,4 @@ font_t font = (font_t) {
     .font_bitmap = console_font_9x16
 };
 
-extern unsigned short* fbmem;
 }
-
-critcl::cproc drawChar {char* cs} void {
-    char c = cs[0];
-    printf("[%c]\n", c);
-
-    fbmem[0] = 0;
-}
-
-Display::fillScreen fb blue
-drawChar c

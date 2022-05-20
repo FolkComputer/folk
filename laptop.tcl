@@ -3,14 +3,17 @@ package require Tk
 namespace eval Display {
     variable WIDTH 800
     variable HEIGHT 600
-    canvas .display -background black -width $WIDTH -height $HEIGHT
-    pack .display
-    wm geometry . [set WIDTH]x[expr {$HEIGHT + 40}]-0+0 ;# align to top-right of screen
 
     variable black black
     variable blue  blue
     variable green green
     variable red   red
+
+    proc init {} {
+        canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
+        pack .display
+        wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
+    }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
         .display create rectangle $x0 $y0 $x1 $y1 -fill $color

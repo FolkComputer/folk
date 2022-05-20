@@ -230,4 +230,6 @@ if {$tcl_platform(os) eq "Darwin"} {
     source pi.tcl
 }
 
+Display::init
+
 vwait forever

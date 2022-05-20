@@ -1,8 +1,3 @@
-# Wish "/dev/fb0" shows a rectangle with x 0 y
-# "<window UUID>" wishes "/dev/fb0" shows a rectangle with x 0 y 0
-# (I want to invoke that from a window on my laptop which has a UUID.)
-
-
 # prep stuff
 # ----------
 package require critcl
@@ -12,6 +7,8 @@ critcl::ccode {
     #include <sys/mman.h>
     unsigned short* fbmem;
 }
+critcl::ccode [source "vendor/font.tcl"]
+
 critcl::cproc mmapFb {int width int height} void {
     int fb = open("/dev/fb0", O_RDWR);
     fbmem = mmap(NULL, width * height * 2, PROT_WRITE, MAP_SHARED, fb, 0);
@@ -24,21 +21,29 @@ critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 bytes color} vo
         }
     }
 }
+critcl::cproc drawChar {int width int x int y char* cs} void {
+    char c = cs[0];
+    printf("[%c]\n", c);
+
+    fbmem[0] = 0x0000;
+}
 
 namespace eval Display {
     variable WIDTH
     variable HEIGHT
-    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
 
     variable black [binary format b16 [join {00000 000000 00000} ""]]
     variable blue  [binary format b16 [join {11111 000000 00000} ""]]
     variable green [binary format b16 [join {00000 111111 00000} ""]]
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
-    mmapFb $WIDTH $HEIGHT
-
     # functions
     # ---------
+    proc init {} {
+        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> Display::WIDTH Display::HEIGHT
+        mmapFb $Display::WIDTH $Display::HEIGHT
+    }
+
     proc fillRect {fb x0 y0 x1 y1 color} {
         clearCInner $Display::WIDTH $x0 $y0 $x1 $y1 [set Display::$color]
     }
@@ -49,6 +54,12 @@ namespace eval Display {
     proc text {fb x y fontSize text} {
         
     }
+}
+
+if {$::argv0 eq [info script]} {
+    # WIP: working on text rendering
+    Display::init
+    drawChar "s"
 }
 
 # random garbage below
