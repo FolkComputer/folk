@@ -9,11 +9,10 @@ namespace eval Display {
     variable green green
     variable red   red
 
-    proc init {} {
-        canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
-        pack .display
-        wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
-    }
+    canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
+    pack .display
+    wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
+    proc init {} {}
 
     proc fillRect {fb x0 y0 x1 y1 color} {
         .display create rectangle $x0 $y0 $x1 $y1 -fill $color
@@ -46,7 +45,8 @@ proc StepFromGUI {} {
 }
 
 set ::nextProgramNum 0
-proc newProgram {} {
+set defaultCode {Wish $this is highlighted blue}
+proc newProgram {{programCode $defaultCode}} {
     set programNum [incr ::nextProgramNum]
     set program [string map {. ^} $::nodename]:program$programNum
 
@@ -55,7 +55,7 @@ proc newProgram {} {
     wm geometry .$program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
 
     text .$program.t
-    .$program.t insert 1.0 {Wish $this is highlighted blue}
+    .$program.t insert 1.0 $programCode
     pack .$program.t -expand true -fill both
     focus .$program.t
 
@@ -91,3 +91,9 @@ proc newProgram {} {
 button .btn -text "New Program" -command newProgram
 pack .btn
 bind . <Control-Key-n> newProgram
+
+foreach programFile [glob programs/*.folk] {
+    set fp [open $programFile r]
+    newProgram [read $fp]
+    close $fp
+}
