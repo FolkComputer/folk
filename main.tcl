@@ -15,8 +15,18 @@ proc Wish {args} {
 proc When {args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
-
-    lappend ::whens [list $clause $cb $::currentMatchStack]
+    
+    # get local variables and serialize them
+    # (to fake lexical scope)
+    set locals [uplevel 1 {
+        set localNames [info locals]
+        set locals [dict create]
+        foreach localName $localNames {
+            dict set locals $localName [set $localName]
+        }
+        set locals
+    }]
+    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
 }
 proc With {_all matches _for args} {
     set clause [lreplace $args end end]
@@ -152,6 +162,8 @@ proc Step {cb} {
     # (for now, draw all the graphics requests)
 }
 
+source "lib/math.tcl"
+
 Always {
     When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
         When /someone/ wishes $rect is highlighted /color/ {
@@ -170,8 +182,29 @@ Always {
 
     When /someone/ wishes /rect/ points up {
         When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
-            # FIXME: construct whisker
-            # FIXME: declare intersections as points-up claims
+            set wx [expr {$x+$width/2}]
+            set wy [expr {$y-40}]
+            set ww 5
+            set wh 40
+            Claim $rect-whisker is a rectangle with x $wx y $wy width $ww height $wh
+            Wish $rect-whisker is highlighted green
+
+            When /target/ is a rectangle with x /tx/ y /ty/ width /tw/ height /th/ {
+                if {$target != $rect && \
+                        [rectanglesOverlap \
+                             [list $wx $wy] [list [expr {$wx+$ww}] [expr {$wy+$wh}]] \
+                             [list $tx $ty] [list [expr {$tx+$tw}] [expr {$ty+$th}]] \
+                             false]} {
+                    Claim $rect points up at $target
+                }
+            }
+
+            # When /target/ has region /r2/ {
+            #     Claim $rect points up at $target
+            # }
+            # When $rect-whisker intersects /target/ {
+            #     Claim $rect points up at $target
+            # }
         }
     }
 
