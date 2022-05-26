@@ -1,0 +1,8 @@
+Wish $this is highlighted blue
+
+Wish $this points up
+When $this points up at /target/ {
+	When $target has program code /code/ {
+		Wish $target is labelled "being pointed at"
+	}
+}
