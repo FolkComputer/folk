@@ -46,7 +46,7 @@ proc StepFromGUI {} {
 
 set ::nextProgramNum 0
 set defaultCode {Wish $this is highlighted blue}
-proc newProgram {{programCode $defaultCode}} {
+proc newProgram "{programCode {$defaultCode}}" {
     set programNum [incr ::nextProgramNum]
     set program [string map {. ^} $::nodename]:program$programNum
 
