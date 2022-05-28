@@ -3,6 +3,9 @@ cd tagStandard52h13
 
 puts "[llength [glob *.png]] tags"
 
-set tempPng [exec mktemp -t test_tag].png
-exec convert tag52_13_00000.png -scale 500% $tempPng
-exec open $tempPng
+set tagPng tag52_13_00000.png
+puts [exec identify $tagPng]
+
+set outPdf [exec mktemp -t test_tag].pdf
+exec convert $tagPng -scale 5000% -gravity center -extent 612x792\! $outPdf
+exec open $outPdf
