@@ -1,0 +1,7 @@
+When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+    When /someone/ wishes $rect is labelled /text/ {
+        set longestLineLength [tcl::mathfunc::max {*}[lmap line [split $text "\n"] {string length $line}]]
+        set fontSize [expr $width / $longestLineLength]
+        Display::text device [expr $x+$width/2] [expr $y+$height/2] $fontSize $text
+    }
+}

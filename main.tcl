@@ -165,49 +165,6 @@ proc Step {cb} {
 source "lib/math.tcl"
 
 Always {
-    When /rect/ is a rectangle with x /x/ y /y/ width /width/ height /height/ {
-        When /someone/ wishes $rect is highlighted /color/ {
-            # it's not really correct to just stick a side-effect in the
-            # When handler like this. but we did it in Realtalk, and it
-            # was ok, so whatever for now
-            Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
-        }
-
-        When /someone/ wishes $rect is labelled /text/ {
-            set longestLineLength [tcl::mathfunc::max {*}[lmap line [split $text "\n"] {string length $line}]]
-            set fontSize [expr $width / $longestLineLength]
-            Display::text device [expr $x+$width/2] [expr $y+$height/2] $fontSize $text
-        }
-    }
-
-    When /someone/ wishes /rect/ points up {
-        When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
-            set wx [expr {$x+$width/2}]
-            set wy [expr {$y-40}]
-            set ww 5
-            set wh 40
-            Claim $rect-whisker is a rectangle with x $wx y $wy width $ww height $wh
-            Wish $rect-whisker is highlighted green
-
-            When /target/ is a rectangle with x /tx/ y /ty/ width /tw/ height /th/ {
-                if {$target != $rect && \
-                        [rectanglesOverlap \
-                             [list $wx $wy] [list [expr {$wx+$ww}] [expr {$wy+$wh}]] \
-                             [list $tx $ty] [list [expr {$tx+$tw}] [expr {$ty+$th}]] \
-                             false]} {
-                    Claim $rect points up at $target
-                }
-            }
-
-            # When /target/ has region /r2/ {
-            #     Claim $rect points up at $target
-            # }
-            # When $rect-whisker intersects /target/ {
-            #     Claim $rect points up at $target
-            # }
-        }
-    }
-
     # this defines $this in the contained scopes
     When /this/ has program code /code/ {
         eval $code

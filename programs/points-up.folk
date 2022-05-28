@@ -1,0 +1,20 @@
+When /someone/ wishes /rect/ points up {
+    When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+        set wx [expr {$x+$width/2}]
+        set wy [expr {$y-40}]
+        set ww 5
+        set wh 40
+        Claim $rect-whisker is a rectangle with x $wx y $wy width $ww height $wh
+        Wish $rect-whisker is highlighted green
+
+        When /target/ is a rectangle with x /tx/ y /ty/ width /tw/ height /th/ {
+            if {$target != $rect && \
+                    [rectanglesOverlap \
+                         [list $wx $wy] [list [expr {$wx+$ww}] [expr {$wy+$wh}]] \
+                         [list $tx $ty] [list [expr {$tx+$tw}] [expr {$ty+$th}]] \
+                         false]} {
+                Claim $rect points up at $target
+            }
+        }
+    }
+}
