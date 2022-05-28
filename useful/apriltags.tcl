@@ -9,26 +9,21 @@ proc drawTag {id sizeInches} {
     puts [exec identify $tagPng]
 
     set sizePx [expr $sizeInches * 144]
-    set outPng [exec mktemp -t test_tag].png
-    exec convert $tagPng -filter point -resize [set sizePx]x[set sizePx] $outPng
+    set outPng [exec mktemp -t test_tag_[set sizeInches]in].png
+    exec convert $tagPng -filter point -resize [set sizePx]x[set sizePx] -bordercolor white -border 20 \
+        -pointsize 24 "label:$sizeInches in" -gravity Center \
+        -append $outPng
 
     return $outPng
 }
 
-set tagSizes [list 1 5 10]
+set tagSizes [list 1 3 5]
+set drawnPngs [list]
 foreach tagSize $tagSizes {
-    lappend tagPngs [drawTag 0 $tagSize]
-    # TODO: draw text under the tag png
+    set drawnPng [drawTag 0 $tagSize]
+    lappend drawnPngs $drawnPng
 }
 
-foreach tagPng $tagPngs {
-    exec open $tagPng
-}
-
-# TODO: composite with the other tag pngs?
-
-#        -gravity center -density 144 -extent 1224x1584\! $outPdf
-#    exec open $outPdf
-
-# TODO: overlay multiple fiducials of diff sizes on one page
-# TODO: draw the fiducial size under the fiducial
+set outPdf [exec mktemp -t test_tags].pdf
+exec magick {*}$drawnPngs -gravity center -density 144 -extent 1224x1584\! $outPdf
+exec open $outPdf
