@@ -46,9 +46,13 @@ proc StepFromGUI {} {
 
 set ::nextProgramNum 0
 set defaultCode {Wish $this is highlighted blue}
-proc newProgram "{programCode {$defaultCode}}" {
+proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
     set programNum [incr ::nextProgramNum]
-    set program [string map {. ^} $::nodename]:program$programNum
+    if {$programFilename != 0} {
+        set program [string map {. ^} $::nodename:$programFilename]
+    } else {
+        set program [string map {. ^} $::nodename]:program$programNum
+    }
 
     toplevel .$program
     wm title .$program $program
@@ -59,19 +63,27 @@ proc newProgram "{programCode {$defaultCode}}" {
     pack .$program.t -expand true -fill both
     focus .$program.t
 
-    proc handleSave {program} {
+    proc handleSave {program programFilename} {
+        set code [.$program.t get 1.0 end]
         # display save
         catch {destroy .$program.saved}
-        label .$program.saved -text Saved!
+        if {$programFilename != 0} {
+            set fp [open $programFilename w]
+            puts $fp $code
+            close $fp
+            label .$program.saved -text "Saved to $programFilename!"
+        } else {
+            label .$program.saved -text "Saved!"
+        }
         place .$program.saved -x 40 -y 100
         after 500 "catch {destroy .$program.saved}"
 
         Retract "laptop.tcl" claims $program has program code /something/
-        Assert "laptop.tcl" claims $program has program code [.$program.t get 1.0 end]
+        Assert "laptop.tcl" claims $program has program code $code
 
         StepFromGUI
     }
-    bind .$program <Control-Key-s> [list handleSave $program]
+    bind .$program <Control-Key-s> [list handleSave $program $programFilename]
     proc handleConfigure {program x y w h} {
         Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
         Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
@@ -86,14 +98,14 @@ proc newProgram "{programCode {$defaultCode}}" {
         }
     }]
 
-    handleSave $program
+    handleSave $program $programFilename
 }
 button .btn -text "New Program" -command newProgram
 pack .btn
 bind . <Control-Key-n> newProgram
 
-foreach programFile [glob programs/*.folk] {
-    set fp [open $programFile r]
-    newProgram [read $fp]
+foreach programFilename [glob programs/*.folk] {
+    set fp [open $programFilename r]
+    newProgram [read $fp] $programFilename
     close $fp
 }
