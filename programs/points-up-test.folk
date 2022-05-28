@@ -6,7 +6,3 @@ When $this points up at /target/ {
 		Wish $target is labelled "being pointed at"
 	}
 }
-
-
-
-

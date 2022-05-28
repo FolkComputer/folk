@@ -64,12 +64,14 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
     focus .$program.t
 
     proc handleSave {program programFilename} {
-        set code [.$program.t get 1.0 end]
+        # https://wiki.tcl-lang.org/page/Text+processing+tips
+        set code [.$program.t get 1.0 end-1c]
+
         # display save
         catch {destroy .$program.saved}
         if {$programFilename != 0} {
             set fp [open $programFilename w]
-            puts $fp $code
+            puts -nonewline $fp $code
             close $fp
             label .$program.saved -text "Saved to $programFilename!"
         } else {
