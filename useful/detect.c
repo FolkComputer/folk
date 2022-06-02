@@ -215,7 +215,25 @@ uint8_t* yuyv2gray(uint8_t* yuyv, uint32_t width, uint32_t height)
   return gray;
 }
 
-void detect(uint8_t* im) {
+void detect(uint8_t* gray, int width, int height) {
+    image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = 1, .buf = gray };
+    
+    apriltag_detector_t *td = apriltag_detector_create();
+    apriltag_family_t *tf = tagStandard52h13_create();
+    apriltag_detector_add_family_bits(td, tf, 1);
+    zarray_t *detections = apriltag_detector_detect(td, &im);
+
+    printf("DETECTION COUNT: %d\n", zarray_size(detections));
+    for (int i = 0; i < zarray_size(detections); i++) {
+        apriltag_detection_t *det;
+        zarray_get(detections, i, &det);
+
+        // Do stuff with detections here.
+        printf("DETECTION %d\n", i);
+    }
+    // Cleanup.
+    tagStandard52h13_destroy(tf);
+    apriltag_detector_destroy(td);
 }
 
 unsigned short* fbmem;
@@ -270,7 +288,7 @@ int main()
           }
       }
 
-      detect(im);
+      detect(im, camera->width, camera->height);
 
       free(im);
   }
