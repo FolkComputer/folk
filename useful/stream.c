@@ -293,14 +293,14 @@ int main()
 
       for (int y = 0; y < camera->height; y++) {
           for (int x = 0; x < camera->width; x++) {
-              int i = (y * camera->width + x) * 2;
+              int i = (y * camera->width + x) * 3;
               uint8_t r = rgb[i];
               uint8_t g = rgb[i + 1];
               uint8_t b = rgb[i + 2];
               fbmem[((y + 300) * SCREEN_WIDTH) + (x + 300)] =
-                  (((b >> 3) & 0x1F) << 11) |
+                  (((r >> 3) & 0x1F) << 11) |
                   ((g & 0x3F) << 5) |
-                  ((r >> 3) & 0x1F);
+                  ((b >> 3) & 0x1F);
           }
       }
 
