@@ -216,9 +216,10 @@ uint8_t* yuyv2gray(uint8_t* yuyv, uint32_t width, uint32_t height)
 }
 
 void detect(uint8_t* gray, int width, int height) {
-    image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = 1, .buf = gray };
+    image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
     
     apriltag_detector_t *td = apriltag_detector_create();
+    td->debug = 1;
     apriltag_family_t *tf = tagStandard52h13_create();
     apriltag_detector_add_family_bits(td, tf, 1);
     zarray_t *detections = apriltag_detector_detect(td, &im);
@@ -291,6 +292,8 @@ int main()
       detect(im, camera->width, camera->height);
 
       free(im);
+
+      break;
   }
   
   camera_stop(camera);
