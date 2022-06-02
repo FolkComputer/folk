@@ -215,13 +215,16 @@ uint8_t* yuyv2gray(uint8_t* yuyv, uint32_t width, uint32_t height)
   return gray;
 }
 
+apriltag_detector_t *td;
+apriltag_family_t *tf;
+void detect_init() {
+    td = apriltag_detector_create();
+    tf = tagStandard52h13_create();
+    apriltag_detector_add_family_bits(td, tf, 1);
+}
 void detect(uint8_t* gray, int width, int height) {
     image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
     
-    apriltag_detector_t *td = apriltag_detector_create();
-    td->debug = 1;
-    apriltag_family_t *tf = tagStandard52h13_create();
-    apriltag_detector_add_family_bits(td, tf, 1);
     zarray_t *detections = apriltag_detector_detect(td, &im);
 
     printf("DETECTION COUNT: %d\n", zarray_size(detections));
@@ -230,9 +233,10 @@ void detect(uint8_t* gray, int width, int height) {
         zarray_get(detections, i, &det);
 
         // Do stuff with detections here.
-        printf("DETECTION %d\n", i);
+        printf("DETECTION #%d: ID %d\n", i, det->id);
     }
-    // Cleanup.
+}
+void detect_cleanup() {
     tagStandard52h13_destroy(tf);
     apriltag_detector_destroy(td);
 }
@@ -266,6 +270,8 @@ int main()
       }
   }
 
+  detect_init();
+
   while (1) {
       camera_frame(camera, timeout);
 
@@ -292,9 +298,9 @@ int main()
       detect(im, camera->width, camera->height);
 
       free(im);
-
-      break;
   }
+
+  detect_cleanup();
   
   camera_stop(camera);
   camera_finish(camera);
