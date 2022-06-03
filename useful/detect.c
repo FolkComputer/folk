@@ -215,6 +215,19 @@ uint8_t* yuyv2gray(uint8_t* yuyv, uint32_t width, uint32_t height)
   return gray;
 }
 
+
+unsigned short* fbmem;
+const int FB_WIDTH = 3840;
+const int FB_HEIGHT = 2160;
+void fb_draw_rectangle(int x0, int x1, int y0, int y1, short color) {
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            fbmem[(y * FB_WIDTH) + x] = color;
+        }
+    }
+}
+
+
 apriltag_detector_t *td;
 apriltag_family_t *tf;
 void detect_init() {
@@ -233,15 +246,14 @@ void detect(uint8_t* gray, int width, int height) {
         zarray_get(detections, i, &det);
 
         // Do stuff with detections here.
-        printf("DETECTION #%d: ID %d\n", i, det->id);
+        printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id);
+        fb_draw_rectangle(det->c[0], det->c[0] + 50, det->c[1], det->c[1] + 50, 0xF000);
     }
 }
 void detect_cleanup() {
     tagStandard52h13_destroy(tf);
     apriltag_detector_destroy(td);
 }
-
-unsigned short* fbmem;
 
 int main()
 {
@@ -256,19 +268,12 @@ int main()
   for (int i = 0; i < 5; i++) {
     camera_frame(camera, timeout);
   }
-
-  const int SCREEN_WIDTH = 3840;
-  const int SCREEN_HEIGHT = 2160;
   
   int fb = open("/dev/fb0", O_RDWR);
-  fbmem = mmap(NULL, SCREEN_WIDTH * SCREEN_HEIGHT * 2, PROT_WRITE, MAP_SHARED, fb, 0);
+  fbmem = mmap(NULL, FB_WIDTH * FB_HEIGHT * 2, PROT_WRITE, MAP_SHARED, fb, 0);
 
   // clear screen
-  for (int y = 0; y < SCREEN_HEIGHT; y++) {
-      for (int x = 0; x < SCREEN_WIDTH; x++) {
-          fbmem[(y * SCREEN_WIDTH) + x] = 0xF000;
-      }
-  }
+  fb_draw_rectangle(0, FB_WIDTH, 0, FB_HEIGHT, 0x000F);
 
   detect_init();
 
@@ -288,7 +293,7 @@ int main()
               uint8_t r = im[i];
               uint8_t g = im[i];
               uint8_t b = im[i];
-              fbmem[((y + 300) * SCREEN_WIDTH) + (x + 300)] =
+              fbmem[((y + 300) * FB_WIDTH) + (x + 300)] =
                   (((r >> 3) & 0x1F) << 11) |
                   (((g >> 2) & 0x3F) << 5) |
                   ((b >> 3) & 0x1F);
