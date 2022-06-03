@@ -247,7 +247,8 @@ void detect(uint8_t* gray, int width, int height) {
 
         // Do stuff with detections here.
         printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id);
-        fb_draw_rectangle(det->c[0], det->c[0] + 50, det->c[1], det->c[1] + 50, 0xF000);
+        int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+        fb_draw_rectangle(det->c[0], det->c[0] + size, det->c[1], det->c[1] + size, 0xF000);
     }
 }
 void detect_cleanup() {
@@ -271,13 +272,14 @@ int main()
   
   int fb = open("/dev/fb0", O_RDWR);
   fbmem = mmap(NULL, FB_WIDTH * FB_HEIGHT * 2, PROT_WRITE, MAP_SHARED, fb, 0);
-
-  // clear screen
   fb_draw_rectangle(0, FB_WIDTH, 0, FB_HEIGHT, 0x000F);
-
+  
   detect_init();
 
   while (1) {
+        // clear screen
+      /* fb_draw_rectangle(0, FB_WIDTH, 0, FB_HEIGHT, 0x000F); */
+
       camera_frame(camera, timeout);
 
       uint8_t* im = 
@@ -287,18 +289,18 @@ int main()
       /* jpeg(out, rgb, camera->width, camera->height, 100); */
       /* fclose(out); */
 
-      for (int y = 0; y < camera->height; y++) {
-          for (int x = 0; x < camera->width; x++) {
-              int i = (y * camera->width + x);
-              uint8_t r = im[i];
-              uint8_t g = im[i];
-              uint8_t b = im[i];
-              fbmem[((y + 300) * FB_WIDTH) + (x + 300)] =
-                  (((r >> 3) & 0x1F) << 11) |
-                  (((g >> 2) & 0x3F) << 5) |
-                  ((b >> 3) & 0x1F);
-          }
-      }
+      /* for (int y = 0; y < camera->height; y++) { */
+      /*     for (int x = 0; x < camera->width; x++) { */
+      /*         int i = (y * camera->width + x); */
+      /*         uint8_t r = im[i]; */
+      /*         uint8_t g = im[i]; */
+      /*         uint8_t b = im[i]; */
+      /*         fbmem[((y + 300) * FB_WIDTH) + (x + 300)] = */
+      /*             (((r >> 3) & 0x1F) << 11) | */
+      /*             (((g >> 2) & 0x3F) << 5) | */
+      /*             ((b >> 3) & 0x1F); */
+      /*     } */
+      /* } */
 
       detect(im, camera->width, camera->height);
 
