@@ -28,7 +28,7 @@ $handle ccode {
         buffer_t head;
     } camera_t;
 
-    void quit(const char * msg)
+    void quit(const char* msg)
     {
         fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
         exit(1);
@@ -45,7 +45,7 @@ $handle ccode {
     }
 }
 
-$handle cproc cameraOpen {char* device int width int height} void* {
+$handle cproc cameraOpen {char* device int width int height} camera_t* {
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
     camera_t* camera = malloc(sizeof (camera_t));
@@ -60,8 +60,7 @@ $handle cproc cameraOpen {char* device int width int height} void* {
     return camera;
 }
     
-$handle cproc cameraInit {void* camera_} void {
-    camera_t* camera = camera_;
+$handle cproc cameraInit {camera_t* camera} void {
     printf("camera %d %d\n", camera->fd, camera->width);
 
     struct v4l2_capability cap;
@@ -106,9 +105,7 @@ $handle cproc cameraInit {void* camera_} void {
     camera->head.start = malloc(buf_max);
 }
 
-$handle cproc cameraStart {void* camera_} void {
-    camera_t* camera = camera_;
-
+$handle cproc cameraStart {camera_t* camera} void {
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -124,6 +121,41 @@ $handle cproc cameraStart {void* camera_} void {
         quit("VIDIOC_STREAMON");
 }
 
+$handle ccode {
+int camera_capture(camera_t* camera)
+{
+  struct v4l2_buffer buf;
+  memset(&buf, 0, sizeof buf);
+  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  buf.memory = V4L2_MEMORY_MMAP;
+  if (xioctl(camera->fd, VIDIOC_DQBUF, &buf) == -1) return 0;
+  memcpy(camera->head.start, camera->buffers[buf.index].start, buf.bytesused);
+  camera->head.length = buf.bytesused;
+  if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) return 0;
+  return 1;
+}
+}
+
+$handle cproc cameraFrame {camera_t* camera} int {
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(camera->fd, &fds);
+    int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
+    printf("r: %d\n", r);
+    if (r == -1) quit("select");
+    if (r == 0) return 0;
+    return camera_capture(camera);
+}
+
+$handle cproc cameraHeadImage {camera_t* camera} int {
+
+}
+
+# dynamically load libgcc1.a
 puts [$handle code]
 $handle go
 
@@ -132,3 +164,13 @@ puts "camera: $camera"
 cameraInit $camera
 cameraStart $camera
 puts "camera!"
+# skip 5 frames for booting a cam
+for {set i 0} {$i < 5} {incr i} {
+    cameraFrame $camera
+}
+
+while true {
+    cameraFrame $camera
+    set im [yuyv2gray [cameraHeadImage $camera] 1280 720]
+    Display::drawImage
+}

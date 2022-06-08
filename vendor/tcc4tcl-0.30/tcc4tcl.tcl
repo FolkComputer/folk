@@ -787,11 +787,9 @@ proc ::tcc4tcl::wrap {name adefs rtype {body "#"} {cname ""} {includePrototype 0
 			char* {
 				append cbody "  _$x = Tcl_GetString(objv\[$n]);" "\n"
 			}
-			void* {
-				append cbody "  sscanf(Tcl_GetString(objv\[$n]), \"pointer%p\", &_$x);" "\n"
-			}
 			default {
-				append cbody "  _$x = objv\[$n];" "\n"
+                                append cbody "  sscanf(Tcl_GetString(objv\[$n]), \"([set types($x)]) %p\", &_$x);" "\n"
+                            	# 	append cbody "  _$x = objv\[$n];" "\n"
 			}
 		}
 	}
@@ -837,9 +835,10 @@ proc ::tcc4tcl::wrap {name adefs rtype {body "#"} {cname ""} {includePrototype 0
 		string         -
 		dstring        { append cbody "  Tcl_SetResult(ip, rv, TCL_DYNAMIC);" "\n" }
                 vstring        { append cbody "  Tcl_SetResult(ip, rv, TCL_VOLATILE);" "\n" }
-                void*          { append cbody "  Tcl_Obj *handle = Tcl_ObjPrintf(\"pointer0x%x\", (size_t) rv); Tcl_SetObjResult(ip, handle);" "\n" }
-		default        { append cbody "  Tcl_SetObjResult(ip, rv); Tcl_DecrRefCount(rv);" "\n" }
+                default        { append cbody "  Tcl_Obj *handle = Tcl_ObjPrintf(\"($rtype) 0x%x\", (size_t) rv); Tcl_SetObjResult(ip, handle);" "\n" }
 	}
+#		default        { append cbody "  Tcl_SetObjResult(ip, rv); Tcl_DecrRefCount(rv);" "\n" }
+
 
 	if {$rtype != "ok"} {
 		append cbody "  return TCL_OK;\n"
