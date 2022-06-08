@@ -124,9 +124,11 @@ $handle cproc cameraStart {void* camera_} void {
         quit("VIDIOC_STREAMON");
 }
 
+puts [$handle code]
 $handle go
 
 set camera [cameraOpen "/dev/video0" 1280 720]
+puts "camera: $camera"
 cameraInit $camera
 cameraStart $camera
 puts "camera!"
