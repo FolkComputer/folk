@@ -1,0 +1,124 @@
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+libdir = @libdir@
+
+TARGET = @TARGET@
+
+CC = @CC@
+CPP = @CPP@
+AR = @AR@
+RANLIB = @RANLIB@
+CFLAGS = @CFLAGS@ @SHOBJFLAGS@
+CPPFLAGS = @CPPFLAGS@ -I$(shell cd @srcdir@ && pwd) -I$(shell cd @srcdir@ && pwd)/tcc -I$(shell pwd)/tcc @DEFS@ @SHOBJCPPFLAGS@
+LDFLAGS = @LDFLAGS@
+SHOBJLDFLAGS = @SHOBJLDFLAGS@
+LIBS = @LIBS@
+INSTALL = @INSTALL@
+TCLSH = @TCLSH_PROG@
+
+PACKAGE_NAME = @PACKAGE_NAME@
+PACKAGE_VERSION = @PACKAGE_VERSION@
+
+TCLCONFIGPATH = @TCLCONFIGPATH@
+TCL_PACKAGE_PATH = @TCL_PACKAGE_PATH@
+tcllibdir = $(shell if echo "$(libdir)" | grep '^UNSPECIFIED' >/dev/null; then echo $(TCL_PACKAGE_PATH); else echo "$(libdir)"; fi)
+PACKAGE_INSTALL_DIR = $(tcllibdir)/$(PACKAGE_NAME)-$(PACKAGE_VERSION)
+TCC_CONFIGURE_OPTS = --cc='$(CC)' --extra-cflags='$(CPPFLAGS) $(CFLAGS) -DSHOBJEXT=@SHOBJEXT@ @TCC_EXTRA_CFLAGS@' --with-tcl=$(TCLCONFIGPATH) --sysincludepaths='{B}/include@HOST_PATH_SEPARATOR@{B}/include/1@HOST_PATH_SEPARATOR@{B}/include/2@HOST_PATH_SEPARATOR@{B}/include/3@HOST_PATH_SEPARATOR@{B}/include/4@HOST_PATH_SEPARATOR@{B}/include/5@HOST_PATH_SEPARATOR@{B}/include/6@HOST_PATH_SEPARATOR@{B}/include/7@HOST_PATH_SEPARATOR@{B}/include/8@HOST_PATH_SEPARATOR@{B}/include/9' --libpaths='{B}/lib' @TCC_CONFIGURE_OPTS@
+INSTALL_HEADERS = tcl.h assert.h ctype.h errno.h float.h limits.h locale.h math.h setjmp.h signal.h stdarg.h stddef.h stdint.h stdio.h stdlib.h string.h time.h wctype.h
+srcdir = @srcdir@
+host_os = @host_os@
+@SET_MAKE@
+
+all: $(TARGET) tcc/libtcc1.a
+
+tcc/config.h:
+	if [ "$(srcdir)" = "." ]; then \
+		cd tcc && ./configure $(TCC_CONFIGURE_OPTS); \
+	else \
+		mkdir tcc >/dev/null 2>/dev/null; \
+		cd tcc && $(shell cd $(srcdir) && pwd)/tcc/configure $(TCC_CONFIGURE_OPTS); \
+	fi
+
+tcc/libtcc.a: tcc/config.h
+	$(MAKE) -C tcc libtcc.a
+
+tcc/libtcc1.a: tcc/config.h
+	-$(MAKE) -C tcc tcc@EXEEXT@
+	$(MAKE) -C tcc libtcc1.a
+
+tcc4tcl.o: $(srcdir)/tcc4tcl.c $(srcdir)/tcc/tcc.h $(srcdir)/tcc/libtcc.h tcc/config.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o tcc4tcl.o -c $(srcdir)/tcc4tcl.c
+
+tcc4tcl.@SHOBJEXT@: tcc4tcl.o tcc/libtcc.a
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $(SHOBJLDFLAGS) -o tcc4tcl.@SHOBJEXT@ tcc4tcl.o tcc/libtcc.a $(LIBS)
+	-@WEAKENSYMS@ tcc4tcl.@SHOBJEXT@
+	-@REMOVESYMS@ tcc4tcl.@SHOBJEXT@
+
+tcc4tcl-static.a: tcc4tcl.o tcc/libtcc.a
+	cp tcc/libtcc.a tcc4tcl-static.new.a
+	$(AR) rcu tcc4tcl-static.new.a tcc4tcl.o
+	-$(RANLIB) tcc4tcl-static.new.a
+	mv tcc4tcl-static.new.a tcc4tcl-static.a
+
+install: $(TARGET) pkgIndex.tcl $(srcdir)/tcc4tcl.tcl $(srcdir)/tcc4critcl.tcl tcc/libtcc1.a $(shell echo $(srcdir)/tcc/include/*) $(shell echo $(srcdir)/tcc/win32/lib/*.c) $(srcdir)/headers.awk $(srcdir)/patch-headers.sh
+	$(INSTALL) -d "$(DESTDIR)$(PACKAGE_INSTALL_DIR)"
+	$(INSTALL) -d "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/lib"
+	$(INSTALL) -d "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include"
+	$(INSTALL) -m 0755 $(TARGET) "$(DESTDIR)$(PACKAGE_INSTALL_DIR)"
+	$(INSTALL) -m 0644 pkgIndex.tcl "$(DESTDIR)$(PACKAGE_INSTALL_DIR)"
+	$(INSTALL) -m 0644 $(srcdir)/tcc4tcl.tcl "$(DESTDIR)$(PACKAGE_INSTALL_DIR)"
+	$(INSTALL) -m 0644 $(srcdir)/tcc4critcl.tcl "$(DESTDIR)$(PACKAGE_INSTALL_DIR)"
+	$(INSTALL) -m 0644 tcc/libtcc1.a "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/lib"
+	$(INSTALL) -m 0644 $(shell echo $(srcdir)/tcc/win32/lib/*.c) "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/lib"
+	$(INSTALL) -m 0644 $(shell echo $(srcdir)/tcc/include/*) "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include"
+	@if ! echo "_WIN32" | $(CPP) $(CPPFLAGS) - | grep '^_WIN32$$' >/dev/null; then \
+		echo cp -r $(srcdir)/tcc/win32/include/* "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include/"; \
+		cp -r $(srcdir)/tcc/win32/include/* "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include/"; \
+		echo cp -r $(srcdir)/tcc/win32/lib/*.def "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/lib/"; \
+		cp -r $(srcdir)/tcc/win32/lib/*.def "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/lib/"; \
+	fi
+	( for file in $(INSTALL_HEADERS); do echo "#include <$${file}>"; done ) | \
+		$(CPP) -v $(CPPFLAGS) -I$(srcdir)/tcc/include -I$(srcdir)/tcc/include - 2>&1 | @AWK@ -f $(srcdir)/headers.awk | while read src dst; do \
+			dst="$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include/$$dst"; \
+			if [ -e "$${dst}" ]; then continue; fi; \
+			dstdir="$$(dirname "$$dst")"; \
+			mkdir -p "$$dstdir"; \
+			echo cp "$$src" "$$dst"; \
+			cp "$$src" "$$dst"; \
+		done
+	$(srcdir)/patch-headers.sh "$(DESTDIR)$(PACKAGE_INSTALL_DIR)/include"
+
+test: test.tcl
+	rm -rf __TMP__
+	$(MAKE) install tcllibdir=$(shell pwd)/__TMP__
+	-if [ "$(PACKAGE_VERSION)" = '@@VERS@@' ]; then cd __TMP__/* && ( \
+		for file in tcc4tcl.tcl tcc4critcl.tcl pkgIndex.tcl; do \
+			sed 's/@@VERS@@/0.0/g' "$${file}" > "$${file}.new"; \
+			cat "$${file}.new" > "$${file}"; \
+			rm -f "$${file}.new"; \
+		done \
+	); fi
+	if [ '@build@' = '@host@' ]; then TCC4TCL_TEST_RUN_NATIVE=1; export TCC4TCL_TEST_RUN_NATIVE; fi; $(TCLSH) $(srcdir)/test.tcl __TMP__
+	echo Tests Completed OK > TEST-STATUS
+	rm -rf __TMP__
+
+clean:
+	rm -f tcc4tcl.o
+	rm -f tcc4tcl.@SHOBJEXT@ tcc4tcl-static.a
+	rm -f tcc4tcl.@SHOBJEXT@.a tcc4tcl.@SHOBJEXT@.def
+	rm -rf __TMP__
+	rm -f TEST-STATUS
+	-$(MAKE) -C tcc distclean
+
+distclean: clean
+	rm -rf autom4te.cache
+	rm -f config.log config.status
+	rm -f pkgIndex.tcl tcc4tcl.syms
+	rm -f Makefile tcc/Makefile
+
+mrproper: distclean
+	rm -rf tcc
+	rm -f configure aclocal.m4
+	rm -f config.guess config.sub install-sh
+
+.PHONY: all install test clean distclean mrproper
