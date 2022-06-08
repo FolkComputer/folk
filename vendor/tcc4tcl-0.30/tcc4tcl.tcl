@@ -468,6 +468,11 @@ namespace eval tcc4tcl {
 			append code "#define [string trim "$macroName $macroVal"]\n"
 		}
 
+		if {[info exists state(tk)]} {
+			append code "#include <tk.h>\n\n"
+		}
+                append code "#include <tcl.h>\n\n"
+
 		append code $state(code) "\n"
 
 		if {$state(type) == "exe" || $state(type) == "dll"} {
@@ -475,11 +480,6 @@ namespace eval tcc4tcl {
 				set code "int _initProcs(Tcl_Interp *interp);\n\n$code"
 			}
 		}
-
-		if {[info exists state(tk)]} {
-			set code "#include <tk.h>\n$code"
-		}
-		set code "#include <tcl.h>\n\n$code"
 
 		# Append additional generated code to support the output type
 		switch -- $state(type) {
