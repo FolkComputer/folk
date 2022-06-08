@@ -45,7 +45,7 @@ $handle ccode {
     }
 }
 
-$handle cproc cameraOpen {char* device int width int height} camera_t* {
+$handle cproc cameraOpen {char* device int width int height} void* {
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
     camera_t* camera = malloc(sizeof (camera_t));
@@ -56,10 +56,14 @@ $handle cproc cameraOpen {char* device int width int height} camera_t* {
     camera->buffers = NULL;
     camera->head.length = 0;
     camera->head.start = NULL;
+    printf("camera %d %d\n", camera->fd, camera->width);
     return camera;
 }
     
-$handle cproc cameraInit {camera_t* camera} void {
+$handle cproc cameraInit {void* camera_} void {
+    camera_t* camera = camera_;
+    printf("camera %d %d\n", camera->fd, camera->width);
+
     struct v4l2_capability cap;
     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -102,7 +106,9 @@ $handle cproc cameraInit {camera_t* camera} void {
     camera->head.start = malloc(buf_max);
 }
 
-$handle cproc cameraStart {camera_t* camera} void {
+$handle cproc cameraStart {void* camera_} void {
+    camera_t* camera = camera_;
+
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -120,9 +126,7 @@ $handle cproc cameraStart {camera_t* camera} void {
 
 $handle go
 
-set camera [cameraOpen "/dev/video0" 800 448]
+set camera [cameraOpen "/dev/video0" 1280 720]
 cameraInit $camera
 cameraStart $camera
 puts "camera!"
-
-
