@@ -31,7 +31,7 @@ $handle cproc drawChar {int width int x0 int y0 char* cs} void {
     for (unsigned y = 0; y < font.char_height; y++) {
         for (unsigned x = 0; x < font.char_width; x++) {
             int idx = (c * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-            int bit = (font.font_bitmap[idx] >> (7 - (x % 8))) & 0x01;
+            int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
             fbmem[((y0 + y) * width) + (x0 + x)] = bit ? 0xFFFF : 0x0000;
         }
     }
