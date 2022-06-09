@@ -1,11 +1,7 @@
 # wip
 
-package require tcc4tcl
-
-set handle [tcc4tcl::new]
-$handle process_command_line {-D__ARM_PCS_VFP=1 -I/usr/include -I/usr/include/arm-linux-gnueabihf}
-
-$handle ccode {
+package require critcl
+critcl::ccode {
     #include <errno.h>
     
     #include <fcntl.h>
@@ -13,6 +9,9 @@ $handle ccode {
     #include <sys/mman.h>
     #include <asm/types.h>
     #include <linux/videodev2.h>
+
+    #include <stdint.h>
+    #include <stdlib.h>
 
     typedef struct {
         uint8_t* start;
@@ -45,7 +44,17 @@ $handle ccode {
     }
 }
 
-$handle cproc cameraOpen {char* device int width int height} camera_t* {
+critcl::argtype camera_t* {
+    sscanf(Tcl_GetString(@@), "(camera_t*) 0x%p", &@A);
+} camera_t*
+
+critcl::resulttype camera_t* {
+    Tcl_SetObjResult(interp, Tcl_ObjPrintf("(camera_t*) 0x%x", (size_t) rv));
+    return TCL_OK;
+} camera_t*
+
+critcl::cproc cameraOpen {char* device int width int height} camera_t* {
+    printf("device [%s]\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
     camera_t* camera = malloc(sizeof (camera_t));
@@ -60,7 +69,7 @@ $handle cproc cameraOpen {char* device int width int height} camera_t* {
     return camera;
 }
     
-$handle cproc cameraInit {camera_t* camera} void {
+critcl::cproc cameraInit {camera_t* camera} void {
     printf("camera %d %d\n", camera->fd, camera->width);
 
     struct v4l2_capability cap;
@@ -105,7 +114,7 @@ $handle cproc cameraInit {camera_t* camera} void {
     camera->head.start = malloc(buf_max);
 }
 
-$handle cproc cameraStart {camera_t* camera} void {
+critcl::cproc cameraStart {camera_t* camera} void {
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -121,7 +130,7 @@ $handle cproc cameraStart {camera_t* camera} void {
         quit("VIDIOC_STREAMON");
 }
 
-$handle ccode {
+critcl::ccode {
 int camera_capture(camera_t* camera)
 {
   struct v4l2_buffer buf;
@@ -136,7 +145,7 @@ int camera_capture(camera_t* camera)
 }
 }
 
-$handle cproc cameraFrame {camera_t* camera} int {
+critcl::cproc cameraFrame {camera_t* camera} int {
     struct timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
@@ -151,13 +160,14 @@ $handle cproc cameraFrame {camera_t* camera} int {
     return camera_capture(camera);
 }
 
-$handle cproc cameraHeadImage {camera_t* camera} int {
+critcl::cproc cameraHeadImage {camera_t* camera} int {
 
+    
 }
 
-# dynamically load libgcc1.a
-puts [$handle code]
-$handle go
+# puts [critcl::code]
+
+critcl::config keepsrc true
 
 set camera [cameraOpen "/dev/video0" 1280 720]
 puts "camera: $camera"
