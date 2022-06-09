@@ -3,6 +3,13 @@
 package require critcl
 source pi/critclUtils.tcl
 
+critcl::cflags -I/home/pi/apriltag
+critcl::clibraries /home/pi/apriltag/libapriltag.a
+critcl::ccode {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+}
+
 critcl::ccode {
     #include <errno.h>
     
@@ -60,13 +67,10 @@ critcl::cproc cameraOpen {char* device int width int height} camera_t* {
     camera->buffers = NULL;
     camera->head.length = 0;
     camera->head.start = NULL;
-    printf("camera %d %d\n", camera->fd, camera->width);
     return camera;
 }
     
 critcl::cproc cameraInit {camera_t* camera} void {
-    printf("camera %d %d\n", camera->fd, camera->width);
-
     struct v4l2_capability cap;
     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -107,6 +111,8 @@ critcl::cproc cameraInit {camera_t* camera} void {
         if (camera->buffers[i].start == MAP_FAILED) quit("mmap");
     }
     camera->head.start = malloc(buf_max);
+
+    printf("camera %d; bufcount %d\n", camera->fd, camera->buffer_count);    
 }
 
 critcl::cproc cameraStart {camera_t* camera} void {
@@ -188,13 +194,17 @@ critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width i
       }
 }
 
+critcl::clean_cache
 critcl::config keepsrc true
 
 namespace eval Camera {
+    variable WIDTH 1280
+    variable HEIGHT 720
+
     variable camera
 
     proc init {} {
-        set camera [cameraOpen "/dev/video0" 1280 720]
+        set camera [cameraOpen "/dev/video0" $Camera::WIDTH $Camera::HEIGHT]
         cameraInit $camera
         cameraStart $camera
         
@@ -224,3 +234,48 @@ catch {if {$::argv0 eq [info script]} {
         drawGrayImage $Display::fb $Display::WIDTH $im 1280 720
     }
 }}
+
+
+
+
+namespace eval AprilTags {
+    critcl::ccode {
+        apriltag_detector_t *td;
+        apriltag_family_t *tf;
+    }
+
+    critcl::cproc detectInit {} void {
+        td = apriltag_detector_create();
+        tf = tagStandard52h13_create();
+        apriltag_detector_add_family_bits(td, tf, 1);
+    }
+
+    critcl::cproc detectImpl {uint8_t* gray int width int height} void {
+        image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
+    
+        zarray_t *detections = apriltag_detector_detect(td, &im);
+
+        printf("DETECTION COUNT: %d\n", zarray_size(detections));
+        for (int i = 0; i < zarray_size(detections); i++) {
+          apriltag_detection_t *det;
+          zarray_get(detections, i, &det);
+
+          // Do stuff with detections here.
+          printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id);
+          int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+        }
+    }
+
+    critcl::cproc detectCleanup {} void {
+        tagStandard52h13_destroy(tf);
+        apriltag_detector_destroy(td);
+    }
+    
+    proc init {} {
+        detectInit
+    }
+
+    proc detect {gray} {
+        detectImpl $gray $Camera::WIDTH $Camera::HEIGHT
+    }
+}
