@@ -217,7 +217,7 @@ if {$tcl_platform(os) eq "Darwin"} {
         source laptop.tcl
     }
 } else {
-    source pi.tcl
+    source pi/Display.tcl
 }
 
 Display::init
