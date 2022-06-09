@@ -44,14 +44,18 @@ critcl::ccode {
     }
 }
 
-critcl::argtype camera_t* {
-    sscanf(Tcl_GetString(@@), "(camera_t*) 0x%p", &@A);
-} camera_t*
+proc opaquePointerType {type} {
+    critcl::argtype $type "
+        sscanf(Tcl_GetString(@@), \"($type) 0x%p\", &@A);
+    " $type
 
-critcl::resulttype camera_t* {
-    Tcl_SetObjResult(interp, Tcl_ObjPrintf("(camera_t*) 0x%x", (size_t) rv));
-    return TCL_OK;
-} camera_t*
+    critcl::resulttype $type "
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf(\"($type) 0x%x\", (size_t) rv));
+        return TCL_OK;
+    " $type
+}
+opaquePointerType camera_t*
+opaquePointerType uint8_t*
 
 critcl::cproc cameraOpen {char* device int width int height} camera_t* {
     printf("device [%s]\n", device);
@@ -160,11 +164,27 @@ critcl::cproc cameraFrame {camera_t* camera} int {
     return camera_capture(camera);
 }
 
-critcl::cproc cameraHeadImage {camera_t* camera} int {
-
-    
+critcl::cproc cameraHeadImage {camera_t* camera} uint8_t* {
+    return camera->head.start;
+}
+critcl::cproc yuyv2gray {uint8_t* yuyv int width int height} uint8_t* {
+  uint8_t* gray = calloc(width * height, sizeof (uint8_t));
+  for (size_t i = 0; i < height; i++) {
+    for (size_t j = 0; j < width; j += 2) {
+      size_t index = i * width + j;
+      int y0 = yuyv[index * 2 + 0];
+      int y1 = yuyv[index * 2 + 2];
+      gray[index] = y0; 
+      gray[index + 1] = y1;
+    }
+  }
+  return gray;
 }
 
+opaquePointerType short*
+critcl::cproc drawImage {short* fbmem uint8_t* im int width int height} {
+    
+}
 # puts [critcl::code]
 
 critcl::config keepsrc true
@@ -182,5 +202,7 @@ for {set i 0} {$i < 5} {incr i} {
 while true {
     cameraFrame $camera
     set im [yuyv2gray [cameraHeadImage $camera] 1280 720]
+    puts $im
     Display::drawImage
+    break
 }
