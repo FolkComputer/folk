@@ -250,20 +250,34 @@ namespace eval AprilTags {
         apriltag_detector_add_family_bits(td, tf, 1);
     }
 
-    critcl::cproc detectImpl {uint8_t* gray int width int height} void {
+    critcl::cproc detectImpl {uint8_t* gray int width int height} Tcl_Obj*0 {
         image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
     
         zarray_t *detections = apriltag_detector_detect(td, &im);
+        int detectionCount = zarray_size(detections);
 
-        printf("DETECTION COUNT: %d\n", zarray_size(detections));
-        for (int i = 0; i < zarray_size(detections); i++) {
-          apriltag_detection_t *det;
-          zarray_get(detections, i, &det);
+        Tcl_Obj* detectionObjs[detectionCount];
+        for (int i = 0; i < detectionCount; i++) {
+            apriltag_detection_t *det;
+            zarray_get(detections, i, &det);
 
-          // Do stuff with detections here.
-          printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id);
-          int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} size %d", det->id, det->c[0], det->c[1], size);
+            printf("id %d center {%f %f} size %d\n", det->id, det->c[0], det->c[1], size);
         }
+        
+        zarray_destroy(detections);
+        Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
+        return result;
+        // printf("DETECTION COUNT: %d\n", zarray_size(detections));
+        /* for (int i = 0; i < zarray_size(detections); i++) { */
+        /*   apriltag_detection_t *det; */
+        /*   zarray_get(detections, i, &det); */
+
+        /*   // Do stuff with detections here. */
+        /*   printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id); */
+        /*   int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1])); */
+        /* } */
     }
 
     critcl::cproc detectCleanup {} void {
@@ -276,6 +290,6 @@ namespace eval AprilTags {
     }
 
     proc detect {gray} {
-        detectImpl $gray $Camera::WIDTH $Camera::HEIGHT
+        return [detectImpl $gray $Camera::WIDTH $Camera::HEIGHT]
     }
 }
