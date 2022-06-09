@@ -1,6 +1,0 @@
-{
-	global:
-		Tcc4tcl_Init;
-	local:
-		*;
-};
