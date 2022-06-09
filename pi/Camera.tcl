@@ -1,6 +1,8 @@
 # wip
 
 package require critcl
+source pi/critclUtils.tcl
+
 critcl::ccode {
     #include <errno.h>
     
@@ -42,17 +44,6 @@ critcl::ccode {
         }
         return -1;
     }
-}
-
-proc opaquePointerType {type} {
-    critcl::argtype $type "
-        sscanf(Tcl_GetString(@@), \"($type) 0x%p\", &@A);
-    " $type
-
-    critcl::resulttype $type "
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf(\"($type) 0x%x\", (size_t) rv));
-        return TCL_OK;
-    " $type
 }
 opaquePointerType camera_t*
 opaquePointerType uint8_t*
@@ -181,13 +172,27 @@ critcl::cproc yuyv2gray {uint8_t* yuyv int width int height} uint8_t* {
   return gray;
 }
 
-opaquePointerType short*
-critcl::cproc drawImage {short* fbmem uint8_t* im int width int height} {
-    
+opaquePointerType uint16_t*
+critcl::cproc drawImage {uint16_t* fbmem int fbwidth uint8_t* im int width int height} void {
+ for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+              int i = (y * width + x);
+              uint8_t r = im[i];
+              uint8_t g = im[i];
+              uint8_t b = im[i];
+              fbmem[((y + 300) * fbwidth) + (x + 300)] =
+                  (((r >> 3) & 0x1F) << 11) |
+                  (((g >> 2) & 0x3F) << 5) |
+                  ((b >> 3) & 0x1F);
+          }
+      }
 }
 # puts [critcl::code]
 
 critcl::config keepsrc true
+
+source pi/Display.tcl
+Display::init
 
 set camera [cameraOpen "/dev/video0" 1280 720]
 puts "camera: $camera"
@@ -203,6 +208,6 @@ while true {
     cameraFrame $camera
     set im [yuyv2gray [cameraHeadImage $camera] 1280 720]
     puts $im
-    Display::drawImage
+    drawImage $Display::fb $Display::WIDTH $im 1280 720
     break
 }

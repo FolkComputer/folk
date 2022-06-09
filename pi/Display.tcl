@@ -1,17 +1,21 @@
 # prep stuff
 # ----------
 package require critcl
+source "pi/critclUtils.tcl"
 critcl::ccode {
     #include <sys/stat.h>
     #include <fcntl.h>
     #include <sys/mman.h>
-    unsigned short* fbmem;
+    #include <stdint.h>
+    uint16_t* fbmem;
 }
 critcl::ccode [source "vendor/font.tcl"]
+opaquePointerType uint16_t*
 
-critcl::cproc mmapFb {int width int height} void {
+critcl::cproc mmapFb {int width int height} uint16_t* {
     int fb = open("/dev/fb0", O_RDWR);
     fbmem = mmap(NULL, width * height * 2, PROT_WRITE, MAP_SHARED, fb, 0);
+    return fbmem;
 }
 critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 char* color} void {
     unsigned short colorShort = (color[1] << 8) | color[0];
@@ -45,11 +49,13 @@ namespace eval Display {
     variable green [binary format b16 [join {00000 111111 00000} ""]]
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
+    variable fb
+    
     # functions
     # ---------
     proc init {} {
         regexp {mode "(\d+)x(\d+)"} [exec fbset] -> Display::WIDTH Display::HEIGHT
-        mmapFb $Display::WIDTH $Display::HEIGHT
+        set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
     }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
