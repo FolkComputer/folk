@@ -218,6 +218,7 @@ if {$tcl_platform(os) eq "Darwin"} {
     }
 } else {
     source pi/Display.tcl
+    source pi/Camera.tcl
 }
 
 Display::init

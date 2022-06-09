@@ -173,7 +173,7 @@ critcl::cproc yuyv2gray {uint8_t* yuyv int width int height} uint8_t* {
 }
 
 opaquePointerType uint16_t*
-critcl::cproc drawImage {uint16_t* fbmem int fbwidth uint8_t* im int width int height} void {
+critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
               int i = (y * width + x);
@@ -191,23 +191,37 @@ critcl::cproc drawImage {uint16_t* fbmem int fbwidth uint8_t* im int width int h
 
 critcl::config keepsrc true
 
-source pi/Display.tcl
-Display::init
+namespace eval Camera {
+    variable camera
 
-set camera [cameraOpen "/dev/video0" 1280 720]
-puts "camera: $camera"
-cameraInit $camera
-cameraStart $camera
-puts "camera!"
-# skip 5 frames for booting a cam
-for {set i 0} {$i < 5} {incr i} {
-    cameraFrame $camera
+    proc init {} {
+        set camera [cameraOpen "/dev/video0" 1280 720]
+        cameraInit $camera
+        cameraStart $camera
+        
+        # skip 5 frames for booting a cam
+        for {set i 0} {$i < 5} {incr i} {
+            cameraFrame $camera
+        }
+        set Camera::camera $camera
+    }
+
+    proc frame {} {
+        cameraFrame $Camera::camera
+        return [cameraHeadImage $Camera::camera]
+    }
 }
 
-while true {
-    cameraFrame $camera
-    set im [yuyv2gray [cameraHeadImage $camera] 1280 720]
-    puts $im
-    drawImage $Display::fb $Display::WIDTH $im 1280 720
-    break
+if {$::argv0 eq [info script]} {
+    source pi/Display.tcl
+    Display::init
+
+    Camera::init
+    puts "camera: $Camera::camera"
+
+    while true {
+        set im [yuyv2gray [Camera::frame] 1280 720]
+        puts $im
+        drawGrayImage $Display::fb $Display::WIDTH $im 1280 720
+    }
 }
