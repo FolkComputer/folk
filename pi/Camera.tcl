@@ -39,8 +39,8 @@ critcl::ccode {
     {
         for (int i = 0; i < 100; i++) {
             int r = ioctl(fd, request, arg);
-            printf("[%x][%d] %s\n", request, i, strerror(errno));
             if (r != -1 || errno != EINTR) return r;
+            printf("[%x][%d] %s\n", request, i, strerror(errno));
         }
         return -1;
     }
@@ -149,7 +149,7 @@ critcl::cproc cameraFrame {camera_t* camera} int {
     FD_ZERO(&fds);
     FD_SET(camera->fd, &fds);
     int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
-    printf("r: %d\n", r);
+    // printf("r: %d\n", r);
     if (r == -1) quit("select");
     if (r == 0) return 0;
     return camera_capture(camera);
@@ -211,7 +211,7 @@ namespace eval Camera {
     }
 }
 
-if {$::argv0 eq [info script]} {
+catch {if {$::argv0 eq [info script]} {
     source pi/Display.tcl
     Display::init
 
@@ -223,4 +223,4 @@ if {$::argv0 eq [info script]} {
         puts $im
         drawGrayImage $Display::fb $Display::WIDTH $im 1280 720
     }
-}
+}}
