@@ -1,21 +1,19 @@
 # prep stuff
 # ----------
-package require tcc4tcl
-set handle [tcc4tcl::new]
-$handle process_command_line {-D__ARM_PCS_VFP=1 -I/usr/include -I/usr/include/arm-linux-gnueabihf}
-$handle ccode {
+package require critcl
+critcl::ccode {
     #include <sys/stat.h>
     #include <fcntl.h>
     #include <sys/mman.h>
     unsigned short* fbmem;
 }
-$handle ccode [source "vendor/font.tcl"]
+critcl::ccode [source "vendor/font.tcl"]
 
-$handle cproc mmapFb {int width int height} void {
+critcl::cproc mmapFb {int width int height} void {
     int fb = open("/dev/fb0", O_RDWR);
     fbmem = mmap(NULL, width * height * 2, PROT_WRITE, MAP_SHARED, fb, 0);
 }
-$handle cproc clearCInner {int width int x0 int y0 int x1 int y1 char* color} void {
+critcl::cproc clearCInner {int width int x0 int y0 int x1 int y1 char* color} void {
     unsigned short colorShort = (color[1] << 8) | color[0];
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
@@ -23,7 +21,7 @@ $handle cproc clearCInner {int width int x0 int y0 int x1 int y1 char* color} vo
         }
     }
 }
-$handle cproc drawChar {int width int x0 int y0 char* cs} void {
+critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
     char c = cs[0];
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
@@ -36,8 +34,7 @@ $handle cproc drawChar {int width int x0 int y0 char* cs} void {
         }
     }
 }
-# puts [$handle code]
-$handle go
+# puts [critcl::code]
 
 namespace eval Display {
     variable WIDTH
@@ -77,5 +74,5 @@ if {$::argv0 eq [info script]} {
     drawChar $Display::WIDTH 309 400 "B"
     drawChar $Display::WIDTH 318 400 "O"
 
-    Display::text fb 300 420 PLACEHOLDER "Hello"
+    Display::text fb 300 420 PLACEHOLDER "Hello!"
 }
