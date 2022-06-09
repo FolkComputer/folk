@@ -217,10 +217,7 @@ if {$tcl_platform(os) eq "Darwin"} {
         source laptop.tcl
     }
 } else {
-    source pi/Display.tcl
-    source pi/Camera.tcl
+    source pi/pi.tcl
 }
-
-Display::init
 
 vwait forever

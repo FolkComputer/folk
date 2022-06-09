@@ -111,3 +111,5 @@ foreach programFilename [glob programs/*.folk] {
     newProgram [read $fp] $programFilename
     close $fp
 }
+
+Display::init

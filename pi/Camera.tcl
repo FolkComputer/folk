@@ -187,7 +187,6 @@ critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width i
           }
       }
 }
-# puts [critcl::code]
 
 critcl::config keepsrc true
 
