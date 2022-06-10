@@ -18,7 +18,7 @@ thread::send -async $::cameraThread [format {
 
         set tags [AprilTags::detect [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]]
         foreach tag $tags {
-            lappend commands "Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]"
+            lappend commands "Assert camera claims tag [dict get $tag id] has center {[dict get $tag center]} size [dict get $tag size]"
         }
 
         lappend commands "Step {}"
