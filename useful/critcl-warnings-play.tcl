@@ -1,6 +1,7 @@
 package require critcl
 
 critcl::cflags -Werror -Wall
+critcl::tcl 8.6
 
 proc opaquePointerType {type} {
     critcl::argtype $type "
