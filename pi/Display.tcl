@@ -59,7 +59,7 @@ namespace eval Display {
     }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        clearCInner $Display::WIDTH $x0 $y0 $x1 $y1 [set Display::$color]
+        clearCInner $Display::WIDTH [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
     }
     proc fillScreen {fb color} {
         fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
@@ -67,7 +67,7 @@ namespace eval Display {
 
     proc text {fb x y fontSize text} {
         foreach char [split $text ""] {
-            drawChar $Display::WIDTH $x $y $char
+            drawChar $Display::WIDTH [expr int($x)] [expr int($y)] $char
             incr x 9 ;# TODO: don't hardcode font width
         }
     }

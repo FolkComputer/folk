@@ -16,7 +16,10 @@ thread::send -async $::cameraThread [format {
                           "Assert camera claims the camera frame is \"$frame\"" \
                           "Retract camera claims tag /something/ has center /something/ size /something/"]
 
-        set tags [AprilTags::detect [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]]
+        set grayFrame [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]
+        set tags [AprilTags::detect $grayFrame]
+        freeGray $grayFrame
+
         foreach tag $tags {
             lappend commands "Assert camera claims tag [dict get $tag id] has center {[dict get $tag center]} size [dict get $tag size]"
         }

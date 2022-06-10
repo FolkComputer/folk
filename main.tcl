@@ -122,6 +122,7 @@ proc accept {chan addr port} {
             if {[catch {
                 puts $chan [eval $script]; flush $chan
             } ret]} {
+                puts $ret
                 puts $chan $ret; flush $chan
             }
             set script ""
@@ -132,7 +133,7 @@ proc accept {chan addr port} {
 }
 set ::nodename [info hostname]
 if {[catch {socket -server accept 4273}]} {
-    # there's already a Folk node running on this machine
+    puts "there's already a Folk node running on this machine"
     set ::nodename "[info hostname]-1"
     socket -server accept 4274
 }
