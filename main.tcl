@@ -109,7 +109,7 @@ proc accept {chan addr port} {
     while {[gets $chan line] != -1} {
         append script $line\n
         if {[info complete $script]} {
-            eval $script
+            puts $chan [eval $script]
             set script ""
         }
     }
@@ -157,7 +157,8 @@ proc Step {cb} {
 
     # is there an effect set that comes out of the frame?
 
-    puts $::statements
+    # puts $::statements
+
     # stream effects/output statement set outward?
     # (for now, draw all the graphics requests)
 }
