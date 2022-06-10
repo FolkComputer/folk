@@ -3,11 +3,13 @@
 package require critcl
 source pi/critclUtils.tcl
 
-critcl::cflags -I/home/pi/apriltag
+critcl::tcl 8.6
+critcl::cflags -I/home/pi/apriltag -Wall -Werror
 critcl::clibraries /home/pi/apriltag/libapriltag.a
 critcl::ccode {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
+    #include <math.h>
 }
 
 critcl::ccode {
@@ -263,21 +265,13 @@ namespace eval AprilTags {
 
             int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
             detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} size %d", det->id, det->c[0], det->c[1], size);
-            printf("id %d center {%f %f} size %d\n", det->id, det->c[0], det->c[1], size);
+            // printf("id %d center {%f %f} size %d\n", det->id, det->c[0], det->c[1], size);
         }
         
+
         zarray_destroy(detections);
         Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
         return result;
-        // printf("DETECTION COUNT: %d\n", zarray_size(detections));
-        /* for (int i = 0; i < zarray_size(detections); i++) { */
-        /*   apriltag_detection_t *det; */
-        /*   zarray_get(detections, i, &det); */
-
-        /*   // Do stuff with detections here. */
-        /*   printf("DETECTION #%d (%f, %f): ID %d\n", i, det->c[0], det->c[1], det->id); */
-        /*   int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1])); */
-        /* } */
     }
 
     critcl::cproc detectCleanup {} void {
