@@ -21,6 +21,9 @@ thread::send -async $::cameraThread [format {
             lappend commands "Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]"
         }
 
+        lappend commands "Step {}"
+
+        # send this script back to the main Folk thread
         thread::send -async "%s" [join $commands "\n"]
     }
 } [thread::id]]

@@ -179,6 +179,9 @@ critcl::cproc yuyv2gray {uint8_t* yuyv int width int height} uint8_t* {
   }
   return gray;
 }
+critcl::cproc freeGray {uint8_t* gray} void {
+  free(gray);
+}
 
 opaquePointerType uint16_t*
 critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width int height} void {
@@ -234,6 +237,7 @@ catch {if {$::argv0 eq [info script]} {
         set im [yuyv2gray [Camera::frame] 1280 720]
         puts $im
         drawGrayImage $Display::fb $Display::WIDTH $im 1280 720
+        freeGray $im
     }
 }}
 
