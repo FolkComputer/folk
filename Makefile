@@ -13,3 +13,7 @@ Folk.app:
 	rm -r /tmp/folk.vfs; mkdir /tmp/folk.vfs
 	cp -r * /tmp/folk.vfs
 	cd /tmp; tclsh ~/Downloads/sdx*kit wrap folk -runtime $(TCLKIT)
+
+NODE := localhost
+view-statements:
+	echo viewStatements | nc $(NODE) 4273

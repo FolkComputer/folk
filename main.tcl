@@ -102,6 +102,16 @@ proc evaluate {} {
 }
 
 
+# pretty-prints latest statement set
+proc viewStatements {} {
+    return [join [lmap statement [dict keys $::statements] {
+        lmap word $statement {expr {
+            [string length $word] > 20 ?
+            "[string range $word 0 20]..." :
+            $word
+        }}
+    }] "\n"]
+}
 proc accept {chan addr port} {
     # (mostly for the Pi)
     # we want to be able to asynchronously receive statements
@@ -109,8 +119,10 @@ proc accept {chan addr port} {
     while {[gets $chan line] != -1} {
         append script $line\n
         if {[info complete $script]} {
-            catch {
+            if {[catch {
                 puts $chan [eval $script]; flush $chan
+            } ret]} {
+                puts $chan $ret; flush $chan
             }
             set script ""
         }
