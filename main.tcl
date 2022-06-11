@@ -147,9 +147,6 @@ proc Always {cb} {
     lappend ::alwaysCbs $cb
 }
 proc Step {cb} {
-    # FIXME: hack
-    Display::fillScreen device black 
-
     # clear the statement set
     set ::statements [dict merge {*}[dict values $::assertedStatementsFrom]]
     set ::whens [list]
@@ -176,6 +173,7 @@ proc Step {cb} {
 
     # stream effects/output statement set outward?
     # (for now, draw all the graphics requests)
+    Display::commit
 }
 
 source "lib/math.tcl"

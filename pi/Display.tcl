@@ -40,6 +40,8 @@ critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
 }
 # puts [critcl::code]
 
+package require Thread
+
 namespace eval Display {
     variable WIDTH
     variable HEIGHT
@@ -50,19 +52,25 @@ namespace eval Display {
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
     variable fb
+
+    variable displayThread
+    variable displayList
     
     # functions
     # ---------
     proc init {} {
         regexp {mode "(\d+)x(\d+)"} [exec fbset] -> Display::WIDTH Display::HEIGHT
         set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
+
+        set Display::displayThread [thread::create]
+        set Display::displayList [list]
     }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        clearCInner $Display::WIDTH [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
+        lappend Display::displayList "clearCInner $Display::WIDTH [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]"
     }
     proc fillScreen {fb color} {
-        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
+        lappend Display::displayList "fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color"
     }
 
     proc text {fb x y fontSize text} {
@@ -70,6 +78,13 @@ namespace eval Display {
             drawChar $Display::WIDTH [expr int($x)] [expr int($y)] $char
             incr x 9 ;# TODO: don't hardcode font width
         }
+    }
+
+    proc commit {} {
+        # clear screen to black
+        
+
+        # draw all the requests
     }
 }
 
