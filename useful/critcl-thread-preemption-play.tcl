@@ -1,10 +1,11 @@
 package require Thread
 package require critcl
 critcl::tcl 8.6
+critcl::cflags -Wall -Werror
 
 critcl::ccode {
     #include <stdatomic.h>
-    atomic_int abort = 0;
+    atomic_int die = 0;
 }
 proc opaquePointerType {type} {
     critcl::argtype $type "
@@ -18,28 +19,28 @@ proc opaquePointerType {type} {
 }
 opaquePointerType atomic_int*
 
-critcl::cproc getAbortPointer {} atomic_int* { return &abort; }
+critcl::cproc getDiePointer {} atomic_int* { return &die; }
+critcl::cproc cancel {} void {
+    die = 1;
+}
 
 set th [thread::create [format {
     package require critcl
     critcl::ccode {
         #include <stdatomic.h>
-        atomic_int* abort = %s;
+        atomic_int* die = %s;
     }
     critcl::cproc cspin {} void {
         printf("cstart\n");
-        while (!*abort) {}
+        while (!*die) {}
         printf("cend\n");
     }
 
     puts tclstart
     catch {cspin}
     puts tclend
-} [getAbortPointer]]]
+} [getDiePointer]]]
 
-critcl::cproc cancel {} void {
-    abort = 1;
-}
 
 puts $th
 after 2000 {
