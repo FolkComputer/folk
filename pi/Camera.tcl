@@ -1,7 +1,5 @@
-# wip
-
 package require critcl
-source pi/critclUtils.tcl
+source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
 critcl::cflags -I/home/pi/apriltag -Wall -Werror
@@ -198,9 +196,6 @@ critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width i
           }
       }
 }
-
-critcl::clean_cache
-critcl::config keepsrc true
 
 namespace eval Camera {
     variable WIDTH 1280

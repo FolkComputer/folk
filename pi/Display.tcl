@@ -1,5 +1,3 @@
-# prep stuff
-# ----------
 package require critcl
 source "pi/critclUtils.tcl"
 
@@ -42,7 +40,6 @@ critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
         }
     }
 }
-# puts [critcl::code]
 
 namespace eval Display {
     variable WIDTH
@@ -78,7 +75,6 @@ namespace eval Display {
 }
 
 catch {if {$::argv0 eq [info script]} {
-    # WIP: working on text rendering
     Display::init
     drawChar $Display::WIDTH 300 400 "A"
     drawChar $Display::WIDTH 309 400 "B"
