@@ -1,10 +1,32 @@
-source pi/Display.tcl
-
-Display::init
-
 package require Thread
-set ::cameraThread [thread::create]
-thread::send -async $::cameraThread [format {
+
+namespace eval Display {
+    variable displayThread [thread::create {
+        source pi/Display.tcl
+        Display::init
+
+        thread::wait
+    }]
+    puts "dt $displayThread"
+
+    proc fillRect {fb x0 y0 x1 y1 color} {
+        thread::send -async $Display::displayThread "Display::fillRect $fb $x0 $y0 $x1 $y1 $color"
+    }
+    proc fillScreen {fb color} {
+        thread::send -async $Display::displayThread "Display::fillScreen $fb $color"
+    }
+
+    proc text {fb x y fontSize text} {
+        thread::send -async $Display::displayThread "Display::text $fb $x $y $fontSize $text"
+    }
+
+    proc commit {} {
+        # FIXME: clear the screen, flip the buffer
+    }
+}
+
+# Camera thread
+set cameraThread [thread::create [format {
     source pi/Camera.tcl
     Camera::init
     AprilTags::init
@@ -29,4 +51,5 @@ thread::send -async $::cameraThread [format {
         # send this script back to the main Folk thread
         thread::send -async "%s" [join $commands "\n"]
     }
-} [thread::id]]
+} [thread::id]]]
+puts "ct $cameraThread"

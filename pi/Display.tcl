@@ -2,6 +2,10 @@
 # ----------
 package require critcl
 source "pi/critclUtils.tcl"
+
+critcl::tcl 8.6
+critcl::cflags -Wall -Werror
+
 critcl::ccode {
     #include <sys/stat.h>
     #include <fcntl.h>
@@ -40,8 +44,6 @@ critcl::cproc drawChar {int width int x0 int y0 char* cs} void {
 }
 # puts [critcl::code]
 
-package require Thread
-
 namespace eval Display {
     variable WIDTH
     variable HEIGHT
@@ -52,25 +54,19 @@ namespace eval Display {
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
 
     variable fb
-
-    variable displayThread
-    variable displayList
     
     # functions
     # ---------
     proc init {} {
         regexp {mode "(\d+)x(\d+)"} [exec fbset] -> Display::WIDTH Display::HEIGHT
         set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
-
-        set Display::displayThread [thread::create]
-        set Display::displayList [list]
     }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        lappend Display::displayList "clearCInner $Display::WIDTH [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]"
+        clearCInner $Display::WIDTH [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
     }
     proc fillScreen {fb color} {
-        lappend Display::displayList "fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color"
+        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
     }
 
     proc text {fb x y fontSize text} {
@@ -79,16 +75,9 @@ namespace eval Display {
             incr x 9 ;# TODO: don't hardcode font width
         }
     }
-
-    proc commit {} {
-        # clear screen to black
-        
-
-        # draw all the requests
-    }
 }
 
-if {$::argv0 eq [info script]} {
+catch {if {$::argv0 eq [info script]} {
     # WIP: working on text rendering
     Display::init
     drawChar $Display::WIDTH 300 400 "A"
@@ -96,4 +85,4 @@ if {$::argv0 eq [info script]} {
     drawChar $Display::WIDTH 318 400 "O"
 
     Display::text fb 300 420 PLACEHOLDER "Hello!"
-}
+}}
