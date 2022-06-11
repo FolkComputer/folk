@@ -1,26 +1,49 @@
 package require Thread
+package require critcl
+critcl::tcl 8.6
 
-set th [thread::create {
+critcl::ccode {
+    #include <stdatomic.h>
+    atomic_int abort = 0;
+}
+proc opaquePointerType {type} {
+    critcl::argtype $type "
+        sscanf(Tcl_GetString(@@), \"($type) 0x%p\", &@A);
+    " $type
+
+    critcl::resulttype $type "
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf(\"($type) 0x%x\", (size_t) rv));
+        return TCL_OK;
+    " $type
+}
+opaquePointerType atomic_int*
+
+critcl::cproc getAbortPointer {} atomic_int* { return &abort; }
+
+set th [thread::create [format {
     package require critcl
+    critcl::ccode {
+        #include <stdatomic.h>
+        atomic_int* abort = %s;
+    }
     critcl::cproc cspin {} void {
         printf("cstart\n");
-        while (1) {}
+        while (!*abort) {}
         printf("cend\n");
-    }
-    proc tclspin {} {
-        while 1 {}
     }
 
     puts tclstart
-    catch {cspin} ;# can't cancel from in here
-    # catch {tclspin}
+    catch {cspin}
     puts tclend
-}]
+} [getAbortPointer]]]
+
+critcl::cproc cancel {} void {
+    abort = 1;
+}
 
 puts $th
 after 2000 {
-    puts canceling
-    thread::cancel $th
+    cancel
 }
 
 vwait forever
