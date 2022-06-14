@@ -28,13 +28,53 @@ critcl::cproc mmapFb {int fbw int fbh} uint16_t* {
     staging = calloc(fbwidth * fbheight, 2);
     return fbmem;
 }
-critcl::cproc clearCInner {int x0 int y0 int x1 int y1 bytes color} void {
-    unsigned short colorShort = (color.s[1] << 8) | color.s[0];
+critcl::cproc fillRectangle {int x0 int y0 int x1 int y1 bytes colorBytes} void {
+    unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
+
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
-            staging[(y * fbwidth) + x] = colorShort;
+            staging[(y * fbwidth) + x] = color;
         }
     }
+}
+
+critcl::ccode {
+    typedef struct Vec2i { int x; int y; } Vec2i;
+    Vec2i Vec2i_add(Vec2i a, Vec2i b) { return (Vec2i) { a.x + b.x, a.y + b.y }; }
+    Vec2i Vec2i_sub(Vec2i a, Vec2i b) { return (Vec2i) { a.x - b.x, a.y - b.y }; }
+    Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
+}
+critcl::argtype Vec2i {
+    sscanf(Tcl_GetString(@@), "%d %d", &@A.x, &@A.y);
+} Vec2i
+critcl::resulttype Vec2i {
+    Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
+    return TCL_OK;
+} Vec2i
+critcl::cproc fillTriangle {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+    unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
+
+    // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+
+    if (t0.y==t1.y && t0.y==t2.y) return; // I dont care about degenerate triangles 
+    // sort the vertices, t0, t1, t2 lower−to−upper (bubblesort yay!)
+    Vec2i tmp;
+    if (t0.y>t1.y) { tmp = t0; t0 = t1; t1 = tmp; }
+    if (t0.y>t2.y) { tmp = t0; t0 = t2; t2 = tmp; }
+    if (t1.y>t2.y) { tmp = t1; t1 = t2; t2 = tmp; }
+    int total_height = t2.y-t0.y;
+    for (int i=0; i<total_height; i++) {
+        int second_half = i>(t1.y-t0.y) || t1.y==t0.y;
+        int segment_height = second_half ? t2.y-t1.y : t1.y-t0.y; 
+        float alpha = (float)i/total_height; 
+        float beta  = (float)(i-(second_half ? t1.y-t0.y : 0))/segment_height; // be careful: with above conditions no division by zero here 
+        Vec2i A =               Vec2i_add(t0, Vec2i_scale(Vec2i_sub(t2, t0), alpha)); 
+        Vec2i B = second_half ? Vec2i_add(t1, Vec2i_scale(Vec2i_sub(t2, t1), beta)) : Vec2i_add(t0, Vec2i_scale(Vec2i_sub(t1, t0), beta)); 
+        if (A.x>B.x) { tmp = A; A = B; B = tmp; }
+        for (int j=A.x; j<=B.x; j++) {
+            staging[(t0.y+i)*fbwidth + j] = color; // attention, due to int casts t0.y+i != A.y 
+        } 
+    } 
 }
 critcl::cproc drawChar {int x0 int y0 char* cs} void {
     char c = cs[0];
@@ -73,10 +113,10 @@ namespace eval Display {
     }
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        clearCInner [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
+        fillRectangle [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
     }
     proc fillScreen {fb color} {
-        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
+        fillRectangle $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
     }
 
     proc text {fb x y fontSize text} {
@@ -95,6 +135,11 @@ catch {if {$::argv0 eq [info script]} {
     Display::init
 
     for {set i 0} {$i < 5} {incr i} {
+        fillTriangle {400 400} {500 500} {400 600} $Display::blue
+        fillRectangle 400 400 410 410 $Display::red ;# t0
+        fillRectangle 500 500 510 510 $Display::red ;# t1
+        fillRectangle 400 600 410 610 $Display::red ;# t2
+        
         drawChar 300 400 "A"
         drawChar 309 400 "B"
         drawChar 318 400 "O"
