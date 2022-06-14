@@ -93,11 +93,14 @@ namespace eval Display {
 
 catch {if {$::argv0 eq [info script]} {
     Display::init
-    drawChar 300 400 "A"
-    drawChar 309 400 "B"
-    drawChar 318 400 "O"
 
-    Display::text fb 300 420 PLACEHOLDER "Hello!"
+    for {set i 0} {$i < 5} {incr i} {
+        drawChar 300 400 "A"
+        drawChar 309 400 "B"
+        drawChar 318 400 "O"
 
-    Display::commit
+        Display::text fb 300 420 PLACEHOLDER "Hello!"
+
+        puts [time Display::commit]
+    }
 }}
