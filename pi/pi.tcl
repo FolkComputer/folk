@@ -19,7 +19,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList "Display::text $fb $x $y $fontSize $text"
+        lappend Display::displayList "Display::text $fb $x $y $fontSize {$text}"
     }
 
     proc commit {} {

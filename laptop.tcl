@@ -25,7 +25,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList ".display create text $x $y -text $text -font \"Helvetica $fontSize\" -fill white"
+        lappend Display::displayList ".display create text $x $y -text {$text} -font \"Helvetica $fontSize\" -fill white"
     }
 
     proc commit {} {
