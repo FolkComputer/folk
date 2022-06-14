@@ -1,1 +1,8 @@
 Wish $this is highlighted blue
+
+When tag /tag/ has center /c/ size /size/ {
+	Claim $tag is a rectangle with x [lindex $c 0] y [lindex $c 1] width $size height $size
+	Wish $tag is highlighted green
+	Wish $tag is labelled $c
+}
+
