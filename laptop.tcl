@@ -31,7 +31,7 @@ namespace eval Display {
     proc commit {} {
         variable displayList
 
-        Display::fillScreen PLACEHOLDER black
+        .display delete all
         eval [join $displayList "\n"]
 
         set displayList [list]
