@@ -173,7 +173,7 @@ proc Step {cb} {
 
     # stream effects/output statement set outward?
     # (for now, draw all the graphics requests)
-    # Display::commit
+    Display::commit
 }
 
 source "lib/math.tcl"

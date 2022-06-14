@@ -9,19 +9,36 @@ namespace eval Display {
     }]
     puts "dt $displayThread"
 
+    variable displayList
+
     proc fillRect {fb x0 y0 x1 y1 color} {
-        thread::send -async $Display::displayThread "Display::fillRect $fb $x0 $y0 $x1 $y1 $color"
+        lappend Display::displayList "Display::fillRect $fb $x0 $y0 $x1 $y1 $color"
     }
     proc fillScreen {fb color} {
-        thread::send -async $Display::displayThread "Display::fillScreen $fb $color"
+        lappend Display::displayList "Display::fillScreen $fb $color"
     }
 
     proc text {fb x y fontSize text} {
-        thread::send -async $Display::displayThread "Display::text $fb $x $y $fontSize $text"
+        lappend Display::displayList "Display::text $fb $x $y $fontSize $text"
     }
 
     proc commit {} {
-        # FIXME: clear the screen, flip the buffer
+        thread::send -async $Display::displayThread [format {
+            # Allocate a new, clear framebuffer
+            
+
+            # Draw the display list
+            %s
+
+            # (slow, should be abortable by newcomer commits)
+
+            # Copy the framebuffer onto the screen
+
+            # Free the framebuffer
+
+        } $Display::displayList]
+        
+        # Make a new display list with a clear screen
     }
 }
 
