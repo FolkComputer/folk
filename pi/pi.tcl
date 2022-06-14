@@ -9,7 +9,7 @@ namespace eval Display {
     }]
     puts "dt $displayThread"
 
-    variable displayList
+    variable displayList [list]
 
     proc fillRect {fb x0 y0 x1 y1 color} {
         lappend Display::displayList "Display::fillRect $fb $x0 $y0 $x1 $y1 $color"
@@ -24,21 +24,15 @@ namespace eval Display {
 
     proc commit {} {
         thread::send -async $Display::displayThread [format {
-            # Allocate a new, clear framebuffer
-            
-
             # Draw the display list
             %s
-
             # (slow, should be abortable by newcomer commits)
 
-            # Copy the framebuffer onto the screen
-
-            # Free the framebuffer
-
-        } $Display::displayList]
+            commitThenClearStaging
+        } [join $Display::displayList "\n"]]
         
-        # Make a new display list with a clear screen
+        # Make a new display list
+        set Display::displayList [list]
     }
 }
 
