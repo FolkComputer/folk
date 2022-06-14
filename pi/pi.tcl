@@ -57,10 +57,16 @@ set cameraThread [thread::create [format {
             lappend commands "Assert camera claims tag [dict get $tag id] has center {[dict get $tag center]} size [dict get $tag size]"
         }
 
-        lappend commands "Step {}"
+        # lappend commands "Step {}"
 
         # send this script back to the main Folk thread
         thread::send -async "%s" [join $commands "\n"]
     }
 } [thread::id]]]
 puts "ct $cameraThread"
+
+proc every {ms body} {
+    try $body
+    after $ms [list after idle [namespace code [info level 0]]]
+}
+every 32 {Step {}}

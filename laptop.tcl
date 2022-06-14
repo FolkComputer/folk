@@ -38,7 +38,7 @@ proc StepFromGUI {} {
         catch {
             set sock [socket "folk0.local" 4273]
             # FIXME: should _retract_ only our asserted statements
-            puts $sock {dict set ::assertedStatementsFrom "%s" {%s}; Step {}}
+            puts $sock {dict set ::assertedStatementsFrom "%s" {%s}}
             close $sock
         }
     } $::nodename $::statements]
