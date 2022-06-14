@@ -82,7 +82,7 @@ namespace eval Display {
     proc text {fb x y fontSize text} {
         foreach char [split $text ""] {
             drawChar [expr int($x)] [expr int($y)] $char
-            incr x 9 ;# TODO: don't hardcode font width
+            set x [expr {$x + 9}] ;# TODO: don't hardcode font width
         }
     }
 
