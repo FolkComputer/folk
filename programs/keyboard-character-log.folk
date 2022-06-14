@@ -1,0 +1,6 @@
+Wish $this is labelled "hi there"
+Wish $this is highlighted red
+
+When the keyboard character log is /log/ {
+	Wish $this is labelled $log
+}
