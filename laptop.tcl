@@ -12,17 +12,29 @@ namespace eval Display {
     canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
     pack .display
     wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
+
+    variable displayList [list]
+
     proc init {} {}
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        .display create rectangle $x0 $y0 $x1 $y1 -fill $color
+        lappend Display::displayList ".display create rectangle $x0 $y0 $x1 $y1 -fill $color"
     }
     proc fillScreen {fb color} {
-        fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
+        lappend Display::displayList "fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color"
     }
 
     proc text {fb x y fontSize text} {
-        .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white
+        lappend Display::displayList ".display create text $x $y -text $text -font \"Helvetica $fontSize\" -fill white"
+    }
+
+    proc commit {} {
+        variable displayList
+
+        Display::fillScreen PLACEHOLDER black
+        eval [join $displayList "\n"]
+
+        set displayList [list]
     }
 }
 
