@@ -25,8 +25,9 @@ namespace eval Keyboard {
             binary scan [read $Keyboard::kb 16] nntutunu tvSec tvUsec type code value
             if {$type == 0x01 && $value == 1} break
         }
-        set ch [dict get $Keyboard::KeyCodes $code]
-        puts "type $type code $code value $value ($ch)"
+        set name [dict get $Keyboard::KeyCodes $code] ;# scancode name, like KEY_A
+        set ch [string tolower [string range $name 4 end]]
+        # puts "type $type code $code value $value ($ch)"
         return $ch
     }
 }
