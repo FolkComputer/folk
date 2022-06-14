@@ -65,6 +65,22 @@ set cameraThread [thread::create [format {
 } [thread::id]]]
 puts "ct $cameraThread"
 
+set keyboardThread [thread::create [format {
+    source pi/Keyboard.tcl
+    Keyboard::init
+
+    set chs [list]
+    while true {
+        lappend chs [Keyboard::getChar]
+
+        thread::send -async "%s" [subst {
+            Retract keyboard claims the keyboard character log is /something/
+            Assert keyboard claims the keyboard character log is "$chs"
+        }]
+    }
+} [thread::id]]]
+puts "kt $keyboardThread"
+
 proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]

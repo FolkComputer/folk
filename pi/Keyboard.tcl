@@ -32,9 +32,9 @@ namespace eval Keyboard {
     }
 }
 
-if {$::argv0 eq [info script]} {
+catch {if {$::argv0 eq [info script]} {
     Keyboard::init
     puts [Keyboard::getChar]
     puts [Keyboard::getChar]
     puts [Keyboard::getChar]
-}
+}}
