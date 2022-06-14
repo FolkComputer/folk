@@ -28,8 +28,8 @@ critcl::cproc mmapFb {int fbw int fbh} uint16_t* {
     staging = calloc(fbwidth * fbheight, 2);
     return fbmem;
 }
-critcl::cproc clearCInner {int x0 int y0 int x1 int y1 char* color} void {
-    unsigned short colorShort = (color[1] << 8) | color[0];
+critcl::cproc clearCInner {int x0 int y0 int x1 int y1 bytes color} void {
+    unsigned short colorShort = (color.s[1] << 8) | color.s[0];
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
             staging[(y * fbwidth) + x] = colorShort;
