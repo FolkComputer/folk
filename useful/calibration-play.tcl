@@ -124,7 +124,14 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
 
     // display column correspondences directly. just for fun
     [eachCameraPixel [subst -nocommands -nobackslashes {
-        fb[(y * $Display::WIDTH) + x] = columnCorr[i];
+        if (columnCorr[i] == 0xFFFF) {
+            uint8_t pix = blackImage[i];
+            fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
+               (((pix >> 2) & 0x3F) << 5) |
+               ((pix >> 3) & 0x1F);
+        } else {
+            fb[(y * $Display::WIDTH) + x] = 0xF000;
+        }
     }]]
     
     // FIXME: find row correspondences
