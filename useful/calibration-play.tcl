@@ -11,22 +11,24 @@ Camera::init
 
 opaquePointerType uint16_t*
 
-critcl::ccode [subst -nocommands {
+critcl::ccode [subst -nocommands -nobackslashes {
     #include <stdint.h>
     #include <unistd.h>
     #include <stdlib.h>
     #include <math.h>
     
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp) {
-        usleep(20000);
+        usleep(200000);
 
         // capture 1 real frame. how do i run the tcl command
         // uargh do i need to pass the interp in
         Tcl_Eval(interp, "yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
-        Tcl_GetStringResult(interp);
+        uint8_t* image;
+        sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
 
-        uint8_t* image = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint8_t));
+        printf("capture result %p\n", image);
+
         return image;
     }
 }]
@@ -35,7 +37,7 @@ proc eachDisplayPixel {body} {
     return "
         for (int y = 0; y < $Display::HEIGHT; y++) {
             for (int x = 0; x < $Display::WIDTH; x++) {
-                uint16_t* it = &fb\[y * $Display::WIDTH + x\];
+                uint16_t* it = &fb\[y * $Display::WIDTH + x\]; (void)it;
                 $body
             }
         }
@@ -45,7 +47,7 @@ proc eachCameraPixel {body} {
     return "
         for (int y = 0; y < $Camera::HEIGHT; y++) {
             for (int x = 0; x < $Camera::WIDTH; x++) {
-                int i = (y * $Camera::WIDTH) + x;
+                int i = (y * $Camera::WIDTH) + x; (void)i;
                 $body
             }
         }
@@ -85,7 +87,7 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
 
     uint16_t* columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
-    for (int k = 0; k < columnBits; k++) {
+    for (int k = columnBits - 1; k >= 0; k--) {
         [eachDisplayPixel {
             int code = toGrayCode(x);
             *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
@@ -120,8 +122,10 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
 
     // FIXME: convert column correspondences out of Gray code
 
-    // TODO: display column correspondences
-
+    // display column correspondences directly. just for fun
+    [eachCameraPixel [subst -nocommands -nobackslashes {
+        fb[(y * $Display::WIDTH) + x] = columnCorr[i];
+    }]]
     
     // FIXME: find row correspondences
 }]
