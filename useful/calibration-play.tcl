@@ -11,7 +11,12 @@ Camera::init
 
 opaquePointerType uint16_t*
 
-critcl::ccode {
+critcl::ccode [subst -nocommands {
+    #include <stdint.h>
+    #include <unistd.h>
+    #include <stdlib.h>
+    #include <math.h>
+    
     uint8_t* delayThenCapture(Tcl_Interp* interp) {
         usleep(20000);
 
@@ -21,10 +26,10 @@ critcl::ccode {
         Tcl_GetStringResult(interp);
         Tcl_ResetResult(interp);
 
-        uint8_t* image = calloc(1280*720, sizeof(uint8_t));
+        uint8_t* image = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint8_t));
         return image;
     }
-}
+}]
 
 proc eachDisplayPixel {body} {
     return "
@@ -85,12 +90,12 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
         uint8_t* invertedCodeImage = delayThenCapture(interp);
 
         // scan camera image, add to the correspondence for each pixel
-        [eachCameraPixel {
+        [eachCameraPixel [subst -nocommands {
             int i = (y * $Camera::WIDTH) + x;
-            whiteImage[i], blackImage[i], codeImage[i], invertedCodeImage[i];
+            // whiteImage[i], blackImage[i], codeImage[i], invertedCodeImage[i];
 
             columnCorr[i] = (columnCorr[i] << 1) | bit;
-        }]
+        }]]
 
         free(codeImage);
         free(invertedCodeImage);
@@ -98,6 +103,7 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
 
     // TODO: display column correspondences
 
+    
     // FIXME: find row correspondences
 }]
 
