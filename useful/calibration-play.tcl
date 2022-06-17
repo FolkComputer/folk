@@ -12,13 +12,17 @@ Camera::init
 opaquePointerType uint16_t*
 
 critcl::ccode {
-    uint8_t* delayThenCapture() {
+    uint8_t* delayThenCapture(Tcl_Interp* interp) {
         usleep(20000);
 
         // capture 1 real frame. how do i run the tcl command
         // uargh do i need to pass the interp in
-        
-        return;
+        Tcl_Eval(interp, "yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
+        Tcl_GetStringResult(interp);
+        Tcl_ResetResult(interp);
+
+        uint8_t* image = calloc(1280*720, sizeof(uint8_t));
+        return image;
     }
 }
 
@@ -51,20 +55,16 @@ critcl::ccode {
     }
 }
 
-proc eachCameraPixel {image body} {
-    return body
-}
-
-critcl::cproc buildDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst {
+critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
-    uint8_t* whiteImage = delayThenCapture();
+    uint8_t* whiteImage = delayThenCapture(interp);
 
     // image the base scene in black
     [eachDisplayPixel { *it = 0x0000; }]
-    uint8_t* blackImage = delayThenCapture();
+    uint8_t* blackImage = delayThenCapture(interp);
 
-    // build column correspondences:
+    // find column correspondences:
 
     // how many bits do we need in the Gray code?
     int columnBits = ceil(log2f($Display::WIDTH));
@@ -76,13 +76,13 @@ critcl::cproc buildDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [
             int code = toGrayCode(x);
             *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
         }]
-        uint8_t* codeImage = delayThenCapture();
+        uint8_t* codeImage = delayThenCapture(interp);
 
         [eachDisplayPixel {
             int code = toGrayCode(x);
             *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
         }]
-        uint8_t* invertedCodeImage = delayThenCapture();
+        uint8_t* invertedCodeImage = delayThenCapture(interp);
 
         // scan camera image, add to the correspondence for each pixel
         [eachCameraPixel {
@@ -91,13 +91,16 @@ critcl::cproc buildDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [
 
             columnCorr[i] = (columnCorr[i] << 1) | bit;
         }]
+
+        free(codeImage);
+        free(invertedCodeImage);
     }
 
     // TODO: display column correspondences
 
-    // FIXME: build row correspondences
+    // FIXME: find row correspondences
 }]
 
 puts "camera: $Camera::camera"
 
-buildDenseCorrespondences $Display::fb
+findDenseCorrespondences $Display::fb
