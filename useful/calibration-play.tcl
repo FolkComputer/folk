@@ -2,6 +2,7 @@ package require critcl
 
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
+critcl::clibraries /usr/lib/arm-linux-gnueabihf/libjpeg.so.62
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
@@ -11,27 +12,71 @@ Camera::init
 
 opaquePointerType uint16_t*
 
-critcl::ccode [subst -nocommands -nobackslashes {
+critcl::ccode {
     #include <stdint.h>
     #include <unistd.h>
     #include <stdlib.h>
     #include <math.h>
-    
-    uint8_t* delayThenCameraCapture(Tcl_Interp* interp) {
-        usleep(200000);
 
-        // capture 1 real frame. how do i run the tcl command
-        // uargh do i need to pass the interp in
+    #include <jpeglib.h>
+
+    void 
+jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
+{
+  JSAMPARRAY image;
+  image = calloc(height, sizeof (JSAMPROW));
+  for (size_t i = 0; i < height; i++) {
+    image[i] = calloc(width * 3, sizeof (JSAMPLE));
+    for (size_t j = 0; j < width; j++) {
+      image[i][j * 3 + 0] = rgb[(i * width + j)];
+      image[i][j * 3 + 1] = rgb[(i * width + j)];
+      image[i][j * 3 + 2] = rgb[(i * width + j)];
+    }
+  }
+  
+  struct jpeg_compress_struct compress;
+  struct jpeg_error_mgr error;
+  compress.err = jpeg_std_error(&error);
+  jpeg_create_compress(&compress);
+  jpeg_stdio_dest(&compress, dest);
+  
+  compress.image_width = width;
+  compress.image_height = height;
+  compress.input_components = 3;
+  compress.in_color_space = JCS_RGB;
+  jpeg_set_defaults(&compress);
+  jpeg_set_quality(&compress, quality, TRUE);
+  jpeg_start_compress(&compress, TRUE);
+  jpeg_write_scanlines(&compress, image, height);
+  jpeg_finish_compress(&compress);
+  jpeg_destroy_compress(&compress);
+
+  for (size_t i = 0; i < height; i++) {
+    free(image[i]);
+  }
+  free(image);
+}
+
+    int captureNum = 0;
+    uint8_t* delayThenCameraCapture(Tcl_Interp* interp) {
+        usleep(100000);
+
         Tcl_Eval(interp, "yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
 
-        printf("capture result %p\n", image);
+        captureNum++;
+        printf("capture result %d: %p\n", captureNum, image);
+        // write capture to jpeg
+        char filename[100]; snprintf(filename, 100, "capture%02d.jpg", captureNum);
+        FILE* out = fopen(filename, "w");
+        jpeg(out, image, 1280, 720, 100);
+        fclose(out);
 
         return image;
     }
-}]
+}
 
 proc eachDisplayPixel {body} {
     return "
@@ -71,7 +116,7 @@ critcl::ccode {
     }
 }
 
-critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst {
+critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst -nobackslashes {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
     uint8_t* whiteImage = delayThenCameraCapture(interp);
@@ -123,6 +168,7 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
     // FIXME: convert column correspondences out of Gray code
 
     // display column correspondences directly. just for fun
+    int matchCount = 0;
     [eachCameraPixel [subst -nocommands -nobackslashes {
         if (columnCorr[i] == 0xFFFF) {
             uint8_t pix = blackImage[i];
@@ -130,9 +176,11 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
                (((pix >> 2) & 0x3F) << 5) |
                ((pix >> 3) & 0x1F);
         } else {
+            matchCount++;
             fb[(y * $Display::WIDTH) + x] = 0xF000;
         }
     }]]
+    printf("Match count %d\n", matchCount);
     
     // FIXME: find row correspondences
 }]
