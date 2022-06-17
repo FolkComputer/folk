@@ -102,6 +102,7 @@ namespace eval Display {
     variable blue  [binary format b16 [join {11111 000000 00000} ""]]
     variable green [binary format b16 [join {00000 111111 00000} ""]]
     variable red   [binary format b16 [join {00000 000000 11111} ""]]
+    variable white [binary format b16 [join {11111 111111 11111} ""]]
 
     variable fb
     
