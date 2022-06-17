@@ -17,7 +17,7 @@ critcl::ccode [subst -nocommands {
     #include <stdlib.h>
     #include <math.h>
     
-    uint8_t* delayThenCapture(Tcl_Interp* interp) {
+    uint8_t* delayThenCameraCapture(Tcl_Interp* interp) {
         usleep(20000);
 
         // capture 1 real frame. how do i run the tcl command
@@ -45,6 +45,7 @@ proc eachCameraPixel {body} {
     return "
         for (int y = 0; y < $Camera::HEIGHT; y++) {
             for (int x = 0; x < $Camera::WIDTH; x++) {
+                int i = (y * $Camera::WIDTH) + x;
                 $body
             }
         }
@@ -53,21 +54,29 @@ proc eachCameraPixel {body} {
 
 critcl::ccode {
     uint16_t toGrayCode(uint16_t value) {
-        return value;
+        return value ^ (value >> 1);
     }
     uint16_t fromGrayCode(uint16_t code) {
+        uint16_t mask = code;
+        while (mask) {
+            mask >>= 1;
+            code ^= mask;
+        }
         return code;
+    }
+    int isCloser(uint8_t it, uint8_t this, uint8_t that) {
+        return abs(it - this) < abs(it - that);
     }
 }
 
 critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
-    uint8_t* whiteImage = delayThenCapture(interp);
+    uint8_t* whiteImage = delayThenCameraCapture(interp);
 
     // image the base scene in black
     [eachDisplayPixel { *it = 0x0000; }]
-    uint8_t* blackImage = delayThenCapture(interp);
+    uint8_t* blackImage = delayThenCameraCapture(interp);
 
     // find column correspondences:
 
@@ -81,25 +90,35 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
             int code = toGrayCode(x);
             *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
         }]
-        uint8_t* codeImage = delayThenCapture(interp);
+        uint8_t* codeImage = delayThenCameraCapture(interp);
 
         [eachDisplayPixel {
             int code = toGrayCode(x);
             *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
         }]
-        uint8_t* invertedCodeImage = delayThenCapture(interp);
+        uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
 
         // scan camera image, add to the correspondence for each pixel
-        [eachCameraPixel [subst -nocommands {
-            int i = (y * $Camera::WIDTH) + x;
-            // whiteImage[i], blackImage[i], codeImage[i], invertedCodeImage[i];
-
+        [eachCameraPixel {
+            int bit;
+            if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
+                isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                bit = 1;
+            } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
+                       isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                bit = 0;
+            } else {
+                columnCorr[i] = 0xFFFF; // unable to correspond
+                continue;
+            }
             columnCorr[i] = (columnCorr[i] << 1) | bit;
-        }]]
+        }]
 
         free(codeImage);
         free(invertedCodeImage);
     }
+
+    // FIXME: convert column correspondences out of Gray code
 
     // TODO: display column correspondences
 
