@@ -126,63 +126,105 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
     uint8_t* blackImage = delayThenCameraCapture(interp);
 
     // find column correspondences:
+    uint16_t* columnCorr;
+    {
+        // how many bits do we need in the Gray code?
+        int columnBits = ceil(log2f($Display::WIDTH));
 
-    // how many bits do we need in the Gray code?
-    int columnBits = ceil(log2f($Display::WIDTH));
+        columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
-    uint16_t* columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
+        for (int k = columnBits - 1; k >= 0; k--) {
+            [eachDisplayPixel {
+                int code = toGrayCode(x);
+                *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
+            }]
+            uint8_t* codeImage = delayThenCameraCapture(interp);
 
-    for (int k = columnBits - 1; k >= 0; k--) {
-        [eachDisplayPixel {
-            int code = toGrayCode(x);
-            *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
-        }]
-        uint8_t* codeImage = delayThenCameraCapture(interp);
+            [eachDisplayPixel {
+                int code = toGrayCode(x);
+                *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
+            }]
+            uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
 
-        [eachDisplayPixel {
-            int code = toGrayCode(x);
-            *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
-        }]
-        uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
+            // scan camera image, add to the correspondence for each pixel
+            [eachCameraPixel {
+                int bit;
+                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
+                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                    bit = 1;
+                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
+                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                    bit = 0;
+                } else {
+                    columnCorr[i] = 0xFFFF; // unable to correspond
+                    continue;
+                }
+                columnCorr[i] = (columnCorr[i] << 1) | bit;
+            }]
 
-        // scan camera image, add to the correspondence for each pixel
-        [eachCameraPixel {
-            int bit;
-            if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
-                isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
-                bit = 1;
-            } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
-                       isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
-                bit = 0;
-            } else {
-                columnCorr[i] = 0xFFFF; // unable to correspond
-                continue;
-            }
-            columnCorr[i] = (columnCorr[i] << 1) | bit;
-        }]
-
-        free(codeImage);
-        free(invertedCodeImage);
-    }
-
-    // FIXME: convert column correspondences out of Gray code
-
-    // display column correspondences directly. just for fun
-    int matchCount = 0;
-    [eachCameraPixel [subst -nocommands -nobackslashes {
-        if (columnCorr[i] == 0xFFFF) {
-            uint8_t pix = blackImage[i];
-            fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
-               (((pix >> 2) & 0x3F) << 5) |
-               ((pix >> 3) & 0x1F);
-        } else {
-            matchCount++;
-            fb[(y * $Display::WIDTH) + x] = 0xF000;
+            free(codeImage);
+            free(invertedCodeImage);
         }
-    }]]
-    printf("Match count %d\n", matchCount);
+
+        // FIXME: convert column correspondences out of Gray code
+
+        // display column correspondences directly. just for fun
+        int matchCount = 0;
+        [eachCameraPixel [subst -nocommands -nobackslashes {
+            if (columnCorr[i] == 0xFFFF) {
+                uint8_t pix = blackImage[i];
+                fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
+                   (((pix >> 2) & 0x3F) << 5) |
+                   ((pix >> 3) & 0x1F);
+            } else {
+                matchCount++;
+                fb[(y * $Display::WIDTH) + x] = 0xF000;
+            }
+        }]]
+        printf("Match count %d\n", matchCount);
+    }
     
-    // FIXME: find row correspondences
+    // find row correspondences:
+    uint16_t* rowCorr;
+    {
+        // how many bits do we need in the Gray code?
+        int rowBits = ceil(log2f($Display::WIDTH));
+
+        rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
+
+        for (int k = rowBits - 1; k >= 0; k--) {
+            [eachDisplayPixel {
+                int code = toGrayCode(y);
+                *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
+            }]
+            uint8_t* codeImage = delayThenCameraCapture(interp);
+
+            [eachDisplayPixel {
+                int code = toGrayCode(y);
+                *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
+            }]
+            uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
+
+            // scan camera image, add to the correspondence for each pixel
+            [eachCameraPixel {
+                int bit;
+                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
+                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                    bit = 1;
+                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
+                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                    bit = 0;
+                } else {
+                    rowCorr[i] = 0xFFFF; // unable to correspond
+                    continue;
+                }
+                rowCorr[i] = (rowCorr[i] << 1) | bit;
+            }]
+
+            free(codeImage);
+            free(invertedCodeImage);
+        }
+    }
 }]
 
 puts "camera: $Camera::camera"
