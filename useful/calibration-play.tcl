@@ -257,22 +257,22 @@ critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp uint16_t* fb dense_
     printf("Match count %d\n", matchCount);
 }]
 
-critcl::cproc cameraToProjector {dense_t* dense int cx int cy int size} Tcl_Obj*0 {
-    // find anchor points inside the tags
-    int anchorCount = 0;
+critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj*0 {
+    // find correspondences inside the tag
+    Tcl_Obj* correspondences[2000];
+    int correspondenceCount = 0;
+
     for (int x = cx - size/2; x < cx + size/2; x++) {
         for (int y = cy - size/2; y < cy + size/2; y++) {
             int i = (y * 1280) + x;
             if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-                anchorCount++;
+                correspondences[correspondenceCount++] = Tcl_ObjPrintf("%d %d %d %d", x, y, dense->columnCorr[i], dense->rowCorr[i]);
             }
         }
     }
-    printf("anchorCount: %d\n", anchorCount);
+    printf("correspondenceCount: %d\n", correspondenceCount);
 
-    // interpolate the center among the anchor points??
-
-    return Tcl_ObjPrintf("%d %d", cx, cy);
+    return Tcl_NewListObj(correspondenceCount, correspondences);
 }
 
 puts "camera: $Camera::camera"
@@ -295,5 +295,5 @@ foreach tag $tags {
     set cy [expr int([lindex [dict get $tag center] 1])]
     set size [expr int([dict get $tag size])]
 
-    puts "cToP: [cameraToProjector $dense $cx $cy $size]"
+    puts "nearby: [findNearbyCorrespondences $dense $cx $cy $size]"
 }
