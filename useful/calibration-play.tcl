@@ -58,7 +58,7 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
 }
 
     int captureNum = 0;
-    uint8_t* delayThenCameraCapture(Tcl_Interp* interp) {
+    uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
         usleep(100000);
 
         Tcl_Eval(interp, "yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
@@ -67,9 +67,9 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
         Tcl_ResetResult(interp);
 
         captureNum++;
-        printf("capture result %d: %p\n", captureNum, image);
+        printf("capture result %d (%s): %p\n", captureNum, description, image);
         // write capture to jpeg
-        char filename[100]; snprintf(filename, 100, "capture%02d.jpg", captureNum);
+        char filename[100]; snprintf(filename, 100, "capture%02d-%s.jpg", captureNum, description);
         FILE* out = fopen(filename, "w");
         jpeg(out, image, 1280, 720, 100);
         fclose(out);
@@ -126,11 +126,11 @@ opaquePointerType dense_t*
 critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t* [subst -nobackslashes {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
-    uint8_t* whiteImage = delayThenCameraCapture(interp);
+    uint8_t* whiteImage = delayThenCameraCapture(interp, "whiteImage");
 
     // image the base scene in black
     [eachDisplayPixel { *it = 0x0000; }]
-    uint8_t* blackImage = delayThenCameraCapture(interp);
+    uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
 
     // find column correspondences:
     uint16_t* columnCorr;
@@ -145,13 +145,13 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                 int code = toGrayCode(x);
                 *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
             }]
-            uint8_t* codeImage = delayThenCameraCapture(interp);
+            uint8_t* codeImage = delayThenCameraCapture(interp, "columnCodeImage");
 
             [eachDisplayPixel {
                 int code = toGrayCode(x);
                 *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
             }]
-            uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
+            uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "columnInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
@@ -194,13 +194,13 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                 int code = toGrayCode(y);
                 *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
             }]
-            uint8_t* codeImage = delayThenCameraCapture(interp);
+            uint8_t* codeImage = delayThenCameraCapture(interp, "rowCodeImage");
 
             [eachDisplayPixel {
                 int code = toGrayCode(y);
                 *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
             }]
-            uint8_t* invertedCodeImage = delayThenCameraCapture(interp);
+            uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "rowInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
@@ -239,7 +239,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
 critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp uint16_t* fb dense_t* dense} void [subst -nobackslashes {
     // image the base scene in black for reference
     [eachDisplayPixel { *it = 0x0000; }]
-    uint8_t* blackImage = delayThenCameraCapture(interp);
+    uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
 
     // display dense correspondence directly. just for fun
     int matchCount = 0;
