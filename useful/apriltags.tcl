@@ -4,25 +4,25 @@ cd tagStandard52h13
 puts "[llength [glob *.png]] tags"
 
 set sizeInches 1
-set tagNum 00002
 proc drawTag {id sizeInches} {
-    set tagPng tag52_13_[format %-05s $id].png
+    set tagPng tag52_13_[format %05s $id].png
     puts [exec identify $tagPng]
 
-    set tagNum 2
     set sizePx [expr $sizeInches * 172]
     set outPng [exec mktemp -t test_tag_[set sizeInches]in].png
     exec convert $tagPng -filter point -resize [set sizePx]x[set sizePx] -bordercolor white -border 20 \
-        -pointsize 24 "label: $tagNum , $sizeInches in" -gravity Center \
+        -pointsize 24 "label: $id ($sizeInches in)" -gravity Center \
         -append $outPng
 
     return $outPng
 }
 
+set tagId 3
+
 set tagSizes [list 3]
 set drawnPngs [list]
 foreach tagSize $tagSizes {
-    set drawnPng [drawTag $tagNum $tagSize]
+    set drawnPng [drawTag $tagId $tagSize]
     lappend drawnPngs $drawnPng
 }
 
