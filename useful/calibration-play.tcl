@@ -166,22 +166,12 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
             free(invertedCodeImage);
         }
 
-        // FIXME: convert column correspondences out of Gray code
-
-        // display column correspondences directly. just for fun
-        int matchCount = 0;
-        [eachCameraPixel [subst -nocommands -nobackslashes {
-            if (columnCorr[i] == 0xFFFF) {
-                uint8_t pix = blackImage[i];
-                fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
-                   (((pix >> 2) & 0x3F) << 5) |
-                   ((pix >> 3) & 0x1F);
-            } else {
-                matchCount++;
-                fb[(y * $Display::WIDTH) + x] = 0xF000;
+        // convert column correspondences out of Gray code
+        [eachCameraPixel {
+            if (columnCorr[i] != 0xFFFF) {
+                columnCorr[i] = fromGrayCode(columnCorr[i]);
             }
-        }]]
-        printf("Match count %d\n", matchCount);
+        }]
     }
     
     // find row correspondences:
@@ -224,7 +214,29 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
             free(codeImage);
             free(invertedCodeImage);
         }
+
+        // convert row correspondences out of Gray code
+        [eachCameraPixel {
+            if (rowCorr[i] != 0xFFFF) {
+                rowCorr[i] = fromGrayCode(rowCorr[i]);
+            }
+        }]
     }
+
+    // display dense correspondence directly. just for fun
+    int matchCount = 0;
+    [eachCameraPixel [subst -nocommands -nobackslashes {
+        if (columnCorr[i] == 0xFFFF || rowCorr[i] == 0xFFFF) {
+            uint8_t pix = blackImage[i];
+            fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
+               (((pix >> 2) & 0x3F) << 5) |
+               ((pix >> 3) & 0x1F);
+        } else {
+            matchCount++;
+            fb[(y * $Display::WIDTH) + x] = 0xF000;
+        }
+    }]]
+    printf("Match count %d\n", matchCount);
 }]
 
 puts "camera: $Camera::camera"
