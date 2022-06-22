@@ -114,9 +114,15 @@ critcl::ccode {
     int isCloser(uint8_t it, uint8_t this, uint8_t that) {
         return abs(it - this) < abs(it - that);
     }
-}
 
-critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [subst -nobackslashes {
+    typedef struct {
+        uint16_t* columnCorr;
+        uint16_t* rowCorr;
+    } dense_t;
+}
+opaquePointerType dense_t*
+
+critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} dense_t* [subst -nobackslashes {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
     uint8_t* whiteImage = delayThenCameraCapture(interp);
@@ -237,8 +243,14 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} void [s
         }
     }]]
     printf("Match count %d\n", matchCount);
+
+    dense_t* dense = malloc(sizeof(dense_t));
+    dense->columnCorr = columnCorr;
+    dense->rowCorr = rowCorr;
+    return dense;
 }]
 
 puts "camera: $Camera::camera"
 
-findDenseCorrespondences $Display::fb
+set dense [findDenseCorrespondences $Display::fb]
+puts "dense: $dense"
