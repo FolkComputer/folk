@@ -122,7 +122,8 @@ critcl::ccode {
 }
 opaquePointerType dense_t*
 
-critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} dense_t* [subst -nobackslashes {
+# returns dense correspondence from camera space -> projector space
+critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t* [subst -nobackslashes {
     // image the base scene in white
     [eachDisplayPixel { *it = 0xFFFF; }]
     uint8_t* whiteImage = delayThenCameraCapture(interp);
@@ -229,10 +230,21 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} dense_t
         }]
     }
 
+    dense_t* dense = malloc(sizeof(dense_t));
+    dense->columnCorr = columnCorr;
+    dense->rowCorr = rowCorr;
+    return dense;
+}]
+
+critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp uint16_t* fb dense_t* dense} void [subst -nobackslashes {
+    // image the base scene in black for reference
+    [eachDisplayPixel { *it = 0x0000; }]
+    uint8_t* blackImage = delayThenCameraCapture(interp);
+
     // display dense correspondence directly. just for fun
     int matchCount = 0;
     [eachCameraPixel [subst -nocommands -nobackslashes {
-        if (columnCorr[i] == 0xFFFF || rowCorr[i] == 0xFFFF) {
+        if (dense->columnCorr[i] == 0xFFFF || dense->rowCorr[i] == 0xFFFF) {
             uint8_t pix = blackImage[i];
             fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
                (((pix >> 2) & 0x3F) << 5) |
@@ -243,17 +255,31 @@ critcl::cproc findDenseCorrespondences {Tcl_Interp* interp uint16_t* fb} dense_t
         }
     }]]
     printf("Match count %d\n", matchCount);
-
-    dense_t* dense = malloc(sizeof(dense_t));
-    dense->columnCorr = columnCorr;
-    dense->rowCorr = rowCorr;
-    return dense;
 }]
+
+critcl::cproc cameraToProjector {dense_t* dense int cx int cy int size} Tcl_Obj*0 {
+    // find anchor points inside the tags
+    int anchorCount = 0;
+    for (int x = cx - size/2; x < cx + size/2; x++) {
+        for (int y = cy - size/2; y < cy + size/2; y++) {
+            int i = (y * 1280) + x;
+            if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+                anchorCount++;
+            }
+        }
+    }
+    printf("anchorCount: %d\n", anchorCount);
+
+    // interpolate the center among the anchor points??
+
+    return Tcl_ObjPrintf("%d %d", cx, cy);
+}
 
 puts "camera: $Camera::camera"
 
-set dense [findDenseCorrespondences $Display::fb]
+set dense [findDenseCorrespondence $Display::fb]
 puts "dense: $dense"
+displayDenseCorrespondence $Display::fb $dense
 
 AprilTags::init
 
@@ -262,3 +288,12 @@ set grayFrame [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]
 set tags [AprilTags::detect $grayFrame]
 freeGray $grayFrame
 puts "tags: $tags"
+
+foreach tag $tags {
+    # these are in camera space
+    set cx [expr int([lindex [dict get $tag center] 0])]
+    set cy [expr int([lindex [dict get $tag center] 1])]
+    set size [expr int([dict get $tag size])]
+
+    puts "cToP: [cameraToProjector $dense $cx $cy $size]"
+}
