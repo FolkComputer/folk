@@ -254,3 +254,11 @@ puts "camera: $Camera::camera"
 
 set dense [findDenseCorrespondences $Display::fb]
 puts "dense: $dense"
+
+AprilTags::init
+
+set frame [Camera::frame]
+set grayFrame [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]
+set tags [AprilTags::detect $grayFrame]
+freeGray $grayFrame
+puts "tags: $tags"
