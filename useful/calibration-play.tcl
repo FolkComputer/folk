@@ -61,7 +61,7 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
         usleep(100000);
 
-        Tcl_Eval(interp, "yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
+        Tcl_Eval(interp, "Camera::frame; Camera::frame; Camera::frame; Camera::frame; yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
