@@ -242,19 +242,20 @@ critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp uint16_t* fb dense_
     uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
 
     // display dense correspondence directly. just for fun
-    int matchCount = 0;
     [eachCameraPixel [subst -nocommands -nobackslashes {
-        if (dense->columnCorr[i] == 0xFFFF || dense->rowCorr[i] == 0xFFFF) {
+        if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
             uint8_t pix = blackImage[i];
             fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
                (((pix >> 2) & 0x3F) << 5) |
                ((pix >> 3) & 0x1F);
-        } else {
-            matchCount++;
-            fb[(y * $Display::WIDTH) + x] = 0xF000;
+        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+            fb[(y * $Display::WIDTH) + x] = 0x00F0; // row-only match
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
+            fb[(y * $Display::WIDTH) + x] = 0x0F00; // column-only match
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+            fb[(y * $Display::WIDTH) + x] = 0xF000; // red -- double match
         }
     }]]
-    printf("Match count %d\n", matchCount);
 }]
 
 critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj*0 {
