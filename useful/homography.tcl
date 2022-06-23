@@ -25,22 +25,24 @@ set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
 
 lassign [math::linearalgebra::solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
 
-set H [subst {
+set ::H [subst {
     {$a0 $a1 $a2}
     {$b0 $b1 $b2}
     {$c0 $c1 1}
 }]
 
-puts "H $H"
+proc cameraToProjector {cameraPoint} {
+    lassign [math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
+    set Hx [expr $Hx / $Hz]
+    set Hy [expr $Hy / $Hz]
+    return [list $Hx $Hy]
+}
 
 proc testPoint {i} {
     upvar points points
-    upvar H H
     puts "(x$i, y$i) = ([lindex $points $i 0], [lindex $points $i 1])"
     puts "(u$i, v$i) = ([lindex $points $i 2], [lindex $points $i 3])"
-    lassign [math::linearalgebra::matmul $H [list [lindex $points $i 0] [lindex $points $i 1] 1]] Hx Hy Hz
-    set Hx [expr $Hx / $Hz]
-    set Hy [expr $Hy / $Hz]
+    lassign [cameraToProjector [lindex $points $i]] Hx Hy
     puts "H(x$i, y$i) = ($Hx, $Hy)"
 }
 testPoint 0
