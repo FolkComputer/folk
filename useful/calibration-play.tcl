@@ -155,6 +155,8 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
+                if (columnCorr[i] == 0xFFFF) continue;
+
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
                     isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
@@ -163,8 +165,12 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                            isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 0;
                 } else {
-                    columnCorr[i] = 0xFFFF; // unable to correspond
-                    continue;
+                    if (k == 0 || k == 1 || k == 2) {
+                        bit = 0;
+                    } else {
+                        columnCorr[i] = 0xFFFF; // unable to correspond
+                        continue;
+                    }
                 }
                 columnCorr[i] = (columnCorr[i] << 1) | bit;
             }]
@@ -204,6 +210,8 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
+                if (rowCorr[i] == 0xFFFF) continue;
+                
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
                     isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
@@ -212,8 +220,12 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                            isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 0;
                 } else {
-                    rowCorr[i] = 0xFFFF; // unable to correspond
-                    continue;
+                    if (k == 0 || k == 1 || k == 2) {
+                        bit = 0;
+                    } else {
+                        rowCorr[i] = 0xFFFF; // unable to correspond
+                        continue;
+                    }
                 }
                 rowCorr[i] = (rowCorr[i] << 1) | bit;
             }]
