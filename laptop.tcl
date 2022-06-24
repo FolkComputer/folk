@@ -111,6 +111,16 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
             handleConfigure $program %x %y %w %h
         }
     }]
+    bind .$program <Destroy> [subst -nocommands {
+        if {"%W" eq [winfo toplevel %W]} {
+            puts "destroy $program"
+            # temporarily unbind this program
+            # (if it's a file, it'll still survive on disk when you restart the system)
+            Retract "laptop.tcl" claims $program has program code /something/
+            Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
+            StepFromGUI
+        }
+    }]
 
     handleSave $program $programFilename
 }
