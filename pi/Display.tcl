@@ -51,7 +51,7 @@ critcl::resulttype Vec2i {
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
     return TCL_OK;
 } Vec2i
-critcl::cproc fillTriangle {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
@@ -105,6 +105,8 @@ namespace eval Display {
     variable white [binary format b16 [join {11111 111111 11111} ""]]
 
     variable fb
+
+    package require math::linearalgebra
     
     # functions
     # ---------
@@ -116,8 +118,26 @@ namespace eval Display {
     proc fillRect {fb x0 y0 x1 y1 color} {
         fillRectangle [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
     }
-    proc fillScreen {fb color} {
-        fillRectangle $fb 0 0 $Display::WIDTH $Display::HEIGHT $color
+    proc fillTriangle {p0 p1 p2 color} {
+        fillTriangleImpl $p0 $p1 $p2 $color
+    }
+    proc stroke {points width color} {
+        for {set i 0} {i < [llength $points]} {incr i 2} {
+            set a [lindex $points $i]
+            set b [lindex $points [expr $i+1]]
+            if {b == ""} break
+
+            set bMinusA [math::linearalgebra::sub $b $a]
+            set nudge [[lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
+            set nudge [math::linearalgebra::scale $width [math::linearalgebra::unitLengthVector $nudge]]
+
+            set a0 [math::linearalgebra::add $a $nudge]
+            set a1 [math::linearalgebra::sub $a $nudge]
+            set b0 [math::linearalgebra::add $b $nudge]
+            set b1 [math::linearalgebra::sub $b $nudge]
+            fillTriangle $a0 $a1 $b1 $color
+            fillTriangle $a0 $b0 $b1 $color
+        }
     }
 
     proc text {fb x y fontSize text} {

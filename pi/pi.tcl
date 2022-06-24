@@ -12,14 +12,15 @@ namespace eval Display {
     variable displayList [list]
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        lappend Display::displayList "Display::fillRect $fb $x0 $y0 $x1 $y1 $color"
+        lappend Display::displayList [list Display::fillRect $fb $x0 $y0 $x1 $y1 $color]
     }
-    proc fillScreen {fb color} {
-        lappend Display::displayList "Display::fillScreen $fb $color"
+
+    proc stroke {points width color} {
+        lappend Display::displayList [list Display::stroke $points $width $color]
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList "Display::text $fb $x $y $fontSize {$text}"
+        lappend Display::displayList [list Display::text $fb $x $y $fontSize $text]
     }
 
     proc commit {} {
