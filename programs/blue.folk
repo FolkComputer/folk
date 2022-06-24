@@ -37,7 +37,7 @@ proc cameraToProjector {cameraPoint} {
     set Hy [expr $Hy / $Hz]
     return [list $Hx $Hy]
 }
-Wish $this is highlighted blue
+Wish $this is highlighted white
 
 When tag /tag/ has center /c/ size /size/ {
 	lassign [cameraToProjector $c] px py
@@ -46,3 +46,7 @@ When tag /tag/ has center /c/ size /size/ {
 	Wish $tag is labelled "tag $tag at $px $py"
 }
 
+When tag /tag/ has corners /corners/ {
+	set corners [lmap p $corners {cameraToProjector $p}]
+	Display::stroke $corners 2 green
+}
