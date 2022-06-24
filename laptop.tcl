@@ -18,14 +18,15 @@ namespace eval Display {
     proc init {} {}
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        lappend Display::displayList ".display create rectangle $x0 $y0 $x1 $y1 -fill $color"
+        lappend Display::displayList [list .display create rectangle $x0 $y0 $x1 $y1 -fill $color]
     }
-    proc fillScreen {fb color} {
-        lappend Display::displayList "fillRect $fb 0 0 $Display::WIDTH $Display::HEIGHT $color"
+
+    proc stroke {points width color} {
+        lappend Display::displayList [list .display create line {*}[join $points] -fill $color]
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList ".display create text $x $y -text {$text} -font \"Helvetica $fontSize\" -fill white"
+        lappend Display::displayList [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]
     }
 
     proc commit {} {
