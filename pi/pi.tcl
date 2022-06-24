@@ -48,6 +48,7 @@ set cameraThread [thread::create [format {
 
         set commands [list "Retract camera claims the camera frame is /something/" \
                           "Assert camera claims the camera frame is \"$frame\"" \
+                          "Retract camera claims tag /something/ has corners /something/" \
                           "Retract camera claims tag /something/ has center /something/ size /something/"]
 
         set grayFrame [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]
@@ -55,10 +56,9 @@ set cameraThread [thread::create [format {
         freeGray $grayFrame
 
         foreach tag $tags {
-            lappend commands "Assert camera claims tag [dict get $tag id] has center {[dict get $tag center]} size [dict get $tag size]"
+            lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
+            lappend commands [list Assert camera claims tag [dict get $tag id] has corners [dict get $tag corners]]
         }
-
-        # lappend commands "Step {}"
 
         # send this script back to the main Folk thread
         thread::send -async "%s" [join $commands "\n"]

@@ -118,17 +118,20 @@ namespace eval Display {
     proc fillRect {fb x0 y0 x1 y1 color} {
         fillRectangle [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
     }
+    proc vec2i {p} {
+        return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
+    }
     proc fillTriangle {p0 p1 p2 color} {
-        fillTriangleImpl $p0 $p1 $p2 $color
+        fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [set Display::$color]
     }
     proc stroke {points width color} {
-        for {set i 0} {i < [llength $points]} {incr i 2} {
+        for {set i 0} {$i < [llength $points]} {incr i 2} {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
-            if {b == ""} break
+            if {$b == ""} break
 
             set bMinusA [math::linearalgebra::sub $b $a]
-            set nudge [[lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
+            set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
             set nudge [math::linearalgebra::scale $width [math::linearalgebra::unitLengthVector $nudge]]
 
             set a0 [math::linearalgebra::add $a $nudge]
