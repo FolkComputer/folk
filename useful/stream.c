@@ -284,12 +284,28 @@ int main()
   while (1) {
       camera_frame(camera, timeout);
 
+      struct jpeg_decompress_struct cinfo;
+      struct jpeg_error_mgr jerr;
+      cinfo.err = jpeg_std_error(&jerr);
+      jpeg_create_decompress(&cinfo);
+      jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
+      if (jpeg_read_header(&cinfo, TRUE) != 1) {
+          printf("Fail\n");
+          exit(1);
+      }
+      jpeg_start_decompress(&cinfo);
+      printf("w %d h %d pixel_size %d\n", cinfo.output_width, cinfo.output_height, cinfo.output_components);
+
       unsigned char* rgb = 
-          yuyv2rgb(camera->head.start, camera->width, camera->height);
-      
-      /*     FILE* out = fopen("result.jpg", "w"); */
-      /* jpeg(out, rgb, camera->width, camera->height, 100); */
-      /* fclose(out); */
+          malloc(camera->width * camera->height * cinfo.output_components);
+
+      while (cinfo.output_scanline < cinfo.output_height) {
+          unsigned char *buffer_array[1];
+          buffer_array[0] = rgb + (cinfo.output_scanline) * camera->width * cinfo.output_components;
+          jpeg_read_scanlines(&cinfo, buffer_array, 1);
+      }
+      jpeg_finish_decompress(&cinfo);
+      jpeg_destroy_decompress(&cinfo);
 
       for (int y = 0; y < camera->height; y++) {
           for (int x = 0; x < camera->width; x++) {
