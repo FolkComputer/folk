@@ -3,3 +3,6 @@ detect: detect.c
 
 run-detect: detect
 	LD_LIBRARY_PATH=/home/pi/apriltag ./detect
+
+stream: stream.c
+	cc stream.c -ljpeg -o stream

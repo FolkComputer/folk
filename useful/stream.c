@@ -93,7 +93,7 @@ void camera_init(camera_t* camera) {
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   format.fmt.pix.width = camera->width;
   format.fmt.pix.height = camera->height;
-  format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+  format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
   format.fmt.pix.field = V4L2_FIELD_NONE;
   if (xioctl(camera->fd, VIDIOC_S_FMT, &format) == -1) quit("VIDIOC_S_FMT");
 
@@ -263,7 +263,7 @@ unsigned short* fbmem;
 
 int main()
 {
-  camera_t* camera = camera_open("/dev/video0", 1280, 720);
+  camera_t* camera = camera_open("/dev/video0", 1920, 1080);
   camera_init(camera);
   camera_start(camera);
   
