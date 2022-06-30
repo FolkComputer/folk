@@ -296,7 +296,7 @@ int main()
       jpeg_start_decompress(&cinfo);
       printf("w %d h %d pixel_size %d\n", cinfo.output_width, cinfo.output_height, cinfo.output_components);
 
-      unsigned char* rgb = 
+      uint8_t* rgb = 
           malloc(camera->width * camera->height * cinfo.output_components);
 
       while (cinfo.output_scanline < cinfo.output_height) {
@@ -313,7 +313,12 @@ int main()
               uint8_t r = rgb[i];
               uint8_t g = rgb[i + 1];
               uint8_t b = rgb[i + 2];
-              fbmem[((y + 300) * SCREEN_WIDTH) + (x + 300)] =
+
+              int screenY = y + 300;
+              int screenX = x + 300;
+              if (screenY >= SCREEN_HEIGHT || screenX >= SCREEN_WIDTH) continue;
+
+              fbmem[(screenY * SCREEN_WIDTH) + screenX] =
                   (((r >> 3) & 0x1F) << 11) |
                   ((g & 0x3F) << 5) |
                   ((b >> 3) & 0x1F);
