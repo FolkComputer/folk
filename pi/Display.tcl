@@ -125,7 +125,7 @@ namespace eval Display {
         fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [set Display::$color]
     }
     proc stroke {points width color} {
-        for {set i 0} {$i < [llength $points]} {incr i 2} {
+        for {set i 0} {$i < [llength $points]} {incr i} {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
             if {$b == ""} break
