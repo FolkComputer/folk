@@ -163,11 +163,9 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                 if (columnCorr[i] == 0xFFFF) continue;
 
                 int bit;
-                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
-                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 1;
-                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
-                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
                     if (k == 0 || k == 1 || k == 2) {
@@ -218,11 +216,9 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                 if (rowCorr[i] == 0xFFFF) continue;
                 
                 int bit;
-                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
-                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 1;
-                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
-                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
                     if (k == 0 || k == 1 || k == 2) {
