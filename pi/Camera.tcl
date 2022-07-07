@@ -206,14 +206,17 @@ critcl::cproc freeImage {uint8_t* image} void {
 }
 
 opaquePointerType uint16_t*
-critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width int height} void {
+critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
               int i = (y * width + x);
               uint8_t r = im[i];
               uint8_t g = im[i];
               uint8_t b = im[i];
-              fbmem[((y + 300) * fbwidth) + (x + 300)] =
+              int fbx = x + 300;
+              int fby = y + 300;
+              if (fbx >= fbwidth || fby >= fbheight) continue;
+              fbmem[(fby * fbwidth) + fbx] =
                   (((r >> 3) & 0x1F) << 11) |
                   (((g >> 2) & 0x3F) << 5) |
                   ((b >> 3) & 0x1F);
@@ -252,6 +255,8 @@ if {$::argv0 eq [info script]} {
     source pi/Display.tcl
     Display::init
 
+    # Camera::init 3840 2160
+    # Camera::init 1280 720
     Camera::init 1920 1080
     puts "camera: $Camera::camera"
 
@@ -261,7 +266,7 @@ if {$::argv0 eq [info script]} {
         set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]
         # puts "gray: $gray"
         freeImage $rgb
-        drawGrayImage $Display::fb $Display::WIDTH $gray $Camera::WIDTH $Camera::HEIGHT
+        drawGrayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
         freeImage $gray
     }
 }
