@@ -8,7 +8,7 @@ source "pi/Display.tcl"
 source "pi/Camera.tcl"
 
 Display::init
-Camera::init
+Camera::init 3840 2160
 
 opaquePointerType uint16_t*
 
@@ -61,17 +61,22 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
         usleep(100000);
 
-        Tcl_Eval(interp, "Camera::frame; Camera::frame; Camera::frame; Camera::frame; yuyv2gray [Camera::frame] $Camera::WIDTH $Camera::HEIGHT");
+        Tcl_Eval(interp, "freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]; freeImage $rgb; return $gray");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
 
+        Tcl_Eval(interp, "set Camera::WIDTH");
+        int width; Tcl_GetInt(interp, Tcl_GetStringResult(interp), &width); Tcl_ResetResult(interp);
+        Tcl_Eval(interp, "set Camera::HEIGHT");
+        int height; Tcl_GetInt(interp, Tcl_GetStringResult(interp), &height); Tcl_ResetResult(interp);
+
         captureNum++;
-        printf("capture result %d (%s): %p\n", captureNum, description, image);
+        printf("capture result %d (%s): %p (%dx%d)\n", captureNum, description, image, width, height);
         // write capture to jpeg
         char filename[100]; snprintf(filename, 100, "capture%02d-%s.jpg", captureNum, description);
         FILE* out = fopen(filename, "w");
-        jpeg(out, image, 1280, 720, 100);
+        jpeg(out, image, width, height, 100);
         fclose(out);
 
         return image;
