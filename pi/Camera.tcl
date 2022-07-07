@@ -3,7 +3,7 @@ source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
 critcl::cflags -I/home/pi/apriltag -Wall -Werror
-critcl::clibraries /home/pi/apriltag/libapriltag.a
+critcl::clibraries /home/pi/apriltag/libapriltag.a /usr/lib/arm-linux-gnueabihf/libjpeg.so.62
 critcl::ccode {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -21,6 +21,8 @@ critcl::ccode {
 
     #include <stdint.h>
     #include <stdlib.h>
+
+    #include <jpeglib.h>
 
     typedef struct {
         uint8_t* start;
@@ -81,7 +83,7 @@ critcl::cproc cameraInit {camera_t* camera} void {
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     format.fmt.pix.width = camera->width;
     format.fmt.pix.height = camera->height;
-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+    format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
     format.fmt.pix.field = V4L2_FIELD_NONE;
     if (xioctl(camera->fd, VIDIOC_S_FMT, &format) == -1) quit("VIDIOC_S_FMT");
 
@@ -161,24 +163,46 @@ critcl::cproc cameraFrame {camera_t* camera} int {
     return camera_capture(camera);
 }
 
-critcl::cproc cameraHeadImage {camera_t* camera} uint8_t* {
-    return camera->head.start;
+critcl::cproc cameraDecompressRgb {camera_t* camera} uint8_t* {
+      struct jpeg_decompress_struct cinfo;
+      struct jpeg_error_mgr jerr;
+      cinfo.err = jpeg_std_error(&jerr);
+      jpeg_create_decompress(&cinfo);
+      jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
+      if (jpeg_read_header(&cinfo, TRUE) != 1) {
+          printf("Fail\n");
+          exit(1);
+      }
+      jpeg_start_decompress(&cinfo);
+
+      uint8_t* rgb = 
+          malloc(camera->width * camera->height * cinfo.output_components);
+
+      while (cinfo.output_scanline < cinfo.output_height) {
+          unsigned char *buffer_array[1];
+          buffer_array[0] = rgb + (cinfo.output_scanline) * camera->width * cinfo.output_components;
+          jpeg_read_scanlines(&cinfo, buffer_array, 1);
+      }
+      jpeg_finish_decompress(&cinfo);
+      jpeg_destroy_decompress(&cinfo);
+
+    return rgb;
 }
-critcl::cproc yuyv2gray {uint8_t* yuyv int width int height} uint8_t* {
-  uint8_t* gray = calloc(width * height, sizeof (uint8_t));
-  for (size_t i = 0; i < height; i++) {
-    for (size_t j = 0; j < width; j += 2) {
-      size_t index = i * width + j;
-      int y0 = yuyv[index * 2 + 0];
-      int y1 = yuyv[index * 2 + 2];
-      gray[index] = y0; 
-      gray[index + 1] = y1;
+critcl::cproc rgbToGray {uint8_t* rgb int width int height} uint8_t* {
+    uint8_t* gray = calloc(width * height, sizeof (uint8_t));
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int i = (y * width + x) * 3;
+            uint8_t r = rgb[i];
+            uint8_t g = rgb[i + 1];
+            uint8_t b = rgb[i + 2];
+            gray[y * width + x] = 0.299*r + 0.587*g + 0.114*b;
+        }
     }
-  }
-  return gray;
+    return gray;
 }
-critcl::cproc freeGray {uint8_t* gray} void {
-  free(gray);
+critcl::cproc freeImage {uint8_t* image} void {
+  free(image);
 }
 
 opaquePointerType uint16_t*
@@ -217,11 +241,11 @@ namespace eval Camera {
 
     proc frame {} {
         cameraFrame $Camera::camera
-        return [cameraHeadImage $Camera::camera]
+        return [cameraDecompressRgb $Camera::camera]
     }
 }
 
-catch {if {$::argv0 eq [info script]} {
+if {$::argv0 eq [info script]} {
     source pi/Display.tcl
     Display::init
 
@@ -229,12 +253,15 @@ catch {if {$::argv0 eq [info script]} {
     puts "camera: $Camera::camera"
 
     while true {
-        set im [yuyv2gray [Camera::frame] 1280 720]
-        puts $im
-        drawGrayImage $Display::fb $Display::WIDTH $im 1280 720
-        freeGray $im
+        set rgb [Camera::frame]
+        puts "rgb: $rgb"
+        set gray [rgbToGray $rgb 1280 720]
+        puts "gray: $gray"
+        freeImage $rgb
+        drawGrayImage $Display::fb $Display::WIDTH $gray 1280 720
+        freeImage $gray
     }
-}}
+}
 
 
 

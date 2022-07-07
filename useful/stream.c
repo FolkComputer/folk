@@ -242,7 +242,7 @@ unsigned short* fbmem;
 
 int main()
 {
-  camera_t* camera = camera_open("/dev/video0", 1920, 1080);
+  camera_t* camera = camera_open("/dev/video0", 3840, 2160);
   camera_init(camera);
   camera_start(camera);
   
@@ -273,7 +273,6 @@ int main()
           exit(1);
       }
       jpeg_start_decompress(&cinfo);
-      printf("w %d h %d pixel_size %d\n", cinfo.output_width, cinfo.output_height, cinfo.output_components);
 
       uint8_t* rgb = 
           malloc(camera->width * camera->height * cinfo.output_components);
