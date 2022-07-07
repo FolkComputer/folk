@@ -23,6 +23,8 @@
 
 #include <jpeglib.h>
 
+#define USE_YUYV_IMAGE 1
+
 void quit(const char * msg)
 {
   fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
@@ -93,7 +95,11 @@ void camera_init(camera_t* camera) {
   format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   format.fmt.pix.width = camera->width;
   format.fmt.pix.height = camera->height;
+#ifdef USE_YUYV_IMAGE
+  format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+#else
   format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+#endif
   format.fmt.pix.field = V4L2_FIELD_NONE;
   if (xioctl(camera->fd, VIDIOC_S_FMT, &format) == -1) quit("VIDIOC_S_FMT");
 
@@ -263,7 +269,11 @@ unsigned short* fbmem;
 
 int main()
 {
+#ifdef USE_YUYV_IMAGE
+  camera_t* camera = camera_open("/dev/video0", 1280, 720);
+#else
   camera_t* camera = camera_open("/dev/video0", 1920, 1080);
+#endif
   camera_init(camera);
   camera_start(camera);
   
@@ -284,6 +294,10 @@ int main()
   while (1) {
       camera_frame(camera, timeout);
 
+#ifdef USE_YUYV_IMAGE
+       unsigned char* rgb = 
+          yuyv2rgb(camera->head.start, camera->width, camera->height);
+#else
       struct jpeg_decompress_struct cinfo;
       struct jpeg_error_mgr jerr;
       cinfo.err = jpeg_std_error(&jerr);
@@ -306,6 +320,7 @@ int main()
       }
       jpeg_finish_decompress(&cinfo);
       jpeg_destroy_decompress(&cinfo);
+#endif
 
       for (int y = 0; y < camera->height; y++) {
           for (int x = 0; x < camera->width; x++) {
@@ -317,6 +332,10 @@ int main()
               int screenY = y + 300;
               int screenX = x + 300;
               if (screenY >= SCREEN_HEIGHT || screenX >= SCREEN_WIDTH) continue;
+
+              /* if (i < 10) { */
+              /*     printf("r = %d; g = %d; b = %d\n", r, g, b); */
+              /* } */
 
               fbmem[(screenY * SCREEN_WIDTH) + screenX] =
                   (((r >> 3) & 0x1F) << 11) |
