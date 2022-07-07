@@ -222,12 +222,15 @@ critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth uint8_t* im int width i
 }
 
 namespace eval Camera {
-    variable WIDTH 1280
-    variable HEIGHT 720
-
     variable camera
 
-    proc init {} {
+    variable WIDTH
+    variable HEIGHT
+
+    proc init {width height} {
+        set Camera::WIDTH $width
+        set Camera::HEIGHT $height
+        
         set camera [cameraOpen "/dev/video0" $Camera::WIDTH $Camera::HEIGHT]
         cameraInit $camera
         cameraStart $camera
@@ -249,16 +252,16 @@ if {$::argv0 eq [info script]} {
     source pi/Display.tcl
     Display::init
 
-    Camera::init
+    Camera::init 1920 1080
     puts "camera: $Camera::camera"
 
     while true {
         set rgb [Camera::frame]
-        puts "rgb: $rgb"
-        set gray [rgbToGray $rgb 1280 720]
-        puts "gray: $gray"
+        # puts "rgb: $rgb"
+        set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]
+        # puts "gray: $gray"
         freeImage $rgb
-        drawGrayImage $Display::fb $Display::WIDTH $gray 1280 720
+        drawGrayImage $Display::fb $Display::WIDTH $gray $Camera::WIDTH $Camera::HEIGHT
         freeImage $gray
     }
 }
