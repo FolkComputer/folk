@@ -40,10 +40,12 @@ namespace eval Display {
 # Camera thread
 set cameraThread [thread::create [format {
     source pi/Camera.tcl
-    Camera::init
+    Camera::init 1280 720
     AprilTags::init
 
+    set frame 0
     while true {
+        if {$frame != 0} {freeImage $frame}
         set frame [Camera::frame]
 
         set commands [list "Retract camera claims the camera frame is /something/" \
@@ -51,9 +53,9 @@ set cameraThread [thread::create [format {
                           "Retract camera claims tag /something/ has corners /something/" \
                           "Retract camera claims tag /something/ has center /something/ size /something/"]
 
-        set grayFrame [yuyv2gray $frame $Camera::WIDTH $Camera::HEIGHT]
+        set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
         set tags [AprilTags::detect $grayFrame]
-        freeGray $grayFrame
+        freeImage $grayFrame
 
         foreach tag $tags {
             lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]

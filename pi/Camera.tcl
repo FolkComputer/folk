@@ -251,7 +251,7 @@ namespace eval Camera {
     }
 }
 
-if {$::argv0 eq [info script]} {
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
     source pi/Display.tcl
     Display::init
 

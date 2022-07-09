@@ -242,7 +242,7 @@ unsigned short* fbmem;
 
 int main()
 {
-  camera_t* camera = camera_open("/dev/video0", 3840, 2160);
+  camera_t* camera = camera_open("/dev/video0", 1280, 720);
   camera_init(camera);
   camera_start(camera);
   
