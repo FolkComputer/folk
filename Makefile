@@ -16,4 +16,4 @@ Folk.app:
 
 NODE := localhost
 view-statements:
-	echo viewStatements | nc $(NODE) 4273
+	echo viewStatements | nc -w 1 $(NODE) 4273
