@@ -103,7 +103,7 @@ proc evaluate {} {
 
 
 # pretty-prints latest statement set
-proc viewStatements {} {
+proc showStatements {} {
     return [join [lmap statement [dict keys $::statements] {
         lmap word $statement {expr {
             [string length $word] > 20 ?
@@ -111,6 +111,9 @@ proc viewStatements {} {
             $word
         }}
     }] "\n"]
+}
+proc showWhens {} {
+    return [join [lmap when $::whens {lindex $when 0}] "\n"]
 }
 proc accept {chan addr port} {
     # (mostly for the Pi)

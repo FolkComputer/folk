@@ -15,5 +15,7 @@ Folk.app:
 	cd /tmp; tclsh ~/Downloads/sdx*kit wrap folk -runtime $(TCLKIT)
 
 NODE := localhost
-view-statements:
-	echo viewStatements | nc -w 1 $(NODE) 4273
+show-statements:
+	echo showStatements | nc -w 1 $(NODE) 4273
+show-whens:
+	echo showWhens | nc -w 1 $(NODE) 4273
