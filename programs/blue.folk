@@ -1,10 +1,10 @@
 package require math::linearalgebra
 
 set points {
-    {441 168 1230 480}
-    {347 376 820 1340}
-    {834 200 2830 490}
-    {749 420 2560 1460}
+	{803 508 2830 2000}
+	{313 68 834 200}
+	{364 506 834 2000}
+	{831 174 2830 490}
 }
 for {set i 0} {$i < [llength $points]} {incr i} {
     lassign [lindex $points $i] x$i y$i u$i v$i
@@ -55,4 +55,4 @@ When tag /tag/ has corners /corners/ {
 		Display::text fb $x $y 10 $tag
 	}
 }
- 
+
