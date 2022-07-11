@@ -1,0 +1,12 @@
+set projectorPoints {
+	{2830 490}
+	{2830 2000}
+	{834 200}
+	{834 2000}
+}
+for {set i 0} {$i < [llength $projectorPoints]} {incr i} {
+	lassign [lindex $projectorPoints $i] px py
+	Claim "tag overlay $i" is a rectangle with x $px y $py width 20 height 20
+	Wish "tag overlay $i" is highlighted blue
+	Wish "tag overlay $i" is labelled "overlay $i ($px, $py)"
+}
