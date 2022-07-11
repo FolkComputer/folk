@@ -28,14 +28,6 @@ proc When {args} {
     }]
     lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
 }
-proc With {_all matches _for args} {
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
-
-    # FIXME: lappend ::withs
-    # run withs when all else is resolved
-    # then do another evaluation round
-}
 
 set ::assertedStatementsFrom [dict create]
 proc Assert {args} {
@@ -185,44 +177,6 @@ Always {
     # this defines $this in the contained scopes
     When /this/ has program code /code/ {
         eval $code
-    }
-}
-
-# we probably don't need this
-after 0 { Step {} }
-
-# With all matches -> clear screen, do rendering
-# or When unmatched -> clear that thing
-# or just have a custom frame hook that pi.tcl can hit
-
-after 200 {
-    Step {
-        puts Step1
-        Claim the fox is out
-        Claim the dog is out
-        When the /animal/ is out {
-            When the /animal/ is around {
-                puts "the $animal is around"
-            }
-            puts "there is a $animal out there somewhere"
-            Claim the $animal is around
-        }
-    }
-}
-
-after 400 {
-    Step {
-        puts Step2
-
-        Claim "rect1" is a rectangle with x 300 y 400 width 50 height 60
-        Wish "rect1" is highlighted green
-
-        Claim "rect2" is a rectangle with x 100 y 160 width 20 height 20
-        Wish "rect2" is highlighted blue
-
-        When "rect2" points up at "rect1" { # FIXME
-            puts "points up"
-        }
     }
 }
 
