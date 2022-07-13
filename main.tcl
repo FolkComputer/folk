@@ -166,6 +166,7 @@ proc StepImpl {cb} {
     # (for now, draw all the graphics requests)
     Display::commit
 }
+set ::stepTime "none"
 proc Step {cb} {
     set ::stepTime [time {StepImpl $cb}]
 }
