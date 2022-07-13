@@ -3,15 +3,20 @@ catch {
     starkit::startup
 }
 
-set ::whenTree [dict create]
+set ::statementsTrie [dict create]
+
+proc addStatement {s} {
+    dict set ::statements $s true
+    dict set ::statementsTrie {*}$s LEAF
+}
 
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
-    dict set ::statements [list someone claims {*}$args] true
+    addStatement [list someone claims {*}$args]
 }
 proc Wish {args} {
     # TODO: get the caller instead of `someone`
-    dict set ::statements [list someone wishes {*}$args] true
+    addStatement [list someone wishes {*}$args]
 }
 
 proc When {args} {
@@ -31,7 +36,6 @@ proc When {args} {
     set when [list WHEN $clause $cb [dict merge $::currentMatchStack $locals]]
 
     lappend ::whens $when
-    dict set ::whenTree {*}$clause $when
 }
 
 set ::assertedStatementsFrom [dict create]
@@ -111,21 +115,24 @@ proc showStatements {} {
 proc showWhens {} {
     return [join [lmap when $::whens {lindex $when 0}] "\n"]
 }
-proc showWhenTree {} {
-    proc showWhenSubtree {root subtree} {
+proc showStatementsTrie {} {
+    proc showStatementsSubtrie {root subtrie} {
         set dot [list]
-        foreach key [dict keys $subtree] {
+        foreach key [dict keys $subtrie] {
             if {$root != ""} {
-                lappend dot "\"$root\" -> \"$key\";"
+                set shortKey [expr {[string length $key] > 100 ?
+                                    "[string range $key 0 50]..." :
+                                    $key}]
+                lappend dot "\"$root\" -> \"$shortKey\";"
             }
-            set value [dict get $subtree $key]
-            if {[lindex $value 0] != "WHEN"} {
-                lappend dot [showWhenSubtree $key $value]
+            set value [dict get $subtrie $key]
+            if {[lindex $value 0] != "LEAF"} {
+                lappend dot [showStatementsSubtrie $key $value]
             }
         }
         return [join $dot "\n"]
     }
-    return "digraph { [showWhenSubtree {} $::whenTree] }"
+    return "digraph { rankdir=LR; [showStatementsSubtrie {} $::statementsTrie] }"
 }
 proc accept {chan addr port} {
     # (mostly for the Pi)
@@ -159,7 +166,10 @@ proc Always {cb} {
 }
 proc StepImpl {cb} {
     # clear the statement set
-    set ::statements [dict merge {*}[dict values $::assertedStatementsFrom]]
+    set ::statements [dict create]
+    dict for {s _} [dict merge {*}[dict values $::assertedStatementsFrom]] {
+        addStatement $s
+    }
     set ::whens [list]
 
     set ::currentMatchStack [dict create]
@@ -167,23 +177,12 @@ proc StepImpl {cb} {
     foreach alwaysCb $::alwaysCbs {uplevel 1 $alwaysCb}
     uplevel 1 $cb
 
-    # event: an incoming statement bundle
-    # a statement bundle includes statements and statement-retractions
-    # do peers need to connect? or is it like a message thing?
-    # there needs to be a persistent statement database?
-
     while 1 {
         set prevStatements $::statements
         evaluate
         if {$::statements eq $prevStatements} break ;# fixpoint
     }
 
-    # is there an effect set that comes out of the frame?
-
-    # puts $::statements
-
-    # stream effects/output statement set outward?
-    # (for now, draw all the graphics requests)
     Display::commit
 }
 set ::stepTime "none"
