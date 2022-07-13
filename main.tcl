@@ -3,6 +3,8 @@ catch {
     starkit::startup
 }
 
+set ::whenTree [dict create]
+
 proc Claim {args} {
     # TODO: get the caller instead of `someone`
     dict set ::statements [list someone claims {*}$args] true
@@ -26,7 +28,10 @@ proc When {args} {
         }
         set locals
     }]
-    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
+    set when [list WHEN $clause $cb [dict merge $::currentMatchStack $locals]]
+
+    lappend ::whens $when
+    dict set ::whenTree {*}$clause $when
 }
 
 set ::assertedStatementsFrom [dict create]
@@ -77,10 +82,9 @@ proc evaluate {} {
 
     for {set i 0} {$i <= [llength $::whens]} {incr i} {
         set when [lindex $::whens $i]
-        set clause [lindex $when 0]
-        set cb [lindex $when 1]
-        set enclosingMatchStack [lindex $when 2]
-        # TODO: use a trie or regexes or something
+        set clause [lindex $when 1]
+        set cb [lindex $when 2]
+        set enclosingMatchStack [lindex $when 3]
         dict for {statement _} $::statements {
             set match [matches $clause $statement]
             if {$match == false} {
@@ -106,6 +110,22 @@ proc showStatements {} {
 }
 proc showWhens {} {
     return [join [lmap when $::whens {lindex $when 0}] "\n"]
+}
+proc showWhenTree {} {
+    proc showWhenSubtree {root subtree} {
+        set dot [list]
+        foreach key [dict keys $subtree] {
+            if {$root != ""} {
+                lappend dot "\"$root\" -> \"$key\";"
+            }
+            set value [dict get $subtree $key]
+            if {[lindex $value 0] != "WHEN"} {
+                lappend dot [showWhenSubtree $key $value]
+            }
+        }
+        return [join $dot "\n"]
+    }
+    return "digraph { [showWhenSubtree {} $::whenTree] }"
 }
 proc accept {chan addr port} {
     # (mostly for the Pi)
