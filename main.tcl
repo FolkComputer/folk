@@ -133,15 +133,11 @@ if {[catch {socket -server accept 4273}]} {
     socket -server accept 4274
 }
 
-# with key1 /value1/ key2 /value2/
-# With all /matches/
-# To know when
-
 set ::alwaysCbs [list]
 proc Always {cb} {
     lappend ::alwaysCbs $cb
 }
-proc Step {cb} {
+proc StepImpl {cb} {
     # clear the statement set
     set ::statements [dict merge {*}[dict values $::assertedStatementsFrom]]
     set ::whens [list]
@@ -169,6 +165,9 @@ proc Step {cb} {
     # stream effects/output statement set outward?
     # (for now, draw all the graphics requests)
     Display::commit
+}
+proc Step {cb} {
+    set ::stepTime [time {StepImpl $cb}]
 }
 
 source "lib/math.tcl"
