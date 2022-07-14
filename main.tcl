@@ -3,8 +3,6 @@ catch {
     starkit::startup
 }
 
-set ::statementsTrie [dict create]
-
 proc addStatement {s} {
     dict set ::statements $s true
     dict set ::statementsTrie {*}$s LEAF
@@ -28,14 +26,10 @@ proc When {args} {
     set locals [uplevel 1 {
         set localNames [info locals]
         set locals [dict create]
-        foreach localName $localNames {
-            dict set locals $localName [set $localName]
-        }
+        foreach localName $localNames { dict set locals $localName [set $localName] }
         set locals
     }]
-    set when [list WHEN $clause $cb [dict merge $::currentMatchStack $locals]]
-
-    lappend ::whens $when
+    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
 }
 
 set ::assertedStatementsFrom [dict create]
@@ -55,22 +49,14 @@ proc Retract {args} {
     }
 }
 
-proc runWhen {clause cb enclosingMatchStack match} {
-    set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-    dict with ::currentMatchStack $cb
-}
-
 proc matches {clause statement} {
     set match [dict create]
 
     for {set i 0} {$i < [llength $clause]} {incr i} {
         set clauseWord [lindex $clause $i]
         set statementWord [lindex $statement $i]
-        if {[string index $clauseWord 0] eq "/"} {
-            set clauseVarName [string range $clauseWord 1 [expr [string length $clauseWord] - 2]]
-            set clauseVarValue $statementWord
-            dict set match $clauseVarName $clauseVarValue
-
+        if {[regexp {^/([^/]+)/$} $clauseWord -> clauseVarName]} {
+            dict set match $clauseVarName $statementWord
         } elseif {$clauseWord != $statementWord} {
             return false
         }
@@ -79,28 +65,45 @@ proc matches {clause statement} {
 }
 
 proc evaluate {} {
-    # TODO: implement incremental evaluation
-    # there must be a function frame' that is in terms of diffs ...
-    # Claim should add a +1 diff to an append-only log ...
-    # then the evaluator can reduce over the log ...
-
-    for {set i 0} {$i <= [llength $::whens]} {incr i} {
-        set when [lindex $::whens $i]
-        set clause [lindex $when 1]
-        set cb [lindex $when 2]
-        set enclosingMatchStack [lindex $when 3]
-        dict for {statement _} $::statements {
-            set match [matches $clause $statement]
-            if {$match == false} {
-                set match [matches [list /someone/ claims {*}$clause] $statement]
+    proc matchWhen {clause} {
+        # i have a when
+        # i want to walk every token in the when and use it to walk the statement trie
+        # when /someone/ claims /page/ has program code /code/
+        set paths [list [dict create bindings [dict create] trie $::statementsTrie]]
+        foreach word $clause {
+            set nextPaths [list]
+            foreach path $paths {
+                dict with path {
+                    dict for {key subtrie} $trie {
+                        if {[regexp {^/([^/]+)/$} $word -> clauseVarName]} {
+                            set newBindings [dict replace $bindings $clauseVarName $key]
+                            lappend nextPaths [dict create bindings $newBindings trie $subtrie]
+                        } elseif {$key == $word} {
+                            lappend nextPaths [dict create bindings $bindings trie $subtrie]
+                        }
+                    }
+                }
             }
-            if {$match != false} {
-                runWhen $clause $cb $enclosingMatchStack $match
+            set paths $nextPaths
+        }
+        return $paths
+    }
+    proc runWhen {clause cb enclosingMatchStack match} {
+        set ::currentMatchStack [dict merge $enclosingMatchStack $match]
+        dict with ::currentMatchStack $cb
+    }
+    for {set i 0} {$i <= [llength $::whens]} {incr i} {
+        lassign [lindex $::whens $i] clause cb enclosingMatchStack
+
+        set paths [matchWhen $clause]
+        if {[llength $paths] == 0} { set paths [matchWhen [list /someone/ claims {*}$clause]] }
+        foreach path $paths {
+            dict with path {
+                runWhen $clause $cb $enclosingMatchStack $bindings
             }
         }
     }
 }
-
 
 # pretty-prints latest statement set
 proc showStatements {} {
@@ -167,6 +170,7 @@ proc Always {cb} {
 proc StepImpl {cb} {
     # clear the statement set
     set ::statements [dict create]
+    set ::statementsTrie [dict create]
     dict for {s _} [dict merge {*}[dict values $::assertedStatementsFrom]] {
         addStatement $s
     }
