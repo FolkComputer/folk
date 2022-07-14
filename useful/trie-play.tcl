@@ -36,14 +36,8 @@ proc matches {clause statement} {
     }
     return $match
 }
-proc runWhen {clause cb enclosingMatchStack match} {
-    set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-    dict with ::currentMatchStack $cb
-}
 proc evaluate {} {
-    for {set i 0} {$i <= [llength $::whens]} {incr i} {
-        lassign [lindex $::whens $i] clause cb enclosingMatchStack
-
+    proc matchWhen {clause} {
         # i have a when
         # i want to walk every token in the when and use it to walk the statement trie
         # when /someone/ claims /page/ has program code /code/
@@ -64,6 +58,17 @@ proc evaluate {} {
             }
             set paths $nextPaths
         }
+        return $paths
+    }
+    proc runWhen {clause cb enclosingMatchStack match} {
+        set ::currentMatchStack [dict merge $enclosingMatchStack $match]
+        dict with ::currentMatchStack $cb
+    }
+    for {set i 0} {$i <= [llength $::whens]} {incr i} {
+        lassign [lindex $::whens $i] clause cb enclosingMatchStack
+
+        set paths [matchWhen $clause]
+        if {[llength $paths] == 0} { set paths [matchWhen [list /someone/ claims {*}$clause]] }
         foreach path $paths {
             dict with path {
                 runWhen $clause $cb $enclosingMatchStack $bindings
@@ -88,7 +93,7 @@ proc Step {cb} {
 
 Step {
     Claim George is a dog
-    When /someone/ claims /name/ is a /animal/ {
+    When /name/ is a /animal/ {
         puts "found an animal $name"
     }
     Claim Bob is a cat
