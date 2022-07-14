@@ -43,35 +43,32 @@ proc runWhen {clause cb enclosingMatchStack match} {
 proc evaluate {} {
     for {set i 0} {$i <= [llength $::whens]} {incr i} {
         lassign [lindex $::whens $i] clause cb enclosingMatchStack
-        dict for {stmt _} $::statements {
-            set match [matches $clause $stmt]
-            if {$match == false} { set match [matches [list /someone/ claims {*}$clause] $stmt] }
-
-            if {$match != false} { runWhen $clause $cb $enclosingMatchStack $match }
-        }
 
         # i have a when
         # i want to walk every token in the when and use it to walk the statement trie
         # when /someone/ claims /page/ has program code /code/
-        puts "clause: $clause"
-        set tries [list $::statementsTrie]
+        set paths [list [dict create bindings [dict create] trie $::statementsTrie]]
         foreach word $clause {
-            puts "tries: $tries"
-            set nextTries [list]
-            foreach trie $tries {
-                puts "trie: $trie"
-                dict for {key subtrie} $trie {
-                    puts "  compare key $key = word $word"
-                    if {[regexp {^/([^/]+)/$} $word -> clauseVarName]} {
-                        lappend nextTries $subtrie
-                    } elseif {$key == $word} {
-                        lappend nextTries $subtrie
+            set nextPaths [list]
+            foreach path $paths {
+                dict with path {
+                    dict for {key subtrie} $trie {
+                        if {[regexp {^/([^/]+)/$} $word -> clauseVarName]} {
+                            set newBindings [dict replace $bindings $clauseVarName $key]
+                            lappend nextPaths [dict create bindings $newBindings trie $subtrie]
+                        } elseif {$key == $word} {
+                            lappend nextPaths [dict create bindings $bindings trie $subtrie]
+                        }
                     }
                 }
             }
-            set tries $nextTries
+            set paths $nextPaths
         }
-        puts "FINAL: $tries"
+        foreach path $paths {
+            dict with path {
+                runWhen $clause $cb $enclosingMatchStack $bindings
+            }
+        }
     }
 }
 proc Step {cb} {
