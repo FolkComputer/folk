@@ -53,7 +53,7 @@ proc programToPs {id text} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
         
-        /Times-Roman findfont
+        /Monaco findfont
         12 scalefont
         setfont
         newpath
@@ -69,7 +69,13 @@ $image
     }]
 }
 
-puts [programToPs 1 hello]
+puts [programToPs 1 [string trim {
+    # Tag rectangles
+    When tag /tag/ has center /c/ size /size/ {
+	Claim $tag is a rectangle with x $px y $py width $size height $size
+	Wish $tag is highlighted green
+    }
+}]]
 
 # cd ~/aux/apriltag-imgs ;# https://github.com/AprilRobotics/apriltag-imgs
 # cd tagStandard52h13
