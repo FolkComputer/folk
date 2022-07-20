@@ -99,6 +99,13 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
         StepFromGUI
     }
     bind .$program <Control-Key-s> [list handleSave $program $programFilename]
+    proc handlePrint {program} {
+        set code [.$program.t get 1.0 end-1c]
+        set jobid [exec uuidgen]
+        Assert "laptop.tcl" wishes to print $code with job id $jobid
+        after 500 [list Retract "laptop.tcl" wishes to print $code with job id $jobid]
+    }
+    bind .$program <Control-Key-p> [list handlePrint $program]
     proc handleConfigure {program x y w h} {
         Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
         Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
@@ -129,7 +136,7 @@ button .btn -text "New Program" -command newProgram
 pack .btn
 bind . <Control-Key-n> newProgram
 
-foreach programFilename [glob programs/*.folk] {
+foreach programFilename [glob virtual-programs/*.folk] {
     set fp [open $programFilename r]
     newProgram [read $fp] $programFilename
     close $fp
