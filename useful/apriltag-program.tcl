@@ -44,23 +44,30 @@ proc programToPs {id text} {
     set PageWidth 612
     set PageHeight 792
 
+    set margin 36
+
     set tagwidth 150
     set tagheight 150
+    set lineheight 72
 
     set image [tagForId $id]
 
+    set linenum 1
     return [subst {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
-        
+
         /Monaco findfont
         12 scalefont
         setfont
         newpath
-        72 [expr $PageHeight-72] moveto
-        ($text) show
+        [join [lmap line [split $text "\n"] {
+            set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
+            incr linenum
+            set ret
+        }] "\n"]
 
-        [expr $PageWidth-$tagwidth-72] [expr $PageHeight-$tagheight-72] translate
+        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
         $tagwidth $tagheight scale
         10 10 8 \[10 0 0 -10 0 10\]
         {<
@@ -70,11 +77,11 @@ $image
 }
 
 puts [programToPs 1 [string trim {
-    # Tag rectangles
-    When tag /tag/ has center /c/ size /size/ {
-	Claim $tag is a rectangle with x $px y $py width $size height $size
-	Wish $tag is highlighted green
-    }
+# Tag rectangles
+When tag /tag/ has center /c/ size /size/ {
+    Claim $tag is a rectangle with x $px y $py width $size height $size
+    Wish $tag is highlighted green
+}
 }]]
 
 # cd ~/aux/apriltag-imgs ;# https://github.com/AprilRobotics/apriltag-imgs
