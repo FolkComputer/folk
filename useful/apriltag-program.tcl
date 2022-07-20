@@ -24,7 +24,7 @@ critcl::cproc tagForId {int id} string {
     image_u8_t* image = apriltag_to_image(tf, id);
     /* printf("image w=%d, height=%d, stride=%d\n", image->width, image->height, image->stride); */
 
-    char* ret = Tcl_Alloc(image->height * (image->width * 2 + 1) + 10);
+    char* ret = Tcl_Alloc(10000);
     int i = 0;
     for (int row = 0; row < image->height; row++) {
         for (int col = 0; col < image->width; col++) {
@@ -41,18 +41,28 @@ critcl::cproc tagForId {int id} string {
 init
 
 proc programToPs {id text} {
-    set image [tagForId $id]
-    return [subst -nocommands {
-        newpath
-        100 200 moveto
-        200 250 lineto
-        100 300 lineto
-        2 setlinewidth
-        stroke
+    set PageWidth 612
+    set PageHeight 792
 
-        100 200 translate
-        26 34 scale
-        10 10 8 [10 0 0 -10 0 10]
+    set tagwidth 150
+    set tagheight 150
+
+    set image [tagForId $id]
+
+    return [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+        
+        /Times-Roman findfont
+        12 scalefont
+        setfont
+        newpath
+        72 [expr $PageHeight-72] moveto
+        ($text) show
+
+        [expr $PageWidth-$tagwidth-72] [expr $PageHeight-$tagheight-72] translate
+        $tagwidth $tagheight scale
+        10 10 8 \[10 0 0 -10 0 10\]
         {<
 $image
         >} image
