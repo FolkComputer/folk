@@ -104,8 +104,9 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
         set jobid [exec uuidgen]
         Assert "laptop.tcl" wishes to print $code with job id $jobid
         after 500 [list Retract "laptop.tcl" wishes to print $code with job id $jobid]
+        StepFromGUI
     }
-    bind .$program <Control-Key-p> [list handlePrint $program]
+    bind .$program <Command-Key-p> [list handlePrint $program]
     proc handleConfigure {program x y w h} {
         Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
         Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
