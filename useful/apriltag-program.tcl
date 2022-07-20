@@ -48,7 +48,8 @@ proc programToPs {id text} {
 
     set tagwidth 150
     set tagheight 150
-    set lineheight 72
+    set fontsize 12
+    set lineheight [expr $fontsize*1.5]
 
     set image [tagForId $id]
 
@@ -58,7 +59,7 @@ proc programToPs {id text} {
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
         /Monaco findfont
-        12 scalefont
+        $fontsize scalefont
         setfont
         newpath
         [join [lmap line [split $text "\n"] {
@@ -79,7 +80,8 @@ $image
 puts [programToPs 1 [string trim {
 # Tag rectangles
 When tag /tag/ has center /c/ size /size/ {
-    Claim $tag is a rectangle with x $px y $py width $size height $size
+    Claim $tag is a rectangle with x $px y $py \\
+        width $size height $size
     Wish $tag is highlighted green
 }
 }]]
