@@ -1,3 +1,79 @@
+if {[info hostname] != "folk0.local"} { return }
+
+package require critcl
+source "pi/critclUtils.tcl"
+
+critcl::tcl 8.6
+critcl::cflags -I/home/pi/apriltag -Wall -Werror
+critcl::clibraries /home/pi/apriltag/libapriltag.a
+
+critcl::ccode {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+}
+critcl::cproc tagImageForId {int id} string {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    char* ret = Tcl_Alloc(10000);
+    int i = 0;
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            i += sprintf(&ret[i], "%02x", pixel);
+        }
+        ret[i++] = '\n';
+    }
+    image_u8_destroy(image);
+    return ret;
+}
+
+proc programToPs {id text} {
+    set PageWidth 612; set PageHeight 792
+    set margin 36
+
+    set tagwidth 150; set tagheight 150
+    set fontsize 12; set lineheight [expr $fontsize*1.5]
+
+    set image [tagImageForId $id]
+
+    set linenum 1
+    return [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+        /Monaco findfont
+        $fontsize scalefont
+        setfont
+        newpath
+        [join [lmap line [split $text "\n"] {
+            set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
+            incr linenum
+            set ret
+        }] "\n"]
+
+        gsave
+        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
+        $tagwidth $tagheight scale
+        10 10 8 \[10 0 0 -10 0 10\]
+        {<
+$image
+        >} image
+        grestore
+
+        /Helvetica-Narrow findfont
+        10 scalefont
+        setfont
+        newpath
+        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
+        ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+    }]
+}
+
 When /someone/ wishes to print /code/ with job id /jobid/ {
-	puts $jobid
+    # if the job isn't already sent in ::printjobs
+    # convert code to PostScript
+    # send PostScript to printer
 }
