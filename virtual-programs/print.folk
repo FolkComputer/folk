@@ -72,8 +72,38 @@ $image
     }]
 }
 
+proc nextId {} {
+     set fp [open "programs/next-id.txt" r]
+     set id [string trim [read $fp]]
+     close $fp
+
+     set fp [open "programs/next-id.txt" w]
+     puts $fp [expr {$id + 1}]
+     close $fp
+
+     return $id
+}
+
+if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
-    # if the job isn't already sent in ::printjobs
-    # convert code to PostScript
+    # if the job was already dispatched
+    if {[dict get $::printjobs $jobid]} {return}
+    dict set ::printjobs $jobid true
+
+    set id [nextId]
+
+    set ps [programToPs $id $code]
+
+    # save code and ps to disk
+    set fp [open "programs/$id.folk" w]
+    puts $fp $code
+    close $fp
+
+    set fp [open "printed-programs/$id.ps" w]
+    puts $fp $ps
+    close $fp
+
     # send PostScript to printer
+    # TODO: test on pi
+    exec "lpr printed-programs/$id.ps"
 }
