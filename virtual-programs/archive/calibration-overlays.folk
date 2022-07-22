@@ -1,12 +1,18 @@
-set projectorPoints {
-	{2830 490}
-	{2830 2000}
-	{834 200}
-	{834 2000}
-}
+if {[info hostname] != "folk0"} {return}
+
+set minX 500
+set maxX [expr $Display::WIDTH - 500]
+set minY 300
+set maxY [expr $Display::HEIGHT - 300]
+set projectorPoints [list \
+	[list $minX $minY] \
+	[list $maxX $minY] \
+	[list $maxX $maxY] \
+	[list $minX $maxY] \
+]
 for {set i 0} {$i < [llength $projectorPoints]} {incr i} {
 	lassign [lindex $projectorPoints $i] px py
 	Claim "tag overlay $i" is a rectangle with x $px y $py width 20 height 20
 	Wish "tag overlay $i" is highlighted blue
-	Wish "tag overlay $i" is labelled "overlay $i ($px, $py)"
+	Wish "tag overlay $i" is labelled "proj $i ($px, $py)"
 }
