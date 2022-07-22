@@ -103,8 +103,14 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
         set code [.$program.t get 1.0 end-1c]
         set jobid [exec uuidgen]
         Assert "laptop.tcl" wishes to print $code with job id $jobid
-        after 500 [list Retract "laptop.tcl" wishes to print $code with job id $jobid]
+        label .$program.printing -text "Printing!"
+        place .$program.printing -x 40 -y 100
         StepFromGUI
+
+        after 500 [subst {
+            catch {destroy .$program.printing}
+            Retract "laptop.tcl" wishes to print /code/ with job id $jobid
+        }]
     }
     bind .$program <Command-Key-p> [list handlePrint $program]
     proc handleConfigure {program x y w h} {

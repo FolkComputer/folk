@@ -1,4 +1,4 @@
-# if {[info hostname] != "folk0"} { return }
+if {[info hostname] != "folk0"} { return }
 
 if {[llength [namespace which tagImageForId]] < 1} {
     package require critcl
@@ -52,7 +52,7 @@ proc programToPs {id text} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-        /Monaco findfont
+        /Courier findfont
         $fontsize scalefont
         setfont
         newpath
@@ -110,7 +110,6 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     puts $fp $ps
     close $fp
 
-    # send PostScript to printer
-    # TODO: test on pi
-    # exec "lpr printed-programs/$id.ps"
+    exec ps2pdf printed-programs/$id.ps printed-programs/$id.pdf
+    exec lpr printed-programs/$id.pdf
 }
