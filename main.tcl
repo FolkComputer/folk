@@ -90,8 +90,7 @@ proc evaluate {} {
     }
     proc runWhen {clause cb enclosingMatchStack match} {
         set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-        set err [catch {dict with ::currentMatchStack $cb}]
-        if {$err} {
+        if {[catch {dict with ::currentMatchStack $cb} err]} {
             puts stderr "error: $err"
         }
     }
