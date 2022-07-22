@@ -1,6 +1,9 @@
 package require Thread
 
 namespace eval Display {
+    variable WIDTH HEIGHT
+    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+
     variable displayThread [thread::create {
         source pi/Display.tcl
         Display::init
