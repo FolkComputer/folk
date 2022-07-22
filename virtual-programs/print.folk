@@ -32,6 +32,7 @@ if {[llength [namespace which tagImageForId]] < 1} {
             }
             ret[i++] = '\n';
         }
+        ret[i++] = '\0';
         image_u8_destroy(image);
         return ret;
     }
