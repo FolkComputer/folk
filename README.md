@@ -5,6 +5,17 @@ to run on (Mac) laptop:
 $ brew install tcl-tk
 ```
 
+to run on Pi:
+```
+$ sudo apt install tcl tcl-thread critcl libjpeg62-turbo-dev
+
+$ cd ~; git clone https://github.com/AprilRobotics/apriltag.git; cd apriltag
+$ make -j
+$ cd -2
+
+$ make
+```
+
 then (on laptop or Pi):
 ```
 make
