@@ -1,33 +1,43 @@
-if {[info hostname] != "folk0.local"} { return }
+# if {[info hostname] != "folk0.local"} { return }
 
-package require critcl
-source "pi/critclUtils.tcl"
+if {[llength [namespace which tagImageForId]] < 1} {
+   puts "RUNRUN [namespace which tagImageForId]"
 
-critcl::tcl 8.6
-critcl::cflags -I/home/pi/apriltag -Wall -Werror
-critcl::clibraries /home/pi/apriltag/libapriltag.a
+    package require critcl
+    source "pi/critclUtils.tcl"
 
-critcl::ccode {
-    #include <apriltag.h>
-    #include <tagStandard52h13.h>
-    apriltag_family_t *tf = NULL;
-}
-critcl::cproc tagImageForId {int id} string {
-    if (tf == NULL) tf = tagStandard52h13_create();
-
-    image_u8_t* image = apriltag_to_image(tf, id);
-
-    char* ret = Tcl_Alloc(10000);
-    int i = 0;
-    for (int row = 0; row < image->height; row++) {
-        for (int col = 0; col < image->width; col++) {
-            uint8_t pixel = image->buf[(row * image->stride) + col];
-            i += sprintf(&ret[i], "%02x", pixel);
-        }
-        ret[i++] = '\n';
+    critcl::tcl 8.6
+    if {[info hostname] == "folk0.local"} {
+        critcl::cflags -I/home/pi/apriltag -Wall -Werror
+        critcl::clibraries /home/pi/apriltag/libapriltag.a
+    } else {
+        critcl::cflags -I/Users/osnr/aux/apriltag -Wall -Werror
+        critcl::clibraries /Users/osnr/aux/apriltag/libapriltag.a
     }
-    image_u8_destroy(image);
-    return ret;
+
+    critcl::ccode {
+        #include <apriltag.h>
+        #include <tagStandard52h13.h>
+        apriltag_family_t *tf = NULL;
+    }
+    critcl::cproc tagImageForId {int id} string {
+        if (tf == NULL) tf = tagStandard52h13_create();
+
+        image_u8_t* image = apriltag_to_image(tf, id);
+
+        char* ret = Tcl_Alloc(10000);
+        int i = 0;
+        for (int row = 0; row < image->height; row++) {
+            for (int col = 0; col < image->width; col++) {
+                uint8_t pixel = image->buf[(row * image->stride) + col];
+                i += sprintf(&ret[i], "%02x", pixel);
+            }
+            ret[i++] = '\n';
+        }
+        image_u8_destroy(image);
+        return ret;
+    }
+    tagImageForId 1
 }
 
 proc programToPs {id text} {
@@ -86,8 +96,7 @@ proc nextId {} {
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
-    # if the job was already dispatched
-    if {[dict get $::printjobs $jobid]} {return}
+    if {[dict exists $::printjobs $jobid]} {return}
     dict set ::printjobs $jobid true
 
     set id [nextId]
@@ -105,5 +114,5 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
 
     # send PostScript to printer
     # TODO: test on pi
-    exec "lpr printed-programs/$id.ps"
+    # exec "lpr printed-programs/$id.ps"
 }
