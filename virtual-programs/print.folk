@@ -1,8 +1,6 @@
 # if {[info hostname] != "folk0"} { return }
 
 if {[llength [namespace which tagImageForId]] < 1} {
-   puts "RUNRUN [namespace which tagImageForId]"
-
     package require critcl
     source "pi/critclUtils.tcl"
 

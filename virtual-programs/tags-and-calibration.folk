@@ -1,10 +1,10 @@
 package require math::linearalgebra
 
 set points {
-	{803 508 2830 2000}
-	{313 68 834 200}
-	{364 506 834 2000}
-	{831 174 2830 490}
+	{880.8 121.2 1420 300}
+	{909.4 358.4 1420 780}
+	{459.7 168.2 500 300}
+	{465.4 378.6 500 780}
 }
 for {set i 0} {$i < [llength $points]} {incr i} {
     lassign [lindex $points $i] x$i y$i u$i v$i
@@ -41,6 +41,8 @@ proc cameraToProjector {cameraPoint} {
 
 When tag /tag/ has center /c/ size /size/ {
 	lassign [cameraToProjector $c] px py
+	Claim $tag is a rectangle with x $px y $py width $size height $size
+	Wish $tag is highlighted green
 	Wish $tag is labelled "tag $tag at $c"
 }
 
@@ -53,4 +55,3 @@ When tag /tag/ has corners /corners/ {
 		Display::text fb $x $y 10 $tag
 	}
 }
-
