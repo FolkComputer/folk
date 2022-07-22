@@ -90,7 +90,10 @@ proc evaluate {} {
     }
     proc runWhen {clause cb enclosingMatchStack match} {
         set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-        dict with ::currentMatchStack $cb
+        set err [catch {dict with ::currentMatchStack $cb}]
+        if {$err} {
+            puts stderr "error: $err"
+        }
     }
     for {set i 0} {$i <= [llength $::whens]} {incr i} {
         lassign [lindex $::whens $i] clause cb enclosingMatchStack
