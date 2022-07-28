@@ -48,11 +48,13 @@ proc StepFromGUI {} {
     # share statement set to Pi
     # folk0.local 4273
     thread::send -async $::sharerThread [format {
-        catch {
+        if {[catch {
             set sock [socket "folk0.local" 4273]
             # FIXME: should _retract_ only our asserted statements
             puts $sock {dict set ::assertedStatementsFrom "%s" {%s}}
             close $sock
+        } err]} {
+            puts stderr "share error: $err"
         }
     } $::nodename $::statements]
 }
