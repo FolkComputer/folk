@@ -284,6 +284,7 @@ namespace eval AprilTags {
         td = apriltag_detector_create();
         tf = tagStandard52h13_create();
         apriltag_detector_add_family_bits(td, tf, 1);
+        td->nthreads = 2;
     }
 
     critcl::cproc detectImpl {uint8_t* gray int width int height} Tcl_Obj*0 {
