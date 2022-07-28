@@ -2,11 +2,20 @@ if {[info hostname] != "folk0"} { return }
 
 package require math::linearalgebra
 
+# camera (tag) point -> projection point
+# calibration for Interact
 set points {
 	{880.8 121.2 1420 300}
 	{909.4 358.4 1420 780}
 	{459.7 168.2 500 300}
 	{465.4 378.6 500 780}
+}
+# calibration for Hex
+set points {
+	{218.5 77.5 500 300}
+	{274.3 470.8 500 1860}
+	{911.9 474.5 3340 1860}
+	{965.4 113.3 3340 300}
 }
 for {set i 0} {$i < [llength $points]} {incr i} {
     lassign [lindex $points $i] x$i y$i u$i v$i
