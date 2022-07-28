@@ -1,3 +1,2 @@
 Wish $this is highlighted red
-
-Wish $this is labelled $::stepTime
+Wish $this is labelled "eval: $::stepTime\ncamera: $::cameraTime"

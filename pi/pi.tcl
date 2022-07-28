@@ -49,16 +49,19 @@ set cameraThread [thread::create [format {
     set frame 0
     while true {
         if {$frame != 0} {freeImage $frame}
-        set frame [Camera::frame]
+        set cameraTime [time {
+            set frame [Camera::frame]
 
-        set commands [list "Retract camera claims the camera frame is /something/" \
-                          "Assert camera claims the camera frame is \"$frame\"" \
-                          "Retract camera claims tag /something/ has corners /something/" \
-                          "Retract camera claims tag /something/ has center /something/ size /something/"]
+            set commands [list "Retract camera claims the camera frame is /something/" \
+                              "Assert camera claims the camera frame is \"$frame\"" \
+                              "Retract camera claims tag /something/ has corners /something/" \
+                              "Retract camera claims tag /something/ has center /something/ size /something/"]
 
-        set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
-        set tags [AprilTags::detect $grayFrame]
-        freeImage $grayFrame
+            set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
+            set tags [AprilTags::detect $grayFrame]
+            freeImage $grayFrame
+        }]
+        lappend commands [list set ::cameraTime $cameraTime]
 
         foreach tag $tags {
             lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
