@@ -1,5 +1,7 @@
 if {[info hostname] != "folk0"} {return}
 
+# Move tag 1 to each of the 4 calibrators in turn; write down the 4 point correspondences
+
 set minX 500
 set maxX [expr $Display::WIDTH - 500]
 set minY 300
@@ -12,7 +14,9 @@ set projectorPoints [list \
 ]
 for {set i 0} {$i < [llength $projectorPoints]} {incr i} {
 	lassign [lindex $projectorPoints $i] px py
-	Claim "tag overlay $i" is a rectangle with x $px y $py width 20 height 20
-	Wish "tag overlay $i" is highlighted blue
-	Wish "tag overlay $i" is labelled "proj $i ($px, $py)"
+	Claim "calibrator $i" is a rectangle with x $px y $py width 20 height 20
+	Wish "calibrator $i" is highlighted blue
+	When tag 1 has center /c/ size /something/ {
+		Wish "calibrator $i" is labelled "proj $i ($px, $py)\ntag 1 ([lindex $c 0], [lindex $c 1])"
+	}
 }
