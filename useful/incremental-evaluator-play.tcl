@@ -54,11 +54,52 @@ proc Step {cb} {
     }
 }
 
+set ::statements [dict create]
+set ::whens [dict create]
+
 set ::log [list]
-proc Assert {args} {lappend ::log $args}
-proc Retract {args} {}
+proc Assert {args} {lappend ::log [list Assert $args]}
+proc Retract {args} {lappend ::log [list Retract $args]}
 proc Step {} {
-    puts $::log
+    # should this do reduction of assert/retract ?
+
+    proc matchAgainstExistingStatements {clause} {
+        # FIXME: compute coherent statement set w/ zippers
+        dict for {stmt _} $statements {
+            set match [matches $clause $stmt]
+        }
+    }
+
+    puts ""
+    puts "Step:"
+    puts "-----"
+
+    foreach delta $::log {
+        lassign $delta op clause
+        puts "$op: $statement"
+
+        if {$op == "Assert"} {
+            dict set ::statements $clause true
+
+            if {[lindex $clause 0] == "when"} {
+                # is this a When? match it against existing statements
+                # when the time is /t/ { ... } -> the time is /t/
+                set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
+                matchAgainstExistingStatements $unwhenizedClause
+
+            } else {
+                # is this a statement? match it against existing whens
+                # the time is 3 -> when the time is 3 /body/
+                set whenizedClause [list when {*}$clause /body/]
+                matchAgainstExistingStatements $whenizedClause
+            }
+
+        } elseif {$op == "Retract"} {
+            dict unset ::statements $clause
+            # FIXME: unset all things downstream of statement
+        }
+    }
+    set ::log [list]
 }
 
 Assert the time is 3
@@ -66,6 +107,7 @@ Assert when the time is /t/ {
     puts "the time is $t"
 }
 Step ;# should output "the time is 3"
+
 
 Retract the time is 3
 Assert the time is 4
