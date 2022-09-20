@@ -54,14 +54,45 @@ proc Step {cb} {
     }
 }
 
-Step {
-    Claim George is a dog
-    When /name/ is a /animal/ {
-        puts "found an animal $name"
-    }
-    Claim Bob is a cat
+set ::log [list]
+proc Assert {args} {lappend ::log $args}
+proc Retract {args} {}
+proc Step {} {
+    puts $::log
 }
 
-# $ tclsh useful/minimal-system.tcl
-# found an animal George
-# found an animal Bob
+Assert the time is 3
+Assert when the time is /t/ {
+    puts "the time is $t"
+}
+Step ;# should output "the time is 3"
+
+Retract the time is 3
+Assert the time is 4
+Step ;# should output "the time is 4"
+
+
+
+# Assert when the time is /t/ {
+#     Claim the time is definitely $t
+# }
+# Retract the time is 3
+# Assert the time is 4
+
+# Step
+
+# Step
+
+# Step
+
+# Step {
+#     When the time is /t/ {
+#         Claim the time is definitely $t
+#     }
+# }
+# print the statement set
+
+# Retract the time is /t/
+# Assert the time is 4
+# Step
+# print the statement set
