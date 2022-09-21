@@ -4,6 +4,8 @@ set ::statements [dict create \
 puts "statements: $::statements"
 
 proc matchPattern {pattern statement} {
+    if {[llength $pattern] != [llength $statement]} { return false }
+
     set match [dict create]
     for {set i 0} {$i < [llength $pattern]} {incr i} {
         set patternWord [lindex $pattern $i]
@@ -34,9 +36,15 @@ proc unwhenize {pattern} {
     return [lreplace [lreplace $pattern end end] 0 0]
 }
 
-puts [matchAgainstExistingStatements [list the time is 3]]
-puts [matchAgainstExistingStatements [list the time is /t/]]
-puts [matchAgainstExistingStatements [list the time is /t/]]
+proc assertEq {a b} {
+   if {$a != $b} {
+       return -code error "assertion failed: {$a} == {$b}"
+   }
+}
+
+assertEq [matchAgainstExistingStatements [list the time is 3]] {{}}
+assertEq [matchAgainstExistingStatements [list the time is]] {}
+assertEq [matchAgainstExistingStatements [list the time is /t/]] {{t 3}}
 
 # question: is set-set match more efficient or 1-at-a-time match?
 # probably 1-at-a-time match is fine
