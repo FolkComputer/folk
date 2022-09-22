@@ -67,12 +67,15 @@ proc Step {} {
     puts "-----"
 
     while {[llength $::log]} {
-        lassign [lindex $::log 0] op clause
+        # TODO: make this log-shift more efficient?
+        set entry [lindex $::log 0]
         set ::log [lreplace $::log 0 0]
-        puts "$op: $clause"
 
+        set op [lindex $entry 0]
+        puts "$op: $entry"
         if {$op == "Assert"} {
-            dict set ::statements $clause true
+            set clause [lindex $entry 1]
+            dict set ::statements $clause [list] ;# empty list = no children-statements yet
 
             if {[lindex $clause 0] == "when"} {
                 # is this a When? match it against existing statements
@@ -95,6 +98,7 @@ proc Step {} {
             }
 
         } elseif {$op == "Retract"} {
+            set clause [lindex $entry 1]
             dict for {stmt _} $::statements {
                 set match [unify $clause $stmt]
                 if {$match != false} {
@@ -102,9 +106,17 @@ proc Step {} {
                 }
             }
             # FIXME: unset all things downstream of statement
+            
 
         } elseif {$op == "Claim"} {
-            
+            set parents [lindex $entry 1]
+            set clause [lindex $entry 2]
+            puts "MAKING CLAIM $entry WITH PARENTS $parents"
+            # list this statement as a dependent under all its parents
+            dict with ::statements {
+                foreach parent $parents { lappend $parent $clause }
+            }
+            dict set ::statements $clause [list] ;# empty list = no children-statements yet
         }
     }
 }
