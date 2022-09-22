@@ -1,5 +1,4 @@
-proc Claim {args} { dict set ::statements [list someone claims {*}$args] true }
-proc Wish {args} { dict set ::statements [list someone wishes {*}$args] true }
+proc Claim {args} { dict set ::statements [list {*}$args] true }
 proc When {args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
@@ -123,7 +122,12 @@ proc Step {} {
             }
 
         } elseif {$op == "Retract"} {
-            dict unset ::statements $clause
+            dict for {stmt _} $::statements {
+                set match [unify $clause $stmt]
+                if {$match != false} {
+                    dict unset ::statements $stmt
+                }
+            }
             # FIXME: unset all things downstream of statement
         }
     }
@@ -137,33 +141,25 @@ Assert when the time is /t/ {
 }
 Step ;# should output "the time is 3"
 
-
 Retract the time is 3
 Assert the time is 4
 Step ;# should output "the time is 4"
 
+Retract when the time is /t/ /anything/
+Retract the time is 4
+Assert the time is 5
+Step ;# should output nothing
 
+Retract the time is /t/
+Step ;# should output nothing
+puts "statements: {$::statements}" ;# should be empty set
 
-# Assert when the time is /t/ {
-#     Claim the time is definitely $t
-# }
-# Retract the time is 3
-# Assert the time is 4
-
-# Step
-
-# Step
-
-# Step
-
-# Step {
-#     When the time is /t/ {
-#         Claim the time is definitely $t
-#     }
-# }
-# print the statement set
-
-# Retract the time is /t/
-# Assert the time is 4
-# Step
-# print the statement set
+Assert when the time is /t/ {
+    Claim the time is definitely $t
+}
+Assert when the time is definitely /ti/ {
+    puts "i'm sure the time is $ti"
+}
+Assert the time is 6
+Step ;# FIXME: should output "i'm sure the time is 6"
+puts "statements: {$::statements}"
