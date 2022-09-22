@@ -63,11 +63,32 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 proc Step {} {
     # should this do reduction of assert/retract ?
 
-    proc matchAgainstExistingStatements {clause} {
-        # FIXME: compute coherent statement set w/ zippers
-        dict for {stmt _} $statements {
-            set match [matches $clause $stmt]
+    proc unify {a b} {
+        if {[llength $a] != [llength $b]} { return false }
+
+        set match [dict create]
+        for {set i 0} {$i < [llength $a]} {incr i} {
+            set aWord [lindex $a $i]
+            set bWord [lindex $b $i]
+            if {[regexp {^/([^/]+)/$} $aWord -> aVarName]} {
+                dict set match $aVarName $bWord
+            } elseif {[regexp {^/([^/]+)/$} $bWord -> bVarName]} {
+                dict set match $bVarName $aWord
+            } elseif {$aWord != $bWord} {
+                return false
+            }
         }
+        return $match
+    }
+    proc findMatches {pattern} {
+        set matches [list]
+        dict for {stmt _} $::statements {
+            set match [unify $pattern $stmt]
+            if {$match != false} {
+                lappend matches $match
+            }
+        }
+        return $matches
     }
 
     puts ""
@@ -76,7 +97,7 @@ proc Step {} {
 
     foreach delta $::log {
         lassign $delta op clause
-        puts "$op: $statement"
+        puts "$op: $clause"
 
         if {$op == "Assert"} {
             dict set ::statements $clause true
@@ -85,13 +106,20 @@ proc Step {} {
                 # is this a When? match it against existing statements
                 # when the time is /t/ { ... } -> the time is /t/
                 set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
-                matchAgainstExistingStatements $unwhenizedClause
+                set matches [findMatches $unwhenizedClause]
+                set body [lindex $clause end]
+                foreach bindings $matches {
+                    dict with bindings $body
+                }
 
             } else {
                 # is this a statement? match it against existing whens
-                # the time is 3 -> when the time is 3 /body/
-                set whenizedClause [list when {*}$clause /body/]
-                matchAgainstExistingStatements $whenizedClause
+                # the time is 3 -> when the time is 3 /__body/
+                set whenizedClause [list when {*}$clause /__body/]
+                set matches [findMatches $whenizedClause]
+                foreach bindings $matches {
+                    dict with bindings [dict get $bindings __body]
+                }
             }
 
         } elseif {$op == "Retract"} {
@@ -102,6 +130,7 @@ proc Step {} {
     set ::log [list]
 }
 
+# the next 2 assertions should work in either order
 Assert the time is 3
 Assert when the time is /t/ {
     puts "the time is $t"
