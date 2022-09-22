@@ -1,4 +1,11 @@
-proc Claim {args} { dict set ::statements [list {*}$args] true }
+set ::statements [dict create]
+
+set ::log [list]
+proc Assert {args} {lappend ::log [list Assert $args]}
+proc Retract {args} {lappend ::log [list Retract $args]}
+
+# FIXME: store the current pointer to the current when so we can stick a destructor here
+proc Claim {args} {lappend ::log [list Claim $args]}
 proc When {args} {
     set clause [lreplace $args end end]
     set cb [lindex $args end]
@@ -53,12 +60,6 @@ proc Step {cb} {
     }
 }
 
-set ::statements [dict create]
-set ::whens [dict create]
-
-set ::log [list]
-proc Assert {args} {lappend ::log [list Assert $args]}
-proc Retract {args} {lappend ::log [list Retract $args]}
 proc Step {} {
     # should this do reduction of assert/retract ?
 
@@ -80,10 +81,18 @@ proc Step {} {
         return $match
     }
     proc findMatches {pattern} {
+        # Returns a list of bindings like {{name Bob age 27} {name Omar age 28}}
+        # In each binding, also attach a statement zipper.
+        # TODO: multi-level matching
+        # TODO: efficient matching
         set matches [list]
         dict for {stmt _} $::statements {
             set match [unify $pattern $stmt]
             if {$match != false} {
+                # TODO: store a set including {pattern, stmt} in match so that
+                # when match is evaluated for when-body, it can add itself
+                # as a child of pattern and of stmt
+                dict set match __parents [list $pattern $stmt]
                 lappend matches $match
             }
         }
@@ -134,6 +143,9 @@ proc Step {} {
     set ::log [list]
 }
 
+# Single-level
+# ------------
+
 # the next 2 assertions should work in either order
 Assert the time is 3
 Assert when the time is /t/ {
@@ -154,7 +166,11 @@ Retract the time is /t/
 Step ;# should output nothing
 puts "statements: {$::statements}" ;# should be empty set
 
+# Multi-level
+# -----------
+
 Assert when the time is /t/ {
+    puts "parents: $__parents"
     Claim the time is definitely $t
 }
 Assert when the time is definitely /ti/ {
