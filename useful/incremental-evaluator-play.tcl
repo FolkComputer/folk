@@ -4,48 +4,11 @@ set ::log [list]
 proc Assert {args} {lappend ::log [list Assert $args]}
 proc Retract {args} {lappend ::log [list Retract $args]}
 
-# FIXME: store the current pointer to the current when so we can stick a destructor here
-proc Claim {args} {lappend ::log [list Claim $args]}
-proc When {args} {
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
-    set locals [uplevel 1 { # get local variables & serialize them (to fake lexical scope)
-        set localNames [info locals]
-        set locals [dict create]
-        foreach localName $localNames { dict set locals $localName [set $localName] }
-        set locals
-    }]
-    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
+proc Claim {args} {
+    upvar __parents __parents
+    lappend ::log [list Claim $__parents $args]
 }
 
-proc matches {clause statement} {
-    set match [dict create]
-    for {set i 0} {$i < [llength $clause]} {incr i} {
-        set clauseWord [lindex $clause $i]
-        set statementWord [lindex $statement $i]
-        if {[regexp {^/([^/]+)/$} $clauseWord -> clauseVarName]} {
-            dict set match $clauseVarName $statementWord
-        } elseif {$clauseWord != $statementWord} {
-            return false
-        }
-    }
-    return $match
-}
-proc runWhen {clause cb enclosingMatchStack match} {
-    set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-    dict with ::currentMatchStack $cb
-}
-proc evaluate {} {
-    for {set i 0} {$i <= [llength $::whens]} {incr i} {
-        lassign [lindex $::whens $i] clause cb enclosingMatchStack
-        dict for {stmt _} $::statements {
-            set match [matches $clause $stmt]
-            if {$match == false} { set match [matches [list /someone/ claims {*}$clause] $stmt] }
-
-            if {$match != false} { runWhen $clause $cb $enclosingMatchStack $match }
-        }
-    }
-}
 proc Step {cb} {
     # clear the statement set
     set ::statements [dict create]
@@ -81,18 +44,18 @@ proc Step {} {
         return $match
     }
     proc findMatches {pattern} {
-        # Returns a list of bindings like {{name Bob age 27} {name Omar age 28}}
-        # In each binding, also attach a statement zipper.
+        # Returns a list of bindings like {{name Bob age 27 __parents {...}} {name Omar age 28 __parents {...}}}
         # TODO: multi-level matching
         # TODO: efficient matching
         set matches [list]
         dict for {stmt _} $::statements {
             set match [unify $pattern $stmt]
             if {$match != false} {
-                # TODO: store a set including {pattern, stmt} in match so that
-                # when match is evaluated for when-body, it can add itself
-                # as a child of pattern and of stmt
+                # store a set including {pattern, stmt} in match so
+                # that when match is evaluated for when-body, it can
+                # add itself as a child of pattern and of stmt
                 dict set match __parents [list $pattern $stmt]
+
                 lappend matches $match
             }
         }
@@ -103,8 +66,9 @@ proc Step {} {
     puts "Step:"
     puts "-----"
 
-    foreach delta $::log {
-        lassign $delta op clause
+    while {[llength $::log]} {
+        lassign [lindex $::log 0] op clause
+        set ::log [lreplace $::log 0 0]
         puts "$op: $clause"
 
         if {$op == "Assert"} {
@@ -138,9 +102,11 @@ proc Step {} {
                 }
             }
             # FIXME: unset all things downstream of statement
+
+        } elseif {$op == "Claim"} {
+            
         }
     }
-    set ::log [list]
 }
 
 # Single-level
@@ -178,4 +144,5 @@ Assert when the time is definitely /ti/ {
 }
 Assert the time is 6
 Step ;# FIXME: should output "i'm sure the time is 6"
+puts "log: {$::log}"
 puts "statements: {$::statements}"
