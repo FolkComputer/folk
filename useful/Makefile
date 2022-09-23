@@ -6,3 +6,6 @@ run-detect: detect
 
 stream: stream.c
 	cc stream.c -ljpeg -o stream
+
+incremental-evaluator-play:
+	expect -i -c 'source incremental-evaluator-play.tcl'

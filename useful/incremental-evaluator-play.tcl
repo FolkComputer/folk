@@ -52,6 +52,28 @@ namespace eval Statements { ;# singleton Statement store
         }
         return $matches
     }
+
+    proc graph {} {
+        variable statements
+        set dot [list]
+        dict for {id stmt} $statements {
+            set label [string map {"\n" "<br/>"} [statement clause $stmt]]
+            lappend dot "$id \[label=<$label>\];"
+            foreach child [statement children $stmt] {
+                lappend dot "$id -> $child;"
+            }
+        }
+        return "digraph { rankdir=LR; [join $dot "\n"] }"
+    }
+    proc showGraph {} {
+        set fp [open "incremental-evaluator-play-statements.dot" "w"]
+        puts -nonewline $fp [graph]
+        close $fp
+        exec dot -Tpdf incremental-evaluator-play-statements.dot > incremental-evaluator-play-statements.pdf
+    }
+    proc openGraph {} {
+        exec open incremental-evaluator-play-statements.pdf
+    }
 }
 
 namespace eval statement { ;# statement record type
@@ -105,6 +127,9 @@ proc Step {} {
             }
         }
     }
+    proc reactToStatementRemoval {id} {
+        # FIXME: unset all things downstream of statement
+    }
 
     puts ""
     puts "Step:"
@@ -128,7 +153,7 @@ proc Step {} {
                 set id [dict get $bindings __matcheeId]
                 Statements::remove $id
             }
-            # FIXME: unset all things downstream of statement
+            reactToStatementRemoval $id
 
         } elseif {$op == "Claim"} {
             set parents [lindex $entry 1]
@@ -181,3 +206,10 @@ Assert the time is 6
 Step ;# should output "i'm sure the time is 6"
 puts "log: {$::log}" ;# should be empty
 # puts "statements: {$Statements::statements}"
+
+
+proc A {args} {
+    Assert {*}$args
+    Step
+    Statements::showGraph
+}
