@@ -161,7 +161,8 @@ puts "statements: {$Statements::statements}" ;# should be empty set
 # -----------
 
 Assert when the time is /t/ {
-    puts "parents: $__parents"
+    puts "matcher: ($__matcherId) [dict get $Statements::statements $__matcherId]"
+    puts "matchee: ($__matcheeId) [dict get $Statements::statements $__matcheeId]"
     Claim the time is definitely $t
 }
 Assert when the time is definitely /ti/ {
