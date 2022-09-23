@@ -11,6 +11,10 @@ namespace eval Statements { ;# singleton Statement store
         dict set statements $id $stmt
         return $id
     }
+    proc get {id} {
+        variable statements
+        return [dict get $statements $id]
+    }
     proc remove {id} {
         variable statements
         dict unset statements $id
@@ -77,6 +81,31 @@ proc Claim {args} {
 proc Step {} {
     # should this do reduction of assert/retract ?
 
+    proc reactToStatementAddition {id} {
+        set clause [statement clause [Statements::get $id]]
+        if {[lindex $clause 0] == "when"} {
+            # is this a When? match it against existing statements
+            # when the time is /t/ { ... } -> the time is /t/
+            set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
+            set matches [Statements::findMatches $unwhenizedClause]
+            set body [lindex $clause end]
+            foreach bindings $matches {
+                dict set bindings __matcherId $id
+                dict with bindings $body
+            }
+
+        } else {
+            # is this a statement? match it against existing whens
+            # the time is 3 -> when the time is 3 /__body/
+            set whenizedClause [list when {*}$clause /__body/]
+            set matches [Statements::findMatches $whenizedClause]
+            foreach bindings $matches {
+                dict set bindings __matcherId $id
+                dict with bindings [dict get $bindings __body]
+            }
+        }
+    }
+
     puts ""
     puts "Step:"
     puts "-----"
@@ -91,28 +120,7 @@ proc Step {} {
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
             set id [Statements::add $clause [list]] ;# statement without parents
-
-            if {[lindex $clause 0] == "when"} {
-                # is this a When? match it against existing statements
-                # when the time is /t/ { ... } -> the time is /t/
-                set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
-                set matches [Statements::findMatches $unwhenizedClause]
-                set body [lindex $clause end]
-                foreach bindings $matches {
-                    dict set bindings __matcherId $id
-                    dict with bindings $body
-                }
-
-            } else {
-                # is this a statement? match it against existing whens
-                # the time is 3 -> when the time is 3 /__body/
-                set whenizedClause [list when {*}$clause /__body/]
-                set matches [Statements::findMatches $whenizedClause]
-                foreach bindings $matches {
-                    dict set bindings __matcherId $id
-                    dict with bindings [dict get $bindings __body]
-                }
-            }
+            reactToStatementAddition $id
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
@@ -132,6 +140,7 @@ proc Step {} {
                     lappend children $id
                 }
             }
+            reactToStatementAddition $id
         }
     }
 }
@@ -169,6 +178,6 @@ Assert when the time is definitely /ti/ {
     puts "i'm sure the time is $ti"
 }
 Assert the time is 6
-Step ;# FIXME: should output "i'm sure the time is 6"
-puts "log: {$::log}"
-puts "statements: {$Statements::statements}"
+Step ;# should output "i'm sure the time is 6"
+puts "log: {$::log}" ;# should be empty
+# puts "statements: {$Statements::statements}"
