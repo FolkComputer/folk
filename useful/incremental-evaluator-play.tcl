@@ -1,31 +1,21 @@
-set ::statements [dict create]
+namespace eval Statements { ;# singleton Statement store
+    variable statements [dict create] ;# Map<StatementId, Statement>
+    variable nextStatementId 1
 
-set ::log [list]
-proc Assert {args} {lappend ::log [list Assert $args]}
-proc Retract {args} {lappend ::log [list Retract $args]}
+    proc add {clause parents} {
+        variable statements
+        variable nextStatementId
 
-proc Claim {args} {
-    upvar __parents __parents
-    lappend ::log [list Claim $__parents $args]
-}
-
-proc Step {cb} {
-    # clear the statement set
-    set ::statements [dict create]
-    set ::whens [list]
-    set ::currentMatchStack [dict create]
-    uplevel 1 $cb ;# run the body code
-
-    while 1 {
-        set prevStatements $::statements
-        evaluate
-        if {$::statements eq $prevStatements} break ;# fixpoint
+        set id [incr nextStatementId]
+        set stmt [statement create $clause $parents]
+        dict set statements $id $stmt
+        return $id
     }
-}
-
-proc Step {} {
-    # should this do reduction of assert/retract ?
-
+    proc remove {id} {
+        variable statements
+        dict unset statements $id
+    }
+    
     proc unify {a b} {
         if {[llength $a] != [llength $b]} { return false }
 
@@ -44,23 +34,48 @@ proc Step {} {
         return $match
     }
     proc findMatches {pattern} {
-        # Returns a list of bindings like {{name Bob age 27 __parents {...}} {name Omar age 28 __parents {...}}}
+        variable statements
+        # Returns a list of bindings like {{name Bob age 27 __id} {name Omar age 28 __id}}
         # TODO: multi-level matching
         # TODO: efficient matching
         set matches [list]
-        dict for {stmt _} $::statements {
-            set match [unify $pattern $stmt]
+        dict for {id stmt} $statements {
+            set match [unify $pattern [statement clause $stmt]]
             if {$match != false} {
-                # store a set including {pattern, stmt} in match so
-                # that when match is evaluated for when-body, it can
-                # add itself as a child of pattern and of stmt
-                dict set match __parents [list $pattern $stmt]
-
+                dict set match __matcheeId $id
                 lappend matches $match
             }
         }
         return $matches
     }
+}
+
+namespace eval statement { ;# statement record type
+    namespace export create
+    proc create {clause parents} {
+        return [list $clause $parents [list]]
+    }
+
+    namespace export clause parents children
+    proc clause {stmt} { return [lindex $stmt 0] }
+    proc parents {stmt} { return [lindex $stmt 1] }
+    proc children {stmt} { return [lindex $stmt 2] }
+
+    namespace ensemble create
+}
+
+set ::log [list]
+proc Assert {args} {lappend ::log [list Assert $args]}
+proc Retract {args} {lappend ::log [list Retract $args]}
+
+proc Claim {args} {
+    upvar __matcherId matcherId
+    upvar __matcheeId matcheeId
+    lappend ::log [list Claim [list $matcherId $matcheeId] $args]
+}
+
+proc Step {} {
+    # should this do reduction of assert/retract ?
 
     puts ""
     puts "Step:"
@@ -75,15 +90,16 @@ proc Step {} {
         puts "$op: $entry"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
-            dict set ::statements $clause [list] ;# empty list = no children-statements yet
+            set id [Statements::add $clause [list]] ;# statement without parents
 
             if {[lindex $clause 0] == "when"} {
                 # is this a When? match it against existing statements
                 # when the time is /t/ { ... } -> the time is /t/
                 set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
-                set matches [findMatches $unwhenizedClause]
+                set matches [Statements::findMatches $unwhenizedClause]
                 set body [lindex $clause end]
                 foreach bindings $matches {
+                    dict set bindings __matcherId $id
                     dict with bindings $body
                 }
 
@@ -91,32 +107,29 @@ proc Step {} {
                 # is this a statement? match it against existing whens
                 # the time is 3 -> when the time is 3 /__body/
                 set whenizedClause [list when {*}$clause /__body/]
-                set matches [findMatches $whenizedClause]
+                set matches [Statements::findMatches $whenizedClause]
                 foreach bindings $matches {
+                    dict set bindings __matcherId $id
                     dict with bindings [dict get $bindings __body]
                 }
             }
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
-            dict for {stmt _} $::statements {
-                set match [unify $clause $stmt]
-                if {$match != false} {
-                    dict unset ::statements $stmt
-                }
+            foreach bindings [Statements::findMatches $clause] {
+                set id [dict get $bindings __matcheeId]
+                Statements::remove $id
             }
             # FIXME: unset all things downstream of statement
-            
 
         } elseif {$op == "Claim"} {
             set parents [lindex $entry 1]
             set clause [lindex $entry 2]
             puts "MAKING CLAIM $entry WITH PARENTS $parents"
-            # list this statement as a dependent under all its parents
-            dict with ::statements {
-                foreach parent $parents { lappend $parent $clause }
+            # list this statement as a child under each of its parents
+            dict with Statements::statements {
             }
-            dict set ::statements $clause [list] ;# empty list = no children-statements yet
+            [Statements::add $clause $parents]
         }
     }
 }
@@ -142,7 +155,7 @@ Step ;# should output nothing
 
 Retract the time is /t/
 Step ;# should output nothing
-puts "statements: {$::statements}" ;# should be empty set
+puts "statements: {$Statements::statements}" ;# should be empty set
 
 # Multi-level
 # -----------
