@@ -35,7 +35,7 @@ namespace eval Statements { ;# singleton Statement store
     }
     proc findMatches {pattern} {
         variable statements
-        # Returns a list of bindings like {{name Bob age 27 __id} {name Omar age 28 __id}}
+        # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
         # TODO: multi-level matching
         # TODO: efficient matching
         set matches [list]
@@ -51,15 +51,15 @@ namespace eval Statements { ;# singleton Statement store
 }
 
 namespace eval statement { ;# statement record type
-    namespace export create
-    proc create {clause parents} {
-        return [list $clause $parents [list]]
+    namespace export create addChild
+    proc create {clause parents {children {}}} {
+        return [dict create clause $clause parents $parents children $children]
     }
 
     namespace export clause parents children
-    proc clause {stmt} { return [lindex $stmt 0] }
-    proc parents {stmt} { return [lindex $stmt 1] }
-    proc children {stmt} { return [lindex $stmt 2] }
+    proc clause {stmt} { return [dict get $stmt clause] }
+    proc parents {stmt} { return [dict get $stmt parents] }
+    proc children {stmt} { return [dict get $stmt children] }
 
     namespace ensemble create
 }
@@ -125,11 +125,13 @@ proc Step {} {
         } elseif {$op == "Claim"} {
             set parents [lindex $entry 1]
             set clause [lindex $entry 2]
-            puts "MAKING CLAIM $entry WITH PARENTS $parents"
+            set id [Statements::add $clause $parents]
             # list this statement as a child under each of its parents
-            dict with Statements::statements {
+            foreach parentId $parents {
+                dict with Statements::statements $parentId {
+                    lappend children $id
+                }
             }
-            [Statements::add $clause $parents]
         }
     }
 }
@@ -161,8 +163,6 @@ puts "statements: {$Statements::statements}" ;# should be empty set
 # -----------
 
 Assert when the time is /t/ {
-    puts "matcher: ($__matcherId) [dict get $Statements::statements $__matcherId]"
-    puts "matchee: ($__matcheeId) [dict get $Statements::statements $__matcheeId]"
     Claim the time is definitely $t
 }
 Assert when the time is definitely /ti/ {
@@ -171,4 +171,4 @@ Assert when the time is definitely /ti/ {
 Assert the time is 6
 Step ;# FIXME: should output "i'm sure the time is 6"
 puts "log: {$::log}"
-puts "statements: {$::statements}"
+puts "statements: {$Statements::statements}"
