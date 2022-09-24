@@ -62,8 +62,13 @@ namespace eval Statements { ;# singleton Statement store
         dict for {id stmt} $statements {
             set label [string map {"\n" "<br/>"} [statement clause $stmt]]
             lappend dot "$id \[label=<$label>\];"
+
+            dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
+                lappend dot "\"$id $setOfParentsId\" \[label=\"$id $setOfParentsId: $parents\"\];"
+                lappend dot "\"$id $setOfParentsId\" -> $id;"
+            }
             foreach child [statement children $stmt] {
-                lappend dot "$id -> $child;"
+                lappend dot "$id -> \"$child\";"
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
@@ -91,7 +96,7 @@ namespace eval statement { ;# statement record type
                     children $children]
     }
 
-    namespace export clause parents children
+    namespace export clause setsOfParents children
     proc clause {stmt} { return [dict get $stmt clause] }
     proc setsOfParents {stmt} { return [dict get $stmt setsOfParents] }
     proc children {stmt} { return [dict get $stmt children] }
