@@ -10,15 +10,31 @@ namespace eval Statements { ;# singleton Statement store
 
     proc add {clause {parents {}}} {
         # empty set of parents = an assertion
-        # FIXME: merge with existing statement and add new set of parents
+        # returns {statement-id set-of-parents-id}
 
         variable statements
         variable nextStatementId
 
-        set id [incr nextStatementId]
-        set stmt [statement create $clause [dict create 0 $parents]]
-        dict set statements $id $stmt
-        return [list $id 0]
+        # is this clause already present in the existing statement set?
+        set matches [findMatches $clause]
+        if {[llength $matches] == 1} {
+            set id [dict get [lindex $matches 0] __matcheeId]
+            dict with statements $id {
+                set newSetOfParentsId [expr {[lindex $setsOfParents end-1] + 1}]
+                dict set setsOfParents $newSetOfParentsId $parents
+                return [list $id $newSetOfParentsId]
+            }
+
+        } elseif {[llength $matches] == 0} {
+            set id [incr nextStatementId]
+            set stmt [statement create $clause [dict create 0 $parents]]
+            dict set statements $id $stmt
+            return [list $id 0]
+
+        } else {
+            # there are somehow multiple existing matches. this seems bad
+            puts BAD
+        }
     }
     proc get {id} {
         variable statements
@@ -70,7 +86,7 @@ namespace eval Statements { ;# singleton Statement store
             lappend dot "$id \[label=<$id: $label>\];"
 
             dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
-                lappend dot "\"$id $setOfParentsId\" \[label=\"$id $setOfParentsId: $parents\"\];"
+                lappend dot "\"$id $setOfParentsId\" \[label=\"$id#$setOfParentsId: $parents\"\];"
                 lappend dot "\"$id $setOfParentsId\" -> $id;"
             }
             dict for {child _} [statement children $stmt] {
@@ -279,5 +295,3 @@ Assert when the time is 6 {
 Assert the fox is out
 Assert the time is 6
 Step
-
-
