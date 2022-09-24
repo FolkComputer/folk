@@ -1,6 +1,12 @@
 namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Map<StatementId, Statement>
     variable nextStatementId 1
+    proc reset {} {
+        variable statements
+        variable nextStatementId
+        set statements [dict create]
+        set nextStatementId 1
+    }
 
     proc add {clause {parents {}}} {
         # empty set of parents = an assertion
@@ -260,4 +266,18 @@ Assert when the time is definitely /t/ {
 Retract the time is 6
 Assert the time is 10
 Step
+
+# Multi-parent-set statmeents
+# ---------------------------
+Statements::reset
+Assert when the fox is out {
+    Claim the fox has been seen to be out
+}
+Assert when the time is 6 {
+    Claim the fox has been seen to be out
+}
+Assert the fox is out
+Assert the time is 6
+Step
+
 
