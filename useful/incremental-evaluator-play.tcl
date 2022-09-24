@@ -111,7 +111,7 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 proc Claim {args} {
     upvar __matcherId matcherId
     upvar __matcheeId matcheeId
-    lappend ::log [list Claim [list $matcherId $matcheeId] $args]
+    set ::log [linsert $::log 0 [list Claim [list $matcherId $matcheeId] $args]]
 }
 
 proc Step {} {
@@ -253,3 +253,11 @@ proc R {args} {
     Step
     Statements::showGraph
 }
+
+Assert when the time is definitely /t/ {
+    Claim the time is really definitely $t
+}
+Retract the time is 6
+Assert the time is 10
+Step
+
