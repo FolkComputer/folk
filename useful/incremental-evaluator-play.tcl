@@ -2,14 +2,17 @@ namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Map<StatementId, Statement>
     variable nextStatementId 1
 
-    proc add {clause parents} {
+    proc add {clause {parents {}}} {
+        # empty set of parents = an assertion
+        # FIXME: merge with existing statement and add new set of parents
+
         variable statements
         variable nextStatementId
 
         set id [incr nextStatementId]
-        set stmt [statement create $clause $parents]
+        set stmt [statement create $clause [dict create 0 $parents]]
         dict set statements $id $stmt
-        return $id
+        return [list $id 0]
     }
     proc get {id} {
         variable statements
@@ -77,14 +80,20 @@ namespace eval Statements { ;# singleton Statement store
 }
 
 namespace eval statement { ;# statement record type
-    namespace export create addChild
-    proc create {clause parents {children {}}} {
-        return [dict create clause $clause parents $parents children $children]
+    namespace export create
+    proc create {clause {setsOfParents {}} {children {}}} {
+        # clause = [list the fox is out]
+        # parents = [dict create 0 [list 2 7] 1 [list 8 5]]
+        # children = [list [list 9 0]]
+        return [dict create \
+                    clause $clause \
+                    setsOfParents $setsOfParents \
+                    children $children]
     }
 
     namespace export clause parents children
     proc clause {stmt} { return [dict get $stmt clause] }
-    proc parents {stmt} { return [dict get $stmt parents] }
+    proc setsOfParents {stmt} { return [dict get $stmt setsOfParents] }
     proc children {stmt} { return [dict get $stmt children] }
 
     namespace ensemble create
@@ -144,7 +153,7 @@ proc Step {} {
         puts "$op: $entry"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
-            set id [Statements::add $clause [list]] ;# statement without parents
+            lassign [Statements::add $clause] id ;# statement without parents
             reactToStatementAddition $id
 
         } elseif {$op == "Retract"} {
@@ -158,11 +167,11 @@ proc Step {} {
         } elseif {$op == "Claim"} {
             set parents [lindex $entry 1]
             set clause [lindex $entry 2]
-            set id [Statements::add $clause $parents]
+            lassign [Statements::add $clause $parents] id setOfParentsId
             # list this statement as a child under each of its parents
             foreach parentId $parents {
                 dict with Statements::statements $parentId {
-                    lappend children $id
+                    lappend children [list $id $setOfParentsId]
                 }
             }
             reactToStatementAddition $id
