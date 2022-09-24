@@ -65,7 +65,6 @@ namespace eval Statements { ;# singleton Statement store
     proc findMatches {pattern} {
         variable statements
         # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
-        # TODO: multi-level matching
         # TODO: efficient matching
         set matches [list]
         dict for {id stmt} $statements {
@@ -168,16 +167,18 @@ proc Step {} {
         set children [statement children [Statements::get $id]]
         dict for {child _} $children {
             lassign $child childId childSetOfParentsId
-            dict with Statements::statements $childId {
-                set parents [dict get $setsOfParents $childSetOfParentsId]
-                # this set of parents will be dead, so remove it from
-                # the other parents in the set
-                foreach parentId $parents {
-                    dict with Statements::statements $parentId {
-                        dict unset children [list $childId $childSetOfParentsId]
-                    }
-                }
+            set childSetsOfParents [statement setsOfParents [Statements::get $childId]]
+            set parentsInSameSet [dict get $childSetsOfParents $childSetOfParentsId]
 
+            # this set of parents will be dead, so remove the set from
+            # the other parents in the set
+            foreach parentId $parentsInSameSet {
+                dict with Statements::statements $parentId {
+                    dict unset children $child
+                }
+            }
+
+            dict with Statements::statements $childId {
                 dict unset setsOfParents $childSetOfParentsId
 
                 # is this child out of parent sets? => it's dead
