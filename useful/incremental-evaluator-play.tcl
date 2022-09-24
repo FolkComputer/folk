@@ -61,13 +61,13 @@ namespace eval Statements { ;# singleton Statement store
         set dot [list]
         dict for {id stmt} $statements {
             set label [string map {"\n" "<br/>"} [statement clause $stmt]]
-            lappend dot "$id \[label=<$label>\];"
+            lappend dot "$id \[label=<$id: $label>\];"
 
             dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
                 lappend dot "\"$id $setOfParentsId\" \[label=\"$id $setOfParentsId: $parents\"\];"
                 lappend dot "\"$id $setOfParentsId\" -> $id;"
             }
-            foreach child [statement children $stmt] {
+            dict for {child _} [statement children $stmt] {
                 lappend dot "$id -> \"$child\";"
             }
         }
@@ -89,7 +89,7 @@ namespace eval statement { ;# statement record type
     proc create {clause {setsOfParents {}} {children {}}} {
         # clause = [list the fox is out]
         # parents = [dict create 0 [list 2 7] 1 [list 8 5]]
-        # children = [list [list 9 0]]
+        # children = [dict create [list 9 0] true]
         return [dict create \
                     clause $clause \
                     setsOfParents $setsOfParents \
@@ -142,7 +142,29 @@ proc Step {} {
         }
     }
     proc reactToStatementRemoval {id} {
-        # FIXME: unset all things downstream of statement
+        # unset all things downstream of statement
+        set children [statement children [Statements::get $id]]
+        dict for {child _} $children {
+            lassign $child childId childSetOfParentsId
+            dict with Statements::statements $childId {
+                set parents [dict get $setsOfParents $childSetOfParentsId]
+                # this set of parents will be dead, so remove it from
+                # the other parents in the set
+                foreach parentId $parents {
+                    dict with Statements::statements $parentId {
+                        dict unset children [list $childId $childSetOfParentsId]
+                    }
+                }
+
+                dict unset setsOfParents $childSetOfParentsId
+
+                # is this child out of parent sets? => it's dead
+                if {[dict size $setsOfParents] == 0} {
+                    reactToStatementRemoval $childId
+                    Statements::remove $childId
+                }
+            }
+        }
     }
 
     puts ""
@@ -165,9 +187,9 @@ proc Step {} {
             set clause [lindex $entry 1]
             foreach bindings [Statements::findMatches $clause] {
                 set id [dict get $bindings __matcheeId]
+                reactToStatementRemoval $id
                 Statements::remove $id
             }
-            reactToStatementRemoval $id
 
         } elseif {$op == "Claim"} {
             set parents [lindex $entry 1]
@@ -176,7 +198,7 @@ proc Step {} {
             # list this statement as a child under each of its parents
             foreach parentId $parents {
                 dict with Statements::statements $parentId {
-                    lappend children [list $id $setOfParentsId]
+                    dict set children [list $id $setOfParentsId] true
                 }
             }
             reactToStatementAddition $id
@@ -221,9 +243,13 @@ Step ;# should output "i'm sure the time is 6"
 puts "log: {$::log}" ;# should be empty
 # puts "statements: {$Statements::statements}"
 
-
 proc A {args} {
     Assert {*}$args
+    Step
+    Statements::showGraph
+}
+proc R {args} {
+    Retract {*}$args
     Step
     Statements::showGraph
 }
