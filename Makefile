@@ -16,8 +16,4 @@ Folk.app:
 
 NODE := localhost
 show-statements:
-	echo showStatements | nc -w 1 $(NODE) 4273
-show-whens:
-	echo showWhens | nc -w 1 $(NODE) 4273
-show-statements-trie:
-	echo showStatementsTrie | nc -w 1 $(NODE) 4273 | dot -Tpdf > statements-trie.pdf
+	echo Statements::showGraph | nc -w 1 $(NODE) 4273
