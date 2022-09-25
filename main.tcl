@@ -3,142 +3,277 @@ catch {
     starkit::startup
 }
 
-proc addStatement {s} {
-    dict set ::statements $s true
-    dict set ::statementsTrie {*}$s LEAF
-}
+namespace eval Statements { ;# singleton Statement store
+    variable statements [dict create] ;# Map<StatementId, Statement>
+    variable nextStatementId 1
+    proc reset {} {
+        variable statements
+        variable nextStatementId
+        set statements [dict create]
+        set nextStatementId 1
+    }
 
-proc Claim {args} {
-    # TODO: get the caller instead of `someone`
-    addStatement [list someone claims {*}$args]
-}
-proc Wish {args} {
-    # TODO: get the caller instead of `someone`
-    addStatement [list someone wishes {*}$args]
-}
+    proc add {clause {parents {}}} {
+        # empty set of parents = an assertion
+        # returns {statement-id set-of-parents-id}
 
-proc When {args} {
-    set clause [lreplace $args end end]
-    set cb [lindex $args end]
+        variable statements
+        variable nextStatementId
+
+        # is this clause already present in the existing statement set?
+        set matches [findMatches $clause]
+        if {[llength $matches] == 1} {
+            set id [dict get [lindex $matches 0] __matcheeId]
+            dict with statements $id {
+                set newSetOfParentsId [expr {[lindex $setsOfParents end-1] + 1}]
+                dict set setsOfParents $newSetOfParentsId $parents
+                return [list $id $newSetOfParentsId]
+            }
+
+        } elseif {[llength $matches] == 0} {
+            set id [incr nextStatementId]
+            set stmt [statement create $clause [dict create 0 $parents]]
+            dict set statements $id $stmt
+            return [list $id 0]
+
+        } else {
+            # there are somehow multiple existing matches. this seems bad
+            puts BAD
+        }
+    }
+    proc get {id} {
+        variable statements
+        return [dict get $statements $id]
+    }
+    proc remove {id} {
+        variable statements
+        dict unset statements $id
+    }
     
-    # get local variables and serialize them
-    # (to fake lexical scope)
-    set locals [uplevel 1 {
-        set localNames [info locals]
-        set locals [dict create]
-        foreach localName $localNames { dict set locals $localName [set $localName] }
-        set locals
-    }]
-    lappend ::whens [list $clause $cb [dict merge $::currentMatchStack $locals]]
+    proc unify {a b} {
+        if {[llength $a] != [llength $b]} { return false }
+
+        set match [dict create]
+        for {set i 0} {$i < [llength $a]} {incr i} {
+            set aWord [lindex $a $i]
+            set bWord [lindex $b $i]
+            if {[regexp {^/([^/]+)/$} $aWord -> aVarName]} {
+                dict set match $aVarName $bWord
+            } elseif {[regexp {^/([^/]+)/$} $bWord -> bVarName]} {
+                dict set match $bVarName $aWord
+            } elseif {$aWord != $bWord} {
+                return false
+            }
+        }
+        return $match
+    }
+    proc findMatches {pattern} {
+        variable statements
+        # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
+        # TODO: efficient matching
+        set matches [list]
+        dict for {id stmt} $statements {
+            set match [unify $pattern [statement clause $stmt]]
+            if {$match != false} {
+                dict set match __matcheeId $id
+                lappend matches $match
+            }
+        }
+        return $matches
+    }
+
+    proc graph {} {
+        variable statements
+        set dot [list]
+        dict for {id stmt} $statements {
+            set label [string map {"\n" "<br/>"} [statement clause $stmt]]
+            lappend dot "$id \[label=<$id: $label>\];"
+
+            dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
+                lappend dot "\"$id $setOfParentsId\" \[label=\"$id#$setOfParentsId: $parents\"\];"
+                lappend dot "\"$id $setOfParentsId\" -> $id;"
+            }
+            dict for {child _} [statement children $stmt] {
+                lappend dot "$id -> \"$child\";"
+            }
+        }
+        return "digraph { rankdir=LR; [join $dot "\n"] }"
+    }
+    proc showGraph {} {
+        set fp [open "incremental-evaluator-play-statements.dot" "w"]
+        puts -nonewline $fp [graph]
+        close $fp
+        exec dot -Tpdf incremental-evaluator-play-statements.dot > incremental-evaluator-play-statements.pdf
+    }
+    proc openGraph {} {
+        exec open incremental-evaluator-play-statements.pdf
+    }
 }
 
-set ::assertedStatementsFrom [dict create]
-proc Assert {args} {
-    set statement $args
-    dict set ::assertedStatementsFrom SELF $statement true
+namespace eval statement { ;# statement record type
+    namespace export create
+    proc create {clause {setsOfParents {}} {children {}}} {
+        # clause = [list the fox is out]
+        # parents = [dict create 0 [list 2 7] 1 [list 8 5]]
+        # children = [dict create [list 9 0] true]
+        return [dict create \
+                    clause $clause \
+                    setsOfParents $setsOfParents \
+                    children $children]
+    }
+
+    namespace export clause setsOfParents children
+    proc clause {stmt} { return [dict get $stmt clause] }
+    proc setsOfParents {stmt} { return [dict get $stmt setsOfParents] }
+    proc children {stmt} { return [dict get $stmt children] }
+
+    namespace ensemble create
 }
-proc Retract {args} {
-    set clause $args
-    dict for {origin assertedStatements} $::assertedStatementsFrom {
-        dict for {statement _} $assertedStatements {
-            set match [matches $clause $statement]
-            if {$match != false} {
-                dict unset ::assertedStatementsFrom $origin $statement
+
+set ::log [list]
+
+# invoke at top level, add/remove independent 'axioms' for the system
+proc Assert {args} {lappend ::log [list Assert $args]}
+proc Retract {args} {lappend ::log [list Retract $args]}
+
+# invoke from within a When context, add dependent statements
+proc Say {args} {
+    upvar __matcherId matcherId
+    upvar __matcheeId matcheeId
+    set ::log [linsert $::log 0 [list Say [list $matcherId $matcheeId] $args]]
+}
+proc Claim {args} { uplevel [list Say someone claims {*}$args] }
+proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
+proc When {args} {
+    set env [uplevel {
+        set ___env $__env ;# inherit existing environment
+
+        # get local variables and serialize them
+        # (to fake lexical scope)
+        foreach localName [info locals] {
+            if {![string match "__*" $localName]} {
+                dict set ___env $localName [set $localName]
+            }
+        }
+        set ___env
+    }]
+    uplevel [list Say when {*}$args with environment $env]
+}
+
+proc StepImpl {} {
+    # should this do reduction of assert/retract ?
+
+    proc runWhen {__env __body} {
+        dict with __env $__body
+    }
+
+    proc reactToStatementAddition {id} {
+        set clause [statement clause [Statements::get $id]]
+        if {[lindex $clause 0] == "when"} {
+            # is this a When? match it against existing statements
+            # when the time is /t/ { ... } with environment /env/ -> the time is /t/
+            set unwhenizedClause [lreplace [lreplace $clause end-3 end] 0 0]
+            set matches [concat [Statements::findMatches $unwhenizedClause] \
+                             [Statements::findMatches [list /someone/ claims {*}$unwhenizedClause]]]
+            set body [lindex $clause end-3]
+            set env [lindex $clause end]
+            foreach match $matches {
+                set __env [dict merge \
+                               $env \
+                               $match \
+                               [dict create __matcherId $id]]
+                runWhen $__env $body
+            }
+
+        } else {
+            # is this a statement? match it against existing whens
+            # the time is 3 -> when the time is 3 /__body/ with environment /__env/
+            proc whenize {clause} { return [list when {*}$clause /__body/ with environment /__env/] }
+            set matches [Statements::findMatches [whenize $clause]]
+            if {[Statements::unify [lrange $clause 0 1] [list /someone/ claims]] != false} {
+                # Omar claims the time is 3 -> when the time is 3 /__body/ with environment /__env/
+                lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
+            }
+            foreach match $matches {
+                set __env [dict merge \
+                               [dict get $match __env] \
+                               $match \
+                               [dict create __matcherId $id]]
+                runWhen $__env [dict get $match __body]
             }
         }
     }
-}
+    proc reactToStatementRemoval {id} {
+        # unset all things downstream of statement
+        set children [statement children [Statements::get $id]]
+        dict for {child _} $children {
+            lassign $child childId childSetOfParentsId
+            set childSetsOfParents [statement setsOfParents [Statements::get $childId]]
+            set parentsInSameSet [dict get $childSetsOfParents $childSetOfParentsId]
 
-proc matches {clause statement} {
-    set match [dict create]
-
-    for {set i 0} {$i < [llength $clause]} {incr i} {
-        set clauseWord [lindex $clause $i]
-        set statementWord [lindex $statement $i]
-        if {[regexp {^/([^/]+)/$} $clauseWord -> clauseVarName]} {
-            dict set match $clauseVarName $statementWord
-        } elseif {$clauseWord != $statementWord} {
-            return false
-        }
-    }
-    return $match
-}
-
-proc evaluate {} {
-    proc matchWhen {clause} {
-        # i have a when
-        # i want to walk every token in the when and use it to walk the statement trie
-        # when /someone/ claims /page/ has program code /code/
-        set paths [list [dict create bindings [dict create] trie $::statementsTrie]]
-        foreach word $clause {
-            set nextPaths [list]
-            foreach path $paths {
-                dict with path {
-                    dict for {key subtrie} $trie {
-                        if {[regexp {^/([^/]+)/$} $word -> clauseVarName]} {
-                            set newBindings [dict replace $bindings $clauseVarName $key]
-                            lappend nextPaths [dict create bindings $newBindings trie $subtrie]
-                        } elseif {$key == $word} {
-                            lappend nextPaths [dict create bindings $bindings trie $subtrie]
-                        }
-                    }
+            # this set of parents will be dead, so remove the set from
+            # the other parents in the set
+            foreach parentId $parentsInSameSet {
+                dict with Statements::statements $parentId {
+                    dict unset children $child
                 }
             }
-            set paths $nextPaths
-        }
-        return $paths
-    }
-    proc runWhen {clause cb enclosingMatchStack match} {
-        set ::currentMatchStack [dict merge $enclosingMatchStack $match]
-        if {[catch {dict with ::currentMatchStack $cb} err] == 1} { # TCL_ERROR
-            puts stderr "error: $err"
-        }
-    }
-    for {set i 0} {$i <= [llength $::whens]} {incr i} {
-        lassign [lindex $::whens $i] clause cb enclosingMatchStack
 
-        set paths [matchWhen $clause]
-        if {[llength $paths] == 0} { set paths [matchWhen [list /someone/ claims {*}$clause]] }
-        foreach path $paths {
-            dict with path {
-                runWhen $clause $cb $enclosingMatchStack $bindings
+            dict with Statements::statements $childId {
+                dict unset setsOfParents $childSetOfParentsId
+
+                # is this child out of parent sets? => it's dead
+                if {[dict size $setsOfParents] == 0} {
+                    reactToStatementRemoval $childId
+                    Statements::remove $childId
+                }
             }
+        }
+    }
+
+    # puts ""
+    # puts "Step:"
+    # puts "-----"
+
+    while {[llength $::log]} {
+        # TODO: make this log-shift more efficient?
+        set entry [lindex $::log 0]
+        set ::log [lreplace $::log 0 0]
+
+        set op [lindex $entry 0]
+        # puts "$op: $entry"
+        if {$op == "Assert"} {
+            set clause [lindex $entry 1]
+            # insert empty environment if not present
+            if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
+                set clause [list {*}$clause with environment {}]
+            }
+            lassign [Statements::add $clause] id ;# statement without parents
+            reactToStatementAddition $id
+
+        } elseif {$op == "Retract"} {
+            set clause [lindex $entry 1]
+            foreach bindings [Statements::findMatches $clause] {
+                set id [dict get $bindings __matcheeId]
+                reactToStatementRemoval $id
+                Statements::remove $id
+            }
+
+        } elseif {$op == "Say"} {
+            set parents [lindex $entry 1]
+            set clause [lindex $entry 2]
+            lassign [Statements::add $clause $parents] id setOfParentsId
+            # list this statement as a child under each of its parents
+            foreach parentId $parents {
+                dict with Statements::statements $parentId {
+                    dict set children [list $id $setOfParentsId] true
+                }
+            }
+            reactToStatementAddition $id
         }
     }
 }
 
-# pretty-prints latest statement set
-proc showStatements {} {
-    return [join [lmap statement [dict keys $::statements] {
-        lmap word $statement {expr {
-            [string length $word] > 20 ?
-            "[string range $word 0 20]..." :
-            $word
-        }}
-    }] "\n"]
-}
-proc showWhens {} {
-    return [join [lmap when $::whens {lindex $when 0}] "\n"]
-}
-proc showStatementsTrie {} {
-    proc showStatementsSubtrie {root subtrie} {
-        set dot [list]
-        foreach key [dict keys $subtrie] {
-            if {$root != ""} {
-                set shortKey [expr {[string length $key] > 100 ?
-                                    "[string range $key 0 50]..." :
-                                    $key}]
-                lappend dot "\"$root\" -> \"$shortKey\";"
-            }
-            set value [dict get $subtrie $key]
-            if {[lindex $value 0] != "LEAF"} {
-                lappend dot [showStatementsSubtrie $key $value]
-            }
-        }
-        return [join $dot "\n"]
-    }
-    return "digraph { rankdir=LR; [showStatementsSubtrie {} $::statementsTrie] }"
-}
 proc accept {chan addr port} {
     # (mostly for the Pi)
     # we want to be able to asynchronously receive statements
@@ -165,44 +300,16 @@ if {[catch {socket -server accept 4273}]} {
     socket -server accept 4274
 }
 
-set ::alwaysCbs [list]
-proc Always {cb} {
-    lappend ::alwaysCbs $cb
-}
-proc StepImpl {cb} {
-    # clear the statement set
-    set ::statements [dict create]
-    set ::statementsTrie [dict create]
-    dict for {s _} [dict merge {*}[dict values $::assertedStatementsFrom]] {
-        addStatement $s
-    }
-    set ::whens [list]
-
-    set ::currentMatchStack [dict create]
-
-    foreach alwaysCb $::alwaysCbs {uplevel 1 $alwaysCb}
-    uplevel 1 $cb
-
-    while 1 {
-        set prevStatements $::statements
-        evaluate
-        if {$::statements eq $prevStatements} break ;# fixpoint
-    }
-
-    Display::commit
-}
 set ::stepTime "none"
-proc Step {cb} {
-    set ::stepTime [time {StepImpl $cb}]
+proc Step {} {
+    set ::stepTime [time {StepImpl}]
 }
 
 source "lib/math.tcl"
 
-Always {
-    # this defines $this in the contained scopes
-    When /this/ has program code /code/ {
-        eval $code
-    }
+# this defines $this in the contained scopes
+Assert when /this/ has program code /code/ {
+    eval $code
 }
 
 if {$tcl_platform(os) eq "Darwin"} {

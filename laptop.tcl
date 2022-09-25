@@ -42,9 +42,8 @@ namespace eval Display {
 package require Thread
 set ::sharerThread [thread::create]
 proc StepFromGUI {} {
-    Step {
-        puts "StepFromGUI"
-    }
+    Step
+    puts "StepFromGUI"
     # share statement set to Pi
     # folk0.local 4273
     thread::send -async $::sharerThread [format {
@@ -56,7 +55,7 @@ proc StepFromGUI {} {
         } err]} {
             puts stderr "share error: $err"
         }
-    } $::nodename $::statements]
+    } $::nodename $Statements::statements]
 }
 
 set ::nextProgramNum 0
