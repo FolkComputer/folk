@@ -322,3 +322,14 @@ Step
 Assert you are ready
 Step
 
+# Lexical scope
+# -------------
+Statements::reset
+Assert when the time is /t/ {
+    Assert when you are ready {
+        puts "the time is $t"
+    }
+}
+Assert the time is 6
+Assert you are ready
+Step
