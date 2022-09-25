@@ -139,37 +139,62 @@ proc Say {args} {
 }
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
-proc When {args} { uplevel [list Say when {*}$args] }
+proc When {args} {
+    set env [uplevel {
+        set env $__env ;# inherit existing environment
+
+        # get local variables and serialize them
+        # (to fake lexical scope)
+        foreach localName [info locals] {
+            if {![string match "__*" $localName]} {
+                dict set env $localName [set $localName]
+            }
+        }
+        set env
+    }]
+    uplevel [list Say when {*}$args with environment $env]
+}
 
 proc Step {} {
     # should this do reduction of assert/retract ?
+
+    proc runWhen {__env __body} {
+        dict with __env $__body
+    }
 
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lindex $clause 0] == "when"} {
             # is this a When? match it against existing statements
-            # when the time is /t/ { ... } -> the time is /t/
-            set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
+            # when the time is /t/ { ... } with environment /env/ -> the time is /t/
+            set unwhenizedClause [lreplace [lreplace $clause end-3 end] 0 0]
             set matches [concat [Statements::findMatches $unwhenizedClause] \
                              [Statements::findMatches [list /someone/ claims {*}$unwhenizedClause]]]
-            set body [lindex $clause end]
-            foreach bindings $matches {
-                dict set bindings __matcherId $id
-                dict with bindings $body
+            set body [lindex $clause end-3]
+            set env [lindex $clause end]
+            foreach match $matches {
+                set __env [dict merge \
+                               $env \
+                               $match \
+                               [dict create __matcherId $id]]
+                runWhen $__env $body
             }
 
         } else {
             # is this a statement? match it against existing whens
-            # the time is 3 -> when the time is 3 /__body/
-            proc whenize {clause} { return [list when {*}$clause /__body/] }
+            # the time is 3 -> when the time is 3 /__body/ with environment /__env/
+            proc whenize {clause} { return [list when {*}$clause /__body/ with environment /__env/] }
             set matches [Statements::findMatches [whenize $clause]]
             if {[Statements::unify [lrange $clause 0 1] [list /someone/ claims]] != false} {
-                # Omar claims the time is 3 -> when the time is 3 /__body/
+                # Omar claims the time is 3 -> when the time is 3 /__body/ with environment /__env/
                 lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
             }
-            foreach bindings $matches {
-                dict set bindings __matcherId $id
-                dict with bindings [dict get $bindings __body]
+            foreach match $matches {
+                set __env [dict merge \
+                               [dict get $match __env] \
+                               $match \
+                               [dict create __matcherId $id]]
+                runWhen $__env [dict get $match __body]
             }
         }
     }
@@ -214,6 +239,10 @@ proc Step {} {
         puts "$op: $entry"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
+            # insert empty environment if not present
+            if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
+                set clause [list {*}$clause with environment {}]
+            }
             lassign [Statements::add $clause] id ;# statement without parents
             reactToStatementAddition $id
 
@@ -244,10 +273,10 @@ proc Step {} {
 # ------------
 
 # the next 2 assertions should work in either order
-Assert the time is 3
 Assert when the time is /t/ {
     puts "the time is $t"
 }
+Assert the time is 3
 Step ;# should output "the time is 3"
 
 Retract the time is 3
@@ -326,10 +355,11 @@ Step
 # -------------
 Statements::reset
 Assert when the time is /t/ {
-    Assert when you are ready {
+    When you are ready {
         puts "the time is $t"
     }
 }
 Assert the time is 6
 Assert you are ready
 Step
+
