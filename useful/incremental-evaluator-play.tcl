@@ -141,16 +141,16 @@ proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
 proc When {args} {
     set env [uplevel {
-        set env $__env ;# inherit existing environment
+        set ___env $__env ;# inherit existing environment
 
         # get local variables and serialize them
         # (to fake lexical scope)
         foreach localName [info locals] {
             if {![string match "__*" $localName]} {
-                dict set env $localName [set $localName]
+                dict set ___env $localName [set $localName]
             }
         }
-        set env
+        set ___env
     }]
     uplevel [list Say when {*}$args with environment $env]
 }
@@ -355,8 +355,9 @@ Step
 # -------------
 Statements::reset
 Assert when the time is /t/ {
+    set excl "!"
     When you are ready {
-        puts "the time is $t"
+        puts "the time is $t $excl"
     }
 }
 Assert the time is 6
