@@ -13,29 +13,25 @@ namespace eval Display {
     pack .display
     wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
 
-    variable displayList [list]
-
     proc init {} {}
 
     proc fillRect {fb x0 y0 x1 y1 color} {
-        lappend Display::displayList [list .display create rectangle $x0 $y0 $x1 $y1 -fill $color]
+        uplevel [list Wish display runs [list .display create rectangle $x0 $y0 $x1 $y1 -fill $color]]
     }
 
     proc stroke {points width color} {
-        lappend Display::displayList [list .display create line {*}[join $points] -fill $color]
+        uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color]]
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]
+        uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
     }
 
     proc commit {} {
-        variable displayList
-
         .display delete all
-        eval [join $displayList "\n"]
-
-        set displayList [list]
+        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
+            eval [dict get $match command]
+        }
     }
 }
 

@@ -272,6 +272,8 @@ proc StepImpl {} {
             reactToStatementAddition $id
         }
     }
+
+    Display::commit ;# TODO: this is weird, not right level
 }
 
 proc accept {chan addr port} {
