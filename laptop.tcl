@@ -29,9 +29,14 @@ namespace eval Display {
 
     proc commit {} {
         .display delete all
+
+        set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
-            eval [dict get $match command]
+            lappend displayList [dict get $match command]
         }
+
+        proc lcomp {a b} {expr {[lindex $a 2] == "text"}}
+        eval [join [lsort -command lcomp $displayList] "\n"]
     }
 }
 
