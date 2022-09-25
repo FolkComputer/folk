@@ -86,8 +86,8 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         set dot [list]
         dict for {id stmt} $statements {
-            set label [string map {"\n" "<br/>"} [statement clause $stmt]]
-            lappend dot "$id \[label=<$id: $label>\];"
+            set label [string map {"\"" "\\\""} [statement clause $stmt]]
+            lappend dot "$id \[label=\"$id: $label\"\];"
 
             dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
                 lappend dot "\"$id $setOfParentsId\" \[label=\"$id#$setOfParentsId: $parents\"\];"
@@ -100,13 +100,13 @@ namespace eval Statements { ;# singleton Statement store
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
     proc showGraph {} {
-        set fp [open "incremental-evaluator-play-statements.dot" "w"]
+        set fp [open "statements.dot" "w"]
         puts -nonewline $fp [graph]
         close $fp
-        exec dot -Tpdf incremental-evaluator-play-statements.dot > incremental-evaluator-play-statements.pdf
+        exec dot -Tpdf statements.dot > statements.pdf
     }
     proc openGraph {} {
-        exec open incremental-evaluator-play-statements.pdf
+        exec open statements.pdf
     }
 }
 
