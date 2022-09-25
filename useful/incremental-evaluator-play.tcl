@@ -126,14 +126,20 @@ namespace eval statement { ;# statement record type
 }
 
 set ::log [list]
+
+# invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {lappend ::log [list Assert $args]}
 proc Retract {args} {lappend ::log [list Retract $args]}
 
-proc Claim {args} {
+# invoke from within a When context, add dependent statements
+proc Say {args} {
     upvar __matcherId matcherId
     upvar __matcheeId matcheeId
-    set ::log [linsert $::log 0 [list Claim [list $matcherId $matcheeId] $args]]
+    set ::log [linsert $::log 0 [list Say [list $matcherId $matcheeId] $args]]
 }
+proc Claim {args} { uplevel [list Say someone claims {*}$args] }
+proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
+proc When {args} { uplevel [list Say when {*}$args] }
 
 proc Step {} {
     # should this do reduction of assert/retract ?
@@ -144,7 +150,8 @@ proc Step {} {
             # is this a When? match it against existing statements
             # when the time is /t/ { ... } -> the time is /t/
             set unwhenizedClause [lreplace [lreplace $clause end end] 0 0]
-            set matches [Statements::findMatches $unwhenizedClause]
+            set matches [concat [Statements::findMatches $unwhenizedClause] \
+                             [Statements::findMatches [list /someone/ claims {*}$unwhenizedClause]]]
             set body [lindex $clause end]
             foreach bindings $matches {
                 dict set bindings __matcherId $id
@@ -154,8 +161,12 @@ proc Step {} {
         } else {
             # is this a statement? match it against existing whens
             # the time is 3 -> when the time is 3 /__body/
-            set whenizedClause [list when {*}$clause /__body/]
-            set matches [Statements::findMatches $whenizedClause]
+            proc whenize {clause} { return [list when {*}$clause /__body/] }
+            set matches [Statements::findMatches [whenize $clause]]
+            if {[Statements::unify [lrange $clause 0 1] [list /someone/ claims]] != false} {
+                # Omar claims the time is 3 -> when the time is 3 /__body/
+                lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
+            }
             foreach bindings $matches {
                 dict set bindings __matcherId $id
                 dict with bindings [dict get $bindings __body]
@@ -214,7 +225,7 @@ proc Step {} {
                 Statements::remove $id
             }
 
-        } elseif {$op == "Claim"} {
+        } elseif {$op == "Say"} {
             set parents [lindex $entry 1]
             set clause [lindex $entry 2]
             lassign [Statements::add $clause $parents] id setOfParentsId
@@ -296,3 +307,18 @@ Assert when the time is 6 {
 Assert the fox is out
 Assert the time is 6
 Step
+
+# Whens
+# -----
+Statements::reset
+Assert when you are ready {
+    When the fox is out {
+        puts "the fox is out"
+    }
+}
+Assert the fox is out
+Step
+
+Assert you are ready
+Step
+
