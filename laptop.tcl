@@ -41,22 +41,35 @@ namespace eval Display {
 }
 
 package require Thread
-set ::sharerThread [thread::create]
+set ::sharerThread [thread::create {
+    set ::previousAssertedClauses [list]
+    thread::wait
+}]
 proc StepFromGUI {} {
     Step
     puts "StepFromGUI"
-    # share statement set to Pi
-    # folk0.local 4273
+    # share root statement set to Pi
+    set assertedClauses [list]
+    dict for {_ stmt} $Statements::statements {
+        if {[statement setsOfParents $stmt] == {0 {}}} {
+            lappend assertedClauses [statement clause $stmt]
+        }
+    }
     thread::send -async $::sharerThread [format {
         if {[catch {
+            set nodename {%s}
+            set assertedClauses {%s}
+
             set sock [socket "folk0.local" 4273]
-            # FIXME: should _retract_ only our asserted statements
-            puts $sock {dict set ::assertedStatementsFrom "%s" {%s}}
+            puts $sock [join [lmap clause $::previousAssertedClauses {list Retract {*}$clause}] "\n"]
+            puts $sock [join [lmap clause $assertedClauses {list Assert {*}$clause}] "\n"]
             close $sock
+
+            set ::previousAssertedClauses $assertedClauses
         } err]} {
             puts stderr "share error: $err"
         }
-    } $::nodename $Statements::statements]
+    } $::nodename $assertedClauses]
 }
 
 set ::nextProgramNum 0
