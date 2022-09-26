@@ -86,6 +86,9 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         set dot [list]
         dict for {id stmt} $statements {
+            lappend dot "subgraph cluster_$id {"
+            lappend dot "color=lightgray;"
+
             set label [string map {"\"" "\\\""} [statement clause $stmt]]
             lappend dot "$id \[label=\"$id: $label\"\];"
 
@@ -93,6 +96,8 @@ namespace eval Statements { ;# singleton Statement store
                 lappend dot "\"$id $setOfParentsId\" \[label=\"$id#$setOfParentsId: $parents\"\];"
                 lappend dot "\"$id $setOfParentsId\" -> $id;"
             }
+
+            lappend dot "}"
             dict for {child _} [statement children $stmt] {
                 lappend dot "$id -> \"$child\";"
             }
