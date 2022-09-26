@@ -12,31 +12,32 @@ namespace eval Display {
     }]
     puts "dt $displayThread"
 
-    variable displayList [list]
-
     proc fillRect {fb x0 y0 x1 y1 color} {
-        lappend Display::displayList [list Display::fillRect $fb $x0 $y0 $x1 $y1 $color]
+        uplevel [list Wish display runs [list Display::fillRect $fb $x0 $y0 $x1 $y1 $color]]
     }
 
     proc stroke {points width color} {
-        lappend Display::displayList [list Display::stroke $points $width $color]
+        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
     proc text {fb x y fontSize text} {
-        lappend Display::displayList [list Display::text $fb $x $y $fontSize $text]
+        uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text]]
     }
 
     proc commit {} {
+        set displayList [list]
+        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
+            lappend displayList [dict get $match command]
+        }
+        
+        proc lcomp {a b} {expr {[lindex $a 2] != "text"}}
         thread::send -async $Display::displayThread [format {
             # Draw the display list
             %s
             # (slow, should be abortable by newcomer commits)
 
             commitThenClearStaging
-        } [join $Display::displayList "\n"]]
-        
-        # Make a new display list
-        set Display::displayList [list]
+        } [join [lsort -command lcomp $displayList] "\n"]]
     }
 }
 
@@ -94,4 +95,4 @@ proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]
 }
-every 32 {Step {}}
+every 32 {Step}
