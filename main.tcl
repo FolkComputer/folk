@@ -309,8 +309,12 @@ if {[catch {socket -server accept 4273}]} {
     socket -server accept 4274
 }
 
+set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
+    Retract the step count is $::stepCount
+    incr ::stepCount
+    Assert the step count is $::stepCount
     set ::stepTime [time {StepImpl}]
 }
 

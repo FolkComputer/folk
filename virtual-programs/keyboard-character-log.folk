@@ -1,2 +1,8 @@
-Wish $this is labelled "eval: $::stepTime\ncamera: [expr {[info exists ::cameraTime] ? $::cameraTime : {none}}]"
-Wish $this is highlighted blue
+When the step count is /c/ {
+	Wish $this is labelled [string trim "
+step count: $c
+step time: $::stepTime
+camera: [expr {[info exists ::cameraTime] ? $::cameraTime : {none}}]
+	"]
+	Wish $this is highlighted blue
+}
