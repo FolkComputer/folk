@@ -11,6 +11,7 @@ namespace eval Display {
 
     canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
     pack .display
+    wm title . $::nodename
     wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
 
     proc init {} {}
@@ -60,9 +61,16 @@ proc StepFromGUI {} {
             set nodename {%s}
             set assertedClauses {%s}
 
-            set sock [socket "folk0.local" 4273]
+            if {$nodename == "[info hostname]-1"} {
+                set sock [socket "localhost" 4273]
+            } else {
+                set sock [socket "folk0.local" 4273]
+            }
             puts $sock [join [lmap clause $::previousAssertedClauses {list Retract {*}$clause}] "\n"]
             puts $sock [join [lmap clause $assertedClauses {list Assert {*}$clause}] "\n"]
+            if {$nodename == "[info hostname]-1"} {
+                puts $sock "Step"
+            }
             close $sock
 
             set ::previousAssertedClauses $assertedClauses

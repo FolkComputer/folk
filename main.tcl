@@ -291,8 +291,10 @@ proc accept {chan addr port} {
             if {[catch {
                 puts $chan [eval $script]; flush $chan
             } ret]} {
-                puts $ret
-                puts $chan $ret; flush $chan
+                catch {
+                    puts $ret
+                    puts $chan $ret; flush $chan
+                }
             }
             set script ""
         }
