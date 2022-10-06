@@ -43,7 +43,6 @@ namespace eval Display {
 
 package require Thread
 set ::sharerThread [thread::create {
-    set ::previousAssertedClauses [list]
     thread::wait
 }]
 proc StepFromGUI {} {
@@ -66,14 +65,14 @@ proc StepFromGUI {} {
             } else {
                 set sock [socket "folk0.local" 4273]
             }
-            puts $sock [join [lmap clause $::previousAssertedClauses {list Retract {*}$clause}] "\n"]
-            puts $sock [join [lmap clause $assertedClauses {list Assert {*}$clause}] "\n"]
+            puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Retract {*}$clause }} $nodename]
+            puts $sock [list dict set ::assertedStatementsFrom $nodename $assertedClauses]
+            puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Assert {*}$clause }} $nodename]
             if {$nodename == "[info hostname]-1"} {
-                puts $sock "Step"
+                puts $sock {Step}
             }
             close $sock
 
-            set ::previousAssertedClauses $assertedClauses
         } err]} {
             puts stderr "share error: $err"
         }
