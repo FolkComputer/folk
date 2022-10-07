@@ -41,6 +41,10 @@ namespace eval Statements { ;# singleton Statement store
             puts BAD
         }
     }
+    proc exists {id} {
+        variable statements
+        return [dict exists $statements $id]
+    }
     proc get {id} {
         variable statements
         return [dict get $statements $id]
@@ -213,6 +217,7 @@ proc StepImpl {} {
         set children [statement children [Statements::get $id]]
         dict for {child _} $children {
             lassign $child childId childSetOfParentsId
+            if {![Statements::exists $childId]} { continue } ;# if was removed earlier
             set childSetsOfParents [statement setsOfParents [Statements::get $childId]]
             set parentsInSameSet [dict get $childSetsOfParents $childSetOfParentsId]
 
