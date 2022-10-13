@@ -334,6 +334,13 @@ if {$tcl_platform(os) eq "Darwin"} {
     if {$tcl_version eq 8.5} {
         error "Don't use Tcl 8.5 / macOS system Tcl. Quitting."
     }
+
+    # copy to Pi
+    catch {
+        exec rsync -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync
+        exec ssh pi@folk0.local -- make -C ~/folk-rsync
+    }
+
     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} {
         source laptop.tcl
     }
