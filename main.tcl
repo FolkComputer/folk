@@ -338,7 +338,7 @@ if {$tcl_platform(os) eq "Darwin"} {
     # copy to Pi
     if {[catch {
         catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync}
-        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- sh -c "echo WOW; killall -9 tclsh; make -C ~/folk-rsync" &
+        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- sh -c "killall -9 tclsh; make -C ~/folk-rsync" >@stdout &
     } err]} {
         puts "error running on Pi: $err"
     }
