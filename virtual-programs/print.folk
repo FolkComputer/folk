@@ -38,7 +38,7 @@ livecproc tagImageForId {int id} string {
             emit("%d %d moveto ", col, row); // bottom-left
             emit("%d %d lineto ", col + 1, row); // bottom-right
             emit("%d %d lineto ", col + 1, row + 1); // top-right
-            emit("%d %d lineto ", col + 1, row + 1); // top-left
+            emit("%d %d lineto ", col, row + 1); // top-left
             emit("closepath fill ");
         }
         emit("\n");
