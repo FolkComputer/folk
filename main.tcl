@@ -41,17 +41,12 @@ namespace eval Statements { ;# singleton Statement store
             puts BAD
         }
     }
-    proc exists {id} {
-        variable statements
-        return [dict exists $statements $id]
-    }
-    proc get {id} {
-        variable statements
-        return [dict get $statements $id]
-    }
-    proc remove {id} {
-        variable statements
-        dict unset statements $id
+    proc exists {id} { variable statements; return [dict exists $statements $id] }
+    proc get {id} { variable statements; return [dict get $statements $id] }
+    proc remove {id} { variable statements; dict unset statements $id }
+    proc size {} { variable statements; return [dict size $statements] }
+    proc countSetsOfParents {} {
+        
     }
     
     proc unify {a b} {
@@ -309,7 +304,7 @@ proc accept {chan addr port} {
 }
 set ::nodename [info hostname]
 if {[catch {socket -server accept 4273}]} {
-    puts "there's already a Folk node running on this machine"
+    puts "there's already a Folk node running on this machine ([info hostname])"
     set ::nodename "[info hostname]-1"
     socket -server accept 4274
 }
@@ -317,9 +312,9 @@ if {[catch {socket -server accept 4273}]} {
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
-    Retract the step count is $::stepCount
+    Retract $::nodename has step count $::stepCount
     incr ::stepCount
-    Assert the step count is $::stepCount
+    Assert $::nodename has step count $::stepCount
     set ::stepTime [time {StepImpl}]
 }
 
@@ -338,7 +333,7 @@ if {$tcl_platform(os) eq "Darwin"} {
     # copy to Pi
     if {[catch {
         catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync}
-        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- sh -c "killall -9 tclsh; make -C ~/folk-rsync" >@stdout &
+        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- make -C ~/folk-rsync restart >@stdout &
     } err]} {
         puts "error running on Pi: $err"
     }

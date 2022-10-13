@@ -1,8 +1,9 @@
-When the step count is /c/ {
+When $::nodename has step count /c/ {
 	Wish $this is labelled [string trim "
 step count: $c
-step time: $::stepTime
+steptime: $::stepTime
 camera: [expr {[info exists ::cameraTime] ? $::cameraTime : {none}}]
 	"]
 	Wish $this is highlighted blue
+	puts "$::nodename statement count: [dict size $Statements::statements]"
 }
