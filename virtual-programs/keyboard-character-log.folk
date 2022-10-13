@@ -5,5 +5,6 @@ steptime: $::stepTime
 camera: [expr {[info exists ::cameraTime] ? $::cameraTime : {none}}]
 	"]
 	Wish $this is highlighted blue
-	puts "$::nodename statement count: [dict size $Statements::statements]"
+#	puts "$::nodename statement count: [Statements::size]"
+#	puts "$::nodename statement sets-of-parents count: [Statements::countSetsOfParents]"
 }

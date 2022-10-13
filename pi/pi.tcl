@@ -29,8 +29,8 @@ namespace eval Display {
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
             lappend displayList [dict get $match command]
         }
-        
-        proc lcomp {a b} {expr {[lindex $a 2] != "text"}}
+
+        proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
         thread::send -async $Display::displayThread [format {
             # Draw the display list
             %s

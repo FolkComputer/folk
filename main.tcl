@@ -46,7 +46,12 @@ namespace eval Statements { ;# singleton Statement store
     proc remove {id} { variable statements; dict unset statements $id }
     proc size {} { variable statements; return [dict size $statements] }
     proc countSetsOfParents {} {
-        
+        variable statements
+        set count 0
+        dict for {_ stmt} $statements {
+            set count [expr { $count + [dict size [statement setsOfParents $stmt]] }]
+        }
+        return $count
     }
     
     proc unify {a b} {
@@ -292,7 +297,7 @@ proc accept {chan addr port} {
                 puts $chan [eval $script]; flush $chan
             } ret]} {
                 catch {
-                    puts $ret
+                    # puts $ret ;# "broken pipe"
                     puts $chan $ret; flush $chan
                 }
             }
