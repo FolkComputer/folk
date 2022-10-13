@@ -336,9 +336,11 @@ if {$tcl_platform(os) eq "Darwin"} {
     }
 
     # copy to Pi
-    catch {
-        exec rsync -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync
-        exec ssh pi@folk0.local -- make -C ~/folk-rsync
+    if {[catch {
+        exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync
+        exec ssh pi@folk0.local -- sh -c "killall -9 tclsh; make -C ~/folk-rsync"
+    } err]} {
+        puts "error running on Pi: $err"
     }
 
     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} {
