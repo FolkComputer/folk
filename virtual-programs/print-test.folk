@@ -1,0 +1,8 @@
+catch {
+      set fp [open "test-output.ps" w]
+      puts $fp [programToPs 6 hello]
+      close $fp
+      puts "output to test-output.ps!"
+} err
+puts $err
+# puts $::livecprocs

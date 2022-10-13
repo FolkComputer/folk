@@ -60,8 +60,8 @@ proc StepFromGUI {} {
             set nodename {%s}
             set assertedClauses {%s}
 
-            if {$nodename == "[info hostname]-1"} {
-                set sock [socket "localhost" 4273]
+            if {[info exists ::env(FOLK_SHARE_NODE)]} {
+                set sock [socket $::env(FOLK_SHARE_NODE) 4273]
             } else {
                 set sock [socket "folk0.local" 4273]
             }

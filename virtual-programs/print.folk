@@ -1,43 +1,53 @@
-if {[info hostname] != "folk0"} { return }
+package require critcl
+source "pi/critclUtils.tcl"
 
-if {[llength [namespace which tagImageForId]] < 1} {
-    package require critcl
-    source "pi/critclUtils.tcl"
-
-    critcl::tcl 8.6
-    if {[info hostname] == "folk0"} {
-        critcl::cflags -I/home/pi/apriltag -Wall -Werror
-        critcl::clibraries /home/pi/apriltag/libapriltag.a
-    } else {
-        critcl::cflags -I/Users/osnr/aux/apriltag -Wall -Werror
-        critcl::clibraries /Users/osnr/aux/apriltag/libapriltag.a
-    }
-
-    critcl::ccode {
-        #include <apriltag.h>
-        #include <tagStandard52h13.h>
-        apriltag_family_t *tf = NULL;
-    }
-    critcl::cproc tagImageForId {int id} string {
-        if (tf == NULL) tf = tagStandard52h13_create();
-
-        image_u8_t* image = apriltag_to_image(tf, id);
-
-        char* ret = Tcl_Alloc(10000);
-        int i = 0;
-        for (int row = 0; row < image->height; row++) {
-            for (int col = 0; col < image->width; col++) {
-                uint8_t pixel = image->buf[(row * image->stride) + col];
-                i += sprintf(&ret[i], "%02x", pixel);
-            }
-            ret[i++] = '\n';
-        }
-        ret[i++] = '\0';
-        image_u8_destroy(image);
-        return ret;
-    }
-    tagImageForId 1
+critcl::tcl 8.6
+if {[info hostname] == "folk0"} {
+    critcl::cflags -I/home/pi/apriltag -Wall -Werror
+    critcl::clibraries /home/pi/apriltag/libapriltag.a
+} else {
+    critcl::cflags -I/Users/osnr/aux/apriltag -Wall -Werror
+    critcl::clibraries /Users/osnr/aux/apriltag/libapriltag.a
 }
+
+critcl::ccode {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+
+    #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
+}
+proc livecproc {name args} {
+    critcl::cproc $name$::stepCount {*}$args
+    lappend ::livecprocs $name$::stepCount
+    proc $name {args} { [lindex $::livecprocs end] {*}$args }
+}
+livecproc tagImageForId {int id} string {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    char* ret = Tcl_Alloc(10000);
+    int i = 0;
+    emit("%f %f scale\n", 1.0/image->width, 1.0/image->height);
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            emit("%d setgray ", pixel != 0);
+            emit("newpath ");
+            emit("%d %d moveto ", col, row); // bottom-left
+            emit("%d %d lineto ", col + 1, row); // bottom-right
+            emit("%d %d lineto ", col + 1, row + 1); // top-right
+            emit("%d %d lineto ", col + 1, row + 1); // top-left
+            emit("closepath fill ");
+        }
+        emit("\n");
+    }
+    ret[i++] = '\0';
+    image_u8_destroy(image);
+    return ret;
+}
+tagImageForId 1
 
 proc programToPs {id text} {
     set PageWidth 612; set PageHeight 792
@@ -66,10 +76,7 @@ proc programToPs {id text} {
         gsave
         [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
         $tagwidth $tagheight scale
-        10 10 8 \[10 0 0 -10 0 10\]
-        {<
-$image
-        >} image
+        $image
         grestore
 
         /Helvetica-Narrow findfont
@@ -93,6 +100,7 @@ proc nextId {} {
      return $id
 }
 
+if {[info hostname] != "folk0"} { return }
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
     if {[dict exists $::printjobs $jobid]} {return}
