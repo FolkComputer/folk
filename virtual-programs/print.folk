@@ -17,10 +17,16 @@ critcl::ccode {
 
     #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
 }
+if {![info exists ::livecprocs]} {set ::livecprocs [dict create]}
 proc livecproc {name args} {
-    critcl::cproc $name$::stepCount {*}$args
-    lappend ::livecprocs $name$::stepCount
-    proc $name {args} { [lindex $::livecprocs end] {*}$args }
+    if {![dict exists ::livecprocs $name $args]} {
+        critcl::cproc $name$::stepCount {*}$args
+        dict set ::livecprocs $name $args $name$::stepCount
+    }
+    proc $name {args} {
+        set name [lindex [info level 0] 0]
+        [lindex [dict values [dict get $::livecprocs $name]] end] {*}$args
+    }
 }
 livecproc tagImageForId {int id} string {
     if (tf == NULL) tf = tagStandard52h13_create();
@@ -29,7 +35,9 @@ livecproc tagImageForId {int id} string {
 
     char* ret = Tcl_Alloc(10000);
     int i = 0;
-    emit("%f %f scale\n", 1.0/image->width, 1.0/image->height);
+    emit("gsave\n");
+    emit("0 1 translate\n");
+    emit("%f %f scale\n", 1.0/image->width, -1.0/image->height);
     for (int row = 0; row < image->height; row++) {
         for (int col = 0; col < image->width; col++) {
             uint8_t pixel = image->buf[(row * image->stride) + col];
@@ -43,6 +51,7 @@ livecproc tagImageForId {int id} string {
         }
         emit("\n");
     }
+    emit("grestore\n");
     ret[i++] = '\0';
     image_u8_destroy(image);
     return ret;

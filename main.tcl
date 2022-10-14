@@ -297,7 +297,7 @@ proc accept {chan addr port} {
                 puts $chan [eval $script]; flush $chan
             } ret]} {
                 catch {
-                    # puts $ret ;# "broken pipe"
+                    puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
                     puts $chan $ret; flush $chan
                 }
             }
@@ -305,12 +305,13 @@ proc accept {chan addr port} {
         }
     }
 
+    puts "Done"
     close $chan
 }
 set ::nodename [info hostname]
 if {[catch {socket -server accept 4273}]} {
-    puts "there's already a Folk node running on this machine ([info hostname])"
     set ::nodename "[info hostname]-1"
+    puts "$::nodename: Note: There's already a Folk node running on this machine."
     socket -server accept 4274
 }
 
@@ -327,7 +328,9 @@ source "lib/math.tcl"
 
 # this defines $this in the contained scopes
 Assert when /this/ has program code /code/ {
-    eval $code
+    if {[catch $code err] == 1} {
+        puts "$::nodename: Error in $this: $err"
+    }
 }
 
 if {$tcl_platform(os) eq "Darwin"} {
@@ -348,6 +351,11 @@ if {$tcl_platform(os) eq "Darwin"} {
     }
 } else {
     source pi/pi.tcl
+}
+
+if {[info exists ::env(FOLK_TEST)]} {
+    source test.tcl
+    eval $::env(FOLK_TEST)
 }
 
 vwait forever
