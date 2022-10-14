@@ -47,7 +47,7 @@ set ::sharerThread [thread::create {
 }]
 proc StepFromGUI {} {
     Step
-    puts "StepFromGUI"
+
     # share root statement set to Pi
     set assertedClauses [list]
     dict for {_ stmt} $Statements::statements {
@@ -68,9 +68,9 @@ proc StepFromGUI {} {
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Retract {*}$clause }} $nodename]
             puts $sock [list dict set ::assertedStatementsFrom $nodename $assertedClauses]
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Assert {*}$clause }} $nodename]
-            if {$nodename == "[info hostname]-1"} {
+            # if {$nodename == "[info hostname]-1"} {
                 puts $sock {Step}
-            }
+            # }
             close $sock
 
         } err]} {

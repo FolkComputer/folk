@@ -251,7 +251,7 @@ proc StepImpl {} {
         set ::log [lreplace $::log 0 0]
 
         set op [lindex $entry 0]
-        # puts "$op: $entry"
+        # puts "$op: [string map {\n { }} [string range $entry 0 100]]"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
             # insert empty environment if not present
@@ -286,27 +286,33 @@ proc StepImpl {} {
     Display::commit ;# TODO: this is weird, not right level
 }
 
+set ::acceptNum 0
 proc accept {chan addr port} {
+    puts "$::nodename: Start [incr ::acceptNum]"
+    
     # (mostly for the Pi)
     # we want to be able to asynchronously receive statements
     set script ""
-    while {[gets $chan line] != -1} {
-        append script $line\n
-        if {[info complete $script]} {
-            if {[catch {
-                puts $chan [eval $script]; flush $chan
-            } ret]} {
-                catch {
-                    puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
-                    puts $chan $ret; flush $chan
+    try {
+        while {[gets $chan line] != -1} {
+            append script $line\n
+            if {[info complete $script]} {
+                puts "$::nodename: Recv"
+                if {[catch {
+                    puts $chan [eval $script]; flush $chan
+                } ret]} {
+                    catch {
+                        puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
+                        puts $chan $ret; flush $chan
+                    }
                 }
+                set script ""
             }
-            set script ""
         }
+    } finally {
+        puts "$::nodename: Done $::acceptNum"
+        close $chan
     }
-
-    puts "Done"
-    close $chan
 }
 set ::nodename [info hostname]
 if {[catch {socket -server accept 4273}]} {
@@ -318,6 +324,8 @@ if {[catch {socket -server accept 4273}]} {
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
+    puts "$::nodename: Step"
+
     Retract $::nodename has step count $::stepCount
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
