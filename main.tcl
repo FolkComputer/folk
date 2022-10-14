@@ -341,7 +341,12 @@ if {$tcl_platform(os) eq "Darwin"} {
     # copy to Pi
     if {[catch {
         catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync}
-        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- make -C ~/folk-rsync restart >@stdout &
+        if {[info exists ::env(FOLK_TEST)]} {
+            set envs FOLK_TEST=$::env(FOLK_TEST)
+        } else {
+            set envs ""
+        }
+        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- make -C ~/folk-rsync $envs restart >@stdout &
     } err]} {
         puts "error running on Pi: $err"
     }
