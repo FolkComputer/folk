@@ -37,6 +37,7 @@ namespace eval trie {
             }
             set branches $nextBranches
         }
+        # puts "trie lookup $trie ($pattern) => $branches\n\n"
         return $branches
     }
 
@@ -82,7 +83,7 @@ namespace eval Statements { ;# singleton Statement store
             set id [incr nextStatementId]
             set stmt [statement create $clause [dict create 0 $parents]]
             dict set statements $id $stmt
-            dict set statementClauseToId $clause $id
+            trie add statementClauseToId $clause $id
 
             return [list $id 0]
         }
@@ -131,7 +132,7 @@ namespace eval Statements { ;# singleton Statement store
 
         set matches [list]
         foreach id [trie lookup $statementClauseToId $pattern] {
-            set match [unify $pattern [statement clause $stmt]]
+            set match [unify $pattern [statement clause [get $id]]]
             if {$match != false} {
                 dict set match __matcheeId $id
                 lappend matches $match
