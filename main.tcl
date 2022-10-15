@@ -7,56 +7,6 @@ proc d {arg} {
     # puts $arg
 }
 
-namespace eval MatchCache {
-    variable cache [dict create] ;# Dict<Pattern, List<StatementMatch>>
-    variable idToPatterns [dict create] ;# Dict<StatementId, List<Pattern>>
-    proc found {pattern matches} {
-        # puts "found $pattern: {$matches}"
-        # Called whenever a manual match was carried out,
-        # to cache the result.
-        variable cache
-        variable idToPatterns
-        dict set cache $pattern $matches
-        foreach match $matches {
-            set id [dict get $match __matcheeId]
-            dict lappend idToPatterns $id $pattern
-        }
-    }
-    proc add {clause id} {
-        # puts "add clause $clause: $id"
-        # Called whenever a new statement is added.
-        # Check if that statement matches any existing cached relations.
-        # TODO: Can we do efficient relation-matching?
-
-        variable cache
-        variable idToPatterns
-        dict for {pattern _} $cache {
-            set match [Statements::unify $pattern $clause]
-            if {$match != false} {
-                dict set match __matcheeId $id
-                dict lappend cache $pattern $match
-                dict lappend idToPatterns $id $pattern
-            }
-        }
-    }
-    proc remove {id} {
-        variable cache
-        variable idToPatterns
-        if {[dict exists $idToPatterns $id]} {
-            foreach pattern [dict get $idToPatterns $id] {
-                dict set cache $pattern [lmap match [dict get $cache $pattern] {
-                    if {[dict get $match __matcheeId] == $id} { continue } ;# Filter out 
-                    set match
-                }]
-            }
-            dict unset idToPatterns $id
-        }
-    }
-
-    proc exists {pattern} { variable cache; return [dict exists $cache $pattern] }
-    proc get {pattern} { variable cache; return [dict get $cache $pattern] }
-}
-
 namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
@@ -91,8 +41,6 @@ namespace eval Statements { ;# singleton Statement store
             dict set statements $id $stmt
             dict set statementClauseToId $clause $id
 
-            MatchCache::add $clause $id
-
             return [list $id 0]
 
         }
@@ -108,8 +56,6 @@ namespace eval Statements { ;# singleton Statement store
         return [dict get $statementClauseToId $clause]
     }
     proc remove {id} {
-        MatchCache::remove $id
-
         variable statements
         variable statementClauseToId
         set clause [statement clause [get $id]]
@@ -147,9 +93,6 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
-        if {[MatchCache::exists $pattern]} {
-            return [MatchCache::get $pattern]
-        }
         d "Cache miss: $pattern"
 
         set matches [list]
@@ -161,7 +104,6 @@ namespace eval Statements { ;# singleton Statement store
             }
         }
 
-        MatchCache::found $pattern $matches
         return $matches
     }
 
@@ -330,7 +272,6 @@ proc StepImpl {} {
     d "Step:"
     d "-----"
 
-    # puts [dict size $MatchCache::cache]
     # puts "Now processing log: $::log"
     while {[llength $::log]} {
         # TODO: make this log-shift more efficient?
