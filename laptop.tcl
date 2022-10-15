@@ -51,7 +51,7 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 if {[catch {
     # TODO: forward entry point
     # TODO: handle rsync strict host key failure
-    exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@$::shareNode:~/folk-rsync
+    catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@$::shareNode:~/folk-rsync}
     exec ssh -o StrictHostKeyChecking=no pi@$::shareNode -- make -C ~/folk-rsync restart >@stdout &
 } err]} {
     puts "error running on Pi: $err"
@@ -75,10 +75,11 @@ proc StepFromGUI {} {
     }
     thread::send -async $::sharerThread [format {
         if {[catch {
+            set shareNode {%s}
             set nodename {%s}
             set assertedClauses {%s}
 
-            set sock [socket $::shareNode 4273]
+            set sock [socket $shareNode 4273]
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Retract {*}$clause }} $nodename]
             puts $sock [list dict set ::assertedStatementsFrom $nodename $assertedClauses]
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Assert {*}$clause }} $nodename]
@@ -90,7 +91,7 @@ proc StepFromGUI {} {
         } err]} {
             puts stderr "share error: $err"
         }
-    } $::nodename $assertedClauses]
+    } $::shareNode $::nodename $assertedClauses]
 }
 
 set ::nextProgramNum 0

@@ -370,7 +370,7 @@ proc accept {chan addr port} {
         while {[gets $chan line] != -1} {
             append script $line\n
             if {[info complete $script]} {
-                puts "$::nodename: Recv"
+                # puts "$::nodename: Recv"
                 if {[catch {
                     puts $chan [eval $script]; flush $chan
                 } ret]} {

@@ -91,10 +91,10 @@ set keyboardThread [thread::create [format {
 } [thread::id]]]
 puts "kt $keyboardThread"
 
-# proc every {ms body} {
-#     try $body
-#     after $ms [list after idle [namespace code [info level 0]]]
-# }
-# every 32 {Step}
+proc every {ms body} {
+    try $body
+    after $ms [list after idle [namespace code [info level 0]]]
+}
+every 32 {Step}
 
 vwait forever
