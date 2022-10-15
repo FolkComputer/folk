@@ -7,34 +7,77 @@ proc d {arg} {
     # puts $arg
 }
 
+namespace eval trie {
+    namespace export create add remove lookup
+    proc create {} { dict create }
+    proc add {trieVar clause id} { upvar $trieVar $trieVar; dict set $trieVar {*}$clause $id }
+    proc remove {trieVar clause} { upvar $trieVar $trieVar; dict unset $trieVar {*}$clause }
+
+    proc lookup {trie pattern} {
+        set branches [list $trie]
+        foreach word $pattern {
+            set nextBranches [list]
+            foreach branch $branches {
+                if {[string is integer -strict $branch]} {
+                    # leaf node
+                    continue
+                }
+
+                dict for {key subbranch} $branch {
+                    if {[regexp {^/([^/]+)/$} $word -> wordVarName]} {
+                        # TODO: bind the word?
+                        lappend nextBranches $subbranch
+                    } elseif {[regexp {^/([^/]+)/$} $key -> keyVarName]} {
+                        # TODO: bind the key?
+                        lappend nextBranches $subbranch
+                    } elseif {$key == $word} {
+                        lappend nextBranches $subbranch
+                    }
+                }
+            }
+            set branches $nextBranches
+        }
+        return $branches
+    }
+
+    namespace ensemble create
+}
+
 namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
+    variable statementClauseToId [trie create] ;# Trie<StatementClause, StatementId>
     proc reset {} {
         variable statements
         variable nextStatementId
+        variable statementClauseToId
         set statements [dict create]
         set nextStatementId 1
+        set statementClauseToId [trie create]
     }
-    variable statementClauseToId [dict create] ;# Dict<StatementClause, StatementId>
 
     proc add {clause {parents {}}} {
         # empty set of parents = an assertion
         # returns {statement-id set-of-parents-id}
-
+ 
         variable statements
         variable nextStatementId
         variable statementClauseToId
 
         # is this clause already present in the existing statement set?
-        if {[dict exists $statementClauseToId $clause]} {
-            set id [dict get $statementClauseToId $clause]
+        set ids [trie lookup $statementClauseToId $clause]
+        if {[llength $ids] == 1} {
+            set id [lindex $ids 0]
+        } elseif {[llength $ids] == 0} {
+            set id false
+        } else { error WTF }
+
+        if {$id != false} {
             dict with statements $id {
                 set newSetOfParentsId [expr {[lindex $setsOfParents end-1] + 1}]
                 dict set setsOfParents $newSetOfParentsId $parents
                 return [list $id $newSetOfParentsId]
             }
-
         } else {
             set id [incr nextStatementId]
             set stmt [statement create $clause [dict create 0 $parents]]
@@ -42,32 +85,23 @@ namespace eval Statements { ;# singleton Statement store
             dict set statementClauseToId $clause $id
 
             return [list $id 0]
-
         }
     }
     proc exists {id} { variable statements; return [dict exists $statements $id] }
     proc get {id} { variable statements; return [dict get $statements $id] }
-    proc existsByClause {clause} {
-        variable statementClauseToId
-        return [dict exists $statementClauseToId $clause]
-    }
-    proc clauseToId {clause} {
-        variable statementClauseToId
-        return [dict get $statementClauseToId $clause]
-    }
     proc remove {id} {
         variable statements
         variable statementClauseToId
         set clause [statement clause [get $id]]
         dict unset statements $id
-        dict unset statementClauseToId $clause
+        trie remove statementClauseToId $clause
     }
     proc size {} { variable statements; return [dict size $statements] }
     proc countSetsOfParents {} {
         variable statements
         set count 0
         dict for {_ stmt} $statements {
-            set count [expr { $count + [dict size [statement setsOfParents $stmt]] }]
+            set count [expr {$count + [dict size [statement setsOfParents $stmt]]}]
         }
         return $count
     }
@@ -90,13 +124,13 @@ namespace eval Statements { ;# singleton Statement store
         return $match
     }
     proc findMatches {pattern} {
+        variable statementClauseToId
         variable statements
-        # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
-
-        d "Cache miss: $pattern"
+        # Returns a list of bindings like
+        # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
         set matches [list]
-        dict for {id stmt} $statements {
+        foreach id [trie lookup $statementClauseToId $pattern] {
             set match [unify $pattern [statement clause $stmt]]
             if {$match != false} {
                 dict set match __matcheeId $id
@@ -291,13 +325,13 @@ proc StepImpl {} {
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
-            if {[Statements::existsByClause $clause]} {
-                set ids [list [Statements::clauseToId $clause]]
-            } else {
+            # if {[Statements::existsByClause $clause]} {
+            #     set ids [list [Statements::clauseToId $clause]]
+            # } else {
                 set ids [lmap match [Statements::findMatches $clause] {
                     dict get $match __matcheeId
                 }]
-            }
+            # }
             foreach id $ids {
                 # puts "Retract-match $match"
                 # Statements::print
