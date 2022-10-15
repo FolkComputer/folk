@@ -5,20 +5,25 @@ catch {
 
 namespace eval MatchCache {
     variable cache [dict create] ;# Dict<Pattern, List<StatementId>>
-    proc set {pattern ids} {
+    proc found {pattern matches} {
+        # puts "found $pattern: {$matches}"
         # Called whenever a manual match was carried out,
         # to cache the result.
         variable cache
-        dict set cache $pattern $ids
+        dict set cache $pattern $matches
     }
     proc add {clause id} {
+        # puts "add clause $clause: $id"
         # Called whenever a new statement is added.
         # Check if that statement matches any existing cached relations.
         # TODO: Can we do efficient relation-matching?
+
         variable cache
         dict for {pattern _} $cache {
-            if {[Statements::unify $pattern $clause] != false} {
-                dict lappend cache $pattern $id
+            set match [Statements::unify $pattern $clause]
+            if {$match != false} {
+                dict set match __matcheeId $id
+                dict lappend cache $pattern $match
             }
         }
     }
@@ -105,7 +110,10 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
-        if {[MatchCache::exists $pattern]} { return MatchCache::get $pattern }
+        if {[MatchCache::exists $pattern]} {
+            return [MatchCache::get $pattern]
+        }
+        puts "Cache miss: $pattern"
 
         set matches [list]
         dict for {id stmt} $statements {
@@ -116,7 +124,7 @@ namespace eval Statements { ;# singleton Statement store
             }
         }
 
-        MatchCache::set $pattern $matches
+        MatchCache::found $pattern $matches
         return $matches
     }
 
@@ -275,10 +283,11 @@ proc StepImpl {} {
         }
     }
 
-    # puts ""
-    # puts "Step:"
-    # puts "-----"
+    puts ""
+    puts "Step:"
+    puts "-----"
 
+    # puts [dict size $MatchCache::cache]
     # puts "Now processing log: $::log"
     while {[llength $::log]} {
         # TODO: make this log-shift more efficient?
@@ -286,7 +295,7 @@ proc StepImpl {} {
         set ::log [lreplace $::log 0 0]
 
         set op [lindex $entry 0]
-        # puts "$op: [string map {\n { }} [string range $entry 0 100]]"
+        puts "$op: [string map {\n { }} [string range $entry 0 100]]"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
             # insert empty environment if not present
