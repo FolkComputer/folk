@@ -8,13 +8,19 @@ proc d {arg} {
 }
 
 namespace eval MatchCache {
-    variable cache [dict create] ;# Dict<Pattern, List<StatementId>>
+    variable cache [dict create] ;# Dict<Pattern, List<StatementMatch>>
+    variable idToPatterns [dict create] ;# Dict<StatementId, List<Pattern>>
     proc found {pattern matches} {
         # puts "found $pattern: {$matches}"
         # Called whenever a manual match was carried out,
         # to cache the result.
         variable cache
+        variable idToPatterns
         dict set cache $pattern $matches
+        foreach match $matches {
+            set id [dict get $match __matcheeId]
+            dict lappend idToPatterns $id $pattern
+        }
     }
     proc add {clause id} {
         # puts "add clause $clause: $id"
@@ -23,17 +29,28 @@ namespace eval MatchCache {
         # TODO: Can we do efficient relation-matching?
 
         variable cache
-
+        variable idToPatterns
         dict for {pattern _} $cache {
             set match [Statements::unify $pattern $clause]
             if {$match != false} {
                 dict set match __matcheeId $id
                 dict lappend cache $pattern $match
+                dict lappend idToPatterns $id $pattern
             }
         }
     }
-    proc uncache {pattern id} {
-        
+    proc remove {id} {
+        variable cache
+        variable idToPatterns
+        if {[dict exists $idToPatterns $id]} {
+            foreach pattern [dict get $idToPatterns $id] {
+                dict set cache $pattern [lmap match [dict get $cache $pattern] {
+                    if {[dict get $match __matcheeId] == $id} { continue } ;# Filter out 
+                    set match
+                }]
+            }
+            dict unset idToPatterns $id
+        }
     }
 
     proc exists {pattern} { variable cache; return [dict exists $cache $pattern] }
@@ -91,6 +108,8 @@ namespace eval Statements { ;# singleton Statement store
         return [dict get $statementClauseToId $clause]
     }
     proc remove {id} {
+        MatchCache::remove $id
+
         variable statements
         variable statementClauseToId
         set clause [statement clause [get $id]]
