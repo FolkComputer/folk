@@ -105,7 +105,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
-        # if {[MatchCache::exists $pattern]} { return MatchCache::get $pattern }
+        if {[MatchCache::exists $pattern]} { return MatchCache::get $pattern }
 
         set matches [list]
         dict for {id stmt} $statements {
@@ -279,6 +279,7 @@ proc StepImpl {} {
     # puts "Step:"
     # puts "-----"
 
+    # puts "Now processing log: $::log"
     while {[llength $::log]} {
         # TODO: make this log-shift more efficient?
         set entry [lindex $::log 0]
@@ -317,7 +318,9 @@ proc StepImpl {} {
         }
     }
 
-    Display::commit ;# TODO: this is weird, not right level
+    if {[namespace exists Display]} {
+        Display::commit ;# TODO: this is weird, not right level
+    }
 }
 
 set ::acceptNum 0
@@ -381,20 +384,11 @@ if {$tcl_platform(os) eq "Darwin"} {
     }
 }
 
-if {$argc == 1} {
-    set entry [lindex $argv 0]
+if {[info exists ::env(FOLK_ENTRY)]} {
+    set entry $::env(FOLK_ENTRY)
 
 } elseif {$tcl_platform(os) eq "Darwin"} {
     #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
-
-    # copy to Pi
-    if {[catch {
-        catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync}
-        exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- make -C ~/folk-rsync $envs restart >@stdout &
-    } err]} {
-        puts "error running on Pi: $err"
-    }
-
     set entry "laptop.tcl"
 
 } else {

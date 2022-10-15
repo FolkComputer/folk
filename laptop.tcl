@@ -41,6 +41,23 @@ namespace eval Display {
     }
 }
 
+if {[info exists ::env(FOLK_SHARE_NODE)]} {
+    set ::shareNode $::env(FOLK_SHARE_NODE)
+} else {
+    set ::shareNode "folk0.local"
+}
+
+# copy to Pi
+if {[catch {
+    # TODO: forward entry point
+    # TODO: handle rsync strict host key failure
+    exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@$::shareNode:~/folk-rsync
+    exec ssh -o StrictHostKeyChecking=no pi@$::shareNode -- make -C ~/folk-rsync restart >@stdout &
+} err]} {
+    puts "error running on Pi: $err"
+    unset ::shareNode
+}
+
 package require Thread
 set ::sharerThread [thread::create {
     thread::wait
@@ -48,6 +65,7 @@ set ::sharerThread [thread::create {
 proc StepFromGUI {} {
     Step
 
+    if {![info exists ::shareNode]} { return }
     # share root statement set to Pi
     set assertedClauses [list]
     dict for {_ stmt} $Statements::statements {
@@ -60,11 +78,7 @@ proc StepFromGUI {} {
             set nodename {%s}
             set assertedClauses {%s}
 
-            if {[info exists ::env(FOLK_SHARE_NODE)]} {
-                set sock [socket $::env(FOLK_SHARE_NODE) 4273]
-            } else {
-                set sock [socket "folk0.local" 4273]
-            }
+            set sock [socket $::shareNode 4273]
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Retract {*}$clause }} $nodename]
             puts $sock [list dict set ::assertedStatementsFrom $nodename $assertedClauses]
             puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Assert {*}$clause }} $nodename]
