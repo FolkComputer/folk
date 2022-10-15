@@ -3,8 +3,35 @@ catch {
     starkit::startup
 }
 
+namespace eval MatchCache {
+    variable cache [dict create] ;# Dict<Pattern, List<StatementId>>
+    proc set {pattern ids} {
+        # Called whenever a manual match was carried out,
+        # to cache the result.
+        variable cache
+        dict set cache $pattern $ids
+    }
+    proc add {clause id} {
+        # Called whenever a new statement is added.
+        # Check if that statement matches any existing cached relations.
+        # TODO: Can we do efficient relation-matching?
+        variable cache
+        dict for {pattern _} $cache {
+            if {[Statements::unify $pattern $clause] != false} {
+                dict lappend cache $pattern $id
+            }
+        }
+    }
+    proc uncache {pattern id} {
+        
+    }
+
+    proc exists {pattern} { variable cache; return [dict exists $cache $pattern] }
+    proc get {pattern} { variable cache; return [dict get $cache $pattern] }
+}
+
 namespace eval Statements { ;# singleton Statement store
-    variable statements [dict create] ;# Map<StatementId, Statement>
+    variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
     proc reset {} {
         variable statements
@@ -34,6 +61,9 @@ namespace eval Statements { ;# singleton Statement store
             set id [incr nextStatementId]
             set stmt [statement create $clause [dict create 0 $parents]]
             dict set statements $id $stmt
+
+            MatchCache::add $clause $id
+
             return [list $id 0]
 
         } else {
@@ -74,7 +104,9 @@ namespace eval Statements { ;# singleton Statement store
     proc findMatches {pattern} {
         variable statements
         # Returns a list of bindings like {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
-        # TODO: efficient matching
+
+        # if {[MatchCache::exists $pattern]} { return MatchCache::get $pattern }
+
         set matches [list]
         dict for {id stmt} $statements {
             set match [unify $pattern [statement clause $stmt]]
@@ -83,6 +115,8 @@ namespace eval Statements { ;# singleton Statement store
                 lappend matches $match
             }
         }
+
+        MatchCache::set $pattern $matches
         return $matches
     }
 
@@ -324,7 +358,7 @@ if {[catch {socket -server accept 4273}]} {
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
-    puts "$::nodename: Step"
+    # puts "$::nodename: Step"
 
     Retract $::nodename has step count $::stepCount
     incr ::stepCount
@@ -345,30 +379,26 @@ if {$tcl_platform(os) eq "Darwin"} {
     if {$tcl_version eq 8.5} {
         error "Don't use Tcl 8.5 / macOS system Tcl. Quitting."
     }
+}
+
+if {$argc == 1} {
+    set entry [lindex $argv 0]
+
+} elseif {$tcl_platform(os) eq "Darwin"} {
+    #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
 
     # copy to Pi
     if {[catch {
         catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@folk0.local:~/folk-rsync}
-        if {[info exists ::env(FOLK_TEST)]} {
-            set envs FOLK_TEST=$::env(FOLK_TEST)
-        } else {
-            set envs ""
-        }
         exec ssh -o StrictHostKeyChecking=no pi@folk0.local -- make -C ~/folk-rsync $envs restart >@stdout &
     } err]} {
         puts "error running on Pi: $err"
     }
 
-    if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} {
-        source laptop.tcl
-    }
+    set entry "laptop.tcl"
+
 } else {
-    source pi/pi.tcl
+    set entry "pi/pi.tcl"
 }
 
-if {[info exists ::env(FOLK_TEST)]} {
-    source test.tcl
-    eval $::env(FOLK_TEST)
-}
-
-vwait forever
+source $entry

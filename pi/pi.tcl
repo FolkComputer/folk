@@ -96,3 +96,5 @@ puts "kt $keyboardThread"
 #     after $ms [list after idle [namespace code [info level 0]]]
 # }
 # every 32 {Step}
+
+vwait forever

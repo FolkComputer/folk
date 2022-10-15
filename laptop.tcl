@@ -172,3 +172,5 @@ foreach programFilename [glob virtual-programs/*.folk] {
 }
 
 Display::init
+
+vwait forever
