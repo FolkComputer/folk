@@ -3,6 +3,10 @@ catch {
     starkit::startup
 }
 
+proc d {arg} {
+    # puts $arg
+}
+
 namespace eval MatchCache {
     variable cache [dict create] ;# Dict<Pattern, List<StatementId>>
     proc found {pattern matches} {
@@ -19,6 +23,7 @@ namespace eval MatchCache {
         # TODO: Can we do efficient relation-matching?
 
         variable cache
+
         dict for {pattern _} $cache {
             set match [Statements::unify $pattern $clause]
             if {$match != false} {
@@ -44,6 +49,7 @@ namespace eval Statements { ;# singleton Statement store
         set statements [dict create]
         set nextStatementId 1
     }
+    variable statementClauseToId [dict create] ;# Dict<StatementClause, StatementId>
 
     proc add {clause {parents {}}} {
         # empty set of parents = an assertion
@@ -51,34 +57,46 @@ namespace eval Statements { ;# singleton Statement store
 
         variable statements
         variable nextStatementId
+        variable statementClauseToId
 
         # is this clause already present in the existing statement set?
-        set matches [findMatches $clause]
-        if {[llength $matches] == 1} {
-            set id [dict get [lindex $matches 0] __matcheeId]
+        if {[dict exists $statementClauseToId $clause]} {
+            set id [dict get $statementClauseToId $clause]
             dict with statements $id {
                 set newSetOfParentsId [expr {[lindex $setsOfParents end-1] + 1}]
                 dict set setsOfParents $newSetOfParentsId $parents
                 return [list $id $newSetOfParentsId]
             }
 
-        } elseif {[llength $matches] == 0} {
+        } else {
             set id [incr nextStatementId]
             set stmt [statement create $clause [dict create 0 $parents]]
             dict set statements $id $stmt
+            dict set statementClauseToId $clause $id
 
             MatchCache::add $clause $id
 
             return [list $id 0]
 
-        } else {
-            # there are somehow multiple existing matches. this seems bad
-            puts BAD
         }
     }
     proc exists {id} { variable statements; return [dict exists $statements $id] }
     proc get {id} { variable statements; return [dict get $statements $id] }
-    proc remove {id} { variable statements; dict unset statements $id }
+    proc existsByClause {clause} {
+        variable statementClauseToId
+        return [dict exists $statementClauseToId $clause]
+    }
+    proc clauseToId {clause} {
+        variable statementClauseToId
+        return [dict get $statementClauseToId $clause]
+    }
+    proc remove {id} {
+        variable statements
+        variable statementClauseToId
+        set clause [statement clause [get $id]]
+        dict unset statements $id
+        dict unset statementClauseToId $clause
+    }
     proc size {} { variable statements; return [dict size $statements] }
     proc countSetsOfParents {} {
         variable statements
@@ -113,7 +131,7 @@ namespace eval Statements { ;# singleton Statement store
         if {[MatchCache::exists $pattern]} {
             return [MatchCache::get $pattern]
         }
-        puts "Cache miss: $pattern"
+        d "Cache miss: $pattern"
 
         set matches [list]
         dict for {id stmt} $statements {
@@ -128,6 +146,12 @@ namespace eval Statements { ;# singleton Statement store
         return $matches
     }
 
+    proc print {} {
+        variable statements
+        puts "Statements"
+        puts "=========="
+        dict for {id stmt} $statements { puts "$id: [statement clause $stmt]" }
+    }
     proc graph {} {
         variable statements
         set dot [list]
@@ -283,9 +307,9 @@ proc StepImpl {} {
         }
     }
 
-    puts ""
-    puts "Step:"
-    puts "-----"
+    d ""
+    d "Step:"
+    d "-----"
 
     # puts [dict size $MatchCache::cache]
     # puts "Now processing log: $::log"
@@ -295,7 +319,7 @@ proc StepImpl {} {
         set ::log [lreplace $::log 0 0]
 
         set op [lindex $entry 0]
-        puts "$op: [string map {\n { }} [string range $entry 0 100]]"
+        d "$op: [string map {\n { }} [string range $entry 0 100]]"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
             # insert empty environment if not present
@@ -307,8 +331,16 @@ proc StepImpl {} {
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
-            foreach bindings [Statements::findMatches $clause] {
-                set id [dict get $bindings __matcheeId]
+            if {[Statements::existsByClause $clause]} {
+                set ids [list [Statements::clauseToId $clause]]
+            } else {
+                set ids [lmap match [Statements::findMatches $clause] {
+                    dict get $match __matcheeId
+                }]
+            }
+            foreach id $ids {
+                # puts "Retract-match $match"
+                # Statements::print
                 reactToStatementRemoval $id
                 Statements::remove $id
             }
