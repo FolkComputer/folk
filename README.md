@@ -27,6 +27,18 @@ make
   scared of it falling and you shouldn't have to take it apart and put
   it back together every time
 
+### printer
+
+```
+$ sudo apt update
+$ sudo apt install cups cups-bsd
+$ sudo usermod -a -G lpadmin pi
+```
+
+ssh tunnel `ssh -L 6310:localhost:631 folk0`
+
+
+
 ## stuff
 - implement generators (~point at~)
 - ~implement even-better fake lexical scope~
@@ -34,4 +46,4 @@ make
 - ~mmap or otherwise hw-accelerate pi graphics~
 - ~bareword/nicer colors for Pi~ (could support more colors)
 - keyboard support for Pi
-- watchdog on Pi, autoupdate on Pi
+- watchdog on Pi, ~autoupdate on Pi~
