@@ -95,9 +95,9 @@ proc StepFromGUI {} {
                 }] { set prevAssertedClauses [clauseset create] }
 
                 set retractClauses [clauseset difference $prevAssertedClauses $::nextAssertedClauses]
-                foreach clause $retractClauses { Retract {*}$clause }
+                foreach clause [clauseset clauses $retractClauses] { Retract {*}$clause }
                 set assertClauses [clauseset difference $::nextAssertedClauses $prevAssertedClauses]
-                foreach clause $assertClauses { Assert {*}$clause }
+                foreach clause [clauseset clauses $assertClauses] { Assert {*}$clause }
 
                 dict set ::assertedClausesFrom $::nextSenderNode $::nextAssertedClauses
                 unset ::nextSenderNode
