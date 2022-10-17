@@ -1,3 +1,5 @@
+if {$::nodename == "folk0"} return
+
 set fp [open "test-output.ps" w]
 puts $fp [programToPs 6 hello]
 close $fp
