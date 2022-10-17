@@ -3,6 +3,7 @@ When $::nodename has step count /c/ {
 step count: $c
 steptime: $::stepTime
 camera: [expr {[info exists ::cameraTime] ? $::cameraTime : {none}}]
+statement count: [Statements::size]
 	"]
 	Wish $this is highlighted blue
 #	puts "$::nodename statement count: [Statements::size]"

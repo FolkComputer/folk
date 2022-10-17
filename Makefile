@@ -21,3 +21,5 @@ Folk.app:
 NODE := localhost
 show-statements:
 	echo Statements::showGraph | nc -w 5 $(NODE) 4273
+show-trie:
+	echo 'trie dot [set Statements::statementClauseToId]' | nc -w 5 $(NODE) 4273 | dot -Tpdf > trie.pdf

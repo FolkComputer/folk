@@ -43,13 +43,44 @@ namespace eval trie {
         return $branches
     }
 
+    namespace export dot
+    proc dot {trie} {
+        proc idify {word} {
+            # generate id-able word by eliminating all non-alphanumeric
+            regsub -all {\W+} $word "_"
+        }
+        proc labelify {word} {
+            string map {"\"" "\\\""} $word
+        }
+        proc subdot {path subtrie} {
+            set dot [list]
+            foreach word [dict keys $subtrie] {
+                set pathword [idify $word]
+                set newpath [list {*}$path $pathword]
+                lappend dot "[join $newpath "_"] \[label=\"[labelify $word]\"\];"
+                if {$path != {}} {
+                    # set shortKey [expr {[string length $key] > 100 ?
+                    #                     "[string range $key 0 50]..." :
+                    #                     $key}]
+                    lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
+                }
+                set child [dict get $subtrie $word]
+                if {![string is integer -strict [lindex $child 0]]} {
+                    lappend dot [subdot $newpath $child]
+                }
+            }
+            return [join $dot "\n"]
+        }
+        return "digraph { rankdir=LR; [subdot {} $trie] }"
+    }
+
     namespace ensemble create
 }
 
 namespace eval clauseset {
     # only used for statement syndication
 
-    namespace export create add difference
+    namespace export create add difference clauses
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
@@ -59,6 +90,7 @@ namespace eval clauseset {
     proc difference {s t} {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
+    proc clauses {s} { dict keys $s }
     namespace ensemble create
 }
 
