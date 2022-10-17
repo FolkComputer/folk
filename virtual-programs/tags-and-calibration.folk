@@ -50,20 +50,26 @@ proc cameraToProjector {cameraPoint} {
 }
 # Wish $this is highlighted white
 
-When tag /tag/ has center /c/ size /size/ {
-	lassign [cameraToProjector $c] px py
-	Claim $tag is a rectangle with x [expr $px-20] y [expr $py-10] width [expr $size*2] height [expr $size*2]
-	
-	set fp [open "programs/$tag.folk" r]
-	set code [read $fp]
-	close $fp
+When tag /tag/ has center /c/ size /size/ with generation /anything/ {
+     Claim tag $tag is a tag
 
-	Wish $tag is highlighted green
-	Claim $tag has program code $code
-	# Wish $tag is labelled "tag $tag at $c"
+     lassign [cameraToProjector $c] px py
+     Claim $tag is a rectangle with x [expr $px-20] y [expr $py-10] width [expr $size*2] height [expr $size*2]
 }
 
-When tag /tag/ has corners /corners/ {
+When tag /tag/ is a tag {
+     puts "Added tag $tag"
+
+     set fp [open "programs/$tag.folk" r]
+     set code [read $fp]
+     close $fp
+
+     Wish $tag is highlighted green
+     Claim $tag has program code $code
+     # Wish $tag is labelled "tag $tag at $c"
+}
+
+When tag /tag/ has corners /corners/ with generation /anything/ {
 	set corners [lmap p $corners {cameraToProjector $p}]
 	# Display::stroke [list {*}$corners [lindex $corners 0]] 2 green
 	foreach corner $corners {

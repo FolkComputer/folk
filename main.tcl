@@ -353,26 +353,27 @@ proc StepImpl {} {
         }
     }
 
-    d ""
-    d "Step:"
-    d "-----"
+    # d ""
+    # d "Step:"
+    # d "-----"
 
     # puts "Now processing log: $::log"
+    set ::logsize [llength $::log]
     while {[llength $::log]} {
         # TODO: make this log-shift more efficient?
         set entry [lindex $::log 0]
         set ::log [lreplace $::log 0 0]
 
         set op [lindex $entry 0]
-        d "$op: [string map {\n { }} [string range $entry 0 100]]"
+        # d "$op: [string map {\n { }} [string range $entry 0 100]]"
         if {$op == "Assert"} {
             set clause [lindex $entry 1]
             # insert empty environment if not present
             if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
                 set clause [list {*}$clause with environment {}]
             }
-            lassign [Statements::add $clause] id ;# statement without parents
-            reactToStatementAddition $id
+            lassign [Statements::add $clause] id setOfParentsId ;# statement without parents
+            if {$setOfParentsId == 0} { reactToStatementAddition $id }
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
@@ -400,7 +401,7 @@ proc StepImpl {} {
                     dict set children [list $id $setOfParentsId] true
                 }
             }
-            reactToStatementAddition $id
+            if {$setOfParentsId == 0} { reactToStatementAddition $id }
         }
     }
 

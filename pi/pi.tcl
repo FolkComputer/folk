@@ -48,29 +48,34 @@ set cameraThread [thread::create [format {
     AprilTags::init
 
     set frame 0
+    set generation 0
     while true {
         if {$frame != 0} {freeImage $frame}
         set cameraTime [time {
             set frame [Camera::frame]
 
-            set commands [list "Retract camera claims the camera frame is /something/" \
-                              "Assert camera claims the camera frame is \"$frame\"" \
-                              "Retract camera claims tag /something/ has corners /something/" \
-                              "Retract camera claims tag /something/ has center /something/ size /something/"]
-
             set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
             set tags [AprilTags::detect $grayFrame]
             freeImage $grayFrame
         }]
+        set commands [list]
         lappend commands [list set ::cameraTime $cameraTime]
 
         foreach tag $tags {
-            lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
-            lappend commands [list Assert camera claims tag [dict get $tag id] has corners [dict get $tag corners]]
+            lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size] with generation $generation]
+            lappend commands [list Assert camera claims tag [dict get $tag id] has corners [dict get $tag corners] with generation $generation]
         }
+        # Retract prev claims
+        lappend commands [list Retract camera claims the camera frame is /something/] \
+            [list Assert camera claims the camera frame is "$frame"] \
+            [list Retract camera claims tag /something/ has corners /something/ with generation [expr {$generation - 1}]] \
+            [list Retract camera claims tag /something/ has center /something/ size /something/ with generation [expr {$generation - 1}]]
 
         # send this script back to the main Folk thread
+        # puts "\n\nCommands\n-----\n[join $commands \"\n\"]"
         thread::send -async "%s" [join $commands "\n"]
+
+        incr generation
     }
 } [thread::id]]]
 puts "ct $cameraThread"
