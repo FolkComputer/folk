@@ -8,6 +8,8 @@ proc d {arg} {
 }
 
 namespace eval trie {
+    # used for statement lookup
+
     namespace export create add remove lookup
     proc create {} { dict create }
     proc add {trieVar clause id} { upvar $trieVar $trieVar; dict set $trieVar {*}$clause $id }
@@ -41,6 +43,22 @@ namespace eval trie {
         return $branches
     }
 
+    namespace ensemble create
+}
+
+namespace eval clauseset {
+    # only used for statement syndication
+
+    namespace export create add difference
+    proc create {args} {
+        set kvs [list]
+        foreach k $args { lappend kvs $k true }
+        dict create {*}$kvs
+    }
+    proc add {s k} { upvar $s $s; dict set $s $k true }
+    proc difference {s t} {
+        dict filter $s script {k v} {expr {![dict exists $t $k]}}
+    }
     namespace ensemble create
 }
 
@@ -361,7 +379,7 @@ proc StepImpl {} {
 
 set ::acceptNum 0
 proc accept {chan addr port} {
-    puts "$::nodename: Start [incr ::acceptNum]"
+    # puts "$::nodename: Start [incr ::acceptNum]"
     
     # (mostly for the Pi)
     # we want to be able to asynchronously receive statements
@@ -375,7 +393,7 @@ proc accept {chan addr port} {
                     puts $chan [eval $script]; flush $chan
                 } ret]} {
                     catch {
-                        puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
+                        # puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
                         puts $chan $ret; flush $chan
                     }
                 }
@@ -383,7 +401,7 @@ proc accept {chan addr port} {
             }
         }
     } finally {
-        puts "$::nodename: Done $::acceptNum"
+        # puts "$::nodename: Done $::acceptNum"
         close $chan
     }
 }

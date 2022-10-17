@@ -59,18 +59,25 @@ if {[catch {
 }
 
 package require Thread
-set ::sharerThread [thread::create {
-    thread::wait
-}]
+if {[info exists ::shareNode]} {
+    set ::sharerThread [thread::create [format {
+        thread::wait
+        set sock [socket {%s} 4273]
+        puts $sock {
+        }
+        close $sock
+    } $::shareNode]]
+}
 proc StepFromGUI {} {
     Step
 
     if {![info exists ::shareNode]} { return }
+
     # share root statement set to Pi
-    set assertedClauses [list]
+    set assertedClauses [clauseset create]
     dict for {_ stmt} $Statements::statements {
         if {[statement setsOfParents $stmt] == {0 {}}} {
-            lappend assertedClauses [statement clause $stmt]
+            clauseset add assertedClauses [statement clause $stmt]
         }
     }
     thread::send -async $::sharerThread [format {
@@ -80,11 +87,24 @@ proc StepFromGUI {} {
             set assertedClauses {%s}
 
             set sock [socket $shareNode 4273]
-            puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Retract {*}$clause }} $nodename]
-            puts $sock [list dict set ::assertedStatementsFrom $nodename $assertedClauses]
-            puts $sock [format {foreach clause [dict get $::assertedStatementsFrom "%%s"] { Assert {*}$clause }} $nodename]
+            puts $sock [list set ::nextSenderNode $nodename]
+            puts $sock [list set ::nextAssertedClauses $assertedClauses]
+            puts $sock {
+                if [catch {
+                    set prevAssertedClauses [dict get $::assertedClausesFrom $::nextSenderNode]
+                }] { set prevAssertedClauses [clauseset create] }
+
+                set retractClauses [clauseset difference $prevAssertedClauses $::nextAssertedClauses]
+                foreach clause $retractClauses { Retract {*}$clause }
+                set assertClauses [clauseset difference $::nextAssertedClauses $prevAssertedClauses]
+                foreach clause $assertClauses { Assert {*}$clause }
+
+                dict set ::assertedClausesFrom $::nextSenderNode $::nextAssertedClauses
+                unset ::nextSenderNode
+                unset ::nextAssertedClauses
+            }
             # if {$nodename == "[info hostname]-1"} {
-                puts $sock {Step}
+                # puts $sock {Step}
             # }
             close $sock
 
