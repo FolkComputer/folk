@@ -20,6 +20,7 @@ namespace eval trie {
         while 1 {
             dict unset trie {*}$subclause
 
+            # we need to garbage-collect empty dicts after the unset
             set subclause [lrange $subclause 0 end-1]
             if {[dict size [dict get $trie {*}$subclause]] > 0} { break }
         }

@@ -45,8 +45,8 @@ set ::H [subst {
 proc cameraToProjector {cameraPoint} {
     # FIXME: this is slow but not the cause of leak
     lassign [math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
-    set Hx [expr $Hx / $Hz]
-    set Hy [expr $Hy / $Hz]
+    set Hx [expr {$Hx / $Hz}]
+    set Hy [expr {$Hy / $Hz}]
     return [list $Hx $Hy]
 }
 # Wish $this is highlighted white

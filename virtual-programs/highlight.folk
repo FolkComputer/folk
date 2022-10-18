@@ -3,6 +3,6 @@ When /someone/ wishes /rect/ is highlighted /color/ {
         # it's not really correct to just stick a side-effect in the
         # When handler like this. but we did it in Realtalk, and it
         # was ok, so whatever for now
-        Display::fillRect device $x $y [expr $x+$width] [expr $y+$height] $color
+        Display::fillRect device $x $y [expr {$x+$width}] [expr {$y+$height}] $color
     }
 }

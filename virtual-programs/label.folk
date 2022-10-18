@@ -2,9 +2,9 @@ When /someone/ wishes /rect/ is labelled /text/ {
     When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
 	set lines [split $text "\n"]
         set longestLineLength [tcl::mathfunc::max {*}[lmap line $lines {string length $line}]]
-        set fontSize [expr $width / $longestLineLength]
+        set fontSize [expr {$width / $longestLineLength}]
 	for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-	    Display::text device [expr $x+$width/2] [expr $y+$height/2+$lineNum*18] $fontSize [lindex $lines $lineNum]
+	    Display::text device [expr {$x+$width/2}] [expr {$y+$height/2+$lineNum*18}] $fontSize [lindex $lines $lineNum]
 	}
     }
 }
