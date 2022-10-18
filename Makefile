@@ -23,3 +23,8 @@ show-statements:
 	echo Statements::showGraph | nc -w 5 $(NODE) 4273
 show-trie:
 	echo 'trie dot [set Statements::statementClauseToId]' | nc -w 5 $(NODE) 4273 | dot -Tpdf > trie.pdf
+
+assert-tags:
+	echo 'set ::debug true; Assert camera claims tag 1 has center {400 400} size {100} with generation 0; Assert camera claims tag 2 has center {200 200} size {100} with generation 0; Step; set ::debug false; set ::stepTime' | nc -w1 folk0.local 4273
+retract-tags:
+	echo 'Retract camera claims tag 1 has center {400 400} size {100} with generation 0; Retract camera claims tag 2 has center {200 200} size {100} with generation 0; Step; set ::stepTime' | nc -w1 folk0.local 4273
