@@ -75,10 +75,17 @@ namespace eval Camera {
     } [thread::id]]]
     puts "ct $cameraThread"
 
-    Assert when $::nodename has step count /c/ {
+    variable prevStatements [list]
+    proc step {} {
+        # Must be called at start of frame
+        variable prevStatements
         foreach stmt $Camera::statements {
-            Say {*}$stmt
+            Assert {*}$stmt
         }
+        foreach stmt $prevStatements {
+            Retract {*}$stmt
+        }
+        set prevStatements $Camera::statements
     }
 }
 
@@ -102,6 +109,9 @@ proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]
 }
-every 32 {Step}
+every 32 {
+    Camera::step
+    Step
+}
 
 vwait forever

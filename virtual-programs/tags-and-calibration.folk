@@ -58,7 +58,7 @@ When tag /tag/ has center /c/ size /size/ {
 }
 
 When tag /tag/ is a tag {
-     # puts "Added tag $tag"
+     puts "Added tag $tag"
 
      set fp [open "programs/$tag.folk" r]
      set code [read $fp]
