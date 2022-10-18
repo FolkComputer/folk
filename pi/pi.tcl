@@ -42,43 +42,45 @@ namespace eval Display {
 }
 
 # Camera thread
-set cameraThread [thread::create [format {
-    source pi/Camera.tcl
-    Camera::init 1280 720
-    AprilTags::init
+namespace eval Camera {
+    variable statements [list]
 
-    set frame 0
-    set generation 0
-    while true {
-        if {$frame != 0} {freeImage $frame}
-        set cameraTime [time {
-            set frame [Camera::frame]
+    variable cameraThread [thread::create [format {
+        source pi/Camera.tcl
+        Camera::init 1280 720
+        AprilTags::init
 
-            set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
-            set tags [AprilTags::detect $grayFrame]
-            freeImage $grayFrame
-        }]
-        set commands [list]
-        lappend commands [list set ::cameraTime $cameraTime]
+        set frame 0
+        while true {
+            if {$frame != 0} {freeImage $frame}
+            set cameraTime [time {
+                set frame [Camera::frame]
 
-        foreach tag $tags {
-            lappend commands [list Assert camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size] with generation $generation]
-            lappend commands [list Assert camera claims tag [dict get $tag id] has corners [dict get $tag corners] with generation $generation]
+                set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
+                set tags [AprilTags::detect $grayFrame]
+                freeImage $grayFrame
+            }]
+            set statements [list]
+            lappend statements [list camera claims the camera time is $cameraTime]
+            lappend statements [list camera claims the camera frame is $frame]
+            foreach tag $tags {
+                lappend statements [list camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
+                lappend statements [list camera claims tag [dict get $tag id] has corners [dict get $tag corners]]
+            }
+
+            # send this script back to the main Folk thread
+            # puts "\n\nCommands\n-----\n[join $commands \"\n\"]"
+            thread::send -async "%s" [list set Camera::statements $statements]
         }
-        # Retract prev claims
-        lappend commands [list Retract camera claims the camera frame is /something/] \
-            [list Assert camera claims the camera frame is "$frame"] \
-            [list Retract camera claims tag /something/ has corners /something/ with generation [expr {$generation - 1}]] \
-            [list Retract camera claims tag /something/ has center /something/ size /something/ with generation [expr {$generation - 1}]]
+    } [thread::id]]]
+    puts "ct $cameraThread"
 
-        # send this script back to the main Folk thread
-        # puts "\n\nCommands\n-----\n[join $commands \"\n\"]"
-        thread::send -async "%s" [join $commands "\n"]
-
-        incr generation
+    Assert when $::nodename has step count /c/ {
+        foreach stmt $Camera::statements {
+            Say {*}$stmt
+        }
     }
-} [thread::id]]]
-puts "ct $cameraThread"
+}
 
 set keyboardThread [thread::create [format {
     source pi/Keyboard.tcl

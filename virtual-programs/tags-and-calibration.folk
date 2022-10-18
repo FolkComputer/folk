@@ -50,7 +50,7 @@ proc cameraToProjector {cameraPoint} {
 }
 # Wish $this is highlighted white
 
-When tag /tag/ has center /c/ size /size/ with generation /anything/ {
+When tag /tag/ has center /c/ size /size/ {
      Claim tag $tag is a tag
 
      lassign [cameraToProjector $c] px py
@@ -58,7 +58,7 @@ When tag /tag/ has center /c/ size /size/ with generation /anything/ {
 }
 
 When tag /tag/ is a tag {
-     puts "Added tag $tag"
+     # puts "Added tag $tag"
 
      set fp [open "programs/$tag.folk" r]
      set code [read $fp]
@@ -69,7 +69,7 @@ When tag /tag/ is a tag {
      # Wish $tag is labelled "tag $tag at $c"
 }
 
-When tag /tag/ has corners /corners/ with generation /anything/ {
+When tag /tag/ has corners /corners/ {
 	set corners [lmap p $corners {cameraToProjector $p}]
 	# Display::stroke [list {*}$corners [lindex $corners 0]] 2 green
 	foreach corner $corners {
