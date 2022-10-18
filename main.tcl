@@ -9,11 +9,21 @@ proc d {arg} {
 
 namespace eval trie {
     # used for statement lookup
+    # TODO: should we just use lists? dicts don't buy us that much
 
     namespace export create add remove lookup
     proc create {} { dict create }
-    proc add {trieVar clause id} { upvar $trieVar $trieVar; dict set $trieVar {*}$clause $id }
-    proc remove {trieVar clause} { upvar $trieVar $trieVar; dict unset $trieVar {*}$clause }
+    proc add {trieVar clause id} { upvar $trieVar trie; dict set trie {*}$clause $id }
+    proc remove {trieVar clause} {
+        upvar $trieVar trie
+        set subclause $clause
+        while 1 {
+            dict unset trie {*}$subclause
+
+            set subclause [lrange $subclause 0 end-1]
+            if {[dict size [dict get $trie {*}$subclause]] > 0} { break }
+        }
+    }
 
     proc lookup {trie pattern} {
         set branches [list $trie]
@@ -65,7 +75,7 @@ namespace eval trie {
                     lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
                 }
                 set child [dict get $subtrie $word]
-                if {![string is integer -strict [lindex $child 0]]} {
+                if {![string is integer -strict $child]} {
                     lappend dot [subdot $newpath $child]
                 }
             }
@@ -86,7 +96,7 @@ namespace eval clauseset {
         foreach k $args { lappend kvs $k true }
         dict create {*}$kvs
     }
-    proc add {s k} { upvar $s $s; dict set $s $k true }
+    proc add {sv k} { upvar $sv s; dict set s $k true }
     proc difference {s t} {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
@@ -450,6 +460,7 @@ set ::stepTime "none"
 proc Step {} {
     # puts "$::nodename: Step"
 
+    # TODO: should these be reordered?
     Retract $::nodename has step count $::stepCount
     incr ::stepCount
     Assert $::nodename has step count $::stepCount

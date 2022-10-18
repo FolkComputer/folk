@@ -28,3 +28,6 @@ assert-tags:
 	echo 'set ::debug true; Assert camera claims tag 1 has center {400 400} size {100} with generation 0; Assert camera claims tag 2 has center {200 200} size {100} with generation 0; Step; set ::debug false; set ::stepTime' | nc -w1 folk0.local 4273
 retract-tags:
 	echo 'Retract camera claims tag 1 has center {400 400} size {100} with generation 0; Retract camera claims tag 2 has center {200 200} size {100} with generation 0; Step; set ::stepTime' | nc -w1 folk0.local 4273
+
+check-size:
+	echo 'list [string length $$Statements::statements] [string length $$Statements::statementClauseToId]' | nc -w1 folk0.local 4273
