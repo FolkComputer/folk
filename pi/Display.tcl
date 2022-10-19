@@ -106,7 +106,7 @@ critcl::cproc drawChar {int x0 int y0 char* cs} void {
     }
 }
 # for debugging
-critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
+critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight pixel_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
               int i = (y * width + x);
