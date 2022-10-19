@@ -3,7 +3,8 @@ source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
 critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
-critcl::clibraries $::env(HOME)/apriltag/libapriltag.a [lindex [exec ldconfig -p | grep libjpeg] end]
+critcl::clibraries $::env(HOME)/apriltag/libapriltag.a [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+
 critcl::ccode {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -134,8 +135,7 @@ critcl::cproc cameraStart {camera_t* camera} void {
 }
 
 critcl::ccode {
-int camera_capture(camera_t* camera)
-{
+int camera_capture(camera_t* camera) {
   struct v4l2_buffer buf;
   memset(&buf, 0, sizeof buf);
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -208,25 +208,6 @@ critcl::cproc freeImage {uint8_t* image} void {
   free(image);
 }
 
-opaquePointerType uint16_t*
-critcl::cproc drawGrayImage {uint16_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
- for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++) {
-              int i = (y * width + x);
-              uint8_t r = im[i];
-              uint8_t g = im[i];
-              uint8_t b = im[i];
-              int fbx = x + 300;
-              int fby = y + 300;
-              if (fbx >= fbwidth || fby >= fbheight) continue;
-              fbmem[(fby * fbwidth) + fbx] =
-                  (((r >> 3) & 0x1F) << 11) |
-                  (((g >> 2) & 0x3F) << 5) |
-                  ((b >> 3) & 0x1F);
-          }
-      }
-}
-
 namespace eval Camera {
     variable camera
 
@@ -266,11 +247,9 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
 
     while true {
         set rgb [Camera::frame]
-        # puts "rgb: $rgb"
         set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]
-        # puts "gray: $gray"
         freeImage $rgb
-        drawGrayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
+        Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
         freeImage $gray
     }
 }

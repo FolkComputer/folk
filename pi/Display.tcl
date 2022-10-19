@@ -105,6 +105,24 @@ critcl::cproc drawChar {int x0 int y0 char* cs} void {
         }
     }
 }
+# for debugging
+critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
+ for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+              int i = (y * width + x);
+              uint8_t r = im[i];
+              uint8_t g = im[i];
+              uint8_t b = im[i];
+              int fbx = x + 300;
+              int fby = y + 300;
+              if (fbx >= fbwidth || fby >= fbheight) continue;
+              fbmem[(fby * fbwidth) + fbx] =
+                  (((r >> 3) & 0x1F) << 11) |
+                  (((g >> 2) & 0x3F) << 5) |
+                  ((b >> 3) & 0x1F);
+          }
+      }
+}
 critcl::cproc commitThenClearStaging {} void {
     memcpy(fbmem, staging, fbwidth * fbheight * 2);
     memset(staging, 0, fbwidth * fbheight * 2);
@@ -165,6 +183,9 @@ namespace eval Display {
             set x [expr {$x + 9}] ;# TODO: don't hardcode font width
         }
     }
+
+    # for debugging
+    proc grayImage {args} { drawGrayImage {*}$args }
 
     proc commit {} {
         commitThenClearStaging

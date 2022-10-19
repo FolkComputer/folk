@@ -29,7 +29,11 @@ make
 
 ### NUC setup
 
-1. install Ubuntu Server 22.04 LTS with username `folk`, hostname `folk0.local`?
+1. install Ubuntu Server 22.04 LTS with username `folk`, hostname
+   `folk0.local`? (on Pi: Raspbian Lite => `sudo useradd -m folk; sudo
+   passwd folk; sudo usermod -a -G
+   adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi
+   folk`)
 1. set up OpenSSH server
 1. connect to Wi-Fi
 1. `sudo apt update`
@@ -38,12 +42,13 @@ make
 1. `sudo apt install make rsync`
 1. `sudo apt install tcl-thread critcl git killall libjpeg-dev fbset`
 1. `sudo adduser folk video` & log out and log back in (re-ssh)
-1. get apriltags: `cd ~; git clone https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
-1. 
+1. get apriltags: `cd ~; git clone
+   https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
+   (you can probably ignore errors at the end of this)
 1. `make`
 
 
-potentialyl useful: `v4l-utils`, `gdb`, `streamer`
+potentialyl useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`
 
 ### printer
 
