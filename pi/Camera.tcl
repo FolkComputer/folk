@@ -2,8 +2,8 @@ package require critcl
 source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
-critcl::cflags -I/home/pi/apriltag -Wall -Werror
-critcl::clibraries /home/pi/apriltag/libapriltag.a /usr/lib/arm-linux-gnueabihf/libjpeg.so.62
+critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
+critcl::clibraries $::env(HOME)/apriltag/libapriltag.a [lindex [exec ldconfig -p | grep libjpeg] end]
 critcl::ccode {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -114,7 +114,7 @@ critcl::cproc cameraInit {camera_t* camera} void {
     }
     camera->head.start = malloc(buf_max);
 
-    printf("camera %d; bufcount %d\n", camera->fd, camera->buffer_count);    
+    printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
 
 critcl::cproc cameraStart {camera_t* camera} void {
@@ -125,7 +125,7 @@ critcl::cproc cameraStart {camera_t* camera} void {
         buf.memory = V4L2_MEMORY_MMAP;
         buf.index = i;
         if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) quit("VIDIOC_QBUF");
-        printf("camera_start(%d): %s\n", i, strerror(errno));
+        printf("camera_start(%zu): %s\n", i, strerror(errno));
     }
 
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -159,7 +159,10 @@ critcl::cproc cameraFrame {camera_t* camera} int {
     int r = select(camera->fd + 1, &fds, 0, 0, &timeout);
     // printf("r: %d\n", r);
     if (r == -1) quit("select");
-    if (r == 0) return 0;
+    if (r == 0) {
+        printf("selection failed of fd %d\n", camera->fd);
+        return 0;
+    }
     return camera_capture(camera);
 }
 
@@ -251,7 +254,7 @@ namespace eval Camera {
     }
 }
 
-if {[info exists ::argv0] && $::argv0 eq [info script]} {
+if {([info exists ::argv0] && $::argv0 eq [info script]) || $::entry == "pi/Camera.tcl"} {
     source pi/Display.tcl
     Display::init
 
@@ -270,8 +273,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         freeImage $gray
     }
 }
-
-
 
 
 namespace eval AprilTags {

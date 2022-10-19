@@ -27,6 +27,24 @@ make
   scared of it falling and you shouldn't have to take it apart and put
   it back together every time
 
+### NUC setup
+
+1. install Ubuntu Server 22.04 LTS with username `folk`, hostname `folk0.local`?
+1. set up OpenSSH server
+1. connect to Wi-Fi
+1. `sudo apt update`
+1. `sudo apt install avahi-daemon`
+1. (on your laptop: `ssh-copy-id folk@folk0.local`)
+1. `sudo apt install make rsync`
+1. `sudo apt install tcl-thread critcl git killall libjpeg-dev fbset`
+1. `sudo adduser folk video` & log out and log back in (re-ssh)
+1. get apriltags: `cd ~; git clone https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
+1. 
+1. `make`
+
+
+potentialyl useful: `v4l-utils`, `gdb`, `streamer`
+
 ### printer
 
 ```

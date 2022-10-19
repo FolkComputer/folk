@@ -1,6 +1,11 @@
 package require critcl
 source "pi/critclUtils.tcl"
 
+namespace eval Display {}
+set fbset [exec fbset]
+regexp {mode "(\d+)x(\d+)"} $fbset -> Display::WIDTH Display::HEIGHT
+regexp {geometry \d+ \d+ \d+ \d+ (\d+)} $fbset -> Display::DEPTH
+
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
 
@@ -11,21 +16,32 @@ critcl::ccode {
     #include <stdint.h>
     #include <string.h>
     #include <stdlib.h>
-    uint16_t* staging;
-    uint16_t* fbmem;
+}
+
+if {$Display::DEPTH == 16} {
+    critcl::ccode { typedef uint16_t pixel_t; }
+} elseif {$Display::DEPTH == 32} {
+    critcl::ccode { typedef uint32_t pixel_t; }
+} else {
+    error "Display: Unusable depth $Display::DEPTH"
+}
+
+critcl::ccode {
+    pixel_t* staging;
+    pixel_t* fbmem;
 
     int fbwidth;
     int fbheight;
 }
 critcl::ccode [source "vendor/font.tcl"]
-opaquePointerType uint16_t*
+opaquePointerType pixel_t*
 
-critcl::cproc mmapFb {int fbw int fbh} uint16_t* {
+critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     int fb = open("/dev/fb0", O_RDWR);
     fbwidth = fbw;
     fbheight = fbh;
-    fbmem = mmap(NULL, fbwidth * fbheight * 2, PROT_WRITE, MAP_SHARED, fb, 0);
-    staging = calloc(fbwidth * fbheight, 2);
+    fbmem = mmap(NULL, fbwidth * fbheight * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fb, 0);
+    staging = calloc(fbwidth * fbheight, sizeof(pixel_t));
     return fbmem;
 }
 critcl::cproc fillRectangle {int x0 int y0 int x1 int y1 bytes colorBytes} void {
@@ -97,6 +113,7 @@ critcl::cproc commitThenClearStaging {} void {
 namespace eval Display {
     variable WIDTH
     variable HEIGHT
+    variable DEPTH
 
     variable black [binary format b16 [join {00000 000000 00000} ""]]
     variable blue  [binary format b16 [join {11111 000000 00000} ""]]
@@ -111,7 +128,6 @@ namespace eval Display {
     # functions
     # ---------
     proc init {} {
-        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> Display::WIDTH Display::HEIGHT
         set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
     }
 

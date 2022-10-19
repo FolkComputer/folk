@@ -484,14 +484,14 @@ if {$tcl_platform(os) eq "Darwin"} {
 }
 
 if {[info exists ::env(FOLK_ENTRY)]} {
-    set entry $::env(FOLK_ENTRY)
+    set ::entry $::env(FOLK_ENTRY)
 
 } elseif {$tcl_platform(os) eq "Darwin"} {
     #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
-    set entry "laptop.tcl"
+    set ::entry "laptop.tcl"
 
 } else {
-    set entry "pi/pi.tcl"
+    set ::entry "pi/pi.tcl"
 }
 
-source $entry
+source $::entry

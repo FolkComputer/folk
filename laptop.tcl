@@ -51,8 +51,8 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 if {[catch {
     # TODO: forward entry point
     # TODO: handle rsync strict host key failure
-    catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . pi@$::shareNode:~/folk-rsync}
-    exec ssh -o StrictHostKeyChecking=no pi@$::shareNode -- make -C ~/folk-rsync restart >@stdout &
+    catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$::shareNode:~/folk-rsync}
+    exec ssh -o StrictHostKeyChecking=no folk@$::shareNode -- make -C ~/folk-rsync restart >@stdout &
 } err]} {
     puts "error running on Pi: $err"
     unset ::shareNode
