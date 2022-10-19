@@ -70,3 +70,8 @@ ssh tunnel `ssh -L 6310:localhost:631 folk0`
 - ~bareword/nicer colors for Pi~ (could support more colors)
 - keyboard support for Pi
 - watchdog on Pi, ~autoupdate on Pi~
+- parallelize tag detection / camera processing
+- text editor
+- print support
+- clean up lexical scope
+- with-all-matches

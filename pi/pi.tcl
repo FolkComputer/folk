@@ -7,10 +7,11 @@ namespace eval Display {
     variable displayThread [thread::create {
         source pi/Display.tcl
         Display::init
+        puts "Display tid: [getTid]"
 
         thread::wait
     }]
-    puts "dt $displayThread"
+    puts "Display thread id: $displayThread"
 
     proc fillRect {fb x0 y0 x1 y1 color} {
         uplevel [list Wish display runs [list Display::fillRect $fb $x0 $y0 $x1 $y1 $color]]
@@ -49,6 +50,7 @@ namespace eval Camera {
         source pi/Camera.tcl
         Camera::init 1280 720
         AprilTags::init
+        puts "Camera tid: [getTid]"
 
         set frame 0
         while true {
@@ -73,7 +75,7 @@ namespace eval Camera {
             thread::send -async "%s" [list set Camera::statements $statements]
         }
     } [thread::id]]]
-    puts "ct $cameraThread"
+    puts "Camera thread id: $cameraThread"
 
     variable prevStatements [list]
     proc step {} {
@@ -92,6 +94,7 @@ namespace eval Camera {
 set keyboardThread [thread::create [format {
     source pi/Keyboard.tcl
     Keyboard::init
+    puts "Keyboard tid: [getTid]"
 
     set chs [list]
     while true {
@@ -103,7 +106,7 @@ set keyboardThread [thread::create [format {
         }]
     }
 } [thread::id]]]
-puts "kt $keyboardThread"
+puts "Keyboard thread id: $keyboardThread"
 
 proc every {ms body} {
     try $body

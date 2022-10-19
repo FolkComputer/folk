@@ -1,3 +1,11 @@
+critcl::ccode {
+    #define _GNU_SOURCE
+    #include <unistd.h>
+}
+critcl::cproc getTid {} int {
+    return gettid();
+}
+
 proc opaquePointerType {type} {
     critcl::ccode {
         #include <inttypes.h>
