@@ -1,8 +1,8 @@
 When $::nodename has step count /c/ {
 	Wish $this is labelled [string trim "
 step count: $c
-steptime: $::stepTime
-camera prev: [expr {[namespace exists Camera] ? [llength $Camera::prevStatements] : {none}}]
+step time: $::stepTime
+camera time: [expr {[namespace exists Camera] ? [lindex [lindex $Camera::statements 1] end] : {none}}]
 statement count: [Statements::size]
 logsize: $::logsize
 	"]

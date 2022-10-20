@@ -462,9 +462,9 @@ proc Step {} {
     # puts "$::nodename: Step"
 
     # TODO: should these be reordered?
-    Retract $::nodename has step count $::stepCount
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
+    Retract $::nodename has step count [expr {$::stepCount - 1}]
     set ::stepTime [time {StepImpl}]
 }
 
