@@ -87,6 +87,7 @@ proc StepFromGUI {} {
             set assertedClauses {%s}
 
             set sock [socket $shareNode 4273]
+            puts $sock {Retract $::nodename has root statements /anything/}
             puts $sock [list set ::nextSenderNode $nodename]
             puts $sock [list set ::nextAssertedClauses $assertedClauses]
             puts $sock {
@@ -200,6 +201,7 @@ button .btn -text "New Program" -command newProgram
 pack .btn
 bind . <Control-Key-n> newProgram
 
+# also see how it's done in pi.tcl
 foreach programFilename [glob virtual-programs/*.folk] {
     set fp [open $programFilename r]
     newProgram [read $fp] $programFilename

@@ -44,6 +44,7 @@ critcl::ccode {
 }
 critcl::ccode [source "vendor/font.tcl"]
 opaquePointerType pixel_t*
+opaquePointerType uint8_t*
 
 critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     int fb = open("/dev/fb0", O_RDWR);

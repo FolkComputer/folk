@@ -101,6 +101,22 @@ set keyboardThread [thread::create [format {
 } [thread::id]]]
 puts "Keyboard thread id: $keyboardThread"
 
+# also see how it's done in laptop.tcl
+set rootStatements [list]
+foreach programFilename [glob virtual-programs/*.folk] {
+    set fp [open $programFilename r]
+    lappend rootStatements [list root claims $programFilename has program code [read $fp]]
+    lappend rootStatements [list root claims $programFilename is a rectangle with x 0 y 100 width 100 height 100]
+    close $fp
+}
+
+# so we can retract them all at once if a laptop connects
+Assert $::nodename has root statements $rootStatements
+
+Assert when $::nodename has root statements /statements/ {
+    foreach stmt $statements { Say {*}$stmt }
+}
+
 proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]
