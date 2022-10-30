@@ -52,7 +52,7 @@ if {[catch {
     # TODO: forward entry point
     # TODO: handle rsync strict host key failure
     catch {exec rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$::shareNode:~/folk-rsync}
-    exec ssh -o StrictHostKeyChecking=no folk@$::shareNode -- systemctl restart folk >@stdout &
+    exec ssh -o StrictHostKeyChecking=no folk@$::shareNode -- sudo systemctl restart folk >@stdout &
 } err]} {
     puts "error running on Pi: $err"
     unset ::shareNode
