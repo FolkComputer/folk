@@ -7,10 +7,6 @@ ifeq ($(wildcard $(TCL_HOME)/*),)
 endif
 start:
 	$(TCL_HOME)/bin/tclsh main.tcl
-stop:
-	kill -9 `pgrep tclsh` || true
-	while pgrep tclsh >/dev/null; do sleep 0.1; done
-restart: stop start
 
 TCLKIT = ~/Downloads/tclkit-8.6.3*
 Folk.app:

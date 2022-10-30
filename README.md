@@ -27,6 +27,31 @@ make
   scared of it falling and you shouldn't have to take it apart and put
   it back together every time
 
+on Ubuntu Server on NUC (as root) ([from here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
+```
+# cat >/etc/systemd/system/folk.service
+[Unit]
+Description=Folk service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=folk
+ExecStart=make -C /home/folk/folk-rsync
+
+[Install]
+WantedBy=multi-user.target
+
+# systemctl start folk
+# systemctl enable folk
+```
+
+you probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
+to `/etc/sudoers` as well
+
 ### NUC setup
 
 1. install Ubuntu Server 22.04 LTS with username `folk`, hostname
