@@ -3,8 +3,8 @@ source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
 if {[info hostname] == "folk0"} {
-    critcl::cflags -I/home/pi/apriltag -Wall -Werror
-    critcl::clibraries /home/pi/apriltag/libapriltag.a
+    critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
+    critcl::clibraries $::env(HOME)/apriltag/libapriltag.a
 } else {
     critcl::cflags -I/Users/osnr/aux/apriltag -Wall -Werror
     critcl::clibraries /Users/osnr/aux/apriltag/libapriltag.a
