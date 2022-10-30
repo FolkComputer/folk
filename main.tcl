@@ -296,7 +296,9 @@ proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
-        dict with __env $__body
+        if {[catch {dict with __env $__body} err] == 1} {
+            puts "$::nodename: Error: $err"
+        }
     }
 
     proc reactToStatementAddition {id} {
