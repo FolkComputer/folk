@@ -19,9 +19,18 @@ critcl::ccode {
 }
 
 if {$Display::DEPTH == 16} {
-    critcl::ccode { typedef uint16_t pixel_t; }
+    critcl::ccode {
+        typedef uint16_t pixel_t;
+        #define PIXEL(r, g, b) \
+            (((((r) >> 3) & 0x1F) << 11) | \
+             ((((g) >> 2) & 0x3F) << 5) | \
+             (((b) >> 3) & 0x1F));
+    }
 } elseif {$Display::DEPTH == 32} {
-    critcl::ccode { typedef uint32_t pixel_t; }
+    critcl::ccode {
+        typedef uint32_t pixel_t;
+        #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
+    }
 } else {
     error "Display: Unusable depth $Display::DEPTH"
 }
@@ -106,7 +115,7 @@ critcl::cproc drawChar {int x0 int y0 char* cs} void {
     }
 }
 # for debugging
-critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight pixel_t* im int width int height} void {
+critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
               int i = (y * width + x);
@@ -116,16 +125,13 @@ critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight pixel_t* im
               int fbx = x + 300;
               int fby = y + 300;
               if (fbx >= fbwidth || fby >= fbheight) continue;
-              fbmem[(fby * fbwidth) + fbx] =
-                  (((r >> 3) & 0x1F) << 11) |
-                  (((g >> 2) & 0x3F) << 5) |
-                  ((b >> 3) & 0x1F);
+              fbmem[(fby * fbwidth) + fbx] = PIXEL(r, g, b);                  
           }
       }
 }
 critcl::cproc commitThenClearStaging {} void {
-    memcpy(fbmem, staging, fbwidth * fbheight * 2);
-    memset(staging, 0, fbwidth * fbheight * 2);
+    memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
+    memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
 namespace eval Display {
