@@ -48,7 +48,8 @@ make
 1. `make`
 
 
-potentialyl useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`
+potentialyl useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
+`file`, `strace`
 
 ### printer
 
