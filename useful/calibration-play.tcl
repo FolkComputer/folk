@@ -1,5 +1,7 @@
 package require critcl
 
+exec sudo systemctl stop folk
+
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
 critcl::clibraries [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
@@ -9,7 +11,9 @@ source "pi/Display.tcl"
 source "pi/Camera.tcl"
 
 Display::init
+# FIXME: adapt to camera spec
 Camera::init 3840 2160
+# Camera::init 1920 1080
 
 critcl::ccode {
     #include <stdint.h>
@@ -24,7 +28,7 @@ if {$Display::DEPTH == 16} {
         #define PIXEL(r, g, b) \
             (((((r) >> 3) & 0x1F) << 11) | \
              ((((g) >> 2) & 0x3F) << 5) | \
-             (((b) >> 3) & 0x1F));
+             (((b) >> 3) & 0x1F))
     }
 } elseif {$Display::DEPTH == 32} {
     critcl::ccode {
@@ -142,8 +146,8 @@ critcl::ccode {
     }
 
     typedef struct {
-        pixel_t* columnCorr;
-        pixel_t* rowCorr;
+        uint16_t* columnCorr;
+        uint16_t* rowCorr;
     } dense_t;
 }
 opaquePointerType dense_t*
@@ -159,12 +163,12 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
     uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
 
     // find column correspondences:
-    pixel_t* columnCorr;
+    uint16_t* columnCorr;
     {
         // how many bits do we need in the Gray code?
         int columnBits = ceil(log2f($Display::WIDTH));
 
-        columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(pixel_t));
+        columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
         for (int k = columnBits - 1; k >= 0; k--) {
             [eachDisplayPixel {
@@ -181,7 +185,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
-                if (columnCorr[i] == WHITE) continue;
+                if (columnCorr[i] == 0xFFFF) continue;
 
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
@@ -189,10 +193,10 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
                 } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
-                    if (k == 0 || k == 1 || k == 2) {
+                    if (k == 0) { // ignore least significant bit
                         bit = 0;
                     } else {
-                        columnCorr[i] = WHITE; // unable to correspond
+                        columnCorr[i] = 0xFFFF; // unable to correspond
                         continue;
                     }
                 }
@@ -205,19 +209,19 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
 
         // convert column correspondences out of Gray code
         [eachCameraPixel {
-            if (columnCorr[i] != WHITE) {
+            if (columnCorr[i] != 0xFFFF) {
                 columnCorr[i] = fromGrayCode(columnCorr[i]);
             }
         }]
     }
     
     // find row correspondences:
-    pixel_t* rowCorr;
+    uint16_t* rowCorr;
     {
         // how many bits do we need in the Gray code?
         int rowBits = ceil(log2f($Display::WIDTH));
 
-        rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(pixel_t));
+        rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
         for (int k = rowBits - 1; k >= 0; k--) {
             [eachDisplayPixel {
@@ -234,7 +238,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
-                if (rowCorr[i] == WHITE) continue;
+                if (rowCorr[i] == 0xFFFF) continue;
                 
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
@@ -242,10 +246,10 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
                 } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
-                    if (k == 0 || k == 1 || k == 2) {
+                    if (k == 0) {
                         bit = 0;
                     } else {
-                        rowCorr[i] = WHITE; // unable to correspond
+                        rowCorr[i] = 0xFFFF; // unable to correspond
                         continue;
                     }
                 }
@@ -258,7 +262,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
 
         // convert row correspondences out of Gray code
         [eachCameraPixel {
-            if (rowCorr[i] != WHITE) {
+            if (rowCorr[i] != 0xFFFF) {
                 rowCorr[i] = fromGrayCode(rowCorr[i]);
             }
         }]
@@ -277,18 +281,16 @@ critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t
 
     // display dense correspondence directly. just for fun
     [eachCameraPixel [subst -nocommands -nobackslashes {
-        uint8_t pix = blackImage[i];
-        fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix);
-        continue;
-
-        if (dense->columnCorr[i] == WHITE && dense->rowCorr[i] == WHITE) {
+        if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ???
+            fb[(y * $Display::WIDTH) + x] = PIXEL(255, 255, 0);
+        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
             uint8_t pix = blackImage[i];
             fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix);
-        } else if (dense->columnCorr[i] == WHITE && dense->rowCorr[i] != WHITE) {
+        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
             fb[(y * $Display::WIDTH) + x] = PIXEL(255, 0, 0); // red: row-only match
-        } else if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] == WHITE) {
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
             fb[(y * $Display::WIDTH) + x] = PIXEL(0, 0, 255); // blue: column-only match
-        } else if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] != WHITE) {
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
             fb[(y * $Display::WIDTH) + x] = PIXEL(0, 255, 0); // green: double match
         }
     }]]
@@ -296,14 +298,14 @@ critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t
 
 critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj*0 [subst -nobackslashes -nocommands {
     // find correspondences inside the tag
-    Tcl_Obj* correspondences[2000];
+    Tcl_Obj* correspondences[size*size];
     int correspondenceCount = 0;
 
     for (int x = cx - size/2; x < cx + size/2; x++) {
         for (int y = cy - size/2; y < cy + size/2; y++) {
             int i = (y * $Camera::WIDTH) + x;
-            if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] != WHITE) {
-                correspondences[correspondenceCount++] = Tcl_ObjPrintf("%d %d %d %d", x, y, dense->columnCorr[i], dense->rowCorr[i]);
+            if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+                correspondences[correspondenceCount++] = Tcl_ObjPrintf("%d %d %d %d", x/3, y/3, dense->columnCorr[i], dense->rowCorr[i]);
             }
         }
     }
@@ -325,13 +327,46 @@ set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
 freeImage $frame
 set tags [AprilTags::detect $grayFrame]
 freeImage $grayFrame
-puts "tags: $tags"
 
+puts ""
+set keyCorrespondences [list]
 foreach tag $tags {
+    puts "for tag $tag:"
+    
     # these are in camera space
     set cx [expr int([lindex [dict get $tag center] 0])]
     set cy [expr int([lindex [dict get $tag center] 1])]
     set size [expr int([dict get $tag size])]
 
-    puts "nearby: [findNearbyCorrespondences $dense $cx $cy $size]"
+    set correspondences [findNearbyCorrespondences $dense $cx $cy $size]
+    puts "nearby: [llength $correspondences] correspondences"
+    puts ""
+
+    lappend keyCorrespondences [lindex $correspondences 0]
 }
+lappend keyCorrespondences [lindex $correspondences end]
+set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
+
+puts "key correspondences: $keyCorrespondences"
+
+set fd [open "virtual-programs/tags-and-calibration.folk" r]
+set calibrationCode [read $fd]
+close $fd
+
+regsub "
+set points {
+.*?
+}
+" $calibrationCode "
+set points {
+$keyCorrespondences
+}
+" calibrationCode
+
+puts $calibrationCode
+
+set fd1 [open "virtual-programs/tags-and-calibration.folk" w]
+puts $fd1 $calibrationCode
+close $fd1
+
+# exec sudo systemctl start folk &
