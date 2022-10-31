@@ -1,6 +1,9 @@
 if {![info exists ::livecprocs]} {set ::livecprocs [dict create]}
 proc livecproc {name args} {
-    if {![dict exists ::livecprocs $name $args]} {
+    if {[dict exists $::livecprocs $name $args]} {
+        # promote this proc
+        dict set ::livecprocs $name [dict create $args [dict get $::livecprocs $name $args]]
+    } else { ;# compile
         critcl::cproc $name$::stepCount {*}$args
         dict set ::livecprocs $name $args $name$::stepCount
     }
