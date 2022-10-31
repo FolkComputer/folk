@@ -471,6 +471,7 @@ proc Step {} {
 }
 
 source "lib/math.tcl"
+source "lib/c.tcl"
 
 # this defines $this in the contained scopes
 Assert when /this/ has program code /code/ {
