@@ -2,7 +2,8 @@ package require critcl
 
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
-critcl::clibraries /usr/lib/arm-linux-gnueabihf/libjpeg.so.62
+critcl::clibraries [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+critcl::clean_cache
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
@@ -10,14 +11,31 @@ source "pi/Camera.tcl"
 Display::init
 Camera::init 3840 2160
 
-opaquePointerType uint16_t*
-
 critcl::ccode {
     #include <stdint.h>
     #include <unistd.h>
     #include <stdlib.h>
     #include <math.h>
+}
 
+if {$Display::DEPTH == 16} {
+    critcl::ccode {
+        typedef uint16_t pixel_t;
+        #define PIXEL(r, g, b) \
+            (((((r) >> 3) & 0x1F) << 11) | \
+             ((((g) >> 2) & 0x3F) << 5) | \
+             (((b) >> 3) & 0x1F));
+    }
+} elseif {$Display::DEPTH == 32} {
+    critcl::ccode {
+        typedef uint32_t pixel_t;
+        #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
+    }
+} else {
+    error "calibration-play: Unusable depth $Display::DEPTH"
+}
+
+critcl::ccode {
     #include <jpeglib.h>
 
     void 
@@ -87,7 +105,7 @@ proc eachDisplayPixel {body} {
     return "
         for (int y = 0; y < $Display::HEIGHT; y++) {
             for (int x = 0; x < $Display::WIDTH; x++) {
-                uint16_t* it = &fb\[y * $Display::WIDTH + x\]; (void)it;
+                pixel_t* it = &fb\[y * $Display::WIDTH + x\]; (void)it;
                 $body
             }
         }
@@ -105,6 +123,9 @@ proc eachCameraPixel {body} {
 }
 
 critcl::ccode {
+    #define BLACK PIXEL(0, 0, 0)
+    #define WHITE PIXEL(255, 255, 255)
+
     uint16_t toGrayCode(uint16_t value) {
         return value ^ (value >> 1);
     }
@@ -121,46 +142,46 @@ critcl::ccode {
     }
 
     typedef struct {
-        uint16_t* columnCorr;
-        uint16_t* rowCorr;
+        pixel_t* columnCorr;
+        pixel_t* rowCorr;
     } dense_t;
 }
 opaquePointerType dense_t*
 
 # returns dense correspondence from camera space -> projector space
-critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t* [subst -nobackslashes {
+critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subst -nobackslashes {
     // image the base scene in white
-    [eachDisplayPixel { *it = 0xFFFF; }]
+    [eachDisplayPixel { *it = WHITE; }]
     uint8_t* whiteImage = delayThenCameraCapture(interp, "whiteImage");
 
     // image the base scene in black
-    [eachDisplayPixel { *it = 0x0000; }]
+    [eachDisplayPixel { *it = BLACK; }]
     uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
 
     // find column correspondences:
-    uint16_t* columnCorr;
+    pixel_t* columnCorr;
     {
         // how many bits do we need in the Gray code?
         int columnBits = ceil(log2f($Display::WIDTH));
 
-        columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
+        columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(pixel_t));
 
         for (int k = columnBits - 1; k >= 0; k--) {
             [eachDisplayPixel {
                 int code = toGrayCode(x);
-                *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
+                *it = ((code >> k) & 1) ? WHITE : BLACK;
             }]
             uint8_t* codeImage = delayThenCameraCapture(interp, "columnCodeImage");
 
             [eachDisplayPixel {
                 int code = toGrayCode(x);
-                *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
+                *it = ((code >> k) & 1) ? BLACK : WHITE;
             }]
             uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "columnInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
-                if (columnCorr[i] == 0xFFFF) continue;
+                if (columnCorr[i] == WHITE) continue;
 
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
@@ -171,7 +192,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                     if (k == 0 || k == 1 || k == 2) {
                         bit = 0;
                     } else {
-                        columnCorr[i] = 0xFFFF; // unable to correspond
+                        columnCorr[i] = WHITE; // unable to correspond
                         continue;
                     }
                 }
@@ -184,36 +205,36 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
 
         // convert column correspondences out of Gray code
         [eachCameraPixel {
-            if (columnCorr[i] != 0xFFFF) {
+            if (columnCorr[i] != WHITE) {
                 columnCorr[i] = fromGrayCode(columnCorr[i]);
             }
         }]
     }
     
     // find row correspondences:
-    uint16_t* rowCorr;
+    pixel_t* rowCorr;
     {
         // how many bits do we need in the Gray code?
         int rowBits = ceil(log2f($Display::WIDTH));
 
-        rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
+        rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(pixel_t));
 
         for (int k = rowBits - 1; k >= 0; k--) {
             [eachDisplayPixel {
                 int code = toGrayCode(y);
-                *it = ((code >> k) & 1) ? 0xFFFF : 0x0000;
+                *it = ((code >> k) & 1) ? WHITE : BLACK;
             }]
             uint8_t* codeImage = delayThenCameraCapture(interp, "rowCodeImage");
 
             [eachDisplayPixel {
                 int code = toGrayCode(y);
-                *it = ((code >> k) & 1) ? 0x0000 : 0xFFFF;
+                *it = ((code >> k) & 1) ? BLACK : WHITE;
             }]
             uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "rowInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
             [eachCameraPixel {
-                if (rowCorr[i] == 0xFFFF) continue;
+                if (rowCorr[i] == WHITE) continue;
                 
                 int bit;
                 if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
@@ -224,7 +245,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
                     if (k == 0 || k == 1 || k == 2) {
                         bit = 0;
                     } else {
-                        rowCorr[i] = 0xFFFF; // unable to correspond
+                        rowCorr[i] = WHITE; // unable to correspond
                         continue;
                     }
                 }
@@ -237,7 +258,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
 
         // convert row correspondences out of Gray code
         [eachCameraPixel {
-            if (rowCorr[i] != 0xFFFF) {
+            if (rowCorr[i] != WHITE) {
                 rowCorr[i] = fromGrayCode(rowCorr[i]);
             }
         }]
@@ -249,24 +270,26 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp uint16_t* fb} dense_t*
     return dense;
 }]
 
-critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp uint16_t* fb dense_t* dense} void [subst -nobackslashes {
+critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [subst -nobackslashes {
     // image the base scene in black for reference
-    [eachDisplayPixel { *it = 0x0000; }]
+    [eachDisplayPixel { *it = BLACK; }]
     uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
 
     // display dense correspondence directly. just for fun
     [eachCameraPixel [subst -nocommands -nobackslashes {
-        if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
+        uint8_t pix = blackImage[i];
+        fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix);
+        continue;
+
+        if (dense->columnCorr[i] == WHITE && dense->rowCorr[i] == WHITE) {
             uint8_t pix = blackImage[i];
-            fb[(y * $Display::WIDTH) + x] = (((pix >> 3) & 0x1F) << 11) |
-               (((pix >> 2) & 0x3F) << 5) |
-               ((pix >> 3) & 0x1F);
-        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = 0x00F0; // row-only match
-        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = 0x0F00; // column-only match
-        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = 0xF000; // red -- double match
+            fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix);
+        } else if (dense->columnCorr[i] == WHITE && dense->rowCorr[i] != WHITE) {
+            fb[(y * $Display::WIDTH) + x] = PIXEL(255, 0, 0); // red: row-only match
+        } else if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] == WHITE) {
+            fb[(y * $Display::WIDTH) + x] = PIXEL(0, 0, 255); // blue: column-only match
+        } else if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] != WHITE) {
+            fb[(y * $Display::WIDTH) + x] = PIXEL(0, 255, 0); // green: double match
         }
     }]]
 }]
@@ -279,7 +302,7 @@ critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} 
     for (int x = cx - size/2; x < cx + size/2; x++) {
         for (int y = cy - size/2; y < cy + size/2; y++) {
             int i = (y * $Camera::WIDTH) + x;
-            if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+            if (dense->columnCorr[i] != WHITE && dense->rowCorr[i] != WHITE) {
                 correspondences[correspondenceCount++] = Tcl_ObjPrintf("%d %d %d %d", x, y, dense->columnCorr[i], dense->rowCorr[i]);
             }
         }
