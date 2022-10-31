@@ -55,6 +55,8 @@ critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     return fbmem;
 }
 critcl::cproc fillRectangle {int x0 int y0 int x1 int y1 bytes colorBytes} void {
+    if (x0 < 0 || y0 < 0 || x1 >= fbwidth || y1 >= fbheight) return;
+
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     for (int y = y0; y < y1; y++) {
@@ -103,6 +105,8 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
     } 
 }
 critcl::cproc drawChar {int x0 int y0 char* cs} void {
+    if (x0 < 0 || y0 < 0 || x0 + font.char_width >= fbwidth || y0 + font.char_height >= fbheight) return;
+
     char c = cs[0];
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
