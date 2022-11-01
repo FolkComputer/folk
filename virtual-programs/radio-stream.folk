@@ -1,6 +1,8 @@
 Wish $this is highlighted red
 Wish $this has filename "radio-stream.folk"
 
+return
+
 When the ssh tunnel is /something/ {
 When $::nodename has radio tick count /c/ {
 	Wish $this is labelled [time {

@@ -1,6 +1,6 @@
 Wish $this has filename "tags-and-calibration.folk"
 
-if {[info hostname] != "folk0"} { return }
+if {[info hostname] == "scoriae.local"} { return }
 
 package require math::linearalgebra
 

@@ -4,7 +4,7 @@ package require critcl
 source "pi/critclUtils.tcl"
 
 critcl::tcl 8.6
-if {[info hostname] == "folk0"} {
+if {[info hostname] != "scoriae.local"} {
     critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
     critcl::clibraries $::env(HOME)/apriltag/libapriltag.a
 } else {
@@ -100,7 +100,7 @@ proc nextId {} {
      return $id
 }
 
-if {[info hostname] != "folk0"} { return }
+if {[info hostname] == "scoriae.local"} { return }
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
     if {[dict exists $::printjobs $jobid]} {return}

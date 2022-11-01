@@ -7,8 +7,9 @@ ifeq ($(wildcard $(TCL_HOME)/*),)
 endif
 start:
 	$(TCL_HOME)/bin/tclsh main.tcl
+FOLK_SHARE_NODE := folk0.local
 sync:
-	 rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@folk0.local:/home/folk/folk-rsync
+	 rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
 
 TCLKIT = ~/Downloads/tclkit-8.6.3*
 Folk.app:

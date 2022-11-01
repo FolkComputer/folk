@@ -1,6 +1,8 @@
 Wish $this has filename "radio.folk"
 Wish $this is highlighted blue
 
+return
+
 set plutosdrC {
 
 // modified by Omar Rizwan based on:

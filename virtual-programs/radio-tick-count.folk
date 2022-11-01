@@ -1,6 +1,8 @@
 Wish $this is highlighted red
 Wish $this has filename "radio-tick-count.folk"
 
+return
+
 proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]
