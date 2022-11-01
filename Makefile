@@ -19,7 +19,7 @@ Folk.app:
 
 NODE := localhost
 show-statements:
-	echo Statements::showGraph | nc -w 5 $(NODE) 4273
+	echo Statements::dot | nc -w 5 $(NODE) 4273 | dot -Tpdf > statements.pdf
 show-trie:
 	echo 'trie dot [set Statements::statementClauseToId]' | nc -w 5 $(NODE) 4273 | dot -Tpdf > trie.pdf
 

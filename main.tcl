@@ -11,12 +11,21 @@ namespace eval trie {
     # used for statement lookup
     # TODO: should we just use lists? dicts don't buy us that much
 
+    proc erase {clause} {
+        for {set i 0} {$i < [llength $clause]} {incr i} {
+            if {[string index [lindex $clause $i] 0] == "/"} {
+                lset clause $i "/"
+            }
+        }
+        return $clause
+    }
+
     namespace export create add remove lookup
     proc create {} { dict create }
-    proc add {trieVar clause id} { upvar $trieVar trie; dict set trie {*}$clause $id }
+    proc add {trieVar clause id} { upvar $trieVar trie; dict set trie {*}[erase $clause] $id }
     proc remove {trieVar clause} {
         upvar $trieVar trie
-        set subclause $clause
+        set subclause [erase $clause]
         while 1 {
             dict unset trie {*}$subclause
 
@@ -29,22 +38,20 @@ namespace eval trie {
     proc lookup {trie pattern} {
         set branches [list $trie]
         foreach word $pattern {
-            set nextBranches [list]
-            foreach branch $branches {
-                if {[string is integer -strict $branch]} {
-                    # leaf node
-                    continue
-                }
+            if {[string index $word 0] == "/"} {
+                set nextBranches [concat {*}[lmap branch $branches {dict values $branch}]]
+            } else {
+                set nextBranches [list]
+                foreach branch $branches {
+                    if {[string is integer -strict $branch]} {
+                        continue ;# # leaf node
+                    }
 
-                dict for {key subbranch} $branch {
-                    if {[regexp {^/([^/]+)/$} $word -> wordVarName]} {
-                        # TODO: bind the word?
-                        lappend nextBranches $subbranch
-                    } elseif {[regexp {^/([^/]+)/$} $key -> keyVarName]} {
-                        # TODO: bind the key?
-                        lappend nextBranches $subbranch
-                    } elseif {$key == $word} {
-                        lappend nextBranches $subbranch
+                    if {[dict exists $branch "/"]} {
+                        lappend nextBranches [dict get $branch "/"]
+                    }
+                    if {[dict exists $branch $word]} {
+                        lappend nextBranches [dict get $branch $word]
                     }
                 }
             }
@@ -61,7 +68,7 @@ namespace eval trie {
             regsub -all {\W+} $word "_"
         }
         proc labelify {word} {
-            string map {"\"" "\\\""} $word
+            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
         }
         proc subdot {path subtrie} {
             set dot [list]
@@ -209,14 +216,14 @@ namespace eval Statements { ;# singleton Statement store
         puts "=========="
         dict for {id stmt} $statements { puts "$id: [statement clause $stmt]" }
     }
-    proc graph {} {
+    proc dot {} {
         variable statements
         set dot [list]
         dict for {id stmt} $statements {
             lappend dot "subgraph cluster_$id {"
             lappend dot "color=lightgray;"
 
-            set label [string map {"\"" "\\\""} [statement clause $stmt]]
+            set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} [statement clause $stmt]]]
             lappend dot "$id \[label=\"$id: $label\"\];"
 
             dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
@@ -230,15 +237,6 @@ namespace eval Statements { ;# singleton Statement store
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
-    }
-    proc showGraph {} {
-        set fp [open "statements.dot" "w"]
-        puts -nonewline $fp [graph]
-        close $fp
-        exec dot -Tpdf statements.dot > statements.pdf
-    }
-    proc openGraph {} {
-        exec open statements.pdf
     }
 }
 
