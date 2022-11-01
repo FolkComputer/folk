@@ -183,6 +183,7 @@ proc newProgram "{programCode {$defaultCode}}" {
             StepFromGUI
         }
     }]
+    bind .$program <Control-Key-n> newProgram
 
     handleSave $program
 }
