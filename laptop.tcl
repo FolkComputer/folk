@@ -117,13 +117,9 @@ proc StepFromGUI {} {
 
 set ::nextProgramNum 0
 set defaultCode {Wish $this is highlighted blue}
-proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
+proc newProgram "{programCode {$defaultCode}}" {
     set programNum [incr ::nextProgramNum]
-    if {$programFilename != 0} {
-        set program [string map {. ^} $::nodename:$programFilename]
-    } else {
-        set program [string map {. ^} $::nodename]:program$programNum
-    }
+    set program [string map {. ^} $::nodename]:program$programNum
 
     toplevel .$program
     wm title .$program $program
@@ -134,20 +130,13 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
     pack .$program.t -expand true -fill both
     focus .$program.t
 
-    proc handleSave {program programFilename} {
+    proc handleSave {program} {
         # https://wiki.tcl-lang.org/page/Text+processing+tips
         set code [.$program.t get 1.0 end-1c]
 
-        # display save
         catch {destroy .$program.saved}
-        if {$programFilename != 0} {
-            set fp [open $programFilename w]
-            puts -nonewline $fp $code
-            close $fp
-            label .$program.saved -text "Saved to $programFilename!"
-        } else {
-            label .$program.saved -text "Saved!"
-        }
+
+        label .$program.saved -text "Saved!"
         place .$program.saved -x 40 -y 100
         after 500 "catch {destroy .$program.saved}"
 
@@ -156,7 +145,7 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
 
         StepFromGUI
     }
-    bind .$program <Control-Key-s> [list handleSave $program $programFilename]
+    bind .$program <Control-Key-s> [list handleSave $program]
     proc handlePrint {program} {
         set code [.$program.t get 1.0 end-1c]
         set jobid [exec uuidgen]
@@ -195,7 +184,7 @@ proc newProgram "{programCode {$defaultCode}} {programFilename 0}" {
         }
     }]
 
-    handleSave $program $programFilename
+    handleSave $program
 }
 button .btn -text "New Program" -command newProgram
 pack .btn
@@ -204,8 +193,21 @@ bind . <Control-Key-n> newProgram
 # also see how it's done in pi.tcl
 foreach programFilename [glob virtual-programs/*.folk] {
     set fp [open $programFilename r]
-    newProgram [read $fp] $programFilename
+    newProgram [read $fp]
     close $fp
+}
+
+Assert when /program/ has program code /code/ {
+    When /someone/ wishes $program has filename /filename/ {
+        wm title .$program $filename
+        
+        set fp [open "virtual-programs/$filename" w]
+        puts -nonewline $fp $code
+        close $fp
+        puts "Saved $program to $filename"
+
+        catch {.$program.saved configure -text "Saved to $filename!"}
+    }
 }
 
 Display::init

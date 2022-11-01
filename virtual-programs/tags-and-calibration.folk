@@ -1,3 +1,5 @@
+Wish $this has filename "tags-and-calibration.folk"
+
 if {[info hostname] != "folk0"} { return }
 
 package require math::linearalgebra

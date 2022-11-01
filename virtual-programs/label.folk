@@ -1,3 +1,5 @@
+Wish $this has filename "label.folk"
+
 When /someone/ wishes /rect/ is labelled /text/ {
     When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
 	set lines [split $text "\n"]

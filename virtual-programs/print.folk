@@ -1,3 +1,5 @@
+Wish $this has filename "print.folk"
+
 package require critcl
 source "pi/critclUtils.tcl"
 

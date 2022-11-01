@@ -1,3 +1,5 @@
+Wish $this has filename "highlight.folk"
+
 When /someone/ wishes /rect/ is highlighted /color/ {
     When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
         # it's not really correct to just stick a side-effect in the

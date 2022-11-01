@@ -1,3 +1,5 @@
+Wish $this has filename "print-test.folk"
+
 if {$::nodename == "folk0"} return
 
 set fp [open "test-output.ps" w]
