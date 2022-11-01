@@ -1,0 +1,17 @@
+Wish $this is highlighted red
+Wish $this has filename "radio-tick-count.folk"
+
+proc every {ms body} {
+    try $body
+    after $ms [list after idle [namespace code [info level 0]]]
+}
+set ::radioTickCount 0
+every 32 {
+	Retract $::nodename has radio tick count /c/
+	Assert $::nodename has radio tick count [incr ::radioTickCount]
+	Step
+}
+
+When $::nodename has radio tick count /c/ {
+	Wish $this is labelled $c
+}
