@@ -6,11 +6,13 @@ package require math::linearalgebra
 
 # camera (tag) point -> projection point
 # calibration for Hex
-set points {
+if [catch {source "generated-calibration.tcl"}] {
+  set points {
 	{622 404 1706 1051}
 	{624 650 1661 51}
 	{1031 669 8 44}
 	{1024 403 13 1146}
+  }
 }
 for {set i 0} {$i < [llength $points]} {incr i} {
     lassign [lindex $points $i] x$i y$i u$i v$i

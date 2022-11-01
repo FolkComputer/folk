@@ -12,8 +12,8 @@ source "pi/Camera.tcl"
 
 Display::init
 # FIXME: adapt to camera spec
-Camera::init 3840 2160
-# Camera::init 1920 1080
+# Camera::init 3840 2160
+Camera::init 1920 1080
 
 critcl::ccode {
     #include <stdint.h>
@@ -188,9 +188,11 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
                 if (columnCorr[i] == 0xFFFF) continue;
 
                 int bit;
-                if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
+                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
+                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 1;
-                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
+                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
+                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 0;
                 } else {
                     if (k == 0) { // ignore least significant bit
@@ -305,7 +307,7 @@ critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} 
         for (int y = cy - size/2; y < cy + size/2; y++) {
             int i = (y * $Camera::WIDTH) + x;
             if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-                correspondences[correspondenceCount++] = Tcl_ObjPrintf("%d %d %d %d", x/3, y/3, dense->columnCorr[i], dense->rowCorr[i]);
+                correspondences[correspondenceCount++] = Tcl_ObjPrintf("%f %f %d %d", (float)x/1.5, (float)y/1.5, dense->columnCorr[i], dense->rowCorr[i]);
             }
         }
     }
@@ -342,6 +344,12 @@ foreach tag $tags {
     puts "nearby: [llength $correspondences] correspondences"
     puts ""
 
+    lassign [lindex $correspondences 0] _ _ px py
+    lassign [lindex $correspondences end] _ _ px1 py1
+    puts "$px $py $px1 $py1"
+    Display::fillRect fb [expr min($px,$px1)] [expr min($py,$py1)] \
+        [expr max($px,$px1)] [expr max($py,$py1)] red
+    
     lappend keyCorrespondences [lindex $correspondences 0]
 }
 lappend keyCorrespondences [lindex $correspondences end]
@@ -349,24 +357,9 @@ set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
 puts "key correspondences: $keyCorrespondences"
 
-set fd [open "virtual-programs/tags-and-calibration.folk" r]
-set calibrationCode [read $fd]
+set fd [open "generated-calibration.tcl" w]
+puts $fd "set points {$keyCorrespondences}"
 close $fd
 
-regsub "
-set points {
-.*?
-}
-" $calibrationCode "
-set points {
-$keyCorrespondences
-}
-" calibrationCode
-
-puts $calibrationCode
-
-set fd1 [open "virtual-programs/tags-and-calibration.folk" w]
-puts $fd1 $calibrationCode
-close $fd1
-
+Display::commit
 # exec sudo systemctl start folk &
