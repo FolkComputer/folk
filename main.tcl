@@ -9,7 +9,6 @@ proc d {arg} {
 
 namespace eval trie {
     # used for statement lookup
-    # TODO: should we just use lists? dicts don't buy us that much
 
     proc erase {clause} {
         for {set i 0} {$i < [llength $clause]} {incr i} {
@@ -44,7 +43,7 @@ namespace eval trie {
                 set nextBranches [list]
                 foreach branch $branches {
                     if {[string is integer -strict $branch]} {
-                        continue ;# # leaf node
+                        continue ;# leaf node
                     }
 
                     if {[dict exists $branch "/"]} {
@@ -58,7 +57,9 @@ namespace eval trie {
             set branches $nextBranches
         }
         # puts "trie lookup $trie ($pattern) => $branches\n\n"
-        return $branches
+        return [lmap branch $branches {expr {
+            [string is integer -strict $branch] ? $branch : [continue]
+        }}]
     }
 
     namespace export dot
