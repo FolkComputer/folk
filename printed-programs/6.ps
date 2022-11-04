@@ -6,8 +6,21 @@
         12 scalefont
         setfont
         newpath
-        36 738.0 moveto (Wish $this is highlighted blue) show
-36 720.0 moveto (Wish $this is labelled Hello) show
+        36 738.0 moveto (Wish $this has filename "metrics.folk") show
+36 720.0 moveto () show
+36 702.0 moveto (When $::nodename has step count /c/ {) show
+36 684.0 moveto (	Wish $this is labelled [string trim ") show
+36 666.0 moveto (step count: $c) show
+36 648.0 moveto (step time: $::stepTime) show
+36 630.0 moveto (camera time: [expr {[namespace exists Camera] ? [lindex [lindex $Camera::statements 0] end] : {none}}]) show
+36 612.0 moveto (statement count: [Statements::size]) show
+36 594.0 moveto (logsize: $::logsize) show
+36 576.0 moveto (	"]) show
+36 558.0 moveto (	Wish $this is highlighted blue) show
+36 540.0 moveto (#	puts "$::nodename statement count: [Statements::size]") show
+36 522.0 moveto (#	puts "$::nodename statement sets-of-parents count: [Statements::countSetsOfParents]") show
+36 504.0 moveto (}) show
+36 486.0 moveto () show
 
         gsave
         426 606 translate
@@ -34,5 +47,5 @@ grestore
         setfont
         newpath
         426 590 moveto
-        (6 (Fri, 04 Nov 2022, 03:16:02 pm)) show
+        (6 (Fri, 04 Nov 2022, 04:11:10 pm)) show
     
