@@ -89,11 +89,11 @@ proc programToPs {id text} {
 }
 
 proc nextId {} {
-     set fp [open "programs/next-id.txt" r]
+     set fp [open "printed-programs/next-id.txt" r]
      set id [string trim [read $fp]]
      close $fp
 
-     set fp [open "programs/next-id.txt" w]
+     set fp [open "printed-programs/next-id.txt" w]
      puts $fp [expr {$id + 1}]
      close $fp
 
@@ -111,7 +111,7 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     set ps [programToPs $id $code]
 
     # save code and ps to disk
-    set fp [open "programs/$id.folk" w]
+    set fp [open "printed-programs/$id.folk" w]
     puts $fp $code
     close $fp
 

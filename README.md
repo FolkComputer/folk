@@ -93,6 +93,7 @@ https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-
 
 ### printer
 
+on the NUC:
 ```
 $ sudo apt update
 $ sudo apt install cups cups-bsd
