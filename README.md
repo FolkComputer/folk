@@ -76,6 +76,8 @@ to `/etc/sudoers` as well
 potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
+`journalctl -f -u folk` to see log of folk service
+
 #### ubuntu server slow boot
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
@@ -92,16 +94,19 @@ $ sudo usermod -a -G lpadmin folk
 ssh tunnel `ssh -L 6310:localhost:631 folk0` run on your computer
 
 go to http://localhost:6310 on your computer, go to Printers,
-hopefully it shows up there automatically, go to Administration
-dropdown on printer page and Set as Server Default
-
-test `lpr folk-rsync/printed-programs/SOMETHING.ps`
+hopefully it shows up there automatically, try printing test page
 
 if job is paused due to `cups-browsed` issue, try
 https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
 remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
-then add printer manually via IPP in CUPS Web UI
-(`ipp://epsonfadcac.local` is ours)
+then add printer manually via IPP in CUPS Web UI (it might
+automatically show up via dnssd)
+
+once printer is working, go to Administration dropdown on printer page
+and Set as Server Default
+
+test `lpr folk-rsync/printed-programs/SOMETHING.pdf` (you have to
+print the PDF and not the PS for it to work, probably)
 
 ## stuff
 - implement generators (~point at~)
