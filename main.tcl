@@ -473,8 +473,8 @@ source "lib/math.tcl"
 source "lib/c.tcl"
 
 # this defines $this in the contained scopes
-Assert when /this/ has program code /code/ {
-    if {[catch $code err] == 1} {
+Assert when /this/ has program code /__code/ {
+    if {[catch $__code err] == 1} {
         puts "$::nodename: Error in $this: $err"
     }
 }
