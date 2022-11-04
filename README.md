@@ -73,19 +73,35 @@ to `/etc/sudoers` as well
 1. `make`
 
 
-potentialyl useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
+potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
+
+#### ubuntu server slow boot
+
+https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
+(add `optional: true` to all netplan interfaces)
 
 ### printer
 
 ```
 $ sudo apt update
 $ sudo apt install cups cups-bsd
-$ sudo usermod -a -G lpadmin pi
+$ sudo usermod -a -G lpadmin folk
 ```
 
-ssh tunnel `ssh -L 6310:localhost:631 folk0`
+ssh tunnel `ssh -L 6310:localhost:631 folk0` run on your computer
 
+go to http://localhost:6310 on your computer, go to Printers,
+hopefully it shows up there automatically, go to Administration
+dropdown on printer page and Set as Server Default
+
+test `lpr folk-rsync/printed-programs/SOMETHING.ps`
+
+if job is paused due to `cups-browsed` issue, try
+https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
+remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
+then add printer manually via IPP in CUPS Web UI
+(`ipp://epsonfadcac.local` is ours)
 
 ## stuff
 - implement generators (~point at~)
@@ -98,13 +114,5 @@ ssh tunnel `ssh -L 6310:localhost:631 folk0`
 - parallelize tag detection / camera processing
 - text editor
 - print support
-- clean up lexical scope
+- ~clean up lexical scope~
 - with-all-matches
-
-
-<details>
-<summary><h3>Installing cups</h3></summary>
-
-sudo apt install cups && sudo systemctl enable cups && sudo systemctl start cups
-
-</details>
