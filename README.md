@@ -87,7 +87,6 @@ $ sudo usermod -a -G lpadmin pi
 ssh tunnel `ssh -L 6310:localhost:631 folk0`
 
 
-
 ## stuff
 - implement generators (~point at~)
 - ~implement even-better fake lexical scope~
@@ -101,3 +100,11 @@ ssh tunnel `ssh -L 6310:localhost:631 folk0`
 - print support
 - clean up lexical scope
 - with-all-matches
+
+
+<details>
+<summary><h3>Installing cups</h3></summary>
+
+sudo apt install cups && sudo systemctl enable cups && sudo systemctl start cups
+
+</details>
