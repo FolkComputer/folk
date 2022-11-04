@@ -76,6 +76,14 @@ to `/etc/sudoers` as well
 potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
+potentially useful: add `folk0` shortcut to your laptop
+`~/.ssh/config`:
+```
+Host folk0
+     HostName folk0.local
+     User folk
+```
+
 `journalctl -f -u folk` to see log of folk service
 
 #### ubuntu server slow boot
@@ -91,7 +99,7 @@ $ sudo apt install cups cups-bsd
 $ sudo usermod -a -G lpadmin folk
 ```
 
-ssh tunnel `ssh -L 6310:localhost:631 folk0` run on your computer
+ssh tunnel `ssh -L 6310:localhost:631 folk@folk0.local` run on your computer
 
 go to http://localhost:6310 on your computer, go to Printers,
 hopefully it shows up there automatically, try printing test page
