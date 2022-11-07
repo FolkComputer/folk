@@ -115,11 +115,21 @@ proc StepFromGUI {} {
     } $::shareNode $::nodename $assertedClauses]
 }
 
+proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"}} {
+    set range [expr {[string length $chars]-1}]
+
+    set txt ""
+    for {set i 0} {$i < $length} {incr i} {
+       set pos [expr {int(rand()*$range)}]
+       append txt [string range $chars $pos $pos]
+    }
+    return $txt
+}
 set ::nextProgramNum 0
 set defaultCode {Wish $this is highlighted blue}
 proc newProgram "{programCode {$defaultCode}}" {
     set programNum [incr ::nextProgramNum]
-    set program [string map {. ^} $::nodename]:program$programNum
+    set program [string map {. ^} $::nodename]:program-[randomRangeString 10]
 
     toplevel .$program
     wm title .$program $program
@@ -200,6 +210,8 @@ foreach programFilename [glob virtual-programs/*.folk] {
 }
 
 Assert when /program/ has program code /code/ {
+    # FIXME: this would run from printed pages too which is weird
+    # not a problem in practice rn bc laptop doesn't see any printed pages
     When /someone/ wishes $program has filename /filename/ {
         wm title .$program $filename
         
