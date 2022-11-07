@@ -93,18 +93,22 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
         } 
     } 
 }
-critcl::cproc drawChar {int x0 int y0 char* cs} void {
-    if (x0 < 0 || y0 < 0 || x0 + font.char_width >= fbwidth || y0 + font.char_height >= fbheight) return;
+critcl::cproc drawText {int x0 int y0 pstring text} void {
+    // Draws 1 line of text (no linebreak handling).
+    if (x0 < 0 || y0 < 0 ||
+        x0 + text.len * font.char_width >= fbwidth ||
+        y0 + font.char_height >= fbheight) return;
 
-    char c = cs[0];
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
 
-    for (unsigned y = 0; y < font.char_height; y++) {
-        for (unsigned x = 0; x < font.char_width; x++) {
-            int idx = (c * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-            int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-            staging[((y0 + y) * fbwidth) + (x0 + x)] = bit ? 0xFFFF : 0x0000;
+    for (unsigned i = 0; i < text.len; i++) {
+        for (unsigned y = 0; y < font.char_height; y++) {
+            for (unsigned x = 0; x < font.char_width; x++) {
+                int idx = (text.s[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+                int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+                staging[((y0 + y) * fbwidth) + (x0 + i*font.char_width + x)] = bit ? 0xFFFF : 0x0000;
+            }
         }
     }
 }
@@ -183,10 +187,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text} {
-        foreach char [split $text ""] {
-            drawChar [expr int($x)] [expr int($y)] $char
-            set x [expr {$x + 9}] ;# TODO: don't hardcode font width
-        }
+        drawText [expr {int($x)}] [expr {int($y)}] $text
     }
 
     # for debugging
@@ -206,9 +207,9 @@ catch {if {$::argv0 eq [info script]} {
         # fillRectangle 500 500 510 510 $Display::red ;# t1
         # fillRectangle 400 600 410 610 $Display::red ;# t2
         
-        drawChar 300 400 "A"
-        drawChar 309 400 "B"
-        drawChar 318 400 "O"
+        drawText 300 400 "A"
+        drawText 309 400 "B"
+        drawText 318 400 "O"
 
         Display::text fb 300 420 PLACEHOLDER "Hello!"
 
