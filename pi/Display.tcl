@@ -54,17 +54,6 @@ critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     staging = calloc(fbwidth * fbheight, sizeof(pixel_t));
     return fbmem;
 }
-critcl::cproc fillRectangle {int x0 int y0 int x1 int y1 bytes colorBytes} void {
-    if (x0 < 0 || y0 < 0 || x1 >= fbwidth || y1 >= fbheight) return;
-
-    unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
-
-    for (int y = y0; y < y1; y++) {
-        for (int x = x0; x < x1; x++) {
-            staging[(y * fbwidth) + x] = color;
-        }
-    }
-}
 
 critcl::ccode {
     typedef struct Vec2i { int x; int y; } Vec2i;
@@ -168,9 +157,6 @@ namespace eval Display {
         set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
     }
 
-    proc fillRect {fb x0 y0 x1 y1 color} {
-        fillRectangle [expr int($x0)] [expr int($y0)] [expr int($x1)] [expr int($y1)] [set Display::$color]
-    }
     proc vec2i {p} {
         return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
     }
@@ -216,9 +202,9 @@ catch {if {$::argv0 eq [info script]} {
 
     for {set i 0} {$i < 5} {incr i} {
         fillTriangle {400 400} {500 500} {400 600} $Display::blue
-        fillRectangle 400 400 410 410 $Display::red ;# t0
-        fillRectangle 500 500 510 510 $Display::red ;# t1
-        fillRectangle 400 600 410 610 $Display::red ;# t2
+        # fillRectangle 400 400 410 410 $Display::red ;# t0
+        # fillRectangle 500 500 510 510 $Display::red ;# t1
+        # fillRectangle 400 600 410 610 $Display::red ;# t2
         
         drawChar 300 400 "A"
         drawChar 309 400 "B"

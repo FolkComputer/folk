@@ -13,10 +13,6 @@ namespace eval Display {
     }]
     puts "Display thread id: $displayThread"
 
-    proc fillRect {fb x0 y0 x1 y1 color} {
-        uplevel [list Wish display runs [list Display::fillRect $fb $x0 $y0 $x1 $y1 $color]]
-    }
-
     proc stroke {points width color} {
         uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }

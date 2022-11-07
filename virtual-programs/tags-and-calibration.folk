@@ -67,7 +67,7 @@ When tag /tag/ is a tag {
 }
 
 
-namespace import ::math::linearalgebra::{sub,add} ::math::linearalgebra::matmul ::math::linearalgebra::scale
+namespace import ::math::linearalgebra::add ::math::linearalgebra::sub ::math::linearalgebra::matmul ::math::linearalgebra::scale
 When tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {cameraToProjector $p}]
 	foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
