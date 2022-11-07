@@ -7,7 +7,7 @@ When /someone/ wishes /thing/ is outlined /color/ {
 	foreach edge $edges {
 		set from [lindex $vertices [lindex $edge 0]]
 		set to [lindex $vertices [lindex $edge 1]]
-	        Display::stroke [list $from $to] 2 $color
+	        Display::stroke [list $from $to] 4 $color
 	}
     }
 }
