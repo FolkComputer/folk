@@ -151,11 +151,11 @@ namespace eval Display {
         variable red   [binary format b16 [join {00000 000000 11111} ""]]
         variable white [binary format b16 [join {11111 111111 11111} ""]]
     } elseif {$Display::DEPTH == 32} {
-        variable black [binary format b16 [join {0000000 00000000 00000000} ""]]
-        variable blue  [binary format b16 [join {1111111 00000000 00000000} ""]]
-        variable green [binary format b16 [join {0000000 11111111 00000000} ""]]
-        variable red   [binary format b16 [join {0000000 00000000 11111111} ""]]
-        variable white [binary format b16 [join {1111111 11111111 11111111} ""]]
+        variable black [binary format b16 [join {00000000 00000000 00000000} ""]]
+        variable blue  [binary format b16 [join {11111111 00000000 00000000} ""]]
+        variable green [binary format b16 [join {00000000 11111111 00000000} ""]]
+        variable red   [binary format b16 [join {00000000 00000000 11111111} ""]]
+        variable white [binary format b16 [join {11111111 11111111 11111111} ""]]
     }
 
     variable fb
