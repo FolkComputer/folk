@@ -1,7 +1,12 @@
 Wish $this has filename "label.folk"
 
-When /someone/ wishes /rect/ is labelled /text/ {
-    When $rect is a rectangle with x /x/ y /y/ width /width/ height /height/ {
+When /someone/ wishes /thing/ is labelled /text/ {
+    When $thing has region /region/ {
+	set bbox [regionToBbox $region]
+	lassign [boxCentroid $bbox] x y
+	set width [boxWidth $bbox]
+	set height [boxHeight $bbox]
+
 	set lines [split $text "\n"]
         set longestLineLength [tcl::mathfunc::max {*}[lmap line $lines {string length $line}]]
         set fontSize [expr {$width / $longestLineLength}]

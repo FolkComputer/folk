@@ -38,3 +38,38 @@ proc rectanglesOverlap {P1 P2 Q1 Q2 strict} {
 		&& ($b1y2>=$b2y1) && ($b2y2>=$b1y1)}]
     }
 }
+
+proc regionToBbox {region} {
+    set vertices [lindex $region 0]
+    set minX 100000
+    set minY 100000
+    set maxX -100000
+    set maxY -100000
+    foreach vertex $vertices {
+        set x [lindex $vertex 0]
+        set y [lindex $vertex 1]
+        if {$x < $minX} {set minX $x}
+        if {$y < $minY} {set minY $y}
+        if {$x > $maxX} {set maxX $x}
+        if {$y > $maxY} {set maxY $y}
+    }
+    return [list $minX $minY $maxX $maxY]
+}
+proc boxCentroid {box} {
+    # TODO: assert that it's actually a box
+    lassign $box minX minY maxX maxY
+    set x [expr {($minX + $maxX)/2}]
+    set y [expr {($minY + $maxY)/2}]
+    return [list $x $y]
+}
+proc boxWidth {box} {
+    lassign $box minX minY maxX maxY
+    return [expr {$maxX - $minX}]
+}
+proc boxHeight {box} {
+    lassign $box minX minY maxX maxY
+    return [expr {$maxY - $minY}]
+}
+# TODO: write in C
+# TODO: triangulate the region
+# TODO: average the centroids of all triangles in the region

@@ -62,16 +62,19 @@ When tag /tag/ is a tag {
      set code [read $fp]
      close $fp
 
-     Wish $tag is highlighted green
+     Wish $tag is outlined green
      Claim $tag has program code $code
 }
 
 When tag /tag/ has corners /corners/ {
 	set corners [lmap p $corners {cameraToProjector $p}]
-	# Display::stroke [list {*}$corners [lindex $corners 0]] 2 green
-	foreach corner $corners {
-		lassign $corner x y
-		# Display::fillRect fb $x $y [expr $x+10] [expr $y+10] white
+	set edges [list]
+	for {set i 0} {$i < [llength $corners]} {incr i} {
+		lassign [lindex $corners $i] x y
 		Display::text fb $x $y 10 $tag
+		if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
 	}
+	lappend edges [list [expr {[llength $corners] - 1}] 0]
+	set region [list $corners $edges] 
+	Claim $tag has region $region
 }

@@ -126,7 +126,7 @@ proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno
     return $txt
 }
 set ::nextProgramNum 0
-set defaultCode {Wish $this is highlighted blue}
+set defaultCode {Wish $this is outlined blue}
 proc newProgram "{programCode {$defaultCode}}" {
     set programNum [incr ::nextProgramNum]
     set program [string map {. ^} $::nodename]:program-[randomRangeString 10]
@@ -172,8 +172,13 @@ proc newProgram "{programCode {$defaultCode}}" {
     }
     bind .$program <Command-Key-p> [list handlePrint $program]
     proc handleConfigure {program x y w h} {
-        Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
-        Assert "laptop.tcl" claims $program is a rectangle with x $x y $y width $w height $h
+        set vertices [list [list $x $y] \
+                          [list [expr {$x+$w}] $y] \
+                          [list [expr {$x+$w}] [expr {$y+$h}]] \
+                          [list $x [expr {$y+$h}]]]
+        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+        Retract "laptop.tcl" claims $program has region /something/
+        Assert "laptop.tcl" claims $program has region [list $vertices $edges]
 
         StepFromGUI
     }
@@ -190,7 +195,7 @@ proc newProgram "{programCode {$defaultCode}}" {
             # temporarily unbind this program
             # (if it's a file, it'll still survive on disk when you restart the system)
             Retract "laptop.tcl" claims $program has program code /something/
-            Retract "laptop.tcl" claims $program is a rectangle with x /something/ y /something/ width /something/ height /something/
+            Retract "laptop.tcl" claims $program has region /something/
             StepFromGUI
         }
     }]

@@ -1,0 +1,14 @@
+Wish $this has filename "outline.folk"
+
+When /someone/ wishes /thing/ is outlined /color/ {
+    When $thing has region /region/ {
+	# FIXME: assumes path
+	lassign $region vertices edges
+	foreach edge $edges {
+		set from [lindex $vertices [lindex $edge 0]]
+		set to [lindex $vertices [lindex $edge 1]]
+	        Display::stroke [list $from $to] 2 $color
+	}
+    }
+}
+
