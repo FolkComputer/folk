@@ -95,9 +95,14 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
 }
 critcl::cproc drawText {int x0 int y0 pstring text} void {
     // Draws 1 line of text (no linebreak handling).
+    size_t width = text.len * font.char_width;
+    size_t height = font.char_height;
     if (x0 < 0 || y0 < 0 ||
-        x0 + text.len * font.char_width >= fbwidth ||
-        y0 + font.char_height >= fbheight) return;
+        x0 + width >= fbwidth || y0 + height >= fbheight) return;
+
+    // Need to leave enough space to rotate in-place.
+    size_t max_dim = width > height ? width : height;
+    pixel_t buffer[max_dim * max_dim];
 
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
@@ -107,9 +112,13 @@ critcl::cproc drawText {int x0 int y0 pstring text} void {
             for (unsigned x = 0; x < font.char_width; x++) {
                 int idx = (text.s[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                 int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                staging[((y0 + y) * fbwidth) + (x0 + i*font.char_width + x)] = bit ? 0xFFFF : 0x0000;
+                buffer[(y*width) + (i*font.char_width + x)] = bit ? 0xFFFF : 0x0000;
             }
         }
+    }
+
+    for (unsigned y = 0; y < height; y++) {
+        memcpy(&staging[(y0+y)*fbwidth+x0], &buffer[y*width], sizeof(pixel_t)*width);
     }
 }
 # for debugging
