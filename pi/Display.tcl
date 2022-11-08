@@ -16,6 +16,7 @@ critcl::ccode {
     #include <stdint.h>
     #include <string.h>
     #include <stdlib.h>
+    #include <math.h>
 }
 
 if {$Display::DEPTH == 16} {
@@ -29,6 +30,9 @@ if {$Display::DEPTH == 16} {
 } elseif {$Display::DEPTH == 32} {
     critcl::ccode {
         typedef uint32_t pixel_t;
+        #define PIXEL_R(pixel) (((pixel) >> 16) | 0xFF)
+        #define PIXEL_G(pixel) (((pixel) >> 8) | 0xFF)
+        #define PIXEL_B(pixel) (((pixel) >> 0) | 0xFF)
         #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
     }
 } else {
@@ -93,16 +97,15 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
         } 
     } 
 }
-critcl::cproc drawText {int x0 int y0 pstring text} void {
+
+critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
     // Draws 1 line of text (no linebreak handling).
     size_t width = text.len * font.char_width;
     size_t height = font.char_height;
     if (x0 < 0 || y0 < 0 ||
         x0 + width >= fbwidth || y0 + height >= fbheight) return;
 
-    // Need to leave enough space to rotate in-place.
-    size_t max_dim = width > height ? width : height;
-    pixel_t buffer[max_dim * max_dim];
+    pixel_t buffer[width * height];
 
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
@@ -118,8 +121,19 @@ critcl::cproc drawText {int x0 int y0 pstring text} void {
     }
 
     for (unsigned y = 0; y < height; y++) {
-        memcpy(&staging[(y0+y)*fbwidth+x0], &buffer[y*width], sizeof(pixel_t)*width);
+        for (unsigned x = 0; x < width; x++) {
+            float distance = sqrt(x*x + y*y);
+            float angle = atan2(y, x);
+            int bx = round(distance * cos(angle - rotate_radians));
+            int by = round(distance * sin(angle - rotate_radians));
+            if (by > 0 && bx > 0) {
+                /* printf("x %d y %d looks to x %d y %d\n", x, y, bx, by); */
+                staging[(y0+y)*fbwidth+(x0+x)] = buffer[by*width+bx];
+                /* staging[(y0+y)*fbwidth+(x0+x)] = buffer[y*width+x]; */
+            }
+        }
     }
+        /* memcpy(&staging[(y0+y)*fbwidth+x0], &shear_out[y*width], sizeof(pixel_t)*width); */
 }
 # for debugging
 critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
@@ -195,8 +209,8 @@ namespace eval Display {
         }
     }
 
-    proc text {fb x y fontSize text} {
-        drawText [expr {int($x)}] [expr {int($y)}] $text
+    proc text {fb x y fontSize text radians} {
+        drawText [expr {int($x)}] [expr {int($y)}] $text $radians
     }
 
     # for debugging
@@ -216,11 +230,11 @@ catch {if {$::argv0 eq [info script]} {
         # fillRectangle 500 500 510 510 $Display::red ;# t1
         # fillRectangle 400 600 410 610 $Display::red ;# t2
         
-        drawText 300 400 "A"
-        drawText 309 400 "B"
-        drawText 318 400 "O"
+        drawText 300 400 "A" 0
+        drawText 309 400 "B" 0 
+        drawText 318 400 "O" 0
 
-        Display::text fb 300 420 PLACEHOLDER "Hello!"
+        Display::text fb 300 420 PLACEHOLDER "Hello!" 0
 
         puts [time Display::commit]
     }

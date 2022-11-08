@@ -17,8 +17,8 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
-    proc text {fb x y fontSize text} {
-        uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text]]
+    proc text {fb x y fontSize text {radians 0}} {
+        uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
     }
 
     proc commit {} {

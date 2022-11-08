@@ -24,7 +24,7 @@ namespace eval Display {
         uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color]]
     }
 
-    proc text {fb x y fontSize text} {
+    proc text {fb x y fontSize text {radians 0}} {
         uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
     }
 

@@ -67,7 +67,11 @@ When tag /tag/ is a tag {
 }
 
 
-namespace import ::math::linearalgebra::add ::math::linearalgebra::sub ::math::linearalgebra::matmul ::math::linearalgebra::scale
+namespace import ::math::linearalgebra::add \
+	::math::linearalgebra::sub \
+	::math::linearalgebra::matmul \
+	::math::linearalgebra::scale \
+	::math::linearalgebra::angle
 When tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {cameraToProjector $p}]
 	foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
@@ -81,6 +85,6 @@ When tag /tag/ has corners /corners/ {
 		if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
 	}
 	lappend edges [list [expr {[llength $corners] - 1}] 0]
-	set region [list $corners $edges] 
+	set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$tagright]] 
 	Claim $tag has region $region
 }
