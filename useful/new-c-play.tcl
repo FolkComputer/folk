@@ -12,10 +12,8 @@ namespace eval c {
             }
 
             static int [set name]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[]) {
-                int a; int b;
-                Tcl_GetIntFromObj(interp, objv\[1], &a);
-                Tcl_GetIntFromObj(interp, objv\[2], &b);
-                Tcl_SetObjResult(interp, Tcl_NewIntObj($name (a, b)));
+                $prologue
+                Tcl_SetObjResult(interp, Tcl_NewIntObj($name ($arg)));
                 return TCL_OK;
             }
 

@@ -1,8 +1,7 @@
 package require Thread
 
 namespace eval Display {
-    variable WIDTH HEIGHT
-    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+    variable surface
 
     variable displayThread [thread::create {
         source pi/Display.tcl
@@ -12,13 +11,14 @@ namespace eval Display {
         thread::wait
     }]
     puts "Display thread id: $displayThread"
+    variable surface [thread::send $displayThread [list set Display::surface]]
 
-    proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
+    proc stroke {surface points width color} {
+        uplevel [list Wish display runs [list Display::stroke $surface $points $width $color]]
     }
 
-    proc text {fb x y fontSize text {radians 0}} {
-        uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
+    proc text {surface x y fontSize text} {
+        uplevel [list Wish display runs [list Display::text $surface $x $y $fontSize $text]]
     }
 
     proc commit {} {

@@ -49,7 +49,6 @@ critcl::ccode {
     drawable_surface_t staging;
     drawable_surface_t fb;
 }
-critcl::clean_cache
 critcl::argtype drawable_surface_t {
     sscanf(Tcl_GetString(@@), "%d %d 0x%p", &@A.width, &@A.height, &@A.pixels);
 } drawable_surface_t
@@ -148,7 +147,6 @@ critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im
 critcl::cproc commitThenClearStaging {} void {
     memcpy(fb.pixels, staging.pixels, fb.width * fb.height * sizeof(pixel_t));
     memset(staging.pixels, 0, staging.width * staging.height * sizeof(pixel_t));
-    // memset(fb.pixels, 0xFF, fb.width * fb.height * sizeof(pixel_t));
 }
 
 namespace eval Display {

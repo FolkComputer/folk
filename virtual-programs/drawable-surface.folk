@@ -1,15 +1,27 @@
 Wish $this has filename "drawable-surface.folk"
 
+error die
+
 critcl::ccode {
-	typedef struct {
-		unsigned width;
-		unsigned height;
-		pixel_t pixels[];
-	} drawable_surface_t;
+    #include <stdint.h>
+    #include <inttypes.h>
+    typedef uint32_t pixel_t;
+    typedef struct {
+        unsigned width;
+        unsigned height;
+        pixel_t* pixels;
+    } drawable_surface_t;
 }
-opaquePointerType drawable_surface_t*
-livecproc newDrawableSurface {unsigned width unsigned height} drawable_surface_t* {
-	drawable_surface_t* ret = Tcl_Alloc(sizeof(drawable_surface_t) + width*height*sizeof(pixel_t));
+critcl::argtype drawable_surface_t {
+    sscanf(Tcl_GetString(@@), "%d %d 0x%p", &@A.width, &@A.height, &@A.pixels);
+} drawable_surface_t
+critcl::resulttype drawable_surface_t {
+    Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d 0x%" PRIxPTR, rv.width, rv.height, (uintptr_t) rv.pixels));
+    return TCL_OK;
+} drawable_surface_t
+livecproc newDrawableSurface {int width int height} drawable_surface_t {
+	drawable_surface_t ret;
+        ret.pixels = Tcl_Alloc(width * height * sizeof(pixel_t));
         ret.width = width; ret.height = height;
         return ret;
 }
@@ -17,8 +29,8 @@ livecproc newDrawableSurface {unsigned width unsigned height} drawable_surface_t
 if {![info exists ::surfaces]} {set ::surfaces [dict create]}
 When /thing/ has region /region/ {
 	Wish $thing is labelled $region
-        if {[dict exists $::surfaces $thing]} {
-           dict set ::surfaces $thing [newDrawableSurface $width $height]
+        if {![dict exists $::surfaces $thing]} {
+            dict set ::surfaces $thing [newDrawableSurface 1000 1000]
         }
         set surface [dict get $::surfaces $thing]
         Claim $thing has drawable surface $surface

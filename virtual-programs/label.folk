@@ -1,18 +1,12 @@
 Wish $this has filename "label.folk"
 
 When /someone/ wishes /thing/ is labelled /text/ {
-    When $thing has region /region/ {
-	set radians [lindex $region 2]
-	if {$radians eq ""} {set radians 0}
-	set bbox [regionToBbox $region]
-	lassign [boxCentroid $bbox] x y
-	set width [boxWidth $bbox]
-	set height [boxHeight $bbox]
-
+    When $thing has drawable surface /surface/ {
 	set lines [split $text "\n"]
         set longestLineLength [tcl::mathfunc::max {*}[lmap line $lines {string length $line}]]
-        set fontSize [expr {$width / $longestLineLength}]
+        set fontSize 12
 	for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-	    Display::text device $x [expr {$y+$lineNum*18}] $fontSize [lindex $lines $lineNum] 0	}
+	    Display::text $surface $x [expr {$y+$lineNum*18}] $fontSize [lindex $lines $lineNum]
+	}
     }
 }
