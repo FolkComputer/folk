@@ -230,7 +230,9 @@ namespace eval Camera {
     }
 
     proc frame {} {
-        cameraFrame $Camera::camera
+        if {![cameraFrame $Camera::camera]} {
+            error "Failed to capture from camera"
+        }
         return [cameraDecompressRgb $Camera::camera]
     }
 }
