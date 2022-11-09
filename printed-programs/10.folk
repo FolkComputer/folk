@@ -1,0 +1,14 @@
+# Camera statements
+
+Wish $this is outlined blue
+
+When $::nodename has step count /c/ { # force re-evaluation each frame
+	set statements [list]
+	dict for {id stmt} $Statements::statements {
+		set clause [statement clause $stmt]
+		if {[lindex $clause 0] == "camera"} {
+			lappend statements $clause
+		}
+	}
+	Wish $this is labelled [join $statements "\n"]
+}
