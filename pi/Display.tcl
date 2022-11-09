@@ -40,23 +40,35 @@ if {$Display::DEPTH == 16} {
 }
 
 critcl::ccode {
-    pixel_t* staging;
-    pixel_t* fbmem;
-
-    int fbwidth;
-    int fbheight;
+    typedef struct {
+        unsigned width;
+        unsigned height;
+        pixel_t* pixels;
+    } drawable_surface_t;
+    
+    drawable_surface_t staging;
+    drawable_surface_t fb;
 }
+critcl::clean_cache
+critcl::argtype drawable_surface_t {
+    sscanf(Tcl_GetString(@@), "%d %d 0x%p", &@A.width, &@A.height, &@A.pixels);
+} drawable_surface_t
+critcl::resulttype drawable_surface_t {
+    Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d 0x%" PRIxPTR, rv.width, rv.height, (uintptr_t) rv.pixels));
+    return TCL_OK;
+} drawable_surface_t
+
 critcl::ccode [source "vendor/font.tcl"]
 opaquePointerType pixel_t*
 opaquePointerType uint8_t*
 
-critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
-    int fb = open("/dev/fb0", O_RDWR);
-    fbwidth = fbw;
-    fbheight = fbh;
-    fbmem = mmap(NULL, fbwidth * fbheight * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fb, 0);
-    staging = calloc(fbwidth * fbheight, sizeof(pixel_t));
-    return fbmem;
+critcl::cproc mmapFb {int fbw int fbh} drawable_surface_t {
+    int fbfd = open("/dev/fb0", O_RDWR);
+    fb.width = fbw; fb.height = fbh;
+    fb.pixels = mmap(NULL, fbw * fbh * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fbfd, 0);
+    staging.width = fbw; staging.height = fbh;
+    staging.pixels = calloc(fbw * fbh, sizeof(pixel_t));
+    return staging;
 }
 
 critcl::ccode {
@@ -72,7 +84,7 @@ critcl::resulttype Vec2i {
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
     return TCL_OK;
 } Vec2i
-critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+critcl::cproc fillTriangleImpl {drawable_surface_t surface Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
@@ -93,19 +105,17 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
         Vec2i B = second_half ? Vec2i_add(t1, Vec2i_scale(Vec2i_sub(t2, t1), beta)) : Vec2i_add(t0, Vec2i_scale(Vec2i_sub(t1, t0), beta)); 
         if (A.x>B.x) { tmp = A; A = B; B = tmp; }
         for (int j=A.x; j<=B.x; j++) {
-            staging[(t0.y+i)*fbwidth + j] = color; // attention, due to int casts t0.y+i != A.y 
+            surface.pixels[(t0.y+i)*surface.width + j] = color; // attention, due to int casts t0.y+i != A.y 
         } 
     } 
 }
 
-critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
+critcl::cproc drawText {drawable_surface_t surface int x0 int y0 pstring text} void {
     // Draws 1 line of text (no linebreak handling).
     size_t width = text.len * font.char_width;
     size_t height = font.char_height;
     if (x0 < 0 || y0 < 0 ||
-        x0 + width >= fbwidth || y0 + height >= fbheight) return;
-
-    pixel_t buffer[width * height];
+        x0 + width >= surface.width || y0 + height >= surface.height) return;
 
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
@@ -115,25 +125,10 @@ critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
             for (unsigned x = 0; x < font.char_width; x++) {
                 int idx = (text.s[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                 int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                buffer[(y*width) + (i*font.char_width + x)] = bit ? 0xFFFF : 0x0000;
+                surface.pixels[(y0+y)*surface.width + (x0+x + i*font.char_width)] = bit ? 0xFFFF : 0x0000;
             }
         }
     }
-
-    for (unsigned y = 0; y < height; y++) {
-        for (unsigned x = 0; x < width; x++) {
-            float distance = sqrt(x*x + y*y);
-            float angle = atan2(y, x);
-            int bx = round(distance * cos(angle - rotate_radians));
-            int by = round(distance * sin(angle - rotate_radians));
-            if (by > 0 && bx > 0) {
-                /* printf("x %d y %d looks to x %d y %d\n", x, y, bx, by); */
-                staging[(y0+y)*fbwidth+(x0+x)] = buffer[by*width+bx];
-                /* staging[(y0+y)*fbwidth+(x0+x)] = buffer[y*width+x]; */
-            }
-        }
-    }
-        /* memcpy(&staging[(y0+y)*fbwidth+x0], &shear_out[y*width], sizeof(pixel_t)*width); */
 }
 # for debugging
 critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
@@ -151,8 +146,9 @@ critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im
       }
 }
 critcl::cproc commitThenClearStaging {} void {
-    memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
-    memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
+    memcpy(fb.pixels, staging.pixels, fb.width * fb.height * sizeof(pixel_t));
+    memset(staging.pixels, 0, staging.width * staging.height * sizeof(pixel_t));
+    // memset(fb.pixels, 0xFF, fb.width * fb.height * sizeof(pixel_t));
 }
 
 namespace eval Display {
@@ -174,23 +170,23 @@ namespace eval Display {
         variable white [binary format b16 [join {11111111 11111111 11111111} ""]]
     }
 
-    variable fb
+    variable surface
 
     package require math::linearalgebra
     
     # functions
     # ---------
     proc init {} {
-        set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
+        set Display::surface [mmapFb $Display::WIDTH $Display::HEIGHT]
     }
 
     proc vec2i {p} {
         return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
     }
-    proc fillTriangle {p0 p1 p2 color} {
-        fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [set Display::$color]
+    proc fillTriangle {surface p0 p1 p2 color} {
+        fillTriangleImpl $surface [vec2i $p0] [vec2i $p1] [vec2i $p2] [set Display::$color]
     }
-    proc stroke {points width color} {
+    proc stroke {surface points width color} {
         for {set i 0} {$i < [llength $points]} {incr i} {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
@@ -204,38 +200,36 @@ namespace eval Display {
             set a1 [math::linearalgebra::sub $a $nudge]
             set b0 [math::linearalgebra::add $b $nudge]
             set b1 [math::linearalgebra::sub $b $nudge]
-            fillTriangle $a0 $a1 $b1 $color
-            fillTriangle $a0 $b0 $b1 $color
+            fillTriangle $surface $a0 $a1 $b1 $color
+            fillTriangle $surface $a0 $b0 $b1 $color
         }
     }
 
-    proc text {fb x y fontSize text radians} {
-        drawText [expr {int($x)}] [expr {int($y)}] $text $radians
+    proc text {surface x y fontSize text} {
+        drawText $surface [expr {int($x)}] [expr {int($y)}] $text
     }
 
     # for debugging
     proc grayImage {args} { drawGrayImage {*}$args }
 
-    proc commit {} {
-        commitThenClearStaging
-    }
+    proc commit {} { commitThenClearStaging }
 }
 
-catch {if {$::argv0 eq [info script]} {
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     for {set i 0} {$i < 5} {incr i} {
-        fillTriangle {400 400} {500 500} {400 600} $Display::blue
+        Display::fillTriangle $Display::surface {400 400} {500 500} {400 600} blue
         # fillRectangle 400 400 410 410 $Display::red ;# t0
         # fillRectangle 500 500 510 510 $Display::red ;# t1
         # fillRectangle 400 600 410 610 $Display::red ;# t2
         
-        drawText 300 400 "A" 0
-        drawText 309 400 "B" 0 
-        drawText 318 400 "O" 0
+        drawText $Display::surface 300 400 "A"
+        drawText $Display::surface 309 400 "B" 
+        drawText $Display::surface 318 400 "O"
 
-        Display::text fb 300 420 PLACEHOLDER "Hello!" 0
+        Display::text $Display::surface 300 420 PLACEHOLDER "Hello!"
 
         puts [time Display::commit]
     }
-}}
+}
