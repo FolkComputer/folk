@@ -133,7 +133,9 @@ proc newProgram "{programCode {$defaultCode}}" {
 
     toplevel .$program
     wm title .$program $program
-    wm geometry .$program 350x250+[expr {20 + $programNum*20}]+[expr {20 + $programNum*20}]
+    # Format: width x height + x + y
+    # Formula: gutter + (n * windowDimension)
+    wm geometry .$program 350x250+[expr {20 + $programNum*250}]+[expr {40 + $programNum*30}]
 
     text .$program.t
     .$program.t insert 1.0 $programCode
