@@ -134,6 +134,27 @@ critcl::cproc drawText {drawable_surface_t surface int x0 int y0 pstring text} v
         }
     }
 }
+
+critcl::cproc drawSurfaceImpl {drawable_surface_t surface
+                               int x0 int y0 float radians drawable_surface_t surf} void {
+    if (x0 < 0 || y0 < 0 ||
+        x0 + surf.width >= surface.width ||
+        y0 + surf.height >= surface.height) {
+        return;
+    }
+    for (unsigned y = 0; y < surf.height; y++) {
+        for (unsigned x = 0; x < surf.width; x++) {
+            float distance = sqrt(x*x + y*y);
+            float angle = atan2(y, x);
+            int bx = round(distance * cos(angle - radians));
+            int by = round(distance * sin(angle - radians));
+            if (by > 0 && bx > 0) {
+                surface.pixels[(y0+y)*surface.width+(x0+x)] = surf.pixels[by*surf.width+bx];
+            }
+        }
+    }
+}
+
 # for debugging
 critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
@@ -210,6 +231,10 @@ namespace eval Display {
 
     proc text {surface x y fontSize text} {
         drawText $surface [expr {int($x)}] [expr {int($y)}] $text
+    }
+
+    proc drawSurface {surface x y radians surf} {
+        drawSurfaceImpl $surface [expr {int($x)}] [expr {int($y)}] $radians $surf
     }
 
     # for debugging

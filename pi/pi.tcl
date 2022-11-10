@@ -8,6 +8,7 @@ namespace eval Display {
         Display::init
         puts "Display tid: [getTid]"
 
+        set ::displayCount 0
         thread::wait
     }]
     puts "Display thread id: $displayThread"
@@ -23,18 +24,35 @@ namespace eval Display {
 
     proc commit {} {
         set displayList [list]
-        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
+        foreach match [Statements::findMatches [list /someone/ wishes display runs /command/]] {
             lappend displayList [dict get $match command]
+        }
+        foreach smatch [Statements::findMatches [list /someone/ claims /thing/ has drawable surface /surface/]] {
+            set thing [dict get $smatch thing]
+            set surface [dict get $smatch surface]
+            foreach rmatch [Statements::findMatches [list /someone/ claims $thing has region /region/]] {
+                set region [dict get $rmatch region]
+                lappend displayList [list Display::drawSurface $Display::surface {*}[lindex $region 0 0] 0 $surface]
+            }
         }
 
         proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
-        thread::send -async $Display::displayThread [format {
+        incr ::displayCount 
+        thread::send -head -async $Display::displayThread [format {
+            set newDisplayCount %d
+            if {$::displayCount > $newDisplayCount} {
+                # we've already displayed a newer frame
+                return
+            } else {
+                set ::displayCount $newDisplayCount
+            }
+
             # Draw the display list
             %s
             # (slow, should be abortable by newcomer commits)
 
             commitThenClearStaging
-        } [join [lsort -command lcomp $displayList] "\n"]]
+        } $::displayCount [join [lsort -command lcomp $displayList] "\n"]]
     }
 }
 
