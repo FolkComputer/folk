@@ -9,6 +9,7 @@ namespace eval Display {
         Display::init
         puts "Display tid: [getTid]"
 
+        set ::displayCount 0
         thread::wait
     }]
     puts "Display thread id: $displayThread"
@@ -28,13 +29,28 @@ namespace eval Display {
         }
 
         proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
-        thread::send -async $Display::displayThread [format {
+        incr ::displayCount 
+        thread::send -head -async $Display::displayThread [format {
+            set newDisplayCount %d
+            if {$::displayCount > $newDisplayCount} {
+                # we've already displayed a newer frame
+                return
+            } else {
+                set ::displayCount $newDisplayCount
+            }
+ 
             # Draw the display list
-            %s
-            # (slow, should be abortable by newcomer commits)
-
-            commitThenClearStaging
-        } [join [lsort -command lcomp $displayList] "\n"]]
+            set displayTime [time {
+                %s
+                commitThenClearStaging
+            }]
+            thread::send -async "%s" [subst {
+                Retract display claims the display time is /t/
+                Assert display claims the display time is "$displayTime"
+            }]
+        } $::displayCount \
+          [join [lsort -command lcomp $displayList] "\n"] \
+          [thread::id]]
     }
 }
 
