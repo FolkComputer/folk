@@ -37,3 +37,13 @@ c proc add {int x int y} int {
     return x + y;
 }
 puts [add 2 3]
+
+c struct drawable_surface_t {
+    
+}
+c proc newDrawableSurface {int width int height} drawable_surface_t {
+    drawable_surface_t ret;
+    ret.pixels = (pixel_t *) Tcl_Alloc(width * height * sizeof(pixel_t));
+    ret.width = width; ret.height = height;
+    return ret;
+}
