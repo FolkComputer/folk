@@ -1,0 +1,5 @@
+Wish $this is outlined blue
+Wish $this has filename "CPS-clock.folk"
+#Wish $this is labelled "CPS clock"
+
+Wish $this is labelled [exec sh -c "TZ=America/New_York date"]
