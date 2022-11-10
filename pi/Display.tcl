@@ -136,7 +136,7 @@ critcl::cproc drawText {drawable_surface_t surface int x0 int y0 pstring text} v
 }
 
 critcl::cproc drawSurfaceImpl {drawable_surface_t surface
-                               int x0 int y0 float radians drawable_surface_t surf} void {
+    int x0 int y0 float radians drawable_surface_t surf} void {
     if (x0 < 0 || y0 < 0 ||
         x0 + surf.width >= surface.width ||
         y0 + surf.height >= surface.height) {
@@ -148,9 +148,8 @@ critcl::cproc drawSurfaceImpl {drawable_surface_t surface
             float angle = atan2(y, x);
             int bx = round(distance * cos(angle - radians));
             int by = round(distance * sin(angle - radians));
-            if (by > 0 && bx > 0) {
-                surface.pixels[(y0+y)*surface.width+(x0+x)] = surf.pixels[by*surf.width+bx];
-            }
+            if (by < 0 || bx < 0 || bx >= surf.width || by >= surf.height) { continue; }
+            surface.pixels[(y0+y)*surface.width+(x0+x)] = surf.pixels[by*surf.width+bx];
         }
     }
 }

@@ -9,7 +9,7 @@ start:
 	$(TCL_HOME)/bin/tclsh main.tcl
 FOLK_SHARE_NODE := folk0.local
 sync:
-	 rsync --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
+	 rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
 
 TCLKIT = ~/Downloads/tclkit-8.6.3*
 Folk.app:

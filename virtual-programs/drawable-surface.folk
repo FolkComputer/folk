@@ -29,9 +29,8 @@ livecproc newDrawableSurface {int width int height} drawable_surface_t {
 
 if {![info exists ::surfaces]} {set ::surfaces [dict create]}
 When /thing/ has region /region/ {
-	Wish $thing is labelled $region
         if {![dict exists $::surfaces $thing]} {
-            dict set ::surfaces $thing [newDrawableSurface 1000 1000]
+            dict set ::surfaces $thing [newDrawableSurface 500 500]
         }
         set surface [dict get $::surfaces $thing]
         Claim $thing has drawable surface $surface

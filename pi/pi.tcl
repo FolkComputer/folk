@@ -48,11 +48,17 @@ namespace eval Display {
             }
 
             # Draw the display list
-            %s
-            # (slow, should be abortable by newcomer commits)
-
-            commitThenClearStaging
-        } $::displayCount [join [lsort -command lcomp $displayList] "\n"]]
+            set displayTime [time {
+                %s
+                commitThenClearStaging
+            }]
+            thread::send -async "%s" [subst {
+                Retract display claims the display time is /t/
+                Assert display claims the display time is "$displayTime"
+            }]
+        } $::displayCount \
+          [join [lsort -command lcomp $displayList] "\n"] \
+          [thread::id]]
     }
 }
 
