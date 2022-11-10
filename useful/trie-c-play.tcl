@@ -87,10 +87,17 @@ namespace eval c {
     namespace ensemble create
 }
 
+proc assert condition {
+   set s "{$condition}"
+   if {![uplevel 1 expr $s]} {
+       return -code error "assertion failed: $condition"
+   }
+}
+
 c proc add {int a int b} int {
     return a + b;
 }
-puts [add 2 3]
+assert {[add 2 3] == 5}
 
 namespace eval ctrie {
     c include <stdlib.h>
