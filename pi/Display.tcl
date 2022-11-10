@@ -105,8 +105,6 @@ critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
     if (x0 < 0 || y0 < 0 ||
         x0 + width >= fbwidth || y0 + height >= fbheight) return;
 
-    pixel_t buffer[width * height];
-
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
 
@@ -115,21 +113,7 @@ critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
             for (unsigned x = 0; x < font.char_width; x++) {
                 int idx = (text.s[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                 int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                buffer[(y*width) + (i*font.char_width + x)] = bit ? 0xFFFF : 0x0000;
-            }
-        }
-    }
-
-    for (unsigned y = 0; y < height; y++) {
-        for (unsigned x = 0; x < width; x++) {
-            float distance = sqrt(x*x + y*y);
-            float angle = atan2(y, x);
-            int bx = round(distance * cos(angle - rotate_radians));
-            int by = round(distance * sin(angle - rotate_radians));
-            if (by > 0 && bx > 0) {
-                /* printf("x %d y %d looks to x %d y %d\n", x, y, bx, by); */
-                staging[(y0+y)*fbwidth+(x0+x)] = buffer[by*width+bx];
-                /* staging[(y0+y)*fbwidth+(x0+x)] = buffer[y*width+x]; */
+                staging[((y0+y)*fbwidth) + (i*font.char_width + x0+x)] = bit ? 0xFFFF : 0x0000;
             }
         }
     }
