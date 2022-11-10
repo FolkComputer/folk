@@ -1,6 +1,7 @@
 Wish $this has filename "drawable-surface.folk"
 
-error die
+critcl::tcl 8.6
+critcl::cflags -Wall -Werror
 
 critcl::ccode {
     #include <stdint.h>
@@ -21,7 +22,7 @@ critcl::resulttype drawable_surface_t {
 } drawable_surface_t
 livecproc newDrawableSurface {int width int height} drawable_surface_t {
 	drawable_surface_t ret;
-        ret.pixels = Tcl_Alloc(width * height * sizeof(pixel_t));
+        ret.pixels = (pixel_t*) Tcl_Alloc(width * height * sizeof(pixel_t));
         ret.width = width; ret.height = height;
         return ret;
 }

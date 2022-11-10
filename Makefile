@@ -3,7 +3,7 @@ ifeq ($(wildcard $(TCL_HOME)/*),)
 	TCL_HOME := /usr/local/Cellar/tcl-tk/8.6*
 endif
 ifeq ($(wildcard $(TCL_HOME)/*),)
-	TCL_HOME := /usr
+	TCL_HOME := /usr/local
 endif
 start:
 	$(TCL_HOME)/bin/tclsh main.tcl

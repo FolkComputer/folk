@@ -8,6 +8,7 @@ regexp {geometry \d+ \d+ \d+ \d+ (\d+)} $fbset -> Display::DEPTH
 
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
+critcl::debug symbols
 
 critcl::ccode {
     #include <sys/stat.h>
@@ -84,6 +85,10 @@ critcl::resulttype Vec2i {
     return TCL_OK;
 } Vec2i
 critcl::cproc fillTriangleImpl {drawable_surface_t surface Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 ||
+        t0.x >= surface.width || t0.y >= surface.height || t1.x >= surface.width || t1.y >= surface.height || t2.x >= surface.width || t2.y >= surface.height) {
+        return;
+    }
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
