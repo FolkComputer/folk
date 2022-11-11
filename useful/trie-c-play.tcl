@@ -48,7 +48,7 @@ namespace eval c {
 
             if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
 
-            set obj [subst {objv\[[expr {$i/2 + 1}]\]}]
+            set obj [subst {objv\[1 + [llength $loadargs]\]}]
             lappend loadargs [subst {
                 $argtype $argname;
                 [subst [switch $argtype {
@@ -84,7 +84,8 @@ namespace eval c {
                 }]
             }]
         }
-
+        
+        set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
         set code [subst {
             #include <tcl.h>
             #include <inttypes.h>
@@ -97,22 +98,25 @@ namespace eval c {
             }
 
             static int [set name]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[]) {
-                if (objc != 1 + [llength $arglist]) { return TCL_ERROR; }
+                if (objc != 1 + [llength $loadargs]) {
+                    Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
+                    return TCL_ERROR;
+                }
                 [join $loadargs "\n"]
                 $saverv
             }
 
-            int DLLEXPORT [string totitle $name]_Init(Tcl_Interp* interp) {
+            int [string totitle $uniquename]_Init(Tcl_Interp* interp) {
                 Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
                 return TCL_OK;
             }
         }]
-        # puts $code
+
+        # puts "=====================\n$code\n====================="
 
         set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
-        exec cc -Wall -g -shared -L$::tcl_library/.. -ltcl8.6 $cfile -o [file rootname $cfile].dylib
-        load [file rootname $cfile].dylib $name
-        # FIXME: namespace export
+        exec cc -Wall -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
+        load [file rootname $cfile].dylib $uniquename
     }
 
     namespace export *
@@ -154,18 +158,31 @@ namespace eval ctrie {
 
     c proc add {Tcl_Interp* interp trie_t* trie Tcl_Obj* clause int id} void {
         int objc; Tcl_Obj** objv;
-        if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) { 
+        if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
         }
 
-        trie_t* branch;
+        /* trie_t* branch = NULL; */
         for (int i = 0; i < objc; i++) {
-            branch = calloc(sizeof(trie_t) + 10*sizeof(trie_t*), 1);
-            branch->key = objv[i];
-            branch->id = -1;
-            trie->branches[trie->nbranches++] = branch;
+            printf("obj %d: %s\n", i, Tcl_GetString(objv[i]));
+
+            trie_t* branch = NULL;
+            int j;
+            for (j = 0; j < trie->nbranches; j++) {
+                // TODO: check if key exists already
+                if (trie->branches[j] == NULL) { break; }
+            }
+            // TODO: if j == trie->nbranches then realloc
+            if (trie->branches[j] == NULL) {
+                branch = calloc(sizeof(trie_t) + 10*sizeof(trie_t*), 1);
+                branch->key = objv[i];
+                branch->id = -1;
+                branch->nbranches = 10;
+                trie->branches[j] = branch;
+            }
+            trie = branch;
         }
-        branch->id = id;
+        // branch->id = id;
     }
     c proc lookup {trie_t* trie Tcl_Obj* pattern} int {
         // for (x in pattern) {
@@ -180,6 +197,7 @@ namespace eval ctrie {
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
         objv[1] = Tcl_NewIntObj(trie->id);
         for (int i = 0; i < trie->nbranches; i++) {
+            printf("ACCESS tbj %p nb=%zu i=%d b=%p\n", trie, trie->nbranches, i, trie->branches[i]);
             objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_ObjPrintf("");
         }
         return Tcl_NewListObj(objc, objv);
@@ -191,4 +209,6 @@ namespace eval ctrie {
 
 set t [ctrie create]
 puts "made trie: $t"
+puts [ctrie tclify $t]
+ctrie add $t [list Omar is a person] 601
 puts [ctrie tclify $t]

@@ -1,12 +1,5 @@
-TCL_HOME := /opt/homebrew/Cellar/tcl-tk/8.6*
-ifeq ($(wildcard $(TCL_HOME)/*),)
-	TCL_HOME := /usr/local/Cellar/tcl-tk/8.6*
-endif
-ifeq ($(wildcard $(TCL_HOME)/*),)
-	TCL_HOME := /usr/local
-endif
 start:
-	$(TCL_HOME)/bin/tclsh main.tcl
+	tclsh8.6 main.tcl
 FOLK_SHARE_NODE := folk0.local
 sync:
 	 rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
