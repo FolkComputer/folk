@@ -72,6 +72,10 @@ namespace eval c {
                         Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
                         return TCL_OK;
                     }}}
+                    Tcl_Obj* { expr {{
+                        Tcl_SetObjResult(interp, rv);
+                        return TCL_OK;
+                    }}}
                     trie_t* { expr {{
                         Tcl_SetObjResult(interp, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) rv));
                         return TCL_OK;
@@ -106,7 +110,7 @@ namespace eval c {
         # puts $code
 
         set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
-        exec cc -Wall -shared -L$::tcl_library/.. -ltcl8.6 $cfile -o [file rootname $cfile].dylib
+        exec cc -Wall -g -shared -L$::tcl_library/.. -ltcl8.6 $cfile -o [file rootname $cfile].dylib
         load [file rootname $cfile].dylib $name
         # FIXME: namespace export
     }
@@ -165,13 +169,26 @@ namespace eval ctrie {
     }
     c proc lookup {trie_t* trie Tcl_Obj* pattern} int {
         // for (x in pattern) {
-
+        
         // }
         return 0;
     }
 
-    namespace export create add lookup
+    c proc tclify {trie_t* trie} Tcl_Obj* {
+        int objc = 2 + trie->nbranches;
+        Tcl_Obj* objv[objc];
+        objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
+        objv[1] = Tcl_NewIntObj(trie->id);
+        for (int i = 0; i < trie->nbranches; i++) {
+            objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_ObjPrintf("");
+        }
+        return Tcl_NewListObj(objc, objv);
+    }
+
+    namespace export create add lookup tclify
     namespace ensemble create
 }
 
-puts [ctrie create]
+set t [ctrie create]
+puts "made trie: $t"
+puts [ctrie tclify $t]
