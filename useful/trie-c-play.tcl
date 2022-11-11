@@ -46,18 +46,45 @@ namespace eval c {
             lappend arglist "$argtype $argname"
             lappend argnames $argname
 
+            if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
+
+            set obj [subst {objv\[[expr {$i/2 + 1}]\]}]
             lappend loadargs [subst {
                 $argtype $argname;
-                Tcl_GetIntFromObj(interp, objv\[[expr {$i/2 + 1}]\], &$argname);
+                [subst [switch $argtype {
+                    int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                    Tcl_Obj* { expr {{ $argname = $obj; }}}
+                    trie_t* { expr {{ sscanf(Tcl_GetString($obj), "(trie_t*) 0x%p", &$argname); }}}
+                    default { error "Unrecognized argtype $argtype" }
+                }]]
             }]
         }
-        set saverv {
-            Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
-            return TCL_OK;
+        if {$rtype == "void"} {
+            set saverv [subst {
+                $name ([join $argnames ", "]);
+                return TCL_OK;
+            }]
+        } else {
+            set saverv [subst {
+                $rtype rv = $name ([join $argnames ", "]);
+                [switch $rtype {
+                    int { expr {{
+                        Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
+                        return TCL_OK;
+                    }}}
+                    trie_t* { expr {{
+                        Tcl_SetObjResult(interp, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) rv));
+                        return TCL_OK;
+                    }}}
+                    default { error "Unrecognized rtype $rtype" }
+                }]
+            }]
         }
 
         set code [subst {
             #include <tcl.h>
+            #include <inttypes.h>
+            #include <stdint.h>
 
             [join $c::code "\n"]
 
@@ -68,19 +95,20 @@ namespace eval c {
             static int [set name]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[]) {
                 if (objc != 1 + [llength $arglist]) { return TCL_ERROR; }
                 [join $loadargs "\n"]
-                $rtype rv = $name ([join $argnames ", "]);
                 $saverv
             }
 
             int DLLEXPORT [string totitle $name]_Init(Tcl_Interp* interp) {
-                Tcl_CreateObjCommand(interp, "$name", [set name]_Cmd, NULL, NULL);
+                Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
                 return TCL_OK;
             }
         }]
+        # puts $code
 
         set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
         exec cc -Wall -shared -L$::tcl_library/.. -ltcl8.6 $cfile -o [file rootname $cfile].dylib
         load [file rootname $cfile].dylib $name
+        # FIXME: namespace export
     }
 
     namespace export *
@@ -139,9 +167,9 @@ namespace eval ctrie {
         // for (x in pattern) {
 
         // }
+        return 0;
     }
 
-    critcl::load
     namespace export create add lookup
     namespace ensemble create
 }
