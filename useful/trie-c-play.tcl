@@ -247,8 +247,16 @@ namespace eval ctrie {
         int j;
         for (j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
-            if (trie->branches[j]->key == wordv[0] ||
-                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])) == 0) {
+
+            int potentialMatch = 0;
+            potentialMatch = potentialMatch || (trie->branches[j]->key == wordv[0]);
+            const char *keyString = Tcl_GetString(trie->branches[j]->key);
+            const char *wordString = Tcl_GetString(wordv[0]);
+            potentialMatch = potentialMatch ||
+                (keyString[0] == '/') ||
+                (wordString[0] == '/') ||
+                (strcmp(keyString, wordString) == 0);
+            if (potentialMatch) {
                 results[j] = lookupImpl(trie->branches[j], wordc - 1, wordv + 1);
             } else {
                 results[j] = Tcl_ObjPrintf("");
@@ -315,4 +323,12 @@ exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add.pdf
 ctrie remove $t [list Omar is a name]
 puts [ctrie tclify $t]
 exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add-remove.pdf
+
+ctrie add $t [list Omar is a human] 603
 puts [ctrie lookup $t [list Omar is a person]]
+puts [ctrie lookup $t [list Omar is a human]]
+puts [ctrie lookup $t [list Omar is a /x/]]
+
+ctrie add $t [list Foo is a person] 501
+puts [ctrie lookup $t [list /p/ is a person]]
+exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-x.pdf
