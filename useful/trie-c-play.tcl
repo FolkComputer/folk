@@ -115,7 +115,7 @@ namespace eval c {
         # puts "=====================\n$code\n====================="
 
         set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
-        exec cc -Wall -fsanitize=address -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
+        exec cc -Wall -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
         load [file rootname $cfile].dylib $uniquename
     }
 
@@ -181,7 +181,7 @@ namespace eval ctrie {
             }
             trie = branch;
         }
-        // branch->id = id;
+        trie->id = id;
     }
     c proc lookup {trie_t* trie Tcl_Obj* pattern} int {
         // for (x in pattern) {
@@ -209,4 +209,5 @@ set t [ctrie create]
 puts "made trie: $t"
 puts [ctrie tclify $t]
 ctrie add $t [list Omar is a person] 601
+ctrie add $t [list Omar is a name] 602
 puts [ctrie tclify $t]
