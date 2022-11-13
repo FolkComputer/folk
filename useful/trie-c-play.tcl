@@ -21,12 +21,21 @@ namespace eval c {
     #     }]
     # }
 
+    variable prelude {
+        #include <tcl.h>
+        #include <inttypes.h>
+        #include <stdint.h>
+    }
     variable code [list]
+    variable procs [dict create]
+
     ::proc include {h} {
-        lappend c::code "#include $h"
+        variable code
+        lappend code "#include $h"
     }
     ::proc struct {type fields} {
-        lappend c::code [subst {
+        variable code
+        lappend code [subst {
             typedef struct $type $type;
             struct $type {
                 $fields
@@ -86,13 +95,8 @@ namespace eval c {
         }
         
         set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
-        set code [subst {
-            #include <tcl.h>
-            #include <inttypes.h>
-            #include <stdint.h>
-
-            [join $c::code "\n"]
-
+        variable procs
+        dict set procs $name [subst {
             static $rtype $name ([join $arglist ", "]) {
                 $body
             }
@@ -105,18 +109,32 @@ namespace eval c {
                 [join $loadargs "\n"]
                 $saverv
             }
+        }]
+    }
 
-            int [string totitle $uniquename]_Init(Tcl_Interp* interp) {
-                Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
+    ::proc compile {} {
+        variable prelude
+        variable code
+        variable procs
+
+        set init [subst {
+            int Cfile_Init(Tcl_Interp* interp) {
+                [join [lmap name [dict keys $procs] { subst {
+                    Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
+                }}] "\n"]
                 return TCL_OK;
             }
         }]
+        set sourcecode [join [list $prelude {*}$code {*}[dict values $procs] $init] "\n"]
+        
+        # puts "=====================\n$sourcecode\n====================="
 
-        # puts "=====================\n$code\n====================="
-
-        set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
+        set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
         exec cc -Wall -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
-        load [file rootname $cfile].dylib $uniquename
+        load [file rootname $cfile].dylib cfile
+
+        set code [list]
+        set procs [dict create]
     }
 
     namespace export *
@@ -133,6 +151,7 @@ proc assert condition {
 c proc add {int a int b} int {
     return a + b;
 }
+c compile
 assert {[add 2 3] == 5}
 
 namespace eval ctrie {
@@ -163,16 +182,15 @@ namespace eval ctrie {
             exit(1);
         }
 
-        /* trie_t* branch = NULL; */
         for (int i = 0; i < objc; i++) {
             trie_t* branch = NULL;
             int j;
             for (j = 0; j < trie->nbranches; j++) {
-                // TODO: check if key exists already
                 if (trie->branches[j] == NULL) { break; }
-                // printf("%s (%p) vs %s (%p)\n", Tcl_GetString(trie->branches[j]->key), trie->branches[j]->key, Tcl_GetString(objv[i]), objv[i]);
-                if (trie->branches[j]->key == objv[i] || strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(objv[i])) == 0) {
-                    // printf("MATCH\n");
+                if (trie->branches[j]->key == objv[i] ||
+                    strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(objv[i])) == 0) {
+                    branch = trie->branches[j];
+                    break;
                 }
             }
             // TODO: if j == trie->nbranches then realloc
@@ -187,6 +205,34 @@ namespace eval ctrie {
             trie = branch;
         }
         trie->id = id;
+    }
+    c proc delete {Tcl_Interp* interp trie_t* trie Tcl_Obj* clause} void {
+        int objc; Tcl_Obj** objv;
+        if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
+            exit(1);
+        }
+
+        for (int i = 0; i < objc; i++) {
+            trie_t* branch = NULL;
+            int j;
+            for (j = 0; j < trie->nbranches; j++) {
+                if (trie->branches[j] == NULL) { break; }
+                if (trie->branches[j]->key == objv[i] ||
+                    strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(objv[i])) == 0) {
+                    break;
+                }
+            }
+            // TODO: if j == trie->nbranches then realloc
+            if (trie->branches[j] == NULL) {
+                branch = calloc(sizeof(trie_t) + 10*sizeof(trie_t*), 1);
+                branch->key = objv[i];
+                Tcl_IncrRefCount(branch->key);
+                branch->id = -1;
+                branch->nbranches = 10;
+                trie->branches[j] = branch;
+            }
+            trie = branch;
+        }                            
     }
     c proc lookup {trie_t* trie Tcl_Obj* pattern} int {
         // for (x in pattern) {
@@ -230,6 +276,7 @@ namespace eval ctrie {
         return "digraph { rankdir=LR; [subdot {} $trie] }"
     }
 
+    c compile
     namespace export create add lookup tclify dot
     namespace ensemble create
 }
