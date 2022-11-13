@@ -7,7 +7,20 @@ proc d {arg} {
     # puts $arg
 }
 
+source "useful/trie-c-play.tcl"
+ctrie::create
 namespace eval trie {
+    namespace import ::ctrie::*
+    proc add {trieVar clause id} {
+        ctrie add [uplevel [list set $trieVar]] $clause $id
+    }
+    proc remove {trieVar clause} {
+        ctrie remove [uplevel [list set $trieVar]] $clause
+    }
+    namespace export create add remove lookup
+    namespace ensemble create
+}
+namespace eval tcltrie {
     # used for statement lookup
 
     proc erase {clause} {

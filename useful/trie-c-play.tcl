@@ -313,22 +313,24 @@ namespace eval ctrie {
     namespace ensemble create
 }
 
-set t [ctrie create]
-# puts "made trie: $t"
-# puts [ctrie dot [ctrie tclify $t]]
-ctrie add $t [list Omar is a person] 601
-ctrie add $t [list Omar is a name] 602
-puts [ctrie tclify $t]
-exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add.pdf
-ctrie remove $t [list Omar is a name]
-puts [ctrie tclify $t]
-exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add-remove.pdf
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    set t [ctrie create]
+    # puts "made trie: $t"
+    # puts [ctrie dot [ctrie tclify $t]]
+    ctrie add $t [list Omar is a person] 601
+    ctrie add $t [list Omar is a name] 602
+    puts [ctrie tclify $t]
+    exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add.pdf
+    ctrie remove $t [list Omar is a name]
+    puts [ctrie tclify $t]
+    exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add-remove.pdf
 
-ctrie add $t [list Omar is a human] 603
-puts [ctrie lookup $t [list Omar is a person]]
-puts [ctrie lookup $t [list Omar is a human]]
-puts [ctrie lookup $t [list Omar is a /x/]]
+    ctrie add $t [list Omar is a human] 603
+    puts [ctrie lookup $t [list Omar is a person]]
+    puts [ctrie lookup $t [list Omar is a human]]
+    puts [ctrie lookup $t [list Omar is a /x/]]
 
-ctrie add $t [list Foo is a person] 501
-puts [ctrie lookup $t [list /p/ is a person]]
-exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-x.pdf
+    ctrie add $t [list Foo is a person] 501
+    puts [ctrie lookup $t [list /p/ is a person]]
+    exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-x.pdf
+}
