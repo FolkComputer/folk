@@ -64,6 +64,7 @@ namespace eval c {
                     int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
                     Tcl_Obj* { expr {{ $argname = $obj; }}}
                     trie_t* { expr {{ sscanf(Tcl_GetString($obj), "(trie_t*) 0x%p", &$argname); }}}
+                    Tcl_Obj** { expr {{ sscanf(Tcl_GetString($obj), "(Tcl_Obj**) 0x%p", &$argname); }}}
                     default { error "Unrecognized argtype $argtype" }
                 }]]
             }]
@@ -206,39 +207,61 @@ namespace eval ctrie {
         }
         trie->id = id;
     }
-    c proc delete {Tcl_Interp* interp trie_t* trie Tcl_Obj* clause} void {
+    c proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
+        if (wordc == 0) return 1;
+
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+            if (trie->branches[j]->key == wordv[0] ||
+                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])) == 0) {
+                /* printf("match %d %s %s\n", j, Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])); */
+                if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
+                    Tcl_DecrRefCount(trie->branches[j]->key);
+                    free(trie->branches[j]);
+                    trie->branches[j] = NULL;
+                    if (j == 0 && trie->branches[1] == NULL) {
+                        return 1;
+                    } else if (trie->branches[j + 1] != NULL) {
+                        // shift left
+                        memcpy(&trie->branches[j], &trie->branches[j + 1], (trie->nbranches - j - 1) * sizeof(trie->branches[0]));
+                        trie->branches[trie->nbranches - 1] = NULL;
+                        return 0;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+    c proc remove_ {Tcl_Interp* interp trie_t* trie Tcl_Obj* clause} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
         }
-
-        for (int i = 0; i < objc; i++) {
-            trie_t* branch = NULL;
-            int j;
-            for (j = 0; j < trie->nbranches; j++) {
-                if (trie->branches[j] == NULL) { break; }
-                if (trie->branches[j]->key == objv[i] ||
-                    strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(objv[i])) == 0) {
-                    break;
-                }
-            }
-            // TODO: if j == trie->nbranches then realloc
-            if (trie->branches[j] == NULL) {
-                branch = calloc(sizeof(trie_t) + 10*sizeof(trie_t*), 1);
-                branch->key = objv[i];
-                Tcl_IncrRefCount(branch->key);
-                branch->id = -1;
-                branch->nbranches = 10;
-                trie->branches[j] = branch;
-            }
-            trie = branch;
-        }                            
+        removeImpl(trie, objc, objv);
     }
-    c proc lookup {trie_t* trie Tcl_Obj* pattern} int {
-        // for (x in pattern) {
-        
-        // }
-        return 0;
+
+    c proc lookupImpl {trie_t* trie int wordc Tcl_Obj** wordv} Tcl_Obj* {
+        if (wordc == 0) { return Tcl_ObjPrintf("%d", trie->id); }
+
+        Tcl_Obj* results[trie->nbranches];
+        int j;
+        for (j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+            if (trie->branches[j]->key == wordv[0] ||
+                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])) == 0) {
+                results[j] = lookupImpl(trie->branches[j], wordc - 1, wordv + 1);
+            } else {
+                results[j] = Tcl_ObjPrintf("");
+            }
+        }
+        return Tcl_NewListObj(j, results);
+    }
+    c proc lookup {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
+        int objc; Tcl_Obj** objv;
+        if (Tcl_ListObjGetElements(interp, pattern, &objc, &objv) != TCL_OK) {
+            exit(1);
+        }
+        return lookupImpl(trie, objc, objv);
     }
 
     c proc tclify {trie_t* trie} Tcl_Obj* {
@@ -277,7 +300,8 @@ namespace eval ctrie {
     }
 
     c compile
-    namespace export create add lookup tclify dot
+    rename remove_ remove
+    namespace export create add remove lookup tclify dot
     namespace ensemble create
 }
 
@@ -287,4 +311,8 @@ set t [ctrie create]
 ctrie add $t [list Omar is a person] 601
 ctrie add $t [list Omar is a name] 602
 puts [ctrie tclify $t]
-exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie.pdf
+exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add.pdf
+ctrie remove $t [list Omar is a name]
+puts [ctrie tclify $t]
+exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add-remove.pdf
+puts [ctrie lookup $t [list Omar is a person]]
