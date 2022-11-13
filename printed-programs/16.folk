@@ -1,0 +1,12 @@
+Wish $this has filename "hello-name.folk"
+Wish $this is outlined green
+
+When someone claims /firstName/ is /text/ {
+  Wish $this is outlined blue
+  Wish $this is labelled "
+
+
+
+
+Hi $text!"
+}
