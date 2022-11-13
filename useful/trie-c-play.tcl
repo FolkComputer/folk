@@ -115,7 +115,7 @@ namespace eval c {
         # puts "=====================\n$code\n====================="
 
         set cfd [file tempfile cfile $name.c]; puts $cfd $code; close $cfd
-        exec cc -Wall -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
+        exec cc -Wall -fsanitize=address -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
         load [file rootname $cfile].dylib $uniquename
     }
 
@@ -164,8 +164,6 @@ namespace eval ctrie {
 
         /* trie_t* branch = NULL; */
         for (int i = 0; i < objc; i++) {
-            printf("obj %d: %s\n", i, Tcl_GetString(objv[i]));
-
             trie_t* branch = NULL;
             int j;
             for (j = 0; j < trie->nbranches; j++) {
@@ -176,6 +174,7 @@ namespace eval ctrie {
             if (trie->branches[j] == NULL) {
                 branch = calloc(sizeof(trie_t) + 10*sizeof(trie_t*), 1);
                 branch->key = objv[i];
+                Tcl_IncrRefCount(branch->key);
                 branch->id = -1;
                 branch->nbranches = 10;
                 trie->branches[j] = branch;
@@ -197,7 +196,6 @@ namespace eval ctrie {
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
         objv[1] = Tcl_NewIntObj(trie->id);
         for (int i = 0; i < trie->nbranches; i++) {
-            printf("ACCESS tbj %p nb=%zu i=%d b=%p\n", trie, trie->nbranches, i, trie->branches[i]);
             objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_ObjPrintf("");
         }
         return Tcl_NewListObj(objc, objv);
