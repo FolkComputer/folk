@@ -137,6 +137,7 @@ assert {[add 2 3] == 5}
 
 namespace eval ctrie {
     c include <stdlib.h>
+    c include <string.h>
     c struct trie_t {
         Tcl_Obj* key;
 
@@ -169,6 +170,10 @@ namespace eval ctrie {
             for (j = 0; j < trie->nbranches; j++) {
                 // TODO: check if key exists already
                 if (trie->branches[j] == NULL) { break; }
+                // printf("%s (%p) vs %s (%p)\n", Tcl_GetString(trie->branches[j]->key), trie->branches[j]->key, Tcl_GetString(objv[i]), objv[i]);
+                if (trie->branches[j]->key == objv[i] || strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(objv[i])) == 0) {
+                    // printf("MATCH\n");
+                }
             }
             // TODO: if j == trie->nbranches then realloc
             if (trie->branches[j] == NULL) {
@@ -200,14 +205,39 @@ namespace eval ctrie {
         }
         return Tcl_NewListObj(objc, objv);
     }
+    proc dot {trie} {
+        proc idify {word} {
+            # generate id-able word by eliminating all non-alphanumeric
+            regsub -all {\W+} $word "_"
+        }
+        proc labelify {word} {
+            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
+        }
+        proc subdot {path subtrie} {
+            set branches [lassign $subtrie key id]
+            set pathkey [idify $key]
+            set newpath [list {*}$path $pathkey]
 
-    namespace export create add lookup tclify
+            set dot [list]
+            lappend dot "[join $newpath "_"] \[label=\"[labelify $key]\"\];"
+            lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
+            foreach branch $branches {
+                if {$branch == {}} continue
+                lappend dot [subdot $newpath $branch]
+            }
+            return [join $dot "\n"]
+        }
+        return "digraph { rankdir=LR; [subdot {} $trie] }"
+    }
+
+    namespace export create add lookup tclify dot
     namespace ensemble create
 }
 
 set t [ctrie create]
-puts "made trie: $t"
-puts [ctrie tclify $t]
+# puts "made trie: $t"
+# puts [ctrie dot [ctrie tclify $t]]
 ctrie add $t [list Omar is a person] 601
 ctrie add $t [list Omar is a name] 602
 puts [ctrie tclify $t]
+exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie.pdf
