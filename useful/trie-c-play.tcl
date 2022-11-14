@@ -195,6 +195,7 @@ namespace eval ctrie {
 
         trie_t** match = NULL;
         uint32_t key = wordToKey(wordv[0]);
+        /* printf("add key %u (%s)\n", key, Tcl_GetString(wordv[0])); */
 
         int j;
         for (j = 0; j < (*trie)->nbranches; j++) {
@@ -276,7 +277,7 @@ namespace eval ctrie {
                        trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
             if (trie->id != -1) {
-                Tcl_ListObjAppendElement(interp, results, Tcl_ObjPrintf("%d", trie->id));
+                Tcl_ListObjAppendElement(interp, results, Tcl_NewIntObj(trie->id));
             }
             return;
         }
@@ -286,7 +287,8 @@ namespace eval ctrie {
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == key) {
+            /* printf("%d: compare %u and %u (%s)\n", wordc, trie->branches[j]->key, key, Tcl_GetString(wordv[0])); */
+            if (trie->branches[j]->key == key || trie->branches[j]->key == 0 || key == 0) {
                 lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
             }
         }
