@@ -5,11 +5,6 @@ Wish $this has filename "CPS-clock.folk"
 ## Hmmmmm, how to do this in Tcl? Use `tcl
 
 When $::nodename has step count /c/ {
-	Wish $this is labelled [string trim "
-[exec sh -c "TZ=America/New_York date"]
-step count: $c
-step time: $::stepTime
-	"]
 }
 
 
