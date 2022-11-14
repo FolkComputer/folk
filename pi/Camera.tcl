@@ -4,6 +4,7 @@ source "pi/critclUtils.tcl"
 critcl::tcl 8.6
 critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
 critcl::clibraries $::env(HOME)/apriltag/libapriltag.a [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+critcl::debug symbols
 
 critcl::ccode {
     #include <apriltag.h>
@@ -243,8 +244,8 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
     Display::init
 
     # Camera::init 3840 2160
-    # Camera::init 1280 720
-    Camera::init 1920 1080
+    Camera::init 1280 720
+    # Camera::init 1920 1080
     puts "camera: $Camera::camera"
 
     while true {

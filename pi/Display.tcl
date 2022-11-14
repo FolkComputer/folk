@@ -8,6 +8,7 @@ regexp {geometry \d+ \d+ \d+ \d+ (\d+)} $fbset -> Display::DEPTH
 
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
+critcl::debug symbols
 
 critcl::ccode {
     #include <sys/stat.h>
@@ -73,6 +74,10 @@ critcl::resulttype Vec2i {
     return TCL_OK;
 } Vec2i
 critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 ||
+        t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) {
+        return;
+    }
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
@@ -205,7 +210,7 @@ namespace eval Display {
     }
 }
 
-catch {if {$::argv0 eq [info script]} {
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     for {set i 0} {$i < 5} {incr i} {
@@ -222,4 +227,4 @@ catch {if {$::argv0 eq [info script]} {
 
         puts [time Display::commit]
     }
-}}
+}
