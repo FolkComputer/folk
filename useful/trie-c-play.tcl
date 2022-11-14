@@ -264,16 +264,16 @@ namespace eval ctrie {
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            int potentialMatch = 0;
-            potentialMatch = potentialMatch || (trie->branches[j]->key == wordv[0]);
-            const char *keyString = Tcl_GetString(trie->branches[j]->key);
-            const char *wordString = Tcl_GetString(wordv[0]);
-            potentialMatch = potentialMatch ||
-                (keyString[0] == '/') ||
-                (wordString[0] == '/') ||
-                (strcmp(keyString, wordString) == 0);
-            if (potentialMatch) {
+            if (trie->branches[j]->key == wordv[0]) {
                 lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
+            } else {
+                const char *keyString = Tcl_GetString(trie->branches[j]->key);
+                const char *wordString = Tcl_GetString(wordv[0]);
+                if ((keyString[0] == '/') ||
+                    (wordString[0] == '/') ||
+                    (strcmp(keyString, wordString) == 0)) {
+                    lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
+                }
             }
         }
     }
