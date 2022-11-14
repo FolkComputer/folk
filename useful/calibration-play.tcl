@@ -347,8 +347,8 @@ foreach tag $tags {
     lassign [lindex $correspondences 0] _ _ px py
     lassign [lindex $correspondences end] _ _ px1 py1
     puts "$px $py $px1 $py1"
-    Display::fillRect fb [expr min($px,$px1)] [expr min($py,$py1)] \
-        [expr max($px,$px1)] [expr max($py,$py1)] red
+     # Display::fillRect fb [expr min($px,$px1)] [expr min($py,$py1)] \
+     #    [expr max($px,$px1)] [expr max($py,$py1)] red
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
@@ -357,7 +357,7 @@ set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
 puts "key correspondences: $keyCorrespondences"
 
-set fd [open "generated-calibration.tcl" w]
+set fd [open "/home/folk/generated-calibration.tcl" w]
 puts $fd "set points {$keyCorrespondences}"
 close $fd
 

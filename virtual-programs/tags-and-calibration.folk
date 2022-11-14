@@ -6,7 +6,7 @@ package require math::linearalgebra
 
 # camera (tag) point -> projection point
 # calibration for Hex
-if [catch {source "generated-calibration.tcl"}] {
+if [catch {source "/home/folk/generated-calibration.tcl"}] {
   set points {
 	{622 404 1706 1051}
 	{624 650 1661 51}
