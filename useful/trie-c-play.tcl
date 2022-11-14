@@ -20,6 +20,10 @@ namespace eval c {
             };
         }]
     }
+    ::proc code {c} {
+        variable code
+        lappend code $c
+    }
 
     ::proc "proc" {name args rtype body} {
         # puts "$name $args $rtype $body"
@@ -146,7 +150,7 @@ namespace eval ctrie {
     c include <stdlib.h>
     c include <string.h>
     c struct trie_t {
-        Tcl_Obj* key;
+        uint32_t key;
 
         int id; // or -1
 
@@ -158,11 +162,29 @@ namespace eval ctrie {
         size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
         trie_t* ret = ckalloc(size); memset(ret, 0, size);
         *ret = (trie_t) {
-            .key = NULL,
+            .key = 0,
             .id = -1,
             .nbranches = 10
         };
         return ret;
+    }
+
+    c code {
+        uint32_t hash(uint8_t* str) {
+            uint32_t hash = 5381;
+            int c;
+
+            while ((c = *str++))
+                hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+            return hash;
+        }
+
+        static uint32_t wordToKey(Tcl_Obj* word) {
+            char* s = Tcl_GetString(word);
+            if (s[0] == '/') { return 0; }
+            return hash((uint8_t *) s);
+        }
     }
 
     c proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv int id} void {
@@ -172,15 +194,14 @@ namespace eval ctrie {
         }
 
         trie_t** match = NULL;
+        uint32_t key = wordToKey(wordv[0]);
 
         int j;
         for (j = 0; j < (*trie)->nbranches; j++) {
             trie_t** branch = &(*trie)->branches[j];
             if (*branch == NULL) { break; }
 
-            if ((*branch)->key == wordv[0] ||
-                strcmp(Tcl_GetString((*branch)->key), Tcl_GetString(wordv[0])) == 0) {
-
+            if ((*branch)->key == key) {
                 match = branch;
                 break;
             }
@@ -196,8 +217,7 @@ namespace eval ctrie {
 
             size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
             trie_t* branch = ckalloc(size); memset(branch, 0, size);
-            branch->key = wordv[0];
-            Tcl_IncrRefCount(branch->key);
+            branch->key = key;
             branch->id = -1;
             branch->nbranches = 10;
 
@@ -221,13 +241,13 @@ namespace eval ctrie {
     c proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
         if (wordc == 0) return 1;
 
+        uint32_t key = wordToKey(wordv[0]);
+
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
-            if (trie->branches[j]->key == wordv[0] ||
-                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])) == 0) {
+            if (trie->branches[j]->key == key) {
                 /* printf("match %d %s %s\n", j, Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])); */
                 if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
-                    Tcl_DecrRefCount(trie->branches[j]->key);
                     ckfree(trie->branches[j]);
                     trie->branches[j] = NULL;
                     if (j == 0 && trie->branches[1] == NULL) {
@@ -261,19 +281,13 @@ namespace eval ctrie {
             return;
         }
 
+        uint32_t key = wordToKey(wordv[0]);
+
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == wordv[0]) {
+            if (trie->branches[j]->key == key) {
                 lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
-            } else {
-                const char *keyString = Tcl_GetString(trie->branches[j]->key);
-                const char *wordString = Tcl_GetString(wordv[0]);
-                if ((keyString[0] == '/') ||
-                    (wordString[0] == '/') ||
-                    (strcmp(keyString, wordString) == 0)) {
-                    lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
-                }
             }
         }
     }
@@ -290,7 +304,7 @@ namespace eval ctrie {
     c proc tclify {trie_t* trie} Tcl_Obj* {
         int objc = 2 + trie->nbranches;
         Tcl_Obj* objv[objc];
-        objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
+        objv[0] = trie->key != 0 ? Tcl_ObjPrintf("%d", trie->key) : Tcl_ObjPrintf("*");
         objv[1] = Tcl_NewIntObj(trie->id);
         for (int i = 0; i < trie->nbranches; i++) {
             objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
@@ -319,7 +333,7 @@ namespace eval ctrie {
             }
             return [join $dot "\n"]
         }
-        return "digraph { rankdir=LR; [subdot {} $trie] }"
+        return "digraph { rankdir=LR; [subdot {} [ctrie tclify $trie]] }"
     }
 
     c compile
@@ -341,7 +355,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     # exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie-add-remove.pdf
 
     ctrie add t [list Omar is a human] 603
-    puts [ctrie lookup $t [list Omar is a person]]
+    puts "Omar is a person: [ctrie lookup $t [list Omar is a person]]"
     puts [ctrie lookup $t [list Omar is a human]]
     puts [ctrie lookup $t [list Omar is a /x/]]
 

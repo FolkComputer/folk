@@ -10,7 +10,7 @@ proc d {arg} {
 source "useful/trie-c-play.tcl"
 namespace eval trie {
     namespace import ::ctrie::*
-    namespace export create add remove lookup
+    namespace export create add remove lookup dot
     namespace ensemble create
 }
 namespace eval tcltrie {
@@ -146,7 +146,7 @@ namespace eval Statements { ;# singleton Statement store
             set id [lindex $ids 0]
         } elseif {[llength $ids] == 0} {
             set id false
-        } else { error WTF }
+        } else { error "WTF $clause -> [lmap id $ids {statement clause [Statements::get $id]}]";  }
 
         if {$id != false} {
             dict with statements $id {
