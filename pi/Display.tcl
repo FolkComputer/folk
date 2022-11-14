@@ -56,7 +56,8 @@ critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     fbwidth = fbw;
     fbheight = fbh;
     fbmem = mmap(NULL, fbwidth * fbheight * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fb, 0);
-    staging = calloc(fbwidth * fbheight, sizeof(pixel_t));
+    // Multiply by 3 to create buffer area
+    staging = calloc(fbwidth * fbheight * 3, sizeof(pixel_t)) + (fbwidth * fbheight);
     return fbmem;
 }
 
@@ -74,10 +75,10 @@ critcl::resulttype Vec2i {
     return TCL_OK;
 } Vec2i
 critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
-    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 ||
-        t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) {
-        return;
-    }
+    /* if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 || */
+    /*     t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) { */
+    /*     return; */
+    /* } */
     unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
@@ -105,10 +106,10 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
 
 critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
     // Draws 1 line of text (no linebreak handling).
-    size_t width = text.len * font.char_width;
-    size_t height = font.char_height;
-    if (x0 < 0 || y0 < 0 ||
-        x0 + width >= fbwidth || y0 + height >= fbheight) return;
+    /* size_t width = text.len * font.char_width; */
+    /* size_t height = font.char_height; */
+    /* if (x0 < 0 || y0 < 0 || */
+    /*     x0 + width >= fbwidth || y0 + height >= fbheight) return; */
 
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
