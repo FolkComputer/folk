@@ -141,8 +141,10 @@ critcl::ccode {
         }
         return code;
     }
-    int isCloser(uint8_t it, uint8_t this, uint8_t that) {
-        return abs(it - this) < abs(it - that);
+    int isCloser(uint8_t it, uint8_t itInv, uint8_t this, uint8_t that) {
+        int thisError = abs(it - this) + abs(itInv - that);
+        int thatError = abs(it - that) + abs(itInv - this);
+        return thisError < thatError;
     }
 
     typedef struct {
@@ -188,11 +190,9 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
                 if (columnCorr[i] == 0xFFFF) continue;
 
                 int bit;
-                if (isCloser(codeImage[i], whiteImage[i], blackImage[i]) &&
-                    isCloser(invertedCodeImage[i], blackImage[i], whiteImage[i])) {
+                if (isCloser(codeImage[i], invertedCodeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 1;
-                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i]) &&
-                           isCloser(invertedCodeImage[i], whiteImage[i], blackImage[i])) {
+                } else if (isCloser(codeImage[i], invertedCodeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
                     if (k == 0) { // ignore least significant bit
@@ -243,9 +243,9 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
                 if (rowCorr[i] == 0xFFFF) continue;
                 
                 int bit;
-                if (isCloser(codeImage[i], whiteImage[i], blackImage[i])) {
+                if (isCloser(codeImage[i], invertedCodeImage[i], whiteImage[i], blackImage[i])) {
                     bit = 1;
-                } else if (isCloser(codeImage[i], blackImage[i], whiteImage[i])) {
+                } else if (isCloser(codeImage[i], invertedCodeImage[i], blackImage[i], whiteImage[i])) {
                     bit = 0;
                 } else {
                     if (k == 0) {
