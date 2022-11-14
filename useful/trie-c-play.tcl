@@ -1,26 +1,4 @@
 namespace eval c {
-    # critcl::ccode {
-    #     #define _GNU_SOURCE
-    #     #include <unistd.h>
-    #     #include <inttypes.h>
-    #     #include <stdlib.h>
-    # }
-    # ::proc struct {type fields} {
-    #     critcl::ccode [subst {
-    #         typedef struct $type {
-    #             $fields
-    #         } $type;
-    #     }]
-
-    #     critcl::argtype $type* [subst -nobackslashes {
-    #         sscanf(Tcl_GetString(@@), "($type*) 0x%p", &@A);
-    #     }]
-    #     critcl::resulttype $type* [subst -nobackslashes {
-    #         Tcl_SetObjResult(interp, Tcl_ObjPrintf("($type*) 0x%" PRIxPTR, (uintptr_t) rv));
-    #         return TCL_OK;
-    #     }]
-    # }
-
     variable prelude {
         #include <tcl.h>
         #include <inttypes.h>
@@ -114,10 +92,15 @@ namespace eval c {
         }]
     }
 
+    variable cflags [ switch $tcl_platform(os) {
+        Darwin { list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl }
+        Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
+    } ]
     ::proc compile {} {
         variable prelude
         variable code
         variable procs
+        variable cflags
 
         set init [subst {
             int Cfile_Init(Tcl_Interp* interp) {
@@ -132,8 +115,8 @@ namespace eval c {
         # puts "=====================\n$sourcecode\n====================="
 
         set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
-        exec cc -Wall -g -shared -I$::tcl_library/../../Headers $::tcl_library/../../Tcl $cfile -o [file rootname $cfile].dylib
-        load [file rootname $cfile].dylib cfile
+        exec cc -Wall -g -shared {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
+        load [file rootname $cfile][info sharedlibextension] cfile
 
         set code [list]
         set procs [dict create]
@@ -269,7 +252,10 @@ namespace eval ctrie {
     c proc lookupImpl {Tcl_Interp* interp Tcl_Obj* results
                        trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
-            Tcl_ListObjAppendElement(interp, results, Tcl_ObjPrintf("%d", trie->id));
+            if (trie->id != -1) {
+                Tcl_ListObjAppendElement(interp, results, Tcl_ObjPrintf("%d", trie->id));
+            }
+            return;
         }
 
         for (int j = 0; j < trie->nbranches; j++) {
@@ -304,7 +290,7 @@ namespace eval ctrie {
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
         objv[1] = Tcl_NewIntObj(trie->id);
         for (int i = 0; i < trie->nbranches; i++) {
-            objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_ObjPrintf("");
+            objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
         }
         return Tcl_NewListObj(objc, objv);
     }

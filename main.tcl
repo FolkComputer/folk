@@ -8,7 +8,6 @@ proc d {arg} {
 }
 
 source "useful/trie-c-play.tcl"
-ctrie::create
 namespace eval trie {
     namespace import ::ctrie::*
     namespace export create add remove lookup
