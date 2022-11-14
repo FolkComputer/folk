@@ -200,11 +200,14 @@ namespace eval ctrie {
             }
         }
 
-        if ((*trie)->branches[j] != NULL) {
-            // REALLOC
-            printf("realloc\n");
-        }
-        if (match == NULL && (*trie)->branches[j] == NULL) {
+        if (match == NULL) { // add new branch
+            if (j == (*trie)->nbranches) {
+                // we're out of room, need to grow trie
+                (*trie)->nbranches *= 2;
+                *trie = ckrealloc(*trie, sizeof(trie_t) + (*trie)->nbranches*sizeof(trie_t*));
+                memset(&(*trie)->branches[j], 0, ((*trie)->nbranches/2)*sizeof(trie_t*));
+            }
+
             size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
             trie_t* branch = ckalloc(size); memset(branch, 0, size);
             branch->key = wordv[0];
@@ -215,7 +218,6 @@ namespace eval ctrie {
             (*trie)->branches[j] = branch;
             match = &(*trie)->branches[j];
         }
-        printf("addImpl. match = %p. wordc = %d\n", match, wordc);
 
         addImpl(match, wordc - 1, wordv + 1, id);
     }

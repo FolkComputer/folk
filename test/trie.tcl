@@ -5,3 +5,4 @@ puts [trie lookup $t {Omar is a person}] ;# should be {1}
 puts [trie lookup $t {/someone/ is a person}] ;# should be {1}
 puts [trie lookup $t {Omar is a /species/}] ;# should be {1}
 puts [trie lookup $t {Generic is a dog}] ;# should be {2}
+exec dot -Tpdf <<[ctrie dot [ctrie tclify $t]] >ctrie.pdf
