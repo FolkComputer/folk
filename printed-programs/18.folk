@@ -1,0 +1,11 @@
+When $::nodename has step count /c/ {
+	Wish $this is labelled [string trim "
+step count: $c
+step time: $::stepTime
+camera time: [expr {[namespace exists Camera] ? [lindex $Camera::statements 0 end] : {none}}]
+display time: $Display::displayTime
+statement count: [Statements::size]
+logsize: $::logsize
+	"]
+}
+Wish $this is outlined green

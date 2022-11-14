@@ -45,8 +45,7 @@ namespace eval Display {
                 commitThenClearStaging
             }]
             thread::send -async "%s" [subst {
-                Retract display claims the display time is /t/
-                Assert display claims the display time is "$displayTime"
+                set Display::displayTime "$displayTime"
             }]
         } $::displayCount \
           [join [lsort -command lcomp $displayList] "\n"] \

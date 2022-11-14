@@ -28,6 +28,7 @@ namespace eval Display {
         uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
     }
 
+    variable displayTime
     proc commit {} {
         .display delete all
 
@@ -37,7 +38,10 @@ namespace eval Display {
         }
 
         proc lcomp {a b} {expr {[lindex $a 2] == "text"}}
-        eval [join [lsort -command lcomp $displayList] "\n"]
+        variable displayTime
+        set displayTime [time {
+            eval [join [lsort -command lcomp $displayList] "\n"]
+        }]
     }
 }
 
