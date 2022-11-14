@@ -7,98 +7,11 @@ proc d {arg} {
     # puts $arg
 }
 
-source "useful/trie-c-play.tcl"
+source "lib/c.tcl"
+source "lib/trie.tcl"
 namespace eval trie {
     namespace import ::ctrie::*
-    namespace export create add remove lookup
-    namespace ensemble create
-}
-namespace eval tcltrie {
-    # used for statement lookup
-
-    proc erase {clause} {
-        for {set i 0} {$i < [llength $clause]} {incr i} {
-            if {[string index [lindex $clause $i] 0] == "/"} {
-                lset clause $i "/"
-            }
-        }
-        return $clause
-    }
-
-    namespace export create add remove lookup
-    proc create {} { dict create }
-    proc add {trieVar clause id} { upvar $trieVar trie; dict set trie {*}[erase $clause] $id }
-    proc remove {trieVar clause} {
-        upvar $trieVar trie
-        set subclause [erase $clause]
-        while 1 {
-            dict unset trie {*}$subclause
-
-            # we need to garbage-collect empty dicts after the unset
-            set subclause [lrange $subclause 0 end-1]
-            if {[dict size [dict get $trie {*}$subclause]] > 0} { break }
-        }
-    }
-
-    proc lookup {trie pattern} {
-        set branches [list $trie]
-        foreach word $pattern {
-            if {[string index $word 0] == "/"} {
-                set nextBranches [concat {*}[lmap branch $branches {dict values $branch}]]
-            } else {
-                set nextBranches [list]
-                foreach branch $branches {
-                    if {[string is integer -strict $branch]} {
-                        continue ;# leaf node
-                    }
-
-                    if {[dict exists $branch "/"]} {
-                        lappend nextBranches [dict get $branch "/"]
-                    }
-                    if {[dict exists $branch $word]} {
-                        lappend nextBranches [dict get $branch $word]
-                    }
-                }
-            }
-            set branches $nextBranches
-        }
-        # puts "trie lookup $trie ($pattern) => $branches\n\n"
-        return [lmap branch $branches {expr {
-            [string is integer -strict $branch] ? $branch : [continue]
-        }}]
-    }
-
-    namespace export dot
-    proc dot {trie} {
-        proc idify {word} {
-            # generate id-able word by eliminating all non-alphanumeric
-            regsub -all {\W+} $word "_"
-        }
-        proc labelify {word} {
-            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
-        }
-        proc subdot {path subtrie} {
-            set dot [list]
-            foreach word [dict keys $subtrie] {
-                set pathword [idify $word]
-                set newpath [list {*}$path $pathword]
-                lappend dot "[join $newpath "_"] \[label=\"[labelify $word]\"\];"
-                if {$path != {}} {
-                    # set shortKey [expr {[string length $key] > 100 ?
-                    #                     "[string range $key 0 50]..." :
-                    #                     $key}]
-                    lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
-                }
-                set child [dict get $subtrie $word]
-                if {![string is integer -strict $child]} {
-                    lappend dot [subdot $newpath $child]
-                }
-            }
-            return [join $dot "\n"]
-        }
-        return "digraph { rankdir=LR; [subdot {} $trie] }"
-    }
-
+    namespace export *
     namespace ensemble create
 }
 
@@ -476,7 +389,6 @@ proc Step {} {
 }
 
 source "lib/math.tcl"
-source "lib/c.tcl"
 
 # this defines $this in the contained scopes
 Assert when /this/ has program code /__code/ {

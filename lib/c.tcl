@@ -1,3 +1,133 @@
+namespace eval c {
+    variable prelude {
+        #include <tcl.h>
+        #include <inttypes.h>
+        #include <stdint.h>
+    }
+    variable code [list]
+    variable procs [dict create]
+
+    ::proc include {h} {
+        variable code
+        lappend code "#include $h"
+    }
+    ::proc struct {type fields} {
+        variable code
+        lappend code [subst {
+            typedef struct $type $type;
+            struct $type {
+                $fields
+            };
+        }]
+    }
+
+    ::proc "proc" {name args rtype body} {
+        # puts "$name $args $rtype $body"
+
+        set arglist [list]
+        set argnames [list]
+        set loadargs [list]
+        for {set i 0} {$i < [llength $args]} {incr i 2} {
+            set argtype [lindex $args $i]
+            set argname [lindex $args [expr {$i+1}]]
+            lappend arglist "$argtype $argname"
+            lappend argnames $argname
+
+            if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
+
+            set obj [subst {objv\[1 + [llength $loadargs]\]}]
+            lappend loadargs [subst {
+                $argtype $argname;
+                [subst [switch $argtype {
+                    int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                    Tcl_Obj* { expr {{ $argname = $obj; }}}
+                    trie_t* { expr {{ sscanf(Tcl_GetString($obj), "(trie_t*) 0x%p", &$argname); }}}
+                    trie_t** { expr {{ sscanf(Tcl_GetString($obj), "(trie_t**) 0x%p", &$argname); }}}
+                    Tcl_Obj** { expr {{ sscanf(Tcl_GetString($obj), "(Tcl_Obj**) 0x%p", &$argname); }}}
+                    default { error "Unrecognized argtype $argtype" }
+                }]]
+            }]
+        }
+        if {$rtype == "void"} {
+            set saverv [subst {
+                $name ([join $argnames ", "]);
+                return TCL_OK;
+            }]
+        } else {
+            set saverv [subst {
+                $rtype rv = $name ([join $argnames ", "]);
+                [switch $rtype {
+                    int { expr {{
+                        Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
+                        return TCL_OK;
+                    }}}
+                    Tcl_Obj* { expr {{
+                        Tcl_SetObjResult(interp, rv);
+                        return TCL_OK;
+                    }}}
+                    trie_t* { expr {{
+                        Tcl_SetObjResult(interp, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) rv));
+                        return TCL_OK;
+                    }}}
+                    default { error "Unrecognized rtype $rtype" }
+                }]
+            }]
+        }
+        
+        set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
+        variable procs
+        dict set procs $name [subst {
+            static $rtype $name ([join $arglist ", "]) {
+                $body
+            }
+
+            static int [set name]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[]) {
+                if (objc != 1 + [llength $loadargs]) {
+                    Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
+                    return TCL_ERROR;
+                }
+                [join $loadargs "\n"]
+                $saverv
+            }
+        }]
+    }
+
+    variable cflags [ switch $tcl_platform(os) {
+        Darwin { list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl }
+        Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
+    } ]
+    ::proc compile {} {
+        variable prelude
+        variable code
+        variable procs
+        variable cflags
+
+        set init [subst {
+            int Cfile_Init(Tcl_Interp* interp) {
+                [join [lmap name [dict keys $procs] { subst {
+                    Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
+                }}] "\n"]
+                return TCL_OK;
+            }
+        }]
+        set sourcecode [join [list $prelude {*}$code {*}[dict values $procs] $init] "\n"]
+        
+        # puts "=====================\n$sourcecode\n====================="
+
+        set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
+        exec cc -Wall -g -shared {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
+        load [file rootname $cfile][info sharedlibextension] cfile
+
+        set code [list]
+        set procs [dict create]
+    }
+
+    namespace export *
+    namespace ensemble create
+}
+
+# FIXME: legacy critcl stuff below:
+
 if {![info exists ::livecprocs]} {set ::livecprocs [dict create]}
 proc livecproc {name args} {
     if {[dict exists $::livecprocs $name $args]} {
