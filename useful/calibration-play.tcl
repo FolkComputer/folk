@@ -5,6 +5,7 @@ exec sudo systemctl stop folk
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
 critcl::clibraries [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+critcl::debug symbols
 critcl::clean_cache
 
 source "pi/Display.tcl"
@@ -303,8 +304,8 @@ critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} 
     Tcl_Obj* correspondences[size*size];
     int correspondenceCount = 0;
 
-    for (int x = cx - size/2; x < cx + size/2; x++) {
-        for (int y = cy - size/2; y < cy + size/2; y++) {
+    for (int x = cx; x < cx + size; x++) {
+        for (int y = cy; y < cy + size; y++) {
             int i = (y * $Camera::WIDTH) + x;
             if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
                 correspondences[correspondenceCount++] = Tcl_ObjPrintf("%f %f %d %d", (float)x/1.5, (float)y/1.5, dense->columnCorr[i], dense->rowCorr[i]);
@@ -336,11 +337,16 @@ foreach tag $tags {
     puts "for tag $tag:"
     
     # these are in camera space
-    set cx [expr int([lindex [dict get $tag center] 0])]
-    set cy [expr int([lindex [dict get $tag center] 1])]
-    set size [expr int([dict get $tag size])]
+    set cx [lindex [dict get $tag center] 0]
+    set cy [lindex [dict get $tag center] 1]
 
-    set correspondences [findNearbyCorrespondences $dense $cx $cy $size]
+    set keypoints [list [list $cx $cy] {*}[dict get $tag corners]]
+    set correspondences [list]
+    foreach keypoint $keypoints {
+        lassign $keypoint x y
+        lappend correspondences [lindex [findNearbyCorrespondences $dense [expr {int($x)}] [expr {int($y)}] 3] 0]
+    }
+
     puts "nearby: [llength $correspondences] correspondences"
     puts ""
 
