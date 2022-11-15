@@ -145,3 +145,26 @@ install `pkg-config` if it can't find `libdrm`
 
 Clone https://github.com/krh/vkcube and `mkdir build` and `meson ..`
 and `ninja` and `./vkcube -m khr -k 0:0:0`.
+
+### Hades Canyon NUC
+
+Also similar to above Pi 4 instructions.
+
+`sudo apt install libdrm-dev libdrm-tests`
+
+`modetest -M amdgpu` to list connectors and not try the Intel
+integrated graphics
+
+`modetest -M amdgpu -s 86:3840x2160`
+
+You need `glslang-tools` before running `meson` to build Mesa:
+
+`sudo apt install glslang-dev glslang-tools spirv-tools
+python3-mako pkg-config libudev-dev clang llvm-dev bison flex`
+
+Mesa `meson` configure options for the AMD GPU:
+
+`meson -Dglx=disabled -Dplatforms=
+-Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi
+-Dbuildtype=release ..`
+
