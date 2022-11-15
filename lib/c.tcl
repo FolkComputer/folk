@@ -93,7 +93,10 @@ namespace eval c {
     }
 
     variable cflags [ switch $tcl_platform(os) {
-        Darwin { list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl }
+        Darwin { expr { [file exists "$::tcl_library/../../Tcl"] ?
+                        [list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl] :
+                        [list -I$::tcl_library/../../include $::tcl_library/../libtcl8.6.dylib]
+                    } }
         Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
     } ]
     ::proc compile {} {
