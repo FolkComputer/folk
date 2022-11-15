@@ -3,6 +3,7 @@
 to run on (Mac) laptop:
 ```
 $ brew install tcl-tk
+$ ln -s /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh /usr/local/bin/tclsh8.6
 ```
 
 to run on Pi:
