@@ -118,6 +118,7 @@ test `lpr folk-rsync/printed-programs/SOMETHING.pdf` (you have to
 print the PDF and not the PS for it to work, probably)
 
 ## stuff
+
 - implement generators (~point at~)
 - ~implement even-better fake lexical scope~
 - ~share (axiom) statements from laptop -> Pi~
@@ -130,3 +131,17 @@ print the PDF and not the PS for it to work, probably)
 - print support
 - ~clean up lexical scope~
 - with-all-matches
+
+## Vulkan
+
+### Pi 4
+
+Basically follow
+https://forums.libretro.com/t/retroarch-raspberry-pi-4-vulkan-without-x-howto/31164/2 except:
+
+install `pkg-config` if it can't find `libdrm`
+
+`sudo ninja install` to install Mesa system-wide
+
+Clone https://github.com/krh/vkcube and `mkdir build` and `meson ..`
+and `ninja` and `./vkcube -m khr -k 0:0:0`.
