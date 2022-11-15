@@ -162,9 +162,24 @@ You need `glslang-tools` before running `meson` to build Mesa:
 `sudo apt install glslang-dev glslang-tools spirv-tools
 python3-mako pkg-config libudev-dev clang llvm-dev bison flex`
 
+`sudo apt install libelf-dev` for some reason https://gitlab.freedesktop.org/mesa/mesa/-/issues/7456
+ make sure meson finds it below! `Run-time dependency libelf found: YES 0.186` it won't fail in configure phase
+ if it doesn't
+
 Mesa `meson` configure options for the AMD GPU:
 
 `meson -Dglx=disabled -Dplatforms=
 -Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi
 -Dbuildtype=release ..`
 
+`vulkaninfo`
+
+`sudo chmod 666 /dev/dri/renderD129`
+
+### Testing
+
+clone https://github.com/krh/vkcube
+
+`mkdir build; cd build; meson .. && ninja`
+
+`./vkcube -m khr -k 0:0:0`
