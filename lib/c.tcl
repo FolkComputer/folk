@@ -7,10 +7,46 @@ namespace eval c {
     variable code [list]
     variable procs [dict create]
 
+    variable argtypes {
+        int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+        Tcl_Obj* { expr {{ $argname = $obj; }}}
+        default {
+            if {[string index $argtype end] == "*"} {
+                expr {{ sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname); }}
+            } else {
+                error "Unrecognized argtype $argtype"
+            }
+        }
+    }
+    ::proc argtype {t h} { variable argtypes; dict set argtypes $t [subst {expr {{$h}}}] }
+
+    variable rtypes {
+        int { expr {{
+            Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
+            return TCL_OK;
+        }}}
+        Tcl_Obj* { expr {{
+            Tcl_SetObjResult(interp, rv);
+            return TCL_OK;
+        }}}
+        default {
+            if {[string index $rtype end] == "*"} {
+                expr {{
+                    Tcl_SetObjResult(interp, Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) rv));
+                    return TCL_OK;
+                }}
+            } else {
+                error "Unrecognized rtype $rtype"
+            }
+        }
+    }
+    ::proc rtype {t h} { variable rtypes; dict set rtypes $t [subst {expr {{$h}}}] }
+
     ::proc include {h} {
         variable code
         lappend code "#include $h"
     }
+    ::proc code {newcode} { variable code; lappend code newcode }
     ::proc struct {type fields} {
         variable code
         lappend code [subst {
@@ -23,6 +59,8 @@ namespace eval c {
 
     ::proc "proc" {name args rtype body} {
         # puts "$name $args $rtype $body"
+        variable argtypes
+        variable rtypes
 
         set arglist [list]
         set argnames [list]
@@ -38,14 +76,7 @@ namespace eval c {
             set obj [subst {objv\[1 + [llength $loadargs]\]}]
             lappend loadargs [subst {
                 $argtype $argname;
-                [subst [switch $argtype {
-                    int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                    Tcl_Obj* { expr {{ $argname = $obj; }}}
-                    trie_t* { expr {{ sscanf(Tcl_GetString($obj), "(trie_t*) 0x%p", &$argname); }}}
-                    trie_t** { expr {{ sscanf(Tcl_GetString($obj), "(trie_t**) 0x%p", &$argname); }}}
-                    Tcl_Obj** { expr {{ sscanf(Tcl_GetString($obj), "(Tcl_Obj**) 0x%p", &$argname); }}}
-                    default { error "Unrecognized argtype $argtype" }
-                }]]
+                [subst [switch $argtype $argtypes]]
             }]
         }
         if {$rtype == "void"} {
@@ -56,21 +87,7 @@ namespace eval c {
         } else {
             set saverv [subst {
                 $rtype rv = $name ([join $argnames ", "]);
-                [switch $rtype {
-                    int { expr {{
-                        Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
-                        return TCL_OK;
-                    }}}
-                    Tcl_Obj* { expr {{
-                        Tcl_SetObjResult(interp, rv);
-                        return TCL_OK;
-                    }}}
-                    trie_t* { expr {{
-                        Tcl_SetObjResult(interp, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) rv));
-                        return TCL_OK;
-                    }}}
-                    default { error "Unrecognized rtype $rtype" }
-                }]
+                [subst [switch $rtype $rtypes]]
             }]
         }
         
@@ -99,6 +116,7 @@ namespace eval c {
                     } }
         Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
     } ]
+    ::proc cflags {args} { variable cflags; lappend cflags {*}$args }
     ::proc compile {} {
         variable prelude
         variable code
@@ -113,8 +131,13 @@ namespace eval c {
                 return TCL_OK;
             }
         }]
-        set sourcecode [join [list $prelude {*}$code {*}[dict values $procs] $init] "\n"]
-        
+        set sourcecode [join [list \
+                                  $prelude \
+                                  {*}$code \
+                                  {*}[dict values $procs] \
+                                  $init \
+                                 ] "\n"]
+
         # puts "=====================\n$sourcecode\n====================="
 
         set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
