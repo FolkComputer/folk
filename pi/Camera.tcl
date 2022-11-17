@@ -196,11 +196,15 @@ critcl::cproc rgbToGray {uint8_t* rgb int width int height} uint8_t* {
     uint8_t* gray = calloc(width * height, sizeof (uint8_t));
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
+            // we're spending 10-20% of camera time here on Pi ... ??
+
             int i = (y * width + x) * 3;
-            uint8_t r = rgb[i];
-            uint8_t g = rgb[i + 1];
-            uint8_t b = rgb[i + 2];
-            gray[y * width + x] = 0.299*r + 0.587*g + 0.114*b;
+            uint32_t r = rgb[i];
+            uint32_t g = rgb[i + 1];
+            uint32_t b = rgb[i + 2];
+            // from https://mina86.com/2021/rgb-to-greyscale/
+            uint32_t yy = 3567664 * r + 11998547 * g + 1211005 * b;
+            gray[y * width + x] = ((yy + (1 << 23)) >> 24);
         }
     }
     return gray;

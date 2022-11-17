@@ -22,6 +22,7 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
     }
 
+    variable displayTime none
     proc commit {} {
         set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
