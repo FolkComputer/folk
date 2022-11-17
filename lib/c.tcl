@@ -18,7 +18,7 @@ namespace eval c {
             }
         }
     }
-    ::proc argtype {t h} { variable argtypes; dict set argtypes $t [subst {expr {{$h}}}] }
+    ::proc argtype {t h} { variable argtypes; linsert argtypes 0 $t [subst {expr {{$h}}}] }
 
     variable rtypes {
         int { expr {{
@@ -40,13 +40,13 @@ namespace eval c {
             }
         }
     }
-    ::proc rtype {t h} { variable rtypes; dict set rtypes $t [subst {expr {{$h}}}] }
+    ::proc rtype {t h} { variable rtypes; linsert rtypes 0 $t [subst {expr {{$h}}}] }
 
     ::proc include {h} {
         variable code
         lappend code "#include $h"
     }
-    ::proc code {newcode} { variable code; lappend code newcode }
+    ::proc code {newcode} { variable code; lappend code $newcode }
     ::proc struct {type fields} {
         variable code
         lappend code [subst {
