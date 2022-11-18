@@ -1,4 +1,4 @@
-package require critcl
+source "lib/c.tcl"
 source "pi/critclUtils.tcl"
 
 namespace eval Display {}
@@ -6,11 +6,9 @@ set fbset [exec fbset]
 regexp {mode "(\d+)x(\d+)"} $fbset -> Display::WIDTH Display::HEIGHT
 regexp {geometry \d+ \d+ \d+ \d+ (\d+)} $fbset -> Display::DEPTH
 
-critcl::tcl 8.6
-critcl::cflags -Wall -Werror
-critcl::debug symbols
+rename [c create] dc
 
-critcl::ccode {
+dc code {
     #include <sys/stat.h>
     #include <fcntl.h>
     #include <sys/mman.h>
@@ -21,7 +19,7 @@ critcl::ccode {
 }
 
 if {$Display::DEPTH == 16} {
-    critcl::ccode {
+    dc code {
         typedef uint16_t pixel_t;
         #define PIXEL(r, g, b) \
             (((((r) >> 3) & 0x1F) << 11) | \
@@ -29,7 +27,7 @@ if {$Display::DEPTH == 16} {
              (((b) >> 3) & 0x1F));
     }
 } elseif {$Display::DEPTH == 32} {
-    critcl::ccode {
+    dc code {
         typedef uint32_t pixel_t;
         #define PIXEL_R(pixel) (((pixel) >> 16) | 0xFF)
         #define PIXEL_G(pixel) (((pixel) >> 8) | 0xFF)
@@ -40,18 +38,16 @@ if {$Display::DEPTH == 16} {
     error "Display: Unusable depth $Display::DEPTH"
 }
 
-critcl::ccode {
+dc code {
     pixel_t* staging;
     pixel_t* fbmem;
 
     int fbwidth;
     int fbheight;
 }
-critcl::ccode [source "vendor/font.tcl"]
-opaquePointerType pixel_t*
-opaquePointerType uint8_t*
+dc code [source "vendor/font.tcl"]
 
-critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
+dc proc mmapFb {int fbw int fbh} pixel_t* {
     int fb = open("/dev/fb0", O_RDWR);
     fbwidth = fbw;
     fbheight = fbh;
@@ -61,25 +57,24 @@ critcl::cproc mmapFb {int fbw int fbh} pixel_t* {
     return fbmem;
 }
 
-critcl::ccode {
+dc code {
     typedef struct Vec2i { int x; int y; } Vec2i;
     Vec2i Vec2i_add(Vec2i a, Vec2i b) { return (Vec2i) { a.x + b.x, a.y + b.y }; }
     Vec2i Vec2i_sub(Vec2i a, Vec2i b) { return (Vec2i) { a.x - b.x, a.y - b.y }; }
     Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
 }
-critcl::argtype Vec2i {
-    sscanf(Tcl_GetString(@@), "%d %d", &@A.x, &@A.y);
-} Vec2i
-critcl::resulttype Vec2i {
+dc argtype Vec2i {
+    sscanf(Tcl_GetString($obj), "%d %d", &$argname.x, &$argname.y);
+}
+dc rtype Vec2i {
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
     return TCL_OK;
-} Vec2i
-critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} void {
+}
+dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
     /* if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 || */
     /*     t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) { */
     /*     return; */
     /* } */
-    unsigned short color = (colorBytes.s[1] << 8) | colorBytes.s[0];
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
 
@@ -104,7 +99,7 @@ critcl::cproc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 bytes colorBytes} voi
     } 
 }
 
-critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
+dc proc drawText {int x0 int y0 char* text} void {
     // Draws 1 line of text (no linebreak handling).
     /* size_t width = text.len * font.char_width; */
     /* size_t height = font.char_height; */
@@ -114,10 +109,11 @@ critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
     /* printf("%d x %d\n", font.char_width, font.char_height); */
     /* printf("[%c] (%d)\n", c, c); */
 
-    for (unsigned i = 0; i < text.len; i++) {
+    int len = strlen(text);
+    for (unsigned i = 0; i < len; i++) {
         for (unsigned y = 0; y < font.char_height; y++) {
             for (unsigned x = 0; x < font.char_width; x++) {
-                int idx = (text.s[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+                int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                 int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
                 staging[((y0+y)*fbwidth) + (i*font.char_width + x0+x)] = bit ? 0xFFFF : 0x0000;
             }
@@ -126,7 +122,7 @@ critcl::cproc drawText {int x0 int y0 pstring text float rotate_radians} void {
         /* memcpy(&staging[(y0+y)*fbwidth+x0], &shear_out[y*width], sizeof(pixel_t)*width); */
 }
 # for debugging
-critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
+dc proc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
               int i = (y * width + x);
@@ -140,10 +136,11 @@ critcl::cproc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im
           }
       }
 }
-critcl::cproc commitThenClearStaging {} void {
+dc proc commitThenClearStaging {} void {
     memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
+dc compile
 
 namespace eval Display {
     variable WIDTH
@@ -200,7 +197,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text radians} {
-        drawText [expr {int($x)}] [expr {int($y)}] $text $radians
+        drawText [expr {int($x)}] [expr {int($y)}] $text
     }
 
     # for debugging
@@ -215,14 +212,13 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     for {set i 0} {$i < 5} {incr i} {
-        fillTriangle {400 400} {500 500} {400 600} $Display::blue
+        fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
         # fillRectangle 400 400 410 410 $Display::red ;# t0
         # fillRectangle 500 500 510 510 $Display::red ;# t1
         # fillRectangle 400 600 410 610 $Display::red ;# t2
         
-        drawText 300 400 "A" 0
-        drawText 309 400 "B" 0 
-        drawText 318 400 "O" 0
+        drawText 309 400 "B"
+        drawText 318 400 "O"
 
         Display::text fb 300 420 PLACEHOLDER "Hello!" 0
 
