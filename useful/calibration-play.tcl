@@ -1,6 +1,8 @@
 package require critcl
 
 exec sudo systemctl stop folk
+exec v4l2-ctl --set-ctrl=focus_auto=0
+exec v4l2-ctl --set-ctrl=focus_absolute=0
 
 critcl::tcl 8.6
 critcl::cflags -Wall -Werror
@@ -335,6 +337,7 @@ freeUint8Buffer $grayFrame
 puts ""
 set keyCorrespondences [list]
 foreach tag $tags {
+    puts ""
     puts "for tag $tag:"
     
     # these are in camera space
@@ -342,13 +345,14 @@ foreach tag $tags {
     set cy [lindex [dict get $tag center] 1]
 
     set keypoints [list [list $cx $cy] {*}[dict get $tag corners]]
+    puts "keypoints: $keypoints"
     set correspondences [list]
     foreach keypoint $keypoints {
         lassign $keypoint x y
         lappend correspondences [lindex [findNearbyCorrespondences $dense [expr {int($x)}] [expr {int($y)}] 3] 0]
     }
 
-    puts "nearby: [llength $correspondences] correspondences"
+    puts "nearby: [llength $correspondences] correspondences: $correspondences"
     puts ""
 
     lassign [lindex $correspondences 0] _ _ px py
@@ -359,6 +363,9 @@ foreach tag $tags {
         [list $px1 $py1] \
         [list $px $py1] \
         red
+    set id [dict get $tag id]
+    Display::text fb $px $py 10 "$id" 0
+    Display::text fb $px1 $py1 10 "$id'" 0
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
