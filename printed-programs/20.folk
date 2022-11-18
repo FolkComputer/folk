@@ -1,0 +1,30 @@
+namespace eval ::image {
+        proc width {im} { dict get $im width }
+        proc height {im} { dict get $im height }
+        proc subimage {im x y subwidth subheight} {
+            dict with im {
+		set x [expr {int($x)}]
+		set y [expr {int($y)}]
+                set subdata [expr {$data + ($y * $width + $x) * $components}]
+                dict create \
+                    width $subwidth height $subheight \
+                    components $components \
+                    bytesPerRow $bytesPerRow \
+                    data [format 0x%x $subdata]
+            }
+        }
+        namespace export *
+	namespace ensemble create
+}
+
+When the camera frame is /f/ {
+	When $this has region /r/ {
+		set r0 [projectorToCamera [lindex $r 0 0]]
+		set thisimage [image subimage $f {*}$r0 300 300]
+		# Wish $this is labelled [regionToBbox $r]
+		# Wish $this is labelled "\n\n[lindex $r 0 0]"
+		Wish display runs [list Display::image {*}[lindex $r 0 0] $thisimage]
+	}
+}
+Wish $this is outlined red
+
