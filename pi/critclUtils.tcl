@@ -36,7 +36,7 @@ proc defineImageType {cc} {
             uint32_t width;
             uint32_t height;
             int components;
-            size_t bytesPerRow;
+            uint32_t bytesPerRow;
 
             uint8_t *data;
         } image_t;
