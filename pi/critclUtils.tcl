@@ -6,6 +6,14 @@ if {[namespace exists critcl]} {
     critcl::cproc getTid {} int {
         return gettid();
     }
+} elseif {[namespace exists c]} {
+    set handle [c create]
+    $handle include <sys/syscall.h>
+    $handle include <unistd.h>
+    $handle proc getTid {} int {
+        return syscall(SYS_gettid);
+    }
+    $handle compile
 }
 
 proc opaquePointerType {type} {

@@ -3,11 +3,7 @@ source "pi/critclUtils.tcl"
 
 rename [c create] camc
 
-camc cflags -I$::env(HOME)/apriltag
-camc cflags $::env(HOME)/apriltag/libapriltag.a
-
-camc include <apriltag.h>
-camc include <tagStandard52h13.h>
+camc include <string.h>
 camc include <math.h>
 
 camc include <errno.h>
@@ -264,6 +260,10 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
 
 namespace eval AprilTags {
     rename [c create] apc
+    apc cflags -I$::env(HOME)/apriltag
+    apc include <apriltag.h>
+    apc include <tagStandard52h13.h>
+    apc include <math.h>
     apc code {
         apriltag_detector_t *td;
         apriltag_family_t *tf;
@@ -308,14 +308,15 @@ namespace eval AprilTags {
         tagStandard52h13_destroy(tf);
         apriltag_detector_destroy(td);
     }
+
+    c loadlib $::env(HOME)/apriltag/libapriltag.so
+    apc compile
     
-    apc proc init {} {
+    proc init {} {
         detectInit
     }
 
-    apc proc detect {gray} {
+    proc detect {gray} {
         return [detectImpl $gray $Camera::WIDTH $Camera::HEIGHT]
     }
-
-    apc compile
 }
