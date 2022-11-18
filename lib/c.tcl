@@ -18,7 +18,11 @@ namespace eval c {
                 Tcl_Obj* { expr {{ $argname = $obj; }}}
                 default {
                     if {[string index $argtype end] == "*"} {
-                        expr {{ sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname); }}
+                        expr {{
+                            if (sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) != 1) {
+                                return TCL_ERROR;
+                            }
+                        }}
                     } else {
                         error "Unrecognized argtype $argtype"
                     }

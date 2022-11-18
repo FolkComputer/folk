@@ -72,7 +72,7 @@ namespace eval Camera {
 
                 set grayFrame [rgbToGray $frame]
                 set tags [AprilTags::detect $grayFrame]
-                freeImage $grayFrame
+                freeUint8Buffer $grayFrame
             }]
             set statements [list]
             lappend statements [list camera claims the camera time is $cameraTime]

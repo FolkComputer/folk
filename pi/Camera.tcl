@@ -202,8 +202,11 @@ camc proc rgbToGray {image_t rgb} uint8_t* {
     }
     return gray;
 }
-camc proc freeImage {uint8_t* image} void {
+camc proc freeUint8Buffer {uint8_t* image} void {
   free(image);
+}
+camc proc freeImage {image_t image} void {
+  free(image.data);
 }
 
 c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
@@ -253,7 +256,7 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
         set gray [rgbToGray $rgb]
         freeImage $rgb
         Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
-        freeImage $gray
+        freeUint8Buffer $gray
     }
 }
 
