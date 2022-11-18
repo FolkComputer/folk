@@ -1,11 +1,12 @@
 source "lib/c.tcl"
 
 namespace eval Display {
-    c include <vulkan/vulkan.h>
-    c include <stdlib.h>
-    c include <dlfcn.h>
+    rename [c create] dc
+    dc include <vulkan/vulkan.h>
+    dc include <stdlib.h>
+    dc include <dlfcn.h>
 
-    c proc init {} void {
+    dc proc init {} void {
         void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         PFN_vkCreateInstance vkCreateInstance = (PFN_vkCreateInstance) vkGetInstanceProcAddr(NULL, "vkCreateInstance");
@@ -44,25 +45,26 @@ namespace eval Display {
             physicalDevice = physicalDevices[0];
         }
 
-        VkDevice device; {
-            uint32_t graphicsQueueFamilyIndex = UINT32_MAX; {
-                PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties =
-                    (PFN_vkGetPhysicalDeviceQueueFamilyProperties) vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+        
+        uint32_t graphicsQueueFamilyIndex = UINT32_MAX; {
+            PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties =
+            (PFN_vkGetPhysicalDeviceQueueFamilyProperties) vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
 
-                uint32_t queueFamilyCount = 0;
-                vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
-                VkQueueFamilyProperties queueFamilies[queueFamilyCount];
-                vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
-                for (int i = 0; i < queueFamilyCount; i++) {
-                    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                        graphicsQueueFamilyIndex = i;
-                    }
-                }
-                if (graphicsQueueFamilyIndex == UINT32_MAX) {
-                    fprintf(stderr, "Failed to find a Vulkan graphics queue family\n"); exit(1);
+            uint32_t queueFamilyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
+            VkQueueFamilyProperties queueFamilies[queueFamilyCount];
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
+            for (int i = 0; i < queueFamilyCount; i++) {
+                if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    graphicsQueueFamilyIndex = i;
                 }
             }
+            if (graphicsQueueFamilyIndex == UINT32_MAX) {
+                fprintf(stderr, "Failed to find a Vulkan graphics queue family\n"); exit(1);
+            }
+        }
 
+        VkDevice device; {
             VkDeviceQueueCreateInfo queueCreateInfo = {0};
             queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
@@ -87,20 +89,30 @@ namespace eval Display {
             }
         }
 
-        /* VkDeviceCreateInfo deviceCreateInfo = {0}; */
-        /* deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO; */
-        /* deviceCreateInfo.queueCreateInfoCount = 1; */
-        /* vkCreateDevice(&physicalDevice, deviceCreateInfo); */
-        
+        VkQueue graphicsQueue; {
+            PFN_vkGetDeviceQueue vkGetDeviceQueue =
+                (PFN_vkGetDeviceQueue) vkGetInstanceProcAddr(instance, "vkGetDeviceQueue");
+            vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
+        }
 
+        /* VkSurfaceKHR surface; { */
+        /*     VkDisplaySurfaceCreateInfoKHR createInfo = {0}; */
+        /*     createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR; */
+        /*     createInfo.displayMode = 0; */
+        /*     createInfo.planeIndex = 0; */
+        /*     // createInfo.imageExtent = visibleRegion; */
+        /*     vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface); */
+        /* } */
+
+        
         
 
 //        uint32_t display_count = 0;
 //        vkGetPhysicalDeviceDisplayPropertiesKHR(vc->physical_device,
 //                                                &display_count, NULL);
     }
- 
-    c compile
+
+    dc compile
 }
 
 Display::init
