@@ -1,0 +1,25 @@
+Wish $this has filename "image.folk"
+
+namespace eval ::image {
+        proc width {im} { dict get $im width }
+        proc height {im} { dict get $im height }
+        proc subimage {im x y subwidth subheight} {
+            dict with im {
+                set subdata [expr {$data + ($y * $width + $x) * $components}]
+                dict create \
+                    width $subwidth height $subheight \
+                    components $components \
+                    bytesPerRow $bytesPerRow \
+                    data [format 0x%x $subdata]
+            }
+        }
+        namespace export *
+	namespace ensemble create
+}
+
+When the camera frame is /f/ {
+	When $this has region /r/ {
+		# Wish $this is labelled [regionToBbox $r]
+	}
+	Wish $this is labelled "$f\n[image subimage $f 0 0 100 100]"
+}

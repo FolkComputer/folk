@@ -49,11 +49,4 @@ proc defineImageType {cc} {
         Tcl_SetObjResult(interp, Tcl_ObjPrintf("width %u height %u components %d bytesPerRow %lu data 0x%" PRIxPTR, rv.width, rv.height, rv.components, rv.bytesPerRow, (uintptr_t) rv.data));
         return TCL_OK;
     }
-
-    uplevel { namespace eval image {
-        proc width {im} { dict get $im width }
-        proc height {im} { dict get $im height }
-        namespace export *
-        namespace ensemble create
-    } }
 }
