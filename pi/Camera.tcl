@@ -156,7 +156,7 @@ camc proc cameraFrame {camera_t* camera} int {
     return camera_capture(camera);
 }
 
-camc proc cameraDecompressRgb {camera_t* camera} image_t {
+camc proc cameraDecompressRgb {camera_t* camera image_t dest} void {
       struct jpeg_decompress_struct cinfo;
       struct jpeg_error_mgr jerr;
       cinfo.err = jpeg_std_error(&jerr);
@@ -168,22 +168,13 @@ camc proc cameraDecompressRgb {camera_t* camera} image_t {
       }
       jpeg_start_decompress(&cinfo);
 
-      uint8_t* rgb = 
-          malloc(camera->width * camera->height * cinfo.output_components);
-
       while (cinfo.output_scanline < cinfo.output_height) {
           unsigned char *buffer_array[1];
-          buffer_array[0] = rgb + (cinfo.output_scanline) * camera->width * cinfo.output_components;
+          buffer_array[0] = dest.data + (cinfo.output_scanline) * dest.width * cinfo.output_components;
           jpeg_read_scanlines(&cinfo, buffer_array, 1);
       }
-      jpeg_finish_decompress(&cinfo);
-      jpeg_destroy_decompress(&cinfo);
-
-    return (image_t) {
-        .width = camera->width, .height = camera->height, .components = cinfo.output_components,
-        .bytesPerRow = camera->width * cinfo.output_components,
-        .data = rgb
-    };
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
 }
 camc proc rgbToGray {image_t rgb} uint8_t* {
     uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
@@ -202,11 +193,15 @@ camc proc rgbToGray {image_t rgb} uint8_t* {
     }
     return gray;
 }
-camc proc freeUint8Buffer {uint8_t* image} void {
-  free(image);
+camc proc freeUint8Buffer {uint8_t* buf} void {
+    free(buf);
+}
+
+camc proc newImage {int width int height} image_t {
+    return (image_t) { width, height, 3, width*3, malloc(width*height*3) };
 }
 camc proc freeImage {image_t image} void {
-  free(image.data);
+    free(image.data);
 }
 
 c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
@@ -214,15 +209,20 @@ camc compile
 
 namespace eval Camera {
     variable camera
+    variable image
 
     variable WIDTH
     variable HEIGHT
 
     proc init {width height} {
-        set Camera::WIDTH $width
-        set Camera::HEIGHT $height
+        variable WIDTH
+        variable HEIGHT
+        variable image
+        set WIDTH $width
+        set HEIGHT $height
+        set image [newImage $WIDTH $HEIGHT]
         
-        set camera [cameraOpen "/dev/video0" $Camera::WIDTH $Camera::HEIGHT]
+        set camera [cameraOpen "/dev/video0" $WIDTH $HEIGHT]
         cameraInit $camera
         cameraStart $camera
         
@@ -234,10 +234,12 @@ namespace eval Camera {
     }
 
     proc frame {} {
+        variable image
         if {![cameraFrame $Camera::camera]} {
             error "Failed to capture from camera"
         }
-        return [cameraDecompressRgb $Camera::camera]
+        cameraDecompressRgb $Camera::camera $image
+        return $image
     }
 }
 
@@ -254,7 +256,6 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
     while true {
         set rgb [Camera::frame]
         set gray [rgbToGray $rgb]
-        freeImage $rgb
         Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
         freeUint8Buffer $gray
     }

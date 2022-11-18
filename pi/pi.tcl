@@ -66,7 +66,7 @@ namespace eval Camera {
 
         set frame 0
         while true {
-            if {$frame != 0} {freeImage $frame}
+            # if {$frame != 0} {freeImage $frame}
             set cameraTime [time {
                 set frame [Camera::frame]
 
@@ -118,7 +118,13 @@ set rootStatements [list]
 foreach programFilename [glob virtual-programs/*.folk] {
     set fp [open $programFilename r]
     lappend rootStatements [list root claims $programFilename has program code [read $fp]]
-    lappend rootStatements [list root claims $programFilename is a rectangle with x 0 y 100 width 100 height 100]
+    set x 0; set y 100; set w 100; set h 100
+    set vertices [list [list $x $y] \
+                      [list [expr {$x+$w}] $y] \
+                      [list [expr {$x+$w}] [expr {$y+$h}]] \
+                      [list $x [expr {$y+$h}]]]
+    set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+    lappend rootStatements [list root claims $programFilename has region [list $vertices $edges]]
     close $fp
 }
 
