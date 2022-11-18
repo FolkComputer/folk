@@ -161,7 +161,20 @@ namespace eval c {
         }]
         return $handle
     }
-    namespace export create
+
+    set loader [create]
+    $loader include <dlfcn.h>
+    $loader proc loadlibImpl {char* filename} void* {
+        return dlopen(filename, RTLD_NOW);
+    }
+    $loader compile
+    proc loadlib {filename} {
+        if {[loadlibImpl $filename] == "(void*) 0x0"} {
+            error "Failed to dlopen $filename"
+        }
+    }
+
+    namespace export *
     namespace ensemble create
 }
 
