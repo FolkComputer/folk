@@ -162,8 +162,11 @@ proc newProgram "{programCode {$defaultCode}}" {
         StepFromGUI
     }
     bind .$program <Control-Key-s> [list handleSave $program]
+    bind .$program <Command-Key-s> [list handleSave $program]
     proc handlePrint {program} {
         set code [.$program.t get 1.0 end-1c]
+        # hack to remove filename from printed program
+        set code [regsub {\s*Wish \$this has filename [^\n]+\s*} $code ""]
         set jobid [exec uuidgen]
         Assert "laptop.tcl" wishes to print $code with job id $jobid
         label .$program.printing -text "Printing!"
