@@ -3,6 +3,12 @@ Wish $this has filename "tags-and-calibration.folk"
 if {[info hostname] == "scoriae.local"} { return }
 
 package require math::linearalgebra
+namespace import ::math::linearalgebra::add \
+	::math::linearalgebra::sub \
+	::math::linearalgebra::matmul \
+	::math::linearalgebra::scale \
+	::math::linearalgebra::angle \
+	::math::linearalgebra::solvePGauss
 
 # camera (tag) point -> projection point
 # calibration for Hex
@@ -31,20 +37,27 @@ set A [subst {
 
 set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
 
-lassign [math::linearalgebra::solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
+lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
 
 set ::H [subst {
     {$a0 $a1 $a2}
     {$b0 $b1 $b2}
     {$c0 $c1 1}
 }]
+set ::Hinv [solvePGauss $::H [math::linearalgebra::mkIdentity 3]]
 
 proc cameraToProjector {cameraPoint} {
     # FIXME: this is slow but not the cause of leak
-    lassign [math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
+    lassign [matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
     set Hx [expr {$Hx / $Hz}]
     set Hy [expr {$Hy / $Hz}]
     return [list $Hx $Hy]
+}
+proc projectorToCamera {projectorPoint} {
+    lassign [matmul $::Hinv [list [lindex $projectorPoint 0] [lindex $projectorPoint 1] 1]] Hinvx Hinvy Hinvz
+    set Hinvx [expr {$Hinvx / $Hinvz}]
+    set Hinvy [expr {$Hinvy / $Hinvz}]
+    return [list $Hinvx $Hinvy]
 }
 # Wish $this is highlighted white
 
@@ -67,11 +80,6 @@ When tag /tag/ is a tag {
 }
 
 
-namespace import ::math::linearalgebra::add \
-	::math::linearalgebra::sub \
-	::math::linearalgebra::matmul \
-	::math::linearalgebra::scale \
-	::math::linearalgebra::angle
 When tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {cameraToProjector $p}]
 	foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
