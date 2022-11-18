@@ -1,5 +1,3 @@
-Wish $this has filename "image.folk"
-
 namespace eval ::image {
 	proc width {im} { dict get $im width }
 	proc height {im} { dict get $im height }
@@ -30,3 +28,4 @@ When the camera frame is /f/ {
 	}
 }
 Wish $this is outlined red
+
