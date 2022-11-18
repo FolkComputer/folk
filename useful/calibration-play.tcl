@@ -84,7 +84,7 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
         usleep(100000);
 
-        Tcl_Eval(interp, "freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]; freeImage $rgb; return $gray");
+        Tcl_Eval(interp, "freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [rgbToGray $rgb]; freeImage $rgb; return $gray");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
@@ -153,6 +153,7 @@ critcl::ccode {
         uint16_t* rowCorr;
     } dense_t;
 }
+opaquePointerType pixel_t*
 opaquePointerType dense_t*
 
 # returns dense correspondence from camera space -> projector space
@@ -326,10 +327,10 @@ displayDenseCorrespondence $Display::fb $dense
 AprilTags::init
 
 set frame [Camera::frame]
-set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
+set grayFrame [rgbToGray $frame]
 freeImage $frame
 set tags [AprilTags::detect $grayFrame]
-freeImage $grayFrame
+freeUint8Buffer $grayFrame
 
 puts ""
 set keyCorrespondences [list]
