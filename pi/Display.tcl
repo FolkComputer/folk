@@ -147,18 +147,19 @@ namespace eval Display {
     variable HEIGHT
     variable DEPTH
 
+    proc color {b g r} { expr 0b[join [list $r $g $b] ""] }
     if {$Display::DEPTH == 16} {
-        variable black [binary format b16 [join {00000 000000 00000} ""]]
-        variable blue  [binary format b16 [join {11111 000000 00000} ""]]
-        variable green [binary format b16 [join {00000 111111 00000} ""]]
-        variable red   [binary format b16 [join {00000 000000 11111} ""]]
-        variable white [binary format b16 [join {11111 111111 11111} ""]]
+        variable black [color 00000 000000 00000]
+        variable blue  [color 11111 000000 00000]
+        variable green [color 00000 111111 00000]
+        variable red   [color 00000 000000 11111]
+        variable white [color 11111 111111 11111]
     } elseif {$Display::DEPTH == 32} {
-        variable black [binary format b16 [join {00000000 00000000 00000000} ""]]
-        variable blue  [binary format b16 [join {11111111 00000000 00000000} ""]]
-        variable green [binary format b16 [join {00000000 11111111 00000000} ""]]
-        variable red   [binary format b16 [join {00000000 00000000 11111111} ""]]
-        variable white [binary format b16 [join {11111111 11111111 11111111} ""]]
+        variable black [color 00000000 00000000 00000000]
+        variable blue  [color 11111111 00000000 00000000]
+        variable green [color 00000000 11111111 00000000]
+        variable red   [color 00000000 00000000 11111111]
+        variable white [color 11111111 11111111 11111111]
     }
 
     variable fb
