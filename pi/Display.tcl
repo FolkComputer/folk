@@ -121,6 +121,20 @@ dc proc drawText {int x0 int y0 char* text} void {
     }
         /* memcpy(&staging[(y0+y)*fbwidth+x0], &shear_out[y*width], sizeof(pixel_t)*width); */
 }
+
+defineImageType dc
+dc proc drawImage {int x0 int y0 image_t image} void {
+    for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
+            int i = y*image.bytesPerRow + x*image.components;
+            uint8_t r = image.data[i];
+            uint8_t g = image.data[i+1];
+            uint8_t b = image.data[i+2];
+            staging[(y0+y)*fbwidth + x0+x] = PIXEL(r, g, b);
+        }
+    }
+}
+
 # for debugging
 dc proc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int width int height} void {
  for (int y = 0; y < height; y++) {
@@ -140,6 +154,7 @@ dc proc commitThenClearStaging {} void {
     memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
+
 dc compile
 
 namespace eval Display {
@@ -199,6 +214,9 @@ namespace eval Display {
 
     proc text {fb x y fontSize text radians} {
         drawText [expr {int($x)}] [expr {int($y)}] $text
+    }
+    proc image {x y im} {
+        drawImage [expr {int($x)}] [expr {int($y)}] $im
     }
 
     # for debugging
