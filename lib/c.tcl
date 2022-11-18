@@ -154,9 +154,6 @@ namespace eval c {
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
                 exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
-
-                set code [list]
-                set procs [dict create]
             }
 
             namespace export *
