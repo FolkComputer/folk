@@ -1,53 +1,47 @@
-package require critcl
+source "lib/c.tcl"
 source "pi/critclUtils.tcl"
 
-critcl::tcl 8.6
-critcl::cflags -I$::env(HOME)/apriltag -Wall -Werror
-critcl::clibraries $::env(HOME)/apriltag/libapriltag.a [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
-critcl::debug symbols
+rename [c create] camc
 
-critcl::ccode {
-    #include <apriltag.h>
-    #include <tagStandard52h13.h>
-    #include <math.h>
+camc cflags -I$::env(HOME)/apriltag
+camc cflags $::env(HOME)/apriltag/libapriltag.a
+
+camc include <apriltag.h>
+camc include <tagStandard52h13.h>
+camc include <math.h>
+
+camc include <errno.h>
+camc include <fcntl.h>
+camc include <sys/ioctl.h>
+camc include <sys/mman.h>
+camc include <asm/types.h>
+camc include <linux/videodev2.h>
+
+camc include <stdint.h>
+camc include <stdlib.h>
+
+camc include <jpeglib.h>
+
+camc struct buffer_t {
+    uint8_t* start;
+    size_t length;
+}
+camc struct camera_t {
+    int fd;
+    uint32_t width;
+    uint32_t height;
+    size_t buffer_count;
+    buffer_t* buffers;
+    buffer_t head;
 }
 
-critcl::ccode {
-    #include <errno.h>
-    
-    #include <fcntl.h>
-    #include <sys/ioctl.h>
-    #include <sys/mman.h>
-    #include <asm/types.h>
-    #include <linux/videodev2.h>
-
-    #include <stdint.h>
-    #include <stdlib.h>
-
-    #include <jpeglib.h>
-
-    typedef struct {
-        uint8_t* start;
-        size_t length;
-    } buffer_t;
-
-    typedef struct {
-        int fd;
-        uint32_t width;
-        uint32_t height;
-        size_t buffer_count;
-        buffer_t* buffers;
-        buffer_t head;
-    } camera_t;
-
-    void quit(const char* msg)
-    {
+camc code {
+    void quit(const char* msg) {
         fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
         exit(1);
     }
 
-    int xioctl(int fd, int request, void* arg)
-    {
+    int xioctl(int fd, int request, void* arg) {
         for (int i = 0; i < 100; i++) {
             int r = ioctl(fd, request, arg);
             if (r != -1 || errno != EINTR) return r;
@@ -56,10 +50,9 @@ critcl::ccode {
         return -1;
     }
 }
-opaquePointerType camera_t*
-opaquePointerType uint8_t*
+defineImageType camc
 
-critcl::cproc cameraOpen {char* device int width int height} camera_t* {
+camc proc cameraOpen {char* device int width int height} camera_t* {
     printf("device [%s]\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
@@ -74,7 +67,7 @@ critcl::cproc cameraOpen {char* device int width int height} camera_t* {
     return camera;
 }
     
-critcl::cproc cameraInit {camera_t* camera} void {
+camc proc cameraInit {camera_t* camera} void {
     struct v4l2_capability cap;
     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -119,7 +112,7 @@ critcl::cproc cameraInit {camera_t* camera} void {
     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
 
-critcl::cproc cameraStart {camera_t* camera} void {
+camc proc cameraStart {camera_t* camera} void {
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -135,7 +128,7 @@ critcl::cproc cameraStart {camera_t* camera} void {
         quit("VIDIOC_STREAMON");
 }
 
-critcl::ccode {
+camc code {
 int camera_capture(camera_t* camera) {
   struct v4l2_buffer buf;
   memset(&buf, 0, sizeof buf);
@@ -149,7 +142,7 @@ int camera_capture(camera_t* camera) {
 }
 }
 
-critcl::cproc cameraFrame {camera_t* camera} int {
+camc proc cameraFrame {camera_t* camera} int {
     struct timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
@@ -167,7 +160,7 @@ critcl::cproc cameraFrame {camera_t* camera} int {
     return camera_capture(camera);
 }
 
-critcl::cproc cameraDecompressRgb {camera_t* camera} uint8_t* {
+camc proc cameraDecompressRgb {camera_t* camera} image_t {
       struct jpeg_decompress_struct cinfo;
       struct jpeg_error_mgr jerr;
       cinfo.err = jpeg_std_error(&jerr);
@@ -190,28 +183,35 @@ critcl::cproc cameraDecompressRgb {camera_t* camera} uint8_t* {
       jpeg_finish_decompress(&cinfo);
       jpeg_destroy_decompress(&cinfo);
 
-    return rgb;
+    return (image_t) {
+        .width = camera->width, .height = camera->height, .components = cinfo.output_components,
+        .bytesPerRow = camera->width * cinfo.output_components,
+        .data = rgb
+    };
 }
-critcl::cproc rgbToGray {uint8_t* rgb int width int height} uint8_t* {
-    uint8_t* gray = calloc(width * height, sizeof (uint8_t));
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+camc proc rgbToGray {image_t rgb} uint8_t* {
+    uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
+    for (int y = 0; y < rgb.height; y++) {
+        for (int x = 0; x < rgb.width; x++) {
             // we're spending 10-20% of camera time here on Pi ... ??
 
-            int i = (y * width + x) * 3;
-            uint32_t r = rgb[i];
-            uint32_t g = rgb[i + 1];
-            uint32_t b = rgb[i + 2];
+            int i = (y * rgb.width + x) * 3;
+            uint32_t r = rgb.data[i];
+            uint32_t g = rgb.data[i + 1];
+            uint32_t b = rgb.data[i + 2];
             // from https://mina86.com/2021/rgb-to-greyscale/
             uint32_t yy = 3567664 * r + 11998547 * g + 1211005 * b;
-            gray[y * width + x] = ((yy + (1 << 23)) >> 24);
+            gray[y * rgb.width + x] = ((yy + (1 << 23)) >> 24);
         }
     }
     return gray;
 }
-critcl::cproc freeImage {uint8_t* image} void {
+camc proc freeImage {uint8_t* image} void {
   free(image);
 }
+
+c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+camc compile
 
 namespace eval Camera {
     variable camera
@@ -254,7 +254,7 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
 
     while true {
         set rgb [Camera::frame]
-        set gray [rgbToGray $rgb $Camera::WIDTH $Camera::HEIGHT]
+        set gray [rgbToGray $rgb]
         freeImage $rgb
         Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
         freeImage $gray
@@ -263,19 +263,20 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
 
 
 namespace eval AprilTags {
-    critcl::ccode {
+    rename [c create] apc
+    apc code {
         apriltag_detector_t *td;
         apriltag_family_t *tf;
     }
 
-    critcl::cproc detectInit {} void {
+    apc proc detectInit {} void {
         td = apriltag_detector_create();
         tf = tagStandard52h13_create();
         apriltag_detector_add_family_bits(td, tf, 1);
         td->nthreads = 2;
     }
 
-    critcl::cproc detectImpl {uint8_t* gray int width int height} Tcl_Obj*0 {
+    apc proc detectImpl {uint8_t* gray int width int height} Tcl_Obj* {
         image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
     
         zarray_t *detections = apriltag_detector_detect(td, &im);
@@ -303,16 +304,18 @@ namespace eval AprilTags {
         return result;
     }
 
-    critcl::cproc detectCleanup {} void {
+    apc proc detectCleanup {} void {
         tagStandard52h13_destroy(tf);
         apriltag_detector_destroy(td);
     }
     
-    proc init {} {
+    apc proc init {} {
         detectInit
     }
 
-    proc detect {gray} {
+    apc proc detect {gray} {
         return [detectImpl $gray $Camera::WIDTH $Camera::HEIGHT]
     }
+
+    apc compile
 }

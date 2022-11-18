@@ -70,7 +70,7 @@ namespace eval Camera {
             set cameraTime [time {
                 set frame [Camera::frame]
 
-                set grayFrame [rgbToGray $frame $Camera::WIDTH $Camera::HEIGHT]
+                set grayFrame [rgbToGray $frame]
                 set tags [AprilTags::detect $grayFrame]
                 freeImage $grayFrame
             }]

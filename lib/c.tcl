@@ -14,6 +14,7 @@ namespace eval c {
 
             variable argtypes {
                 int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                char* { expr {{ $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ $argname = $obj; }}}
                 default {
                     if {[string index $argtype end] == "*"} {
@@ -165,7 +166,9 @@ namespace eval c {
     set loader [create]
     $loader include <dlfcn.h>
     $loader proc loadlibImpl {char* filename} void* {
-        return dlopen(filename, RTLD_NOW);
+        // TODO: report dlerror error
+        // TODO: better shadowing handling
+        return dlopen(filename, RTLD_NOW | RTLD_GLOBAL);
     }
     $loader compile
     proc loadlib {filename} {
