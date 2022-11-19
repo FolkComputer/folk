@@ -105,6 +105,7 @@ if {$::tcl_platform(os) eq "Darwin"} { return }
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
+    puts "Wish to print jobid $jobid"
     if {[dict exists $::printjobs $jobid]} {return}
     dict set ::printjobs $jobid true
 
