@@ -38,6 +38,7 @@ namespace eval c {
                     Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
                     return TCL_OK;
                 }}}
+                char* { expr {{ Tcl_SetObjResult(interp, Tcl_ObjPrintf("%s", rv)); return TCL_OK; }} }
                 Tcl_Obj* { expr {{
                     Tcl_SetObjResult(interp, rv);
                     return TCL_OK;
@@ -174,10 +175,11 @@ namespace eval c {
         // TODO: better shadowing handling
         return dlopen(filename, RTLD_NOW | RTLD_GLOBAL);
     }
+    $loader proc loadlibError {} char* { return dlerror(); }
     $loader compile
     proc loadlib {filename} {
         if {[loadlibImpl $filename] == "(void*) 0x0"} {
-            error "Failed to dlopen $filename"
+            error "Failed to dlopen $filename: [loadlibError]"
         }
     }
 
