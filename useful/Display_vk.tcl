@@ -5,30 +5,47 @@ proc csubst {s} {
 }
 
 namespace eval Display {
+    set macos [expr {$tcl_platform(os) eq "Darwin"}]
+
     rename [c create] dc
     dc include <vulkan/vulkan.h>
     dc include <stdlib.h>
     dc include <dlfcn.h>
-
-    set macos [expr {$tcl_platform(os) eq "Darwin"}]
+    if {$macos} {
+        dc include <GLFW/glfw3.h>
+        dc cflags -lglfw
+        c loadlib "libVkLayer_khronos_validation.dylib"
+    }
 
     dc proc init {} void [csubst {
+        if ($macos) {
+            glfwInit();
+        }
+
         void *vulkanLibrary = dlopen("$[expr { $macos ? "libMoltenVK.dylib" : "libvulkan.so.1" }]", RTLD_NOW);
         if (vulkanLibrary == NULL) {
             fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
         }
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
-        PFN_vkCreateInstance vkCreateInstance = (PFN_vkCreateInstance) vkGetInstanceProcAddr(NULL, "vkCreateInstance");
 
         VkInstance instance; {
+            PFN_vkCreateInstance vkCreateInstance =
+                (PFN_vkCreateInstance) vkGetInstanceProcAddr(NULL, "vkCreateInstance");
+
             VkInstanceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            createInfo.enabledLayerCount = 0;
 
-            // extensions for non-X11/Wayland display
-            const char *enabledExtensions[] = $[expr { $macos ? {{
-                VK_KHR_SURFACE_EXTENSION_NAME
+            const char* validationLayers[] = {
+                "VK_LAYER_KHRONOS_validation"
+            };
+            createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
+            createInfo.ppEnabledLayerNames = validationLayers;
+
+            const char* enabledExtensions[] = $[expr { $macos ? {{
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                "VK_EXT_metal_surface"
             }} : {{
+                // 2 extensions for non-X11/Wayland display
                 VK_KHR_SURFACE_EXTENSION_NAME,
                 VK_KHR_DISPLAY_EXTENSION_NAME
             }} }];
@@ -85,13 +102,18 @@ namespace eval Display {
 
             VkPhysicalDeviceFeatures deviceFeatures = {0};
 
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME
+            };
+
             VkDeviceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
             createInfo.pQueueCreateInfos = &queueCreateInfo;
             createInfo.queueCreateInfoCount = 1;
             createInfo.pEnabledFeatures = &deviceFeatures;
             createInfo.enabledLayerCount = 0;
-            createInfo.enabledExtensionCount = 0;
+            createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
+            createInfo.ppEnabledExtensionNames = deviceExtensions;
 
             PFN_vkCreateDevice vkCreateDevice =
                     (PFN_vkCreateDevice) vkGetInstanceProcAddr(instance, "vkCreateDevice");
@@ -100,27 +122,49 @@ namespace eval Display {
             }
         }
 
-        VkQueue graphicsQueue; {
+        VkSurfaceKHR surface;
+        if (!$macos) {
+            PFN_vkCreateDisplayPlaneSurfaceKHR vkCreateDisplayPlaneSurfaceKHR =
+                (PFN_vkCreateDisplayPlaneSurfaceKHR) vkGetInstanceProcAddr(instance, "vkCreateDisplayPlaneSurfaceKHR");
+            VkDisplaySurfaceCreateInfoKHR createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
+            createInfo.displayMode = 0; // TODO: dynamically find out
+            createInfo.planeIndex = 0;
+            createInfo.imageExtent = (VkExtent2D) { .width = 3840, .height = 2160 }; // TODO: find out
+            if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
+                fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
+            }
+        } else {
+            uint32_t glfwExtensionCount = 0;
+            const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+            for (int i = 0; i < glfwExtensionCount; i++) {
+                printf("require %d: %s\n", i, glfwExtensions[i]);
+            }
+            
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            GLFWwindow* window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
+            if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
+                fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
+            }
+        }
+
+        {
+            VkBool32 presentSupport = 0; 
+            PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR =
+                (PFN_vkGetPhysicalDeviceSurfaceSupportKHR) vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueFamilyIndex, surface, &presentSupport);
+            if (!presentSupport) {
+                fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
+            }
+        }
+
+        VkQueue graphicsQueue;
+        VkQueue presentQueue; {
             PFN_vkGetDeviceQueue vkGetDeviceQueue =
                 (PFN_vkGetDeviceQueue) vkGetInstanceProcAddr(instance, "vkGetDeviceQueue");
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
+            presentQueue = graphicsQueue;
         }
-
-        /* VkSurfaceKHR surface; { */
-        /*     VkDisplaySurfaceCreateInfoKHR createInfo = {0}; */
-        /*     createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR; */
-        /*     createInfo.displayMode = 0; */
-        /*     createInfo.planeIndex = 0; */
-        /*     // createInfo.imageExtent = visibleRegion; */
-        /*     vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface); */
-        /* } */
-
-        
-        
-
-//        uint32_t display_count = 0;
-//        vkGetPhysicalDeviceDisplayPropertiesKHR(vc->physical_device,
-//                                                &display_count, NULL);
     }]
 
     dc compile
