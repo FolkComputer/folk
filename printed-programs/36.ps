@@ -6,11 +6,37 @@
         12 scalefont
         setfont
         newpath
-        36 738.0 moveto (Wish $this is outlined white) show
-36 720.0 moveto (#Wish $this is labelled "olivia") show
-36 702.0 moveto (Claim firstName is "olivia") show
-36 684.0 moveto () show
-36 666.0 moveto () show
+        36 738.0 moveto (namespace eval ::image {) show
+36 720.0 moveto (	proc width {im} { dict get $im width }) show
+36 702.0 moveto (	proc height {im} { dict get $im height }) show
+36 684.0 moveto (	proc subimage {im x y subwidth subheight} {) show
+36 666.0 moveto (		dict with im {) show
+36 648.0 moveto (			set x [expr {int($x)}]) show
+36 630.0 moveto (			set y [expr {int($y)}]) show
+36 612.0 moveto (			set subdata [expr {$data + ($y*$width + $x) * $components}]) show
+36 594.0 moveto (			dict create \\) show
+36 576.0 moveto (				width $subwidth height $subheight \\) show
+36 558.0 moveto (				components $components \\) show
+36 540.0 moveto (				bytesPerRow $bytesPerRow \\) show
+36 522.0 moveto (				data [format 0x%x $subdata]) show
+36 504.0 moveto (		}) show
+36 486.0 moveto (	}) show
+36 468.0 moveto (	namespace export *) show
+36 450.0 moveto (	namespace ensemble create) show
+36 432.0 moveto (}) show
+36 414.0 moveto () show
+36 396.0 moveto (When the camera frame is /f/ {) show
+36 378.0 moveto (	When $this has region /r/ {) show
+36 360.0 moveto (		lassign [projectorToCamera [lindex $r 0 0]] x0 y0) show
+36 342.0 moveto (		lassign [projectorToCamera [lindex $r 0 2]] x1 y1) show
+36 324.0 moveto (		set thisimage [image subimage $f \\) show
+36 306.0 moveto (			[expr {min($x0,$x1)}] [expr {min($y0,$y1)}] \\) show
+36 288.0 moveto (			[expr {int(abs($x1-$x0))}] [expr {int(abs($y1-$y0))}]]) show
+36 270.0 moveto (		Wish display runs [list Display::image {*}[lindex $r 0 0] $thisimage]) show
+36 252.0 moveto (	}) show
+36 234.0 moveto (}) show
+36 216.0 moveto (Wish $this is outlined red) show
+36 198.0 moveto () show
 
         gsave
         426 606 translate
@@ -37,5 +63,5 @@ grestore
         setfont
         newpath
         426 590 moveto
-        (36 (Sun, 20 Nov 2022, 08:45:04 pm)) show
+        (36 (Mon, 21 Nov 2022, 02:24:00 am)) show
     
