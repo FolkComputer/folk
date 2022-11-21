@@ -1,13 +1,22 @@
 source "lib/c.tcl"
 
+proc csubst {s} {
+    uplevel [list subst [string map {\\ \\\\ [ \\[ $\[ [} $s]]
+}
+
 namespace eval Display {
     rename [c create] dc
     dc include <vulkan/vulkan.h>
     dc include <stdlib.h>
     dc include <dlfcn.h>
 
-    dc proc init {} void {
-        void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
+    set macos [expr {$tcl_platform(os) eq "Darwin"}]
+
+    dc proc init {} void [csubst {
+        void *vulkanLibrary = dlopen("$[expr { $macos ? "libMoltenVK.dylib" : "libvulkan.so.1" }]", RTLD_NOW);
+        if (vulkanLibrary == NULL) {
+            fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
+        }
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         PFN_vkCreateInstance vkCreateInstance = (PFN_vkCreateInstance) vkGetInstanceProcAddr(NULL, "vkCreateInstance");
 
@@ -17,10 +26,12 @@ namespace eval Display {
             createInfo.enabledLayerCount = 0;
 
             // extensions for non-X11/Wayland display
-            const char *enabledExtensions[] = {
+            const char *enabledExtensions[] = $[expr { $macos ? {{
+                VK_KHR_SURFACE_EXTENSION_NAME
+            }} : {{
                 VK_KHR_SURFACE_EXTENSION_NAME,
                 VK_KHR_DISPLAY_EXTENSION_NAME
-            };
+            }} }];
             createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
             createInfo.ppEnabledExtensionNames = enabledExtensions;
 
@@ -110,7 +121,7 @@ namespace eval Display {
 //        uint32_t display_count = 0;
 //        vkGetPhysicalDeviceDisplayPropertiesKHR(vc->physical_device,
 //                                                &display_count, NULL);
-    }
+    }]
 
     dc compile
 }
