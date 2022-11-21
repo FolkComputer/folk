@@ -19,6 +19,16 @@ if [catch {source "/home/folk/generated-calibration.tcl"}] {
 	{1031 669 8 44}
 	{1024 403 13 1146}
   }
+} else {
+  set points [list]
+  foreach correspondence $generatedCalibration::points {
+    puts $correspondence
+    lassign $correspondence cx cy dx dy
+    lappend points [list [expr {double($cx)/$generatedCalibration::cameraWidth*$Camera::WIDTH}] \
+                         [expr {double($cy)/$generatedCalibration::cameraHeight*$Camera::HEIGHT}] \
+                         [expr {double($dx)/$generatedCalibration::displayWidth*$Display::WIDTH}] \
+                         [expr {double($dy)/$generatedCalibration::displayHeight*$Display::HEIGHT}]]
+  }
 }
 for {set i 0} {$i < [llength $points]} {incr i} {
     lassign [lindex $points $i] x$i y$i u$i v$i

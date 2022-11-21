@@ -17,8 +17,8 @@ source "pi/Camera.tcl"
 
 Display::init
 # FIXME: adapt to camera spec
-Camera::init 3840 2160
-# Camera::init 1920 1080
+# Camera::init 3840 2160
+Camera::init 1920 1080
 
 critcl::ccode {
     #include <stdint.h>
@@ -371,13 +371,21 @@ foreach tag $tags {
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
-lappend keyCorrespondences [lindex $correspondences end]
+# lappend keyCorrespondences [lindex $correspondences end]
 set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
 puts "key correspondences: $keyCorrespondences"
 
 set fd [open "/home/folk/generated-calibration.tcl" w]
-puts $fd "set points {$keyCorrespondences}"
+puts $fd [subst {
+    namespace eval generatedCalibration {
+        variable cameraWidth $Camera::WIDTH
+        variable cameraHeight $Camera::HEIGHT
+        variable displayWidth $Display::WIDTH
+        variable displayHeight $Display::HEIGHT
+        variable points {$keyCorrespondences}
+    }
+}]
 close $fd
 
 Display::commit

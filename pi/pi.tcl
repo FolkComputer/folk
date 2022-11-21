@@ -1,7 +1,8 @@
 package require Thread
 
 namespace eval Display {
-    variable WIDTH HEIGHT
+    variable WIDTH
+    variable HEIGHT
     regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
 
     variable displayThread [thread::create {
@@ -56,11 +57,13 @@ namespace eval Display {
 
 # Camera thread
 namespace eval Camera {
+    variable WIDTH 1280
+    variable HEIGHT 720
     variable statements [list]
 
     variable cameraThread [thread::create [format {
         source pi/Camera.tcl
-        Camera::init 1280 720
+        Camera::init %d %d
         AprilTags::init
         puts "Camera tid: [getTid]"
 
@@ -86,7 +89,7 @@ namespace eval Camera {
             # puts "\n\nCommands\n-----\n[join $commands \"\n\"]"
             thread::send -async "%s" [list set Camera::statements $statements]
         }
-    } [thread::id]]]
+    } $WIDTH $HEIGHT [thread::id]]]
     puts "Camera thread id: $cameraThread"
 
     Assert when $::nodename has step count /c/ {
