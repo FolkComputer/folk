@@ -14,34 +14,41 @@ namespace eval Display {
     if {$macos} {
         dc include <GLFW/glfw3.h>
         dc cflags -lglfw
-        c loadlib "libVkLayer_khronos_validation.dylib"
+
+        proc vkfn {fn {instance instance}} {
+            subst {PFN_$fn $fn = (PFN_$fn) glfwGetInstanceProcAddress($instance, "$fn");}
+        }
+    } else {
+        proc vkfn {fn {instance instance}} {
+            subst {PFN_$fn $fn = (PFN_$fn) vkGetInstanceProcAddr($instance, "$fn");}
+        }
     }
 
     dc proc init {} void [csubst {
-        if ($macos) {
-            glfwInit();
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+        if ($macos) { glfwInit(); }
+        else {
+            void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
+            if (vulkanLibrary == NULL) {
+                fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
+            }
+            vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         }
-
-        void *vulkanLibrary = dlopen("$[expr { $macos ? "libMoltenVK.dylib" : "libvulkan.so.1" }]", RTLD_NOW);
-        if (vulkanLibrary == NULL) {
-            fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
-        }
-        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
 
         VkInstance instance; {
-            PFN_vkCreateInstance vkCreateInstance =
-                (PFN_vkCreateInstance) vkGetInstanceProcAddr(NULL, "vkCreateInstance");
+            $[vkfn vkCreateInstance NULL]
 
             VkInstanceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
             const char* validationLayers[] = {
-                "VK_LAYER_KHRONOS_validation"
+//                "VK_LAYER_KHRONOS_validation"
             };
             createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
             createInfo.ppEnabledLayerNames = validationLayers;
 
             const char* enabledExtensions[] = $[expr { $macos ? {{
+                VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
                 VK_KHR_SURFACE_EXTENSION_NAME,
                 "VK_EXT_metal_surface"
             }} : {{
@@ -51,15 +58,16 @@ namespace eval Display {
             }} }];
             createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
             createInfo.ppEnabledExtensionNames = enabledExtensions;
+            createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
-            if (vkCreateInstance(&createInfo, NULL, &instance) != VK_SUCCESS) {
-                fprintf(stderr, "Failed to create Vulkan instance\n"); exit(1);
+            VkResult res;
+            if ((res = vkCreateInstance(&createInfo, NULL, &instance)) != VK_SUCCESS) {
+                fprintf(stderr, "Failed to create Vulkan instance: %d\n", res); exit(1);
             }
         }
 
         VkPhysicalDevice physicalDevice; {
-            PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
-                (PFN_vkEnumeratePhysicalDevices) vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices");
+            $[vkfn vkEnumeratePhysicalDevices]
 
             uint32_t physicalDeviceCount = 0;
             vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
@@ -75,8 +83,7 @@ namespace eval Display {
 
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX; {
-            PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties =
-            (PFN_vkGetPhysicalDeviceQueueFamilyProperties) vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+            $[vkfn vkGetPhysicalDeviceQueueFamilyProperties]
 
             uint32_t queueFamilyCount = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
@@ -115,17 +122,24 @@ namespace eval Display {
             createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
             createInfo.ppEnabledExtensionNames = deviceExtensions;
 
-            PFN_vkCreateDevice vkCreateDevice =
-                    (PFN_vkCreateDevice) vkGetInstanceProcAddr(instance, "vkCreateDevice");
+            $[vkfn vkCreateDevice]
             if (vkCreateDevice(physicalDevice, &createInfo, NULL, &device) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan logical device\n"); exit(1);
             }
         }
 
+        uint32_t propertyCount;
+        $[vkfn vkEnumerateInstanceLayerProperties]
+        vkEnumerateInstanceLayerProperties(&propertyCount, NULL);
+        VkLayerProperties layerProperties[propertyCount];
+        vkEnumerateInstanceLayerProperties(&propertyCount, layerProperties);
+        for (int i = 0; i < propertyCount; i++) {
+            printf("Layer %d: %s\n", i, layerProperties[i].layerName);
+        }
+
         VkSurfaceKHR surface;
         if (!$macos) {
-            PFN_vkCreateDisplayPlaneSurfaceKHR vkCreateDisplayPlaneSurfaceKHR =
-                (PFN_vkCreateDisplayPlaneSurfaceKHR) vkGetInstanceProcAddr(instance, "vkCreateDisplayPlaneSurfaceKHR");
+            $[vkfn vkCreateDisplayPlaneSurfaceKHR]
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
             createInfo.displayMode = 0; // TODO: dynamically find out
@@ -135,11 +149,11 @@ namespace eval Display {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
         } else {
-            uint32_t glfwExtensionCount = 0;
-            const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-            for (int i = 0; i < glfwExtensionCount; i++) {
-                printf("require %d: %s\n", i, glfwExtensions[i]);
-            }
+            /* uint32_t glfwExtensionCount = 0; */
+            /* const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount); */
+            /* for (int i = 0; i < glfwExtensionCount; i++) { */
+            /*     printf("require %d: %s\n", i, glfwExtensions[i]); */
+            /* } */
             
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             GLFWwindow* window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
@@ -150,8 +164,7 @@ namespace eval Display {
 
         {
             VkBool32 presentSupport = 0; 
-            PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR =
-                (PFN_vkGetPhysicalDeviceSurfaceSupportKHR) vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR");
+            $[vkfn vkGetPhysicalDeviceSurfaceSupportKHR]
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueFamilyIndex, surface, &presentSupport);
             if (!presentSupport) {
                 fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
@@ -160,8 +173,7 @@ namespace eval Display {
 
         VkQueue graphicsQueue;
         VkQueue presentQueue; {
-            PFN_vkGetDeviceQueue vkGetDeviceQueue =
-                (PFN_vkGetDeviceQueue) vkGetInstanceProcAddr(instance, "vkGetDeviceQueue");
+            $[vkfn vkGetDeviceQueue]
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
             presentQueue = graphicsQueue;
         }
