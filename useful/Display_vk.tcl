@@ -31,6 +31,13 @@ proc csubst {s} {
     join $result ""
 }
 
+proc glslc {args} {
+    set cmdargs [lreplace $args end end]
+    set glsl [lindex $args end]
+    set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
+    exec glslc {*}$cmdargs -mfmt=c -o - $glslfile
+}
+
 namespace eval Display {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
 
@@ -325,6 +332,7 @@ namespace eval Display {
         $[dc code [csubst {
             VkShaderModule createShaderModule(VkInstance instance, VkDevice device, uint32_t* code, size_t codeSize) {
                 VkShaderModuleCreateInfo createInfo = {0};
+                createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
                 createInfo.codeSize = codeSize;
                 createInfo.pCode = code;
                 $[vkfn vkCreateShaderModule]
@@ -337,8 +345,40 @@ namespace eval Display {
 
         // Now what?
         // Create graphics pipeline.
-        uint8_t vertShaderCode[];
-        uint8_t fragShaderCode[];
+        uint32_t vertShaderCode[] = $[glslc -fshader-stage=vert {
+            #version 450
+
+            layout(location = 0) out vec3 fragColor;
+
+            vec2 positions[3] = vec2[](vec2(0.0, -0.5),
+                                       vec2(0.5, 0.5),
+                                       vec2(-0.5, 0.5));
+
+            vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
+                                    vec3(0.0, 1.0, 0.0),
+                                    vec3(0.0, 0.0, 1.0));
+
+            void main() {
+                gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+                fragColor = colors[gl_VertexIndex];
+            }
+        }];
+        VkShaderModule vertShaderModule = createShaderModule(instance, device, vertShaderCode, sizeof(vertShaderCode));
+
+        uint32_t fragShaderCode[] = $[glslc -fshader-stage=frag {
+            #version 450
+
+            layout(location = 0) in vec3 fragColor;
+
+            layout(location = 0) out vec4 outColor;
+
+            void main() {
+                outColor = vec4(fragColor, 1.0);
+            }
+        }];
+        VkShaderModule fragShaderModule = createShaderModule(instance, device, fragShaderCode, sizeof(fragShaderCode));
+        (void)vertShaderModule;
+        (void)fragShaderModule;
     }]
 
     dc compile
