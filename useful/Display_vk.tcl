@@ -140,7 +140,9 @@ namespace eval Display {
         VkLayerProperties layerProperties[propertyCount];
         vkEnumerateInstanceLayerProperties(&propertyCount, layerProperties);
 
+        // Get drawing surface.
         VkSurfaceKHR surface;
+        $[expr { $macos ? { GLFWwindow* window; } : {} }]
         if (!$macos) {
             $[vkfn vkCreateDisplayPlaneSurfaceKHR]
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
@@ -159,26 +161,45 @@ namespace eval Display {
             /* } */
             
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            GLFWwindow* window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
+            window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
             if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
             }
         }
 
-        {
+        uint32_t presentQueueFamilyIndex; {
             VkBool32 presentSupport = 0; 
             $[vkfn vkGetPhysicalDeviceSurfaceSupportKHR]
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueFamilyIndex, surface, &presentSupport);
             if (!presentSupport) {
                 fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
             }
+            presentQueueFamilyIndex = graphicsQueueFamilyIndex;
         }
 
-        VkSurfaceFormatKHR format;
+        // Figure out capabilities/format/mode of physical device for surface.
+        VkSurfaceCapabilitiesKHR capabilities;
+        VkExtent2D extent;
+        uint32_t imageCount;
+        VkSurfaceFormatKHR surfaceFormat;
         VkPresentModeKHR presentMode; {
             $[vkfn vkGetPhysicalDeviceSurfaceCapabilitiesKHR]
-            VkSurfaceCapabilitiesKHR capabilities;
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+
+            if (capabilities.currentExtent.width != UINT32_MAX) {
+                extent = capabilities.currentExtent;
+            } else {
+                glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
+                if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
+                if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
+                if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
+                if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
+            }
+
+            imageCount = capabilities.minImageCount + 1;
+            if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+                imageCount = capabilities.maxImageCount;
+            }
 
             $[vkfn vkGetPhysicalDeviceSurfaceFormatsKHR]
             uint32_t formatCount;
@@ -186,10 +207,10 @@ namespace eval Display {
             VkSurfaceFormatKHR formats[formatCount];
             if (formatCount == 0) { fprintf(stderr, "No supported surface formats.\n"); exit(1); }
             vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats);
-            format = formats[0];
+            surfaceFormat = formats[0]; // semi-arbitrary default
             for (int i = 0; i < formatCount; i++) {
                 if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                    format = formats[i];
+                    surfaceFormat = formats[i];
                 }
             }
 
@@ -199,14 +220,41 @@ namespace eval Display {
             VkPresentModeKHR presentModes[presentModeCount];
             if (presentModeCount == 0) { fprintf(stderr, "No supported present modes.\n"); exit(1); }
             vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes);
-            presentMode = VK_PRESENT_MODE_FIFO_KHR;
+            presentMode = VK_PRESENT_MODE_FIFO_KHR; // guaranteed to be available
             for (int i = 0; i < presentModeCount; i++) {
                 if (presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
                     presentMode = presentModes[i];
                 }
             }
+        }
 
+        VkSwapchainKHR swapchain; {
+            VkSwapchainCreateInfoKHR createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+            createInfo.surface = surface;
+
+            createInfo.minImageCount = imageCount;
+            createInfo.imageFormat = surfaceFormat.format;
+            createInfo.imageColorSpace = surfaceFormat.colorSpace;
+            createInfo.imageExtent = extent;
+            createInfo.imageArrayLayers = 1;
+            createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+            if (graphicsQueueFamilyIndex != presentQueueFamilyIndex) {
+                fprintf(stderr, "Graphics and present queue families differ\n"); exit(1);
+            }
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = NULL;
+
+            createInfo.preTransform = capabilities.currentTransform;
+            createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+            createInfo.presentMode = presentMode;
+            createInfo.clipped = VK_TRUE;
+            createInfo.oldSwapchain = VK_NULL_HANDLE;
             
+            $[vkfn vkCreateSwapchainKHR]
+            $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &swapchain)}]
         }
 
         VkQueue graphicsQueue;
