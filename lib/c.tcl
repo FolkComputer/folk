@@ -63,7 +63,7 @@ namespace eval c {
                 variable code
                 lappend code "#include $h"
             }
-            ::proc code {newcode} { variable code; lappend code $newcode }
+            ::proc code {newcode} { variable code; lappend code $newcode; list }
             ::proc struct {type fields} {
                 variable code
                 lappend code [subst {

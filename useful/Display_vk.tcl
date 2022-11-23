@@ -1,11 +1,34 @@
 source "lib/c.tcl"
 
 proc csubst {s} {
-    # much like subst, but you invoke Tcl with $[whatever] instead of [whatever]
-    uplevel [list subst [string map {\\ \\\\ [ \\[ $\[ [} $s]]
-}
-proc uncsubst {s} {
-    string map {\\[ [} $s
+    # much like subst, but you invoke a Tcl fn with $[whatever]
+    # instead of [whatever]
+    set result [list]
+    for {set i 0} {$i < [string length $s]} {incr i} {
+        set c [string index $s $i]
+        switch $c {
+            {$} {
+                set tail [string range $s $i+1 end]
+                if {[regexp {^(?:[A-Za-z0-9_]|::)+} $tail varname]} {
+                    lappend result [uplevel [list set $varname]]
+                    incr i [string length $varname]
+                } elseif {[string index $tail 0] eq "\["} {
+                    set bracketcount 0
+                    for {set j 0} {$j < [string length $tail]} {incr j} {
+                        set ch [string index $tail $j]
+                        if {$ch eq "\["} { incr bracketcount } \
+                        elseif {$ch eq "]"} { incr bracketcount -1 }
+                        if {$bracketcount == 0} { break }
+                    }
+                    set script [string range $tail 1 $j-1]
+                    lappend result [uplevel $script]
+                    incr i [expr {$j+1}]
+                }
+            }
+            default {lappend result $c}
+        }
+    }
+    join $result ""
 }
 
 namespace eval Display {
@@ -29,9 +52,9 @@ namespace eval Display {
     }
 
     proc vktry {call} { csubst {
-        VkResult res = $[uncsubst $call];
+        VkResult res = $call;
         if (res != VK_SUCCESS) {
-            fprintf(stderr, "Failed $[uncsubst $call]: %d\n", res); exit(1);
+            fprintf(stderr, "Failed $call: %d\n", res); exit(1);
         }
     } }
 
@@ -299,7 +322,23 @@ namespace eval Display {
             presentQueue = graphicsQueue;
         }
 
+        $[dc code [csubst {
+            VkShaderModule createShaderModule(VkInstance instance, VkDevice device, uint32_t* code, size_t codeSize) {
+                VkShaderModuleCreateInfo createInfo = {0};
+                createInfo.codeSize = codeSize;
+                createInfo.pCode = code;
+                $[vkfn vkCreateShaderModule]
+
+                VkShaderModule shaderModule;
+                $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
+                return shaderModule;
+            }
+        }]]
+
         // Now what?
+        // Create graphics pipeline.
+        uint8_t vertShaderCode[];
+        uint8_t fragShaderCode[];
     }]
 
     dc compile
