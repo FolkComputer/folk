@@ -1,7 +1,11 @@
 source "lib/c.tcl"
 
 proc csubst {s} {
+    # much like subst, but you invoke Tcl with $[whatever] instead of [whatever]
     uplevel [list subst [string map {\\ \\\\ [ \\[ $\[ [} $s]]
+}
+proc uncsubst {s} {
+    string map {\\[ [} $s
 }
 
 namespace eval Display {
@@ -25,9 +29,9 @@ namespace eval Display {
     }
 
     proc vktry {call} { csubst {
-        VkResult res = $call;
+        VkResult res = $[uncsubst $call];
         if (res != VK_SUCCESS) {
-            fprintf(stderr, "Failed $call: %d\n", res); exit(1);
+            fprintf(stderr, "Failed $[uncsubst $call]: %d\n", res); exit(1);
         }
     } }
 
@@ -255,6 +259,37 @@ namespace eval Display {
             
             $[vkfn vkCreateSwapchainKHR]
             $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &swapchain)}]
+        }
+
+        $[vkfn vkGetSwapchainImagesKHR]
+        uint32_t swapchainImageCount; vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
+        VkImage swapchainImages[swapchainImageCount];
+        VkFormat swapchainImageFormat;
+        VkExtent2D swapchainExtent; {
+            vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages);
+            swapchainImageFormat = surfaceFormat.format;
+            swapchainExtent = extent;
+        }
+
+        VkImageView swapchainImageViews[swapchainImageCount]; {
+            $[vkfn vkCreateImageView]
+            for (size_t i = 0; i < swapchainImageCount; i++) {
+                VkImageViewCreateInfo createInfo = {0};
+                createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                createInfo.image = swapchainImages[i];
+                createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                createInfo.format = swapchainImageFormat;
+                createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+                createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+                createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+                createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+                createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                createInfo.subresourceRange.baseMipLevel = 0;
+                createInfo.subresourceRange.levelCount = 1;
+                createInfo.subresourceRange.baseArrayLayer = 0;
+                createInfo.subresourceRange.layerCount = 1;
+                $[vktry {vkCreateImageView(device, &createInfo, NULL, &swapchainImageViews[i])}]
+            }
         }
 
         VkQueue graphicsQueue;
