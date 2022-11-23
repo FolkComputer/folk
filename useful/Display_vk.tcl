@@ -16,13 +16,20 @@ namespace eval Display {
         dc cflags -lglfw
 
         proc vkfn {fn {instance instance}} {
-            subst {PFN_$fn $fn = (PFN_$fn) glfwGetInstanceProcAddress($instance, "$fn");}
+            csubst {PFN_$fn $fn = (PFN_$fn) glfwGetInstanceProcAddress($instance, "$fn");}
         }
     } else {
         proc vkfn {fn {instance instance}} {
-            subst {PFN_$fn $fn = (PFN_$fn) vkGetInstanceProcAddr($instance, "$fn");}
+            csubst {PFN_$fn $fn = (PFN_$fn) vkGetInstanceProcAddr($instance, "$fn");}
         }
     }
+
+    proc vktry {call} { csubst {
+        VkResult res = $call;
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "Failed $call: %d\n", res); exit(1);
+        }
+    } }
 
     dc proc init {} void [csubst {
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
@@ -42,7 +49,7 @@ namespace eval Display {
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
             const char* validationLayers[] = {
-//                "VK_LAYER_KHRONOS_validation"
+                "VK_LAYER_KHRONOS_validation"
             };
             createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
             createInfo.ppEnabledLayerNames = validationLayers;
@@ -50,7 +57,8 @@ namespace eval Display {
             const char* enabledExtensions[] = $[expr { $macos ? {{
                 VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
                 VK_KHR_SURFACE_EXTENSION_NAME,
-                "VK_EXT_metal_surface"
+                "VK_EXT_metal_surface",
+                "VK_KHR_get_physical_device_properties2" 
             }} : {{
                 // 2 extensions for non-X11/Wayland display
                 VK_KHR_SURFACE_EXTENSION_NAME,
@@ -60,10 +68,7 @@ namespace eval Display {
             createInfo.ppEnabledExtensionNames = enabledExtensions;
             createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 
-            VkResult res;
-            if ((res = vkCreateInstance(&createInfo, NULL, &instance)) != VK_SUCCESS) {
-                fprintf(stderr, "Failed to create Vulkan instance: %d\n", res); exit(1);
-            }
+            $[vktry {vkCreateInstance(&createInfo, NULL, &instance)}]
         }
 
         VkPhysicalDevice physicalDevice; {
@@ -109,9 +114,12 @@ namespace eval Display {
 
             VkPhysicalDeviceFeatures deviceFeatures = {0};
 
-            const char *deviceExtensions[] = {
+            const char *deviceExtensions[] = $[expr { $macos ? {{
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                "VK_KHR_portability_subset"
+            }} : {{
                 VK_KHR_SWAPCHAIN_EXTENSION_NAME
-            };
+            }} }];
 
             VkDeviceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -123,9 +131,7 @@ namespace eval Display {
             createInfo.ppEnabledExtensionNames = deviceExtensions;
 
             $[vkfn vkCreateDevice]
-            if (vkCreateDevice(physicalDevice, &createInfo, NULL, &device) != VK_SUCCESS) {
-                fprintf(stderr, "Failed to create Vulkan logical device\n"); exit(1);
-            }
+            $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
         }
 
         uint32_t propertyCount;
