@@ -139,9 +139,6 @@ namespace eval Display {
         vkEnumerateInstanceLayerProperties(&propertyCount, NULL);
         VkLayerProperties layerProperties[propertyCount];
         vkEnumerateInstanceLayerProperties(&propertyCount, layerProperties);
-        for (int i = 0; i < propertyCount; i++) {
-            printf("Layer %d: %s\n", i, layerProperties[i].layerName);
-        }
 
         VkSurfaceKHR surface;
         if (!$macos) {
@@ -177,12 +174,49 @@ namespace eval Display {
             }
         }
 
+        VkSurfaceFormatKHR format;
+        VkPresentModeKHR presentMode; {
+            $[vkfn vkGetPhysicalDeviceSurfaceCapabilitiesKHR]
+            VkSurfaceCapabilitiesKHR capabilities;
+            vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
+
+            $[vkfn vkGetPhysicalDeviceSurfaceFormatsKHR]
+            uint32_t formatCount;
+            vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
+            VkSurfaceFormatKHR formats[formatCount];
+            if (formatCount == 0) { fprintf(stderr, "No supported surface formats.\n"); exit(1); }
+            vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, formats);
+            format = formats[0];
+            for (int i = 0; i < formatCount; i++) {
+                if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    format = formats[i];
+                }
+            }
+
+            $[vkfn vkGetPhysicalDeviceSurfacePresentModesKHR]
+            uint32_t presentModeCount;
+            vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
+            VkPresentModeKHR presentModes[presentModeCount];
+            if (presentModeCount == 0) { fprintf(stderr, "No supported present modes.\n"); exit(1); }
+            vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes);
+            presentMode = VK_PRESENT_MODE_FIFO_KHR;
+            for (int i = 0; i < presentModeCount; i++) {
+                if (presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+                    presentMode = presentModes[i];
+                }
+            }
+
+            
+        }
+
         VkQueue graphicsQueue;
         VkQueue presentQueue; {
             $[vkfn vkGetDeviceQueue]
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
             presentQueue = graphicsQueue;
         }
+
+        // Now what?
     }]
 
     dc compile
