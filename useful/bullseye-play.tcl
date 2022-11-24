@@ -10,13 +10,14 @@ proc tagImageForId {id} {
 
         upvar nextr nextr
         set cx 0.5; set cy 0.5
-        set degrees [expr {360 / [llength $bits]}]
+        set degrees [expr {360.0 / [llength $bits]}]
         set r $nextr
         set nextr [expr {$nextr + 0.1}]
 
         set i 0
         join [lmap bit $bits {
-            set angle [expr {[incr i]*$degrees}]
+            set angle [expr {$i*$degrees}]
+            incr i
             subst {
                 newpath
                 $cx $cy $r $angle [expr {$angle+$degrees}] arc
@@ -34,7 +35,7 @@ proc tagImageForId {id} {
         [ring black]    % solid black ring
         [ring data [split [format "%07b" $id] ""]] % data ring
         [ring white]    % again surrounded by a solid white ring
-        [ring black]    % inside a black ring with white studs
+        [ring data [list 1 {*}[lrepeat 10 0] 1 0 1 {*}[lrepeat 10 0]]] % inside a black ring with white studs
 
         grestore
     }
@@ -81,6 +82,7 @@ proc programToPs {id text} {
 }
 
 set ps [programToPs 66 "hello"]
+# puts $ps
 
 set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
 exec ps2pdf $psfile [file rootname $psfile].pdf
