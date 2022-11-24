@@ -5,11 +5,13 @@ proc tagImageForId {id} {
     subst {
         gsave
 
-        0 1 translate
-        0.5 setgray
+        1 setgray
         newpath
-        1 1 moveto
-        2 2 lineto
+        0 0 moveto
+        1 0 lineto
+        1 1 lineto
+        0 1 lineto
+        0 0 lineto
         closepath fill
 
         grestore
@@ -59,4 +61,5 @@ proc programToPs {id text} {
 set ps [programToPs 66 "hello"]
 
 set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
-puts file://$psfile
+exec ps2pdf $psfile [file rootname $psfile].pdf
+puts file://[file rootname $psfile].pdf
