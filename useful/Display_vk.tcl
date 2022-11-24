@@ -69,12 +69,18 @@ namespace eval Display {
         VkInstance instance;
         VkDevice device;
 
+        VkQueue graphicsQueue;
+        VkQueue presentQueue;
+
         VkRenderPass renderPass;
         VkPipeline graphicsPipeline;
 
+        VkSwapchainKHR swapchain;
         uint32_t swapchainImageCount;
         VkFramebuffer* swapchainFramebuffers;
         VkExtent2D swapchainExtent;
+
+        VkCommandBuffer commandBuffer;
 
         VkSemaphore imageAvailableSemaphore;
         VkSemaphore renderFinishedSemaphore;
@@ -279,7 +285,8 @@ namespace eval Display {
             }
         }
 
-        VkSwapchainKHR swapchain; {
+        // Set up VkSwapchainKHR swapchain
+        {
             VkSwapchainCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
             createInfo.surface = surface;
@@ -341,8 +348,8 @@ namespace eval Display {
             }
         }
 
-        VkQueue graphicsQueue;
-        VkQueue presentQueue; {
+        // Set up VkQueue graphicsQueue and VkQueue presentQueue
+        {
             $[vkfn vkGetDeviceQueue]
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
             presentQueue = graphicsQueue;
@@ -507,6 +514,18 @@ namespace eval Display {
             renderPassInfo.pAttachments = &colorAttachment;
             renderPassInfo.subpassCount = 1;
             renderPassInfo.pSubpasses = &subpass;
+
+            VkSubpassDependency dependency = {0};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+            
             $[vkfn vkCreateRenderPass]
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
@@ -565,7 +584,8 @@ namespace eval Display {
             $[vkfn vkCreateCommandPool]
             $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
         }
-        VkCommandBuffer commandBuffer; {
+        // Set up VkCommandBuffer commandBuffer
+        {
             VkCommandBufferAllocateInfo allocInfo = {0};
             allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocInfo.commandPool = commandPool;
@@ -630,6 +650,50 @@ namespace eval Display {
         $[vkfn vkResetFences]
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &inFlightFence);
+
+        uint32_t imageIndex;
+        $[vkfn vkAcquireNextImageKHR]
+        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+        $[vkfn vkResetCommandBuffer]
+        vkResetCommandBuffer(commandBuffer, 0);
+        recordCommandBuffer(commandBuffer, imageIndex);
+
+        VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+        {
+            VkSubmitInfo submitInfo = {0};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+            VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+            VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = waitSemaphores;
+            submitInfo.pWaitDstStageMask = waitStages;
+
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+
+            submitInfo.signalSemaphoreCount = 1;
+            submitInfo.pSignalSemaphores = signalSemaphores;
+
+            $[vkfn vkQueueSubmit]
+            $[vktry {vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence)}]
+        }
+        {
+            VkPresentInfoKHR presentInfo = {0};
+            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.waitSemaphoreCount = 1;
+            presentInfo.pWaitSemaphores = signalSemaphores;
+
+            VkSwapchainKHR swapchains[] = {swapchain};
+            presentInfo.swapchainCount = 1;
+            presentInfo.pSwapchains = swapchains;
+            presentInfo.pImageIndices = &imageIndex;
+            presentInfo.pResults = NULL;
+
+            $[vkfn vkQueuePresentKHR]
+            vkQueuePresentKHR(presentQueue, &presentInfo);
+        }
     }]
 
     dc compile
@@ -637,3 +701,4 @@ namespace eval Display {
 
 Display::init
 Display::drawFrame
+
