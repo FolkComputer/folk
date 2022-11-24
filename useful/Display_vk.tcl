@@ -58,13 +58,22 @@ namespace eval Display {
         }
     }
 
-    proc vktry {call} { csubst {
+    proc vktry {call} { csubst {{
         VkResult res = $call;
         if (res != VK_SUCCESS) {
             fprintf(stderr, "Failed $call: %d\n", res); exit(1);
         }
-    } }
+    }} }
 
+    dc code {
+        VkInstance instance;
+        VkRenderPass renderPass;
+        VkPipeline graphicsPipeline;
+
+        uint32_t swapchainImageCount;
+        VkFramebuffer* swapchainFramebuffers;
+        VkExtent2D swapchainExtent;
+    }
     dc proc init {} void [csubst {
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
         if ($macos) { glfwInit(); }
@@ -76,7 +85,8 @@ namespace eval Display {
             vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         }
 
-        VkInstance instance; {
+        // Set up VkInstance instance:
+        {
             $[vkfn vkCreateInstance NULL]
 
             VkInstanceCreateInfo createInfo = {0};
@@ -292,10 +302,12 @@ namespace eval Display {
         }
 
         $[vkfn vkGetSwapchainImagesKHR]
-        uint32_t swapchainImageCount; vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
+        // Set up uint32_t swapchainImageCount:
+        vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
         VkImage swapchainImages[swapchainImageCount];
         VkFormat swapchainImageFormat;
-        VkExtent2D swapchainExtent; {
+        // Set up VkExtent2D swapchainExtent:
+        {
             vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages);
             swapchainImageFormat = surfaceFormat.format;
             swapchainExtent = extent;
@@ -480,7 +492,8 @@ namespace eval Display {
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorAttachmentRef;
 
-        VkRenderPass renderPass; {
+        // Set up VkRenderPass renderPass:
+        {
             VkRenderPassCreateInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
             renderPassInfo.attachmentCount = 1;
@@ -491,7 +504,8 @@ namespace eval Display {
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
 
-        VkPipeline graphicsPipeline; {
+        // Set up VkPipeline graphicsPipeline:
+        {
             VkGraphicsPipelineCreateInfo pipelineInfo = {0};
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
             pipelineInfo.stageCount = 2;
@@ -516,7 +530,73 @@ namespace eval Display {
             $[vkfn vkCreateGraphicsPipelines]
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &graphicsPipeline)}]
         }
+
+        // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
+        swapchainFramebuffers = ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
+        for (size_t i = 0; i < swapchainImageCount; i++) {
+            VkImageView attachments[] = { swapchainImageViews[i] };
+            
+            VkFramebufferCreateInfo framebufferInfo = {0};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = swapchainExtent.width;
+            framebufferInfo.height = swapchainExtent.height;
+            framebufferInfo.layers = 1;
+
+            $[vkfn vkCreateFramebuffer]
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
+        }
+
+        VkCommandPool commandPool; {
+            VkCommandPoolCreateInfo poolInfo = {0};
+            poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+            $[vkfn vkCreateCommandPool]
+            $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
+        }
+        VkCommandBuffer commandBuffer; {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool = commandPool;
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+
+            $[vkfn vkAllocateCommandBuffers]
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
+        }
     }]
+
+    dc code [csubst { void recordCommandBuffer(VkCommandBuffer commandBuffer, int imageIndex) {
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = NULL;
+        $[vkfn vkBeginCommandBuffer]
+        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+        {
+            VkRenderPassBeginInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = swapchainFramebuffers[imageIndex];
+            renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+            renderPassInfo.renderArea.extent = swapchainExtent;
+
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        }
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        vkCmdEndRenderPass(commandBuffer);
+        $[vktry {vkEndCommandBuffer(commandBuffer)}]
+    } }]
 
     dc compile
 }
