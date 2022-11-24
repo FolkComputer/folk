@@ -578,6 +578,11 @@ namespace eval Display {
         $[vkfn vkBeginCommandBuffer]
         $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
+        $[vkfn vkCmdBeginRenderPass]
+        $[vkfn vkCmdBindPipeline]
+        $[vkfn vkCmdDraw]
+        $[vkfn vkCmdEndRenderPass]
+        $[vkfn vkEndCommandBuffer]
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
