@@ -4,32 +4,37 @@ proc tagImageForId {id} {
     # surrounded by a solid white ring inside a black ring with three
     # white studs.
     set nextr 0
-    proc ring {type {data ""}} {
+    proc ring {type {bits {}}} {
+        if {$type eq "white"} { set bits {1} } \
+        elseif {$type eq "black"} { set bits {0} }
+
         upvar nextr nextr
         set cx 0.5; set cy 0.5
+        set degrees [expr {360 / [llength $bits]}]
         set r $nextr
         set nextr [expr {$nextr + 0.1}]
-        subst {
-            [expr {$type eq "white" ? 1 : 0}] setgray
-            newpath
-            $cx $cy $r 0 360 arc
-            0.1 setlinewidth
-            1 setlinecap
-            stroke
 
-            [if {$type eq "data"} {
-                
-            }]
-        }
+        set i 0
+        join [lmap bit $bits {
+            set angle [expr {[incr i]*$degrees}]
+            subst {
+                newpath
+                $cx $cy $r $angle [expr {$angle+$degrees}] arc
+                0.1 setlinewidth
+                [expr {[llength $bits] == 1 ? 1 : 0}] setlinecap
+                $bit setgray
+                stroke
+            }
+        }] "\n"
     }
     subst {
         gsave
 
         [ring white]    % central white dot
         [ring black]    % solid black ring
-        [ring data $id] % data ring
-        [ring white]
-        [ring black]
+        [ring data [split [format "%07b" $id] ""]] % data ring
+        [ring white]    % again surrounded by a solid white ring
+        [ring black]    % inside a black ring with white studs
 
         grestore
     }
