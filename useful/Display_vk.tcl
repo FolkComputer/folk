@@ -696,9 +696,16 @@ namespace eval Display {
         }
     }]
 
+    dc proc poll {} void {
+        glfwPollEvents();
+    }
+
     dc compile
 }
 
 Display::init
-Display::drawFrame
+while 1 {
+    Display::poll
+    Display::drawFrame
+}
 
