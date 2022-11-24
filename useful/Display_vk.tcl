@@ -490,7 +490,32 @@ namespace eval Display {
             $[vkfn vkCreateRenderPass]
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
-        
+
+        VkPipeline graphicsPipeline; {
+            VkGraphicsPipelineCreateInfo pipelineInfo = {0};
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipelineInfo.stageCount = 2;
+            pipelineInfo.pStages = shaderStages;
+            pipelineInfo.pVertexInputState = &vertexInputInfo;
+            pipelineInfo.pInputAssemblyState = &inputAssembly;
+            pipelineInfo.pViewportState = &viewportState;
+            pipelineInfo.pRasterizationState = &rasterizer;
+            pipelineInfo.pMultisampleState = &multisampling;
+            pipelineInfo.pDepthStencilState = NULL;
+            pipelineInfo.pColorBlendState = &colorBlending;
+            pipelineInfo.pDynamicState = NULL;
+
+            pipelineInfo.layout = pipelineLayout;
+
+            pipelineInfo.renderPass = renderPass;
+            pipelineInfo.subpass = 0;
+
+            pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+            pipelineInfo.basePipelineIndex = -1;
+
+            $[vkfn vkCreateGraphicsPipelines]
+            $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &graphicsPipeline)}]
+        }
     }]
 
     dc compile
