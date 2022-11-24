@@ -1,18 +1,35 @@
-# generate BullsEye fiducial PostScript
-# emit to terminal
-
 proc tagImageForId {id} {
+    # "A BullsEye fiducial consists of a central white dot surrounded
+    # by a solid black ring and one or more data rings again
+    # surrounded by a solid white ring inside a black ring with three
+    # white studs.
+    set nextr 0
+    proc ring {type {data ""}} {
+        upvar nextr nextr
+        set cx 0.5; set cy 0.5
+        set r $nextr
+        set nextr [expr {$nextr + 0.1}]
+        subst {
+            [expr {$type eq "white" ? 1 : 0}] setgray
+            newpath
+            $cx $cy $r 0 360 arc
+            0.1 setlinewidth
+            1 setlinecap
+            stroke
+
+            [if {$type eq "data"} {
+                
+            }]
+        }
+    }
     subst {
         gsave
 
-        1 setgray
-        newpath
-        0 0 moveto
-        1 0 lineto
-        1 1 lineto
-        0 1 lineto
-        0 0 lineto
-        closepath fill
+        [ring white]    % central white dot
+        [ring black]    % solid black ring
+        [ring data $id] % data ring
+        [ring white]
+        [ring black]
 
         grestore
     }
