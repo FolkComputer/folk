@@ -67,12 +67,18 @@ namespace eval Display {
 
     dc code {
         VkInstance instance;
+        VkDevice device;
+
         VkRenderPass renderPass;
         VkPipeline graphicsPipeline;
 
         uint32_t swapchainImageCount;
         VkFramebuffer* swapchainFramebuffers;
         VkExtent2D swapchainExtent;
+
+        VkSemaphore imageAvailableSemaphore;
+        VkSemaphore renderFinishedSemaphore;
+        VkFence inFlightFence; 
     }
     dc proc init {} void [csubst {
         PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
@@ -148,7 +154,8 @@ namespace eval Display {
             }
         }
 
-        VkDevice device; {
+        // Set up VkDevice device
+        {
             VkDeviceQueueCreateInfo queueCreateInfo = {0};
             queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queueCreateInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
@@ -342,7 +349,7 @@ namespace eval Display {
         }
 
         $[dc code [csubst {
-            VkShaderModule createShaderModule(VkInstance instance, VkDevice device, uint32_t* code, size_t codeSize) {
+            VkShaderModule createShaderModule(uint32_t* code, size_t codeSize) {
                 VkShaderModuleCreateInfo createInfo = {0};
                 createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
                 createInfo.codeSize = codeSize;
@@ -375,7 +382,7 @@ namespace eval Display {
                 fragColor = colors[gl_VertexIndex];
             }
         }];
-        VkShaderModule vertShaderModule = createShaderModule(instance, device, vertShaderCode, sizeof(vertShaderCode));
+        VkShaderModule vertShaderModule = createShaderModule(vertShaderCode, sizeof(vertShaderCode));
 
         uint32_t fragShaderCode[] = $[glslc -fshader-stage=frag {
             #version 450
@@ -388,7 +395,7 @@ namespace eval Display {
                 outColor = vec4(fragColor, 1.0);
             }
         }];
-        VkShaderModule fragShaderModule = createShaderModule(instance, device, fragShaderCode, sizeof(fragShaderCode));
+        VkShaderModule fragShaderModule = createShaderModule(fragShaderCode, sizeof(fragShaderCode));
 
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
             VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
@@ -568,6 +575,21 @@ namespace eval Display {
             $[vkfn vkAllocateCommandBuffers]
             $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
         }
+        
+        {
+            VkSemaphoreCreateInfo semaphoreInfo = {0};
+            semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+            $[vkfn vkCreateSemaphore]
+            $[vkfn vkCreateFence]
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
+        }
     }]
 
     dc code [csubst { void recordCommandBuffer(VkCommandBuffer commandBuffer, int imageIndex) {
@@ -603,7 +625,15 @@ namespace eval Display {
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
     } }]
 
+    dc proc drawFrame {} void [csubst {
+        $[vkfn vkWaitForFences]
+        $[vkfn vkResetFences]
+        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &inFlightFence);
+    }]
+
     dc compile
 }
 
 Display::init
+Display::drawFrame
