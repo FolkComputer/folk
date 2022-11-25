@@ -6,7 +6,7 @@ if {[namespace exists critcl]} {
     critcl::cproc getTid {} int {
         return gettid();
     }
-} elseif {[namespace exists c]} {
+} elseif {[namespace exists c] && $tcl_platform(os) eq "Linux"} {
     set handle [c create]
     $handle include <sys/syscall.h>
     $handle include <unistd.h>
