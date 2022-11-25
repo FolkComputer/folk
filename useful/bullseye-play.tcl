@@ -35,7 +35,7 @@ proc tagImageForId {id} {
         [ring black]    % solid black ring
         [ring data [split [format "%07b" $id] ""]] % data ring
         [ring white]    % again surrounded by a solid white ring
-        [ring data [list 1 {*}[lrepeat 10 0] 1 0 1 {*}[lrepeat 10 0]]] % inside a black ring with white studs
+        [ring data [list 1 {*}[lrepeat 15 0] 1 0 1 {*}[lrepeat 15 0]]] % inside a black ring with white studs
 
         grestore
     }
