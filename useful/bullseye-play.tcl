@@ -81,9 +81,11 @@ proc programToPs {id text} {
     }
 }
 
-set ps [programToPs 66 "hello"]
-# puts $ps
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    set ps [programToPs 66 "hello"]
+    # puts $ps
 
-set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
-exec ps2pdf $psfile [file rootname $psfile].pdf
-puts file://[file rootname $psfile].pdf
+    set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
+    exec ps2pdf $psfile [file rootname $psfile].pdf
+    puts file://[file rootname $psfile].pdf
+}

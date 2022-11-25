@@ -704,8 +704,22 @@ namespace eval Display {
 }
 
 Display::init
-while 1 {
-    Display::poll
-    Display::drawFrame
+
+source "useful/bullseye-play.tcl"
+
+set ps [programToPs 66 "hello"]
+set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
+exec convert $psfile -quality 300 -colorspace RGB [file rootname $psfile].jpeg
+set jpegfile [file rootname $psfile].jpeg
+exec open $jpegfile
+
+rename [c create] ic
+ic proc loadimage {} void {
+    
 }
+
+# while 1 {
+#     Display::poll
+#     Display::drawFrame
+# }
 
