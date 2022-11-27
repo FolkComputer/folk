@@ -143,7 +143,11 @@ namespace eval Statements { ;# singleton Statement store
             lappend dot "subgraph cluster_$id {"
             lappend dot "color=lightgray;"
 
-            set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} [statement clause $stmt]]]
+            set label [statement clause $stmt]
+            set label [join [lmap line [split $label "\n"] {
+                expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+            }] "\n"]
+            set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
             lappend dot "$id \[label=\"$id: $label\"\];"
 
             dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
