@@ -176,7 +176,7 @@ namespace eval ctrie {
             }
             return [join $dot "\n"]
         }
-        return "digraph { rankdir=LR; [subdot {} $trie] }"
+        return "digraph { rankdir=LR; [subdot {} [tclify $trie]] }"
     }
 
     cc compile
