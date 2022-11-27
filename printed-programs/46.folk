@@ -1,0 +1,8 @@
+Wish $this is outlined blue
+When $this has region /tr/ {
+	When 30 has region /r/ {
+		set c [boxCentroid [regionToBbox $r]]
+		Wish $this is labelled $c
+		Display::stroke [list [boxCentroid [regionToBbox $tr]] $c] 2 green
+	}
+}
