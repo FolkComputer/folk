@@ -699,14 +699,14 @@ namespace eval Display {
     dc proc poll {} void {
         glfwPollEvents();
     }
-
-    dc compile
 }
 
-Display::init
-
-while 1 {
-    Display::poll
-    Display::drawFrame
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    namespace eval Display { dc compile }
+    Display::init
+    while 1 {
+        Display::poll
+        Display::drawFrame
+    }
 }
 

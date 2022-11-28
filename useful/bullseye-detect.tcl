@@ -45,4 +45,11 @@ ic proc loadImageFromJpeg {char* filename} image_t {
 ic cflags -ljpeg
 ic compile
 
-puts [loadImageFromJpeg $jpegfile]
+set image [loadImageFromJpeg $jpegfile]
+
+source "useful/Display_vk.tcl"
+namespace eval Display {
+    dc proc hi {} void {
+    }
+    dc compile
+}
