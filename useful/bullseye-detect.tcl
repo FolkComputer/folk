@@ -54,26 +54,50 @@ namespace eval Display {
         VkImage computeCameraImage;
         VkCommandBuffer computeCommandBuffer;
     }
-    dc proc allocate {} void [csubst {
+    defineImageType Display::dc
+    dc proc allocate {int bufferSize} void [csubst {
         VkPhysicalDeviceMemoryProperties properties;
         $[vkfn vkGetPhysicalDeviceMemoryProperties]
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, &properties);
 
-        const VkDeviceSize memorySize = 0; // whatever size of memory we require
+        const VkDeviceSize memorySize = bufferSize * 2;
 
+        uint32_t memoryTypeIndex = UINT32_MAX;
         for (uint32_t k = 0; k < properties.memoryTypeCount; k++) {
             const VkMemoryType memoryType = properties.memoryTypes[k];
-            printf("size %llu\n", properties.memoryHeaps[memoryType.heapIndex].size);
-
             if ((VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT & memoryType.propertyFlags)
                 && (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT & memoryType.propertyFlags)
                 && (memorySize < properties.memoryHeaps[memoryType.heapIndex].size)) {
                 // found our memory type!
+                memoryTypeIndex = k; break;
             }
         }
+        if (memoryTypeIndex == UINT32_MAX) { exit(1); }
+
+        VkDeviceMemory memory; {
+            VkMemoryAllocateInfo allocateInfo = {0};
+            allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocateInfo.allocationSize = memorySize;
+            allocateInfo.memoryTypeIndex = memoryTypeIndex;
+
+            $[vkfn vkAllocateMemory]
+            $[vktry {vkAllocateMemory(device, &allocateInfo, 0, &memory)}]
+        } {
+            uint8_t* payload;
+            $[vkfn vkMapMemory]
+            $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
+            for (uint8_t k = 1; k < memorySize / sizeof(uint8_t); k++) {
+                payload[k] = rand();
+            }
+            $[vkfn vkUnmapMemory]
+            vkUnmapMemory(device, memory);
+        }
+
+        // subdivide it into two buffers
+        // Vkmemory
     }]
 
     dc compile
 }
 Display::init
-Display::allocate
+Display::allocate 100
