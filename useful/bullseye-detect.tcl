@@ -49,7 +49,31 @@ set image [loadImageFromJpeg $jpegfile]
 
 source "useful/Display_vk.tcl"
 namespace eval Display {
-    dc proc hi {} void {
+    dc code {
+        VkPipeline computePipeline;
+        VkImage computeCameraImage;
+        VkCommandBuffer computeCommandBuffer;
     }
+    dc proc allocate {} void [csubst {
+        VkPhysicalDeviceMemoryProperties properties;
+        $[vkfn vkGetPhysicalDeviceMemoryProperties]
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &properties);
+
+        const VkDeviceSize memorySize = 0; // whatever size of memory we require
+
+        for (uint32_t k = 0; k < properties.memoryTypeCount; k++) {
+            const VkMemoryType memoryType = properties.memoryTypes[k];
+            printf("size %llu\n", properties.memoryHeaps[memoryType.heapIndex].size);
+
+            if ((VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT & memoryType.propertyFlags)
+                && (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT & memoryType.propertyFlags)
+                && (memorySize < properties.memoryHeaps[memoryType.heapIndex].size)) {
+                // found our memory type!
+            }
+        }
+    }]
+
     dc compile
 }
+Display::init
+Display::allocate

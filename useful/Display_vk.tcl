@@ -67,10 +67,12 @@ namespace eval Display {
 
     dc code {
         VkInstance instance;
+        VkPhysicalDevice physicalDevice;
         VkDevice device;
 
         VkQueue graphicsQueue;
         VkQueue presentQueue;
+        VkQueue computeQueue;
 
         VkRenderPass renderPass;
         VkPipeline graphicsPipeline;
@@ -127,7 +129,8 @@ namespace eval Display {
             $[vktry {vkCreateInstance(&createInfo, NULL, &instance)}]
         }
 
-        VkPhysicalDevice physicalDevice; {
+        // Set up VkPhysicalDevice physicalDevice
+        {
             $[vkfn vkEnumeratePhysicalDevices]
 
             uint32_t physicalDeviceCount = 0;
@@ -143,7 +146,8 @@ namespace eval Display {
         }
 
         
-        uint32_t graphicsQueueFamilyIndex = UINT32_MAX; {
+        uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
+        uint32_t computeQueueFamilyIndex = UINT32_MAX; {
             $[vkfn vkGetPhysicalDeviceQueueFamilyProperties]
 
             uint32_t queueFamilyCount = 0;
@@ -151,12 +155,19 @@ namespace eval Display {
             VkQueueFamilyProperties queueFamilies[queueFamilyCount];
             vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
             for (int i = 0; i < queueFamilyCount; i++) {
+                if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+                    computeQueueFamilyIndex = i;
+                }
                 if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                     graphicsQueueFamilyIndex = i;
+                    break;
                 }
             }
             if (graphicsQueueFamilyIndex == UINT32_MAX) {
                 fprintf(stderr, "Failed to find a Vulkan graphics queue family\n"); exit(1);
+            }
+            if (computeQueueFamilyIndex == UINT32_MAX) {
+                fprintf(stderr, "Failed to find a Vulkan compute queue family\n"); exit(1);
             }
         }
 
@@ -348,11 +359,12 @@ namespace eval Display {
             }
         }
 
-        // Set up VkQueue graphicsQueue and VkQueue presentQueue
+        // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
         {
             $[vkfn vkGetDeviceQueue]
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
             presentQueue = graphicsQueue;
+            computeQueue = graphicsQueue;
         }
 
         $[dc code [csubst {
