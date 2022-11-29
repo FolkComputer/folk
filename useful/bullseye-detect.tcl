@@ -50,6 +50,7 @@ set image [loadImageFromJpeg $jpegfile]
 source "useful/Display_vk.tcl"
 namespace eval Display {
     dc code {
+        VkDescriptorSetLayout computeDescriptorSetLayout;
         VkPipeline computePipeline;
         VkImage computeCameraImage;
         VkCommandBuffer computeCommandBuffer;
@@ -83,10 +84,10 @@ namespace eval Display {
             $[vkfn vkAllocateMemory]
             $[vktry {vkAllocateMemory(device, &allocateInfo, 0, &memory)}]
         } {
-            uint8_t* payload;
+            float* payload;
             $[vkfn vkMapMemory]
             $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
-            for (uint32_t k = 1; k < memorySize / sizeof(uint8_t); k++) {
+            for (uint32_t k = 0; k < memorySize / sizeof(float); k++) {
                 payload[k] = rand();
             }
             $[vkfn vkUnmapMemory]
@@ -117,24 +118,27 @@ namespace eval Display {
 
         uint32_t shaderCode[] = $[glslc -fshader-stage=comp {
             #version 450
-            layout (local_size_x = 256) in;
+            layout(local_size_x = 256) in;
 
-            layout (set = 0, binding = 0) buffer inBuffer {
-                mat4 transform;
-                int matrixCount;
-            } inData;
+            layout(set = 0, binding = 0) buffer inBuffer {
+                float inPixels[];
+            };
 
-            layout (set = 0, binding = 1) buffer outBuffer {
-                mat4 matrices[];
-            } outData;
+            layout(set = 0, binding = 1) buffer outBuffer {
+                float outPixels[];
+            };
 
             void main() {
-                
+                uint gid = gl_GlobalInvocationID.x;
+                if (gid < 128) {
+                    outPixels[gid] = inPixels[gid];
+                }
             }
         }];
         VkShaderModule shaderModule = createShaderModule(shaderCode, sizeof(shaderCode));
 
-        VkDescriptorSetLayout descriptorSetLayout; {
+        // Set up VkDescriptorSetLayout computeDescriptorSetLayout
+        {
             VkDescriptorSetLayoutBinding bindings[] = {
                 {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0},
                 {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0}
@@ -147,7 +151,7 @@ namespace eval Display {
                 .pBindings = bindings
             };
             $[vkfn vkCreateDescriptorSetLayout]
-            $[vktry {vkCreateDescriptorSetLayout(device, &createInfo, 0, &descriptorSetLayout)}]
+            $[vktry {vkCreateDescriptorSetLayout(device, &createInfo, 0, &computeDescriptorSetLayout)}]
         }
 
         // Set up VkPipeline computePipeline
@@ -174,8 +178,64 @@ namespace eval Display {
         }
     }]
 
+    dc proc execute {} void [csubst {
+        /*
+        To execute a compute shader we need to:
+
+Create a descriptor set that has two VkDescriptorBufferInfo’s for each of our buffers (one for each binding in the compute shader).
+Update the descriptor set to set the bindings of both of the VkBuffer’s we created earlier.
+Create a command pool with our queue family index.
+Allocate a command buffer from the command pool (we’re using VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT as we aren’t resubmitting the buffer in our sample).
+Begin the command buffer.
+Bind our compute pipeline.
+Bind our descriptor set at the VK_PIPELINE_BIND_POINT_COMPUTE.
+Dispatch a compute shader for each element of our buffer.
+End the command buffer.
+And submit it to the queue!
+*/
+        VkDescriptorPool descriptorPool; {
+            VkDescriptorPoolSize size = {0};
+            size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            size.descriptorCount = 2;
+
+            VkDescriptorPoolCreateInfo createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            createInfo.maxSets = 1;
+            createInfo.poolSizeCount = 1;
+            createInfo.pPoolSizes = &size;
+    
+            $[vkfn vkCreateDescriptorPool]
+            $[vktry {vkCreateDescriptorPool(device, &createInfo, 0, &descriptorPool)}]
+        }
+
+        VkDescriptorSet descriptorSet; {
+            VkDescriptorSetAllocateInfo allocateInfo = {0};
+            allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocateInfo.descriptorPool = descriptorPool;
+            allocateInfo.descriptorSetCount = 1;
+            allocateInfo.pSetLayouts = &computeDescriptorSetLayout;
+
+            $[vkfn vkAllocateDescriptorSets]
+            $[vktry {vkAllocateDescriptorSets(device, &allocateInfo, &descriptorSet)}]
+        }
+
+        VkDescriptorBufferInfo descripterBufferInfoIn = {
+            .buffer = inBuffer,
+            .offset = 0,
+            .range = VK_WHOLE_SIZE
+        };
+        VkDescriptorBufferInfo descripterBufferInfoOut = {
+            .buffer = outBuffer,
+            .offset = 0,
+            .range = VK_WHOLE_SIZE
+        }
+    }]
+
     dc compile
 }
 Display::init
-Display::allocate 128
+set sizeofFloat 4
+Display::allocate [expr {128 * $sizeofFloat}]
 puts hi
+
+# Display pixels
