@@ -126,15 +126,21 @@ camc proc cameraStart {camera_t* camera} void {
 
 camc code {
 int camera_capture(camera_t* camera) {
-  struct v4l2_buffer buf;
-  memset(&buf, 0, sizeof buf);
-  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  buf.memory = V4L2_MEMORY_MMAP;
-  if (xioctl(camera->fd, VIDIOC_DQBUF, &buf) == -1) return 0;
-  memcpy(camera->head.start, camera->buffers[buf.index].start, buf.bytesused);
-  camera->head.length = buf.bytesused;
-  if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) return 0;
-  return 1;
+    struct v4l2_buffer buf;
+    memset(&buf, 0, sizeof buf);
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    if (xioctl(camera->fd, VIDIOC_DQBUF, &buf) == -1) {
+        fprintf(stderr, "camera_capture: VIDIOC_DQBUF failed: %d: %s\n", errno, strerror(errno));
+        return 0;
+    }
+    memcpy(camera->head.start, camera->buffers[buf.index].start, buf.bytesused);
+    camera->head.length = buf.bytesused;
+    if (xioctl(camera->fd, VIDIOC_QBUF, &buf) == -1) {
+        fprintf(stderr, "camera_capture: VIDIOC_QBUF failed: %d: %s\n", errno, strerror(errno));
+        return 0;
+    }
+    return 1;
 }
 }
 
