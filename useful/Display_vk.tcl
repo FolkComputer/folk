@@ -70,6 +70,8 @@ namespace eval Display {
         VkPhysicalDevice physicalDevice;
         VkDevice device;
 
+        uint32_t computeQueueFamilyIndex;
+
         VkQueue graphicsQueue;
         VkQueue presentQueue;
         VkQueue computeQueue;
@@ -147,7 +149,7 @@ namespace eval Display {
 
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
-        uint32_t computeQueueFamilyIndex = UINT32_MAX; {
+        computeQueueFamilyIndex = UINT32_MAX; {
             $[vkfn vkGetPhysicalDeviceQueueFamilyProperties]
 
             uint32_t queueFamilyCount = 0;

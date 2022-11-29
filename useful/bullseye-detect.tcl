@@ -86,7 +86,7 @@ namespace eval Display {
             uint8_t* payload;
             $[vkfn vkMapMemory]
             $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
-            for (uint8_t k = 1; k < memorySize / sizeof(uint8_t); k++) {
+            for (uint32_t k = 1; k < memorySize / sizeof(uint8_t); k++) {
                 payload[k] = rand();
             }
             $[vkfn vkUnmapMemory]
@@ -94,10 +94,32 @@ namespace eval Display {
         }
 
         // subdivide it into two buffers
-        // Vkmemory
+        $[vkfn vkCreateBuffer]
+        $[vkfn vkBindBufferMemory]
+        const VkBufferCreateInfo bufferCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = 0,
+            .flags = 0,
+            .size = bufferSize,
+            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 1,
+            .pQueueFamilyIndices = &computeQueueFamilyIndex
+        };
+        VkBuffer inBuffer; {
+            $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &inBuffer)}]
+            $[vktry {vkBindBufferMemory(device, inBuffer, memory, 0)}]
+        }
+        VkBuffer outBuffer; {
+            $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &outBuffer)}]
+            $[vktry {vkBindBufferMemory(device, outBuffer, memory, bufferSize)}]
+        }
+
+        
     }]
 
     dc compile
 }
 Display::init
-Display::allocate 100
+Display::allocate 128
+puts hi
