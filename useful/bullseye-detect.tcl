@@ -115,7 +115,63 @@ namespace eval Display {
             $[vktry {vkBindBufferMemory(device, outBuffer, memory, bufferSize)}]
         }
 
-        
+        uint32_t shaderCode[] = $[glslc -fshader-stage=comp {
+            #version 450
+            layout (local_size_x = 256) in;
+
+            layout (set = 0, binding = 0) buffer inBuffer {
+                mat4 transform;
+                int matrixCount;
+            } inData;
+
+            layout (set = 0, binding = 1) buffer outBuffer {
+                mat4 matrices[];
+            } outData;
+
+            void main() {
+                
+            }
+        }];
+        VkShaderModule shaderModule = createShaderModule(shaderCode, sizeof(shaderCode));
+
+        VkDescriptorSetLayout descriptorSetLayout; {
+            VkDescriptorSetLayoutBinding bindings[] = {
+                {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0},
+                {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0}
+            };
+            VkDescriptorSetLayoutCreateInfo createInfo = {
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                .pNext = 0,
+                .flags = 0,
+                .bindingCount = sizeof(bindings)/sizeof(bindings[0]),
+                .pBindings = bindings
+            };
+            $[vkfn vkCreateDescriptorSetLayout]
+            $[vktry {vkCreateDescriptorSetLayout(device, &createInfo, 0, &descriptorSetLayout)}]
+        }
+
+        // Set up VkPipeline computePipeline
+        {
+            VkPipelineLayout pipelineLayout; {
+                VkPipelineLayoutCreateInfo createInfo = {0};
+                createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+                createInfo.setLayoutCount = 1;
+                createInfo.pSetLayouts = &descriptorSetLayout;
+                $[vkfn vkCreatePipelineLayout]
+                $[vktry {vkCreatePipelineLayout(device, &createInfo, 0, &pipelineLayout)}]
+            }
+
+            VkComputePipelineCreateInfo createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            createInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            createInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            createInfo.stage.module = shaderModule;
+            createInfo.stage.pName = "main";
+            createInfo.layout = pipelineLayout;
+
+            $[vkfn vkCreateComputePipelines]
+            $[vktry {vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &createInfo, 0, &computePipeline)}]
+        }
     }]
 
     dc compile
