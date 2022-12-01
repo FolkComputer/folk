@@ -4,6 +4,7 @@ When /someone/ wishes /thing/ is labelled /text/ {
     When $thing has region /region/ {
 	set radians [lindex $region 2]
 	if {$radians eq ""} {set radians 0}
+
 	set bbox [regionToBbox $region]
 	lassign [boxCentroid $bbox] x y
 	set width [boxWidth $bbox]
@@ -13,6 +14,7 @@ When /someone/ wishes /thing/ is labelled /text/ {
         set longestLineLength [tcl::mathfunc::max {*}[lmap line $lines {string length $line}]]
         set fontSize [expr {$width / $longestLineLength}]
 	for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-	    Display::text device $x [expr {$y+$lineNum*18}] $fontSize [lindex $lines $lineNum] 0	}
+	    Display::text device $x [expr {$y+$lineNum*18}] $fontSize [lindex $lines $lineNum] $radians
+	}
     }
 }

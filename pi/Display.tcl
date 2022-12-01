@@ -99,7 +99,7 @@ dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
     } 
 }
 
-dc proc drawText {int x0 int y0 char* text} void {
+dc proc drawText {int x0 int y0 int upsidedown char* text} void {
     // Draws 1 line of text (no linebreak handling).
     /* size_t width = text.len * font.char_width; */
     /* size_t height = font.char_height; */
@@ -110,12 +110,24 @@ dc proc drawText {int x0 int y0 char* text} void {
     /* printf("[%c] (%d)\n", c, c); */
 
     int len = strlen(text);
-    for (unsigned i = 0; i < len; i++) {
-        for (unsigned y = 0; y < font.char_height; y++) {
-            for (unsigned x = 0; x < font.char_width; x++) {
-                int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-                int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                staging[((y0+y)*fbwidth) + (i*font.char_width + x0+x)] = bit ? 0xFFFF : 0x0000;
+    if (upsidedown) {
+        for (unsigned i = 0; i < len; i++) {
+            for (unsigned y = 0; y < font.char_height; y++) {
+                for (unsigned x = 0; x < font.char_width; x++) {
+                    int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+                    int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+                    staging[((y0-y)*fbwidth) + ((len-i)*font.char_width + x0-x)] = bit ? 0xFFFF : 0x0000;
+                }
+            }
+        }   
+    } else {
+        for (unsigned i = 0; i < len; i++) {
+            for (unsigned y = 0; y < font.char_height; y++) {
+                for (unsigned x = 0; x < font.char_width; x++) {
+                    int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+                    int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+                    staging[((y0+y)*fbwidth) + (i*font.char_width + x0+x)] = bit ? 0xFFFF : 0x0000;
+                }
             }
         }
     }
@@ -213,7 +225,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text radians} {
-        drawText [expr {int($x)}] [expr {int($y)}] $text
+        drawText [expr {int($x)}] [expr {int($y)}] [expr {abs($radians) < 1.57}] $text
     }
     proc image {x y im} {
         drawImage [expr {int($x)}] [expr {int($y)}] $im
