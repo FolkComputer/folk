@@ -68,6 +68,8 @@ to `/etc/sudoers` as well
 1. `sudo apt install make rsync`
 1. `sudo apt install tcl-thread critcl git killall libjpeg-dev fbset`
 1. `sudo adduser folk video` & log out and log back in (re-ssh)
+1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
+   `KERNEL=="event*", NAME="input/%k", MODE="660", GROUP="folk"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. get apriltags: `cd ~; git clone
    https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
    (you can probably ignore errors at the end of this)
