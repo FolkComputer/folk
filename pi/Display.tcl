@@ -98,6 +98,42 @@ dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
         } 
     } 
 }
+dc code {
+#define plot(x, y) if ((x) >= 0 && (x) < fbwidth && (y) >= 0 && (y) < fbheight) staging[(y)*fbwidth + (x)] = color
+}
+dc proc drawCircle {int x0 int y0 int radius int color} void {
+    int f = 1 - radius;
+    int ddF_x = 0;
+    int ddF_y = -2 * radius;
+    int x = 0;
+    int y = radius;
+
+    plot(x0, y0 + radius);
+    plot(x0, y0 - radius);
+    plot(x0 + radius, y0);
+    plot(x0 - radius, y0);
+
+    while(x < y) 
+    {
+        if(f >= 0) 
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x + 1;    
+        plot(x0 + x, y0 + y);
+        plot(x0 - x, y0 + y);
+        plot(x0 + x, y0 - y);
+        plot(x0 - x, y0 - y);
+        plot(x0 + y, y0 + x);
+        plot(x0 - y, y0 + x);
+        plot(x0 + y, y0 - x);
+        plot(x0 - y, y0 - x);
+    }
+}
 
 dc proc drawText {int x0 int y0 int upsidedown char* text} void {
     // Draws 1 line of text (no linebreak handling).
@@ -227,6 +263,11 @@ namespace eval Display {
     proc text {fb x y fontSize text radians} {
         drawText [expr {int($x)}] [expr {int($y)}] [expr {abs($radians) < 1.57}] $text
     }
+    proc circle {x y radius thickness color} {
+        for {set i 0} {$i < $thickness} {incr i} {
+            drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] $color
+        }
+    }
     proc image {x y im} {
         drawImage [expr {int($x)}] [expr {int($y)}] $im
     }
@@ -248,9 +289,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         # fillRectangle 500 500 510 510 $Display::red ;# t1
         # fillRectangle 400 600 410 610 $Display::red ;# t2
         
-        drawText 309 400 "B"
-        drawText 318 400 "O"
+        drawText 309 400 "B" 0
+        drawText 318 400 "O" 0
 
+        drawCircle 100 100 500 $Display::red
+
+        Display::circle 300 420 400 5 $Display::blue
         Display::text fb 300 420 PLACEHOLDER "Hello!" 0
 
         puts [time Display::commit]
