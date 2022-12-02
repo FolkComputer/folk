@@ -1,0 +1,19 @@
+set radiox -815.2; set radioy 1629.4
+When the RFID tag has phase /radians/ {
+	When /calibrator/ is the RFID tag calibrator {
+		When tag $calibrator has center /c/ size /size/ {
+			lassign [cameraToProjector $c] cx cy
+			set trueDist [expr {sqrt(($cx-$radiox)*($cx-$radiox) + ($cy-$radioy)*($cy-$radioy))}]
+			Wish $this is labelled "true distance: $trueDist\nradians: $radians"
+		}
+	}
+}
+
+
+When /calibrator/ is the RFID tag calibrator {
+	When tag $calibrator has center /c/ size /size/ {
+		lassign [cameraToProjector $c] cx cy
+		set trueDist [expr {sqrt(($cx-$radiox)*($cx-$radiox) + ($cy-$radioy)*($cy-$radioy))}]
+		Wish display runs [list Display::circle $radiox $radioy $trueDist 5 green]
+	}
+}

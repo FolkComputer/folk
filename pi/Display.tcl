@@ -265,7 +265,7 @@ namespace eval Display {
     }
     proc circle {x y radius thickness color} {
         for {set i 0} {$i < $thickness} {incr i} {
-            drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] $color
+            drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] [set Display::$color]
         }
     }
     proc image {x y im} {
