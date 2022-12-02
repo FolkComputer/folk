@@ -26,7 +26,6 @@ When /someone/ wishes /p/ runs Unix command /c/ {
 	fconfigure $reader -blocking 0
 	fileevent $reader readable [list ::readline $jobid $reader]
 
-
 	When /p/ is running Unix command /c/ with job id $jobid output /log/ {
 		Wish $p is labelled [join $log "\n"]
 	}

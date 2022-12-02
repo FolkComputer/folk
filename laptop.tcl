@@ -80,7 +80,8 @@ proc StepFromGUI {} {
     # share root statement set to Pi
     set assertedClauses [clauseset create]
     dict for {_ stmt} $Statements::statements {
-        if {[statement setsOfParents $stmt] == {0 {}}} {
+        if {[statement setsOfParents $stmt] == {0 {}} &&
+            [lindex [statement clause $stmt] 0] == "laptop.tcl"} {
             clauseset add assertedClauses [statement clause $stmt]
         }
     }
@@ -224,6 +225,7 @@ foreach programFilename [glob virtual-programs/*.folk] {
 }
 
 Assert when /program/ has program code /code/ {
+    if {$::tcl_platform(os) ne "Darwin"} { return }
     # FIXME: this would run from printed pages too which is weird
     # not a problem in practice rn bc laptop doesn't see any printed pages
     When /someone/ wishes $program has filename /filename/ {

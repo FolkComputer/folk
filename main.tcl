@@ -361,7 +361,7 @@ proc accept {chan addr port} {
                     puts $chan [eval $script]; flush $chan
                 } ret]} {
                     catch {
-                        # puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
+                        puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
                         puts $chan $ret; flush $chan
                     }
                 }
