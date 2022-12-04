@@ -1,5 +1,3 @@
-Wish $this has filename "print.folk"
-
 source "pi/critclUtils.tcl"
 
 set cc [c create]
@@ -122,3 +120,4 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     exec ps2pdf printed-programs/$id.ps printed-programs/$id.pdf
     exec lpr printed-programs/$id.pdf
 }
+

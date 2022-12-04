@@ -1,12 +1,4 @@
-if {[namespace exists critcl]} {
-    critcl::ccode {
-        #define _GNU_SOURCE
-        #include <unistd.h>
-    }
-    critcl::cproc getTid {} int {
-        return gettid();
-    }
-} elseif {[namespace exists c] && $tcl_platform(os) eq "Linux"} {
+if {[namespace exists c] && $::tcl_platform(os) eq "Linux"} {
     set handle [c create]
     $handle include <sys/syscall.h>
     $handle include <unistd.h>
@@ -14,20 +6,6 @@ if {[namespace exists critcl]} {
         return syscall(SYS_gettid);
     }
     $handle compile
-}
-
-proc opaquePointerType {type} {
-    critcl::ccode {
-        #include <inttypes.h>
-    }
-    critcl::argtype $type [subst -nobackslashes {
-        sscanf(Tcl_GetString(@@), "($type) 0x%p", &@A);
-    }] $type
-
-    critcl::resulttype $type [subst -nobackslashes {
-        Tcl_SetObjResult(interp, Tcl_ObjPrintf("($type) 0x%" PRIxPTR, (uintptr_t) rv));
-        return TCL_OK;
-    }] $type
 }
 
 proc defineImageType {cc} {
