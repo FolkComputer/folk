@@ -1,0 +1,7 @@
+Wish $this has filename "esc-restart.folk"
+
+When the keyboard character log is /k/ {
+	foreach press $k {
+		if {$press eq "esc"} {exec sudo systemctl restart folk}
+	}
+}
