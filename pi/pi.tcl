@@ -100,7 +100,9 @@ namespace eval Camera {
 }
 
 set keyboardThread [thread::create [format {
-    source pi/Keyboard.tcl
+    source "pi/Keyboard.tcl"
+    source "lib/c.tcl"
+    source "pi/critclUtils.tcl"
     Keyboard::init
     puts "Keyboard tid: [getTid]"
 
