@@ -345,40 +345,46 @@ proc StepImpl {} {
     }
 }
 
+lappend auto_path "./vendor"
+package require websocket
+
 set ::acceptNum 0
-proc accept {chan addr port} {
-    # puts "$::nodename: Start [incr ::acceptNum]"
-    
-    # (mostly for the Pi)
-    # we want to be able to asynchronously receive statements
-    set script ""
-    try {
-        while {[gets $chan line] != -1} {
-            append script $line\n
-            if {[info complete $script]} {
-                # puts "$::nodename: Recv"
-                if {[catch {
-                    puts $chan [eval $script]; flush $chan
-                } ret]} {
-                    catch {
-                        puts "$::nodename: Error on receipt: $ret" ;# "broken pipe"
-                        puts $chan $ret; flush $chan
-                    }
-                }
-                set script ""
+proc handleConnect {chan addr port} {
+    fileevent $chan readable [list handleRead $chan]
+}
+proc handleRead {chan} {
+    chan configure $chan -translation crlf
+    gets $chan line
+    puts "Http: $line"
+    set headers [list]
+    while {[gets $chan line] >= 0 && $line ne ""} {
+        if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
+            lappend headers $k $v
+        } else { break }
+    }
+    if {[::websocket::test $::serverSock $chan /ws $headers]} {
+        ::websocket::upgrade $chan
+        # from now the wsLiveCB will be called (not anymore handleRead).
+    } else { close $chan }
+}
+proc handleWS {chan type data} {
+    if {$type eq "text"} {
+        if {[catch {::websocket::send $chan text [eval $data]} err]} {
+            catch {
+                puts "$::nodename: Error on receipt: $err"
+                ::websocket::send $chan text $err
             }
         }
-    } finally {
-        # puts "$::nodename: Done $::acceptNum"
-        close $chan
     }
 }
 set ::nodename [info hostname]
-if {[catch {socket -server accept 4273}]} {
+if {[catch {set ::serverSock [socket -server handleConnect 4273]}]} {
     set ::nodename "[info hostname]-1"
     puts "$::nodename: Note: There's already a Folk node running on this machine."
-    socket -server accept 4274
+    set ::serverSock [socket -server handleConnect 4274]
 }
+::websocket::server $::serverSock
+::websocket::live $::serverSock /ws handleWS
 
 set ::stepCount 0
 set ::stepTime "none"
