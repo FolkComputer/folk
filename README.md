@@ -8,7 +8,7 @@ $ ln -s /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh /usr/local/bin/tclsh8.6
 
 to run on Pi:
 ```
-$ sudo apt install tcl tcl-thread critcl libjpeg62-turbo-dev
+$ sudo apt install tcl tcl-thread libjpeg62-turbo-dev
 
 $ cd ~; git clone https://github.com/AprilRobotics/apriltag.git; cd apriltag
 $ make -j
@@ -66,13 +66,14 @@ to `/etc/sudoers` as well
 1. `sudo apt install avahi-daemon`
 1. (on your laptop: `ssh-copy-id folk@folk0.local`)
 1. `sudo apt install make rsync`
-1. `sudo apt install tcl-thread critcl git killall libjpeg-dev fbset`
+1. `sudo apt install tcl-thread git killall libjpeg-dev fbset`
 1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0660"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. get apriltags: `cd ~; git clone
    https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
-   (you can probably ignore errors at the end of this)
+   (you can probably ignore errors at the end of this if they're just
+   for the OpenCV demo)
 1. `make`
 
 
@@ -128,10 +129,10 @@ print the PDF and not the PS for it to work, probably)
 - ~mmap or otherwise hw-accelerate pi graphics~
 - ~bareword/nicer colors for Pi~ (could support more colors)
 - keyboard support for Pi
-- watchdog on Pi, ~autoupdate on Pi~
+- ~watchdog on Pi~, ~autoupdate on Pi~
 - parallelize tag detection / camera processing
 - text editor
-- print support
+- ~print support~
 - ~clean up lexical scope~
 - with-all-matches
 
