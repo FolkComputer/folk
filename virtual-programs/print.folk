@@ -5,8 +5,10 @@ source "pi/critclUtils.tcl"
 set cc [c create]
 if {[info hostname] != "scoriae.local"} {
     $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
+    c loadlib $::env(HOME)/apriltag/libapriltag.so
 } else {
     $cc cflags -I/Users/osnr/aux/apriltag -Wall -Werror /Users/osnr/aux/apriltag/libapriltag.a
+    c loadlib /Users/osnr/aux/apriltag/libapriltag.so
 }
 
 $cc code {
@@ -44,7 +46,6 @@ $cc proc tagImageForId {int id} char* {
     image_u8_destroy(image);
     return ret;
 }
-c loadlib $::env(HOME)/apriltag/libapriltag.so
 $cc compile
 
 proc programToPs {id text} {
