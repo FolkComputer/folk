@@ -227,6 +227,7 @@ namespace eval Display {
 
     variable fb
 
+    lappend auto_path "./vendor"
     package require math::linearalgebra
     
     # functions
