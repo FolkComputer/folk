@@ -15,23 +15,6 @@ namespace eval trie {
     namespace ensemble create
 }
 
-namespace eval clauseset {
-    # only used for statement syndication
-
-    namespace export create add difference clauses
-    proc create {args} {
-        set kvs [list]
-        foreach k $args { lappend kvs $k true }
-        dict create {*}$kvs
-    }
-    proc add {sv k} { upvar $sv s; dict set s $k true }
-    proc difference {s t} {
-        dict filter $s script {k v} {expr {![dict exists $t $k]}}
-    }
-    proc clauses {s} { dict keys $s }
-    namespace ensemble create
-}
-
 namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
@@ -350,30 +333,32 @@ package require websocket
 
 set ::acceptNum 0
 proc handleConnect {chan addr port} {
-    fileevent $chan readable [list handleRead $chan]
+    fileevent $chan readable [list handleRead $chan $addr $port]
 }
-proc handleRead {chan} {
+proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line
-    puts "Http: $line"
+    puts "Http: $chan $addr $port: $line"
     set headers [list]
     while {[gets $chan line] >= 0 && $line ne ""} {
         if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
             lappend headers $k $v
         } else { break }
     }
-    if {[::websocket::test $::serverSock $chan /ws $headers]} {
+    if {[::websocket::test $::serverSock $chan "/ws" $headers]} {
+        puts "WS: $chan $addr $port"
         ::websocket::upgrade $chan
-        # from now the wsLiveCB will be called (not anymore handleRead).
-    } else { close $chan }
+        # from now the handleWS will be called (not anymore handleRead).
+    } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
-proc handleWS {chan type data} {
+proc handleWS {chan type msg} {
+    puts "handleWS $chan $type"
     if {$type eq "text"} {
-        if {[catch {::websocket::send $chan text [eval $data]} err]} {
-            catch {
+        if {[catch {::websocket::send $chan text [eval $msg]} err]} {
+            if [catch {
                 puts "$::nodename: Error on receipt: $err"
                 ::websocket::send $chan text $err
-            }
+            } err2] { puts "$::nodename: $err2" }
         }
     }
 }

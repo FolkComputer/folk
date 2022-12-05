@@ -48,15 +48,17 @@ namespace eval Display {
 if {[info exists ::env(FOLK_SHARE_NODE)]} {
     set ::shareNode $::env(FOLK_SHARE_NODE)
 } else {
-    set ::shareNode "folk0.local"
+    set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
+    if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" } \
+    else { set ::shareNode "folk0.local" }
 }
 
 # copy to Pi
 if {[catch {
     # TODO: forward entry point
     # TODO: handle rsync strict host key failure
-    catch {exec make sync}
-    exec ssh -o StrictHostKeyChecking=no folk@$::shareNode -- sudo systemctl restart folk >@stdout &
+    if [catch {exec make sync FOLK_SHARE_NODE=$::shareNode} err] { puts "Sync failed: $err" }
+    exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
 } err]} {
     puts "error running on Pi: $err"
     unset ::shareNode
@@ -64,60 +66,48 @@ if {[catch {
 
 package require Thread
 if {[info exists ::shareNode]} {
-    set ::sharerThread [thread::create [format {
-        thread::wait
-        set sock [socket {%s} 4273]
-        puts $sock {
-        }
-        close $sock
-    } $::shareNode]]
+    after 2000 {
+        set ::sharerThread [thread::create [format {
+            lappend auto_path "./vendor"
+            package require websocket
+
+            proc handleWs {sock type msg} {}
+            set ::sock [::websocket::open "ws://%s:4273/ws" handleWs]
+
+            thread::wait
+        } $::shareNode]]
+    }
 }
 proc StepFromGUI {} {
     Step
 
-    if {![info exists ::shareNode]} { return }
+    if {![info exists ::shareNode] || ![info exists ::sharerThread]} { return }
 
     # share root statement set to Pi
-    set assertedClauses [clauseset create]
+    set rootClauses [list]
     dict for {_ stmt} $Statements::statements {
         if {[statement setsOfParents $stmt] == {0 {}} &&
             [lindex [statement clause $stmt] 0] == "laptop.tcl"} {
-            clauseset add assertedClauses [statement clause $stmt]
+            lappend rootClauses [statement clause $stmt]
         }
     }
     thread::send -async $::sharerThread [format {
         if {[catch {
             set shareNode {%s}
             set nodename {%s}
-            set assertedClauses {%s}
+            set rootClauses {%s}
 
-            set sock [socket $shareNode 4273]
-            puts $sock {Retract $::nodename has root statements /anything/}
-            puts $sock [list set ::nextSenderNode $nodename]
-            puts $sock [list set ::nextAssertedClauses $assertedClauses]
-            puts $sock {
-                if [catch {
-                    set prevAssertedClauses [dict get $::assertedClausesFrom $::nextSenderNode]
-                }] { set prevAssertedClauses [clauseset create] }
-
-                set retractClauses [clauseset difference $prevAssertedClauses $::nextAssertedClauses]
-                foreach clause [clauseset clauses $retractClauses] { Retract {*}$clause }
-                set assertClauses [clauseset difference $::nextAssertedClauses $prevAssertedClauses]
-                foreach clause [clauseset clauses $assertClauses] { Assert {*}$clause }
-
-                dict set ::assertedClausesFrom $::nextSenderNode $::nextAssertedClauses
-                unset ::nextSenderNode
-                unset ::nextAssertedClauses
-            }
-            # if {$nodename == "[info hostname]-1"} {
-                # puts $sock {Step}
-            # }
-            close $sock
+            set msg [subst {
+                Assert \$::nodename has root statements {$rootClauses} from $nodename
+                Retract \$::nodename has root statements /anything/ from $::nodename
+                Retract \$::nodename has root statements /anything/ from $nodename
+            }]
+            ::websocket::send $::sock text $msg
 
         } err]} {
             puts stderr "share error: $err"
         }
-    } $::shareNode $::nodename $assertedClauses]
+    } $::shareNode $::nodename $rootClauses]
 }
 
 proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"}} {

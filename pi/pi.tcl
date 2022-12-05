@@ -1,4 +1,6 @@
 package require Thread
+proc errorproc {args} {puts "Thread error: $args"}
+thread::errorproc errorproc
 
 namespace eval Display {
     variable WIDTH
@@ -31,7 +33,7 @@ namespace eval Display {
         }
 
         proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
-        incr ::displayCount 
+        incr ::displayCount
         thread::send -head -async $Display::displayThread [format {
             set newDisplayCount %d
             if {$::displayCount > $newDisplayCount} {
