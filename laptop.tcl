@@ -98,9 +98,9 @@ proc StepFromGUI {} {
             set rootClauses {%s}
 
             set msg [subst {
-                Assert \$::nodename has root statements {$rootClauses} from $nodename
-                Retract \$::nodename has root statements /anything/ from $::nodename
-                Retract \$::nodename has root statements /anything/ from $nodename
+                Assert \$::nodename has root statements {$rootClauses} from $nodename with generation [incr ::gen]
+                Retract \$::nodename has root statements /anything/ from \$::nodename with generation /any/
+                Retract \$::nodename has root statements /anything/ from $nodename with generation [expr {$::gen - 1}]
             }]
             ::websocket::send $::sock text $msg
 

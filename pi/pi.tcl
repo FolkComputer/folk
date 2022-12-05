@@ -136,9 +136,9 @@ foreach programFilename [glob virtual-programs/*.folk] {
 }
 
 # so we can retract them all at once if a laptop connects
-Assert $::nodename has root statements $rootStatements
+Assert $::nodename has root statements $rootStatements from $::nodename with generation 0
 
-Assert when $::nodename has root statements /statements/ {
+Assert when $::nodename has root statements /statements/ from /someone/ with generation /any/ {
     foreach stmt $statements { Say {*}$stmt }
 }
 

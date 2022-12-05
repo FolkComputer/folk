@@ -22,7 +22,6 @@ if [catch {source "/home/folk/generated-calibration.tcl"}] {
 } else {
   set points [list]
   foreach correspondence $generatedCalibration::points {
-    puts $correspondence
     lassign $correspondence cx cy dx dy
     lappend points [list [expr {double($cx)/$generatedCalibration::cameraWidth*$Camera::WIDTH}] \
                          [expr {double($cy)/$generatedCalibration::cameraHeight*$Camera::HEIGHT}] \

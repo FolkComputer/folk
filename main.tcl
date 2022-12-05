@@ -352,7 +352,6 @@ proc handleRead {chan addr port} {
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
 proc handleWS {chan type msg} {
-    puts "handleWS $chan $type"
     if {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err]} {
             if [catch {

@@ -295,7 +295,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
         drawCircle 100 100 500 $Display::red
 
-        Display::circle 300 420 400 5 $Display::blue
+        Display::circle 300 420 400 5 blue
         Display::text fb 300 420 PLACEHOLDER "Hello!" 0
 
         puts [time Display::commit]
