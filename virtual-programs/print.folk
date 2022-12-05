@@ -44,6 +44,7 @@ $cc proc tagImageForId {int id} char* {
     image_u8_destroy(image);
     return ret;
 }
+c loadlib $::env(HOME)/apriltag/libapriltag.so
 $cc compile
 
 proc programToPs {id text} {
