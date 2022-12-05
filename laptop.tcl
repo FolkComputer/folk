@@ -68,11 +68,23 @@ package require Thread
 if {[info exists ::shareNode]} {
     after 2000 {
         set ::sharerThread [thread::create [format {
+            set ::shareNode "%s"
+
             lappend auto_path "./vendor"
             package require websocket
 
-            proc handleWs {sock type msg} {}
-            set ::sock [::websocket::open "ws://%s:4273/ws" handleWs]
+            proc handleWs {sock type msg} {
+                if {$type == "connect"} { puts "sharer: Connected" } \
+                elseif {$type == "disconnect"} {
+                    puts "sharer: Disconnected"
+                    after 2000 { setupSock }
+                }
+            }
+            proc setupSock {} {
+                puts "sharer: Trying to connect to: ws://$::shareNode:4273/ws"
+                set ::sock [::websocket::open "ws://$::shareNode:4273/ws" handleWs]
+            }
+            setupSock
 
             thread::wait
         } $::shareNode]]
@@ -200,12 +212,14 @@ proc newProgram "{programCode {$defaultCode}}" {
         }
     }]
     bind .$program <Control-Key-n> newProgram
+    bind .$program <Command-Key-n> newProgram
 
     handleSave $program
 }
 button .btn -text "New Program" -command newProgram
 pack .btn
 bind . <Control-Key-n> newProgram
+bind . <Command-Key-n> newProgram
 
 # also see how it's done in pi.tcl
 foreach programFilename [glob virtual-programs/*.folk] {
