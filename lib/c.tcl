@@ -1,3 +1,35 @@
+proc csubst {s} {
+    # much like subst, but you invoke a Tcl fn with $[whatever]
+    # instead of [whatever]
+    set result [list]
+    for {set i 0} {$i < [string length $s]} {incr i} {
+        set c [string index $s $i]
+        switch $c {
+            "\\" {incr i; lappend result [string index $s $i]}
+            {$} {
+                set tail [string range $s $i+1 end]
+                if {[regexp {^(?:[A-Za-z0-9_]|::)+} $tail varname]} {
+                    lappend result [uplevel [list set $varname]]
+                    incr i [string length $varname]
+                } elseif {[string index $tail 0] eq "\["} {
+                    set bracketcount 0
+                    for {set j 0} {$j < [string length $tail]} {incr j} {
+                        set ch [string index $tail $j]
+                        if {$ch eq "\["} { incr bracketcount } \
+                        elseif {$ch eq "]"} { incr bracketcount -1 }
+                        if {$bracketcount == 0} { break }
+                    }
+                    set script [string range $tail 1 $j-1]
+                    lappend result [uplevel $script]
+                    incr i [expr {$j+1}]
+                }
+            }
+            default {lappend result $c}
+        }
+    }
+    join $result ""
+}
+
 namespace eval c {
     variable nextHandle 0
     proc create {} {
@@ -14,6 +46,8 @@ namespace eval c {
 
             variable argtypes {
                 int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                uint32_t { expr {{ Tcl_GetLongFromObj(interp, $obj, &$argname); }}}
+                size_t { expr {{ Tcl_GetLongFromObj(interp, $obj, &$argname); }}}
                 char* { expr {{ $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ $argname = $obj; }}}
                 default {
@@ -23,6 +57,18 @@ namespace eval c {
                                 return TCL_ERROR;
                             }
                         }}
+                    } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
+                        expr {{
+                            $basetype $argname[$arraylen];
+
+                            int objc; Tcl_Obj* objv;
+                            Tcl_ListObjGetElements(interp, $obj, &objc, &objv);
+                            for (int i = 0; i < $arraylen; i++) {
+                                $[apply {{argtypes obj argtype argname} \
+                                             {csubst [switch $argtype $argtypes]}} \
+                                        $argtypes objv\[i\] $basetype $argname\[i\]]
+                            }
+                        }}
                     } else {
                         error "Unrecognized argtype $argtype"
                     }
@@ -30,7 +76,7 @@ namespace eval c {
             }
             ::proc argtype {t h} {
                 variable argtypes
-                set argtypes [linsert $argtypes 0 $t [subst {expr {{$h}}}]]
+                set argtypes [linsert $argtypes 0 $t [csubst {expr {{$h}}}]]
             }
 
             variable rtypes {
@@ -56,7 +102,7 @@ namespace eval c {
             }
             ::proc rtype {t h} {
                 variable rtypes
-                set rtypes [linsert $rtypes 0 $t [subst {expr {{$h}}}]]
+                set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
             }
 
             ::proc include {h} {
@@ -64,6 +110,17 @@ namespace eval c {
                 lappend code "#include $h"
             }
             ::proc code {newcode} { variable code; lappend code $newcode; list }
+            ::proc typedef {existingtype alias} {
+                variable code; lappend code "typedef $existingtype $alias;"
+                variable argtypes
+                if {[dict exists $argtypes $existingtype]} {
+                    set argtypes [linsert $argtypes 0 $alias [dict get $argtypes $existingtype]]
+                }
+                variable rtypes
+                if {[dict exists $rtypes $existingtype]} {
+                    set rtypes [linsert $rtypes 0 $alias [dict get $rtypes $existingtype]]
+                }
+            }
             ::proc struct {type fields} {
                 variable code
                 lappend code [subst {
@@ -72,6 +129,29 @@ namespace eval c {
                         $fields
                     };
                 }]
+
+                puts "struct type $type: $fields"
+                variable argtypes
+                set argscripts [list]
+                dict for {fieldtype fieldname} $fields {
+                    regexp {([^\[]+)(\[\d*\])?;$} $fieldname -> fieldname arraysuffix
+                    lappend argscripts [csubst {
+                        Tcl_Obj* fieldobj;
+                        Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &fieldobj);
+                    }]
+                    lappend argscripts [apply {{argtypes obj argtype argname} \
+                                                   {csubst [switch $argtype $argtypes]}} \
+                                            $argtypes fieldobj $fieldtype$arraysuffix $fieldname]
+                }
+                puts "argscript for $type: [join $argscripts "\n"]"
+                set argtypes [linsert $argtypes 0 $type [list expr [list [join $argscripts "\n"]]]]
+                puts "argtypes $argtypes"
+                # expr {{
+                #     if {}
+                # }}
+
+                # variable argtypes
+                # set argtypes [linsert $argtypes 0 $type [subst {expr {{$h}}}]]
             }
 
             ::proc "proc" {name args rtype body} {
@@ -93,7 +173,7 @@ namespace eval c {
                     set obj [subst {objv\[1 + [llength $loadargs]\]}]
                     lappend loadargs [subst {
                         $argtype $argname;
-                        [subst [switch $argtype $argtypes]]
+                        [csubst [switch $argtype $argtypes]]
                     }]
                 }
                 if {$rtype == "void"} {

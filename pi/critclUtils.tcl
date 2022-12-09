@@ -16,7 +16,7 @@ proc defineImageType {cc} {
             int components;
             uint32_t bytesPerRow;
 
-            uint8_t *data;
+            uint8_t* data;
         } image_t;
     }
 
