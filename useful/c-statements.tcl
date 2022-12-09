@@ -7,7 +7,7 @@ namespace eval statement {
     $cc struct parent_set_t {
         statement_id_t parent[2];
     }
-    $cc struct statement_id_and_parent_set_t {
+    $cc struct child_t {
         statement_id_t id;
         parent_set_t parentSet;
     }
@@ -16,7 +16,7 @@ namespace eval statement {
         parent_set_t setsOfParents[8];
 
         size_t nchildren;
-        statement_id_and_parent_set_t children[];
+        child_t children[];
     }
 
     $cc proc createImpl {Tcl_Obj* clause
@@ -45,7 +45,7 @@ namespace eval Statements {
         trie_t* statementClauseToId;
     }
     $cc proc add {Tcl_Interp* interp
-                  Tcl_Obj* clause parent_set_t parents} statement_id_and_parent_set_id_t {
+                  Tcl_Obj* clause parent_set_t parents} child_t {
         // Empty set of parents = an assertion
 
         // Is this clause already present among the existing statements?
