@@ -44,10 +44,23 @@ namespace eval c {
             variable code [list]
             variable procs [dict create]
 
+            ::proc cstyle {type name} {
+                if {[regexp {([^\[]+)(\[\d*\])$} $type -> basetype arraysuffix]} {
+                    return [list $basetype $name$arraysuffix]
+                }
+                list $type $name
+            }
+            ::proc typestyle {type name} {
+                if {[regexp {([^\[]+)(\[\d*\])$} $name -> basename arraysuffix]} {
+                    return [list $type$arraysuffix $basename]
+                }
+                list $type $name
+            }
+
             variable argtypes {
                 int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                uint32_t { expr {{ Tcl_GetLongFromObj(interp, $obj, &$argname); }}}
-                size_t { expr {{ Tcl_GetLongFromObj(interp, $obj, &$argname); }}}
+                uint32_t { expr {{ Tcl_GetLongFromObj(interp, $obj, (long *) &$argname); }}}
+                size_t { expr {{ Tcl_GetLongFromObj(interp, $obj, (long *) &$argname); }}}
                 char* { expr {{ $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ $argname = $obj; }}}
                 default {
@@ -58,15 +71,14 @@ namespace eval c {
                             }
                         }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
+                        # note: arraylen can be ""
                         expr {{
-                            $basetype $argname[$arraylen];
-
-                            int objc; Tcl_Obj* objv;
-                            Tcl_ListObjGetElements(interp, $obj, &objc, &objv);
-                            for (int i = 0; i < $arraylen; i++) {
-                                $[apply {{argtypes obj argtype argname} \
-                                             {csubst [switch $argtype $argtypes]}} \
-                                        $argtypes objv\[i\] $basetype $argname\[i\]]
+                            {
+                                int objc; Tcl_Obj** objv;
+                                Tcl_ListObjGetElements(interp, $obj, &objc, &objv);
+                                for (int i = 0; i < $arraylen; i++) {
+                                    $[arg $basetype $argname\[i\] objv\[i\]]
+                                }
                             }
                         }}
                     } else {
@@ -78,24 +90,29 @@ namespace eval c {
                 variable argtypes
                 set argtypes [linsert $argtypes 0 $t [csubst {expr {{$h}}}]]
             }
+            ::proc arg {argtype argname obj} {
+                variable argtypes
+                csubst [switch $argtype $argtypes]
+            }
 
             variable rtypes {
-                int { expr {{ robj = Tcl_NewIntObj(rv); }}}
-                uint32_t { expr {{ robj = Tcl_NewIntObj(rv); }}}
-                size_t { expr {{ robj = Tcl_NewLongObj(rv); }}}
-                char* { expr {{ robj = Tcl_ObjPrintf("%s", rv); }} }
-                Tcl_Obj* { expr {{ robj = rv; }}}
+                int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
+                char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
+                Tcl_Obj* { expr {{ $robj = $rvalue; }}}
                 default {
                     if {[string index $rtype end] == "*"} {
-                        expr {{ robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) rv); }}
+                        expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                         expr {{
-                            for (int i = 0; i < $arraylen; i++) {
-                                $[apply {{rtypes rtype} \
-                                             {csubst [switch $rtype $rtypes]}} \
-                                      $rtypes $basetype]
+                            {
+                                Tcl_Obj* objv[$arraylen];
+                                for (int i = 0; i < $arraylen; i++) {
+                                    $[ret $basetype objv\[i\] $rvalue\[i\]]
+                                }
+                                $robj = Tcl_NewListObj($arraylen, objv);
                             }
-                            robj = Tcl_NewListObj($arraylen, objv);
                         }}
                     } else {
                         error "Unrecognized rtype $rtype"
@@ -105,6 +122,10 @@ namespace eval c {
             ::proc rtype {t h} {
                 variable rtypes
                 set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
+            }
+            ::proc ret {rtype robj rvalue} {
+                variable rtypes
+                csubst [switch $rtype $rtypes]
             }
 
             ::proc include {h} {
@@ -136,18 +157,16 @@ namespace eval c {
                 variable argtypes
                 set argscripts [list] ;# TODO: return a dictionary
                 dict for {fieldtype fieldname} $fields {
-                    regexp {([^\[]+)(\[\d*\])?;$} $fieldname -> fieldname arraysuffix
+                    set fieldname [string map {";" ""} $fieldname]
+                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
                     lappend argscripts [csubst {
                         Tcl_Obj* fieldobj;
                         Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &fieldobj);
                     }]
-                    lappend argscripts [apply {{argtypes obj argtype argname} \
-                                                   {csubst [switch $argtype $argtypes]}} \
-                                            $argtypes fieldobj $fieldtype$arraysuffix $fieldname]
+                    lappend argscripts [arg $fieldtype $fieldname fieldobj]
                 }
                 puts [subst {argscript for $type: [join $argscripts "\n"]}]
                 set argtypes [linsert $argtypes 0 $type [list expr [list [join $argscripts "\n"]]]]
-                puts "argtypes $argtypes"
 
                 variable rtypes
                 set rscripts [list {
@@ -155,10 +174,9 @@ namespace eval c {
                     Tcl_SetObjResult(interp, robj);
                 }]
                 dict for {fieldtype fieldname} $fields {
-                    # set dict.fieldname = rv.fieldname
-                    lappend rscripts [apply {{rtypes rtype} \
-                                                 {csubst [switch $rtype $rtypes]}} \
-                                          $rtypes $fieldtype$arraysuffix]
+                    set fieldname [string map {";" ""} $fieldname]
+                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
+                    lappend rscripts [ret $fieldtype robj rvalue.$fieldname]
                     lappend rscripts [csubst {
                         Tcl_DictObjPut(interp, robj, Tcl_ObjPrintf("%s", "$fieldname"), robj);
                     }]
@@ -178,15 +196,15 @@ namespace eval c {
                 for {set i 0} {$i < [llength $args]} {incr i 2} {
                     set argtype [lindex $args $i]
                     set argname [lindex $args [expr {$i+1}]]
-                    lappend arglist "$argtype $argname"
+                    lappend arglist [join [cstyle $argtype $argname] " "]
                     lappend argnames $argname
 
                     if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
 
                     set obj [subst {objv\[1 + [llength $loadargs]\]}]
                     lappend loadargs [subst {
-                        $argtype $argname;
-                        [csubst [switch $argtype $argtypes]]
+                        [join [cstyle $argtype $argname] " "];
+                        [arg $argtype $argname $obj]
                     }]
                 }
                 if {$rtype == "void"} {
@@ -196,9 +214,9 @@ namespace eval c {
                     }]
                 } else {
                     set saverv [subst {
-                        $rtype rv = $name ([join $argnames ", "]);
+                        $rtype rvalue = $name ([join $argnames ", "]);
                         Tcl_Obj* robj;
-                        [csubst [switch $rtype $rtypes]]
+                        [ret $rtype robj rvalue]
                         Tcl_SetObjResult(interp, robj);
                         return TCL_OK;
                     }]

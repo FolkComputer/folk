@@ -3,7 +3,11 @@ source "lib/c.tcl"
 set cc [c create]
 
 namespace eval statement {
+    $cc include <string.h>
+    $cc include <stdlib.h>
+
     $cc typedef uint32_t statement_id_t
+    $cc typedef {struct trie} trie_t
     $cc struct parent_set_t {
         statement_id_t parent[2];
     }
@@ -20,9 +24,8 @@ namespace eval statement {
     }
 
     $cc proc createImpl {Tcl_Obj* clause
-                         size_t nsetsOfParents parent_set_t[8] setsOfParents
-                         size_t nchildren child_t[] children} statement_t* {
-        size_t size = sizeof(statement_t) + 10*sizeof(statement_id_and_parent_set_t);
+                         size_t nsetsOfParents parent_set_t[8] setsOfParents} statement_t* {
+        size_t size = sizeof(statement_t) + 10*sizeof(child_t);
         statement_t* ret = ckalloc(size); memset(ret, 0, size);
 
         ret->clause = clause; Tcl_IncrRefCount(ret->clause);
@@ -30,8 +33,7 @@ namespace eval statement {
         if (nsetsOfParents > 8) { exit(1); }
         memcpy(ret->setsOfParents, setsOfParents, nsetsOfParents*sizeof(parent_set_t));
 
-        ret->nchildren = nchildren > 10 ? nchildren : 10;
-        memcpy(ret->children, children, nchildren*sizeof(statement_id_and_parent_set_t));
+        ret->nchildren = 10;
 
         return ret;
     }
