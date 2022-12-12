@@ -160,25 +160,23 @@ namespace eval c {
                     set fieldname [string map {";" ""} $fieldname]
                     lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
                     lappend argscripts [csubst {
-                        Tcl_Obj* fieldobj;
-                        Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &fieldobj);
+                        Tcl_Obj* obj_$fieldname;
+                        Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
                     }]
-                    lappend argscripts [arg $fieldtype $fieldname fieldobj]
+                    lappend argscripts [arg $fieldtype \$argname.$fieldname obj_$fieldname]
                 }
                 puts [subst {argscript for $type: [join $argscripts "\n"]}]
                 set argtypes [linsert $argtypes 0 $type [list expr [list [join $argscripts "\n"]]]]
 
                 variable rtypes
-                set rscripts [list {
-                    Tcl_Obj* robj = Tcl_NewDictObj();
-                    Tcl_SetObjResult(interp, robj);
-                }]
+                set rscripts [list { $robj = Tcl_NewDictObj(); }]
                 dict for {fieldtype fieldname} $fields {
                     set fieldname [string map {";" ""} $fieldname]
                     lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
-                    lappend rscripts [ret $fieldtype robj rvalue.$fieldname]
+                    lappend rscripts [csubst {Tcl_Obj* robj_$fieldname;}]
+                    lappend rscripts [ret $fieldtype robj_$fieldname \$rvalue.$fieldname]
                     lappend rscripts [csubst {
-                        Tcl_DictObjPut(interp, robj, Tcl_ObjPrintf("%s", "$fieldname"), robj);
+                        Tcl_DictObjPut(interp, \$robj, Tcl_ObjPrintf("%s", "$fieldname"), robj_$fieldname);
                     }]
                 }
                 puts [subst {rscript for $type: [join $rscripts "\n"]}]
