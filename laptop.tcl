@@ -65,7 +65,7 @@ if {[catch {
 }
 
 package require Thread
-if {[info exists ::shareNode]} {
+if {[info exists ::shareNode] && $::shareNode ne "none"} {
     after 2000 {
         set ::sharerThread [thread::create [format {
             set ::shareNode "%s"
@@ -93,7 +93,9 @@ if {[info exists ::shareNode]} {
 proc StepFromGUI {} {
     Step
 
-    if {![info exists ::shareNode] || ![info exists ::sharerThread]} { return }
+    if {![info exists ::shareNode] ||
+        ![info exists ::sharerThread] ||
+        $::shareNode eq "none"} { return }
 
     # share root statement set to Pi
     set rootClauses [list]
