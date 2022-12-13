@@ -1,0 +1,24 @@
+When $this has neighbor /n/ {
+  Wish $this is labelled $n
+}
+
+Wish $this has neighbors
+
+When /someone/ wishes /p/ has neighbors {
+  When $p has region /r/ {
+    When /p2/ has region /r2/ {
+      if {$p eq $p2} { return }
+      lassign [regionToBbox $r] bMinX bMinY bMaxX bMaxY
+      lassign [regionToBbox $r2] b2MinX b2MinY b2MaxX b2MaxY
+      
+      set hasIntersections [rectanglesOverlap [list $bMinX $bMinY] \
+                  [list $bMaxX $bMaxY]\
+                  [list $b2MinX $b2MinY]\
+                  [list $b2MaxX $bMaxY]\
+      false ]
+      if {$hasIntersections} {
+        Claim $p has neighbor $p2
+      }
+    }
+  }
+}
