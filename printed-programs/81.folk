@@ -1,0 +1,10 @@
+Wish $this has neighbors
+When $this has neighbor /n/ {
+  When $n has program code /code/ {
+    set lines [split $code "\n"]
+    Wish $this is labelled [lindex $lines 0]
+    # Wish $this is labelled $code
+  }
+}
+
+Wish $this is outlined white
