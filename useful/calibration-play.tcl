@@ -1,4 +1,4 @@
-package require critcl
+source "lib/c.tcl"
 
 exec sudo systemctl stop folk
 catch {
@@ -6,11 +6,8 @@ catch {
     exec v4l2-ctl --set-ctrl=focus_absolute=0
 }
 
-critcl::tcl 8.6
-critcl::cflags -Wall -Werror
-critcl::clibraries [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
-critcl::debug symbols
-critcl::clean_cache
+set cc [c create]
+$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
@@ -20,7 +17,7 @@ Display::init
 # Camera::init 3840 2160
 Camera::init 1920 1080
 
-critcl::ccode {
+$cc code {
     #include <stdint.h>
     #include <unistd.h>
     #include <stdlib.h>
@@ -28,7 +25,7 @@ critcl::ccode {
 }
 
 if {$Display::DEPTH == 16} {
-    critcl::ccode {
+    $cc code {
         typedef uint16_t pixel_t;
         #define PIXEL(r, g, b) \
             (((((r) >> 3) & 0x1F) << 11) | \
@@ -36,7 +33,7 @@ if {$Display::DEPTH == 16} {
              (((b) >> 3) & 0x1F))
     }
 } elseif {$Display::DEPTH == 32} {
-    critcl::ccode {
+    $cc code {
         typedef uint32_t pixel_t;
         #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
     }
@@ -44,7 +41,7 @@ if {$Display::DEPTH == 16} {
     error "calibration-play: Unusable depth $Display::DEPTH"
 }
 
-critcl::ccode {
+$cc code {
     #include <jpeglib.h>
 
     void 
@@ -131,7 +128,7 @@ proc eachCameraPixel {body} {
     "
 }
 
-critcl::ccode {
+$cc code {
     #define BLACK PIXEL(0, 0, 0)
     #define WHITE PIXEL(255, 255, 255)
 
@@ -157,11 +154,9 @@ critcl::ccode {
         uint16_t* rowCorr;
     } dense_t;
 }
-opaquePointerType pixel_t*
-opaquePointerType dense_t*
 
 # returns dense correspondence from camera space -> projector space
-critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subst -nobackslashes {
+$cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subst -nobackslashes {
     // image the base scene in white
     [eachDisplayPixel { *it = WHITE; }]
     uint8_t* whiteImage = delayThenCameraCapture(interp, "whiteImage");
@@ -282,7 +277,7 @@ critcl::cproc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* 
     return dense;
 }]
 
-critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [subst -nobackslashes {
+$cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [subst -nobackslashes {
     // image the base scene in black for reference
     [eachDisplayPixel { *it = BLACK; }]
     uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
@@ -304,7 +299,7 @@ critcl::cproc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t
     }]]
 }]
 
-critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj*0 [subst -nobackslashes -nocommands {
+$cc proc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj* [subst -nobackslashes -nocommands {
     // find correspondences inside the tag
     Tcl_Obj* correspondences[size*size];
     int correspondenceCount = 0;
@@ -319,8 +314,11 @@ critcl::cproc findNearbyCorrespondences {dense_t* dense int cx int cy int size} 
     }
     printf("correspondenceCount: %d\n", correspondenceCount);
 
+    // Tcl_Incr
     return Tcl_NewListObj(correspondenceCount, correspondences);
 }]
+
+$cc compile
 
 puts "camera: $Camera::camera"
 
