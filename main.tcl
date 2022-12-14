@@ -177,9 +177,9 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 
 # invoke from within a When context, add dependent statements
 proc Say {args} {
-    upvar __matcherId matcherId
-    upvar __matcheeId matcheeId
-    set ::log [linsert $::log 0 [list Say [list $matcherId $matcheeId] $args]]
+    upvar __whenId whenId
+    upvar __statementId statementId
+    set ::log [linsert $::log 0 [list Say [list $whenId $statementId] $args]]
 }
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
@@ -222,7 +222,7 @@ proc StepImpl {} {
                 set __env [dict merge \
                                $env \
                                $match \
-                               [dict create __matcherId $id]]
+                               [dict create __whenId $id __statementId [dict get $match __matcheeId]]]
                 runWhen $__env $body
             }
 
@@ -239,7 +239,7 @@ proc StepImpl {} {
                 set __env [dict merge \
                                [dict get $match __env] \
                                $match \
-                               [dict create __matcherId $id]]
+                               [dict create __whenId [dict get $match __matcheeId] __statementId $id]]
                 runWhen $__env [dict get $match __body]
             }
         }
