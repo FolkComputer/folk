@@ -1,0 +1,13 @@
+set color blue
+
+Wish $this is outlined red
+
+When $this has region /region/ {
+  lassign $region vertices edges
+  foreach edge $edges {
+    set from [lindex $vertices [lindex $edge 0]]
+    set to [lindex $vertices [lindex $edge 1]]
+    Display::stroke [list $from $to] 8 $color
+  }
+}
+
