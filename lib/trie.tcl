@@ -1,3 +1,23 @@
+# This data structure has 2 differences from the average trie you
+# might have seen before.
+#
+# 1. Its nodes are _entire tokens_, not characters.
+#
+#    someone -> wishes -> 30 -> is -> labelled -> Hello World
+#
+#    not
+#
+#    s -> o -> m -> e -> o -> n -> e -> SPACE -> w -> i -> ...
+#
+#    In other words, its alphabet is dynamic -- the set of all tokens
+#    that programs are using in statements -- not 26 characters or
+#    whatever.
+#
+# 2. Both search patterns and nodes can contain 'wildcards'.
+#
+#    This bidirectional matching is useful for incremental update.
+#
+
 namespace eval ctrie {
     rename [c create] cc
     cc include <stdlib.h>

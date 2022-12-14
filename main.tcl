@@ -42,7 +42,9 @@ namespace eval Statements { ;# singleton Statement store
             set id [lindex $ids 0]
         } elseif {[llength $ids] == 0} {
             set id false
-        } else { error WTF }
+        } else {
+            error "WTF: Looked up {$clause}"
+        }
 
         if {$id != false} {
             dict with statements $id {
@@ -201,8 +203,8 @@ proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
-        if {[catch {dict with __env $__body} err] == 1} {
-            puts "$::nodename: Error: $err"
+        if {[catch {dict with __env $__body} err]} {
+            puts "$::nodename: Error: $err\n$::errorInfo"
         }
     }
 
