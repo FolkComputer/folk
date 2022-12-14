@@ -48,9 +48,9 @@ namespace eval Statements { ;# singleton Statement store
 
         if {$id != false} {
             dict with statements $id {
-                set newSetOfParentsId [expr {[lindex $setsOfParents end-1] + 1}]
-                dict set setsOfParents $newSetOfParentsId $parents
-                return [list $id $newSetOfParentsId]
+                set newMatchId [expr {[lindex $parentMatches end-1] + 1}]
+                dict set parentMatches $newMatchId $parents
+                return [list $id $newMatchId]
             }
         } else {
             set id [incr nextStatementId]
@@ -71,11 +71,11 @@ namespace eval Statements { ;# singleton Statement store
         trie remove statementClauseToId $clause
     }
     proc size {} { variable statements; return [dict size $statements] }
-    proc countSetsOfParents {} {
+    proc countMatches {} {
         variable statements
         set count 0
         dict for {_ stmt} $statements {
-            set count [expr {$count + [dict size [statement setsOfParents $stmt]]}]
+            set count [expr {$count + [dict size [statement parentMatches $stmt]]}]
         }
         return $count
     }
@@ -135,9 +135,9 @@ namespace eval Statements { ;# singleton Statement store
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
             lappend dot "$id \[label=\"$id: $label\"\];"
 
-            dict for {setOfParentsId parents} [statement setsOfParents $stmt] {
-                lappend dot "\"$id $setOfParentsId\" \[label=\"$id#$setOfParentsId: $parents\"\];"
-                lappend dot "\"$id $setOfParentsId\" -> $id;"
+            dict for {matchId parents} [statement parentMatches $stmt] {
+                lappend dot "\"$id $matchId\" \[label=\"$id#$matchId: $parents\"\];"
+                lappend dot "\"$id $matchId\" -> $id;"
             }
 
             lappend dot "}"
@@ -151,19 +151,19 @@ namespace eval Statements { ;# singleton Statement store
 
 namespace eval statement { ;# statement record type
     namespace export create
-    proc create {clause {setsOfParents {}} {children {}}} {
+    proc create {clause {parentMatches {}} {children {}}} {
         # clause = [list the fox is out]
         # parents = [dict create 0 [list 2 7] 1 [list 8 5]]
         # children = [dict create [list 9 0] true]
         return [dict create \
                     clause $clause \
-                    setsOfParents $setsOfParents \
+                    parentMatches $parentMatches \
                     children $children]
     }
 
-    namespace export clause setsOfParents children
+    namespace export clause parentMatches children
     proc clause {stmt} { return [dict get $stmt clause] }
-    proc setsOfParents {stmt} { return [dict get $stmt setsOfParents] }
+    proc parentMatches {stmt} { return [dict get $stmt parentMatches] }
     proc children {stmt} { return [dict get $stmt children] }
 
     namespace ensemble create
@@ -248,24 +248,24 @@ proc StepImpl {} {
         # unset all things downstream of statement
         set children [statement children [Statements::get $id]]
         dict for {child _} $children {
-            lassign $child childId childSetOfParentsId
+            lassign $child childId childMatchId
             if {![Statements::exists $childId]} { continue } ;# if was removed earlier
-            set childSetsOfParents [statement setsOfParents [Statements::get $childId]]
-            set parentsInSameSet [dict get $childSetsOfParents $childSetOfParentsId]
+            set childMatches [statement parentMatches [Statements::get $childId]]
+            set parentsInSameMatch [dict get $childMatches $childMatchId]
 
             # this set of parents will be dead, so remove the set from
             # the other parents in the set
-            foreach parentId $parentsInSameSet {
+            foreach parentId $parentsInSameMatch {
                 dict with Statements::statements $parentId {
                     dict unset children $child
                 }
             }
 
             dict with Statements::statements $childId {
-                dict unset setsOfParents $childSetOfParentsId
+                dict unset parentMatches $childMatchId
 
-                # is this child out of parent sets? => it's dead
-                if {[dict size $setsOfParents] == 0} {
+                # is this child out of parent matches? => it's dead
+                if {[dict size $parentMatches] == 0} {
                     reactToStatementRemoval $childId
                     Statements::remove $childId
                 }
@@ -292,8 +292,8 @@ proc StepImpl {} {
             if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
                 set clause [list {*}$clause with environment {}]
             }
-            lassign [Statements::add $clause] id setOfParentsId ;# statement without parents
-            if {$setOfParentsId == 0} { reactToStatementAddition $id }
+            lassign [Statements::add $clause] id matchId ;# statement without parents
+            if {$matchId == 0} { reactToStatementAddition $id }
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
@@ -314,14 +314,14 @@ proc StepImpl {} {
         } elseif {$op == "Say"} {
             set parents [lindex $entry 1]
             set clause [lindex $entry 2]
-            lassign [Statements::add $clause $parents] id setOfParentsId
+            lassign [Statements::add $clause $parents] id matchId
             # list this statement as a child under each of its parents
             foreach parentId $parents {
                 dict with Statements::statements $parentId {
-                    dict set children [list $id $setOfParentsId] true
+                    dict set children [list $id $matchId] true
                 }
             }
-            if {$setOfParentsId == 0} { reactToStatementAddition $id }
+            if {$matchId == 0} { reactToStatementAddition $id }
         }
     }
 
