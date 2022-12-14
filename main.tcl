@@ -6,6 +6,10 @@ catch {
 proc d {arg} {
     # puts $arg
 }
+proc lremove {l val} {
+    set posn [lsearch -exact $l $val]
+    lreplace $l $posn $posn
+}
 
 source "lib/c.tcl"
 source "lib/trie.tcl"
@@ -15,10 +19,35 @@ namespace eval trie {
     namespace ensemble create
 }
 
+namespace eval statement { ;# statement record type
+    namespace export create
+    proc create {clause {parentMatchIds {}} {childMatchIds {}}} {
+        # clause = [list the fox is out]
+        # parentMatchIds = [dict create 503 true 208 true]
+        # childMatchIds = [dict create 101 true 433 true]
+        return [dict create \
+                    clause $clause \
+                    parentMatchIds $parentMatchIds \
+                    childMatchIds $childMatchIds]
+    }
+
+    namespace export clause parentMatchIds childMatchIds
+    proc clause {stmt} { return [dict get $stmt clause] }
+    proc parentMatchIds {stmt} { return [dict get $stmt parentMatchIds] }
+    proc childMatchIds {stmt} { return [dict get $stmt childMatchIds] }
+
+    namespace ensemble create
+}
+
 namespace eval Statements { ;# singleton Statement store
     variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
     variable statementClauseToId [trie create] ;# Trie<StatementClause, StatementId>
+
+    # Dict<MatchId, [parentStatementIds: List<StatementId>, childStatementIds: List<StatementId>]>
+    variable matches [dict create]
+    variable nextMatchId 1
+
     proc reset {} {
         variable statements
         variable nextStatementId
@@ -26,11 +55,29 @@ namespace eval Statements { ;# singleton Statement store
         set statements [dict create]
         set nextStatementId 1
         set statementClauseToId [trie create]
+        variable matches; variable nextMatchId
+        set matches [dict create]
+        set nextMatchId 1
     }
 
-    proc add {clause {parents {}}} {
-        # empty set of parents = an assertion
-        # returns {statement-id set-of-parents-id}
+    proc addMatch {parentStatementIds} {
+        variable matches
+        variable nextMatchId
+        set matchId [incr nextMatchId]
+        set match [dict create \
+                       parentStatementIds $parentStatementIds \
+                       childStatementIds [list]]
+        dict set matches $matchId $match
+        foreach parentStatementId $parentStatementIds {
+            dict with Statements::statements $parentStatementId {
+                dict set childMatchIds $matchId true
+            }
+        }
+        set matchId
+    }
+
+    proc add {clause {newParentMatchIds {}}} {
+        # empty set of parentMatchIds = an assertion
  
         variable statements
         variable nextStatementId
@@ -46,20 +93,25 @@ namespace eval Statements { ;# singleton Statement store
             error "WTF: Looked up {$clause}"
         }
 
-        if {$id != false} {
-            dict with statements $id {
-                set newMatchId [expr {[lindex $parentMatches end-1] + 1}]
-                dict set parentMatches $newMatchId $parents
-                return [list $id $newMatchId]
-            }
-        } else {
+        set isNewStatement [expr {$id eq false}]
+        if {$isNewStatement} {
             set id [incr nextStatementId]
-            set stmt [statement create $clause [dict create 0 $parents]]
+            set stmt [statement create $clause $newParentMatchIds]
             dict set statements $id $stmt
             trie add statementClauseToId $clause $id
-
-            return [list $id 0]
+        } else {
+            dict with statements $id {
+                set parentMatchIds [dict merge $parentMatchIds $newParentMatchIds]
+            }
         }
+
+        dict for {parentMatchId _} $newParentMatchIds {
+            dict with Statements::matches $parentMatchId {
+                lappend childStatementIds $id
+            }
+        }
+
+        list $id $isNewStatement
     }
     proc exists {id} { variable statements; return [dict exists $statements $id] }
     proc get {id} { variable statements; return [dict get $statements $id] }
@@ -75,7 +127,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         set count 0
         dict for {_ stmt} $statements {
-            set count [expr {$count + [dict size [statement parentMatches $stmt]]}]
+            set count [expr {$count + [dict size [statement parentMatchIds $stmt]]}]
         }
         return $count
     }
@@ -135,38 +187,18 @@ namespace eval Statements { ;# singleton Statement store
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
             lappend dot "$id \[label=\"$id: $label\"\];"
 
-            dict for {matchId parents} [statement parentMatches $stmt] {
+            dict for {matchId parents} [statement parentMatchIds $stmt] {
                 lappend dot "\"$id $matchId\" \[label=\"$id#$matchId: $parents\"\];"
                 lappend dot "\"$id $matchId\" -> $id;"
             }
 
             lappend dot "}"
-            dict for {child _} [statement children $stmt] {
+            dict for {child _} [statement childMatchIds $stmt] {
                 lappend dot "$id -> \"$child\";"
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
-}
-
-namespace eval statement { ;# statement record type
-    namespace export create
-    proc create {clause {parentMatches {}} {children {}}} {
-        # clause = [list the fox is out]
-        # parents = [dict create 0 [list 2 7] 1 [list 8 5]]
-        # children = [dict create [list 9 0] true]
-        return [dict create \
-                    clause $clause \
-                    parentMatches $parentMatches \
-                    children $children]
-    }
-
-    namespace export clause parentMatches children
-    proc clause {stmt} { return [dict get $stmt clause] }
-    proc parentMatches {stmt} { return [dict get $stmt parentMatches] }
-    proc children {stmt} { return [dict get $stmt children] }
-
-    namespace ensemble create
 }
 
 set ::log [list]
@@ -177,9 +209,8 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 
 # invoke from within a When context, add dependent statements
 proc Say {args} {
-    upvar __whenId whenId
-    upvar __statementId statementId
-    set ::log [linsert $::log 0 [list Say [list $whenId $statementId] $args]]
+    upvar __matchId matchId
+    set ::log [linsert $::log 0 [list Say $matchId $args]]
 }
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
@@ -203,6 +234,8 @@ proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
+        # FIXME: create a match
+        
         if {[catch {dict with __env $__body} err]} {
             puts "$::nodename: Error: $err\n$::errorInfo"
         }
@@ -219,10 +252,11 @@ proc StepImpl {} {
             set body [lindex $clause end-3]
             set env [lindex $clause end]
             foreach match $matches {
+                set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
                 set __env [dict merge \
                                $env \
                                $match \
-                               [dict create __whenId $id __statementId [dict get $match __matcheeId]]]
+                               [dict create __matchId $matchId]]
                 runWhen $__env $body
             }
 
@@ -236,40 +270,46 @@ proc StepImpl {} {
                 lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
             }
             foreach match $matches {
+                set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
                 set __env [dict merge \
                                [dict get $match __env] \
                                $match \
-                               [dict create __whenId [dict get $match __matcheeId] __statementId $id]]
+                               [dict create __matchId $matchId]]
                 runWhen $__env [dict get $match __body]
             }
         }
     }
     proc reactToStatementRemoval {id} {
         # unset all things downstream of statement
-        set children [statement children [Statements::get $id]]
-        dict for {child _} $children {
-            lassign $child childId childMatchId
-            if {![Statements::exists $childId]} { continue } ;# if was removed earlier
-            set childMatches [statement parentMatches [Statements::get $childId]]
-            set parentsInSameMatch [dict get $childMatches $childMatchId]
+        set childMatchIds [statement childMatchIds [Statements::get $id]]
+        dict for {matchId _} $childMatchIds {
+            if {![dict exists $Statements::matches $matchId]} { continue } ;# if was removed earlier
 
-            # this set of parents will be dead, so remove the set from
-            # the other parents in the set
-            foreach parentId $parentsInSameMatch {
-                dict with Statements::statements $parentId {
-                    dict unset children $child
+            dict with Statements::matches $matchId {
+                # this match will be dead, so remove the match from the
+                # other parents of the match
+                foreach parentStatementId $parentStatementIds {
+                    if {[Statements::exists $parentStatementId]} {
+                        dict with Statements::statements $parentStatementId {
+                            dict unset childMatchIds $matchId
+                        }
+                    }
+                }
+
+                foreach childStatementId $childStatementIds {
+                    dict with Statements::statements $childStatementId {
+                        dict unset parentMatchIds $matchId
+
+                        # is this child out of parent matches? => it's dead
+                        if {[dict size $parentMatchIds] == 0} {
+                            reactToStatementRemoval $childStatementId
+                            Statements::remove $childStatementId
+                            set childStatementIds [lremove $childStatementIds $childStatementId]
+                        }
+                    }
                 }
             }
-
-            dict with Statements::statements $childId {
-                dict unset parentMatches $childMatchId
-
-                # is this child out of parent matches? => it's dead
-                if {[dict size $parentMatches] == 0} {
-                    reactToStatementRemoval $childId
-                    Statements::remove $childId
-                }
-            }
+            dict unset Statements::matches $matchId
         }
     }
 
@@ -292,8 +332,8 @@ proc StepImpl {} {
             if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
                 set clause [list {*}$clause with environment {}]
             }
-            lassign [Statements::add $clause] id matchId ;# statement without parents
-            if {$matchId == 0} { reactToStatementAddition $id }
+            lassign [Statements::add $clause] id isNewStatement ;# statement without parents
+            if {$isNewStatement} { reactToStatementAddition $id }
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
@@ -312,16 +352,10 @@ proc StepImpl {} {
             }
 
         } elseif {$op == "Say"} {
-            set parents [lindex $entry 1]
+            set parentMatchId [lindex $entry 1]
             set clause [lindex $entry 2]
-            lassign [Statements::add $clause $parents] id matchId
-            # list this statement as a child under each of its parents
-            foreach parentId $parents {
-                dict with Statements::statements $parentId {
-                    dict set children [list $id $matchId] true
-                }
-            }
-            if {$matchId == 0} { reactToStatementAddition $id }
+            lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
+            if {$isNewStatement} { reactToStatementAddition $id }
         }
     }
 
