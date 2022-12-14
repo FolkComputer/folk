@@ -32,9 +32,17 @@ namespace eval statement { ;# statement record type
     }
 
     namespace export clause parentMatchIds childMatchIds
-    proc clause {stmt} { return [dict get $stmt clause] }
-    proc parentMatchIds {stmt} { return [dict get $stmt parentMatchIds] }
-    proc childMatchIds {stmt} { return [dict get $stmt childMatchIds] }
+    proc clause {stmt} { dict get $stmt clause }
+    proc parentMatchIds {stmt} { dict get $stmt parentMatchIds }
+    proc childMatchIds {stmt} { dict get $stmt childMatchIds }
+
+    namespace export short
+    proc short {stmt} {
+        set lines [split [clause $stmt] "\n"]
+        set line [lindex $lines 0]
+        if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
+        dict with stmt { list $parentMatchIds $line $childMatchIds }
+    }
 
     namespace ensemble create
 }
@@ -77,8 +85,8 @@ namespace eval Statements { ;# singleton Statement store
         set matchId
     }
 
-    proc add {clause {newParentMatchIds {}}} {
-        # empty set of parentMatchIds = an assertion
+    proc add {clause {newParentMatchIds {{} true}}} {
+        # empty set in newParentMatchIds = an assertion
  
         variable statements
         variable nextStatementId
@@ -107,6 +115,7 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         dict for {parentMatchId _} $newParentMatchIds {
+            if {$parentMatchId eq {}} { continue }
             dict with Statements::matches $parentMatchId {
                 lappend childStatementIds $id
             }
@@ -172,7 +181,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statements
         puts "Statements"
         puts "=========="
-        dict for {id stmt} $statements { puts "$id: [statement clause $stmt]" }
+        dict for {id stmt} $statements { puts "$id: [statement short $stmt]" }
     }
     proc dot {} {
         variable statements
