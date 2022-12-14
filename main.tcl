@@ -66,7 +66,8 @@ namespace eval Statements { ;# singleton Statement store
         set matchId [incr nextMatchId]
         set match [dict create \
                        parentStatementIds $parentStatementIds \
-                       childStatementIds [list]]
+                       childStatementIds [list] \
+                       finalizer {}]
         dict set matches $matchId $match
         foreach parentStatementId $parentStatementIds {
             dict with Statements::statements $parentStatementId {
@@ -229,6 +230,12 @@ proc When {args} {
     }]
     uplevel [list Say when {*}$args with environment $env]
 }
+proc On {event body} {
+    if {$event eq "unmatch"} {
+        upvar __matchId matchId
+        dict set Statements::matches $matchId finalizer $body
+    }
+}
 
 proc StepImpl {} {
     # should this do reduction of assert/retract ?
@@ -308,6 +315,8 @@ proc StepImpl {} {
                         }
                     }
                 }
+
+                eval $finalizer
             }
             dict unset Statements::matches $matchId
         }
