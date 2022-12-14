@@ -53,7 +53,7 @@ dc proc mmapFb {int fbw int fbh} pixel_t* {
     fbheight = fbh;
     fbmem = mmap(NULL, fbwidth * fbheight * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fb, 0);
     // Multiply by 3 to create buffer area
-    staging = calloc(fbwidth * fbheight * 3, sizeof(pixel_t)) + (fbwidth * fbheight);
+    staging = calloc(fbwidth * fbheight * 3, sizeof(pixel_t)) + (fbwidth * fbheight * sizeof(pixel_t));
     return fbmem;
 }
 
