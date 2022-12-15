@@ -146,8 +146,8 @@ namespace eval ctrie {
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
                 const char *wordString = Tcl_GetString(wordv[0]);
-                if ((keyString[0] == '/') ||
-                    (wordString[0] == '/') ||
+                if ((keyString[0] == '?' && keyString[1] == '\0') ||
+                    (wordString[0] == '?' && wordString[1] == '\0') ||
                     (strcmp(keyString, wordString) == 0)) {
                     lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
                 }

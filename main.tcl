@@ -18,6 +18,9 @@ namespace eval trie {
     namespace export *
     namespace ensemble create
 }
+proc triefy {clause} {
+    lmap word $clause {expr { [regexp {^/([^/ ]+)/$} $word] ? "?" : $word }}
+}
 
 namespace eval statement { ;# statement record type
     namespace export create
@@ -93,7 +96,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statementClauseToId
 
         # is this clause already present in the existing statement set?
-        set ids [trie lookup $statementClauseToId $clause]
+        set ids [trie lookup $statementClauseToId [triefy $clause]]
         if {[llength $ids] == 1} {
             set id [lindex $ids 0]
         } elseif {[llength $ids] == 0} {
@@ -107,7 +110,7 @@ namespace eval Statements { ;# singleton Statement store
             set id [incr nextStatementId]
             set stmt [statement create $clause $newParentMatchIds]
             dict set statements $id $stmt
-            trie add statementClauseToId $clause $id
+            trie add statementClauseToId [triefy $clause] $id
         } else {
             dict with statements $id {
                 set parentMatchIds [dict merge $parentMatchIds $newParentMatchIds]
@@ -130,7 +133,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statementClauseToId
         set clause [statement clause [get $id]]
         dict unset statements $id
-        trie remove statementClauseToId $clause
+        trie remove statementClauseToId [triefy $clause]
     }
     proc size {} { variable statements; return [dict size $statements] }
     proc countMatches {} {
@@ -149,9 +152,9 @@ namespace eval Statements { ;# singleton Statement store
         for {set i 0} {$i < [llength $a]} {incr i} {
             set aWord [lindex $a $i]
             set bWord [lindex $b $i]
-            if {[regexp {^/([^/]+)/$} $aWord -> aVarName]} {
+            if {[regexp {^/([^/ ]+)/$} $aWord -> aVarName]} {
                 dict set match $aVarName $bWord
-            } elseif {[regexp {^/([^/]+)/$} $bWord -> bVarName]} {
+            } elseif {[regexp {^/([^/ ]+)/$} $bWord -> bVarName]} {
                 dict set match $bVarName $aWord
             } elseif {$aWord != $bWord} {
                 return false
@@ -166,7 +169,7 @@ namespace eval Statements { ;# singleton Statement store
         # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
         set matches [list]
-        foreach id [trie lookup $statementClauseToId $pattern] {
+        foreach id [trie lookup $statementClauseToId [triefy $pattern]] {
             set match [unify $pattern [statement clause [get $id]]]
             if {$match != false} {
                 dict set match __matcheeId $id
@@ -250,8 +253,6 @@ proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
-        # FIXME: create a match
-        
         if {[catch {dict with __env $__body} err]} {
             puts "$::nodename: Error: $err\n$::errorInfo"
         }
@@ -305,14 +306,14 @@ proc StepImpl {} {
                 # this match will be dead, so remove the match from the
                 # other parents of the match
                 foreach parentStatementId $parentStatementIds {
-                    if {[Statements::exists $parentStatementId]} {
-                        dict with Statements::statements $parentStatementId {
-                            dict unset childMatchIds $matchId
-                        }
+                    if {![Statements::exists $parentStatementId]} { continue }
+                    dict with Statements::statements $parentStatementId {
+                        dict unset childMatchIds $matchId
                     }
                 }
 
                 foreach childStatementId $childStatementIds {
+                    if {![Statements::exists $childStatementId]} { continue }
                     dict with Statements::statements $childStatementId {
                         dict unset parentMatchIds $matchId
 
