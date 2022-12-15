@@ -1,3 +1,10 @@
+proc assert condition {
+   set s "{$condition}"
+   if {![uplevel 1 expr $s]} {
+       return -code error "assertion failed: $condition"
+   }
+}
+
 Assert program1 has program code {
     set ::collectedMatches [dict create]
     proc ::updateCollectedMatches {clause} {
@@ -18,7 +25,7 @@ Assert program1 has program code {
             ::updateCollectedMatches $clause
 
             On unmatch [subst {
-                dict unset ::collectedMatches {$clause} {$__env}
+                dict unset ::collectedMatches {$clause} {$match}
                 ::updateCollectedMatches {$clause}
             }]
 	}
@@ -26,14 +33,25 @@ Assert program1 has program code {
     }
 }
 
-Assert program2 has program code {
+Assert programOakland has program code {
     Claim Omar lives in "Oakland"
 }
 Assert program3 has program code {
     Wish to collect matches for [list Omar lives in /place/]
 }
-Assert program4 has program code {
+Assert programNewYork has program code {
     Claim Omar lives in "New York"
 }
-
 Step
+
+proc countCollectedMatches {clause} {
+    set collections [Statements::findMatches [list the collected matches for $clause are /matches/]]
+    assert {[llength $collections] == 1}
+    llength [dict get [lindex $collections 0] matches]
+}
+assert {[countCollectedMatches [list Omar lives in /place/]] == 2}
+
+Retract programOakland has program code /something/
+Step
+
+assert {[countCollectedMatches [list Omar lives in /place/]] == 1}

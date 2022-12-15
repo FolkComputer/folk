@@ -19,7 +19,7 @@ When /someone/ wishes to collect matches for /clause/ {
         ::updateCollectedMatches $clause
 
         On unmatch [subst {
-            dict unset ::collectedMatches {$clause} {$__env}
+            dict unset ::collectedMatches {$clause} {$match}
             ::updateCollectedMatches {$clause}
         }]
     }
