@@ -1,0 +1,4 @@
+Wish $this has neighbors
+When $this has neighbor /n/ {
+	Wish $n is labelled "neighbor"
+}
