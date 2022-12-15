@@ -1,0 +1,5 @@
+# List all programs on table
+
+When /p/ has program code /code/ {
+	Wish $this is labelled $p
+}

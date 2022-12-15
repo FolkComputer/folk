@@ -255,7 +255,7 @@ proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
-        if {[catch {dict with __env $__body} err]} {
+        if {[catch {dict with __env $__body} err] == 1} {
             puts "$::nodename: Error: $err\n$::errorInfo"
         }
     }
@@ -407,7 +407,7 @@ proc handleRead {chan addr port} {
 }
 proc handleWS {chan type msg} {
     if {$type eq "text"} {
-        if {[catch {::websocket::send $chan text [eval $msg]} err]} {
+        if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
                 puts "$::nodename: Error on receipt: $err"
                 ::websocket::send $chan text $err
@@ -416,7 +416,7 @@ proc handleWS {chan type msg} {
     }
 }
 set ::nodename [info hostname]
-if {[catch {set ::serverSock [socket -server handleConnect 4273]}]} {
+if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
     set ::nodename "[info hostname]-1"
     puts "$::nodename: Note: There's already a Folk node running on this machine."
     set ::serverSock [socket -server handleConnect 4274]
