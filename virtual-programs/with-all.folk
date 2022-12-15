@@ -1,0 +1,27 @@
+Wish $this has filename "with-all.folk"
+
+set ::collectedMatches [dict create]
+proc ::updateCollectedMatches {clause} {
+    set matches [dict get $::collectedMatches $clause]
+    Retract the collected matches for $clause are /something/
+    Assert the collected matches for $clause are [dict keys $matches]
+    Step
+}
+When /someone/ wishes to collect matches for /clause/ {
+    set varNames [lmap word $clause {expr {
+        [regexp {^/([^/ ]+)/$} $word -> varName] ? $varName : [continue]
+    }}]
+    When {*}$clause {
+        set match [dict create]
+        foreach varName $varNames { dict set match $varName [set $varName] }
+
+        dict set ::collectedMatches $clause $match true
+        ::updateCollectedMatches $clause
+
+        On unmatch [subst {
+            dict unset ::collectedMatches {$clause} {$__env}
+            ::updateCollectedMatches {$clause}
+        }]
+    }
+    On unmatch { dict unset ::collectedMatches $clause }
+}

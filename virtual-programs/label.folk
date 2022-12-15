@@ -1,21 +1,24 @@
 Wish $this has filename "label.folk"
 
-When /someone/ wishes /thing/ is labelled /text/ {
-    When $thing has region /region/ {
-	set radians [lindex $region 2]
-	if {$radians eq ""} {set radians 0}
-
+When /thing/ has region /region/ {
 	set bbox [regionToBbox $region]
 	lassign [boxCentroid $bbox] x y
 	set width [boxWidth $bbox]
 	set height [boxHeight $bbox]
 
-	set lines [split $text "\n"]
-        set longestLineLength [tcl::mathfunc::max {*}[lmap line $lines {string length $line}]]
-        set fontSize [expr {$width / $longestLineLength}]
-	for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-	    set ly [expr {abs($radians) < 1.57 ? $y-$lineNum*18 : $y+$lineNum*18}]
-	    Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
+	set radians [lindex $region 2]
+	if {$radians eq ""} {set radians 0}
+
+	Wish to collect matches for [list /someone/ wishes $thing is labelled /text/]
+	When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
+		set text [join [lmap match $matches {dict get $match text}] "\n"]
+		if {$text eq ""} { return }
+
+		set lines [split $text "\n"]
+		set fontSize 12
+		for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
+			   set ly [expr {abs($radians) < 1.57 ? $y-$lineNum*18 : $y+$lineNum*18}]
+			   Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
+		}
 	}
-    }
 }
