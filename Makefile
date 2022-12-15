@@ -5,6 +5,10 @@ sync:
 	rsync --update --timeout=1 -a folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync/printed-programs/ printed-programs
 	rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
 
+.PHONY: test
+test:
+	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
+
 TCLKIT = ~/Downloads/tclkit-8.6.3*
 Folk.app:
 	rm -r /tmp/folk.vfs; mkdir /tmp/folk.vfs
