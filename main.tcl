@@ -246,6 +246,8 @@ proc On {event body} {
     if {$event eq "unmatch"} {
         upvar __matchId matchId
         dict set Statements::matches $matchId finalizer $body
+    } elseif {$event eq "convergence"} {
+        lappend ::log [list Do $body]
     }
 }
 
@@ -356,16 +358,10 @@ proc StepImpl {} {
 
         } elseif {$op == "Retract"} {
             set clause [lindex $entry 1]
-            # if {[Statements::existsByClause $clause]} {
-            #     set ids [list [Statements::clauseToId $clause]]
-            # } else {
-                set ids [lmap match [Statements::findMatches $clause] {
-                    dict get $match __matcheeId
-                }]
-            # }
+            set ids [lmap match [Statements::findMatches $clause] {
+                dict get $match __matcheeId
+            }]
             foreach id $ids {
-                # puts "Retract-match $match"
-                # Statements::print
                 reactToStatementRemoval $id
                 Statements::remove $id
             }
@@ -375,6 +371,9 @@ proc StepImpl {} {
             set clause [lindex $entry 2]
             lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
             if {$isNewStatement} { reactToStatementAddition $id }
+
+        } elseif {$op == "Do"} {
+            eval [lindex $entry 1]
         }
     }
 
