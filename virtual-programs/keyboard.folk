@@ -1,0 +1,5 @@
+Wish $this has filename "keyboard.folk"
+
+When the keyboard character log is /k/ {
+	Wish $this is labelled $k
+}
