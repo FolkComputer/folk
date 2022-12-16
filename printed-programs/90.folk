@@ -1,0 +1,6 @@
+Wish $this has camera image
+When $this has camera image /im/ {
+	Wish $this is labelled \
+		"[image width $im]x[image height $im]"
+}
+

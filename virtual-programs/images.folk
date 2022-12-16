@@ -1,0 +1,36 @@
+# Images
+
+Wish $this has filename "images.folk"
+
+namespace eval ::image {
+	proc width {im} { dict get $im width }
+	proc height {im} { dict get $im height }
+	proc subimage {im x y subwidth subheight} {
+		dict with im {
+			set x [expr {int($x)}]
+			set y [expr {int($y)}]
+			set subdata [expr {$data + ($y*$width + $x) *
+				$components}]
+			dict create \
+				width $subwidth height $subheight \
+				components $components \
+				bytesPerRow $bytesPerRow \
+				data [format 0x%x $subdata]
+		}
+	}
+	namespace export *
+	namespace ensemble create
+}
+
+When /someone/ wishes /p/ has camera image {
+	When the camera frame is /f/ {
+		When $p has region /r/ {
+			lassign [projectorToCamera [lindex $r 0 0]] x0 y0
+			lassign [projectorToCamera [lindex $r 0 2]] x1 y1
+			set subimage [image subimage $f \
+				[expr {min($x0,$x1)}] [expr {min($y0,$y1)}] \
+				[expr {int(abs($x1-$x0))}] [expr {int(abs($y1-$y0))}]]
+			Claim $p has camera image $subimage
+		}
+	}
+}
