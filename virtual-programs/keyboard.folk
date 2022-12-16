@@ -1,5 +1,8 @@
 Wish $this has filename "keyboard.folk"
 
+set ::keylog [dict create]
 When the keyboard character log is /k/ {
-	Wish $this is labelled $k
+	dict set ::keylog [lindex $k end] "0."
+	puts $::keylog
+	Wish $this is labelled [string map {. "\n"} $::keylog]
 }
