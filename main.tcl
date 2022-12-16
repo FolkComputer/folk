@@ -421,7 +421,7 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
-    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         puts $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html\n"
         puts $chan [handlePage $path]
         close $chan
