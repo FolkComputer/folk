@@ -69,7 +69,7 @@ to `/etc/sudoers` as well
 1. `sudo apt install tcl-thread git killall libjpeg-dev fbset`
 1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
-   `SUBSYSTEM=="input", GROUP="input", MODE="0660"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
+   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. get apriltags: `cd ~; git clone
    https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
    (you can probably ignore errors at the end of this if they're just
