@@ -391,7 +391,7 @@ proc handleConnect {chan addr port} {
 }
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
-    gets $chan line
+    gets $chan line; set firstline $line
     puts "Http: $chan $addr $port: $line"
     set headers [list]
     while {[gets $chan line] >= 0 && $line ne ""} {
