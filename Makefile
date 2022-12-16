@@ -9,6 +9,9 @@ sync:
 test:
 	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
 
+repl:
+	tclsh8.6 replmain.tcl
+
 TCLKIT = ~/Downloads/tclkit-8.6.3*
 Folk.app:
 	rm -r /tmp/folk.vfs; mkdir /tmp/folk.vfs

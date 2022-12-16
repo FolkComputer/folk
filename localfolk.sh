@@ -1,1 +1,0 @@
-make FOLK_SHARE_NODE=0123
