@@ -389,6 +389,21 @@ set ::acceptNum 0
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
+proc handlePage {path} {
+    if {$path eq "/"} {
+        set l [list]
+        dict for {id stmt} $Statements::statements {
+            lappend l "<li>[statement short $stmt]</li>"
+        }
+        return "<html><ul>[join $l "\n"]</ul></html>"
+    }
+
+    subst {
+        <html>
+        <b>$path</b>
+        </html>
+    }
+}
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -399,7 +414,11 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
-    if {[::websocket::test $::serverSock $chan "/ws" $headers]} {
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
+        puts $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html\n"
+        puts $chan [handlePage $path]
+        close $chan
+    } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
         puts "WS: $chan $addr $port"
         ::websocket::upgrade $chan
         # from now the handleWS will be called (not anymore handleRead).
