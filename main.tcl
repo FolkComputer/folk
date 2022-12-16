@@ -44,7 +44,7 @@ namespace eval statement { ;# statement record type
         set lines [split [clause $stmt] "\n"]
         set line [lindex $lines 0]
         if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
-        dict with stmt { list $parentMatchIds $line $childMatchIds }
+        dict with stmt { format "{%s} %s {%s}" $parentMatchIds $line $childMatchIds }
     }
 
     namespace ensemble create
@@ -393,7 +393,14 @@ proc handlePage {path} {
     if {$path eq "/"} {
         set l [list]
         dict for {id stmt} $Statements::statements {
-            lappend l "<li>[statement short $stmt]</li>"
+            lappend l [subst {
+                <li>
+                <details>
+                <summary>$id: [statement short $stmt]</summary>
+                <pre>[statement clause $stmt]</pre>
+                </details>
+                </li>
+            }]
         }
         return "<html><ul>[join $l "\n"]</ul></html>"
     }
