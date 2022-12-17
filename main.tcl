@@ -282,24 +282,23 @@ proc StepImpl {} {
                                [dict create __matchId $matchId]]
                 runWhen $__env $body
             }
+        }
 
-        } else {
-            # is this a statement? match it against existing whens
-            # the time is 3 -> when the time is 3 /__body/ with environment /__env/
-            proc whenize {clause} { return [list when {*}$clause /__body/ with environment /__env/] }
-            set matches [Statements::findMatches [whenize $clause]]
-            if {[Statements::unify [lrange $clause 0 1] [list /someone/ claims]] != false} {
-                # Omar claims the time is 3 -> when the time is 3 /__body/ with environment /__env/
-                lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
-            }
-            foreach match $matches {
-                set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
-                set __env [dict merge \
-                               [dict get $match __env] \
-                               $match \
-                               [dict create __matchId $matchId]]
-                runWhen $__env [dict get $match __body]
-            }
+        # match this statement against existing whens
+        # the time is 3 -> when the time is 3 /__body/ with environment /__env/
+        proc whenize {clause} { return [list when {*}$clause /__body/ with environment /__env/] }
+        set matches [Statements::findMatches [whenize $clause]]
+        if {[Statements::unify [lrange $clause 0 1] [list /someone/ claims]] != false} {
+            # Omar claims the time is 3 -> when the time is 3 /__body/ with environment /__env/
+            lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
+        }
+        foreach match $matches {
+            set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
+            set __env [dict merge \
+                           [dict get $match __env] \
+                           $match \
+                           [dict create __matchId $matchId]]
+            runWhen $__env [dict get $match __body]
         }
     }
     proc reactToStatementRemoval {id} {
