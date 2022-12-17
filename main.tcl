@@ -78,7 +78,7 @@ namespace eval Statements { ;# singleton Statement store
         set match [dict create \
                        parentStatementIds $parentStatementIds \
                        childStatementIds [list] \
-                       finalizer {}]
+                       destructor {}]
         dict set matches $matchId $match
         foreach parentStatementId $parentStatementIds {
             dict with Statements::statements $parentStatementId {
@@ -245,8 +245,12 @@ proc When {args} {
 proc On {event body} {
     if {$event eq "unmatch"} {
         upvar __matchId matchId
-        dict set Statements::matches $matchId finalizer $body
+        dict set Statements::matches $matchId destructor $body
     } elseif {$event eq "convergence"} {
+        # FIXME: this should get retracted if gthe match is retracted (?)
+
+        # FIXME: there should be `Before convergence` also --
+        # then avoid using `On convergence` to generate statements
         lappend ::log [list Do $body]
     }
 }
@@ -328,7 +332,7 @@ proc StepImpl {} {
                     }
                 }
 
-                eval $finalizer
+                eval $destructor
             }
             dict unset Statements::matches $matchId
         }

@@ -224,14 +224,12 @@ bind . <Control-Key-n> newProgram
 bind . <Command-Key-n> newProgram
 
 set ::chs [list]
-
 proc handleKeyPress {k} {
     lappend ::chs $k
     Retract keyboard claims the keyboard character log is /something/
     Assert keyboard claims the keyboard character log is $::chs
     Step
 }
-
 bind . <KeyPress> {handleKeyPress %K}
 
 # also see how it's done in pi.tcl
