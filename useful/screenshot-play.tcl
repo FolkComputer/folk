@@ -1,3 +1,5 @@
+#!/usr/local/bin/tclsh8.6
+ puts [pwd]
  lappend ::auto_path ../vendor/Img1.4.14-Darwin64
  package require Tk
  package require Img
