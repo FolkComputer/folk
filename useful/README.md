@@ -1,0 +1,1 @@
+Note: I needed to `sudo spctl --master-disable` to get Img to load in MacOS Venture (13.1).
