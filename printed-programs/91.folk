@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 Wish $this has camera image
 When $this has camera image /im/ {
 	When $this has region /r/ {
@@ -5,3 +6,11 @@ When $this has camera image /im/ {
 	}
 }
 
+=======
+Wish $this is outlined red
+
+Claim camSize is [expr {rand()+1.2}] 
+
+Wish $this is labelled "camSize: $camSize"
+# Wish $this is labelled $::camSize
+>>>>>>> Stashed changes

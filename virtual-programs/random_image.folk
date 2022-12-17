@@ -1,11 +1,5 @@
-<<<<<<< Updated upstream
-Wish $this has camera image
-When $this has camera image /im/ {
-	Wish $this is labelled \
-		"[image width $im]x[image height $im]"
-}
+Wish $this has filename "random_image.folk"
 
-=======
 namespace eval ::image {
 	proc width {im} { dict get $im width }
 	proc height {im} { dict get $im height }
@@ -45,4 +39,4 @@ When the camera frame is /f/ {
 	}
 }
 Wish $this is outlined red
->>>>>>> Stashed changes
+Wish $this is labelled RED
