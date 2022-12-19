@@ -1,9 +1,16 @@
 Wish $this has filename "camera-slice.folk"
 Wish $this has camera image
+Wish $this is outlined white
+
+# Wish program code labelled
+
 When $this has camera image /im/ {
 	When $this has region /r/ {
-		Wish display runs [list Display::image {*}[lindex $r 0 0] $im]
+		set coords [lmap n [lindex $r 0 0] {expr $n * 1}]
+		Wish display runs [list Display::image {*}$coords $im]
+		Wish $this is labelled "$coords $im"
+		# filter $im
 	}
 }
 
-Wish $this is outlined white
+
