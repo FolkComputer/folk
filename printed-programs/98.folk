@@ -1,4 +1,3 @@
-Wish $this has filename "im.folk"
 Wish $this is outlined green
 
 set cc [c create]
