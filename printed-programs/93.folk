@@ -1,0 +1,9 @@
+Wish $this has camera image
+When $this has camera image /im/ {
+	When $this has region /r/ {
+		Wish display runs [list Display::image {*}[lindex $r 0 0] $im]
+	}
+}
+
+Wish $this is outlined white
+

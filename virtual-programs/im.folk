@@ -1,0 +1,40 @@
+Wish $this has filename "im.folk"
+Wish $this is outlined green
+
+set cc [c create]
+defineImageType $cc
+
+$cc include <stdlib.h>
+$cc include <string.h>
+$cc proc bw {image_t im} image_t {
+	image_t ret;
+	ret.width = im.width;
+	ret.height = im.height;
+	ret.components = 3;
+	ret.bytesPerRow = ret.width * ret.components;
+	ret.data = calloc(ret.bytesPerRow, ret.height);
+
+	for (uint32_t y = 0; y < im.height; ++y) {
+		int R = 0; int G = 1; int B = 2;
+		for (uint32_t x = 0; x < im.width; ++x) {
+			int i = y * ret.bytesPerRow + x * ret.components;
+			int j = y * im.bytesPerRow + x * im.components;
+			ret.data[i + 0] = im.data[j + R];
+			ret.data[i + 1] = im.data[j + G];
+			ret.data[i + 2] = im.data[j + B];
+		}		
+	}
+
+	return ret;
+}
+$cc proc freeImage {image_t im} void { free(im.data); }
+$cc compile
+
+Wish $this has camera image
+When $this has camera image /im/ {
+	When $this has region /r/ {
+		set bwim [bw $im]
+		Wish display runs [list Display::image {*}[lindex $r 0 0] $bwim]
+		On unmatch [list freeImage $bwim]
+	}
+}
