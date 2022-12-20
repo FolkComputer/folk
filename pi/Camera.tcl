@@ -1,5 +1,5 @@
 source "lib/c.tcl"
-source "pi/critclUtils.tcl"
+source "pi/cUtils.tcl"
 
 rename [c create] camc
 

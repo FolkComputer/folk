@@ -10,7 +10,7 @@ rename [c create] ic
 ic include <stdlib.h>
 ic code "#undef EXTERN"
 ic include <jpeglib.h>
-source "pi/critclUtils.tcl"
+source "pi/cUtils.tcl"
 defineImageType ic
 ic proc loadImageFromJpeg {char* filename} image_t {
     struct jpeg_decompress_struct cinfo;

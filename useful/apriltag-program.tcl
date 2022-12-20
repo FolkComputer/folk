@@ -1,5 +1,5 @@
 package require critcl
-source "pi/critclUtils.tcl"
+source "pi/cUtils.tcl"
 
 critcl::tcl 8.6
 if {$tcl_platform(os) eq "Darwin"} {

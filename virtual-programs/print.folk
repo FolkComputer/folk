@@ -1,6 +1,6 @@
 Wish $this has filename "print.folk"
 
-source "pi/critclUtils.tcl"
+source "pi/cUtils.tcl"
 
 set cc [c create]
 if {[info hostname] != "scoriae.local"} {
