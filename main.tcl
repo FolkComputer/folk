@@ -474,7 +474,7 @@ Assert when /this/ has program code /__code/ {
     }
 }
 
-if {$tcl_platform(os) eq "Darwin"} {
+if {$tcl_platform(os) eq "Darwin" || [info exists ::env(DISPLAY)]} {
     if {$tcl_version eq 8.5} {
         error "Don't use Tcl 8.5 / macOS system Tcl. Quitting."
     }
@@ -483,7 +483,7 @@ if {$tcl_platform(os) eq "Darwin"} {
 if {[info exists ::env(FOLK_ENTRY)]} {
     set ::entry $::env(FOLK_ENTRY)
 
-} elseif {$tcl_platform(os) eq "Darwin"} {
+} elseif {$tcl_platform(os) eq "Darwin" || [info exists ::env(DISPLAY)]} {
     #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
     set ::entry "laptop.tcl"
 

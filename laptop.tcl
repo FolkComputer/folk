@@ -45,12 +45,14 @@ namespace eval Display {
     }
 }
 
+set ::shareNode "folk0.local"
 if {[info exists ::env(FOLK_SHARE_NODE)]} {
     set ::shareNode $::env(FOLK_SHARE_NODE)
 } else {
-    set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
-    if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" } \
-    else { set ::shareNode "folk0.local" }
+    catch {
+	set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
+	if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" }
+    }
 }
 
 # copy to Pi
@@ -138,7 +140,7 @@ set ::nextProgramNum 0
 set defaultCode {Wish $this is outlined blue}
 proc newProgram "{programCode {$defaultCode}}" {
     set programNum [incr ::nextProgramNum]
-    set program [string map {. ^} $::nodename]:program-[randomRangeString 10]
+    set program [string tolower [string map {. ^} $::nodename]]:program-[randomRangeString 10]
 
     toplevel .$program
     wm title .$program $program
