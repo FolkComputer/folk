@@ -8,7 +8,7 @@ $ ln -s /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh /usr/local/bin/tclsh8.6
 
 to run on Pi:
 ```
-$ sudo apt install tcl tcl-thread libjpeg62-turbo-dev
+$ sudo apt install tcl tcl-thread libjpeg62-turbo-dev tcl8.6-dev
 
 $ cd ~; git clone https://github.com/AprilRobotics/apriltag.git; cd apriltag
 $ make -j
