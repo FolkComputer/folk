@@ -129,7 +129,10 @@ namespace eval c {
             variable cflags [switch $tcl_platform(os) {
                 Darwin { expr { [file exists "$::tcl_library/../../Tcl"] ?
                                 [list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl] :
-                                [list -I$::tcl_library/../../include $::tcl_library/../libtcl8.6.dylib]
+                                [list -I$::tcl_library/../../include \
+                                       $::tcl_library/../libtcl8.6.dylib \
+                                       -mmacosx-version-min=$tcl_platform(osVersion) \
+                                ]
                             } }
                 Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
             }]
