@@ -4,6 +4,7 @@ if {$::isLaptop} { return }
 Wish $this is outlined green
 
 set cc [c create]
+source "pi/cUtils.tcl"
 defineImageType $cc
 
 $cc include <stdlib.h>
@@ -37,6 +38,6 @@ When $this has camera image /im/ {
 	When $this has region /r/ {
 		set bwim [bw $im]
 		Wish display runs [list Display::image {*}[lindex $r 0 0] $bwim]
-		On unmatch [list freeImage $bwim]
+		On unmatch [list WhenContext::freeImage $bwim]
 	}
 }
