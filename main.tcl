@@ -238,6 +238,9 @@ proc When {args} {
                 dict set ___env $localName [set $localName]
             }
         }
+        dict for {procName procArgs} $WhenContext::procs {
+            dict set ___env ^$procName $procArgs
+        }
         set ___env
     }]
     uplevel [list Say when {*}$args with environment $env]
@@ -254,14 +257,32 @@ proc On {event body} {
         lappend ::log [list Do $body]
     }
 }
+namespace eval ::WhenContext {
+    # used to collect procs created in When
+    ::proc proc {name args} {
+        variable procs; dict set procs $name $args
+        ::proc $name {*}$args
+    }
+}
 
 proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
     proc runWhen {__env __body} {
-        if {[catch {dict with __env $__body} err] == 1} {
-            puts "$::nodename: Error: $err\n$::errorInfo"
+        set ::WhenContext::__env $__env
+        set ::WhenContext::__body $__body
+        namespace eval ::WhenContext {
+            variable procs [dict create]
+            dict for {name value} $__env {
+                if {[string index $name 0] eq "^"} {
+                    ::proc [string range $name 1 end] {*}$value
+                }
+            }
+            if {[catch {dict with __env $__body} err] == 1} {
+                puts "$::nodename: Error: $err\n$::errorInfo"
+            }
         }
+        # TODO: clean up new procs (and __env and __body) in WhenContext?
     }
 
     proc reactToStatementAddition {id} {
