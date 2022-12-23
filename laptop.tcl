@@ -54,20 +54,23 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 	if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" }
     }
 }
-
-# copy to Pi
-if {[catch {
-    # TODO: forward entry point
-    # TODO: handle rsync strict host key failure
-    if [catch {exec make sync FOLK_SHARE_NODE=$::shareNode} err] { puts "Sync failed: $err" }
-    exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
-} err]} {
-    puts "error running on Pi: $err"
-    unset ::shareNode
+if {$::shareNode eq "none"} { unset ::shareNode } \
+else {
+    # copy to Pi
+    if {[catch {
+        # TODO: forward entry point
+        # TODO: handle rsync strict host key failure
+        exec make sync FOLK_SHARE_NODE=$::shareNode
+        exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
+    } err]} {
+        puts "error syncing: $err"
+        puts "Proceeding without sharing to table."
+        unset ::shareNode
+    }
 }
 
 package require Thread
-if {[info exists ::shareNode] && $::shareNode ne "none"} {
+if {[info exists ::shareNode]} {
     after 2000 {
         set ::sharerThread [thread::create [format {
             set ::shareNode "%s"
@@ -96,8 +99,9 @@ proc StepFromGUI {} {
     Step
 
     if {![info exists ::shareNode] ||
-        ![info exists ::sharerThread] ||
-        $::shareNode eq "none"} { return }
+        ![info exists ::sharerThread]} {
+        return
+    }
 
     # share root statement set to Pi
     set rootClauses [list]
