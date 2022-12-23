@@ -121,22 +121,26 @@ set keyboardThread [thread::create [format {
 puts "Keyboard thread id: $keyboardThread"
 
 # also see how it's done in laptop.tcl
-set rootStatements [list]
-foreach programFilename [glob virtual-programs/*.folk] {
+set ::rootStatements [list]
+proc loadProgram {programFilename} {
+    # this is a proc so its variables don't leak
     set fp [open $programFilename r]
-    lappend rootStatements [list root claims $programFilename has program code [read $fp]]
+    lappend ::rootStatements [list root claims $programFilename has program code [read $fp]]
     set x 0; set y 100; set w 100; set h 100
     set vertices [list [list $x $y] \
                       [list [expr {$x+$w}] $y] \
                       [list [expr {$x+$w}] [expr {$y+$h}]] \
                       [list $x [expr {$y+$h}]]]
     set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-    lappend rootStatements [list root claims $programFilename has region [list $vertices $edges]]
+    lappend ::rootStatements [list root claims $programFilename has region [list $vertices $edges]]
     close $fp
+}
+foreach programFilename [glob virtual-programs/*.folk] {
+    loadProgram $programFilename
 }
 
 # so we can retract them all at once if a laptop connects
-Assert $::nodename has root statements $rootStatements from $::nodename with generation 0
+Assert $::nodename has root statements $::rootStatements from $::nodename with generation 0
 
 Assert when $::nodename has root statements /statements/ from /someone/ with generation /any/ {
     foreach stmt $statements { Say {*}$stmt }

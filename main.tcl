@@ -228,21 +228,22 @@ proc Say {args} {
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
 proc When {args} {
-    set env [uplevel {
-        set ___env [dict create]
+    set env [dict create]
 
-        # get all variables and serialize them
-        # (to fake lexical scope)
-        foreach localName [info vars ::WhenContext::*] {
-            if {![string match "::WhenContext::__*" $localName]} {
-                dict set ___env [namespace tail $localName] [set $localName]
-            }
+    # get all variables and serialize them
+    # (to fake lexical scope)
+    foreach name [info vars ::WhenContext::*] {
+        if {![string match "::WhenContext::__*" $name]} {
+            dict set env [namespace tail $name] [set $name]
         }
-        dict for {procName procArgs} $WhenContext::procs {
-            dict set ___env ^$procName $procArgs
-        }
-        set ___env
-    }]
+    }
+    foreach procName [info procs ::WhenContext::*] {
+        dict set env ^[namespace tail $procName] \
+            [list [info args $procName] [info body $procName]]
+    }
+    foreach importName [namespace eval ::WhenContext {namespace import}] {
+        dict set env %$importName [namespace origin ::WhenContext::$importName]
+    }
     uplevel [list Say when {*}$args with environment $env]
 }
 proc On {event body} {
@@ -258,11 +259,7 @@ proc On {event body} {
     }
 }
 namespace eval ::WhenContext {
-    # used to collect procs created in When
-    ::proc proc {name args} {
-        variable procs; dict set procs $name $args
-        ::proc $name {*}$args
-    }
+    # used to collect procs and variables created in When
 }
 
 proc StepImpl {} {
@@ -271,22 +268,26 @@ proc StepImpl {} {
     proc runWhen {env body} {
         dict for {name value} $env {
             if {[string index $name 0] eq "^"} {
-                ::WhenContext::proc [string range $name 1 end] {*}$value
+                proc ::WhenContext::[string range $name 1 end] {*}$value
+            } elseif {[string index $name 0] eq "%"} {
+                namespace eval ::WhenContext \
+                    [list namespace import -force $value]
+            } else {
+                set ::WhenContext::$name $value
             }
-            set ::WhenContext::$name $value
         }
-        set ::WhenContext::procs [dict create]
         if {[catch {namespace eval ::WhenContext $body} err] == 1} {
             puts "$::nodename: Error: $err\n$::errorInfo"
         }
+        # Clean up:
+        foreach procName [info procs ::WhenContext::*] {
+            rename $procName ""
+        }
+        foreach name [info vars ::WhenContext::*] {
+            unset $name
+        }
         namespace eval ::WhenContext {
-            # Clean up:
-            dict for {procName procArgs} $procs {
-                rename $procName ""
-            }
-            foreach localName [info vars ::WhenContext::*] {
-                unset $localName
-            }; unset localName
+            namespace forget {*}[namespace import]
         }
     }
 
