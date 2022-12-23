@@ -1,4 +1,6 @@
 Wish $this has filename "im.folk"
+if {$::isLaptop} { return }
+
 Wish $this is outlined green
 
 set cc [c create]

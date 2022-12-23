@@ -242,7 +242,7 @@ foreach programFilename [glob virtual-programs/*.folk] {
 }
 
 Assert when /program/ has program code /code/ {
-    if {$::tcl_platform(os) ne "Darwin"} { return }
+    if {!$::isLaptop} { return }
     # FIXME: this would run from printed pages too which is weird
     # not a problem in practice rn bc laptop doesn't see any printed pages
     When /someone/ wishes $program has filename /filename/ {
