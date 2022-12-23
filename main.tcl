@@ -229,13 +229,13 @@ proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
 proc When {args} {
     set env [uplevel {
-        set ___env $__env ;# inherit existing environment
+        set ___env [dict create]
 
-        # get local variables and serialize them
+        # get all variables and serialize them
         # (to fake lexical scope)
-        foreach localName [info locals] {
-            if {![string match "__*" $localName]} {
-                dict set ___env $localName [set $localName]
+        foreach localName [info vars ::WhenContext::*] {
+            if {![string match "::WhenContext::__*" $localName]} {
+                dict set ___env [namespace tail $localName] [set $localName]
             }
         }
         dict for {procName procArgs} $WhenContext::procs {
@@ -268,21 +268,26 @@ namespace eval ::WhenContext {
 proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
-    proc runWhen {__env __body} {
-        set ::WhenContext::__env $__env
-        set ::WhenContext::__body $__body
-        namespace eval ::WhenContext {
-            variable procs [dict create]
-            dict for {name value} $__env {
-                if {[string index $name 0] eq "^"} {
-                    ::proc [string range $name 1 end] {*}$value
-                }
+    proc runWhen {env body} {
+        dict for {name value} $env {
+            if {[string index $name 0] eq "^"} {
+                ::WhenContext::proc [string range $name 1 end] {*}$value
             }
-            if {[catch {dict with __env $__body} err] == 1} {
-                puts "$::nodename: Error: $err\n$::errorInfo"
-            }
+            set ::WhenContext::$name $value
         }
-        # TODO: clean up new procs (and __env and __body) in WhenContext?
+        set ::WhenContext::procs [dict create]
+        if {[catch {namespace eval ::WhenContext $body} err] == 1} {
+            puts "$::nodename: Error: $err\n$::errorInfo"
+        }
+        namespace eval ::WhenContext {
+            # Clean up:
+            dict for {procName procArgs} $procs {
+                rename $procName ""
+            }
+            foreach localName [info vars ::WhenContext::*] {
+                unset $localName
+            }; unset localName
+        }
     }
 
     proc reactToStatementAddition {id} {
@@ -504,7 +509,7 @@ if {$tcl_version eq 8.5} {
 if {[info exists ::env(FOLK_ENTRY)]} {
     set ::entry $::env(FOLK_ENTRY)
 
-} elseif {$isLaptop} {
+} elseif {$::isLaptop} {
     #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
     set ::entry "laptop.tcl"
 
