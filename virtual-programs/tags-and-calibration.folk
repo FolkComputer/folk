@@ -55,15 +55,15 @@ set ::H [subst {
 }]
 set ::Hinv [solvePGauss $::H [math::linearalgebra::mkIdentity 3]]
 
-proc cameraToProjector {cameraPoint} {
+proc ::cameraToProjector {cameraPoint} {
     # FIXME: this is slow but not the cause of leak
-    lassign [matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
+    lassign [::math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
     set Hx [expr {$Hx / $Hz}]
     set Hy [expr {$Hy / $Hz}]
     return [list $Hx $Hy]
 }
-proc projectorToCamera {projectorPoint} {
-    lassign [matmul $::Hinv [list [lindex $projectorPoint 0] [lindex $projectorPoint 1] 1]] Hinvx Hinvy Hinvz
+proc ::projectorToCamera {projectorPoint} {
+    lassign [::math::linearalgebra::matmul $::Hinv [list [lindex $projectorPoint 0] [lindex $projectorPoint 1] 1]] Hinvx Hinvy Hinvz
     set Hinvx [expr {$Hinvx / $Hinvz}]
     set Hinvy [expr {$Hinvy / $Hinvz}]
     return [list $Hinvx $Hinvy]
