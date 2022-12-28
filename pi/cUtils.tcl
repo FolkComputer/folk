@@ -8,7 +8,9 @@ if {[namespace exists c] && $::tcl_platform(os) eq "Linux"} {
     $handle compile
 }
 
-proc defineImageType {cc} {
+# FIXME: this shouldn't be global
+proc ::defineImageType {cc} {
+    set cc [uplevel {namespace current}]::$cc
     $cc code {
         typedef struct {
             uint32_t width;

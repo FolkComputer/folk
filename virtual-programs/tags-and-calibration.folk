@@ -55,6 +55,7 @@ set ::H [subst {
 }]
 set ::Hinv [solvePGauss $::H [math::linearalgebra::mkIdentity 3]]
 
+# FIXME: these shouldn't be global
 proc ::cameraToProjector {cameraPoint} {
     # FIXME: this is slow but not the cause of leak
     lassign [::math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
