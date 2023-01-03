@@ -1,0 +1,8 @@
+proc ::playSound {wav} {
+	exec aplay --device plughw:CARD=HDMI,DEV=10 $wav
+}
+
+::playSound "/home/folk/sounds/welcome.wav"
+On unmatch {
+	::playSound "/home/folk/sounds/goodbye.wav"
+}
