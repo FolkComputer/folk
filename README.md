@@ -90,6 +90,8 @@ Host folk0
 
 `journalctl -f -u folk` to see log of folk service
 
+for audio: https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
+
 #### ubuntu server slow boot
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration

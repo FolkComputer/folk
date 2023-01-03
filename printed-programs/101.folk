@@ -1,0 +1,5 @@
+set wav "/usr/share/sounds/alsa/Front_Center.wav"
+set cmd "aplay --device plughw:CARD=HDMI,DEV=10 $wav"
+Wish $this runs Unix command $cmd
+
+
