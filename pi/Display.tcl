@@ -140,6 +140,7 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 
 dc proc drawText {int x0 int y0 int upsidedown char* text} void {
     // Draws 1 line of text (no linebreak handling).
+
     /* size_t width = text.len * font.char_width; */
     /* size_t height = font.char_height; */
     /* if (x0 < 0 || y0 < 0 || */
@@ -155,7 +156,12 @@ dc proc drawText {int x0 int y0 int upsidedown char* text} void {
                 for (unsigned x = 0; x < font.char_width; x++) {
                     int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                     int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                    staging[((y0-y)*fbwidth) + ((len-i)*font.char_width + x0-x)] = bit ? 0xFFFF : 0x0000;
+
+                    int sx = ((len-i)*font.char_width + x0-x);
+                    int sy = y0 - y;
+                    if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
+                        staging[(sy*fbwidth) + sx] = bit ? 0xFFFF : 0x0000;
+                    }
                 }
             }
         }   
@@ -165,12 +171,16 @@ dc proc drawText {int x0 int y0 int upsidedown char* text} void {
                 for (unsigned x = 0; x < font.char_width; x++) {
                     int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
                     int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-                    staging[((y0+y)*fbwidth) + (i*font.char_width + x0+x)] = bit ? 0xFFFF : 0x0000;
+
+                    int sx = (i*font.char_width + x0+x);
+                    int sy = y0 + y;
+                    if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
+                        staging[(sy*fbwidth) + sx] = bit ? 0xFFFF : 0x0000;
+                    }
                 }
             }
         }
     }
-        /* memcpy(&staging[(y0+y)*fbwidth+x0], &shear_out[y*width], sizeof(pixel_t)*width); */
 }
 
 defineImageType dc
