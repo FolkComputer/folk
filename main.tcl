@@ -358,7 +358,9 @@ proc StepImpl {} {
                     }
                 }
 
-                eval $destructor
+                if {[catch $destructor err] == 1} {
+                    puts "$::nodename: Destructor error: $err\n$::errorInfo"
+                }
             }
             dict unset Statements::matches $matchId
         }
