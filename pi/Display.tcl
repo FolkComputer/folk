@@ -74,8 +74,8 @@ dc rtype Vec2i {
 source "pi/Display/lineclip.tcl"
 
 dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
-    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 || */
-        t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) { */
+    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 ||
+        t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) {
          return;
     }
 
@@ -253,7 +253,7 @@ namespace eval Display {
 
             # if line is past edge of screen, clip it to the nearest
             # point along edge of screen
-            clipLine a b
+            clipLine a b $width
 
             set bMinusA [math::linearalgebra::sub $b $a]
             set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]

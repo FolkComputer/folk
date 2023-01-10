@@ -1,4 +1,6 @@
 dc code {
+#include <stdbool.h>
+
 typedef int OutCode;
 
 const int INSIDE = 0; // 0000
@@ -11,20 +13,20 @@ const int TOP = 8;    // 1000
 // bounded diagonally by (xmin, ymin), and (xmax, ymax)
 
 // ASSUME THAT xmax, xmin, ymax and ymin are global constants.
+float xmin; float xmax;
+float ymin; float ymax;
 
-// (osnr: now using 0/0/fbwidth/fbheight instead of xmin/ymin/xmax/ymax)
-
-OutCode ComputeOutCode(double x, double y)
+OutCode ComputeOutCode(float x, float y)
 {
 	OutCode code = INSIDE;  // initialised as being inside of clip window
 
-	if (x < 0)           // to the left of clip window
+	if (x < xmin)           // to the left of clip window
 		code |= LEFT;
-	else if (x > fbwidth)      // to the right of clip window
+	else if (x > xmax)      // to the right of clip window
 		code |= RIGHT;
-	if (y < 0)           // below the clip window
+	if (y < ymin)           // below the clip window
 		code |= BOTTOM;
-	else if (y > fbheight)      // above the clip window
+	else if (y > ymax)      // above the clip window
 		code |= TOP;
 
 	return code;
@@ -33,17 +35,19 @@ OutCode ComputeOutCode(double x, double y)
 // Cohen–Sutherland clipping algorithm clips a line from
 // P0 = (x0, y0) to P1 = (x1, y1) against a rectangle with 
 // diagonal from (xmin, ymin) to (xmax, ymax).
-bool CohenSutherlandLineClip(double& x0, double& y0, double& x1, double& y1)
+bool CohenSutherlandLineClip(float* x0_, float* y0_, float* x1_, float* y1_)
 {
+    float x0 = *x0_; float y0 = *y0_; float x1 = *x1_; float y1 = *y1_;
+
 	// compute outcodes for P0, P1, and whatever point lies outside the clip rectangle
 	OutCode outcode0 = ComputeOutCode(x0, y0);
 	OutCode outcode1 = ComputeOutCode(x1, y1);
-	int accept = 0;
+	int accept = false;
 
 	while (true) {
 		if (!(outcode0 | outcode1)) {
 			// bitwise OR is 0: both points inside window; trivially accept and exit loop
-			accept = 1;
+			accept = true;
 			break;
 		} else if (outcode0 & outcode1) {
 			// bitwise AND is not 0: both points share an outside zone (LEFT, RIGHT, TOP,
@@ -52,7 +56,7 @@ bool CohenSutherlandLineClip(double& x0, double& y0, double& x1, double& y1)
 		} else {
 			// failed both tests, so calculate the line segment to clip
 			// from an outside point to an intersection with clip edge
-			double x, y;
+			float x, y;
 
 			// At least one endpoint is outside the clip rectangle; pick it.
 			OutCode outcodeOut = outcode1 > outcode0 ? outcode1 : outcode0;
@@ -91,16 +95,21 @@ bool CohenSutherlandLineClip(double& x0, double& y0, double& x1, double& y1)
 			}
 		}
 	}
+    *x0_ = x0; *y0_ = y0; *x1_ = x1; *y1_ = y1;
 	return accept;
 }
 }
 
-dc proc clipLine {Tcl_Obj* aVar Tcl_Obj* bVar} void {
-    double x0; double x1; double y0; double y1;
+dc proc clipLine {Tcl_Interp* interp Tcl_Obj* aVar Tcl_Obj* bVar int width} void {
+    // has some margin to account for nudge
+    xmin = width + 1; xmax = fbwidth - 1 - width - 1; // TODO: do this just once at boot
+    ymin = width + 1; ymax = fbheight - 1 - width - 1;
+
+    float x0; float x1; float y0; float y1;
     sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, aVar, NULL, 0)), "%f %f", &x0, &y0);
     sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, bVar, NULL, 0)), "%f %f", &x1, &y1);
-    CohenSutherlandLineClip(x0, y0, x1, y1);
+    CohenSutherlandLineClip(&x0, &y0, &x1, &y1);
 
-    Tcl_ObjSetVar2(interp, aVar, NULL, Tcl_ObjPrintf("%d %d", (int)x0, (int)y0));
-    Tcl_ObjSetVar2(interp, bVar, NULL, Tcl_ObjPrintf("%d %d", (int)x1, (int)y1));
+    Tcl_ObjSetVar2(interp, aVar, NULL, Tcl_ObjPrintf("%d %d", (int)x0, (int)y0), 0);
+    Tcl_ObjSetVar2(interp, bVar, NULL, Tcl_ObjPrintf("%d %d", (int)x1, (int)y1), 0);
 }
