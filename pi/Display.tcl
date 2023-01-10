@@ -70,11 +70,14 @@ dc rtype Vec2i {
     Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
     return TCL_OK;
 }
+
+source "pi/Display/lineclip.tcl"
+
 dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
-    /* if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 || */
-    /*     t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) { */
-    /*     return; */
-    /* } */
+    if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 || */
+        t0.x >= fbwidth || t0.y >= fbheight || t1.x >= fbwidth || t1.y >= fbheight || t2.x >= fbwidth || t2.y >= fbheight) { */
+         return;
+    }
 
     // from https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
 
@@ -247,6 +250,10 @@ namespace eval Display {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
             if {$b == ""} break
+
+            # if line is past edge of screen, clip it to the nearest
+            # point along edge of screen
+            clipLine a b
 
             set bMinusA [math::linearalgebra::sub $b $a]
             set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
