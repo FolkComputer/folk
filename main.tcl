@@ -414,73 +414,8 @@ proc StepImpl {} {
     }
 }
 
-lappend auto_path "./vendor"
-package require websocket
-
-set ::acceptNum 0
-proc handleConnect {chan addr port} {
-    fileevent $chan readable [list handleRead $chan $addr $port]
-}
-proc handlePage {path} {
-    if {$path eq "/"} {
-        set l [list]
-        dict for {id stmt} $Statements::statements {
-            lappend l [subst {
-                <li>
-                <details>
-                <summary>$id: [statement short $stmt]</summary>
-                <pre>[statement clause $stmt]</pre>
-                </details>
-                </li>
-            }]
-        }
-        return "<html><ul>[join $l "\n"]</ul></html>"
-    }
-
-    subst {
-        <html>
-        <b>$path</b>
-        </html>
-    }
-}
-proc handleRead {chan addr port} {
-    chan configure $chan -translation crlf
-    gets $chan line; set firstline $line
-    puts "Http: $chan $addr $port: $line"
-    set headers [list]
-    while {[gets $chan line] >= 0 && $line ne ""} {
-        if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
-            lappend headers $k $v
-        } else { break }
-    }
-    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        puts -nonewline $chan "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
-        puts -nonewline $chan [handlePage $path]
-        close $chan
-    } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
-        puts "WS: $chan $addr $port"
-        ::websocket::upgrade $chan
-        # from now the handleWS will be called (not anymore handleRead).
-    } else { puts "Closing: $chan $addr $port $headers"; close $chan }
-}
-proc handleWS {chan type msg} {
-    if {$type eq "text"} {
-        if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
-            if [catch {
-                puts "$::nodename: Error on receipt: $err"
-                ::websocket::send $chan text $err
-            } err2] { puts "$::nodename: $err2" }
-        }
-    }
-}
 set ::nodename [info hostname]
-if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
-    set ::nodename "[info hostname]-1"
-    puts "$::nodename: Note: There's already a Folk node running on this machine."
-    set ::serverSock [socket -server handleConnect 4274]
-}
-::websocket::server $::serverSock
-::websocket::live $::serverSock /ws handleWS
+source "./web.tcl" ;# FIXME: / weird -- can change ::nodename
 
 set ::stepCount 0
 set ::stepTime "none"
