@@ -454,8 +454,8 @@ proc handleRead {chan addr port} {
         } else { break }
     }
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        puts $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html\n"
-        puts $chan [handlePage $path]
+        puts -nonewline $chan "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        puts -nonewline $chan [handlePage $path]
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
         puts "WS: $chan $addr $port"
