@@ -85,7 +85,7 @@ When tag /tag/ is a tag {
      set code [read $fp]
      close $fp
 
-     Wish $tag is outlined green
+     # Wish $tag is outlined green
      Claim $tag has program code $code
 }
 

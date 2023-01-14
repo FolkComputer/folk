@@ -1,0 +1,3 @@
+Wish $this runs Unix command \
+	"journalctl -f -u folk"
+
