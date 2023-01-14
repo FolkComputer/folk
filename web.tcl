@@ -28,8 +28,8 @@ proc handlePage {path} {
         return {
             <html>
             <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
-            <textarea cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
-            <p><button>Save</button> <button>Print</button></p>
+            <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
+            <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button></p>
             </div>
 
             <script>
@@ -39,10 +39,13 @@ let y = 0;
 
 // Query the element
 const ele = document.getElementById('dragme');
+const codeEle = document.getElementById("code");
 
 // Handle the mousedown event
 // that's triggered when user drags the element
 const mouseDownHandler = function (e) {
+    if (e.target == codeEle) return;
+
     // Get the current mouse position
     x = e.clientX;
     y = e.clientY;
@@ -53,13 +56,17 @@ const mouseDownHandler = function (e) {
 };
 
 const mouseMoveHandler = function (e) {
+    if (e.target == codeEle) return;
+
     // How far the mouse has been moved
     const dx = e.clientX - x;
     const dy = e.clientY - y;
 
     // Set the position of element
-    ele.style.top = `${ele.offsetTop + dy}px`;
-    ele.style.left = `${ele.offsetLeft + dx}px`;
+    const [top, left] = [ele.offsetTop + dy, ele.offsetLeft + dx];
+    ele.style.top = `${top}px`;
+    ele.style.left = `${left}px`;
+    handleDrag();
 
     // Reassign the position of mouse
     x = e.clientX;
@@ -73,7 +80,44 @@ const mouseUpHandler = function () {
 };
 
 ele.addEventListener('mousedown', mouseDownHandler);
-            </script>
+</script>
+
+<script>
+const program = String(Math.random());
+
+const ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+function send(s) { console.log(s); ws.send(s); }
+
+ws.onopen = () => { handleDrag(); }
+function handleDrag() {
+  const [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+    send(`
+proc handleConfigure {program x y w h} {
+        set vertices [list [list $x $y] \
+                          [list [expr {$x+$w}] $y] \
+                          [list [expr {$x+$w}] [expr {$y+$h}]] \
+                          [list $x [expr {$y+$h}]]]
+        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+        Retract web claims $program has region /something/
+        Assert web claims $program has region [list $vertices $edges]
+}
+handleConfigure {${program}} {${left}} {${top}} {${w}} {${h}}
+    `);
+}
+function handleSave() {
+    const code = document.getElementById("code").value;
+    send(`Retract web claims {${program}} has program code /something/`);
+    send(`Assert web claims {${program}} has program code {${code}}`);
+}
+function handlePrint() {
+    const code = document.getElementById("code").value;
+    const jobid = String(Math.random());
+    send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
+    setTimeout(500, () => {
+      send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
+    });
+}
+</script>
             </html>
         }
     }
