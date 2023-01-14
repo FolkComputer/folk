@@ -86,9 +86,13 @@ ele.addEventListener('mousedown', mouseDownHandler);
 const program = String(Math.random());
 
 const ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-function send(s) { console.log(s); ws.send(s); }
+function send(s) { ws.send(s); }
 
 ws.onopen = () => { handleDrag(); }
+ws.onclose = window.onbeforeunload = () => {
+  send(`Retract web claims {${program}} has region /something/`);
+  send(`Retract web claims {${program}} has program code /something/`);
+};
 function handleDrag() {
   const [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
     send(`
