@@ -1,6 +1,6 @@
 proc ::playSound {wav} {
 	exec -ignorestderr
-		aplay --device plughw:CARD=HDMI,DEV=10 $wav
+		mpv -ao jack $wav
 }
 
 ::playSound "/home/folk/sounds/welcome.wav"

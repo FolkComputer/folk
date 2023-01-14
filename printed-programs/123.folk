@@ -1,0 +1,11 @@
+Wish $this is outlined green
+
+set fileId [open "/home/folk/music/tidal-input" "w"]
+puts $fileId {d4 $ slow 2 $ n ("[0|3|5]*2 7*3 9*2 10*4" + (slow 4 "0 7")) # s "supersquare" # distort 0.5 # bpf (perlin*1000)}
+close $fileId
+
+On unmatch {
+  set fileId [open "/home/folk/music/tidal-input" "w"]
+  puts $fileId {d4 $ silence}
+  close $fileId
+}
