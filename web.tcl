@@ -27,6 +27,7 @@ proc handlePage {path} {
     } elseif {$path eq "/new"} {
         return {
             <html>
+            <span id="status">Status</span>
             <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
             <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
             <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button></p>
@@ -85,14 +86,30 @@ ele.addEventListener('mousedown', mouseDownHandler);
 <script>
 const program = String(Math.random());
 
-const ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-function send(s) { ws.send(s); }
+let ws;
+let send;
+function wsConnect() {
+    ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+    send = function(s) { ws.send(s); }
 
-ws.onopen = () => { handleDrag(); }
-ws.onclose = window.onbeforeunload = () => {
-  send(`Retract web claims {${program}} has region /something/`);
-  send(`Retract web claims {${program}} has program code /something/`);
+    ws.onopen = () => {
+        document.getElementById('status').innerText = "Connected";
+        handleDrag();
+    };
+    ws.onclose = window.onbeforeunload = () => {
+        document.getElementById('status').innerText = "Disconnected";
+        send(`Retract web claims {${program}} has region /something/`);
+        send(`Retract web claims {${program}} has program code /something/`);
+        setTimeout(() => { wsConnect(); }, 1000);
+    };
+    ws.onerror = (err) => {
+        document.getElementById('status').innerText = "Error";
+        console.error('Socket encountered error: ', err.message, 'Closing socket');
+        ws.close();
+    }
 };
+wsConnect();
+
 function handleDrag() {
   const [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
     send(`
