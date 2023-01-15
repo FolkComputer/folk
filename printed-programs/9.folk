@@ -1,2 +1,0 @@
-Wish $this has filename "suspend.folk"
-exec systemctl suspend

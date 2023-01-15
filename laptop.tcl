@@ -187,7 +187,6 @@ proc newProgram "{programCode {$defaultCode}}" {
         after 500 [subst {
             catch {destroy .$program.printing}
             Retract "laptop.tcl" wishes to print /code/ with job id $jobid
-            exec rsync --timeout=1 -a folk@$::shareNode:/home/folk/folk-rsync/printed-programs/ printed-programs >@stdout &
         }]
     }
     bind .$program <Command-Key-p> [list handlePrint $program]

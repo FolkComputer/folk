@@ -1,3 +1,0 @@
-if {$::nodename == "folk0"} {
-	exec sudo systemctl suspend
-}

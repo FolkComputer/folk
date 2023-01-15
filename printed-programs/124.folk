@@ -1,5 +1,0 @@
-proc ::playSound {wav} {
-	exec -ignorestderr  mpv -ao jack $wav &
-}
-
-::playSound "/home/folk/sounds/mgs-alert.wav"

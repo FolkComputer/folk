@@ -1,4 +1,0 @@
-When $this has region /r/ {
-	set radians [lindex $r 2]
-	Wish $this is labelled "$radians radians"
-}

@@ -1,7 +1,0 @@
-Wish $this is outlined blue
-When the camera frame is /f/ {
-	Wish $this is labelled $f
-}
-When $this has region /r/ {
-	Wish $this is labelled $r
-}

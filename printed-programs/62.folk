@@ -1,3 +1,0 @@
-When tag $this has center /c/ size /size/ {
-	Wish $this is labelled "center $c\nsize $size"
-}

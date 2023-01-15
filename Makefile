@@ -2,7 +2,6 @@ start:
 	tclsh8.6 main.tcl
 FOLK_SHARE_NODE := folk0.local
 sync:
-	rsync --update --timeout=1 -a folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync/printed-programs/ printed-programs
 	rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk-rsync
 
 .PHONY: test

@@ -89,11 +89,11 @@ proc programToPs {id text} {
 }
 
 proc nextId {} {
-     set fp [open "printed-programs/next-id.txt" r]
+     set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
      set id [string trim [read $fp]]
      close $fp
 
-     set fp [open "printed-programs/next-id.txt" w]
+     set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" w]
      puts $fp [expr {$id + 1}]
      close $fp
 
@@ -113,14 +113,14 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     set ps [programToPs $id $code]
 
     # save code and ps to disk
-    set fp [open "printed-programs/$id.folk" w]
+    set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
     puts $fp $code
     close $fp
 
-    set fp [open "printed-programs/$id.ps" w]
+    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
     puts $fp $ps
     close $fp
 
-    exec ps2pdf printed-programs/$id.ps printed-programs/$id.pdf
-    exec lpr printed-programs/$id.pdf
+    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
+    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
 }

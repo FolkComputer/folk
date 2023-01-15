@@ -1,4 +1,0 @@
-When tag $this has center /c/ size /size/ {
-	Wish $this is labelled "center [cameraToProjector $c]\nsize $size"
-}
-

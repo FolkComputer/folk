@@ -1,3 +1,0 @@
-When /someone/ wishes /page/ is outlined /color/ {
-	Wish $this is labelled "$page <- $color"
-}

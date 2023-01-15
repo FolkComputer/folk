@@ -1,4 +1,0 @@
-Wish $this has filename "display-time.folk"
-When the display time is /t/ {
-	Wish $this is labelled $t
-}

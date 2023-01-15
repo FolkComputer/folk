@@ -1,4 +1,0 @@
-Wish $this is outlined blue
-When /x/ wishes /page/ is labelled /label/ {
-	Wish $this is labelled $label
-}

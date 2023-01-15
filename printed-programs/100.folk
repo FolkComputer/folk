@@ -1,5 +1,0 @@
-set wav "/usr/share/sounds/alsa/Noise.wav"
-set cmd "aplay --device plughw:CARD=HDMI,DEV=10 $wav"
-Wish $this runs Unix command $cmd
-
-

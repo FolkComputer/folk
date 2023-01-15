@@ -1,5 +1,0 @@
-Wish $this is outlined red
-
-When $this has region /r/ {
-	Wish $this is labelled "Hello $r"
-}

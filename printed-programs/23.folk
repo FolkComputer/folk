@@ -1,3 +1,0 @@
-if {$::nodename eq "folk0"} {
-	exec sudo pkill vkcube
-}

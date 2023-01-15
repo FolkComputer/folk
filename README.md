@@ -120,7 +120,7 @@ automatically show up via dnssd)
 once printer is working, go to Administration dropdown on printer page
 and Set as Server Default
 
-test `lpr folk-rsync/printed-programs/SOMETHING.pdf` (you have to
+test `lpr ~/folk-printed-programs/SOMETHING.pdf` (you have to
 print the PDF and not the PS for it to work, probably)
 
 ## stuff

@@ -1,3 +1,0 @@
-if {$::nodename eq "folk0"} {
-	exec sudo /home/folk/vkcube/build/vkcube -m khr -k 0:0:0
-}

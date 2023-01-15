@@ -1,6 +1,0 @@
-Wish $this is outlined green
-Wish $this is labelled Hello
-
-When $this has region /r/ {
-	Wish $this is labelled [join $r "\n"]
-}
