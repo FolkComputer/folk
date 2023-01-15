@@ -254,8 +254,11 @@ namespace eval Display {
     proc vec2i {p} {
         return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
     }
+    proc getColor {color} {
+        expr {[string is integer $color] ? $color : [set Display::$color]}
+    }
     proc fillTriangle {p0 p1 p2 color} {
-        fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [set Display::$color]
+        fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [getColor $color]
     }
     proc stroke {points width color} {
         for {set i 0} {$i < [llength $points]} {incr i} {
@@ -275,8 +278,8 @@ namespace eval Display {
             set a1 [math::linearalgebra::sub $a $nudge]
             set b0 [math::linearalgebra::add $b $nudge]
             set b1 [math::linearalgebra::sub $b $nudge]
-            fillTriangle $a0 $a1 $b1 $color
-            fillTriangle $a0 $b0 $b1 $color
+            fillTriangle $a0 $a1 $b1 [getColor $color]
+            fillTriangle $a0 $b0 $b1 [getColor $color]
         }
     }
 
@@ -285,7 +288,7 @@ namespace eval Display {
     }
     proc circle {x y radius thickness color} {
         for {set i 0} {$i < $thickness} {incr i} {
-            drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] [set Display::$color]
+            drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] [getColor $color]
         }
     }
     proc image {x y im} {
