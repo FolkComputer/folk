@@ -81,7 +81,7 @@ When tag /tag/ has center /c/ size /size/ {
 When tag /tag/ is a tag {
      puts "Added tag $tag"
 
-     set fp [open "$::HOME/folk-printed-programs/$tag.folk" r]
+     set fp [open "$::env(HOME)/folk-printed-programs/$tag.folk" r]
      set code [read $fp]
      close $fp
 
