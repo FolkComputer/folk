@@ -3,13 +3,8 @@ Wish $this has filename "print.folk"
 source "pi/cUtils.tcl"
 
 set cc [c create]
-if {[info hostname] ne "scoriae.local"} {
-    $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
-    c loadlib $::env(HOME)/apriltag/libapriltag.so
-} else {
-    $cc cflags -I/Users/osnr/aux/apriltag -Wall -Werror /Users/osnr/aux/apriltag/libapriltag.a
-    c loadlib /Users/osnr/aux/apriltag/libapriltag.so
-}
+$cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
+c loadlib $::env(HOME)/apriltag/libapriltag.so
 
 $cc code {
     #include <apriltag.h>
@@ -18,7 +13,7 @@ $cc code {
 
     #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
 }
-$cc proc tagImageForId {int id} char* {
+$cc proc ::tagImageForId {int id} char* {
     if (tf == NULL) tf = tagStandard52h13_create();
 
     image_u8_t* image = apriltag_to_image(tf, id);
@@ -48,21 +43,67 @@ $cc proc tagImageForId {int id} char* {
 }
 $cc compile
 
-proc programToPs {id text {side "front"}} {
-    set PageWidth 612; set PageHeight 792
+proc ::programToPs {id text {format "letter"} {side "front"}} {
     set margin 36
+    set PageWidth 612; set PageHeight 792
+
+    if {$format eq "indexcard"} {
+        # front in portrait, back in landscape
+        set tagwidth 150; set tagheight 150
+        set fontsize 8; set lineheight [expr $fontsize*1.5]
+        set margin 36
+        if {$side eq "front"} {
+            set image [::tagImageForId $id]
+            return [subst {
+                %!PS
+                << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+                90 rotate
+
+                gsave
+                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
+                $tagwidth $tagheight scale
+                $image
+                grestore
+
+                /Helvetica-Narrow findfont
+                10 scalefont
+                setfont
+                newpath
+                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth-16] moveto
+                ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+
+            }]
+        } elseif {$side eq "back"} {
+            return [subst {
+                %!PS
+                << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+                /Courier findfont
+                $fontsize scalefont
+                setfont
+                newpath
+                [join [lmap line [split $text "\n"] {
+                    set line [string map {"\\" "\\\\"} $line]
+                    set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
+                    incr linenum
+                    set ret
+                }] "\n"]
+            }]
+        }
+    }
 
     set tagwidth 150; set tagheight 150
     set fontsize 12; set lineheight [expr $fontsize*1.5]
 
-    set image [tagImageForId $id]
+    set image [::tagImageForId $id]
 
     set linenum 1
-    return [subst {
+    subst {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-        [expr { side eq "back" ? { 0.4 setgray } : {} }]
+        [expr { $side eq "back" ? { 0.4 setgray } : {} }]
 
         /Courier findfont
         $fontsize scalefont
@@ -75,21 +116,21 @@ proc programToPs {id text {side "front"}} {
             set ret
         }] "\n"]
 
-        [expr { side eq "back" ? {} : {
+        [expr { $side eq "back" ? {} : [subst {
           gsave
           [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
           $tagwidth $tagheight scale
           $image
           grestore
-        } }]
+        }] }]
 
         /Helvetica-Narrow findfont
         10 scalefont
         setfont
         newpath
         [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
-        ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
-    }]
+        ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+    }
 }
 
 proc nextId {} {
@@ -114,7 +155,12 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     set id [nextId]
     dict set ::printjobs $jobid [list $id $code]
 
-    set ps [programToPs $id $code]
+    set format "letter"
+    if {[string first {Wish $this prints on an index card} $code] != -1} {
+       set format "indexcard"
+    }
+
+    set ps [programToPs $id $code $format front]
 
     # save code and ps to disk
     set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
@@ -131,7 +177,12 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
 When /someone/ wishes to print the back of job id /jobid/ {
     lassign [dict get $::printjobs $jobid] id code
 
-    set ps [programToPs $id $code back]
+    set format "letter"
+    if {[string first {Wish $this prints on an index card} $code] != -1} {
+       set format "indexcard"
+    }
+
+    set ps [programToPs $id $code $format back]
     set fp [open "$::env(HOME)/folk-printed-programs/$id-back.ps" w]
     puts $fp $ps
     close $fp
