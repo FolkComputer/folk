@@ -1,6 +1,5 @@
 Wish $this has filename "music.folk"
 if {$::isLaptop} { return }
-return ;# temporarily disable
 
 namespace eval ::Music { variable musicDir $::env(HOME)/music }
 exec mkdir -p $::Music::musicDir
@@ -107,13 +106,13 @@ proc ::Music::finishSetup {} {
   exec jack_control dps nperiods 2
   exec jack_control dps period 64
   
-  exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc
+  exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc &
 
   set fifo $musicDir/tidal-input
   exec rm -f $fifo
   exec mkfifo $fifo
-  set fifoId [open $fifo]
-  exec -ignorestderr ghci < $fifo
+  exec -ignorestderr sh -c "ghci < $fifo" &
+  set fifoId [open $fifo w]
   exec cat $musicDir/BootTidal.hs > $fifo
 }
 
