@@ -30,7 +30,7 @@ proc handlePage {path} {
             <span id="status">Status</span>
             <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
             <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
-            <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button></p>
+            <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button><button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button></p>
             </div>
 
             <script>
@@ -130,12 +130,20 @@ function handleSave() {
     send(`Retract web claims {${program}} has program code /something/`);
     send(`Assert web claims {${program}} has program code {${code}}`);
 }
+let jobid;
 function handlePrint() {
     const code = document.getElementById("code").value;
-    const jobid = String(Math.random());
+    jobid = String(Math.random());
     send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
     setTimeout(500, () => {
       send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
+    });
+    document.getElementById('printback').style.display = '';
+}
+function handlePrintBack() {
+    send(`Assert web wishes to print the back of job id {${jobid}}`);
+    setTimeout(500, () => {
+      send(`Retract web wishes to print the back of job id {${jobid}}`);
     });
 }
 </script>

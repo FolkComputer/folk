@@ -88,6 +88,42 @@ proc programToPs {id text} {
     }]
 }
 
+proc programToBackPs {id text} {
+    set PageWidth 612; set PageHeight 792
+    set margin 36
+
+    set tagwidth 150; set tagheight 150
+    set fontsize 12; set lineheight [expr $fontsize*1.5]
+
+    set image [tagImageForId $id]
+
+    set linenum 1
+    return [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+        0.3 setgray
+
+        /Courier findfont
+        $fontsize scalefont
+        setfont
+        newpath
+        [join [lmap line [split $text "\n"] {
+            set line [string map {"\\" "\\\\"} $line]
+            set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
+            incr linenum
+            set ret
+        }] "\n"]
+
+        /Helvetica-Narrow findfont
+        10 scalefont
+        setfont
+        newpath
+        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
+        ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
+    }]
+}
+
 proc nextId {} {
      set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
      set id [string trim [read $fp]]
@@ -106,9 +142,9 @@ if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
     puts "Wish to print jobid $jobid"
     if {[dict exists $::printjobs $jobid]} {return}
-    dict set ::printjobs $jobid true
 
     set id [nextId]
+    dict set ::printjobs $jobid [list $id $code]
 
     set ps [programToPs $id $code]
 
@@ -123,4 +159,15 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
 
     exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
     exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
+}
+When /someone/ wishes to print the back of job id /jobid/ {
+    lassign [dict get $::printjobs $jobid] id code
+
+    set ps [programToBackPs $id $code]
+    set fp [open "$::env(HOME)/folk-printed-programs/$id-back.ps" w]
+    puts $fp $ps
+    close $fp
+
+    exec ps2pdf $::env(HOME)/folk-printed-programs/$id-back.ps $::env(HOME)/folk-printed-programs/$id-back.pdf
+    exec lpr $::env(HOME)/folk-printed-programs/$id-back.pdf
 }
