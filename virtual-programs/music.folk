@@ -1,8 +1,10 @@
 Wish $this has filename "music.folk"
+if {$::isLaptop} { return }
+return ;# temporarily disable
 
-set musicDir $::env(HOME)/music
-exec mkdir -p $musicDir
-set bootTidal [open $musicDir/BootTidal.hs w]
+namespace eval ::Music { variable musicDir $::env(HOME)/music }
+exec mkdir -p $::Music::musicDir
+set bootTidal [open $::Music::musicDir/BootTidal.hs w]
 # https://raw.githubusercontent.com/tidalcycles/Tidal/main/BootTidal.hs
 puts $bootTidal {
 :set -XOverloadedStrings
@@ -89,13 +91,15 @@ let getState = streamGet tidal
 default (Pattern String, Integer, Double)
 }
 close $bootTidal
-set scStartup [open $musicDir/startup.sc w]
+set scStartup [open $::Music::musicDir/startup.sc w]
 puts $scStartup "SuperDirt.start;"
 close $scStartup
 
 set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
 
-proc ::finishSetup {} {
+proc ::Music::finishSetup {} {
+  variable musicDir
+
   exec jack_control start
   exec jack_control ds alsa
   exec jack_control dps device hw:HDMI,10
@@ -103,8 +107,8 @@ proc ::finishSetup {} {
   exec jack_control dps nperiods 2
   exec jack_control dps period 64
   
-  exec -ignorestderr xvfb-run --auto-servernum sclang startup.sc
-  
+  exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc
+
   set fifo $musicDir/tidal-input
   exec rm -f $fifo
   exec mkfifo $fifo
@@ -113,16 +117,15 @@ proc ::finishSetup {} {
   exec cat $musicDir/BootTidal.hs > $fifo
 }
 
-proc ::waitForDbus {} {
+proc ::Music::waitForDbus {} {
     puts "waiting now"
     if {[file exists /run/user/1000/bus]} {
         puts "done waiting"
-        ::finishSetup
+        ::Music::finishSetup
     } else {
-        after 100 ::waitForDbus
+        after 100 ::Music::waitForDbus
     }
 }
 
 puts "about to wait"
-::waitForDbus
-
+::Music::waitForDbus
