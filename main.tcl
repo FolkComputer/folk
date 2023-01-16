@@ -227,9 +227,9 @@ proc Say {args} {
 }
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
-proc When {args} {
-    set env [dict create]
 
+proc serializeEnvironment {} {
+    set env [dict create]
     # get all variables and serialize them
     # (to fake lexical scope)
     foreach name [info vars ::WhenContext::*] {
@@ -244,14 +244,17 @@ proc When {args} {
     foreach importName [namespace eval ::WhenContext {namespace import}] {
         dict set env %$importName [namespace origin ::WhenContext::$importName]
     }
-    uplevel [list Say when {*}$args with environment $env]
+    set env
+}
+proc When {args} {
+    uplevel [list Say when {*}$args with environment [serializeEnvironment]]
 }
 proc On {event body} {
     if {$event eq "unmatch"} {
         upvar __matchId matchId
-        dict set Statements::matches $matchId destructor $body
+        dict set Statements::matches $matchId destructor [list $body [serializeEnvironment]]
     } elseif {$event eq "convergence"} {
-        # FIXME: this should get retracted if gthe match is retracted (?)
+        # FIXME: this should get retracted if the match is retracted (?)
 
         # FIXME: there should be `Before convergence` also --
         # then avoid using `On convergence` to generate statements
@@ -265,7 +268,7 @@ namespace eval ::WhenContext {
 proc StepImpl {} {
     # should this do reduction of assert/retract ?
 
-    proc runWhen {env body} {
+    proc runInSerializedEnvironment {body env} {
         dict for {name value} $env {
             if {[string index $name 0] eq "^"} {
                 proc ::WhenContext::[string range $name 1 end] {*}$value
@@ -307,7 +310,7 @@ proc StepImpl {} {
                                $env \
                                $match \
                                [dict create __matchId $matchId]]
-                runWhen $__env $body
+                runInSerializedEnvironment $body $__env
             }
         }
 
@@ -325,7 +328,7 @@ proc StepImpl {} {
                            [dict get $match __env] \
                            $match \
                            [dict create __matchId $matchId]]
-            runWhen $__env [dict get $match __body]
+            runInSerializedEnvironment [dict get $match __body] $__env
         }
     }
     proc reactToStatementRemoval {id} {
@@ -358,9 +361,7 @@ proc StepImpl {} {
                     }
                 }
 
-                if {[catch $destructor err] == 1} {
-                    puts "$::nodename: Destructor error: $err\n$::errorInfo"
-                }
+                if {$destructor ne ""} { runInSerializedEnvironment {*}$destructor }
             }
             dict unset Statements::matches $matchId
         }
