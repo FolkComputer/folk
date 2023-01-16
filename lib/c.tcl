@@ -75,6 +75,8 @@ namespace eval c {
             }
 
             ::proc "proc" {name args rtype body} {
+                set cname [string map {":" "_"} $name]
+
                 # puts "$name $args $rtype $body"
                 variable argtypes
                 variable rtypes
@@ -98,24 +100,23 @@ namespace eval c {
                 }
                 if {$rtype == "void"} {
                     set saverv [subst {
-                        $name ([join $argnames ", "]);
+                        $cname ([join $argnames ", "]);
                         return TCL_OK;
                     }]
                 } else {
                     set saverv [subst {
-                        $rtype rv = $name ([join $argnames ", "]);
+                        $rtype rv = $cname ([join $argnames ", "]);
                         [subst [switch $rtype $rtypes]]
                     }]
                 }
 
-                set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
                 variable procs
                 dict set procs $name [subst {
-                    static $rtype $name ([join $arglist ", "]) {
+                    static $rtype $cname ([join $arglist ", "]) {
                         $body
                     }
 
-                    static int [set name]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[\]) {
+                    static int [set cname]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[\]) {
                         if (objc != 1 + [llength $loadargs]) {
                             Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
                             return TCL_ERROR;
@@ -145,9 +146,17 @@ namespace eval c {
 
                 set init [subst {
                     int Cfile_Init(Tcl_Interp* interp) {
-                        [join [lmap name [dict keys $procs] { subst {
-                            Tcl_CreateObjCommand(interp, "[uplevel [list namespace current]]::$name", [set name]_Cmd, NULL, NULL);
-                        }}] "\n"]
+                        [join [lmap name [dict keys $procs] {
+                            set cname [string map {":" "_"} $name]
+                            set tclname $name
+                            if {[string first :: $tclname] != 0} {
+                                set tclname [uplevel [list namespace current]]::$name
+                            }
+                            puts "Creating C command: $tclname"
+                            subst {
+                                Tcl_CreateObjCommand(interp, "$tclname", [set cname]_Cmd, NULL, NULL);
+                            }
+                        }] "\n"]
                         return TCL_OK;
                     }
                 }]
