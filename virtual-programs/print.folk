@@ -48,7 +48,7 @@ $cc proc tagImageForId {int id} char* {
 }
 $cc compile
 
-proc programToPs {id text} {
+proc programToPs {id text {side "front"}} {
     set PageWidth 612; set PageHeight 792
     set margin 36
 
@@ -62,47 +62,7 @@ proc programToPs {id text} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-        /Courier findfont
-        $fontsize scalefont
-        setfont
-        newpath
-        [join [lmap line [split $text "\n"] {
-            set line [string map {"\\" "\\\\"} $line]
-            set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
-            incr linenum
-            set ret
-        }] "\n"]
-
-        gsave
-        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
-        $tagwidth $tagheight scale
-        $image
-        grestore
-
-        /Helvetica-Narrow findfont
-        10 scalefont
-        setfont
-        newpath
-        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
-        ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
-    }]
-}
-
-proc programToBackPs {id text} {
-    set PageWidth 612; set PageHeight 792
-    set margin 36
-
-    set tagwidth 150; set tagheight 150
-    set fontsize 12; set lineheight [expr $fontsize*1.5]
-
-    set image [tagImageForId $id]
-
-    set linenum 1
-    return [subst {
-        %!PS
-        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
-
-        0.3 setgray
+        [expr { side eq "back" ? { 0.4 setgray } : {} }]
 
         /Courier findfont
         $fontsize scalefont
@@ -114,6 +74,14 @@ proc programToBackPs {id text} {
             incr linenum
             set ret
         }] "\n"]
+
+        [expr { side eq "back" ? {} : {
+          gsave
+          [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
+          $tagwidth $tagheight scale
+          $image
+          grestore
+        } }]
 
         /Helvetica-Narrow findfont
         10 scalefont
@@ -163,7 +131,7 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
 When /someone/ wishes to print the back of job id /jobid/ {
     lassign [dict get $::printjobs $jobid] id code
 
-    set ps [programToBackPs $id $code]
+    set ps [programToPs $id $code back]
     set fp [open "$::env(HOME)/folk-printed-programs/$id-back.ps" w]
     puts $fp $ps
     close $fp
