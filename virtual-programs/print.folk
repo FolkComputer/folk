@@ -99,19 +99,21 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
     set image [::tagImageForId $id]
 
     set lines [split $text "\n"]
-    for {set i 0} {$i < [llength $lines]} {incr i} {
-        set line [lindex $lines $i]
-        if {$i < 9 && [string length $line] > 53} {
-            lset lines $i [string range $line 0 53]
-            set lines [linsert $lines $i+1 [string range $line 54 end]]
-        } elseif {[string length $line] > 76} {
-            lset lines $i [string range $line 0 76]
-            set lines [linsert $lines $i+1 [string range $line 77 end]]
+    for {set linenum 1} {$linenum <= [llength $lines]} {incr linenum} {
+        lset lines $linenum-1 [list $linenum [lindex $lines $linenum]]
+    }
+    for {set i 0} {$i < [llength $lines]} {incr i} { # Hard-wrap lines
+        lassign [lindex $lines $i] linenum line
+        if {$i < 9 && [string length $line] > 50} {
+            lset lines $i 1 [string range $line 0 50]
+            set lines [linsert $lines $i+1 [list "" [string range $line 51 end]]]
+        } elseif {[string length $line] > 73} {
+            lset lines $i 1 [string range $line 0 73]
+            set lines [linsert $lines $i+1 [list "" [string range $line 74 end]]]
         }
     }
-    puts "LINES $lines"
 
-    set linenum 1
+    set lineidx 0
     subst {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -122,11 +124,14 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         $fontsize scalefont
         setfont
         newpath
-        [join [lmap line $lines {
+        [join [lmap lineinfo $lines {
+            lassign $lineinfo linenum line
             set line [string map {"\\" "\\\\" ")" "\\)"} $line]
-            set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
-            incr linenum
-            set ret
+            incr lineidx
+            subst {
+                $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
+                0.5 setgray ([format "%- 3s" $linenum]) show 0 setgray ($line) show
+            }
         }] "\n"]
 
         [expr { $side eq "back" ? {} : [subst {
