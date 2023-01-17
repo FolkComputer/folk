@@ -1,10 +1,4 @@
-if {[info exists ::env(FOLK_SHARE_NODE)]} {
-    set ::shareNode $::env(FOLK_SHARE_NODE)
-} else {
-    set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
-    if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" } \
-    else { set ::shareNode "folk0.local" }
-}
+source "hosts.tcl"
 
 lappend auto_path "./vendor"
 package require websocket

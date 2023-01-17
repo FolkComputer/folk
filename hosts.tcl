@@ -7,6 +7,11 @@ if {$::tcl_platform(os) eq "Darwin"} {
 if {$wifi eq "cynosure"} { set ::shareNode "folk-omar.local" } \
 else { set ::shareNode "folk0.local" }
 
+if {[info exists ::env(FOLK_SHARE_NODE)]} {
+    set ::shareNode $::env(FOLK_SHARE_NODE)
+}
+if {$::shareNode eq "none"} { unset ::shareNode }
+
 if {[info exists ::argv] && $::argv eq "shareNode"} {
     puts $::shareNode
 }

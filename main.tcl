@@ -1,8 +1,3 @@
-catch {
-    package require starkit
-    starkit::startup
-}
-
 proc d {arg} {
     # puts $arg
 }

@@ -45,15 +45,9 @@ namespace eval Display {
     }
 }
 
+source "hosts.tcl"
 
-set ::shareNode "folk0.local"
-if {[info exists ::env(FOLK_SHARE_NODE)]} {
-    set ::shareNode $::env(FOLK_SHARE_NODE)
-} else {
-    source "hosts.tcl"
-}
-if {$::shareNode eq "none"} { unset ::shareNode } \
-else {
+if {[info exists ::shareNode]} {
     # copy to Pi
     if {[catch {
         # TODO: forward entry point
