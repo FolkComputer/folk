@@ -5,7 +5,8 @@ package require websocket
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
-proc handlePage {path} {
+proc handlePage {path contentTypeVar} {
+    upvar $contentTypeVar contentType
     if {$path eq "/"} {
         set l [list]
         dict for {id stmt} $Statements::statements {
@@ -20,10 +21,24 @@ proc handlePage {path} {
         }
         return [subst {
             <html>
-            <a href="/new">New program</a>
+            <ul>
+            <li><a href="/new">New program</a></li>
+            <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
+            <li><a href="/statements.pdf">statements graph</a></li>
+            </ul>
             <ul>[join $l "\n"]</ul>
             </html>
         }]
+    } elseif {$path eq "/statementClauseToId.pdf"} {
+        set contentType "application/pdf"
+        set fd [open |[list dot -Tpdf <<[trie dot $Statements::statementClauseToId]] r]
+        fconfigure $fd -encoding binary -translation binary
+        set response [read $fd]; close $fd; return $response
+    } elseif {$path eq "/statements.pdf"} {
+        set contentType "application/pdf"
+        set fd [open |[list dot -Tpdf <<[Statements::dot]] r]
+        fconfigure $fd -encoding binary -translation binary
+        set response [read $fd]; close $fd; return $response
     } elseif {$path eq "/new"} {
         return {
             <html>
@@ -168,8 +183,11 @@ proc handleRead {chan addr port} {
         } else { break }
     }
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        puts -nonewline $chan "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
-        puts -nonewline $chan [handlePage $path]
+        set contentType "text/html; charset=utf-8"
+        set response [handlePage $path contentType]
+        puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
+        chan configure $chan -encoding binary -translation binary
+        puts -nonewline $chan $response
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
         puts "WS: $chan $addr $port"

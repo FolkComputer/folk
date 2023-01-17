@@ -136,6 +136,8 @@ not the PS for it to work, probably)
 
 ### Potentially useful
 
+Potentially useful for graphs: `graphviz`
+
 Potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 

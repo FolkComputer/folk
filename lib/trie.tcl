@@ -180,11 +180,11 @@ namespace eval ctrie {
             regsub -all {\W+} $word "_"
         }
         proc labelify {word} {
-            # shorten the longest line
+            # shorten the longest lines
             set word [join [lmap line [split $word "\n"] {
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
-            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
+            string map {"\"" "\\\""} $word
         }
         proc subdot {path subtrie} {
             set branches [lassign $subtrie key id]
