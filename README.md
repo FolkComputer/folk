@@ -20,7 +20,10 @@ Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
 Server 22.04 LTS-minimal.
 
 1. Install Linux with username `folk`, hostname
-   `folk-SOMETHING.local`? (on Pi: Raspberry Pi OS Lite => if no folk
+   `folk-SOMETHING.local`? (check hosts.tcl in this repo to make sure
+   you're not reusing one)
+
+   (on Pi: Raspberry Pi OS Lite => if no folk
    user, then `sudo useradd -m folk; sudo passwd folk; sudo usermod -a
    -G
    adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi
@@ -38,8 +41,71 @@ Server 22.04 LTS-minimal.
    https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
+1. Add the systemd service so it starts on boot and can be managed
+   when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
+   (as root) ([from
+   here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
 
-Then, _on your laptop_, clone folk and run `make FOLK_SHARE_NODE=folk-WHATEVER.local`.
+   ```
+   # cat >/etc/systemd/system/folk.service
+   [Unit]
+   Description=Folk service
+   After=network.target
+   StartLimitIntervalSec=0
+
+   [Service]
+   Type=simple
+   Restart=always
+   RestartSec=1
+   User=folk
+   ExecStart=make -C /home/folk/folk
+
+   [Install]
+   WantedBy=multi-user.target
+
+   # systemctl start folk
+   # systemctl enable folk
+   ```
+
+You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
+to `/etc/sudoers` as well.
+
+Then, _on your laptop_, clone this repo and run `make
+FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
+tabletop and run it there as well as running it on your laptop.
+
+Does it work? Add your tabletop to hosts.tcl! Send in a patch!
+Celebrate!
+
+### Printer support
+
+On the tabletop:
+```
+$ sudo apt update
+$ sudo apt install cups cups-bsd
+$ sudo usermod -a -G lpadmin folk
+```
+
+(`cups-bsd` provides the `lpr` command that we use to print)
+
+ssh tunnel to get access to CUPS Web UI: run on your laptop `ssh -L 6310:localhost:631
+folk@folk-WHATEVER.local`, leave it open
+
+go to http://localhost:6310 on your computer, go to Printers,
+hopefully it shows up there automatically, try printing test page
+
+if job is paused due to `cups-browsed` issue, try
+https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
+remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
+then add printer manually via IPP in CUPS Web UI (it might
+automatically show up via dnssd)
+
+once printer is working, go to Administration dropdown on printer page
+and Set as Server Default
+
+test `lpr ~/folk-printed-programs/SOMETHING.pdf` (you have to
+print the PDF and not the PS for it to work, probably)
+
 
 ### Potentially useful
 
@@ -68,61 +134,6 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
-
-### Printer support
-
-on the NUC:
-```
-$ sudo apt update
-$ sudo apt install cups cups-bsd
-$ sudo usermod -a -G lpadmin folk
-```
-
-ssh tunnel `ssh -L 6310:localhost:631 folk@folk0.local` run on your computer
-
-go to http://localhost:6310 on your computer, go to Printers,
-hopefully it shows up there automatically, try printing test page
-
-if job is paused due to `cups-browsed` issue, try
-https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
-remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
-then add printer manually via IPP in CUPS Web UI (it might
-automatically show up via dnssd)
-
-once printer is working, go to Administration dropdown on printer page
-and Set as Server Default
-
-test `lpr ~/folk-printed-programs/SOMETHING.pdf` (you have to
-print the PDF and not the PS for it to work, probably)
-
-### systemd service (so it autostarts on boot)
-
-On Ubuntu Server or Raspberry Pi OS (as root) ([from
-here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
-
-```
-# cat >/etc/systemd/system/folk.service
-[Unit]
-Description=Folk service
-After=network.target
-StartLimitIntervalSec=0
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=1
-User=folk
-ExecStart=make -C /home/folk/folk
-
-[Install]
-WantedBy=multi-user.target
-
-# systemctl start folk
-# systemctl enable folk
-```
-
-You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
-to `/etc/sudoers` as well.
 
 ## Setup notes
 
