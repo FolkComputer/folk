@@ -1,175 +1,191 @@
 # https://wiki.tcl-lang.org/page/Closest+color+name
 
+namespace eval Color {}
+
+namespace eval Color {
 # color scratchpad
-set aliceblue 0xF0F8FF
-set antiquewhite 0xFAEBD7
-set aqua 0x00FFFF
-set aquamarine 0x7FFFD4
-set azure 0xF0FFFF
-set beige 0xF5F5DC
-set bisque 0xFFE4C4
-set black 0x000000
-set blanchedalmond 0xFFEBCD
-set blue 0x0000FF
-set blueviolet 0x8A2BE2
-set brown 0xA52A2A
-set burlywood 0xDEB887
-set cadetblue 0x5F9EA0
-set chartreuse 0x7FFF00
-set chocolate 0xD2691E
-set coral 0xFF7F50
-set cornflowerblue 0x6495ED
-set cornsilk 0xFFF8DC
-set crimson 0xDC143C
-set cyan 0x00FFFF
-set darkblue 0x00008B
-set darkcyan 0x008B8B
-set darkgoldenrod 0xB8860B
-set darkgray 0xA9A9A9
-set darkgreen 0x006400
-set darkgrey 0xA9A9A9
-set darkkhaki 0xBDB76B
-set darkmagenta 0x8B008B
-set darkolivegreen 0x556B2F
-set darkorange 0xFF8C00
-set darkorchid 0x9932CC
-set darkred 0x8B0000
-set darksalmon 0xE9967A
-set darkseagreen 0x8FBC8F
-set darkslateblue 0x483D8B
-set darkslategray 0x2F4F4F
-set darkslategrey 0x2F4F4F
-set darkturquoise 0x00CED1
-set darkviolet 0x9400D3
-set deeppink 0xFF1493
-set deepskyblue 0x00BFFF
-set dimgray 0x696969
-set dimgrey 0x696969
-set dodgerblue 0x1E90FF
-set firebrick 0xB22222
-set floralwhite 0xFFFAF0
-set forestgreen 0x228B22
-set fuchsia 0xFF00FF
-set gainsboro 0xDCDCDC
-set ghostwhite 0xF8F8FF
-set gold 0xFFD700
-set goldenrod 0xDAA520
-set gray 0x808080
-set green 0x008000
-set greenyellow 0xADFF2F
-set grey 0x808080
-set honeydew 0xF0FFF0
-set hotpink 0xFF69B4
-set indianred 0xCD5C5C
-set indigo 0x4B0082
-set ivory 0xFFFFF0
-set khaki 0xF0E68C
-set lavender 0xE6E6FA
-set lavenderblush 0xFFF0F5
-set lawngreen 0x7CFC00
-set lemonchiffon 0xFFFACD
-set lightblue 0xADD8E6
-set lightcoral 0xF08080
-set lightcyan 0xE0FFFF
-set lightgoldenrodyellow 0xFAFAD2
-set lightgray 0xD3D3D3
-set lightgreen 0x90EE90
-set lightgrey 0xD3D3D3
-set lightpink 0xFFB6C1
-set lightsalmon 0xFFA07A
-set lightseagreen 0x20B2AA
-set lightskyblue 0x87CEFA
-set lightslategray 0x778899
-set lightslategrey 0x778899
-set lightsteelblue 0xB0C4DE
-set lightyellow 0xFFFFE0
-set lime 0x00FF00
-set limegreen 0x32CD32
-set linen 0xFAF0E6
-set magenta 0xFF00FF
-set maroon 0x800000
-set mediumaquamarine 0x66CDAA
-set mediumblue 0x0000CD
-set mediumorchid 0xBA55D3
-set mediumpurple 0x9370DB
-set mediumseagreen 0x3CB371
-set mediumslateblue 0x7B68EE
-set mediumspringgreen 0x00FA9A
-set mediumturquoise 0x48D1CC
-set mediumvioletred 0xC71585
-set midnightblue 0x191970
-set mintcream 0xF5FFFA
-set mistyrose 0xFFE4E1
-set moccasin 0xFFE4B5
-set navajowhite 0xFFDEAD
-set navy 0x000080
-set oldlace 0xFDF5E6
-set olive 0x808000
-set olivedrab 0x6B8E23
-set orange 0xFFA500
-set orangered 0xFF4500
-set orchid 0xDA70D6
-set palegoldenrod 0xEEE8AA
-set palegreen 0x98FB98
-set paleturquoise 0xAFEEEE
-set palevioletred 0xDB7093
-set papayawhip 0xFFEFD5
-set peachpuff 0xFFDAB9
-set peru 0xCD853F
-set pink 0xFFC0CB
-set plum 0xDDA0DD
-set powderblue 0xB0E0E6
-set purple 0x800080
-set rebeccapurple 0x663399
-set red 0xFF0000
-set rosybrown 0xBC8F8F
-set royalblue 0x4169E1
-set saddlebrown 0x8B4513
-set salmon 0xFA8072
-set sandybrown 0xF4A460
-set seagreen 0x2E8B57
-set seashell 0xFFF5EE
-set sienna 0xA0522D
-set silver 0xC0C0C0
-set skyblue 0x87CEEB
-set slateblue 0x6A5ACD
-set slategray 0x708090
-set slategrey 0x708090
-set snow 0xFFFAFA
-set springgreen 0x00FF7F
-set steelblue 0x4682B4
-set tan 0xD2B48C
-set teal 0x008080
-set thistle 0xD8BFD8
-set tomato 0xFF6347
-set turquoise 0x40E0D0
-set violet 0xEE82EE
-set wheat 0xF5DEB3
-set white 0xFFFFFF
-set whitesmoke 0xF5F5F5
-set yellow 0xFFFF00
-set yellowgreen 0x9ACD32
+variable aliceblue 0xF0F8FF
+variable antiquewhite 0xFAEBD7
+variable aqua 0x00FFFF
+variable aquamarine 0x7FFFD4
+variable azure 0xF0FFFF
+variable beige 0xF5F5DC
+variable bisque 0xFFE4C4
+variable black 0x000000
+variable blanchedalmond 0xFFEBCD
+variable blue 0x0000FF
+variable blueviolet 0x8A2BE2
+variable brown 0xA52A2A
+variable burlywood 0xDEB887
+variable cadetblue 0x5F9EA0
+variable chartreuse 0x7FFF00
+variable chocolate 0xD2691E
+variable coral 0xFF7F50
+variable cornflowerblue 0x6495ED
+variable cornsilk 0xFFF8DC
+variable crimson 0xDC143C
+variable cyan 0x00FFFF
+variable darkblue 0x00008B
+variable darkcyan 0x008B8B
+variable darkgoldenrod 0xB8860B
+variable darkgray 0xA9A9A9
+variable darkgreen 0x006400
+variable darkgrey 0xA9A9A9
+variable darkkhaki 0xBDB76B
+variable darkmagenta 0x8B008B
+variable darkolivegreen 0x556B2F
+variable darkorange 0xFF8C00
+variable darkorchid 0x9932CC
+variable darkred 0x8B0000
+variable darksalmon 0xE9967A
+variable darkseagreen 0x8FBC8F
+variable darkslateblue 0x483D8B
+variable darkslategray 0x2F4F4F
+variable darkslategrey 0x2F4F4F
+variable darkturquoise 0x00CED1
+variable darkviolet 0x9400D3
+variable deeppink 0xFF1493
+variable deepskyblue 0x00BFFF
+variable dimgray 0x696969
+variable dimgrey 0x696969
+variable dodgerblue 0x1E90FF
+variable firebrick 0xB22222
+variable floralwhite 0xFFFAF0
+variable forestgreen 0x228B22
+variable fuchsia 0xFF00FF
+variable gainsboro 0xDCDCDC
+variable ghostwhite 0xF8F8FF
+variable gold 0xFFD700
+variable goldenrod 0xDAA520
+variable gray 0x808080
+variable green 0x008000
+variable greenyellow 0xADFF2F
+variable grey 0x808080
+variable honeydew 0xF0FFF0
+variable hotpink 0xFF69B4
+variable indianred 0xCD5C5C
+variable indigo 0x4B0082
+variable ivory 0xFFFFF0
+variable khaki 0xF0E68C
+variable lavender 0xE6E6FA
+variable lavenderblush 0xFFF0F5
+variable lawngreen 0x7CFC00
+variable lemonchiffon 0xFFFACD
+variable lightblue 0xADD8E6
+variable lightcoral 0xF08080
+variable lightcyan 0xE0FFFF
+variable lightgoldenrodyellow 0xFAFAD2
+variable lightgray 0xD3D3D3
+variable lightgreen 0x90EE90
+variable lightgrey 0xD3D3D3
+variable lightpink 0xFFB6C1
+variable lightsalmon 0xFFA07A
+variable lightseagreen 0x20B2AA
+variable lightskyblue 0x87CEFA
+variable lightslategray 0x778899
+variable lightslategrey 0x778899
+variable lightsteelblue 0xB0C4DE
+variable lightyellow 0xFFFFE0
+variable lime 0x00FF00
+variable limegreen 0x32CD32
+variable linen 0xFAF0E6
+variable magenta 0xFF00FF
+variable maroon 0x800000
+variable mediumaquamarine 0x66CDAA
+variable mediumblue 0x0000CD
+variable mediumorchid 0xBA55D3
+variable mediumpurple 0x9370DB
+variable mediumseagreen 0x3CB371
+variable mediumslateblue 0x7B68EE
+variable mediumspringgreen 0x00FA9A
+variable mediumturquoise 0x48D1CC
+variable mediumvioletred 0xC71585
+variable midnightblue 0x191970
+variable mintcream 0xF5FFFA
+variable mistyrose 0xFFE4E1
+variable moccasin 0xFFE4B5
+variable navajowhite 0xFFDEAD
+variable navy 0x000080
+variable oldlace 0xFDF5E6
+variable olive 0x808000
+variable olivedrab 0x6B8E23
+variable orange 0xFFA500
+variable orangered 0xFF4500
+variable orchid 0xDA70D6
+variable palegoldenrod 0xEEE8AA
+variable palegreen 0x98FB98
+variable paleturquoise 0xAFEEEE
+variable palevioletred 0xDB7093
+variable papayawhip 0xFFEFD5
+variable peachpuff 0xFFDAB9
+variable peru 0xCD853F
+variable pink 0xFFC0CB
+variable plum 0xDDA0DD
+variable powderblue 0xB0E0E6
+variable purple 0x800080
+variable rebeccapurple 0x663399
+variable red 0xFF0000
+variable rosybrown 0xBC8F8F
+variable royalblue 0x4169E1
+variable saddlebrown 0x8B4513
+variable salmon 0xFA8072
+variable sandybrown 0xF4A460
+variable seagreen 0x2E8B57
+variable seashell 0xFFF5EE
+variable sienna 0xA0522D
+variable silver 0xC0C0C0
+variable skyblue 0x87CEEB
+variable slateblue 0x6A5ACD
+variable slategray 0x708090
+variable slategrey 0x708090
+variable snow 0xFFFAFA
+variable springgreen 0x00FF7F
+variable steelblue 0x4682B4
+variable tan 0xD2B48C
+variable teal 0x008080
+variable thistle 0xD8BFD8
+variable tomato 0xFF6347
+variable turquoise 0x40E0D0
+variable violet 0xEE82EE
+variable wheat 0xF5DEB3
+variable white 0xFFFFFF
+variable whitesmoke 0xF5F5F5
+variable yellow 0xFFFF00
+variable yellowgreen 0x9ACD32
+}
 
-proc getColor {color channel} {
-    set R 0x[string range $color 2 3]
-    set G 0x[string range $color 4 5]
-    set B 0x[string range $color 6 7]
-    # puts "getColor $R"
-    puts "--------------> [expr $R]"
-    puts "--------------> [expr $G]"
-    puts "--------------> [expr $B]"
 
+
+# https://wiki.tcl-lang.org/page/Binary+representation+of+numbers
+proc dec2bin int {
+    set binRep [binary format c $int]
+    binary scan $binRep B* binStr
+    return $binStr
+}
+
+
+proc RGB2fbColor {b g r} { expr 0b[join [list $r $g $b] ""] }
+
+# TODO: if {$Display::DEPTH == 16} format colors as:
+#                        B (5)  G (6)  R (5)
+# variable green  [color 00000 111111 00000]
+# & if {Display::DEPTH == 32}:
+#                        B (8)      G (8)    R (8)
+# variable green  [color 00000000 11111111 00000000]
+proc hex2fbColor color {
     set b [expr {$color & 0xFF}]
     set g [expr {($color >> 8) & 0xFF}]
     set r [expr {($color >> 16) & 0xFF}]
 
-
-    variable BLUE [color 11111 000000 00000]
-
-    puts "->: $r $g $b"
+    set fbColor "\[[dec2bin $b]\] \[[dec2bin $g]\] \[[dec2bin $r]\]"
+    return $fbColor
 }
 
-getColor $aliceblue R
+# getColor $aliceblue R
+puts "green: [hex2fbColor $Color::green]"
+puts "full green: [hex2fbColor 0x00FF00]"
+puts "red:   [hex2fbColor $Color::red]"
+puts "blue:  [hex2fbColor $Color::blue]"
 
 # Ideal syntax => Color::color -> 16bit color
 
@@ -192,16 +208,16 @@ proc getRGBComponent {name RGBchannel 32bit} {
 }
 
 # ---- answer from GPT3: -----
-set b [expr {$blue & 0xFF}]
-set g [expr {($blue >> 8) & 0xFF}]
-set r [expr {($blue >> 16) & 0xFF}]
+# set b [expr {$blue & 0xFF}]
+# set g [expr {($blue >> 8) & 0xFF}]
+# set r [expr {($blue >> 16) & 0xFF}]
 
-# 32-bit color
-set blue32 [expr {($r << 24) | ($g << 16) | ($b << 8) | 0xFF}]
-# create the variable
-# set variable blue [list color $b $g $r]
-puts [list color $b $g $r]
-puts $blue32
+# # 32-bit color
+# set blue32 [expr {($r << 24) | ($g << 16) | ($b << 8) | 0xFF}]
+# # create the variable
+# # set variable blue [list color $b $g $r]
+# puts [list color $b $g $r]
+# puts $blue32
 # ----- end GPT3 output -----
 
 # set variable blue32 [list color $blue32]
