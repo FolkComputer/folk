@@ -1,5 +1,6 @@
 Wish $this has filename "music.folk"
 if {$::isLaptop} { return }
+if {[catch {exec which sclang}]} { return }
 
 namespace eval ::Music { variable musicDir $::env(HOME)/music }
 exec mkdir -p $::Music::musicDir
