@@ -99,10 +99,11 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
     set image [::tagImageForId $id]
 
     set lines [split $text "\n"]
-    for {set linenum 1} {$linenum <= [llength $lines]} {incr linenum} {
-        lset lines $linenum-1 [list $linenum [lindex $lines $linenum]]
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+        # tag each line with its 1-indexed line number
+        lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
     }
-    for {set i 0} {$i < [llength $lines]} {incr i} { # Hard-wrap lines
+    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
         lassign [lindex $lines $i] linenum line
         if {$i < 9 && [string length $line] > 50} {
             lset lines $i 1 [string range $line 0 50]
