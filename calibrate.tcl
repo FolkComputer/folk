@@ -38,7 +38,7 @@ if {$Display::DEPTH == 16} {
         #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
     }
 } else {
-    error "calibration-play: Unusable depth $Display::DEPTH"
+    error "calibrate: Unusable depth $Display::DEPTH"
 }
 
 $cc code {

@@ -113,6 +113,21 @@ You can also test printing again with `lpr
 ~/folk-printed-programs/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
+### Projector-camera calibration
+
+1. Print 4 AprilTags.
+
+1. On the tabletop, suspend the system with `sudo systemctl stop folk` and run
+   `tclsh8.6 pi/Camera.tcl` and position your camera to cover your
+   table.
+
+1. Place the 4 AprilTags around your table. On the tabletop, run
+   `tclsh8.6 calibrate.tcl`. Wait.
+
+1. You should see red triangles projected on each of your 4 tags. Then
+   you're done! Run Folk! If not, rerun calibration until you do see a
+   red triangle on each tag.
+
 ### Potentially useful
 
 Potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
