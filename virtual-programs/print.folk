@@ -98,6 +98,19 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
     set image [::tagImageForId $id]
 
+    set lines [split $text "\n"]
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+        set line [lindex $lines $i]
+        if {$i < 9 && [string length $line] > 53} {
+            lset lines $i [string range $line 0 53]
+            set lines [linsert $lines $i+1 [string range $line 54 end]]
+        } elseif {[string length $line] > 76} {
+            lset lines $i [string range $line 0 76]
+            set lines [linsert $lines $i+1 [string range $line 77 end]]
+        }
+    }
+    puts "LINES $lines"
+
     set linenum 1
     subst {
         %!PS
@@ -109,8 +122,8 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         $fontsize scalefont
         setfont
         newpath
-        [join [lmap line [split $text "\n"] {
-            set line [string map {"\\" "\\\\"} $line]
+        [join [lmap line $lines {
+            set line [string map {"\\" "\\\\" ")" "\\)"} $line]
             set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
             incr linenum
             set ret
