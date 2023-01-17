@@ -45,14 +45,12 @@ namespace eval Display {
     }
 }
 
+
 set ::shareNode "folk0.local"
 if {[info exists ::env(FOLK_SHARE_NODE)]} {
     set ::shareNode $::env(FOLK_SHARE_NODE)
 } else {
-    catch {
-	set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
-	if {$wifi eq "cynosure"} { set ::shareNode "folk-mott.local" }
-    }
+    source "hosts.tcl"
 }
 if {$::shareNode eq "none"} { unset ::shareNode } \
 else {
