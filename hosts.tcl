@@ -5,6 +5,7 @@ if {$::tcl_platform(os) eq "Darwin"} {
 }
 
 if {$wifi eq "cynosure"} { set ::shareNode "folk-omar.local" } \
+elseif {$wifi eq "Fios-LGTS3-5G" || $wifi eq "Fios-LGTS3"} { set ::shareNode "folk0.local" } \
 else { set ::shareNode "folk0.local" }
 
 if {[info exists ::env(FOLK_SHARE_NODE)]} {

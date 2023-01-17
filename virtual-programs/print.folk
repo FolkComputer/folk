@@ -119,7 +119,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-        [expr { $side eq "back" ? { 0.4 setgray } : {} }]
+        /settextcolor {[expr { $side eq "back" ? { 0.4 setgray } : { 0 setgray } }]} def
 
         /Courier findfont
         $fontsize scalefont
@@ -131,7 +131,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
             incr lineidx
             subst {
                 $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
-                0.5 setgray ([format "%- 3s" $linenum]) show 0 setgray ($line) show
+                0.4 setgray ([format "%- 3s" $linenum]) show settextcolor ($line) show
             }
         }] "\n"]
 

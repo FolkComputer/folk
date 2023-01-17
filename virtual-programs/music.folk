@@ -118,14 +118,13 @@ proc ::Music::finishSetup {} {
 }
 
 proc ::Music::waitForDbus {} {
-    puts "waiting now"
+    puts "Waiting for D-Bus."
     if {[file exists /run/user/1000/bus]} {
-        puts "done waiting"
+        puts "Found D-Bus."
         ::Music::finishSetup
     } else {
         after 100 ::Music::waitForDbus
     }
 }
 
-puts "about to wait"
 ::Music::waitForDbus
