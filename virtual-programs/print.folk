@@ -186,6 +186,9 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     set ps [programToPs $id $code $format front]
 
     # save code and ps to disk
+    if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+        error "Program $id already exists on disk. Aborting print."
+    }
     set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
     puts $fp $code
     close $fp
