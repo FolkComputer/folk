@@ -169,6 +169,13 @@ https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-
   scared of it falling and you shouldn't have to take it apart and put
   it back together every time
 
+## License
+
+We intend to release this repo as open-source under an MIT, GPLv3, or
+AGPLv3 license by June 2023 or earlier; by contributing code, you're
+also agreeing to license your code under whichever license we end up
+choosing.
+
 ## Stuff
 
 - implement generators (~point at~)
