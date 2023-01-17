@@ -151,19 +151,24 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
     }
 }
 
-proc nextId {} {
-     set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
-     set id [string trim [read $fp]]
-     close $fp
-
-     set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" w]
-     puts $fp [expr {$id + 1}]
-     close $fp
-
-     return $id
-}
-
 if {$::isLaptop} { return }
+
+exec mkdir -p "$::env(HOME)/folk-printed-programs"
+proc nextId {} {
+    try {
+        set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
+        set id [string trim [read $fp]]
+        close $fp
+    } trap {POSIX ENOENT} {} {
+        set id 0
+    }
+
+    set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" w]
+    puts $fp [expr {$id + 1}]
+    close $fp
+
+    set id
+}
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
