@@ -91,21 +91,27 @@ $ sudo usermod -a -G lpadmin folk
 ssh tunnel to get access to CUPS Web UI: run on your laptop `ssh -L 6310:localhost:631
 folk@folk-WHATEVER.local`, leave it open
 
-go to http://localhost:6310 on your computer, go to Printers,
-hopefully it shows up there automatically, try printing test page
+Go to http://localhost:6310 on your computer, go to Printers,
+hopefully it shows up there automatically, try printing test page. _I
+could not get that implicitclass:// automatically-added printer in
+CUPS to work for my printer at all_, so I did the below:
 
-if job is paused due to `cups-browsed` issue, try
+If job is paused due to `cups-browsed` issue or otherwise doesn't
+work, try
 https://askubuntu.com/questions/1128164/no-suitable-destination-host-found-by-cups-browsed :
 remove `cups-browsed` `sudo apt-get purge --autoremove cups-browsed`
-then add printer manually via IPP in CUPS Web UI (it might
-automatically show up via dnssd)
+then add printer manually via IPP in Add Printer in Administration tab
+of CUPS Web UI (it might automatically show up under Discovered
+Network Printers there using dnssd)
 
-once printer is working, go to Administration dropdown on printer page
-and Set as Server Default
+Once printer is working, go to Administration dropdown on printer page
+and Set as Server Default.
 
-test `lpr ~/folk-printed-programs/SOMETHING.pdf` (you have to
-print the PDF and not the PS for it to work, probably)
+Try printing from Folk!
 
+You can also test printing again with `lpr
+~/folk-printed-programs/SOMETHING.pdf` (you have to print the PDF and
+not the PS for it to work, probably)
 
 ### Potentially useful
 
