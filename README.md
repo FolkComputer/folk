@@ -74,6 +74,12 @@ Then, _on your laptop_, clone this repo and run `make
 FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
 tabletop and run it there as well as running it on your laptop.
 
+### How to control tabletop Folk from your laptop
+
+On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
+click New Program, hit Save, drag it around. You should see the
+program move on your table as you drag it around on your laptop.
+
 Does it work? Add your tabletop to hosts.tcl! Send in a patch!
 Celebrate!
 
