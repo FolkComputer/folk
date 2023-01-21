@@ -182,10 +182,10 @@ proc hex2fbColor color {
 }
 
 # getColor $aliceblue R
-puts "green: [hex2fbColor $Color::green]"
-puts "full green: [hex2fbColor 0x00FF00]"
-puts "red:   [hex2fbColor $Color::red]"
-puts "blue:  [hex2fbColor $Color::blue]"
+puts "green:     [hex2fbColor $Color::green]"
+puts "hex green: [hex2fbColor 0x00FF00]"
+puts "red:       [hex2fbColor $Color::red]"
+puts "blue:      [hex2fbColor $Color::blue]"
 
 # Ideal syntax => Color::color -> 16bit color
 

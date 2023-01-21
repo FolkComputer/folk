@@ -23,49 +23,49 @@ Server 22.04 LTS-minimal.
    `folk-SOMETHING.local`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
-   (on Pi: Raspberry Pi OS Lite => if no folk
-   user, then `sudo useradd -m folk; sudo passwd folk; sudo usermod -a
-   -G
-   adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi
-   folk`)
-1. Set up OpenSSH server if needed, connect to network
-1. `sudo apt update`
-1. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can
-   be autodiscovered)
-1. (on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`)
-1. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset`
-1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
-1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
+   On Pi, Raspberry Pi OS Lite => if no `folk`
+   user, then:
+
+      ```
+      sudo useradd -m folk; sudo passwd folk;
+      sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
+      ```
+3. `sudo apt update`
+2. Set up OpenSSH server if needed, connect to network.
+4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
+5. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset`
+7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
+8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
-1. Get AprilTags: `cd ~; git clone
+9. Get AprilTags: `cd ~; git clone
    https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
-1. Add the systemd service so it starts on boot and can be managed
+10. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
    (as root) ([from
    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
+   - ```
+      # cat >/etc/systemd/system/folk.service
+      [Unit]
+      Description=Folk service
+      After=network.target
+      StartLimitIntervalSec=0
 
-   ```
-   # cat >/etc/systemd/system/folk.service
-   [Unit]
-   Description=Folk service
-   After=network.target
-   StartLimitIntervalSec=0
+      [Service]
+      Type=simple
+      Restart=always
+      RestartSec=1
+      User=folk
+      ExecStart=make -C /home/folk/folk
 
-   [Service]
-   Type=simple
-   Restart=always
-   RestartSec=1
-   User=folk
-   ExecStart=make -C /home/folk/folk
+      [Install]
+      WantedBy=multi-user.target
 
-   [Install]
-   WantedBy=multi-user.target
-
-   # systemctl start folk
-   # systemctl enable folk
-   ```
+      # systemctl start folk
+      # systemctl enable folk
+      ```
 
 You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
 to `/etc/sudoers` as well.
