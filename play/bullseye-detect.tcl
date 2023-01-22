@@ -95,7 +95,7 @@ namespace eval Display {
             $[vkfn vkMapMemory]
             $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
             for (uint32_t k = 0; k < memorySize / sizeof(float); k++) {
-                payload[k] = rand();
+                payload[k] = 0.12f; // rand()
                 printf("in[%d] = %f\n", k, payload[k]);
             }
             $[vkfn vkUnmapMemory]
@@ -141,7 +141,7 @@ namespace eval Display {
             void main() {
                 uint gid = gl_GlobalInvocationID.x;
                 if (gid < 128) {
-                    outPixels[gid] = inPixels[gid];
+                    outPixels[gid] = inPixels[gid] * inPixels[gid];
                 }
             }
         }];
@@ -337,7 +337,7 @@ And submit it to the queue!
         float *payload;
         $[vktry {vkMapMemory(device, memory, 0, 128 * sizeof(float) * 2, 0, (void *)&payload)}]
 
-        for (int i = 0; i < 128; i++) {
+        for (int i = 128; i < 256; i++) {
             printf("out[%d] = %f\n", i, payload[i]);
         }
     }]
