@@ -1,5 +1,5 @@
 source "lib/c.tcl"
-source "useful/bullseye-play.tcl"
+source "play/bullseye-play.tcl"
 
 set ps [programToPs 66 "hello"]
 set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
@@ -47,15 +47,18 @@ ic compile
 
 set image [loadImageFromJpeg $jpegfile]
 
-source "useful/Display_vk.tcl"
+source "play/Display_vk.tcl"
 namespace eval Display {
     dc code {
         VkDescriptorSetLayout computeDescriptorSetLayout;
         VkPipeline computePipeline;
         VkImage computeCameraImage;
         VkCommandBuffer computeCommandBuffer;
+
+        VkBuffer inBuffer;
+        VkBuffer outBuffer;
     }
-    defineImageType Display::dc
+    defineImageType dc
     dc proc allocate {int bufferSize} void [csubst {
         VkPhysicalDeviceMemoryProperties properties;
         $[vkfn vkGetPhysicalDeviceMemoryProperties]
@@ -107,11 +110,13 @@ namespace eval Display {
             .queueFamilyIndexCount = 1,
             .pQueueFamilyIndices = &computeQueueFamilyIndex
         };
-        VkBuffer inBuffer; {
+        // Set up VkBuffer inBuffer
+        {
             $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &inBuffer)}]
             $[vktry {vkBindBufferMemory(device, inBuffer, memory, 0)}]
         }
-        VkBuffer outBuffer; {
+        // Set up VkBuffer outBuffer
+        {
             $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &outBuffer)}]
             $[vktry {vkBindBufferMemory(device, outBuffer, memory, bufferSize)}]
         }
@@ -160,7 +165,7 @@ namespace eval Display {
                 VkPipelineLayoutCreateInfo createInfo = {0};
                 createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
                 createInfo.setLayoutCount = 1;
-                createInfo.pSetLayouts = &descriptorSetLayout;
+                createInfo.pSetLayouts = &computeDescriptorSetLayout;
                 $[vkfn vkCreatePipelineLayout]
                 $[vktry {vkCreatePipelineLayout(device, &createInfo, 0, &pipelineLayout)}]
             }
@@ -217,18 +222,49 @@ And submit it to the queue!
 
             $[vkfn vkAllocateDescriptorSets]
             $[vktry {vkAllocateDescriptorSets(device, &allocateInfo, &descriptorSet)}]
+
+            VkDescriptorBufferInfo descriptorBufferInfoIn = {
+                .buffer = inBuffer,
+                .offset = 0,
+                .range = VK_WHOLE_SIZE
+            };
+            VkDescriptorBufferInfo descriptorBufferInfoOut = {
+                .buffer = outBuffer,
+                .offset = 0,
+                .range = VK_WHOLE_SIZE
+            };
+            VkWriteDescriptorSet writeDescriptorSet[2] = {
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .pNext = 0,
+                    .dstSet = descriptorSet,
+                    .dstBinding = 0,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    .pImageInfo = 0,
+                    .pBufferInfo = &descriptorBufferInfoIn,
+                    .pTexelBufferView = 0
+                },
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .pNext = 0,
+                    .dstSet = descriptorSet,
+                    .dstBinding = 1,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    .pImageInfo = 0,
+                    .pBufferInfo = &descriptorBufferInfoOut,
+                    .pTexelBufferView = 0
+                }
+            };
+
+            $[vkfn vkUpdateDescriptorSets]
+            vkUpdateDescriptorSets(device, 2, writeDescriptorSet, 0, 0);
         }
 
-        VkDescriptorBufferInfo descripterBufferInfoIn = {
-            .buffer = inBuffer,
-            .offset = 0,
-            .range = VK_WHOLE_SIZE
-        };
-        VkDescriptorBufferInfo descripterBufferInfoOut = {
-            .buffer = outBuffer,
-            .offset = 0,
-            .range = VK_WHOLE_SIZE
-        }
+        
     }]
 
     dc compile
