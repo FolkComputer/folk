@@ -51,12 +51,15 @@ source "play/Display_vk.tcl"
 namespace eval Display {
     dc code {
         VkDescriptorSetLayout computeDescriptorSetLayout;
+        VkPipelineLayout computePipelineLayout;
         VkPipeline computePipeline;
         VkImage computeCameraImage;
         VkCommandBuffer computeCommandBuffer;
 
         VkBuffer inBuffer;
         VkBuffer outBuffer;
+
+        VkDeviceMemory memory;
     }
     defineImageType dc
     dc proc allocate {int bufferSize} void [csubst {
@@ -78,7 +81,8 @@ namespace eval Display {
         }
         if (memoryTypeIndex == UINT32_MAX) { exit(1); }
 
-        VkDeviceMemory memory; {
+        // Set up VkDeviceMemory memory
+        {
             VkMemoryAllocateInfo allocateInfo = {0};
             allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             allocateInfo.allocationSize = memorySize;
@@ -92,6 +96,7 @@ namespace eval Display {
             $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
             for (uint32_t k = 0; k < memorySize / sizeof(float); k++) {
                 payload[k] = rand();
+                printf("in[%d] = %f\n", k, payload[k]);
             }
             $[vkfn vkUnmapMemory]
             vkUnmapMemory(device, memory);
@@ -159,24 +164,25 @@ namespace eval Display {
             $[vktry {vkCreateDescriptorSetLayout(device, &createInfo, 0, &computeDescriptorSetLayout)}]
         }
 
+        // Set up VkPipelineLayout computePipelineLayout
+        {
+            VkPipelineLayoutCreateInfo createInfo = {0};
+            createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            createInfo.setLayoutCount = 1;
+            createInfo.pSetLayouts = &computeDescriptorSetLayout;
+            $[vkfn vkCreatePipelineLayout]
+            $[vktry {vkCreatePipelineLayout(device, &createInfo, 0, &computePipelineLayout)}]
+        }
+
         // Set up VkPipeline computePipeline
         {
-            VkPipelineLayout pipelineLayout; {
-                VkPipelineLayoutCreateInfo createInfo = {0};
-                createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-                createInfo.setLayoutCount = 1;
-                createInfo.pSetLayouts = &computeDescriptorSetLayout;
-                $[vkfn vkCreatePipelineLayout]
-                $[vktry {vkCreatePipelineLayout(device, &createInfo, 0, &pipelineLayout)}]
-            }
-
             VkComputePipelineCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
             createInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             createInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
             createInfo.stage.module = shaderModule;
             createInfo.stage.pName = "main";
-            createInfo.layout = pipelineLayout;
+            createInfo.layout = computePipelineLayout;
 
             $[vkfn vkCreateComputePipelines]
             $[vktry {vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &createInfo, 0, &computePipeline)}]
@@ -264,14 +270,87 @@ And submit it to the queue!
             vkUpdateDescriptorSets(device, 2, writeDescriptorSet, 0, 0);
         }
 
-        
+        VkCommandPool commandPool; {
+            VkCommandPoolCreateInfo createInfo = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                .pNext = 0,
+                .flags = 0,
+                .queueFamilyIndex = computeQueueFamilyIndex
+            };
+            $[vkfn vkCreateCommandPool]
+            $[vktry {vkCreateCommandPool(device, &createInfo, 0, &commandPool)}]
+        }
+
+        VkCommandBuffer commandBuffer; {
+            VkCommandBufferAllocateInfo allocateInfo = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .pNext = 0,
+                .commandPool = commandPool,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1
+            };
+            $[vkfn vkAllocateCommandBuffers]
+            $[vktry {vkAllocateCommandBuffers(device, &allocateInfo, &commandBuffer)}]
+
+            VkCommandBufferBeginInfo beginInfo = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                .pNext = 0,
+                .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+                .pInheritanceInfo = 0
+            };
+            $[vkfn vkBeginCommandBuffer]
+            $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+        }
+
+        $[vkfn vkCmdBindPipeline]
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+        $[vkfn vkCmdBindDescriptorSets]
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &descriptorSet, 0, 0);
+
+        $[vkfn vkCmdDispatch]
+        vkCmdDispatch(commandBuffer, 128, 1, 1);
+
+        $[vkfn vkEndCommandBuffer]
+        $[vktry {vkEndCommandBuffer(commandBuffer)}]
+
+        VkQueue queue;
+        $[vkfn vkGetDeviceQueue]
+        vkGetDeviceQueue(device, computeQueueFamilyIndex, 0, &queue);
+
+        VkSubmitInfo submitInfo = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = 0,
+            .waitSemaphoreCount = 0,
+            .pWaitSemaphores = 0,
+            .pWaitDstStageMask = 0,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &commandBuffer,
+            .signalSemaphoreCount = 0,
+            .pSignalSemaphores = 0
+        };
+        $[vkfn vkQueueSubmit]
+        $[vkfn vkQueueWaitIdle]
+        $[vkfn vkMapMemory]
+        $[vktry {vkQueueSubmit(queue, 1, &submitInfo, 0)}]
+        $[vktry {vkQueueWaitIdle(queue)}]
+
+        float *payload;
+        $[vktry {vkMapMemory(device, memory, 0, 128 * sizeof(float) * 2, 0, (void *)&payload)}]
+
+        for (int i = 0; i < 128; i++) {
+            printf("out[%d] = %f\n", i, payload[i]);
+        }
     }]
 
     dc compile
 }
+
 Display::init
+puts "1. initialized!"
+
 set sizeofFloat 4
 Display::allocate [expr {128 * $sizeofFloat}]
-puts hi
+puts "2. allocated!"
 
-# Display pixels
+Display::execute
+puts "3. executed!"
