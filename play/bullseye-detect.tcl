@@ -94,9 +94,8 @@ namespace eval Display {
             float* payload;
             $[vkfn vkMapMemory]
             $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
-            for (uint32_t k = 0; k < memorySize / sizeof(float); k++) {
-                payload[k] = 0.12f; // rand()
-                printf("in[%d] = %f\n", k, payload[k]);
+            for (uint32_t k = 0; k < bufferSize / sizeof(float); k++) {
+                payload[k] = rand();
             }
             $[vkfn vkUnmapMemory]
             vkUnmapMemory(device, memory);
@@ -142,6 +141,7 @@ namespace eval Display {
                 uint gid = gl_GlobalInvocationID.x;
                 if (gid < 128) {
                     outPixels[gid] = inPixels[gid] * inPixels[gid];
+//                    outPixels[gid] = inPixels[gid] - 100;
                 }
             }
         }];
@@ -190,20 +190,6 @@ namespace eval Display {
     }]
 
     dc proc execute {} void [csubst {
-        /*
-        To execute a compute shader we need to:
-
-Create a descriptor set that has two VkDescriptorBufferInfo’s for each of our buffers (one for each binding in the compute shader).
-Update the descriptor set to set the bindings of both of the VkBuffer’s we created earlier.
-Create a command pool with our queue family index.
-Allocate a command buffer from the command pool (we’re using VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT as we aren’t resubmitting the buffer in our sample).
-Begin the command buffer.
-Bind our compute pipeline.
-Bind our descriptor set at the VK_PIPELINE_BIND_POINT_COMPUTE.
-Dispatch a compute shader for each element of our buffer.
-End the command buffer.
-And submit it to the queue!
-*/
         VkDescriptorPool descriptorPool; {
             VkDescriptorPoolSize size = {0};
             size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -337,8 +323,9 @@ And submit it to the queue!
         float *payload;
         $[vktry {vkMapMemory(device, memory, 0, 128 * sizeof(float) * 2, 0, (void *)&payload)}]
 
-        for (int i = 128; i < 256; i++) {
-            printf("out[%d] = %f\n", i, payload[i]);
+        for (int i = 0; i < 128; i++) {
+            printf("in[%d] = %f\n", i, payload[i]);
+            printf("out[%d] = %f\n", i, payload[128 + i]);
         }
     }]
 
