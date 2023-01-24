@@ -233,16 +233,17 @@ proc On {event args} {
         set body [lindex $args 1]
         if {![dict exists $::threads $threadName] ||
             ![thread::exists [dict get $::threads $threadName]]} {
-            dict set ::threads $threadName [thread::create [list apply {{mainThread threadName} {
+            dict set ::threads $threadName [thread::create [list apply {{nodename mainThread threadName} {
                 source "lib/environment.tcl"
+                set ::nodename $nodename
                 set ::mainThread $mainThread
                 set ::threadName $threadName
+                proc Claim {args} { lappend ::commit [list someone claims {*}$args] }
+                proc Wish {args} { lappend ::commit [list someone wishes {*}$args] }
                 proc Commit {body} {
                     set ::prevCommit [expr {[info exists ::commit] ? $::commit : [list]}]
                     set ::commit [list]
-                    proc Claim {args} { lappend ::commit [list someone claims {*}$args] }
-                    proc Wish {args} { lappend ::commit [list someone wishes {*}$args] }
-                    eval $body
+                    uplevel $body
                     # forward claims to main
                     thread::send -async $::mainThread [list apply {{threadName commit prevCommit} {
                         Assert thread $threadName has committed statement set $commit
@@ -251,22 +252,24 @@ proc On {event args} {
                     }} $::threadName $::commit $::prevCommit]
                 }
                 thread::wait
-            }} [thread::id] $threadName]]
+            }} $::nodename [thread::id] $threadName]]
         }
         set thread [dict get $::threads $threadName]
         thread::preserve $thread
         thread::send -async $thread [list runInSerializedEnvironment $body [serializeEnvironment]]
-        uplevel {apply {{threadName thread} {
-            When thread $threadName has committed statement set /statements/ {
+        uplevel [list set threadName_ $threadName]
+        uplevel [list set thread_ $thread]
+        uplevel {
+            When thread $threadName_ has committed statement set /statements/ {
                 foreach stmt $statements {
                     Say {*}$stmt
                 }
             }
             On unmatch {
-                Retract thread $threadName has committed statement set /something/
-                thread::release $thread
+                Retract thread $threadName_ has committed statement set /something/
+                thread::release $thread_
             }
-        }}} $threadName $thread
+        }
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
