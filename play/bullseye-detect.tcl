@@ -1,10 +1,15 @@
 source "lib/c.tcl"
 source "play/bullseye-play.tcl"
 
+# First, generate a synthetic JPEG file with a bullseye fiducial in
+# it. This is our fake 'camera image'.
+
 set ps [programToPs 66 "hello"]
 set fd [file tempfile psfile psfile.ps]; puts $fd $ps; close $fd
 exec convert $psfile -quality 300 -colorspace RGB [file rootname $psfile].jpeg
 set jpegfile [file rootname $psfile].jpeg
+
+# Next, load the fiducial into an in-memory image_t bitmap.
 
 rename [c create] ic
 ic include <stdlib.h>
@@ -46,102 +51,157 @@ ic cflags -ljpeg
 ic compile
 
 set image [loadImageFromJpeg $jpegfile]
+puts $image
+
+# Now set up the GPU and prepare to feed the bitmap into the GPU.
 
 source "play/Display_vk.tcl"
 namespace eval Display {
+    dc include <string.h>
     dc code {
         VkDescriptorSetLayout computeDescriptorSetLayout;
         VkPipelineLayout computePipelineLayout;
         VkPipeline computePipeline;
-        VkImage computeCameraImage;
         VkCommandBuffer computeCommandBuffer;
-
-        VkBuffer inBuffer;
-        VkBuffer outBuffer;
-
-        VkDeviceMemory memory;
     }
     defineImageType dc
-    dc proc allocate {int bufferSize} void [csubst {
-        VkPhysicalDeviceMemoryProperties properties;
+    dc rtype VkDeviceMemory {
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) rv));
+        return TCL_OK;
+    }
+    dc argtype VkDeviceMemory {
+        if (sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) != 1) {
+            return TCL_ERROR;
+        }
+    }
+
+    dc typedef uint32_t VkMemoryPropertyFlags
+    dc proc findMemoryType {int typeFilter VkMemoryPropertyFlags properties} int [csubst {
+        VkPhysicalDeviceMemoryProperties memProperties;
         $[vkfn vkGetPhysicalDeviceMemoryProperties]
-        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &properties);
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
 
-        const VkDeviceSize memorySize = bufferSize * 2;
-
-        uint32_t memoryTypeIndex = UINT32_MAX;
-        for (uint32_t k = 0; k < properties.memoryTypeCount; k++) {
-            const VkMemoryType memoryType = properties.memoryTypes[k];
-            if ((VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT & memoryType.propertyFlags)
-                && (VK_MEMORY_PROPERTY_HOST_COHERENT_BIT & memoryType.propertyFlags)
-                && (memorySize < properties.memoryHeaps[memoryType.heapIndex].size)) {
-                // found our memory type!
-                memoryTypeIndex = k; break;
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
             }
         }
-        if (memoryTypeIndex == UINT32_MAX) { exit(1); }
+        exit(1);
+    }]
 
-        // Set up VkDeviceMemory memory
-        {
-            VkMemoryAllocateInfo allocateInfo = {0};
-            allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocateInfo.allocationSize = memorySize;
-            allocateInfo.memoryTypeIndex = memoryTypeIndex;
-
-            $[vkfn vkAllocateMemory]
-            $[vktry {vkAllocateMemory(device, &allocateInfo, 0, &memory)}]
-        } {
-            float* payload;
-            $[vkfn vkMapMemory]
-            $[vktry {vkMapMemory(device, memory, 0, memorySize, 0, (void*) &payload)}]
-            for (uint32_t k = 0; k < bufferSize / sizeof(float); k++) {
-                payload[k] = rand();
-            }
-            $[vkfn vkUnmapMemory]
-            vkUnmapMemory(device, memory);
-        }
-
-        // subdivide it into two buffers
-        $[vkfn vkCreateBuffer]
-        $[vkfn vkBindBufferMemory]
-        const VkBufferCreateInfo bufferCreateInfo = {
+    dc typedef uint64_t VkDeviceSize
+    dc typedef uint32_t VkBufferUsageFlags
+    dc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
+                          VkBuffer* outBuffer VkDeviceMemory* outMemory} void [csubst {
+        VkBufferCreateInfo createInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             .pNext = 0,
             .flags = 0,
-            .size = bufferSize,
-            .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            .size = size,
+            .usage = usage,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .queueFamilyIndexCount = 1,
-            .pQueueFamilyIndices = &computeQueueFamilyIndex
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = 0
         };
-        // Set up VkBuffer inBuffer
-        {
-            $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &inBuffer)}]
-            $[vktry {vkBindBufferMemory(device, inBuffer, memory, 0)}]
-        }
-        // Set up VkBuffer outBuffer
-        {
-            $[vktry {vkCreateBuffer(device, &bufferCreateInfo, 0, &outBuffer)}]
-            $[vktry {vkBindBufferMemory(device, outBuffer, memory, bufferSize)}]
-        }
+        $[vktry {vkCreateBuffer(device, &createInfo, NULL, outBuffer)}]
 
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(device, *outBuffer, &memRequirements);
+
+        VkMemoryAllocateInfo allocInfo = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memRequirements.size,
+            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)
+        };
+        $[vktry {vkAllocateMemory(device, &allocInfo, NULL, outMemory)}]
+        vkBindBufferMemory(device, *outBuffer, *outMemory, 0);
+    }]
+
+    dc proc createBufferAndCopyImage {image_t im
+                                      VkBuffer* outBuffer VkDeviceMemory* outBufferMemory} void [csubst {
+        size_t imSize = im.bytesPerRow * im.height * im.components;
+        createBuffer(imSize,
+                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     outBuffer, outBufferMemory);
+
+        void *data;
+        $[vkfn vkMapMemory]
+        $[vktry {vkMapMemory(device, *outBufferMemory, 0, imSize, 0, &data)}]
+        memcpy(data, im.data, imSize);
+        $[vkfn vkUnmapMemory]
+        vkUnmapMemory(device, *outBufferMemory);
+    }]
+
+    dc proc setupBuffers {} void [csubst {
+        // Based on:
+        // https://bakedbits.dev/posts/vulkan-compute-example/
+        // https://lisyarus.github.io/blog/graphics/2022/04/21/compute-blur.html
+        // https://www.youtube.com/watch?v=KN9nHo9kvZs
         uint32_t shaderCode[] = $[glslc -fshader-stage=comp {
             #version 450
-            layout(local_size_x = 256) in;
+            layout(local_size_x = 16, local_size_y = 16) in;
+            layout(rgba8, binding = 0) uniform restrict readonly image2D u_input_image;
+            layout(rgba8, binding = 1) uniform restrict writeonly image2D u_output_image;
 
-            layout(set = 0, binding = 0) buffer inBuffer {
-                float inPixels[];
-            };
-
-            layout(set = 0, binding = 1) buffer outBuffer {
-                float outPixels[];
-            };
+            const int M = 16;
+            const int N = 2 * M + 1;
+            // sigma = 10
+            const float coeffs[N] = float[N](
+	        0.012318109844189502,
+                0.014381474814203989,
+                0.016623532195728208,
+                0.019024086115486723,
+                0.02155484948872149,
+                0.02417948052890078,
+                0.02685404941667096,
+                0.0295279624870386,
+                0.03214534135442581,
+                0.03464682117793548,
+                0.0369716985390341,
+                0.039060328279673276,
+                0.040856643282313365,
+                0.04231065439216247,
+                0.043380781642569775,
+                0.044035873841196206,
+                0.04425662519949865,
+                0.044035873841196206,
+                0.043380781642569775,
+                0.04231065439216247,
+                0.040856643282313365,
+                0.039060328279673276,
+                0.0369716985390341,
+                0.03464682117793548,
+                0.03214534135442581,
+                0.0295279624870386,
+                0.02685404941667096,
+                0.02417948052890078,
+                0.02155484948872149,
+                0.019024086115486723,
+                0.016623532195728208,
+                0.014381474814203989,
+                0.012318109844189502
+            );
 
             void main() {
-                uint gid = gl_GlobalInvocationID.x;
-                if (gid < 128) {
-                    outPixels[gid] = inPixels[gid] * inPixels[gid];
-//                    outPixels[gid] = inPixels[gid] - 100;
+                ivec2 size = imageSize(u_input_image);
+                ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+
+                if (coord.x < size.x && coord.y < size.y) {
+                    vec4 sum = vec4(0.0);
+
+                    for (int i = 0; i < N; ++i) {
+                        for (int j = 0; j < N; ++j) {
+                            ivec2 pc = coord + ivec2(i - M, j - M);
+                            if (pc.x < 0) pc.x = 0;
+                            if (pc.y < 0) pc.y = 0;
+                            if (pc.x >= size.x) pc.x = size.x - 1;
+                            if (pc.y >= size.y) pc.y = size.y - 1;
+                      
+                            sum += coeffs[i] * coeffs[j] * imageLoad(u_input_image, pc);
+                        }
+                    }
+                    imageStore(u_output_image, coord, sum);
                 }
             }
         }];
@@ -150,8 +210,8 @@ namespace eval Display {
         // Set up VkDescriptorSetLayout computeDescriptorSetLayout
         {
             VkDescriptorSetLayoutBinding bindings[] = {
-                {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0},
-                {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0}
+                {0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0},
+                {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, 0}
             };
             VkDescriptorSetLayoutCreateInfo createInfo = {
                 .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -192,7 +252,7 @@ namespace eval Display {
     dc proc execute {} void [csubst {
         VkDescriptorPool descriptorPool; {
             VkDescriptorPoolSize size = {0};
-            size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             size.descriptorCount = 2;
 
             VkDescriptorPoolCreateInfo createInfo = {0};
@@ -215,15 +275,15 @@ namespace eval Display {
             $[vkfn vkAllocateDescriptorSets]
             $[vktry {vkAllocateDescriptorSets(device, &allocateInfo, &descriptorSet)}]
 
-            VkDescriptorBufferInfo descriptorBufferInfoIn = {
-                .buffer = inBuffer,
-                .offset = 0,
-                .range = VK_WHOLE_SIZE
+            VkDescriptorImageInfo descriptorImageInfoIn = {
+                .sampler,
+                .imageView,
+                .imageLayout
             };
-            VkDescriptorBufferInfo descriptorBufferInfoOut = {
-                .buffer = outBuffer,
-                .offset = 0,
-                .range = VK_WHOLE_SIZE
+            VkDescriptorImageInfo descriptorImageInfoOut = {
+                .sampler
+                .imageView
+                .imageLayout
             };
             VkWriteDescriptorSet writeDescriptorSet[2] = {
                 {
@@ -233,7 +293,7 @@ namespace eval Display {
                     .dstBinding = 0,
                     .dstArrayElement = 0,
                     .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                     .pImageInfo = 0,
                     .pBufferInfo = &descriptorBufferInfoIn,
                     .pTexelBufferView = 0
@@ -325,7 +385,7 @@ namespace eval Display {
 
         for (int i = 0; i < 128; i++) {
             printf("in[%d] = %f\n", i, payload[i]);
-            printf("out[%d] = %f\n", i, payload[128 + i]);
+            printf("out[%d] = %f (%f)\n", i, payload[128 + i], payload[128 + i] - payload[i]);
         }
     }]
 
@@ -335,9 +395,8 @@ namespace eval Display {
 Display::init
 puts "1. initialized!"
 
-set sizeofFloat 4
-Display::allocate [expr {128 * $sizeofFloat}]
-puts "2. allocated!"
+Display::createBufferAndCopyImage $image
+puts "2. allocated memory and filled with image!"
 
 Display::execute
 puts "3. executed!"

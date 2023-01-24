@@ -55,6 +55,8 @@ proc programToPs {id text} {
         %!PS
         << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
+        gsave
+        1 0 0 setrgbcolor % to avoid pure grayscale 1-channel image output
         /Courier findfont
         $fontsize scalefont
         setfont
@@ -65,6 +67,7 @@ proc programToPs {id text} {
             incr linenum
             set ret
         }] "\n"]
+        grestore
 
         gsave
         [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate

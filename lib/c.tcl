@@ -14,6 +14,8 @@ namespace eval c {
 
             variable argtypes {
                 int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                uint32_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
+                uint64_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
                 char* { expr {{ $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ $argname = $obj; }}}
                 default {
@@ -38,6 +40,14 @@ namespace eval c {
                     Tcl_SetObjResult(interp, Tcl_NewIntObj(rv));
                     return TCL_OK;
                 }}}
+                uint32_t { expr {{
+                    Tcl_SetObjResult(interp, Tcl_NewWideIntObj(rv));
+                    return TCL_OK;
+                }}}
+                uint64_t { expr {{
+                    Tcl_SetObjResult(interp, Tcl_ObjPrintf("%"PRIu64, rv));
+                    return TCL_OK;
+                }}}
                 char* { expr {{ Tcl_SetObjResult(interp, Tcl_ObjPrintf("%s", rv)); return TCL_OK; }} }
                 Tcl_Obj* { expr {{
                     Tcl_SetObjResult(interp, rv);
@@ -57,6 +67,13 @@ namespace eval c {
             ::proc rtype {t h} {
                 variable rtypes
                 set rtypes [linsert $rtypes 0 $t [subst {expr {{$h}}}]]
+            }
+            ::proc typedef {t newt} {
+                set argtype $t; set rtype $t
+                variable argtypes
+                argtype $newt [switch $argtype $argtypes]
+                variable rtypes
+                rtype $newt [switch $rtype $rtypes]
             }
 
             ::proc include {h} {
