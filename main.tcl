@@ -217,8 +217,7 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 
 # invoke from within a When context, add dependent statements
 proc Say {args} {
-    upvar __matchId matchId
-    set ::log [linsert $::log 0 [list Say $matchId $args]]
+    set ::log [linsert $::log 0 [list Say $::matchId $args]]
 }
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
@@ -249,24 +248,44 @@ proc On {event args} {
     if {$event eq "thread"} {
         set threadName [lindex $args 0]
         set body [lindex $args 1]
+        # FIXME: serialize environment
         if {![dict exists $::threads $threadName] ||
             ![thread::exists [dict get $::threads $threadName]]} {
-            dict set ::threads $threadName [thread::create {
-                proc Commit body {
-                    puts "Committing $body"
+            dict set ::threads $threadName [thread::create [list apply {{mainThread threadName} {
+                set ::mainThread $mainThread
+                set ::threadName $threadName
+                proc Commit {body} {
+                    set ::prevCommit [expr {[info exists ::commit] ? $::commit : [list]}]
+                    set ::commit [list]
+                    proc Claim {args} {
+                        lappend ::commit [list someone claims {*}$args]
+                    }
+                    eval $body
+                    # forward claims to main
+                    thread::send -async $::mainThread [list apply {{threadName commit prevCommit} {
+                        Assert thread $threadName has committed statement set $commit
+                        Retract thread $threadName has committed statement set $prevCommit
+                        Step
+                    }} $::threadName $::commit $::prevCommit]
                 }
                 thread::wait
-            }]
+            }} [thread::id] $threadName]]
         }
         set thread [dict get $::threads $threadName]
         thread::preserve $thread
         thread::send -async $thread $body
-        uplevel [list On unmatch [list thread::release $thread]]
+        uplevel {apply {{threadName thread} {
+            When thread $threadName has committed statement set /statements/ {
+                foreach stmt $statements {
+                    Say {*}$stmt
+                }
+            }
+            On unmatch [list thread::release $thread]
+        }}} $threadName $thread
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
-        upvar __matchId matchId
-        dict set Statements::matches $matchId destructor [list $body [serializeEnvironment]]
+        dict set Statements::matches $::matchId destructor [list $body [serializeEnvironment]]
 
     } elseif {$event eq "convergence"} {
         set body [lindex $args 0]
@@ -321,11 +340,10 @@ proc StepImpl {} {
             set body [lindex $clause end-3]
             set env [lindex $clause end]
             foreach match $matches {
-                set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
+                set ::matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
                 set __env [dict merge \
                                $env \
-                               $match \
-                               [dict create __matchId $matchId]]
+                               $match]
                 runInSerializedEnvironment $body $__env
             }
         }
@@ -339,11 +357,10 @@ proc StepImpl {} {
             lappend matches {*}[Statements::findMatches [whenize [lrange $clause 2 end]]]
         }
         foreach match $matches {
-            set matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
+            set ::matchId [Statements::addMatch [list $id [dict get $match __matcheeId]]]
             set __env [dict merge \
                            [dict get $match __env] \
-                           $match \
-                           [dict create __matchId $matchId]]
+                           $match]
             runInSerializedEnvironment [dict get $match __body] $__env
         }
     }

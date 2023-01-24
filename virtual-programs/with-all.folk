@@ -24,7 +24,7 @@ When /someone/ wishes to collect matches for /clause/ {
                 set matches [dict get $::collectedMatches $clause]
                 Say the collected matches for $clause are [dict keys $matches]
             }
-        } $clause $__matchId]
+        } $clause $::matchId]
     }
     On unmatch { dict unset ::collectedMatches $clause }
 }
