@@ -222,24 +222,7 @@ proc Say {args} {
 proc Claim {args} { uplevel [list Say someone claims {*}$args] }
 proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
 
-proc serializeEnvironment {} {
-    set env [dict create]
-    # get all variables and serialize them
-    # (to fake lexical scope)
-    foreach name [info vars ::WhenContext::*] {
-        if {![string match "::WhenContext::__*" $name]} {
-            dict set env [namespace tail $name] [set $name]
-        }
-    }
-    foreach procName [info procs ::WhenContext::*] {
-        dict set env ^[namespace tail $procName] \
-            [list [info args $procName] [info body $procName]]
-    }
-    foreach importName [namespace eval ::WhenContext {namespace import}] {
-        dict set env %$importName [namespace origin ::WhenContext::$importName]
-    }
-    set env
-}
+source "lib/environment.tcl"
 proc When {args} {
     uplevel [list Say when {*}$args with environment [serializeEnvironment]]
 }
@@ -248,18 +231,17 @@ proc On {event args} {
     if {$event eq "thread"} {
         set threadName [lindex $args 0]
         set body [lindex $args 1]
-        # FIXME: serialize environment
         if {![dict exists $::threads $threadName] ||
             ![thread::exists [dict get $::threads $threadName]]} {
             dict set ::threads $threadName [thread::create [list apply {{mainThread threadName} {
+                source "lib/environment.tcl"
                 set ::mainThread $mainThread
                 set ::threadName $threadName
                 proc Commit {body} {
                     set ::prevCommit [expr {[info exists ::commit] ? $::commit : [list]}]
                     set ::commit [list]
-                    proc Claim {args} {
-                        lappend ::commit [list someone claims {*}$args]
-                    }
+                    proc Claim {args} { lappend ::commit [list someone claims {*}$args] }
+                    proc Wish {args} { lappend ::commit [list someone wishes {*}$args] }
                     eval $body
                     # forward claims to main
                     thread::send -async $::mainThread [list apply {{threadName commit prevCommit} {
@@ -273,14 +255,17 @@ proc On {event args} {
         }
         set thread [dict get $::threads $threadName]
         thread::preserve $thread
-        thread::send -async $thread $body
+        thread::send -async $thread [list runInSerializedEnvironment $body [serializeEnvironment]]
         uplevel {apply {{threadName thread} {
             When thread $threadName has committed statement set /statements/ {
                 foreach stmt $statements {
                     Say {*}$stmt
                 }
             }
-            On unmatch [list thread::release $thread]
+            On unmatch {
+                Retract thread $threadName has committed statement set /something/
+                thread::release $thread
+            }
         }}} $threadName $thread
 
     } elseif {$event eq "unmatch"} {
@@ -296,39 +281,9 @@ proc On {event args} {
         lappend ::log [list Do $body]
     }
 }
-namespace eval ::WhenContext {
-    # used to collect procs and variables created in When
-}
 
 proc StepImpl {} {
     # should this do reduction of assert/retract ?
-
-    proc runInSerializedEnvironment {body env} {
-        dict for {name value} $env {
-            if {[string index $name 0] eq "^"} {
-                proc ::WhenContext::[string range $name 1 end] {*}$value
-            } elseif {[string index $name 0] eq "%"} {
-                namespace eval ::WhenContext \
-                    [list namespace import -force $value]
-            } else {
-                set ::WhenContext::$name $value
-            }
-        }
-        if {[catch {namespace eval ::WhenContext $body} err] == 1} {
-            puts "$::nodename: Error: $err\n$::errorInfo"
-        }
-        # Clean up:
-        foreach procName [info procs ::WhenContext::*] {
-            rename $procName ""
-        }
-        foreach name [info vars ::WhenContext::*] {
-            unset $name
-        }
-        namespace eval ::WhenContext {
-            namespace forget {*}[namespace import]
-        }
-    }
-
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lindex $clause 0] == "when"} {
