@@ -244,11 +244,32 @@ proc serializeEnvironment {} {
 proc When {args} {
     uplevel [list Say when {*}$args with environment [serializeEnvironment]]
 }
-proc On {event body} {
-    if {$event eq "unmatch"} {
+set ::threads [dict create]
+proc On {event args} {
+    if {$event eq "thread"} {
+        set threadName [lindex $args 0]
+        set body [lindex $args 1]
+        if {![dict exists $::threads $threadName] ||
+            ![thread::exists [dict get $::threads $threadName]]} {
+            dict set ::threads $threadName [thread::create {
+                proc Commit body {
+                    puts "Committing $body"
+                }
+                thread::wait
+            }]
+        }
+        set thread [dict get $::threads $threadName]
+        thread::preserve $thread
+        thread::send -async $thread $body
+        uplevel [list On unmatch [list thread::release $thread]]
+
+    } elseif {$event eq "unmatch"} {
+        set body [lindex $args 0]
         upvar __matchId matchId
         dict set Statements::matches $matchId destructor [list $body [serializeEnvironment]]
+
     } elseif {$event eq "convergence"} {
+        set body [lindex $args 0]
         # FIXME: this should get retracted if the match is retracted (?)
 
         # FIXME: there should be `Before convergence` also --
