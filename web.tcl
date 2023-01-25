@@ -108,11 +108,13 @@ function wsConnect() {
     send = function(s) { ws.send(s); }
 
     ws.onopen = () => {
-        document.getElementById('status').innerText = "Connected";
+        document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
+
         handleDrag();
     };
     ws.onclose = window.onbeforeunload = () => {
-        document.getElementById('status').innerText = "Disconnected";
+        document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
+
         send(`Retract web claims {${program}} has region /something/`);
         send(`Retract web claims {${program}} has program code /something/`);
         setTimeout(() => { wsConnect(); }, 1000);
