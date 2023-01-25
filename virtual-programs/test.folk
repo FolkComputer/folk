@@ -1,0 +1,16 @@
+Wish $this has filename "test.folk"
+
+# Display::stroke {{500 500} {600 400}} 10 white
+# Display::fillRect 200 200 450 450 black
+
+When $this has region /r/ {
+	set points [lindex $r 0]
+	lassign $points one two three four
+	lassign $one a b
+	lassign $three c d
+	Wish $this is labelled "$a $b $c $d"
+	# Display::fillRect $a $b $c $d skyblue
+	Display::stroke [list [list $a $b] [list $c $d]] 3 skyblue
+}
+
+Wish $this is outlined green

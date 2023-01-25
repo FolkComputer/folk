@@ -16,7 +16,7 @@ namespace eval Display {
 
     proc init {} {}
 
-    proc fillRect {fb x0 y0 x1 y1 color} {
+    proc fillRect {x0 y0 x1 y1 color} {
         uplevel [list Wish display runs [list .display create rectangle $x0 $y0 $x1 $y1 -fill $color]]
     }
 
@@ -142,7 +142,7 @@ proc newProgram "{programCode {$defaultCode}}" {
     wm title .$program $program
     # Format: width x height + x + y
     # Formula: (n * windowDimension) + gutter
-    wm geometry .$program 350x250+[expr {$programNum*250 + 30}]+[expr {$programNum*30 + 20}]
+    wm geometry .$program 350x250+[expr $programNum * 25]+[expr {$programNum * 35}]
 
     text .$program.t
     .$program.t insert 1.0 $programCode
