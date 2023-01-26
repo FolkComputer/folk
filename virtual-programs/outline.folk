@@ -1,14 +1,26 @@
 Wish $this has filename "outline.folk"
 
+
+proc loopRegion {edges vertices weight color} {
+	foreach edge $edges {
+		set from [lindex $vertices [lindex $edge 0]]
+		set to [lindex $vertices [lindex $edge 1]]
+		Display::stroke [list $from $to] $weight $color
+	}
+}
+
 When /someone/ wishes /thing/ is outlined /color/ {
     When $thing has region /region/ {
 	# FIXME: assumes path
 	lassign $region vertices edges
-	foreach edge $edges {
-		set from [lindex $vertices [lindex $edge 0]]
-		set to [lindex $vertices [lindex $edge 1]]
-	        Display::stroke [list $from $to] 4 $color
-	}
+	loopRegion $edges $vertices 3 $color
     }
 }
 
+When /someone/ wishes /thing/ is outlined thick /color/ {
+    When $thing has region /region/ {
+	# FIXME: assumes path
+	lassign $region vertices edges
+	loopRegion $edges $vertices 6 $color
+    }
+}

@@ -13,4 +13,4 @@ When $this has region /r/ {
 	Display::stroke [list [list $a $b] [list $c $d]] 3 skyblue
 }
 
-Wish $this is outlined green
+Wish $this is outlined thick magenta
