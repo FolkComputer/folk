@@ -95,6 +95,21 @@ const mouseUpHandler = function () {
     document.removeEventListener('mouseup', mouseUpHandler);
 };
 
+// Cmd + S || Ctrl + S => Save
+document.addEventListener('keydown', function(e) {
+  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 83) {
+    e.preventDefault();
+    handleSave();
+  }
+}, false);
+// Cmd + P || Ctrl + P => Print
+document.addEventListener('keydown', function(e) {
+  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 80) {
+    e.preventDefault();
+    handlePrint();
+  }
+}, false);
+
 ele.addEventListener('mousedown', mouseDownHandler);
 </script>
 
