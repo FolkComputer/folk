@@ -10,3 +10,6 @@ test:
 
 repl:
 	tclsh8.6 replmain.tcl
+
+journal:
+	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
