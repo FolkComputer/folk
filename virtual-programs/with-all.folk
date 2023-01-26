@@ -10,21 +10,19 @@ When /someone/ wishes to collect matches for /clause/ {
         foreach varName $varNames { dict set match $varName [set $varName] }
 
         dict set ::collectedMatches $clause $match true
-
-        On unmatch [subst {
-            dict unset ::collectedMatches {$clause} {$match}
-        }]
+        On unmatch { dict unset ::collectedMatches $clause $match }
     }
     When $::nodename has step count /c/ {
-        On convergence [format {
-            set clause {%s}
-            set __matchId %d
-            if {[dict exists $Statements::matches $__matchId] &&
+        set matchId $::matchId
+        Before convergence {
+            if {[dict exists $Statements::matches $matchId] &&
                 [dict exists $::collectedMatches $clause]} {
+                set oldMatchId $::matchId; set ::matchId $matchId
                 set matches [dict get $::collectedMatches $clause]
                 Say the collected matches for $clause are [dict keys $matches]
+                set ::matchId $oldMatchId
             }
-        } $clause $::matchId]
+        }
     }
     On unmatch { dict unset ::collectedMatches $clause }
 }

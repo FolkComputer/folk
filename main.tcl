@@ -274,14 +274,13 @@ proc On {event args} {
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
         dict set Statements::matches $::matchId destructor [list $body [serializeEnvironment]]
-
-    } elseif {$event eq "convergence"} {
-        set body [lindex $args 0]
+    }
+}
+proc Before {event body} {
+    if {$event eq "convergence"} {
         # FIXME: this should get retracted if the match is retracted (?)
 
-        # FIXME: there should be `Before convergence` also --
-        # then avoid using `On convergence` to generate statements
-        lappend ::log [list Do $body]
+        lappend ::log [list Do $body [serializeEnvironment]]
     }
 }
 
@@ -397,7 +396,7 @@ proc StepImpl {} {
             if {$isNewStatement} { reactToStatementAddition $id }
 
         } elseif {$op == "Do"} {
-            eval [lindex $entry 1]
+            runInSerializedEnvironment [lindex $entry 1] [lindex $entry 2]
         }
     }
 
