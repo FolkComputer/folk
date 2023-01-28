@@ -5,7 +5,7 @@ namespace eval Keyboard {
 
     proc init {} {
         variable kb
-        set kb [open "/dev/input/by-id/usb-Logitech_USB_Receiver-if02-event-mouse" r]
+        set kb [open "/dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse" r]
         fconfigure $kb -translation binary
     }
 
@@ -25,7 +25,11 @@ namespace eval Keyboard {
             binary scan [read $Keyboard::kb 16] nntutunu tvSec tvUsec type code value
             if {$type == 0x01 && $value == 1} break
         }
-        set name [dict get $Keyboard::KeyCodes $code] ;# scancode name, like KEY_A
+        # TODO: Should properly catch this error
+        # e.g. Jan 28 04:11:28 folk0 make[1991]: Thread error: tid0x7f45fd2b0640 can't\ read\ \"name\":\ no\ such\ variable ...
+
+        # scancode name, like KEY_A
+        catch { set name [dict get $Keyboard::KeyCodes $code] } err
         set ch [string tolower [string range $name 4 end]]
         # puts "type $type code $code value $value ($ch)"
         return $ch
