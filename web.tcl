@@ -2,11 +2,31 @@
 lappend auto_path "./vendor"
 package require websocket
 
+proc convertToJsonString {results} {
+    # convert {color palegoldenrod __matcheeId 10} {color magenta __matcheeId 31}
+    # into [{"color": "palegoldenrod", "__matcheeId": "10"}, {"color": "magenta", "__matcheeId": "31"}]
+    set resultStrList [list]
+    foreach result $results {
+        set resultStr [list]
+        foreach {k v} $result {
+            lappend resultStr "\"$k\": \"$v\""
+        }
+        lappend resultStrList "{[join $resultStr ", "]}"
+    }
+    set hackJsonString "\[[join $resultStrList ", "]\]"
+    puts "$::nodename: findMatches results str: $hackJsonString"
+    return $hackJsonString
+}
+proc uriDecode {uri} {
+    return [string map {"%2F" "/"} [string map {"%20" " "} $uri]]
+}
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
-proc handlePage {path contentTypeVar} {
+proc handlePage {path contentTypeVar extraResponseHeadersStringVar} {
     upvar $contentTypeVar contentType
+    upvar $extraResponseHeadersStringVar extraResponseHeadersString
+    set findMatchUrlPrefix "/findMatches?q="
     if {$path eq "/"} {
         set l [list]
         dict for {id stmt} $Statements::statements {
@@ -39,6 +59,20 @@ proc handlePage {path contentTypeVar} {
         set fd [open |[list dot -Tpdf <<[Statements::dot]] r]
         fconfigure $fd -encoding binary -translation binary
         set response [read $fd]; close $fd; return $response
+    } elseif {[string first $findMatchUrlPrefix $path] != -1} {
+        set contentType "application/json"
+        set queryEncoded [regsub ***=$findMatchUrlPrefix $path ""]
+        puts "$::nodename: findMatches: $queryEncoded"
+        # TODO: full URL decoding https://wiki.tcl-lang.org/page/url-encoding
+        set pattern [uriDecode $queryEncoded]
+        # set pattern {/someone/ wishes /thing/ is outlined /color/}
+        puts "$::nodename: findMatches pattern: $pattern"
+        set results [Statements::findMatches $pattern]
+        puts "$::nodename: findMatches results: $results"
+        set resultStr [convertToJsonString $results]
+        set contentLength [string length $resultStr]
+        set extraResponseHeadersString "Content-Length: $contentLength"
+        return $resultStr
     } elseif {$path eq "/new"} {
         return {
             <html>
@@ -199,9 +233,44 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
-    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
+    if {[regexp {GET ([^ ]*) HTTP/1..} $firstline -> path] && $path ne "/ws"} {
         set contentType "text/html; charset=utf-8"
-        set response [handlePage $path contentType]
+        set extraResponseHeadersString ""
+        set response [handlePage $path contentType extraResponseHeadersString]
+        puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n$extraResponseHeadersString\n\n"
+        chan configure $chan -encoding binary -translation binary
+        puts -nonewline $chan $response
+        close $chan
+    } elseif {[regexp {POST ([^ ]*) HTTP/1..} $firstline -> path] && $path ne "/ws"} {
+        set contentType "text/html; charset=utf-8"
+        set response "OK"
+        puts $headers
+        set contentLengthHeaderIndex [lsearch -exact $headers "Content-Length"]
+        if {$contentLengthHeaderIndex >= 0} {
+            set contentLengthHeaderIndex [lindex $headers [expr $contentLengthHeaderIndex + 1]]
+            set data [read $chan $contentLengthHeaderIndex]
+            puts "Got data:"
+            puts $data
+            # claim=sensor%20value%20is%206&retract=sensor%20value%20is%20%2Fvalue%2F
+            # becomes dict: claim sensor%20value%20is%206 retract sensor%20value%20is%20%2Fvalue%2F
+            set x [split $data "&="]
+            puts $x
+            set retractStr ""
+            set claimStr ""
+            foreach {k v} $x {
+                if {$k eq "retract"} {
+                    set retractStr [uriDecode $v]
+                } elseif {$k eq "claim"} {
+                    set claimStr [uriDecode $v]
+                }
+            }
+            puts "retract: $retractStr"
+            puts "claim: $claimStr"
+            eval "Retract $retractStr"
+            eval "Assert $claimStr"
+            Step
+            Statements::print
+        }
         puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
         chan configure $chan -encoding binary -translation binary
         puts -nonewline $chan $response
