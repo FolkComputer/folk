@@ -5,6 +5,7 @@ package require websocket
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
+# TODO: Cache errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
     if {$path eq "/"} {
@@ -29,6 +30,12 @@ proc handlePage {path contentTypeVar} {
             <ul>[join $l "\n"]</ul>
             </html>
         }]
+    } elseif {$path eq "/favico.ico"} {
+        set contentType "image/x-icon"
+        set fd [open "../favicon.ico" r]
+        fconfigure $fd -encoding binary -translation binary
+        set response [read $fd]; close $fd; return $response
+
     } elseif {$path eq "/statementClauseToId.pdf"} {
         set contentType "application/pdf"
         set fd [open |[list dot -Tpdf <<[trie dot $Statements::statementClauseToId]] r]
@@ -39,6 +46,26 @@ proc handlePage {path contentTypeVar} {
         set fd [open |[list dot -Tpdf <<[Statements::dot]] r]
         fconfigure $fd -encoding binary -translation binary
         set response [read $fd]; close $fd; return $response
+    } elseif {[regexp -all {/page/(\d*)$}  $path whole_match pageNumber]} {
+        set fp [open "../folk-printed-programs/$pageNumber.folk" r]
+        set file_data [read $fp]
+        close $fp
+
+        return [subst {
+            <html>
+            <body>
+                $file_data
+            </body>
+            </html>
+        }]
+    } elseif {[regexp -all {/page/(\d*).pdf$}  $path whole_match pageNumber]} {
+        set fp [open "/home/folk/folk-printed-programs/$pageNumber.pdf" r]
+        fconfigure $fp -encoding binary -translation binary
+        set file_data [read $fp]
+        puts "found $pageNumber.pdf ...."
+        close $fp
+        set contentType "application/pdf"
+        return $file_data
     } elseif {$path eq "/new"} {
         return {
             <html>
