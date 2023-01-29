@@ -278,9 +278,7 @@ proc On {event args} {
 }
 proc Before {event body} {
     if {$event eq "convergence"} {
-        # FIXME: this should get retracted if the match is retracted (?)
-
-        lappend ::log [list Do $body [serializeEnvironment]]
+        lappend ::log [list Do $::matchId $body [serializeEnvironment]]
     }
 }
 
@@ -396,7 +394,11 @@ proc StepImpl {} {
             if {$isNewStatement} { reactToStatementAddition $id }
 
         } elseif {$op == "Do"} {
-            runInSerializedEnvironment [lindex $entry 1] [lindex $entry 2]
+            lassign $entry _ matchId body env
+            if {[dict exists $Statements::matches $matchId]} {
+                set ::matchId $matchId
+                runInSerializedEnvironment $body $env
+            }
         }
     }
 
