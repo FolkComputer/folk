@@ -10,7 +10,11 @@ When when the collected matches for /clause/ are /matchesVar/ /body/ with enviro
         foreach varName $varNames { dict set match $varName [set $varName] }
 
         dict set ::collectedMatches $clause $match true
-        On unmatch { dict unset ::collectedMatches $clause $match }
+        On unmatch {
+            if {[dict exists $::collectedMatches $clause]} {
+                dict unset ::collectedMatches $clause $match
+            }
+        }
     }
     When $::nodename has step count /c/ {
         set matchId $::matchId
