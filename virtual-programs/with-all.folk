@@ -1,7 +1,7 @@
 Wish $this has filename "with-all.folk"
 
 set ::collectedMatches [dict create]
-When /someone/ wishes to collect matches for /clause/ {
+When when the collected matches for /clause/ are /matches/ /body/ with environment /e/ {
     set varNames [lmap word $clause {expr {
         [regexp {^/([^/ ]+)/$} $word -> varName] ? $varName : [continue]
     }}]

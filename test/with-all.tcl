@@ -13,7 +13,6 @@ Assert programOakland has program code {
     Claim Omar lives in "Oakland"
 }
 Assert program3 has program code {
-    Wish to collect matches for [list Omar lives in /place/]
     When the collected matches for [list Omar lives in /place/] are /matches/ {
         Claim there are [llength $matches] matches
     }
