@@ -1,4 +1,5 @@
 Wish $this has filename "im.folk"
+return
 if {$::isLaptop} { return }
 
 Wish $this is outlined green
