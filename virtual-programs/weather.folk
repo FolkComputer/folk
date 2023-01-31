@@ -1,0 +1,27 @@
+set weatherHttpThread [thread::create [format {
+    package require http 2.7;
+    package require json
+
+    set query   [http::formatQuery \
+        appid $::env(OPENWEATHERMAP_KEY) \
+        lat 42.3876 \
+        lon -71.0995 \
+    ];
+    while true {
+        set token [http::geturl "http://api.openweathermap.org/data/2.5/weather?$query"]
+        set responseBody [http::data $token]
+        http::cleanup $token
+        puts $responseBody
+        set weatherData [::json::json2dict $responseBody]
+        set weatherDescription [dict get [lindex [dict get $weatherData weather] 0] description]
+        set currentTemp [dict get $weatherData main temp]2
+
+        thread::send -async "%s" [subst {
+            Retract current weather is /temp/ K "and" /something/
+            Assert current weather is "$currentTemp" K and "$weatherDescription"
+        }]
+        # sleep 10 minutes
+        after [expr {int(10 * 60 * 1000)}]
+    }
+} [thread::id]]]
+puts "Weather HTTP thread id: $weatherHttpThread"
