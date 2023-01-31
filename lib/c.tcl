@@ -169,7 +169,7 @@ namespace eval c {
                             if {[string first :: $tclname] != 0} {
                                 set tclname [uplevel [list namespace current]]::$name
                             }
-                            puts "Creating C command: $tclname"
+                            # puts "Creating C command: $tclname"
                             subst {
                                 Tcl_CreateObjCommand(interp, "$tclname", [set cname]_Cmd, NULL, NULL);
                             }
