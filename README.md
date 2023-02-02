@@ -244,3 +244,84 @@ clone https://github.com/krh/vkcube
 `mkdir build; cd build; meson .. && ninja`
 
 `./vkcube -m khr -k 0:0:0`
+
+### FFT example
+
+- Including [kissfft](https://github.com/mborgerding/kissfft)
+
+``` tcl
+Wish $this has filename "fft.folk"
+Wish $this is outlined thick magenta
+# bring in RGB image, display its FFT
+
+
+set cc [c create]
+
+# if Laptop:
+# try .dylib, .so, fail
+
+try {
+    c loadlib $::env(HOME)/code/kissfft/libkissfft-float.dylib
+    $cc cflags -I$::env(HOME)/code/kissfft -Wall -Werror
+    # ...
+} on error {} {
+  try {
+    # load .so
+    c loadlib $::env(HOME)/kissfft/libkissfft-float.so
+    $cc cflags -I$::env(HOME)/kissfft -Wall -Werror
+  } on error {} {
+    # bail completely
+    return
+  }
+}
+
+source "pi/cUtils.tcl"
+# if NUC:
+# ---- libkissfft-float.so
+defineImageType $cc
+
+$cc proc test {} void {
+  printf("hello world :-)\n");
+}
+
+$cc include <stdlib.h>
+$cc include <string.h>
+$cc include <kiss_fftnd.h>
+$cc proc bw {image_t im} image_t {
+	image_t ret;
+	ret.width = im.width;
+	ret.height = im.height;
+	ret.components = 3;
+	ret.bytesPerRow = ret.width * ret.components;
+	ret.data = calloc(ret.bytesPerRow, ret.height);
+        
+        # TODO -- @cwervo
+        # use kiss_fft to get fft for ret.data ...
+        # probably want a 2D array of floating point numbers
+        # call kissfft to construct a plan
+        # using plan + fft, get fft image & convert complex float 2D array -> RGB
+	for (uint32_t y = 0; y < im.height; ++y) {
+		int R = 0; int G = 1; int B = 2;
+		for (uint32_t x = 0; x < im.width; ++x) {
+			int i = y * ret.bytesPerRow + x * ret.components;
+			int j = y * im.bytesPerRow + x * im.components;
+			ret.data[i + 0] = im.data[j + R];
+			ret.data[i + 1] = im.data[j + G];
+			ret.data[i + 2] = im.data[j + B];
+		}		
+	}
+
+	return ret;
+}
+$cc proc freeImage {image_t im} void { free(im.data); }
+$cc compile
+
+Wish $this has camera image
+When $this has camera image /im/ {
+	When $this has region /r/ {
+		set bwim [bw $im]
+		Wish display runs [list Display::image {*}[lindex $r 0 0] $bwim]
+		On unmatch [list freeImage $bwim]
+	}
+}
+```
