@@ -17,3 +17,4 @@ $cc proc omar {} Person {
 $cc compile
 
 puts [omar]
+

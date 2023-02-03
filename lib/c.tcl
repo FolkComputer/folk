@@ -208,9 +208,9 @@ namespace eval c {
                                 $[ret $fieldtype robj_$fieldname robj->$fieldname]
                             }
                         }] "\n"]
-                        objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"robj_$fieldname"}}] ", "]);
-                        objPtr->bytes = ckalloc(objPtr->length);
-                        snprintf(objPtr->bytes, objPtr->length, format, $[join [lmap fieldname $fieldnames {expr {"robj_$fieldname"}}] ", "]);
+                        objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
+                        objPtr->bytes = ckalloc(objPtr->length + 1);
+                        snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
                         return TCL_ERROR;
@@ -237,7 +237,8 @@ namespace eval c {
 
                 variable rtypes
                 rtype $type {
-                    $robj = Tcl_NewObj();
+                    $robj = ckalloc(sizeof(struct Tcl_Obj));
+                    $robj->bytes = NULL;
                     $robj->typePtr = &$[set rtype]_ObjType;
                     $robj->internalRep.otherValuePtr = ckalloc(sizeof($[set rtype]));
                     memcpy($robj->internalRep.otherValuePtr, &$rvalue, sizeof($[set rtype]));
@@ -344,7 +345,7 @@ namespace eval c {
                                           $init \
                                          ] "\n"]
 
-                puts "=====================\n$sourcecode\n====================="
+                # puts "=====================\n$sourcecode\n====================="
 
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
                 exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
