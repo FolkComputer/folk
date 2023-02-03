@@ -286,7 +286,8 @@ namespace eval c {
 
                 set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
                 variable procs
-                dict set procs $name [subst {
+                dict set procs $name type "$rtype (*$cname) ([join $arglist {, }])"
+                dict set procs $name code [subst {
                     static $rtype $cname ([join $arglist ", "]) {
                         #line [dict get [info frame -1] line] "[dict get [info frame -1] file]"
                         $body
@@ -330,8 +331,13 @@ namespace eval c {
                                 set tclname [uplevel [list namespace current]]::$name
                             }
                             # puts "Creating C command: $tclname"
-                            subst {
-                                Tcl_CreateObjCommand(interp, "$tclname", [set cname]_Cmd, NULL, NULL);
+                            csubst {
+                                char $[set cname]_import[1000];
+                                snprintf($[set cname]_import, 1000,
+                                         "$[dict get $procs $name type] = %p;", $cname);
+                                Tcl_SetVar(interp, "$[set tclname]_import", $[set cname]_import, 0);
+
+                                Tcl_CreateObjCommand(interp, "$tclname", $[set cname]_Cmd, NULL, NULL);
                             }
                         }] "\n"]
                         return TCL_OK;
@@ -341,7 +347,7 @@ namespace eval c {
                                           $prelude \
                                           {*}$code \
                                           {*}$objtypes \
-                                          {*}[dict values $procs] \
+                                          {*}[lmap p [dict values $procs] {dict get $p code}] \
                                           $init \
                                          ] "\n"]
 

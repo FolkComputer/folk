@@ -1,6 +1,9 @@
 source "lib/c.tcl"
+source "lib/trie.tcl"
 
 set cc [c create]
+
+puts $::ctrie::lookupImpl_import
 
 namespace eval statement {
     $cc include <string.h>
