@@ -200,7 +200,7 @@ namespace eval c {
                         $[set type] *robj = objPtr->internalRep.otherValuePtr;
 
                         const char *format = "$[join [lmap fieldname $fieldnames {
-                            subst {$fieldname %s}
+                            subst {$fieldname {%s}}
                         }] { }]";
                         $[join [lmap {fieldtype fieldname} $fields {
                             csubst {
