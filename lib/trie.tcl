@@ -22,13 +22,16 @@ namespace eval ctrie {
     rename [c create] cc
     cc include <stdlib.h>
     cc include <string.h>
-    cc struct trie_t {
-        Tcl_Obj* key;
+    cc code {
+        typedef struct trie_t trie_t;
+        struct trie_t {
+            Tcl_Obj* key;
 
-        int id; // or -1
+            int id; // or -1
 
-        size_t nbranches;
-        trie_t* branches[];
+            size_t nbranches;
+            trie_t* branches[];
+        };
     }
 
     cc proc create {} trie_t* {

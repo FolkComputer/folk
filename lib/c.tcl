@@ -173,48 +173,60 @@ namespace eval c {
 
                 regsub -all -line {/\*.*?\*/} $fields "" fields
                 regsub -all -line {//.*$} $fields "" fields
-                puts "FIELDS $fields"
+                set fields [string map {";" ""} $fields]
+                # puts "FIELDS $fields"
+
+                set fieldnames [list]
+                for {set i 0} {$i < [llength $fields]} {incr i 2} {
+                    set fieldtype [lindex $fields $i]
+                    set fieldname [lindex $fields $i+1]
+                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
+                    lappend fieldnames $fieldname
+                    lset fields $i $fieldtype
+                    lset fields $i+1 $fieldname
+                }
 
                 variable objtypes
+                include <string.h>
                 lappend objtypes [csubst {
-                    void [set type]_freeIntRepProc(Tcl_Obj *objPtr) {
-                        ckfree(objPtr->otherValuePtr);
+                    void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
+                        ckfree(objPtr->internalRep.otherValuePtr);
                     }
-                    void [set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
-                        dupPtr->otherValuePtr = ckalloc(sizeof($type));
-                        memcpy(dupPtr->otherValuePtr, srcPtr->otherValuePtr, sizeof($type));
+                    void $[set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
+                        dupPtr->internalRep.otherValuePtr = ckalloc(sizeof($type));
+                        memcpy(dupPtr->internalRep.otherValuePtr, srcPtr->internalRep.otherValuePtr, sizeof($type));
                     }
-                    void [set type]_updateStringProc(Tcl_Obj *objPtr) {
-                        const char *format = "$[dict map {fieldtype fieldname} $fields {
-                            list $fieldname %s
-                        }]";
-                        $[join [dict values [dict map {fieldtype fieldname} $fields {
-                            list $fieldname [csubst {
-                                Tcl_Obj* robj_$fieldname;
-                                $[ret $fieldtype robj_$fieldname \$rvalue.$fieldname]
-                            }]
-                        }]] "\n"]
-                        objPtr->length = snprintf(NULL, 0, format, [lmap fieldname [dict keys $fields] {robj_$fieldname}]);
-                        objPtr->bytes = ckalloc(objPtr->length);
-                        snprintf(objPtr->length, objPtr->bytes, format, [lmap fieldname [dict keys $fields] {robj_$fieldname}]);
-                    }
-                    int [set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+                    void $[set type]_updateStringProc(Tcl_Obj *objPtr) {
+                        $[set type] *robj = objPtr->internalRep.otherValuePtr;
 
+                        const char *format = "$[join [lmap fieldname $fieldnames {
+                            subst {$fieldname %s}
+                        }] { }]";
+                        $[join [lmap {fieldtype fieldname} $fields {
+                            csubst {
+                                Tcl_Obj* robj_$fieldname;
+                                $[ret $fieldtype robj_$fieldname robj->$fieldname]
+                            }
+                        }] "\n"]
+                        objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"robj_$fieldname"}}] ", "]);
+                        objPtr->bytes = ckalloc(objPtr->length);
+                        snprintf(objPtr->bytes, objPtr->length, format, $[join [lmap fieldname $fieldnames {expr {"robj_$fieldname"}}] ", "]);
                     }
-                    Tcl_ObjType $type = (Tcl_ObjType) {
+                    int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+                        return TCL_ERROR;
+                    }
+                    Tcl_ObjType $[set type]_ObjType = (Tcl_ObjType) {
                         .name = "$type",
-                        .freeIntRepProc = [set type]_freeIntRepProc,
-                        .dupIntRepProc = [set type]_dupIntRepProc,
-                        .updateStringProc = [set type]_updateStringProc,
-                        .setFromAnyProc = [set type]_setFromAnyProc
+                        .freeIntRepProc = $[set type]_freeIntRepProc,
+                        .dupIntRepProc = $[set type]_dupIntRepProc,
+                        .updateStringProc = $[set type]_updateStringProc,
+                        .setFromAnyProc = $[set type]_setFromAnyProc
                     };
                 }]
 
                 variable argtypes
                 set argscripts [list] ;# TODO: return a dictionary
-                dict for {fieldtype fieldname} $fields {
-                    set fieldname [string map {";" ""} $fieldname]
-                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
+                foreach {fieldtype fieldname} $fields {
                     lappend argscripts [csubst {
                         Tcl_Obj* obj_$fieldname;
                         Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
@@ -224,17 +236,12 @@ namespace eval c {
                 argtype $type [list expr [list [join $argscripts "\n"]]]
 
                 variable rtypes
-                set rscripts [list { $robj = Tcl_NewDictObj(); }]
-                dict for {fieldtype fieldname} $fields {
-                    set fieldname [string map {";" ""} $fieldname]
-                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
-                    lappend rscripts [csubst {Tcl_Obj* robj_$fieldname;}]
-                    lappend rscripts [ret $fieldtype robj_$fieldname \$rvalue.$fieldname]
-                    lappend rscripts [csubst {
-                        Tcl_DictObjPut(interp, \$robj, Tcl_ObjPrintf("%s", "$fieldname"), robj_$fieldname);
-                    }]
+                rtype $type {
+                    $robj = Tcl_NewObj();
+                    $robj->typePtr = &$[set rtype]_ObjType;
+                    $robj->internalRep.otherValuePtr = ckalloc(sizeof($[set rtype]));
+                    memcpy($robj->internalRep.otherValuePtr, &$rvalue, sizeof($[set rtype]));
                 }
-                rtype $type [list expr [list [join $rscripts "\n"]]]
             }
 
             ::proc "proc" {name args rtype body} {
@@ -332,12 +339,12 @@ namespace eval c {
                 set sourcecode [join [list \
                                           $prelude \
                                           {*}$code \
-                                          {*}[dict values $procs] \
                                           {*}$objtypes \
+                                          {*}[dict values $procs] \
                                           $init \
                                          ] "\n"]
 
-                # puts "=====================\n$sourcecode\n====================="
+                puts "=====================\n$sourcecode\n====================="
 
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
                 exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
