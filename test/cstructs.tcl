@@ -15,3 +15,5 @@ $cc proc omar {} Person {
     return ret;
 }
 $cc compile
+
+puts [omar]
