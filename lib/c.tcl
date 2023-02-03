@@ -42,6 +42,7 @@ namespace eval c {
                 #include <stdint.h>
             }
             variable code [list]
+            variable objtypes [list]
             variable procs [dict create]
 
             ::proc cstyle {type name} {
@@ -60,6 +61,7 @@ namespace eval c {
             variable argtypes {
                 int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
                 size_t { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                uint16_t { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
                 uint32_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
                 uint64_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
                 char* { expr {{ $argname = Tcl_GetString($obj); }} }
@@ -98,6 +100,7 @@ namespace eval c {
 
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
@@ -141,30 +144,70 @@ namespace eval c {
                 variable code
                 lappend code "#include $h"
             }
-            ::proc code {newcode} { variable code; lappend code $newcode; list }
-
-            ::proc parseStruct {body} {
-                set lines [split $body "\n"]
-                set lines [lmap line [split $body "\n"] {
-
+            ::proc code {newcode} {
+                variable code
+                lappend code [subst {
+                    #line [dict get [info frame -1] line] "[dict get [info frame -1] file]"
+                    $newcode
                 }]
-                set fields [dict create]
-                foreach line $lines {
-                    puts "line {$line}"
-                    set fieldtype [lindex $line 0]
-                    set fieldname [regexp -inline -- {(.*?)//.*$} [lindex $line end]]
-                    dict set fields $fieldtype $fieldname
-                }
-                set fields
+                list
             }
-            ::proc struct {type fields} {
-                regsub -all -line {/\*.*?\*/} $fields "" fields
-                regsub -all -line {//.*$} $fields "" fields
 
+            ::proc enum {type values} {
+                variable code
+                lappend code [subst {
+                    typedef enum $type $type;
+                    enum $type {$values};
+                }]
+
+                regsub -all {,} $values "" values
+                typedef int $type
+            }
+
+            ::proc struct {type fields} {
                 variable code
                 lappend code [subst {
                     typedef struct $type $type;
                     struct $type {$fields};
+                }]
+
+                regsub -all -line {/\*.*?\*/} $fields "" fields
+                regsub -all -line {//.*$} $fields "" fields
+                puts "FIELDS $fields"
+
+                variable objtypes
+                lappend objtypes [csubst {
+                    void [set type]_freeIntRepProc(Tcl_Obj *objPtr) {
+                        ckfree(objPtr->otherValuePtr);
+                    }
+                    void [set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
+                        dupPtr->otherValuePtr = ckalloc(sizeof($type));
+                        memcpy(dupPtr->otherValuePtr, srcPtr->otherValuePtr, sizeof($type));
+                    }
+                    void [set type]_updateStringProc(Tcl_Obj *objPtr) {
+                        const char *format = "$[dict map {fieldtype fieldname} $fields {
+                            list $fieldname %s
+                        }]";
+                        $[join [dict values [dict map {fieldtype fieldname} $fields {
+                            list $fieldname [csubst {
+                                Tcl_Obj* robj_$fieldname;
+                                $[ret $fieldtype robj_$fieldname \$rvalue.$fieldname]
+                            }]
+                        }]] "\n"]
+                        objPtr->length = snprintf(NULL, 0, format, [lmap fieldname [dict keys $fields] {robj_$fieldname}]);
+                        objPtr->bytes = ckalloc(objPtr->length);
+                        snprintf(objPtr->length, objPtr->bytes, format, [lmap fieldname [dict keys $fields] {robj_$fieldname}]);
+                    }
+                    int [set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+
+                    }
+                    Tcl_ObjType $type = (Tcl_ObjType) {
+                        .name = "$type",
+                        .freeIntRepProc = [set type]_freeIntRepProc,
+                        .dupIntRepProc = [set type]_dupIntRepProc,
+                        .updateStringProc = [set type]_updateStringProc,
+                        .setFromAnyProc = [set type]_setFromAnyProc
+                    };
                 }]
 
                 variable argtypes
@@ -178,7 +221,7 @@ namespace eval c {
                     }]
                     lappend argscripts [arg $fieldtype \$argname.$fieldname obj_$fieldname]
                 }
-                set argtypes [linsert $argtypes 0 $type [list expr [list [join $argscripts "\n"]]]]
+                argtype $type [list expr [list [join $argscripts "\n"]]]
 
                 variable rtypes
                 set rscripts [list { $robj = Tcl_NewDictObj(); }]
@@ -191,7 +234,7 @@ namespace eval c {
                         Tcl_DictObjPut(interp, \$robj, Tcl_ObjPrintf("%s", "$fieldname"), robj_$fieldname);
                     }]
                 }
-                set rtypes [linsert $rtypes 0 $type [list expr [list [join $rscripts "\n"]]]]
+                rtype $type [list expr [list [join $rscripts "\n"]]]
             }
 
             ::proc "proc" {name args rtype body} {
@@ -237,6 +280,7 @@ namespace eval c {
                 variable procs
                 dict set procs $name [subst {
                     static $rtype $cname ([join $arglist ", "]) {
+                        #line [dict get [info frame -1] line] "[dict get [info frame -1] file]"
                         $body
                     }
 
@@ -265,6 +309,7 @@ namespace eval c {
             ::proc compile {} {
                 variable prelude
                 variable code
+                variable objtypes
                 variable procs
                 variable cflags
 
@@ -288,6 +333,7 @@ namespace eval c {
                                           $prelude \
                                           {*}$code \
                                           {*}[dict values $procs] \
+                                          {*}$objtypes \
                                           $init \
                                          ] "\n"]
 

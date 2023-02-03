@@ -5,43 +5,40 @@ set cc [c create]
 namespace eval statement {
     $cc include <string.h>
     $cc include <stdlib.h>
+    $cc include <assert.h>
 
     $cc struct statement_handle_t { uint16_t idx; uint16_t generation; }
     $cc struct match_handle_t { uint16_t idx; uint16_t generation; }
 
-    $cc code { enum edge_type_t { PARENT, CHILD } }
+    $cc enum edge_type_t { PARENT, CHILD }
 
+    $cc struct edge_to_statement_t {
+        edge_type_t type;
+        statement_handle_t statement;
+    }
     $cc struct match_t {
         size_t n_edges;
-        struct {
-            edge_type_t type;
-            statement_handle_t statement;
-        } edges[32];
+        edge_to_statement_t edges[32];
+    }
+
+    $cc struct edge_to_match_t {
+        edge_type_t type;
+        match_handle_t match;
     }
     $cc struct statement_t {
         Tcl_Obj* clause;
 
         size_t n_edges;
-        struct {
-            edge_type_t type;
-            match_handle_t match;
-        } edges[32];
+        edge_to_match_t edges[32];
     }
 
     $cc code {
-        statement_handle_t createImpl(Tcl_Obj* clause,
-                                      size_t n_parents, match_handle_t parents[],
-                                      size_t n_children, match_handle_t children[]) {
-            size_t size = sizeof(statement_t) + 10*sizeof(child_t);
-            statement_t* ret = ckalloc(size); memset(ret, 0, size);
-
-            ret->clause = clause; Tcl_IncrRefCount(ret->clause);
-
-            if (nchildMatches > 8) { exit(1); }
-            memcpy(ret->setsOfParents, setsOfParents, nsetsOfParents*sizeof(parent_set_t));
-
-            ret->nchildren = 10;
-
+        statement_t createImpl(Tcl_Obj* clause,
+                               size_t n_parents, match_handle_t parents[],
+                               size_t n_children, match_handle_t children[]) {
+            statement_t ret = {0};
+            ret.n_edges = n_parents + n_children;
+            assert(ret.n_edges < sizeof(ret.edges)/sizeof(ret.edges[0]));
             return ret;
         }
     }
@@ -52,7 +49,7 @@ namespace eval Statements {
         typedef struct trie trie_t;
 
         statement_t statements[32768];
-        statement_id_t nextStatementIdx = 1;
+        uint16_t nextStatementIdx = 1;
         trie_t* statementClauseToId;
 
         match_t matches[32768];
@@ -62,14 +59,17 @@ namespace eval Statements {
 
             match_t match;
             match.n_edges = n_parents;
+            assert(match.n_edges < sizeof(match.edges)/sizeof(match.edges[0]));
             for (int i = 0; i < n_parents; i++) {
-                match.edges[i] = { .type = PARENT, .statement = parents[i] };
+                match.edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
             }
+
+            return ret;
         }
     }
     $cc proc add {Tcl_Interp* interp
                   Tcl_Obj* clause
-                  match_id_t* parents} statement_handle_t {
+                  size_t n_parents match_handle_t parents[]} statement_handle_t {
         // Empty set of parents = an assertion
 
         // Is this clause already present among the existing statements?
