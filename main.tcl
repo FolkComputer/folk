@@ -11,7 +11,7 @@ source "lib/trie.tcl"
 namespace eval trie {
     namespace import ::ctrie::*
     namespace export *
-    rename addWithVar add
+    rename add add_; rename addWithVar add
     namespace ensemble create
 }
 proc triefy {clause} {

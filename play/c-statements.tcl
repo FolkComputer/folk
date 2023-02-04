@@ -73,9 +73,9 @@ namespace eval Statements {
     }]
     $cc import ::ctrie::cc lookup as trieLookup
     $cc import ::ctrie::cc add as trieAdd
-    $cc code { statement_handle_t add(Tcl_Interp* interp,
-                                      Tcl_Obj* clause,
-                                      size_t n_parents, match_handle_t parents[]) {
+    $cc proc add {Tcl_Interp* interp
+                  Tcl_Obj* clause
+                  size_t n_parents match_handle_t parents[]} statement_handle_t {
         // Is this clause already present among the existing statements?
         Tcl_Obj* ids = trieLookup(interp, statementClauseToId, clause);
         int idslen; Tcl_ListObjLength(interp, ids, &idslen);
@@ -123,7 +123,7 @@ namespace eval Statements {
             // FIXME: react to addition????
         }
         return id;
-    } }
+    }
 }
 
 $cc compile

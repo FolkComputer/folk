@@ -8,9 +8,11 @@ proc csubst {s} {
             "\\" {incr i; lappend result [string index $s $i]}
             {$} {
                 set tail [string range $s $i+1 end]
-                if {[regexp {^(?:[A-Za-z0-9_]|::)+} $tail varname]} {
+                if {[regexp {^((?:[A-Za-z0-9_]|::)+)} $tail match-> varname] ||
+                    [regexp {^\{([^\}]*)\}} $tail match-> varname]} {
+
                     lappend result [uplevel [list set $varname]]
-                    incr i [string length $varname]
+                    incr i [string length ${match->}]
                 } elseif {[string index $tail 0] eq "\["} {
                     set bracketcount 0
                     for {set j 0} {$j < [string length $tail]} {incr j} {
@@ -61,16 +63,17 @@ namespace eval c {
             }
 
             variable argtypes {
-                int { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                size_t { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                uint16_t { expr {{ Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                uint32_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
-                uint64_t { expr {{ sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
-                char* { expr {{ $argname = Tcl_GetString($obj); }} }
-                Tcl_Obj* { expr {{ $argname = $obj; }}}
+                int { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                size_t { expr {{ size_t $argname; Tcl_GetIntFromObj(interp, $obj, (int *)&$argname); }}}
+                uint16_t { expr {{ uint16_t $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
+                uint32_t { expr {{ uint32_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
+                uint64_t { expr {{ uint64_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
+                char* { expr {{ char* $argname = Tcl_GetString($obj); }} }
+                Tcl_Obj* { expr {{ Tcl_Obj* $argname = $obj; }}}
                 default {
                     if {[string index $argtype end] == "*"} {
                         expr {{
+                            $argtype $argname;
                             if (sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) != 1) {
                                 return TCL_ERROR;
                             }
@@ -78,11 +81,12 @@ namespace eval c {
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
                         expr {{
+                            int ${argname}_objc; Tcl_Obj** ${argname}_objv;
+                            Tcl_ListObjGetElements(interp, $obj, &${argname}_objc, &${argname}_objv);
+                            $basetype $argname\[${argname}_objc\];
                             {
-                                int objc; Tcl_Obj** objv;
-                                Tcl_ListObjGetElements(interp, $obj, &objc, &objv);
-                                for (int i = 0; i < $arraylen; i++) {
-                                    $[arg $basetype $argname\[i\] objv\[i\]]
+                                for (int i = 0; i < ${argname}_objc; i++) {
+                                    $[arg $basetype $argname\[i\] ${argname}_objv\[i\]]
                                 }
                             }
                         }}
@@ -260,25 +264,18 @@ namespace eval c {
                 set cname [string map {":" "_"} $name]
 
                 # puts "$name $args $rtype $body"
-                variable argtypes
-                variable rtypes
-
                 set arglist [list]
                 set argnames [list]
                 set loadargs [list]
-                for {set i 0} {$i < [llength $args]} {incr i 2} {
-                    set argtype [lindex $args $i]
-                    set argname [lindex $args [expr {$i+1}]]
+                foreach {argtype argname} $args {
+                    lassign [typestyle $argtype $argname] argtype argname
                     lappend arglist [join [cstyle $argtype $argname] " "]
                     lappend argnames $argname
 
                     if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
 
                     set obj [subst {objv\[1 + [llength $loadargs]\]}]
-                    lappend loadargs [subst {
-                        [join [cstyle $argtype $argname] " "];
-                        [arg $argtype $argname $obj]
-                    }]
+                    lappend loadargs [arg {*}[typestyle $argtype $argname] $obj]
                 }
                 if {$rtype == "void"} {
                     set saverv [subst {

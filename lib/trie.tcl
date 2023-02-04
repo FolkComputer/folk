@@ -210,6 +210,6 @@ namespace eval ctrie {
 
     $cc compile
     rename remove_ remove
-    namespace export create add remove lookup tclify dot
+    namespace export create add addWithVar remove lookup tclify dot
     namespace ensemble create
 }
