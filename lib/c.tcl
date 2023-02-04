@@ -144,10 +144,17 @@ namespace eval c {
                 variable code
                 lappend code "#include $h"
             }
+            ::proc linedirective {} {
+                set frame [info frame -2]
+                if {[dict exists $frame line] && [dict exists $frame file] &&
+                    [dict get $frame line] >= 0} {
+                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                } else { list }
+            }
             ::proc code {newcode} {
                 variable code
                 lappend code [subst {
-                    #line [dict get [info frame -1] line] "[dict get [info frame -1] file]"
+                    [linedirective]
                     $newcode
                 }]
                 list
@@ -284,12 +291,11 @@ namespace eval c {
                     }]
                 }
 
-                set uniquename [string map {":" "_"} [uplevel [list namespace current]]]__$name
                 variable procs
-                dict set procs $name type "$rtype (*$cname) ([join $arglist {, }])"
+                dict set procs $name type "$rtype (*)([join $arglist {, }])"
                 dict set procs $name code [subst {
                     static $rtype $cname ([join $arglist ", "]) {
-                        #line [dict get [info frame -1] line] "[dict get [info frame -1] file]"
+                        [linedirective]
                         $body
                     }
 
@@ -332,10 +338,8 @@ namespace eval c {
                             }
                             # puts "Creating C command: $tclname"
                             csubst {
-                                char $[set cname]_import[1000];
-                                snprintf($[set cname]_import, 1000,
-                                         "$[dict get $procs $name type] = %p;", $cname);
-                                Tcl_SetVar(interp, "$[set tclname]_import", $[set cname]_import, 0);
+                                char $[set cname]_addr[100]; snprintf($[set cname]_addr, 100, "%p", $cname);
+                                Tcl_SetVar(interp, "$[namespace current]::$[set cname]_addr", $[set cname]_addr, 0);
 
                                 Tcl_CreateObjCommand(interp, "$tclname", $[set cname]_Cmd, NULL, NULL);
                             }
@@ -356,6 +360,13 @@ namespace eval c {
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
                 exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
+            }
+            ::proc import {scc sname as dest} {
+                set scc [namespace qualifiers $scc]::[set $scc]
+                variable procs
+                set type [dict get [set [set scc]::procs] $sname type]
+                set addr [set scc]::[set sname]_addr]
+                code "$type $dest = $addr;"
             }
 
             namespace export *
