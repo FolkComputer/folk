@@ -64,7 +64,7 @@ namespace eval c {
 
             variable argtypes {
                 int { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                size_t { expr {{ size_t $argname; Tcl_GetIntFromObj(interp, $obj, (int *)&$argname); }}}
+                size_t { expr {{ size_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
                 uint16_t { expr {{ uint16_t $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
                 uint32_t { expr {{ uint32_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
                 uint64_t { expr {{ uint64_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}

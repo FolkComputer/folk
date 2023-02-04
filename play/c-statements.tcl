@@ -56,7 +56,15 @@ namespace eval Statements {
         statement_t statements[32768];
         uint16_t nextStatementIdx = 1;
         trie_t* statementClauseToId;
+    }]
+    $cc import ::ctrie::cc create as trieCreate
+    $cc import ::ctrie::cc lookup as trieLookup
+    $cc import ::ctrie::cc add as trieAdd
+    $cc proc init {} void {
+        statementClauseToId = trieCreate();
+    }
 
+    $cc code [csubst {
         match_t matches[32768];
         match_handle_t addMatch(size_t n_parents, statement_handle_t parents[]) {
             match_handle_t matchId = nextStatementIdx++;
@@ -71,8 +79,7 @@ namespace eval Statements {
             return matchId;
         }
     }]
-    $cc import ::ctrie::cc lookup as trieLookup
-    $cc import ::ctrie::cc add as trieAdd
+
     $cc proc add {Tcl_Interp* interp
                   Tcl_Obj* clause
                   size_t n_parents match_handle_t parents[]} statement_handle_t {
@@ -127,3 +134,5 @@ namespace eval Statements {
 }
 
 $cc compile
+Statements::init
+Statements::add [list whatever dude] 0 [list]
