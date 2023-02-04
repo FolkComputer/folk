@@ -3,15 +3,15 @@ source "lib/trie.tcl"
 
 set cc [c create]
 
-puts $::ctrie::lookupImpl_import
-
 namespace eval statement {
     $cc include <string.h>
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    $cc struct statement_handle_t { uint16_t idx; uint16_t generation; }
-    $cc struct match_handle_t { uint16_t idx; uint16_t generation; }
+    # $cc struct statement_handle_t { uint16_t idx; uint16_t generation; }
+    # $cc struct match_handle_t { uint16_t idx; uint16_t generation; }
+    $cc typedef int statement_handle_t
+    $cc typedef int match_handle_t
 
     $cc enum edge_type_t { PARENT, CHILD }
 
@@ -40,6 +40,7 @@ namespace eval statement {
                                size_t n_parents, match_handle_t parents[],
                                size_t n_children, match_handle_t children[]) {
             statement_t ret = {0};
+            ret.clause = clause;
             ret.n_edges = n_parents + n_children;
             assert(ret.n_edges < sizeof(ret.edges)/sizeof(ret.edges[0]));
             return ret;
@@ -48,7 +49,7 @@ namespace eval statement {
 }
 
 namespace eval Statements {
-    $cc code {
+    $cc code [csubst {
         typedef struct trie trie_t;
 
         statement_t statements[32768];
@@ -69,7 +70,9 @@ namespace eval Statements {
 
             return ret;
         }
-    }
+    }]
+    $cc import $::ctrie::cc lookup as trieLookup
+    $cc import $::ctrie::cc add as trieAdd
     $cc proc add {Tcl_Interp* interp
                   Tcl_Obj* clause
                   size_t n_parents match_handle_t parents[]} statement_handle_t {
@@ -77,29 +80,29 @@ namespace eval Statements {
 
         // Is this clause already present among the existing statements?
         Tcl_Obj* ids = lookup(interp, statementClauseToId, clause);
-        int idslen; Tcl_ListObjLength(interp, ids, &idsLen);
+        int idslen; Tcl_ListObjLength(interp, ids, &idslen);
+        statement_handle_t id;
         if (idslen == 1) {
             Tcl_Obj* idobj; Tcl_ListObjIndex(interp, ids, 0, &idobj);
-            int id; Tcl_GetIntFromObj(interp, idobj, &id);
-
-            statements[id].setsOfParents[newSetOfParentsId] = parents;
-
-            return { .id = id, .parentSet = parents };
+            id = Tcl_GetIntFromObj(interp, idobj, &id);
 
         } else if (idslen == 0) {
-            int id = nextStatementId++;
-            statement_t stmt = create(clause, 1, parents, 0, NULL);
-            statements[id] = stmt;
-
-            int objc; Tcl_Obj** objv; Tcl_ListObjGetElements(interp, clause, &objc, &objv);
-            trieAddImpl(&statementClauseToId, objc, objv, id);
-
-            return { .id = id, .parentSet = parents };
+            id = -1;
 
         } else {
             // error WTF
+            printf("WTF: looked up %s\n", Tcl_GetString(clause));
         }
-                      
+
+        bool isNewStatement = (id == -1);
+        if (isNewStatement) {
+            id = nextStatementIdx++;
+            assert(id < sizeof(statements)/sizeof(statements[0]));
+            statements[id] = createImpl(clause, n_parents, parents);
+            
+        } else {
+
+        }
         // if new then react
     }
 }

@@ -23,4 +23,5 @@ $cc proc omar {} Person {
 }
 $cc compile
 
+puts [omar]
 assert {[dict get [omar] name last] eq "Rizwan"}

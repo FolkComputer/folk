@@ -292,7 +292,8 @@ namespace eval c {
                 }
 
                 variable procs
-                dict set procs $name type "$rtype (*)([join $arglist {, }])"
+                dict set procs $name rtype $rtype
+                dict set procs $name arglist $arglist
                 dict set procs $name code [subst {
                     static $rtype $cname ([join $arglist ", "]) {
                         [linedirective]
@@ -363,10 +364,11 @@ namespace eval c {
             }
             ::proc import {scc sname as dest} {
                 set scc [namespace qualifiers $scc]::[set $scc]
-                variable procs
-                set type [dict get [set [set scc]::procs] $sname type]
-                set addr [set scc]::[set sname]_addr]
-                code "$type $dest = $addr;"
+                set procinfo [dict get [set [set scc]::procs] $sname]
+                set rtype [dict get $procinfo rtype]
+                set arglist [dict get $procinfo arglist]
+                set addr [set [set scc]::[set sname]_addr]
+                code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
             }
 
             namespace export *

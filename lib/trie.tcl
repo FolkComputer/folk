@@ -19,10 +19,10 @@
 #
 
 namespace eval ctrie {
-    rename [c create] cc
-    cc include <stdlib.h>
-    cc include <string.h>
-    cc code {
+    set cc [c create]
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc code {
         typedef struct trie_t trie_t;
         struct trie_t {
             Tcl_Obj* key;
@@ -34,7 +34,7 @@ namespace eval ctrie {
         };
     }
 
-    cc proc create {} trie_t* {
+    $cc proc create {} trie_t* {
         size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
         trie_t* ret = ckalloc(size); memset(ret, 0, size);
         *ret = (trie_t) {
@@ -45,7 +45,7 @@ namespace eval ctrie {
         return ret;
     }
 
-    cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv int id} void {
+    $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv int id} void {
         if (wordc == 0) {
             (*trie)->id = id;
             return;
@@ -87,7 +87,7 @@ namespace eval ctrie {
 
         addImpl(match, wordc - 1, wordv + 1, id);
     }
-    cc proc add {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause int id} void {
+    $cc proc add {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause int id} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
@@ -98,7 +98,7 @@ namespace eval ctrie {
         Tcl_ObjSetVar2(interp, trieVar, NULL, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) trie), 0);
     }
 
-    cc proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
+    $cc proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
         if (wordc == 0) return 1;
 
         for (int j = 0; j < trie->nbranches; j++) {
@@ -123,7 +123,7 @@ namespace eval ctrie {
         }
         return 0;
     }
-    cc proc remove_ {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause} void {
+    $cc proc remove_ {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
@@ -132,7 +132,7 @@ namespace eval ctrie {
         removeImpl(trie, objc, objv);
     }
 
-    cc proc lookupImpl {Tcl_Interp* interp Tcl_Obj* results
+    $cc proc lookupImpl {Tcl_Interp* interp Tcl_Obj* results
                         trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
             if (trie->id != -1) {
@@ -157,7 +157,7 @@ namespace eval ctrie {
             }
         }
     }
-    cc proc lookup {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
+    $cc proc lookup {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, pattern, &objc, &objv) != TCL_OK) {
             exit(1);
@@ -167,7 +167,7 @@ namespace eval ctrie {
         return results;
     }
 
-    cc proc tclify {trie_t* trie} Tcl_Obj* {
+    $cc proc tclify {trie_t* trie} Tcl_Obj* {
         int objc = 2 + trie->nbranches;
         Tcl_Obj* objv[objc];
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
@@ -206,7 +206,7 @@ namespace eval ctrie {
         return "digraph { rankdir=LR; [subdot {} [tclify $trie]] }"
     }
 
-    cc compile
+    $cc compile
     rename remove_ remove
     namespace export create add remove lookup tclify dot
     namespace ensemble create
