@@ -40,7 +40,7 @@ namespace eval statement {
                            size_t n_parents, match_handle_t parents[],
                            size_t n_children, match_handle_t children[]) {
             statement_t ret = {0};
-            ret.clause = clause;
+            ret.clause = clause; Tcl_IncrRefCount(clause);
             ret.n_edges = n_parents + n_children;
             assert(ret.n_edges < sizeof(ret.edges)/sizeof(ret.edges[0]));
             return ret;
@@ -62,6 +62,9 @@ namespace eval Statements {
     $cc import ::ctrie::cc add as trieAdd
     $cc proc init {} void {
         statementClauseToId = trieCreate();
+    }
+    $cc proc get {statement_handle_t id} statement_t {
+        return statements[id];
     }
 
     $cc code [csubst {
@@ -135,4 +138,7 @@ namespace eval Statements {
 
 $cc compile
 Statements::init
-Statements::add [list whatever dude] 0 [list]
+puts [Statements::add [list whatever dude] 0 [list]]
+puts [Statements::add [list cool dude] 0 [list]]
+puts [Statements::get 1]
+puts [Statements::get 2]
