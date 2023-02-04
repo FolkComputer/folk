@@ -47,15 +47,17 @@ namespace eval c {
 
             ::proc cstyle {type name} {
                 if {[regexp {([^\[]+)(\[\d*\])$} $type -> basetype arraysuffix]} {
-                    return [list $basetype $name$arraysuffix]
+                    list $basetype $name$arraysuffix
+                } else {
+                    list $type $name
                 }
-                list $type $name
             }
             ::proc typestyle {type name} {
                 if {[regexp {([^\[]+)(\[\d*\])$} $name -> basename arraysuffix]} {
-                    return [list $type$arraysuffix $basename]
+                    list $type$arraysuffix $basename
+                } else {
+                    list $type $name
                 }
-                list $type $name
             }
 
             variable argtypes {

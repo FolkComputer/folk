@@ -59,7 +59,7 @@ namespace eval Statements {
 
         match_t matches[32768];
         match_handle_t addMatch(size_t n_parents, statement_handle_t parents[]) {
-            match_handle_t ret = nextStatementIdx++;
+            match_handle_t matchId = nextStatementIdx++;
 
             match_t match;
             match.n_edges = n_parents;
@@ -68,16 +68,14 @@ namespace eval Statements {
                 match.edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
             }
 
-            return ret;
+            return matchId;
         }
     }]
     $cc import ::ctrie::cc lookup as trieLookup
     $cc import ::ctrie::cc add as trieAdd
-    $cc proc add {Tcl_Interp* interp
-                  Tcl_Obj* clause
-                  size_t n_parents match_handle_t parents[]} statement_handle_t {
-        // Empty set of parents = an assertion
-
+    $cc code { statement_handle_t add(Tcl_Interp* interp,
+                                      Tcl_Obj* clause,
+                                      size_t n_parents, match_handle_t parents[]) {
         // Is this clause already present among the existing statements?
         Tcl_Obj* ids = trieLookup(interp, statementClauseToId, clause);
         int idslen; Tcl_ListObjLength(interp, ids, &idslen);
@@ -92,6 +90,7 @@ namespace eval Statements {
         } else {
             // error WTF
             printf("WTF: looked up %s\n", Tcl_GetString(clause));
+            exit(1);
         }
 
         bool isNewStatement = (id == -1);
@@ -102,10 +101,29 @@ namespace eval Statements {
             trieAdd(interp, &statementClauseToId, clause, id);
 
         } else {
-
+            for (size_t i = 0; i < n_parents; i++) {
+                size_t edgeIdx = statements[id].n_edges++;
+                assert(edgeIdx < sizeof(statements[id].edges)/sizeof(statements[id].edges[0]));
+                statements[id].edges[edgeIdx].type = PARENT;
+                statements[id].edges[edgeIdx].match = parents[i];
+            }
         }
-        // if new then react
-    }
+
+        for (size_t i = 0; i < n_parents; i++) {
+            if (parents[i] == 0) { continue; } // ?
+
+            match_t *match = &matches[parents[i]];
+            size_t edgeIdx = match->n_edges++;
+            assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
+            match->edges[edgeIdx].type = CHILD;
+            match->edges[edgeIdx].statement = id;
+        }
+
+        if (isNewStatement) {
+            // FIXME: react to addition????
+        }
+        return id;
+    } }
 }
 
 $cc compile
