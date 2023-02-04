@@ -87,14 +87,16 @@ namespace eval ctrie {
 
         addImpl(match, wordc - 1, wordv + 1, id);
     }
-    $cc proc add {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause int id} void {
+    $cc proc add {Tcl_Interp* interp trie_t** trie Tcl_Obj* clause int id} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
         }
-
+        addImpl(trie, objc, objv, id);
+    }
+    $cc proc addWithVar {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause int id} void {
         trie_t* trie; sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, trieVar, NULL, 0)), "(trie_t*) 0x%p", &trie);
-        addImpl(&trie, objc, objv, id);
+        add(interp, &trie, clause, id);
         Tcl_ObjSetVar2(interp, trieVar, NULL, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) trie), 0);
     }
 

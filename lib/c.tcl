@@ -133,6 +133,7 @@ namespace eval c {
             }
 
             ::proc typedef {t newt} {
+                code "typedef $t $newt;"
                 set argtype $t; set rtype $t
                 variable argtypes
                 argtype $newt [switch $argtype $argtypes]
@@ -168,7 +169,8 @@ namespace eval c {
                 }]
 
                 regsub -all {,} $values "" values
-                typedef int $type
+                variable argtypes; argtype $type [switch int $argtypes]
+                variable rtypes; rtype $type [switch int $rtypes]
             }
 
             ::proc struct {type fields} {
