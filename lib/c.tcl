@@ -295,6 +295,7 @@ namespace eval c {
                 variable procs
                 dict set procs $name rtype $rtype
                 dict set procs $name arglist $arglist
+                dict set procs $name ns [uplevel {namespace current}]
                 dict set procs $name code [subst {
                     static $rtype $cname ([join $arglist ", "]) {
                         [linedirective]
@@ -336,7 +337,7 @@ namespace eval c {
                             set cname [string map {":" "_"} $name]
                             set tclname $name
                             if {[string first :: $tclname] != 0} {
-                                set tclname [uplevel [list namespace current]]::$name
+                                set tclname [dict get $procs $name ns]::$name
                             }
                             # puts "Creating C command: $tclname"
                             csubst {
