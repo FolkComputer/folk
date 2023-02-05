@@ -86,7 +86,8 @@ namespace eval c {
                             $basetype $argname\[${argname}_objc\];
                             {
                                 for (int i = 0; i < ${argname}_objc; i++) {
-                                    $[arg $basetype $argname\[i\] ${argname}_objv\[i\]]
+                                    $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
+                                    $argname\[i\] = ${argname}_i;
                                 }
                             }
                         }}
