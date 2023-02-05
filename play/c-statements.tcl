@@ -1,6 +1,3 @@
-source "lib/c.tcl"
-source "lib/trie.tcl"
-
 set cc [c create]
 
 namespace eval statement {
@@ -46,6 +43,12 @@ namespace eval statement {
             return ret;
         }
     }
+
+    namespace export clause parentMatchIds childMatchIds
+    proc clause {stmt} { dict get $stmt clause }
+    proc parentMatchIds {stmt} { dict get $stmt edges }
+    proc childMatchIds {stmt} { dict get $stmt edges }
+    namespace ensemble create
 }
 
 namespace eval Statements { ;# singleton Statement store
@@ -81,9 +84,9 @@ namespace eval Statements { ;# singleton Statement store
         return matchId;
     }
 
-    $cc proc add {Tcl_Interp* interp
-                  Tcl_Obj* clause
-                  size_t n_parents match_handle_t parents[]} statement_handle_t {
+    $cc proc addImpl {Tcl_Interp* interp
+                      Tcl_Obj* clause
+                      size_t n_parents match_handle_t parents[]} Tcl_Obj* {
         // Is this clause already present among the existing statements?
         Tcl_Obj* ids = trieLookup(interp, statementClauseToId, clause);
         int idslen; Tcl_ListObjLength(interp, ids, &idslen);
@@ -120,29 +123,34 @@ namespace eval Statements { ;# singleton Statement store
         for (size_t i = 0; i < n_parents; i++) {
             if (parents[i] == 0) { continue; } // ?
 
-            match_t *match = &matches[parents[i]];
+            match_t* match = &matches[parents[i]];
             size_t edgeIdx = match->n_edges++;
             assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
             match->edges[edgeIdx].type = CHILD;
             match->edges[edgeIdx].statement = id;
         }
 
-        if (isNewStatement) {
-            // FIXME: react to addition????
-        }
-        return id;
+        // return {id, isNewStatement};
+        Tcl_Obj* ret[] = {Tcl_NewIntObj(id), Tcl_NewIntObj(isNewStatement)};
+        return Tcl_NewListObj(sizeof(ret)/sizeof(ret[0]), ret);
+    }
+    proc add {clause {parents {{} true}}} {
+        addImpl $clause [dict size $parents] [lmap parent [dict keys $parents] {
+            expr {$parent eq {} ? 0 : $parent}
+        }]
     }
     $cc proc exists {statement_handle_t id} int {
-        // FIXME
-        return 0;
+        return statements[id].clause != NULL;
     }
     $cc proc get {statement_handle_t id} statement_t {
         return statements[id];
     }
-    $cc proc remove_ {statement_handle_t id} void {}
+    $cc proc remove_ {statement_handle_t id} void {
+        memset(&statements[id], 0, sizeof(statements[id]));
+    }
     # $cc proc size {} size_t {}
 
-    $cc proc unify {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
+    $cc proc unifyImpl {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
         int alen; Tcl_Obj** awords;
         int blen; Tcl_Obj** bwords;
         Tcl_ListObjGetElements(interp, a, &alen, &awords);
@@ -163,6 +171,12 @@ namespace eval Statements { ;# singleton Statement store
         }
         return match;
     }
+    $cc proc unify {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
+        Tcl_Obj* ret = unifyImpl(interp, a, b);
+        if (ret == NULL) return Tcl_NewStringObj("false", -1);
+        return ret;
+    }
+
     $cc proc findStatementsMatching {Tcl_Interp* interp Tcl_Obj* pattern} Tcl_Obj* {
         Tcl_Obj* idsobj = trieLookup(interp, statementClauseToId, pattern);
         int idslen; Tcl_Obj** ids;
@@ -171,7 +185,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_Obj* matches[idslen]; int matchcount = 0;
         for (int i = 0; i < idslen; i++) {
             int id; Tcl_GetIntFromObj(interp, ids[i], &id);
-            Tcl_Obj* match = unify(interp, pattern, statements[id].clause);
+            Tcl_Obj* match = unifyImpl(interp, pattern, statements[id].clause);
             if (match != NULL) {
                 Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_NewIntObj(id));
                 matches[matchcount++] = match;
@@ -180,12 +194,16 @@ namespace eval Statements { ;# singleton Statement store
 
         return Tcl_NewListObj(matchcount, matches);
     }
+
+    $cc compile
+    init        
+
+    rename findStatementsMatching findMatches
 }
 
-
-$cc compile
-Statements::init
-puts [Statements::add [list whatever dude] 0 [list]]
-puts [Statements::add [list cool dude] 0 [list]]
-puts [Statements::addMatch 2 [list 1 2]]
-puts "matches: [Statements::findStatementsMatching [list /response/ dude]]"
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    puts [Statements::addImpl [list whatever dude] 0 [list]]
+    puts [Statements::addImpl [list cool dude] 0 [list]]
+    puts [Statements::addMatch 2 [list 1 2]]
+    puts "matches: [Statements::findStatementsMatching [list /response/ dude]]"
+}
