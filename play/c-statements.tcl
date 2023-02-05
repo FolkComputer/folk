@@ -85,12 +85,12 @@ namespace eval statement {
     proc clause {stmt} { dict get $stmt clause }
     proc parentMatchIds {stmt} {
         concat {*}[lmap edge [dict get $stmt edges] {expr {
-            [dict get $edge type] == 1 ? [list [dict get $edge match] true] : [continue]
+            [dict get $edge type] == 1 ? [list [dict get $edge match idx] true] : [continue]
         }}]
     }
     proc childMatchIds {stmt} {
         concat {*}[lmap edge [dict get $stmt edges] {expr {
-            [dict get $edge type] == 2 ? [list [dict get $edge match] true] : [continue]
+            [dict get $edge type] == 2 ? [list [dict get $edge match idx] true] : [continue]
         }}]
     }
     namespace ensemble create
