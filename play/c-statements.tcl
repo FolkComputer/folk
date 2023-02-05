@@ -1,3 +1,8 @@
+# if c-statements.tcl is sourced, it will stomp the old Tcl statement
+# implementation
+namespace delete statement
+namespace delete Statements
+
 namespace eval statement {
     variable cc [c create]
     namespace export $cc
