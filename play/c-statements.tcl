@@ -121,6 +121,7 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc matchGet {match_handle_t matchId} match_t* {
         return &matches[matchId.idx];
     }
+    $cc proc matchDeref {match_t* match} match_t { return *match; }
     $cc proc matchRemove {match_handle_t matchId} void {
         matchGet(matchId)->n_edges = 0;
     }
@@ -221,13 +222,10 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         // return {id, isNewStatement};
-        Tcl_Obj* ret[] = {Tcl_NewIntObj(id.idx), Tcl_NewIntObj(isNewStatement)};
-        return Tcl_NewListObj(sizeof(ret)/sizeof(ret[0]), ret);
+        return Tcl_ObjPrintf("{idx %d} %d", id.idx, isNewStatement);
     }
-    proc add {clause {parents {{} true}}} {
-        addImpl $clause [dict size $parents] [lmap parent [dict keys $parents] {
-            expr {$parent eq {} ? {idx 0} : {idx $parent}}
-        }]
+    proc add {clause {parents {{idx 0} true}}} {
+        addImpl $clause [dict size $parents] [dict keys $parents]
     }
 
     $cc proc unifyImpl {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
@@ -275,7 +273,7 @@ namespace eval Statements { ;# singleton Statement store
         return Tcl_NewListObj(matchcount, matches);
     }
 
-    $cc proc reactToStatementRemovalImpl {statement_handle_t id} void {
+    $cc proc reactToStatementRemoval {statement_handle_t id} void {
         // unset all things downstream of statement
         statement_t *stmt = get(id);
         for (int i = 0; i < stmt->n_edges; i++) {
@@ -302,7 +300,7 @@ namespace eval Statements { ;# singleton Statement store
 
                     // is this child statement out of parent matches? => it's dead
                     if (get(childId)->n_edges == 0) {
-                        reactToStatementRemovalImpl(childId);
+                        reactToStatementRemoval(childId);
                         remove_(childId);
                         matchRemoveEdgeToStatement(match, CHILD, childId);
                     }
@@ -339,17 +337,20 @@ namespace eval Statements { ;# singleton Statement store
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-            lappend dot "$id \[label=\"$id: $label\"\];"
+            lappend dot "s$id \[label=\"s$id: $label\"\];"
 
-            dict for {matchId parents} [statement parentMatchIds $stmt] {
-                lappend dot "\"$id $matchId\" \[label=\"$id#$matchId: $parents\"\];"
-                lappend dot "\"$id $matchId\" -> $id;"
+            dict for {matchId _} [statement parentMatchIds $stmt] {
+                set parents [lmap edge [dict get [matchDeref [matchGet [list idx $matchId]]] edges] {expr {
+                    [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
+                }}]
+                lappend dot "m$matchId \[label=\"m$matchId <- $parents\"\];"
+                lappend dot "m$matchId -> s$id;"
             }
 
             lappend dot "}"
 
-            dict for {child _} [statement childMatchIds $stmt] {
-                lappend dot "$id -> \"$child\";"
+            dict for {childId _} [statement childMatchIds $stmt] {
+                lappend dot "s$id -> m$childId;"
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
@@ -359,12 +360,11 @@ namespace eval Statements { ;# singleton Statement store
     init        
 
     # compatibility with older Tcl statements module interface
-    # (they pass in unwrapped integer handles, among other things)
-    proc reactToStatementRemoval {idx} { reactToStatementRemovalImpl [list idx $idx] }
-    proc remove {idx} { remove_ [list idx $idx] }
+    namespace export reactToStatementRemoval
+    rename remove_ remove
     rename findStatementsMatching findMatches
     rename get getImpl
-    proc get {id} { deref [getImpl [list idx $id]] }
+    proc get {id} { deref [getImpl $id] }
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
