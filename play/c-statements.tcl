@@ -49,6 +49,14 @@ namespace eval statement {
     proc parentMatchIds {stmt} { dict get $stmt edges }
     proc childMatchIds {stmt} { dict get $stmt edges }
     namespace ensemble create
+
+    namespace export short
+    proc short {stmt} {
+        set lines [split [clause $stmt] "\n"]
+        set line [lindex $lines 0]
+        if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
+        dict with stmt { format "{%s} %s {%s}" $edges $line $edges }
+    }
 }
 
 namespace eval Statements { ;# singleton Statement store
@@ -71,7 +79,7 @@ namespace eval Statements { ;# singleton Statement store
         statementClauseToId = trieCreate();
     }
 
-    $cc proc addMatch {size_t n_parents statement_handle_t parents[]} match_handle_t {
+    $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         match_handle_t matchId = nextMatchIdx++;
 
         match_t match;
@@ -82,6 +90,9 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         return matchId;
+    }
+    proc addMatch {parentMatchIds} {
+        addMatchImpl [llength $parentMatchIds] $parentMatchIds
     }
 
     $cc proc addImpl {Tcl_Interp* interp
@@ -164,8 +175,8 @@ namespace eval Statements { ;# singleton Statement store
                 Tcl_DictObjPut(interp, match, Tcl_NewStringObj(aVarName, -1), bwords[i]);
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
                 Tcl_DictObjPut(interp, match, Tcl_NewStringObj(bVarName, -1), awords[i]);
-            } else if (awords[i] == bwords[i] ||
-                       strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) != 0) {
+            } else if (!(awords[i] == bwords[i] ||
+                         strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
                 return NULL;
             }
         }
