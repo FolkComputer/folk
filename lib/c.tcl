@@ -106,6 +106,7 @@ namespace eval c {
 
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}

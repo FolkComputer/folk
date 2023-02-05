@@ -22,6 +22,7 @@ namespace eval ctrie {
     set cc [c create]
     $cc include <stdlib.h>
     $cc include <string.h>
+    $cc include <stdbool.h>
     $cc code {
         typedef struct trie_t trie_t;
         struct trie_t {
@@ -32,6 +33,11 @@ namespace eval ctrie {
             size_t nbranches;
             trie_t* branches[];
         };
+
+        Tcl_Obj* WILDCARD;
+    }
+    $cc proc init {} void {
+        WILDCARD = Tcl_NewStringObj("?", -1);
     }
 
     $cc proc create {} trie_t* {
@@ -45,11 +51,27 @@ namespace eval ctrie {
         return ret;
     }
 
+    $cc proc scanVariable {Tcl_Obj* wordobj char* outVarName size_t sizeOutVarName} int {
+        const char* word; int wordlen; word = Tcl_GetStringFromObj(wordobj, &wordlen);
+        if (wordlen < 3 || (outVarName && wordlen >= sizeOutVarName)) { return false; }
+        if (!(word[0] == '/' && word[wordlen - 1] == '/')) { return false; }
+        int i;
+        for (i = 1; i < wordlen - 1; i++) {
+            if (word[i] == '/' || word[i] == ' ') { return false; }
+            if (outVarName) outVarName[i - 1] = word[i];
+        }
+        if (outVarName) outVarName[i - 1] = '\0';
+        return true;
+    }
+
     $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv int id} void {
         if (wordc == 0) {
             (*trie)->id = id;
             return;
         }
+
+        Tcl_Obj* word = wordv[0];
+        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
 
         trie_t** match = NULL;
 
@@ -58,8 +80,8 @@ namespace eval ctrie {
             trie_t** branch = &(*trie)->branches[j];
             if (*branch == NULL) { break; }
 
-            if ((*branch)->key == wordv[0] ||
-                strcmp(Tcl_GetString((*branch)->key), Tcl_GetString(wordv[0])) == 0) {
+            if ((*branch)->key == word ||
+                strcmp(Tcl_GetString((*branch)->key), Tcl_GetString(word)) == 0) {
 
                 match = branch;
                 break;
@@ -76,7 +98,7 @@ namespace eval ctrie {
 
             size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
             trie_t* branch = ckalloc(size); memset(branch, 0, size);
-            branch->key = wordv[0];
+            branch->key = word;
             Tcl_IncrRefCount(branch->key);
             branch->id = -1;
             branch->nbranches = 10;
@@ -102,12 +124,13 @@ namespace eval ctrie {
 
     $cc proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
         if (wordc == 0) return 1;
+        Tcl_Obj* word = wordv[0];
+        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
 
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
-            if (trie->branches[j]->key == wordv[0] ||
-                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])) == 0) {
-                /* printf("match %d %s %s\n", j, Tcl_GetString(trie->branches[j]->key), Tcl_GetString(wordv[0])); */
+            if (trie->branches[j]->key == word ||
+                strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(word)) == 0) {
                 if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
                     Tcl_DecrRefCount(trie->branches[j]->key);
                     ckfree(trie->branches[j]);
@@ -143,14 +166,17 @@ namespace eval ctrie {
             return;
         }
 
+        Tcl_Obj* word = wordv[0];
+        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
+
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == wordv[0]) {
+            if (trie->branches[j]->key == word) {
                 lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
-                const char *wordString = Tcl_GetString(wordv[0]);
+                const char *wordString = Tcl_GetString(word);
                 if ((keyString[0] == '?' && keyString[1] == '\0') ||
                     (wordString[0] == '?' && wordString[1] == '\0') ||
                     (strcmp(keyString, wordString) == 0)) {
@@ -209,6 +235,8 @@ namespace eval ctrie {
     }
 
     $cc compile
+    init
+
     rename remove_ remove
     namespace export create add addWithVar remove lookup tclify dot
     namespace ensemble create

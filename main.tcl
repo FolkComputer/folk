@@ -14,9 +14,6 @@ namespace eval trie {
     rename add add_; rename addWithVar add
     namespace ensemble create
 }
-proc triefy {clause} {
-    lmap word $clause {expr { [regexp {^/([^/ ]+)/$} $word] ? "?" : $word }}
-}
 
 namespace eval statement { ;# statement record type
     namespace export create
@@ -92,7 +89,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statementClauseToId
 
         # is this clause already present in the existing statement set?
-        set ids [trie lookup $statementClauseToId [triefy $clause]]
+        set ids [trie lookup $statementClauseToId $clause]
         if {[llength $ids] == 1} {
             set id [lindex $ids 0]
         } elseif {[llength $ids] == 0} {
@@ -106,7 +103,7 @@ namespace eval Statements { ;# singleton Statement store
             set id [incr nextStatementId]
             set stmt [statement create $clause $newParentMatchIds]
             dict set statements $id $stmt
-            trie add statementClauseToId [triefy $clause] $id
+            trie add statementClauseToId $clause $id
         } else {
             dict with statements $id {
                 set parentMatchIds [dict merge $parentMatchIds $newParentMatchIds]
@@ -129,7 +126,7 @@ namespace eval Statements { ;# singleton Statement store
         variable statementClauseToId
         set clause [statement clause [get $id]]
         dict unset statements $id
-        trie remove statementClauseToId [triefy $clause]
+        trie remove statementClauseToId $clause
     }
     proc size {} { variable statements; return [dict size $statements] }
     proc countMatches {} {
@@ -165,7 +162,7 @@ namespace eval Statements { ;# singleton Statement store
         # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
 
         set matches [list]
-        foreach id [trie lookup $statementClauseToId [triefy $pattern]] {
+        foreach id [trie lookup $statementClauseToId $pattern] {
             set match [unify $pattern [statement clause [get $id]]]
             if {$match != false} {
                 dict set match __matcheeId $id
