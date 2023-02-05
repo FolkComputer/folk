@@ -1,6 +1,7 @@
-set cc [c create]
-
 namespace eval statement {
+    variable cc [c create]
+    namespace export $cc
+
     $cc include <string.h>
     $cc include <stdlib.h>
     $cc include <assert.h>
@@ -10,7 +11,7 @@ namespace eval statement {
     $cc typedef int statement_handle_t
     $cc typedef int match_handle_t
 
-    $cc enum edge_type_t { PARENT, CHILD }
+    $cc enum edge_type_t { NONE, PARENT, CHILD }
 
     $cc struct edge_to_statement_t {
         edge_type_t type;
@@ -33,21 +34,55 @@ namespace eval statement {
     }
 
     $cc code {
-        statement_t create(Tcl_Obj* clause,
-                           size_t n_parents, match_handle_t parents[],
-                           size_t n_children, match_handle_t children[]) {
+        statement_t statementCreate(Tcl_Obj* clause,
+                                    size_t n_parents, match_handle_t parents[],
+                                    size_t n_children, match_handle_t children[]) {
             statement_t ret = {0};
             ret.clause = clause; Tcl_IncrRefCount(clause);
-            ret.n_edges = n_parents + n_children;
-            assert(ret.n_edges < sizeof(ret.edges)/sizeof(ret.edges[0]));
+            assert(n_parents + n_children < sizeof(ret.edges)/sizeof(ret.edges[0]));
+            for (size_t i = 0; i < n_parents; i++) {
+                ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = PARENT, .match = parents[i] };
+            }
+            for (size_t i = 0; i < n_children; i++) {
+                ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = CHILD, .match = children[i] };
+            }
             return ret;
+        }
+
+        void statementRemoveEdgeToMatch(statement_t* stmt,
+                                        edge_type_t type, match_handle_t matchId) {
+            for (size_t i = 0; i < stmt->n_edges; i++) {
+                if (stmt->edges[i].type == type &&
+                    stmt->edges[i].match == matchId) {
+                    stmt->edges[i].type = NONE;
+                    stmt->edges[i].match = 0;
+                }
+            }
+        }
+        void matchRemoveEdgeToStatement(match_t* match,
+                                        edge_type_t type, statement_handle_t statementId) {
+            for (size_t i = 0; i < match->n_edges; i++) {
+                if (match->edges[i].type == type &&
+                    match->edges[i].statement == statementId) {
+                    match->edges[i].type = NONE;
+                    match->edges[i].statement = 0;
+                }
+            }
         }
     }
 
     namespace export clause parentMatchIds childMatchIds
     proc clause {stmt} { dict get $stmt clause }
-    proc parentMatchIds {stmt} { dict get $stmt edges }
-    proc childMatchIds {stmt} { dict get $stmt edges }
+    proc parentMatchIds {stmt} {
+        concat {*}[lmap edge [dict get $stmt edges] {expr {
+            [dict get $edge type] == 1 ? [list [dict get $edge match] true] : [continue]
+        }}]
+    }
+    proc childMatchIds {stmt} {
+        concat {*}[lmap edge [dict get $stmt edges] {expr {
+            [dict get $edge type] == 2 ? [list [dict get $edge match] true] : [continue]
+        }}]
+    }
     namespace ensemble create
 
     namespace export short
@@ -55,11 +90,14 @@ namespace eval statement {
         set lines [split [clause $stmt] "\n"]
         set line [lindex $lines 0]
         if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
-        dict with stmt { format "{%s} %s {%s}" $edges $line $edges }
+        dict with stmt { format "{%s} %s {%s}" [parentMatchIds $stmt] $line [childMatchIds $stmt] }
     }
 }
 
 namespace eval Statements { ;# singleton Statement store
+    variable cc $::statement::cc
+    namespace import ::statement::$cc
+
     $cc include <stdbool.h>
     $cc code [csubst {
         typedef struct trie trie_t;
@@ -70,10 +108,22 @@ namespace eval Statements { ;# singleton Statement store
 
         match_t matches[32768];
         uint16_t nextMatchIdx = 1;
+
+        void matchRemove(match_handle_t matchId) {
+            matches[matchId].n_edges = 0;
+        }
     }]
+    $cc proc matchGet {match_handle_t matchId} match_t {
+        return matches[matchId];
+    }
+    $cc proc matchExists {match_handle_t matchId} bool {
+        return matches[matchId].n_edges > 0;
+    }
+
     $cc import ::ctrie::cc create as trieCreate
     $cc import ::ctrie::cc lookup as trieLookup
     $cc import ::ctrie::cc add as trieAdd
+    $cc import ::ctrie::cc remove_ as trieRemove
     $cc import ::ctrie::cc scanVariable as scanVariable
     $cc proc init {} void {
         statementClauseToId = trieCreate();
@@ -82,11 +132,15 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         match_handle_t matchId = nextMatchIdx++;
 
-        match_t match;
-        match.n_edges = n_parents;
-        assert(match.n_edges < sizeof(match.edges)/sizeof(match.edges[0]));
+        match_t* match = &matches[matchId];
+        match->n_edges = n_parents;
+        assert(match->n_edges < sizeof(match->edges)/sizeof(match->edges[0]));
         for (int i = 0; i < n_parents; i++) {
-            match.edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
+            match->edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
+
+            statement_t* parent = &statements[parents[i]];
+            parent->edges[parent->n_edges++] = (edge_to_match_t) { .type = CHILD, .match = matchId };
+            assert(parent->n_edges < sizeof(parent->edges)/sizeof(parent->edges[0]));
         }
 
         return matchId;
@@ -119,7 +173,8 @@ namespace eval Statements { ;# singleton Statement store
         if (isNewStatement) {
             id = nextStatementIdx++;
             assert(id < sizeof(statements)/sizeof(statements[0]));
-            statements[id] = create(clause, n_parents, parents, 0, NULL);
+
+            statements[id] = statementCreate(clause, n_parents, parents, 0, NULL);
             trieAdd(interp, &statementClauseToId, clause, id);
 
         } else {
@@ -157,7 +212,10 @@ namespace eval Statements { ;# singleton Statement store
         return statements[id];
     }
     $cc proc remove_ {statement_handle_t id} void {
+        Tcl_Obj* clause = statements[id].clause;
         memset(&statements[id], 0, sizeof(statements[id]));
+        trieRemove(NULL, statementClauseToId, clause);
+        Tcl_DecrRefCount(clause);
     }
     # $cc proc size {} size_t {}
 
@@ -206,9 +264,89 @@ namespace eval Statements { ;# singleton Statement store
         return Tcl_NewListObj(matchcount, matches);
     }
 
+    $cc proc reactToStatementRemoval {statement_handle_t id} void {
+        // unset all things downstream of statement
+        for (int i = 0; i < statements[id].n_edges; i++) {
+            if (statements[id].edges[i].type != CHILD) continue;
+            match_handle_t matchId = statements[id].edges[i].match;
+
+            if (!matchExists(matchId)) continue; // if was removed earlier
+            match_t* match = &matches[matchId];
+
+            for (int j = 0; j < match->n_edges; j++) {
+                // this match will be dead, so remove the match from the
+                // other parents of the match
+                if (match->edges[j].type == PARENT) {
+                    statement_handle_t parentId = match->edges[j].statement;
+                    if (!exists(parentId)) { continue; }
+
+                    statementRemoveEdgeToMatch(&statements[parentId], CHILD, matchId);
+
+                } else if (match->edges[j].type == CHILD) {
+                    statement_handle_t childId = match->edges[j].statement;
+                    if (!exists(childId)) { continue; }
+
+                    statementRemoveEdgeToMatch(&statements[childId], PARENT, matchId);
+
+                    // is this child statement out of parent matches? => it's dead
+                    if (statements[childId].n_edges == 0) {
+                        reactToStatementRemoval(childId);
+                        remove_(childId);
+                        matchRemoveEdgeToStatement(match, CHILD, childId);
+                    }
+                }
+            }
+            matchRemove(matchId);
+        }
+    }
+
+    $cc proc all {} Tcl_Obj* {
+        Tcl_Obj* ret = Tcl_NewListObj(nextStatementIdx, NULL);
+        for (int i = 0; i < sizeof(statements)/sizeof(statements[0]); i++) {
+            if (statements[i].clause == NULL) continue;
+            Tcl_Obj* s = Tcl_NewObj();
+            s->bytes = NULL;
+            s->typePtr = &statement_t_ObjType;
+            s->internalRep.otherValuePtr = &statements[i];
+
+            Tcl_ListObjAppendElement(NULL, ret, Tcl_NewIntObj(i));
+            Tcl_ListObjAppendElement(NULL, ret, s);
+        }
+        return ret;
+    }
+    proc dot {} {
+        set dot [list]
+        dict for {id stmt} [all] {
+            puts [statement short $stmt]
+
+            lappend dot "subgraph cluster_$id {"
+            lappend dot "color=lightgray;"
+
+            set label [statement clause $stmt]
+            set label [join [lmap line [split $label "\n"] {
+                expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+            }] "\n"]
+            set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+            lappend dot "$id \[label=\"$id: $label\"\];"
+
+            dict for {matchId parents} [statement parentMatchIds $stmt] {
+                lappend dot "\"$id $matchId\" \[label=\"$id#$matchId: $parents\"\];"
+                lappend dot "\"$id $matchId\" -> $id;"
+            }
+
+            lappend dot "}"
+
+            dict for {child _} [statement childMatchIds $stmt] {
+                lappend dot "$id -> \"$child\";"
+            }
+        }
+        return "digraph { rankdir=LR; [join $dot "\n"] }"
+    }
+
     $cc compile
     init        
 
+    rename remove_ remove
     rename findStatementsMatching findMatches
 }
 

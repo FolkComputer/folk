@@ -1,5 +1,5 @@
 namespace eval Hello {
-    set cc [c create]
+    variable cc [c create]
     $cc proc sayhelloworld {} void {
         printf("Hello, world!\n");
     }
@@ -7,7 +7,7 @@ namespace eval Hello {
 }
 
 namespace eval DoStuff {
-    set cc [c create]
+    variable cc [c create]
     $cc import ::Hello::cc sayhelloworld as ok
     $cc proc dostuff {} void {
         ok();

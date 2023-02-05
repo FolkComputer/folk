@@ -12,10 +12,11 @@ namespace eval trie {
     namespace import ::ctrie::*
     namespace export *
     rename add add_; rename addWithVar add
+    rename remove remove_; rename removeWithVar remove
     namespace ensemble create
 }
 
-namespace eval statement { ;# statement record type
+namespace eval oldStatement { ;# statement record type
     namespace export create
     proc create {clause {parentMatchIds {}} {childMatchIds {}}} {
         # clause = [list the fox is out]
@@ -43,7 +44,7 @@ namespace eval statement { ;# statement record type
     namespace ensemble create
 }
 
-namespace eval Statements { ;# singleton Statement store
+namespace eval oldStatements { ;# singleton Statement store
     variable statements [dict create] ;# Dict<StatementId, Statement>
     variable nextStatementId 1
     variable statementClauseToId [trie create] ;# Trie<StatementClause, StatementId>
@@ -207,6 +208,8 @@ namespace eval Statements { ;# singleton Statement store
     }
 }
 
+source "play/c-statements.tcl"
+
 set ::log [list]
 
 # invoke at top level, add/remove independent 'axioms' for the system
@@ -318,39 +321,7 @@ proc StepImpl {} {
         }
     }
     proc reactToStatementRemoval {id} {
-        # unset all things downstream of statement
-        set childMatchIds [statement childMatchIds [Statements::get $id]]
-        dict for {matchId _} $childMatchIds {
-            if {![dict exists $Statements::matches $matchId]} { continue } ;# if was removed earlier
-
-            dict with Statements::matches $matchId {
-                # this match will be dead, so remove the match from the
-                # other parents of the match
-                foreach parentStatementId $parentStatementIds {
-                    if {![Statements::exists $parentStatementId]} { continue }
-                    dict with Statements::statements $parentStatementId {
-                        dict unset childMatchIds $matchId
-                    }
-                }
-
-                foreach childStatementId $childStatementIds {
-                    if {![Statements::exists $childStatementId]} { continue }
-                    dict with Statements::statements $childStatementId {
-                        dict unset parentMatchIds $matchId
-
-                        # is this child out of parent matches? => it's dead
-                        if {[dict size $parentMatchIds] == 0} {
-                            reactToStatementRemoval $childStatementId
-                            Statements::remove $childStatementId
-                            set childStatementIds [lremove $childStatementIds $childStatementId]
-                        }
-                    }
-                }
-
-                if {$destructor ne ""} { runInSerializedEnvironment {*}$destructor }
-            }
-            dict unset Statements::matches $matchId
-        }
+        Statements::reactToStatementRemoval $id
     }
 
     # d ""
@@ -393,7 +364,7 @@ proc StepImpl {} {
 
         } elseif {$op == "Do"} {
             lassign $entry _ matchId body env
-            if {[dict exists $Statements::matches $matchId]} {
+            if {[Statements::matchExists $matchId]} {
                 set ::matchId $matchId
                 runInSerializedEnvironment $body $env
             }

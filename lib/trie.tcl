@@ -148,13 +148,16 @@ namespace eval ctrie {
         }
         return 0;
     }
-    $cc proc remove_ {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause} void {
+    $cc proc remove_ {Tcl_Interp* interp trie_t* trie Tcl_Obj* clause} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
         }
-        trie_t* trie; sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, trieVar, NULL, 0)), "(trie_t*) 0x%p", &trie);
         removeImpl(trie, objc, objv);
+    }
+    $cc proc removeWithVar {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause} void {
+        trie_t* trie; sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, trieVar, NULL, 0)), "(trie_t*) 0x%p", &trie);
+        remove_(interp, trie, clause);
     }
 
     $cc proc lookupImpl {Tcl_Interp* interp Tcl_Obj* results
@@ -238,6 +241,6 @@ namespace eval ctrie {
     init
 
     rename remove_ remove
-    namespace export create add addWithVar remove lookup tclify dot
+    namespace export create add addWithVar remove removeWithVar lookup tclify dot
     namespace ensemble create
 }

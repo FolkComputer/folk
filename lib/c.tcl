@@ -207,7 +207,6 @@ namespace eval c {
                 include <string.h>
                 lappend objtypes [csubst {
                     void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
-                        ckfree(objPtr->internalRep.otherValuePtr);
                     }
                     void $[set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
                         dupPtr->internalRep.otherValuePtr = ckalloc(sizeof($type));
@@ -368,7 +367,7 @@ namespace eval c {
             }
             ::proc import {scc sname as dest} {
                 set scc [namespace qualifiers $scc]::[set $scc]
-                set procinfo [dict get [set [set scc]::procs] $sname]
+                set procinfo [dict get [set ${scc}::procs] $sname]
                 set rtype [dict get $procinfo rtype]
                 set arglist [dict get $procinfo arglist]
                 set addr [set [set scc]::[set sname]_addr]
