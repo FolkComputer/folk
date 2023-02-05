@@ -30,8 +30,10 @@ proc countCollectedMatches {clause} {
 assert {[countCollectedMatches [list Omar lives in /place/]] == 2}
 assert {[llength [Statements::findMatches [list /someone/ claims there are 2 matches]]] == 1}
 
+exec dot -Tpdf >preretract.pdf <<[Statements::dot]
 Retract programOakland has program code /something/
 Step
+exec dot -Tpdf >postretract.pdf <<[Statements::dot]
 
 assert {[countCollectedMatches [list Omar lives in /place/]] == 1}
 assert {[llength [Statements::findMatches [list /someone/ claims there are 1 matches]]] == 1}

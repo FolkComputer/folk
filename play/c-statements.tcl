@@ -6,10 +6,8 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    # $cc struct statement_handle_t { uint16_t idx; uint16_t generation; }
-    # $cc struct match_handle_t { uint16_t idx; uint16_t generation; }
-    $cc typedef int statement_handle_t
-    $cc typedef int match_handle_t
+    $cc struct statement_handle_t { int idx; }
+    $cc struct match_handle_t { int idx; }
 
     $cc enum edge_type_t { NONE, PARENT, CHILD }
 
@@ -33,6 +31,7 @@ namespace eval statement {
         edge_to_match_t edges[32];
     }
 
+    $cc include <stdbool.h>
     $cc code {
         statement_t statementCreate(Tcl_Obj* clause,
                                     size_t n_parents, match_handle_t parents[],
@@ -48,14 +47,20 @@ namespace eval statement {
             }
             return ret;
         }
+        bool matchHandleIsEqual(match_handle_t a, match_handle_t b) {
+            return a.idx == b.idx;
+        }
+        bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) {
+            return a.idx == b.idx;
+        }
 
         void statementRemoveEdgeToMatch(statement_t* stmt,
                                         edge_type_t type, match_handle_t matchId) {
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 if (stmt->edges[i].type == type &&
-                    stmt->edges[i].match == matchId) {
+                    matchHandleIsEqual(stmt->edges[i].match, matchId)) {
                     stmt->edges[i].type = NONE;
-                    stmt->edges[i].match = 0;
+                    stmt->edges[i].match = (match_handle_t) {0};
                 }
             }
         }
@@ -63,9 +68,9 @@ namespace eval statement {
                                         edge_type_t type, statement_handle_t statementId) {
             for (size_t i = 0; i < match->n_edges; i++) {
                 if (match->edges[i].type == type &&
-                    match->edges[i].statement == statementId) {
+                    statementHandleIsEqual(match->edges[i].statement, statementId)) {
                     match->edges[i].type = NONE;
-                    match->edges[i].statement = 0;
+                    match->edges[i].statement = (statement_handle_t) {0};
                 }
             }
         }
@@ -98,7 +103,6 @@ namespace eval Statements { ;# singleton Statement store
     variable cc $::statement::cc
     namespace import ::statement::$cc
 
-    $cc include <stdbool.h>
     $cc code [csubst {
         typedef struct trie trie_t;
 
@@ -108,17 +112,31 @@ namespace eval Statements { ;# singleton Statement store
 
         match_t matches[32768];
         uint16_t nextMatchIdx = 1;
-
-        void matchRemove(match_handle_t matchId) {
-            matches[matchId].n_edges = 0;
-        }
     }]
-    $cc proc matchGet {match_handle_t matchId} match_t {
-        return matches[matchId];
+    $cc proc matchGet {match_handle_t matchId} match_t* {
+        return &matches[matchId.idx];
+    }
+    $cc proc matchRemove {match_handle_t matchId} void {
+        matchGet(matchId)->n_edges = 0;
     }
     $cc proc matchExists {match_handle_t matchId} bool {
-        return matches[matchId].n_edges > 0;
+        return matchGet(matchId)->n_edges > 0;
     }
+
+    $cc proc get {statement_handle_t id} statement_t* {
+        return &statements[id.idx];
+    }
+    $cc proc deref {statement_t* ptr} statement_t { return *ptr; }
+    $cc proc exists {statement_handle_t id} int {
+        return get(id)->clause != NULL;
+    }
+    $cc proc remove_ {statement_handle_t id} void {
+        Tcl_Obj* clause = get(id)->clause;
+        memset(get(id), 0, sizeof(*get(id)));
+        trieRemove(NULL, statementClauseToId, clause);
+        Tcl_DecrRefCount(clause);
+    }
+    # $cc proc size {} size_t {}
 
     $cc import ::ctrie::cc create as trieCreate
     $cc import ::ctrie::cc lookup as trieLookup
@@ -130,15 +148,15 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
-        match_handle_t matchId = nextMatchIdx++;
+        match_handle_t matchId = { .idx = nextMatchIdx++ };
 
-        match_t* match = &matches[matchId];
+        match_t* match = matchGet(matchId);
         match->n_edges = n_parents;
         assert(match->n_edges < sizeof(match->edges)/sizeof(match->edges[0]));
         for (int i = 0; i < n_parents; i++) {
             match->edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
 
-            statement_t* parent = &statements[parents[i]];
+            statement_t* parent = get(parents[i]);
             parent->edges[parent->n_edges++] = (edge_to_match_t) { .type = CHILD, .match = matchId };
             assert(parent->n_edges < sizeof(parent->edges)/sizeof(parent->edges[0]));
         }
@@ -146,7 +164,7 @@ namespace eval Statements { ;# singleton Statement store
         return matchId;
     }
     proc addMatch {parentMatchIds} {
-        addMatchImpl [llength $parentMatchIds] $parentMatchIds
+        addMatchImpl [llength $parentMatchIds] [lmap id $parentMatchIds {list idx $id}]
     }
 
     $cc proc addImpl {Tcl_Interp* interp
@@ -158,10 +176,10 @@ namespace eval Statements { ;# singleton Statement store
         statement_handle_t id;
         if (idslen == 1) {
             Tcl_Obj* idobj; Tcl_ListObjIndex(interp, ids, 0, &idobj);
-            id = Tcl_GetIntFromObj(interp, idobj, &id);
+            Tcl_GetIntFromObj(interp, idobj, &id.idx);
 
         } else if (idslen == 0) {
-            id = -1;
+            id.idx = -1;
 
         } else {
             // error WTF
@@ -169,27 +187,28 @@ namespace eval Statements { ;# singleton Statement store
             exit(1);
         }
 
-        bool isNewStatement = (id == -1);
+        bool isNewStatement = (id.idx == -1);
         if (isNewStatement) {
-            id = nextStatementIdx++;
-            assert(id < sizeof(statements)/sizeof(statements[0]));
+            id.idx = nextStatementIdx++;
+            assert(id.idx < sizeof(statements)/sizeof(statements[0]));
 
-            statements[id] = statementCreate(clause, n_parents, parents, 0, NULL);
-            trieAdd(interp, &statementClauseToId, clause, id);
+            *get(id) = statementCreate(clause, n_parents, parents, 0, NULL);
+            trieAdd(interp, &statementClauseToId, clause, id.idx);
 
         } else {
+            statement_t* stmt = get(id);
             for (size_t i = 0; i < n_parents; i++) {
-                size_t edgeIdx = statements[id].n_edges++;
-                assert(edgeIdx < sizeof(statements[id].edges)/sizeof(statements[id].edges[0]));
-                statements[id].edges[edgeIdx].type = PARENT;
-                statements[id].edges[edgeIdx].match = parents[i];
+                size_t edgeIdx = stmt->n_edges++;
+                assert(edgeIdx < sizeof(stmt->edges)/sizeof(stmt->edges[0]));
+                stmt->edges[edgeIdx].type = PARENT;
+                stmt->edges[edgeIdx].match = parents[i];
             }
         }
 
         for (size_t i = 0; i < n_parents; i++) {
-            if (parents[i] == 0) { continue; } // ?
+            if (parents[i].idx == 0) { continue; } // ?
 
-            match_t* match = &matches[parents[i]];
+            match_t* match = matchGet(parents[i]);
             size_t edgeIdx = match->n_edges++;
             assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
             match->edges[edgeIdx].type = CHILD;
@@ -197,27 +216,14 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         // return {id, isNewStatement};
-        Tcl_Obj* ret[] = {Tcl_NewIntObj(id), Tcl_NewIntObj(isNewStatement)};
+        Tcl_Obj* ret[] = {Tcl_NewIntObj(id.idx), Tcl_NewIntObj(isNewStatement)};
         return Tcl_NewListObj(sizeof(ret)/sizeof(ret[0]), ret);
     }
     proc add {clause {parents {{} true}}} {
         addImpl $clause [dict size $parents] [lmap parent [dict keys $parents] {
-            expr {$parent eq {} ? 0 : $parent}
+            expr {$parent eq {} ? {idx 0} : {idx $parent}}
         }]
     }
-    $cc proc exists {statement_handle_t id} int {
-        return statements[id].clause != NULL;
-    }
-    $cc proc get {statement_handle_t id} statement_t {
-        return statements[id];
-    }
-    $cc proc remove_ {statement_handle_t id} void {
-        Tcl_Obj* clause = statements[id].clause;
-        memset(&statements[id], 0, sizeof(statements[id]));
-        trieRemove(NULL, statementClauseToId, clause);
-        Tcl_DecrRefCount(clause);
-    }
-    # $cc proc size {} size_t {}
 
     $cc proc unifyImpl {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
         int alen; Tcl_Obj** awords;
@@ -264,14 +270,15 @@ namespace eval Statements { ;# singleton Statement store
         return Tcl_NewListObj(matchcount, matches);
     }
 
-    $cc proc reactToStatementRemoval {statement_handle_t id} void {
+    $cc proc reactToStatementRemovalImpl {statement_handle_t id} void {
         // unset all things downstream of statement
-        for (int i = 0; i < statements[id].n_edges; i++) {
-            if (statements[id].edges[i].type != CHILD) continue;
-            match_handle_t matchId = statements[id].edges[i].match;
+        statement_t *stmt = get(id);
+        for (int i = 0; i < stmt->n_edges; i++) {
+            if (stmt->edges[i].type != CHILD) continue;
+            match_handle_t matchId = stmt->edges[i].match;
 
             if (!matchExists(matchId)) continue; // if was removed earlier
-            match_t* match = &matches[matchId];
+            match_t* match = matchGet(matchId);
 
             for (int j = 0; j < match->n_edges; j++) {
                 // this match will be dead, so remove the match from the
@@ -280,17 +287,17 @@ namespace eval Statements { ;# singleton Statement store
                     statement_handle_t parentId = match->edges[j].statement;
                     if (!exists(parentId)) { continue; }
 
-                    statementRemoveEdgeToMatch(&statements[parentId], CHILD, matchId);
+                    statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
 
                 } else if (match->edges[j].type == CHILD) {
                     statement_handle_t childId = match->edges[j].statement;
                     if (!exists(childId)) { continue; }
 
-                    statementRemoveEdgeToMatch(&statements[childId], PARENT, matchId);
+                    statementRemoveEdgeToMatch(get(childId), PARENT, matchId);
 
                     // is this child statement out of parent matches? => it's dead
-                    if (statements[childId].n_edges == 0) {
-                        reactToStatementRemoval(childId);
+                    if (get(childId)->n_edges == 0) {
+                        reactToStatementRemovalImpl(childId);
                         remove_(childId);
                         matchRemoveEdgeToStatement(match, CHILD, childId);
                     }
@@ -346,8 +353,13 @@ namespace eval Statements { ;# singleton Statement store
     $cc compile
     init        
 
-    rename remove_ remove
+    # compatibility with older Tcl statements module interface
+    # (they pass in unwrapped integer handles, among other things)
+    proc reactToStatementRemoval {idx} { reactToStatementRemovalImpl [list idx $idx] }
+    proc remove {idx} { remove_ [list idx $idx] }
     rename findStatementsMatching findMatches
+    rename get getImpl
+    proc get {id} { deref [getImpl [list idx $id]] }
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
