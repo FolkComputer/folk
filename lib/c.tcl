@@ -157,7 +157,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    #subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -363,7 +363,7 @@ namespace eval c {
                 # puts "=====================\n$sourcecode\n====================="
 
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
-                exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
+                exec cc -Wall -g -shared -fsanitize=address -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
             ::proc import {scc sname as dest} {

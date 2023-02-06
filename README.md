@@ -26,10 +26,9 @@ Server 22.04 LTS-minimal.
    On Pi, Raspberry Pi OS Lite => if no `folk`
    user, then:
 
-      ```
-      sudo useradd -m folk; sudo passwd folk;
-      sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
-      ```
+        sudo useradd -m folk; sudo passwd folk;
+        sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
+
 3. `sudo apt update`
 2. Set up OpenSSH server if needed, connect to network.
 4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
@@ -46,26 +45,25 @@ Server 22.04 LTS-minimal.
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
    (as root) ([from
    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
-   - ```
-      # cat >/etc/systemd/system/folk.service
-      [Unit]
-      Description=Folk service
-      After=network.target
-      StartLimitIntervalSec=0
 
-      [Service]
-      Type=simple
-      Restart=always
-      RestartSec=1
-      User=folk
-      ExecStart=make -C /home/folk/folk
+        # cat >/etc/systemd/system/folk.service
+        [Unit]
+        Description=Folk service
+        After=network.target
+        StartLimitIntervalSec=0
 
-      [Install]
-      WantedBy=multi-user.target
+        [Service]
+        Type=simple
+        Restart=always
+        RestartSec=1
+        User=folk
+        ExecStart=make -C /home/folk/folk
 
-      # systemctl start folk
-      # systemctl enable folk
-      ```
+        [Install]
+        WantedBy=multi-user.target
+
+        # systemctl start folk
+        # systemctl enable folk
 
 You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
 to `/etc/sudoers` as well.
@@ -141,8 +139,7 @@ Potentially useful for graphs: `graphviz`
 Potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
-Potentially useful: add `folk0` shortcut to your laptop
-`~/.ssh/config`:
+Potentially useful: add `folk0` shortcut to your laptop `~/.ssh/config`:
 ```
 Host folk0
      HostName folk0.local
@@ -192,6 +189,12 @@ choosing.
 - ~print support~
 - ~clean up lexical scope~
 - ~with-all-matches~
+
+## Troubleshooting
+
+You can build Tcl with `TCL_MEM_DEBUG`. Download Tcl source code. (On
+Mac, _do not_ go to the macosx/ subdir; go to the unix/ subdir.) Do
+`./configure --enable-symbols=all`, do `make`, `make install`
 
 ## Vulkan
 
@@ -245,7 +248,7 @@ clone https://github.com/krh/vkcube
 
 `./vkcube -m khr -k 0:0:0`
 
-### FFT example
+## FFT example
 
 - Including [kissfft](https://github.com/mborgerding/kissfft)
 
