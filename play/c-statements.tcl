@@ -86,7 +86,10 @@ namespace eval statement {
     }
 
     namespace export clause parentMatchIds childMatchIds
-    proc clause {stmt} { dict get $stmt clause }
+    $cc proc clause {Tcl_Obj* stmt} Tcl_Obj* {
+        assert(stmt->typePtr == &statement_t_ObjType);
+        return ((statement_t *)stmt->internalRep.otherValuePtr)->clause;
+    }
     proc parentMatchIds {stmt} {
         concat {*}[lmap edge [dict get $stmt edges] {expr {
             [dict get $edge type] == 1 ? [list [dict get $edge match] true] : [continue]
@@ -146,7 +149,13 @@ namespace eval Statements { ;# singleton Statement store
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
     }
-    # $cc proc size {} size_t {}
+    $cc proc size {} size_t {
+        size_t size = 0;
+        for (int i = 0; i < sizeof(statements)/sizeof(statements[0]); i++) {
+            if (statements[i].clause != NULL) { size++; }
+        }
+        return size;
+    }
 
     $cc import ::ctrie::cc create as trieCreate
     $cc import ::ctrie::cc lookup as trieLookup
