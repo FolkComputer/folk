@@ -64,11 +64,10 @@ dc code {
     Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
 }
 dc argtype Vec2i {
-    sscanf(Tcl_GetString($obj), "%d %d", &$argname.x, &$argname.y);
+    Vec2i $argname; sscanf(Tcl_GetString($obj), "%d %d", &$argname.x, &$argname.y);
 }
 dc rtype Vec2i {
-    Tcl_SetObjResult(interp, Tcl_ObjPrintf("%d %d", rv.x, rv.y));
-    return TCL_OK;
+    $robj = Tcl_ObjPrintf("%d %d", rv.x, rv.y);
 }
 
 source "pi/Display/lineclip.tcl"
