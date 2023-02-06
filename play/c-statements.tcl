@@ -22,7 +22,7 @@ namespace eval statement {
     }
     $cc struct match_t {
         size_t n_edges;
-        edge_to_statement_t edges[16];
+        edge_to_statement_t edges[32];
     }
 
     $cc struct edge_to_match_t {
@@ -33,7 +33,7 @@ namespace eval statement {
     # lot of match children. This block may get reallocated and resized.
     $cc struct statement_indirect_t {
         size_t capacity_edges;
-        edge_to_match_t edges[0];
+        edge_to_match_t edges[1]; // should be 0
     }
     $cc struct statement_t {
         Tcl_Obj* clause;
@@ -128,8 +128,8 @@ namespace eval statement {
                 // We've run out of edge pointer slots in the current
                 // indirect block; we need to grow the indirect block.
                 size_t new_capacity_edges = stmt->indirect->capacity_edges*2;
-                printf("Growing indirect for %p (%zu -> %zu)\n", stmt,
-                       stmt->indirect->capacity_edges, new_capacity_edges);
+                // printf("Growing indirect for %p (%zu -> %zu)\n", stmt,
+                //       stmt->indirect->capacity_edges, new_capacity_edges);
 
                 stmt->indirect = ckrealloc(stmt->indirect,
                                            sizeof(*stmt->indirect) + new_capacity_edges*sizeof(edge_to_match_t));
@@ -224,6 +224,12 @@ namespace eval Statements { ;# singleton Statement store
         match_t matches[32768];
         uint16_t nextMatchIdx = 1;
     }]
+    $cc proc matchNew {} match_handle_t {
+        while (matches[nextMatchIdx].n_edges != 0) {
+            nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
+        }
+        return (match_handle_t) { .idx = nextMatchIdx };
+    }
     $cc proc matchGet {match_handle_t matchId} match_t* {
         return &matches[matchId.idx];
     }
@@ -235,6 +241,12 @@ namespace eval Statements { ;# singleton Statement store
         return matchGet(matchId)->n_edges > 0;
     }
 
+    $cc proc new {} statement_handle_t {
+        while (statements[nextStatementIdx].clause != NULL) {
+            nextStatementIdx = (nextStatementIdx + 1) % (sizeof(statements)/sizeof(statements[0]));
+        }
+        return (statement_handle_t) { .idx = nextStatementIdx };
+    }
     $cc proc get {statement_handle_t id} statement_t* {
         return &statements[id.idx];
     }
@@ -267,7 +279,7 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         // Essentially, allocate a new match object.
-        match_handle_t matchId = { .idx = nextMatchIdx++ };
+        match_handle_t matchId = matchNew();
         match_t* match = matchGet(matchId);
 
         for (int i = 0; i < n_parents; i++) {
@@ -303,8 +315,7 @@ namespace eval Statements { ;# singleton Statement store
 
         bool isNewStatement = (id.idx == -1);
         if (isNewStatement) {
-            id.idx = nextStatementIdx++;
-            assert(id.idx < sizeof(statements)/sizeof(statements[0]));
+            id = new();
 
             *get(id) = statementCreate(clause, n_parents, parents, 0, NULL);
             trieAdd(interp, &statementClauseToId, clause, id.idx);
@@ -317,7 +328,7 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         for (size_t i = 0; i < n_parents; i++) {
-            if (parents[i].idx == 0) { continue; } // ?
+            if (parents[i].idx == -1) { continue; } // ?
 
             match_t* match = matchGet(parents[i]);
             matchAddEdgeToStatement(match, CHILD, id);
@@ -326,7 +337,7 @@ namespace eval Statements { ;# singleton Statement store
         // return {id, isNewStatement};
         return Tcl_ObjPrintf("{idx %d} %d", id.idx, isNewStatement);
     }
-    proc add {clause {parents {{idx 0} true}}} {
+    proc add {clause {parents {{idx -1} true}}} {
         addImpl $clause [dict size $parents] [dict keys $parents]
     }
 
@@ -413,7 +424,7 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc all {} Tcl_Obj* {
-        Tcl_Obj* ret = Tcl_NewListObj(nextStatementIdx, NULL);
+        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
         for (int i = 0; i < sizeof(statements)/sizeof(statements[0]); i++) {
             if (statements[i].clause == NULL) continue;
             Tcl_Obj* s = Tcl_NewObj();

@@ -175,6 +175,7 @@ namespace eval Statements { ;# singleton Statement store
         return $matches
     }
 
+    proc all {} { variable statements; set statements }
     proc print {} {
         variable statements
         puts "Statements"
