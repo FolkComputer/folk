@@ -85,12 +85,12 @@ namespace eval statement {
     proc clause {stmt} { dict get $stmt clause }
     proc parentMatchIds {stmt} {
         concat {*}[lmap edge [dict get $stmt edges] {expr {
-            [dict get $edge type] == 1 ? [list [dict get $edge match idx] true] : [continue]
+            [dict get $edge type] == 1 ? [list [dict get $edge match] true] : [continue]
         }}]
     }
     proc childMatchIds {stmt} {
         concat {*}[lmap edge [dict get $stmt edges] {expr {
-            [dict get $edge type] == 2 ? [list [dict get $edge match idx] true] : [continue]
+            [dict get $edge type] == 2 ? [list [dict get $edge match] true] : [continue]
         }}]
     }
     namespace ensemble create
@@ -170,7 +170,7 @@ namespace eval Statements { ;# singleton Statement store
         return matchId;
     }
     proc addMatch {parentMatchIds} {
-        addMatchImpl [llength $parentMatchIds] [lmap id $parentMatchIds {list idx $id}]
+        addMatchImpl [llength $parentMatchIds] $parentMatchIds
     }
 
     $cc proc addImpl {Tcl_Interp* interp
@@ -265,7 +265,7 @@ namespace eval Statements { ;# singleton Statement store
             int id; Tcl_GetIntFromObj(interp, ids[i], &id);
             Tcl_Obj* match = unifyImpl(interp, pattern, statements[id].clause);
             if (match != NULL) {
-                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_NewIntObj(id));
+                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %d", id));
                 matches[matchcount++] = match;
             }
         }
@@ -327,6 +327,7 @@ namespace eval Statements { ;# singleton Statement store
     proc dot {} {
         set dot [list]
         dict for {id stmt} [all] {
+            set id [dict get $id idx]
             puts [statement short $stmt]
 
             lappend dot "subgraph cluster_$id {"
@@ -340,6 +341,7 @@ namespace eval Statements { ;# singleton Statement store
             lappend dot "s$id \[label=\"s$id: $label\"\];"
 
             dict for {matchId _} [statement parentMatchIds $stmt] {
+                set matchId [dict get $matchId idx]
                 set parents [lmap edge [dict get [matchDeref [matchGet [list idx $matchId]]] edges] {expr {
                     [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
                 }}]
@@ -350,6 +352,7 @@ namespace eval Statements { ;# singleton Statement store
             lappend dot "}"
 
             dict for {childId _} [statement childMatchIds $stmt] {
+                set childId [dict get $childId idx]
                 lappend dot "s$id -> m$childId;"
             }
         }

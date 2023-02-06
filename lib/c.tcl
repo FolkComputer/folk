@@ -254,7 +254,7 @@ namespace eval c {
 
                 variable rtypes
                 rtype $type {
-                    $robj = ckalloc(sizeof(struct Tcl_Obj));
+                    $robj = Tcl_NewObj();
                     $robj->bytes = NULL;
                     $robj->typePtr = &$[set rtype]_ObjType;
                     $robj->internalRep.otherValuePtr = ckalloc(sizeof($[set rtype]));
@@ -363,7 +363,7 @@ namespace eval c {
                 # puts "=====================\n$sourcecode\n====================="
 
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
-                exec cc -Wall -g -shared -fsanitize=address -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
+                exec cc -Wall -g -shared -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
             ::proc import {scc sname as dest} {
