@@ -59,19 +59,18 @@ namespace eval statement {
             return a.idx == b.idx;
         }
 
-        void statementRemoveEdgeToMatch(statement_t* stmt,
-                                        edge_type_t type, match_handle_t matchId) {
-            int validEdges = 0;
+        int statementRemoveEdgeToMatch(statement_t* stmt,
+                                       edge_type_t type, match_handle_t matchId) {
+            int parentEdges = 0;
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 if (stmt->edges[i].type == type &&
                     matchHandleIsEqual(stmt->edges[i].match, matchId)) {
                     stmt->edges[i].type = NONE;
                     stmt->edges[i].match = (match_handle_t) {0};
                 }
-                if (stmt->edges[i].type != NONE) { validEdges++; }
+                if (stmt->edges[i].type == PARENT) { parentEdges++; }
             }
-            // TODO: compact
-            if (validEdges == 0) { stmt->n_edges = 0; }
+            return parentEdges;
         }
         void matchRemoveEdgeToStatement(match_t* match,
                                         edge_type_t type, statement_handle_t statementId) {
@@ -301,10 +300,8 @@ namespace eval Statements { ;# singleton Statement store
                     statement_handle_t childId = match->edges[j].statement;
                     if (!exists(childId)) { continue; }
 
-                    statementRemoveEdgeToMatch(get(childId), PARENT, matchId);
-
-                    // is this child statement out of parent matches? => it's dead
-                    if (get(childId)->n_edges == 0) {
+                    if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
+                        // is this child statement out of parent matches? => it's dead
                         reactToStatementRemoval(childId);
                         remove_(childId);
                         matchRemoveEdgeToStatement(match, CHILD, childId);
