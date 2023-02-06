@@ -22,7 +22,8 @@ namespace eval statement {
     }
     $cc struct match_t {
         size_t n_edges;
-        edge_to_statement_t edges[32];
+        edge_to_statement_t edges[16];
+        edge_to_statement_t* extraEdges;
     }
 
     $cc struct edge_to_match_t {
@@ -33,7 +34,8 @@ namespace eval statement {
         Tcl_Obj* clause;
 
         size_t n_edges;
-        edge_to_match_t edges[32];
+        edge_to_match_t edges[16];
+        edge_to_statement_t* extraEdges;
     }
 
     $cc include <stdbool.h>
@@ -43,6 +45,7 @@ namespace eval statement {
                                     size_t n_children, match_handle_t children[]) {
             statement_t ret = {0};
             ret.clause = clause; Tcl_IncrRefCount(clause);
+            // FIXME: Use edge helpers.
             assert(n_parents + n_children < sizeof(ret.edges)/sizeof(ret.edges[0]));
             for (size_t i = 0; i < n_parents; i++) {
                 ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = PARENT, .match = parents[i] };
@@ -52,13 +55,15 @@ namespace eval statement {
             }
             return ret;
         }
-        bool matchHandleIsEqual(match_handle_t a, match_handle_t b) {
-            return a.idx == b.idx;
-        }
-        bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) {
-            return a.idx == b.idx;
-        }
+        bool matchHandleIsEqual(match_handle_t a, match_handle_t b) { return a.idx == b.idx; }
+        bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) { return a.idx == b.idx; }
 
+        void statementAddEdgeToMatch(statement_t* stmt,
+                                     edge_type_t type, match_handle_t matchId) {
+            size_t edgeIdx = stmt->n_edges++;
+            assert(edgeIdx < sizeof(stmt->edges)/sizeof(stmt->edges[0]));
+            stmt->edges[edgeIdx] = (edge_to_match_t) { .type = type, .match = matchId };
+        }
         int statementRemoveEdgeToMatch(statement_t* stmt,
                                        edge_type_t type, match_handle_t matchId) {
             int parentEdges = 0;
@@ -71,6 +76,12 @@ namespace eval statement {
                 if (stmt->edges[i].type == PARENT) { parentEdges++; }
             }
             return parentEdges;
+        }
+        void matchAddEdgeToStatement(match_t* match,
+                                     edge_type_t type, statement_handle_t statementId) {
+            size_t edgeIdx = match->n_edges++;
+            assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
+            match->edges[edgeIdx] = (edge_to_statement_t) { .type = type, .statement = statementId };
         }
         void matchRemoveEdgeToStatement(match_t* match,
                                         edge_type_t type, statement_handle_t statementId) {
@@ -167,17 +178,13 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
+        // Essentially, allocate a new match object.
         match_handle_t matchId = { .idx = nextMatchIdx++ };
-
         match_t* match = matchGet(matchId);
-        match->n_edges = n_parents;
-        assert(match->n_edges < sizeof(match->edges)/sizeof(match->edges[0]));
-        for (int i = 0; i < n_parents; i++) {
-            match->edges[i] = (edge_to_statement_t) { .type = PARENT, .statement = parents[i] };
 
-            statement_t* parent = get(parents[i]);
-            parent->edges[parent->n_edges++] = (edge_to_match_t) { .type = CHILD, .match = matchId };
-            assert(parent->n_edges < sizeof(parent->edges)/sizeof(parent->edges[0]));
+        for (int i = 0; i < n_parents; i++) {
+            matchAddEdgeToStatement(match, PARENT, parents[i]);
+            statementAddEdgeToMatch(get(parents[i]), CHILD, matchId);
         }
 
         return matchId;
@@ -217,10 +224,7 @@ namespace eval Statements { ;# singleton Statement store
         } else {
             statement_t* stmt = get(id);
             for (size_t i = 0; i < n_parents; i++) {
-                size_t edgeIdx = stmt->n_edges++;
-                assert(edgeIdx < sizeof(stmt->edges)/sizeof(stmt->edges[0]));
-                stmt->edges[edgeIdx].type = PARENT;
-                stmt->edges[edgeIdx].match = parents[i];
+                statementAddEdgeToMatch(stmt, PARENT, parents[i]);
             }
         }
 
@@ -228,10 +232,7 @@ namespace eval Statements { ;# singleton Statement store
             if (parents[i].idx == 0) { continue; } // ?
 
             match_t* match = matchGet(parents[i]);
-            size_t edgeIdx = match->n_edges++;
-            assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
-            match->edges[edgeIdx].type = CHILD;
-            match->edges[edgeIdx].statement = id;
+            matchAddEdgeToStatement(match, CHILD, id);
         }
 
         // return {id, isNewStatement};
