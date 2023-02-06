@@ -23,19 +23,25 @@ namespace eval statement {
     $cc struct match_t {
         size_t n_edges;
         edge_to_statement_t edges[16];
-        edge_to_statement_t* extraEdges;
     }
 
     $cc struct edge_to_match_t {
         edge_type_t type;
         match_handle_t match;
     }
+    # Indirect block that can hold extra edges, if a statement has a
+    # lot of match children. This block may get reallocated and resized.
+    $cc struct statement_indirect_t {
+        size_t capacity_edges;
+        edge_to_match_t edges[0];
+    }
     $cc struct statement_t {
         Tcl_Obj* clause;
 
         size_t n_edges;
         edge_to_match_t edges[16];
-        edge_to_statement_t* extraEdges;
+
+        statement_indirect_t* indirect;
     }
 
     $cc include <stdbool.h>
@@ -60,20 +66,54 @@ namespace eval statement {
 
         void statementAddEdgeToMatch(statement_t* stmt,
                                      edge_type_t type, match_handle_t matchId) {
+            edge_to_match_t edge = (edge_to_match_t) { .type = type, .match = matchId };
             size_t edgeIdx = stmt->n_edges++;
-            assert(edgeIdx < sizeof(stmt->edges)/sizeof(stmt->edges[0]));
-            stmt->edges[edgeIdx] = (edge_to_match_t) { .type = type, .match = matchId };
+
+            if (edgeIdx < sizeof(stmt->edges)/sizeof(stmt->edges[0])) {
+                // There's room among the direct edge slots in the
+                // statement itself.
+                stmt->edges[edgeIdx] = edge;
+                return;
+            }
+
+            if (edgeIdx == sizeof(stmt->edges)/sizeof(stmt->edges[0])) {
+                // We've run out of edge slots in the
+                // statement. Allocate an indirect block with more
+                // slots.
+                size_t capacity_edges = sizeof(stmt->edges)/sizeof(stmt->edges[0]);
+                statement_indirect_t* indirect = ckalloc(sizeof(*indirect) + capacity_edges*sizeof(edge_to_match_t));
+                indirect->capacity_edges = capacity_edges;
+
+                assert(stmt->indirect == NULL);
+                stmt->indirect = indirect;
+            }
+
+            // We'll have to store the edge in the indirect block.
+            assert(stmt->indirect != NULL);
+            size_t edgeIdxInIndirect = edgeIdx - sizeof(stmt->edges)/sizeof(stmt->edges[0]);
+            if (edgeIdxInIndirect == stmt->indirect->capacity_edges) {
+                // We've run out of edge pointer slots in the current
+                // indirect block; grow the indirect block.
+                stmt->indirect->capacity_edges *= 2;
+                stmt->indirect = ckrealloc(stmt->indirect,
+                                           sizeof(*stmt->indirect) + stmt->indirect->capacity_edges*sizeof(edge_to_match_t));
+            }
+            // There should be room for the new edge in the indirect block.
+            assert(edgeIdxInIndirect < stmt->indirect->capacity_edges);
+            // Store the edge in the indirect block.
+            stmt->indirect->edges[edgeIdxInIndirect] = edge;
         }
         int statementRemoveEdgeToMatch(statement_t* stmt,
                                        edge_type_t type, match_handle_t matchId) {
             int parentEdges = 0;
             for (size_t i = 0; i < stmt->n_edges; i++) {
-                if (stmt->edges[i].type == type &&
-                    matchHandleIsEqual(stmt->edges[i].match, matchId)) {
-                    stmt->edges[i].type = NONE;
-                    stmt->edges[i].match = (match_handle_t) {0};
+                edge_to_match_t* edge = &stmt->edges[i];
+                if (edge->type == type &&
+                    matchHandleIsEqual(edge->match, matchId)) {
+                    edge->type = NONE;
+                    edge->match = (match_handle_t) {0};
                 }
-                if (stmt->edges[i].type == PARENT) { parentEdges++; }
+                if (edge->type == PARENT) { parentEdges++; }
             }
             return parentEdges;
         }
@@ -86,10 +126,11 @@ namespace eval statement {
         void matchRemoveEdgeToStatement(match_t* match,
                                         edge_type_t type, statement_handle_t statementId) {
             for (size_t i = 0; i < match->n_edges; i++) {
-                if (match->edges[i].type == type &&
-                    statementHandleIsEqual(match->edges[i].statement, statementId)) {
-                    match->edges[i].type = NONE;
-                    match->edges[i].statement = (statement_handle_t) {0};
+                edge_to_statement_t* edge = &match->edges[i];
+                if (edge->type == type &&
+                    statementHandleIsEqual(edge->statement, statementId)) {
+                    edge->type = NONE;
+                    edge->statement = (statement_handle_t) {0};
                 }
             }
             // TODO: compact
