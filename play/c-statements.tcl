@@ -61,13 +61,17 @@ namespace eval statement {
 
         void statementRemoveEdgeToMatch(statement_t* stmt,
                                         edge_type_t type, match_handle_t matchId) {
+            int validEdges = 0;
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 if (stmt->edges[i].type == type &&
                     matchHandleIsEqual(stmt->edges[i].match, matchId)) {
                     stmt->edges[i].type = NONE;
                     stmt->edges[i].match = (match_handle_t) {0};
                 }
+                if (stmt->edges[i].type != NONE) { validEdges++; }
             }
+            // TODO: compact
+            if (validEdges == 0) { stmt->n_edges = 0; }
         }
         void matchRemoveEdgeToStatement(match_t* match,
                                         edge_type_t type, statement_handle_t statementId) {
@@ -78,6 +82,7 @@ namespace eval statement {
                     match->edges[i].statement = (statement_handle_t) {0};
                 }
             }
+            // TODO: compact
         }
     }
 
@@ -319,7 +324,7 @@ namespace eval Statements { ;# singleton Statement store
             s->typePtr = &statement_t_ObjType;
             s->internalRep.otherValuePtr = &statements[i];
 
-            Tcl_ListObjAppendElement(NULL, ret, Tcl_NewIntObj(i));
+            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("idx %d", i));
             Tcl_ListObjAppendElement(NULL, ret, s);
         }
         return ret;
@@ -328,7 +333,6 @@ namespace eval Statements { ;# singleton Statement store
         set dot [list]
         dict for {id stmt} [all] {
             set id [dict get $id idx]
-            puts [statement short $stmt]
 
             lappend dot "subgraph cluster_$id {"
             lappend dot "color=lightgray;"
