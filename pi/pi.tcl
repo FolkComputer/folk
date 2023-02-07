@@ -69,19 +69,16 @@ namespace eval Camera {
         AprilTags::init
         puts "Camera tid: [getTid]"
 
-        set frame 0
+        set grayFrame {}
         while true {
-            # if {$frame != 0} {freeImage $frame}
+            if {$grayFrame ne {}} { freeImage $grayFrame }
             set cameraTime [time {
-                set frame [Camera::frame]
-
-                set grayFrame [rgbToGray $frame]
+                set grayFrame [Camera::grayFrame]
                 set tags [AprilTags::detect $grayFrame]
-                freeUint8Buffer $grayFrame
             }]
             set statements [list]
             lappend statements [list camera claims the camera time is $cameraTime]
-            lappend statements [list camera claims the camera frame is $frame]
+            lappend statements [list camera claims the camera frame is $grayFrame]
             foreach tag $tags {
                 lappend statements [list camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
                 lappend statements [list camera claims tag [dict get $tag id] has corners [dict get $tag corners]]

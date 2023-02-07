@@ -2,6 +2,8 @@ Wish $this has filename "camera-slice.folk"
 Wish $this has camera image
 Wish $this is outlined thick palegoldenrod
 
+return
+
 When $this has camera image /im/ {
 	When $this has region /r/ {
 		set coords [lmap n [lindex $r 0 0] {expr $n * 1}]

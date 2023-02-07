@@ -182,7 +182,28 @@ camc proc cameraDecompressRgb {camera_t* camera image_t dest} void {
     jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
 }
-camc proc rgbToGray {image_t rgb} uint8_t* {
+camc proc cameraDecompressGray {camera_t* camera image_t dest} void {
+      struct jpeg_decompress_struct cinfo;
+      struct jpeg_error_mgr jerr;
+      cinfo.err = jpeg_std_error(&jerr);
+      jpeg_create_decompress(&cinfo);
+      jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
+      if (jpeg_read_header(&cinfo, TRUE) != 1) {
+          printf("Fail\n");
+          exit(1);
+      }
+      cinfo.out_color_space = JCS_GRAYSCALE;
+      jpeg_start_decompress(&cinfo);
+
+      while (cinfo.output_scanline < cinfo.output_height) {
+          unsigned char *buffer_array[1];
+          buffer_array[0] = dest.data + (cinfo.output_scanline) * dest.width * cinfo.output_components;
+          jpeg_read_scanlines(&cinfo, buffer_array, 1);
+      }
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+}
+camc proc rgbToGray {image_t rgb} image_t {
     uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
     for (int y = 0; y < rgb.height; y++) {
         for (int x = 0; x < rgb.width; x++) {
@@ -197,14 +218,18 @@ camc proc rgbToGray {image_t rgb} uint8_t* {
             gray[y * rgb.width + x] = ((yy + (1 << 23)) >> 24);
         }
     }
-    return gray;
+    return (image_t) {
+        .width = rgb.width, .height = rgb.height,
+        .bytesPerRow = rgb.width,
+        .data = gray
+    };
 }
 camc proc freeUint8Buffer {uint8_t* buf} void {
     free(buf);
 }
 
-camc proc newImage {int width int height} image_t {
-    return (image_t) { width, height, 3, width*3, malloc(width*height*3) };
+camc proc newImage {int width int height int components} image_t {
+    return (image_t) { width, height, components, width*components, malloc(width*height*components) };
 }
 camc proc freeImage {image_t image} void {
     free(image.data);
@@ -215,7 +240,6 @@ camc compile
 
 namespace eval Camera {
     variable camera
-    variable image
 
     variable WIDTH
     variable HEIGHT
@@ -223,10 +247,8 @@ namespace eval Camera {
     proc init {width height} {
         variable WIDTH
         variable HEIGHT
-        variable image
         set WIDTH $width
         set HEIGHT $height
-        set image [newImage $WIDTH $HEIGHT]
         
         set camera [cameraOpen "/dev/video0" $WIDTH $HEIGHT]
         cameraInit $camera
@@ -240,12 +262,24 @@ namespace eval Camera {
     }
 
     proc frame {} {
-        variable image
-        if {![cameraFrame $Camera::camera]} {
+        variable camera
+        variable WIDTH; variable HEIGHT
+        if {![cameraFrame $camera]} {
             error "Failed to capture from camera"
         }
-        cameraDecompressRgb $Camera::camera $image
-        return $image
+        set image [newImage $WIDTH $HEIGHT 3]
+        cameraDecompressRgb $camera $image
+        set image
+    }
+    proc grayFrame {} {
+        variable camera
+        variable WIDTH; variable HEIGHT
+        if {![cameraFrame $camera]} {
+            error "Failed to capture from camera"
+        }
+        set image [newImage $WIDTH $HEIGHT 1]
+        cameraDecompressGray $camera $image
+        set image
     }
 }
 
@@ -262,8 +296,9 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
     while true {
         set rgb [Camera::frame]
         set gray [rgbToGray $rgb]
-        Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT $gray $Camera::WIDTH $Camera::HEIGHT
-        freeUint8Buffer $gray
+        # FIXME: hacky
+        Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT "(uint8_t*) [dict get $gray data]" $Camera::WIDTH $Camera::HEIGHT
+        freeImage $gray
     }
 }
 
@@ -274,10 +309,12 @@ namespace eval AprilTags {
     apc include <apriltag.h>
     apc include <tagStandard52h13.h>
     apc include <math.h>
+    apc include <assert.h>
     apc code {
         apriltag_detector_t *td;
         apriltag_family_t *tf;
     }
+    defineImageType apc
 
     apc proc detectInit {} void {
         td = apriltag_detector_create();
@@ -286,8 +323,9 @@ namespace eval AprilTags {
         td->nthreads = 2;
     }
 
-    apc proc detectImpl {uint8_t* gray int width int height} Tcl_Obj* {
-        image_u8_t im = (image_u8_t) { .width = width, .height = height, .stride = width, .buf = gray };
+    apc proc detect {image_t gray} Tcl_Obj* {
+        assert(gray.components == 1);
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.width, .buf = gray.data };
     
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);
@@ -324,9 +362,5 @@ namespace eval AprilTags {
     
     proc init {} {
         detectInit
-    }
-
-    proc detect {gray} {
-        return [detectImpl $gray $Camera::WIDTH $Camera::HEIGHT]
     }
 }
