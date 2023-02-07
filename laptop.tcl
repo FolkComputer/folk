@@ -106,7 +106,9 @@ proc StepFromGUI {} {
     # share root statement set to Pi
     set rootClauses [list]
     dict for {_ stmt} [Statements::all] {
-        if {[dict exists [statement parentMatchIds $stmt] {}] &&
+        set parentMatchIds [statement parentMatchIds $stmt]
+        if {([dict exists $parentMatchIds {}] ||
+             [dict exists $parentMatchIds {idx {-1}}]) &&
             [lindex [statement clause $stmt] 0] eq "laptop.tcl"} {
             lappend rootClauses [statement clause $stmt]
         }
