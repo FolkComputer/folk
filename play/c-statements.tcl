@@ -185,17 +185,31 @@ namespace eval statement {
     }
 
     namespace export clause parentMatchIds childMatchIds
-    $cc proc clause {Tcl_Obj* stmt} Tcl_Obj* {
-        assert(stmt->typePtr == &statement_t_ObjType);
-        return ((statement_t *)stmt->internalRep.otherValuePtr)->clause;
+    $cc proc clause {Tcl_Obj* stmtobj} Tcl_Obj* {
+        assert(stmtobj->typePtr == &statement_t_ObjType);
+        return ((statement_t *)stmtobj->internalRep.otherValuePtr)->clause;
+    }
+    $cc proc edges {Tcl_Interp* interp Tcl_Obj* stmtobj} Tcl_Obj* {
+        assert(stmtobj->typePtr == &statement_t_ObjType);
+        statement_t* stmt = stmtobj->internalRep.otherValuePtr;
+        Tcl_Obj* ret = Tcl_NewListObj(stmt->n_edges, NULL);
+        for (size_t i = 0; i < stmt->n_edges; i++) {
+            edge_to_match_t* edge = statementEdgeAt(stmt, i);
+            Tcl_Obj* edgeobj = Tcl_NewObj();
+            edgeobj->typePtr = &edge_to_match_t_ObjType;
+            edgeobj->bytes = NULL;
+            edgeobj->internalRep.otherValuePtr = edge;
+            Tcl_ListObjAppendElement(interp, ret, edgeobj);
+        }
+        return ret;
     }
     proc parentMatchIds {stmt} {
-        concat {*}[lmap edge [dict get $stmt edges] {expr {
+        concat {*}[lmap edge [edges $stmt] {expr {
             [dict get $edge type] == 1 ? [list [dict get $edge match] true] : [continue]
         }}]
     }
     proc childMatchIds {stmt} {
-        concat {*}[lmap edge [dict get $stmt edges] {expr {
+        concat {*}[lmap edge [edges $stmt] {expr {
             [dict get $edge type] == 2 ? [list [dict get $edge match] true] : [continue]
         }}]
     }
@@ -206,7 +220,7 @@ namespace eval statement {
         set lines [split [clause $stmt] "\n"]
         set line [lindex $lines 0]
         if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
-        dict with stmt { format "{%s} %s {%s}" [parentMatchIds $stmt] $line [childMatchIds $stmt] }
+        format "{%s} %s {%s}" [parentMatchIds $stmt] $line [childMatchIds $stmt]
     }
 }
 
