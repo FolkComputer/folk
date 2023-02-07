@@ -71,10 +71,18 @@ if {[info exists ::shareNode]} {
             package require websocket
 
             proc handleWs {sock type msg} {
-                if {$type == "connect"} { puts "sharer: Connected" } \
-                elseif {$type == "disconnect"} {
+                if {$type eq "connect"} {
+                    puts "sharer: Connected"
+                } elseif {$type eq "disconnect"} {
                     puts "sharer: Disconnected"
                     after 2000 { setupSock }
+                } elseif {$type eq "error"} {
+                    puts "sharer: WebSocket error: $type $msg"
+                    after 2000 { setupSock }
+                } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
+                    # We don't handle responses yet.
+                } else {
+                    error "Unknown WebSocket event: $type $msg"
                 }
             }
             proc setupSock {} {
@@ -97,7 +105,7 @@ proc StepFromGUI {} {
 
     # share root statement set to Pi
     set rootClauses [list]
-    dict for {_ stmt} $Statements::statements {
+    dict for {_ stmt} [Statements::all] {
         if {[dict exists [statement parentMatchIds $stmt] {}] &&
             [lindex [statement clause $stmt] 0] eq "laptop.tcl"} {
             lappend rootClauses [statement clause $stmt]

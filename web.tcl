@@ -240,13 +240,16 @@ proc handleRead {chan addr port} {
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
 proc handleWS {chan type msg} {
-    if {$type eq "text"} {
+    if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
+    } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
                 puts "$::nodename: Error on receipt: $err"
                 ::websocket::send $chan text $err
             } err2] { puts "$::nodename: $err2" }
         }
+    } else {
+        puts "$::nodename: Unhandled WS event $type $msg"
     }
 }
 
