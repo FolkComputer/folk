@@ -254,9 +254,7 @@ proc handleWS {chan type msg} {
 }
 
 if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
-    set ::nodename "[info hostname]-1"
-    puts "$::nodename: Note: There's already a Folk node running on this machine."
-    set ::serverSock [socket -server handleConnect 4274]
+    error "There's already a Web-capable Folk node running on this machine."
 }
 ::websocket::server $::serverSock
 ::websocket::live $::serverSock /ws handleWS

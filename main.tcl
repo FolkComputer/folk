@@ -1,3 +1,16 @@
+if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting." }
+
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    set ::isLaptop [expr {$tcl_platform(os) eq "Darwin" || [info exists ::env(DISPLAY)]}]
+    if {[info exists ::env(FOLK_ENTRY)]} {
+        set ::entry $::env(FOLK_ENTRY)
+    } elseif {$::isLaptop} {
+        set ::entry "laptop.tcl"
+    } else {
+        set ::entry "pi/pi.tcl"
+    }
+}
+
 proc d {arg} {
     # puts $arg
 }
@@ -231,48 +244,28 @@ proc When {args} {
 }
 set ::threads [dict create]
 proc On {event args} {
-    if {$event eq "thread"} {
-        set threadName [lindex $args 0]
-        set body [lindex $args 1]
-        if {![dict exists $::threads $threadName] ||
-            ![thread::exists [dict get $::threads $threadName]]} {
-            dict set ::threads $threadName [thread::create [list apply {{nodename mainThread threadName} {
-                source "lib/environment.tcl"
-                set ::nodename $nodename
-                set ::mainThread $mainThread
-                set ::threadName $threadName
-                proc Claim {args} { lappend ::commit [list someone claims {*}$args] }
-                proc Wish {args} { lappend ::commit [list someone wishes {*}$args] }
-                proc Commit {body} {
-                    set ::prevCommit [expr {[info exists ::commit] ? $::commit : [list]}]
-                    set ::commit [list]
-                    uplevel $body
-                    # forward claims to main
-                    thread::send -async $::mainThread [list apply {{threadName commit prevCommit} {
-                        Assert thread $threadName has committed statement set $commit
-                        Retract thread $threadName has committed statement set $prevCommit
-                        Step
-                    }} $::threadName $::commit $::prevCommit]
-                }
-                thread::wait
-            }} $::nodename [thread::id] $threadName]]
+    if {$event eq "process"} {
+        lassign $args name body
+
+        set tclfd [file tempfile tclfile tclfile.tcl]
+        puts $tclfd [subst {
+            source "main.tcl"
+            $body
+        }]; close $tclfd
+        # TODO: support spaces in $name
+        set command "tclsh8.6 $tclfile"
+        lassign [chan pipe] reader writer
+        set pid [exec {*}$command >@$writer 2>@1 &]
+	close $writer
+
+        fconfigure $reader -blocking 0
+        proc ::rl {channel} {
+            if {[gets $channel line] >= 0} { puts $line } \
+	    elseif {[eof $channel]} { close $channel }
         }
-        set thread [dict get $::threads $threadName]
-        thread::preserve $thread
-        thread::send -async $thread [list runInSerializedEnvironment $body [serializeEnvironment]]
-        uplevel [list set threadName_ $threadName]
-        uplevel [list set thread_ $thread]
-        uplevel {
-            When thread $threadName_ has committed statement set /statements/ {
-                foreach stmt $statements {
-                    Say {*}$stmt
-                }
-            }
-            On unmatch {
-                Retract thread $threadName_ has committed statement set /something/
-                thread::release $thread_
-            }
-        }
+	fileevent $reader readable [list ::rl $reader]
+
+        On unmatch [list exec kill -9 $pid]
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
@@ -358,7 +351,9 @@ proc StepImpl {} {
         }
     }
     if {[namespace which Statements::reactToStatementRemoval] ne ""} {
+        rename reactToStatementAddition ""
         rename reactToStatementRemoval ""
+        namespace import Statements::reactToStatementAddition
         namespace import Statements::reactToStatementRemoval
     }
 
@@ -414,15 +409,13 @@ proc StepImpl {} {
     }
 }
 
-set ::nodename [info hostname]
-source "./web.tcl" ;# FIXME: / weird -- can change ::nodename
+set ::nodename "[info hostname]-[pid]"
 
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
     # puts "$::nodename: Step"
 
-    # TODO: should these be reordered?
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
@@ -438,21 +431,8 @@ Assert when /this/ has program code /__code/ {
     }
 }
 
-set ::isLaptop [expr {$tcl_platform(os) eq "Darwin" || [info exists ::env(DISPLAY)]}]
-
-if {$tcl_version eq 8.5} {
-    error "Don't use Tcl 8.5 / macOS system Tcl. Quitting."
+if {[info exists ::entry]} {
+    source "./web.tcl"
+    source $::entry
 }
 
-if {[info exists ::env(FOLK_ENTRY)]} {
-    set ::entry $::env(FOLK_ENTRY)
-
-} elseif {$::isLaptop} {
-    #     if {[catch {source [file join $::starkit::topdir laptop.tcl]}]} 
-    set ::entry "laptop.tcl"
-
-} else {
-    set ::entry "pi/pi.tcl"
-}
-
-source $::entry
