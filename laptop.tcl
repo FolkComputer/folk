@@ -143,10 +143,12 @@ proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno
     return $txt
 }
 set ::nextProgramNum 0
-set defaultCode {Wish $this is outlined blue}
-proc newProgram "{programCode {$defaultCode}}" {
+proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
     set programNum [incr ::nextProgramNum]
-    set program [string tolower [string map {. ^} $::nodename]]:program-[randomRangeString 10]
+    set program [string map {. ^} $program]
+    if {$program eq ""} {
+        set program [string tolower [string map {. ^} $::nodename]]:program-[randomRangeString 10]
+    }
 
     toplevel .$program
     wm title .$program $program
@@ -193,6 +195,12 @@ proc newProgram "{programCode {$defaultCode}}" {
     }
     bind .$program <Command-Key-p> [list handlePrint $program]
     proc handleConfigure {program x y w h} {
+        # Save position to disk so it reloads at next startup:
+        dict set ::programPositions $program "wm geometry .$program [set w]x[set h]+[set x]+[set y]"
+        set fp [open "virtual-programs/program-positions.tcl" w]
+        puts -nonewline $fp [join [dict values $::programPositions] "\n"]
+        close $fp
+
         set vertices [list [list $x $y] \
                           [list [expr {$x+$w}] $y] \
                           [list [expr {$x+$w}] [expr {$y+$h}]] \
@@ -242,14 +250,17 @@ bind . <KeyPress> {handleKeyPress %K}
 # also see how it's done in pi.tcl
 foreach programFilename [glob virtual-programs/*.folk] {
     set fp [open $programFilename r]
-    newProgram [read $fp]
+    newProgram [read $fp] $programFilename
+    close $fp
+}
+catch {
+    set fp [open "virtual-programs/program-positions.tcl" r]
+    eval [read $fp]
     close $fp
 }
 
 Assert when /program/ has program code /code/ {
     if {!$::isLaptop} { return }
-    # FIXME: this would run from printed pages too which is weird
-    # not a problem in practice rn bc laptop doesn't see any printed pages
     When /someone/ wishes $program has filename /filename/ {
         wm title .$program $filename
         
