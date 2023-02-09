@@ -400,6 +400,51 @@ namespace eval Statements { ;# singleton Statement store
         return Tcl_NewListObj(matchcount, matches);
     }
 
+    $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
+        Tcl_Obj* clause = get(id)->clause;
+        Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
+        if (strcmp(Tcl_GetString(head), "when") == 0) {
+            // Is the statement a When? Match it against existing
+            // statements.
+
+            int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
+
+            // when the time is /t/ { ... } with environment /env/ -> the time is /t/
+            Tcl_Obj* unwhenizedClause = Tcl_DuplicateObj(clause);
+            Tcl_ListObjReplace(interp, unwhenizedClause, clauselen-3, 3, 0, NULL);
+            Tcl_ListObjReplace(interp, unwhenizedClause, 0, 1, 0, NULL);
+
+            Tcl_Obj* matches = findStatementsMatching(interp, unwhenizedClause);
+            Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
+            Tcl_ListObjReplace(interp, unwhenizedClause, 0, 0, 2, someoneClaims);
+            Tcl_ListObjAppendList(interp, matches, findStatementsMatching(interp, unwhenizedClause));
+
+            Tcl_Obj* body; Tcl_ListObjIndex(interp, clause, clauselen-4, &body);
+            Tcl_Obj* env; Tcl_ListObjIndex(interp, clause, clauselen-1, &env);
+            int matchc; Tcl_Obj** matchv;
+            Tcl_ListObjGetElements(interp, matches, &matchc, &matchv);
+            for (int i = 0; i < matchc; i++) {
+                Tcl_Obj* match = matchv[i];
+
+                Tcl_Obj* matcheeId;
+                Tcl_DictObjGet(interp, match, Tcl_NewStringObj("__matcheeId", -1), &matcheeId);
+                Tcl_ConvertToType(interp, matcheeId, &statement_t_ObjType);
+                statement_handle_t parents[] = {
+                    id,
+                    *(statement_handle_t*)matcheeId->internalRep.otherValuePtr,
+                };
+                match_handle_t matchId = addMatchImpl(sizeof(parents)/sizeof(parents[0]), parents);
+                (void)matchId;
+
+                Tcl_Obj* env;
+                runInSerializedEnvironment(body, env);
+            }
+        }
+
+        // Match this statement against existing Whens.
+
+        // the time is 3 -> when the time is 3 /__body/ with environment /__env/
+    }
     $cc proc reactToStatementRemoval {statement_handle_t id} void {
         // unset all things downstream of statement
         statement_t* stmt = get(id);
@@ -489,7 +534,7 @@ namespace eval Statements { ;# singleton Statement store
     init        
 
     # compatibility with older Tcl statements module interface
-    namespace export reactToStatementRemoval
+    namespace export reactToStatementAddition reactToStatementRemoval
     rename remove_ remove
     rename findStatementsMatching findMatches
     rename get getImpl
