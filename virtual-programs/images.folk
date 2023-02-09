@@ -22,8 +22,6 @@ namespace eval ::image {
 	namespace ensemble create
 }
 
-return
-
 When /someone/ wishes /p/ has camera image {
 	When the camera frame is /f/ {
 		When $p has region /r/ {
