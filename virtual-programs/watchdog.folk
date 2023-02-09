@@ -1,0 +1,24 @@
+if {$::isLaptop} { return }
+
+On process "watchdog" {
+    set ::lastPong [clock seconds]
+    fconfigure stdin -blocking 0 -buffering line
+    fileevent stdin readable {
+        gets stdin line
+        if {$line ne "pong"} { error "watchdog: Invalid return pong" }
+        set ::lastPong [clock seconds]
+
+        after 1000 { puts {expr {"pong"}} }
+    }
+    puts {expr {"pong"}}
+
+    every 2500 {
+        if {[clock seconds] - $::lastPong > 5} {
+            puts stderr "watchdog: Did not hear pong, restarting."
+            exec sudo systemctl restart folk
+            exit 1
+        }
+    }
+
+    vwait forever
+}
