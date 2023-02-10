@@ -248,7 +248,13 @@ proc handleKeyPress {k} {
 bind . <KeyPress> {handleKeyPress %K}
 
 # also see how it's done in pi.tcl
-foreach programFilename [glob virtual-programs/*.folk] {
+foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                             {*}[glob virtual-programs/*/*.folk]] {
+    # Skip archived programs.
+    if {[string first "/archive/" $programFilename] != -1} {
+        continue
+    }
+
     set fp [open $programFilename r]
     newProgram [read $fp] $programFilename
     close $fp

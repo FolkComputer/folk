@@ -1,0 +1,96 @@
+Wish $this has filename "rfid/rfid-fetcher.folk"
+
+On process rfid-ib-fetcher {
+    puts stderr ====================================
+    set cc [c create]
+    $cc include <complex.h>
+    $cc include <stdlib.h>
+    $cc include <sys/socket.h>
+    $cc include <arpa/inet.h>
+    $cc include <netinet/tcp.h>
+    $cc include <unistd.h>
+    $cc include <string.h>
+    $cc code {
+        typedef struct { int16_t i; int16_t q; } int16_iq_t; // iq format from radio
+        typedef float complex iq_t;
+        typedef long long freq_t;
+        typedef long long counter_t;
+        typedef struct {
+            char id[100];
+            counter_t counter;
+            int64_t timestamp_ns;
+            freq_t freq;
+
+            size_t iqcount;
+            iq_t iqs[];
+        } signal_t;
+
+        counter_t counter_when_syncing_started;
+    }
+    $cc proc fetcher_fetch {int fd} void {
+        // The role of this thread is just to continuously ingest new
+        // frames and state updates from the network, not to process them
+        // or think too hard about them. It does the same thing regardless
+        // of whether we're in syncing mode or not.
+
+        counter_t counter_wss;
+        recv(fd, &counter_wss, sizeof(counter_wss), 0);
+        counter_when_syncing_started = counter_wss;
+
+        counter_t counter; recv(fd, &counter, sizeof(counter), 0);
+        int64_t timestamp_ns; recv(fd, &timestamp_ns, sizeof(timestamp_ns), 0);
+        freq_t freq; recv(fd, &freq, sizeof(freq), 0);
+
+        uint32_t len; recv(fd, &len, sizeof(len), 0);
+        int16_iq_t *buf = (int16_iq_t *) malloc(len * sizeof(int16_iq_t));
+        uint32_t expectedsize = len * sizeof(buf[0]);
+        uint32_t recvsize = 0;
+        while (recvsize < expectedsize) {
+            ssize_t ret = recv(fd, (uint8_t *) buf + recvsize, expectedsize - recvsize, 0);
+            if (ret < 0) { perror("recv"); exit(1); }
+            if (ret == 0) {
+                // Server probably terminated. TODO: handle
+                fprintf(stderr, "Server terminated\n"); exit(1);
+            }
+            recvsize += ret;
+        }
+
+        signal_t* sig = malloc(sizeof(signal_t) + len * sizeof(int16_iq_t));
+        sig->counter = counter;
+        sig->timestamp_ns = timestamp_ns;
+        sig->freq = freq;
+        snprintf(sig->id, sizeof(sig->id), "IB %lld Hz", freq);
+    }
+    $cc proc fetcher_main {char* host uint16_t port void* buf} void {
+        // make TCP connection to radio
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd == -1) { perror("socket"); exit(1); }
+
+        int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+
+        struct sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr.s_addr = inet_addr(host);
+        bzero(&addr.sin_zero, 8);
+        printf("Trying to connect\n");
+        if (connect(fd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+            perror("connect"); close(fd); exit(1);
+        }
+        printf("Connected\n");
+
+        struct timeval tv; tv.tv_sec = 1; tv.tv_usec = 0; // 1-second timeout
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof tv);
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *) &tv, sizeof tv);
+
+        while (1) {
+            fetcher_fetch(fd);
+        }
+    }
+    $cc compile
+
+    Commit {
+        Claim the buffers are $p
+    }
+}
+

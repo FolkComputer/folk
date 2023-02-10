@@ -1,0 +1,7 @@
+set dir "/home/folk/tag-localization"
+set cc [join [list "/home/folk/gcc-linaro-7.2.1-" \
+                  "2017.11-x86_64_arm-linux-gnueabihf/bin/" \
+                  "arm-linux-gnueabihf-gcc"] ""]
+
+Wish $this runs Unix command \
+    "make -C $dir CC=$cc -j2 run-ib run-oob"
