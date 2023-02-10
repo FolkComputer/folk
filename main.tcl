@@ -272,7 +272,7 @@ proc On {event args} {
         fconfigure $stdio -blocking 0 -buffering line
 	fileevent $stdio readable [list ::rl $pid $stdio]
 
-        On unmatch [list exec kill -9 $pid]
+        On unmatch [list exec kill $pid]
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
