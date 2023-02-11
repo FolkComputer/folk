@@ -1,7 +1,7 @@
 Wish $this has filename "rfid/rfid-fetcher.folk"
 
+return
 On process rfid-ib-fetcher {
-    puts stderr ====================================
     set cc [c create]
     $cc include <complex.h>
     $cc include <stdlib.h>
@@ -60,6 +60,8 @@ On process rfid-ib-fetcher {
         sig->timestamp_ns = timestamp_ns;
         sig->freq = freq;
         snprintf(sig->id, sizeof(sig->id), "IB %lld Hz", freq);
+
+        // what to do with sig?
     }
     $cc proc fetcher_main {char* host uint16_t port void* buf} void {
         // make TCP connection to radio
@@ -89,8 +91,7 @@ On process rfid-ib-fetcher {
     }
     $cc compile
 
-    Commit {
-        Claim the buffers are $p
-    }
+    # Commit {
+    #     Claim the buffers are $p
+    # }
 }
-
