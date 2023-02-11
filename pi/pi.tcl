@@ -69,12 +69,18 @@ namespace eval Camera {
         AprilTags::init
         puts "Camera tid: [getTid]"
 
-        set grayFrame {}
+        set grayFrames [list]
         while true {
-            if {$grayFrame ne {}} { freeImage $grayFrame }
+            # Hack: we free old images. Really this should be done on
+            # the main thread when it's actually done with them.
+            if {[llength $grayFrames] > 10} {
+                freeImage [lindex $grayFrames 0]
+                set grayFrames [lreplace $grayFrames 0 0]
+            }
             set cameraTime [time {
                 set grayFrame [Camera::grayFrame]
                 set tags [AprilTags::detect $grayFrame]
+                lappend grayFrames $grayFrame
             }]
             set statements [list]
             lappend statements [list camera claims the camera time is $cameraTime]
