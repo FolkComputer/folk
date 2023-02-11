@@ -237,8 +237,8 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 proc Say {args} {
     set ::log [linsert $::log 0 [list Say $::matchId $args]]
 }
-proc Claim {args} { uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
-proc Wish {args} { uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
+proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
+proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 
 source "lib/environment.tcl"
 proc When {args} {
