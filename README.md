@@ -1,4 +1,4 @@
-# folk
+# Folk
 
 ## Mac installation
 
@@ -264,11 +264,10 @@ like `When` and `Wish` are really just plain Tcl functions that we've created. T
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-These are all implemented in `main.tcl`.
+These are all implemented in `main.tcl`. You should probably only need
+`Wish`, `Claim`, and `When` for most things.
 
-### Wish, Claim, and When
-
-These are what you are going to use most of the time.
+### Wish and Claim
 
 ```
 Wish $this is labelled "Hello, world!"
@@ -278,6 +277,8 @@ Wish $this is labelled "Hello, world!"
 Claim $this is cool
 Claim Omar is cool
 ```
+
+### When
 
 ```
 When /actor/ is cool {
@@ -303,16 +304,25 @@ When the collected matches for [list /actor/ is cool] are /matches/ {
 This gets you an array of all matches for the pattern `/actor/ is
 cool`.
 
-(We use the Tcl `list` proc to pass patterns around as first-class
-objects.)
+(We use the Tcl `list` function to construct a pattern as a
+first-class object.)
 
-### On
+### You usually won't need these
 
-The `On` block is generally used for weird non-reactive behavior. You
-_should not_ use `When`, `Claim`, or `Wish` directly inside an `On`
-block; those only make sense inside a normal reactive context.
+#### Before convergence
 
-#### On process
+`Before convergence` was implemented so that collecting matches could
+be implemented.
+
+#### On
+
+General note: the `On` block is used for weird non-reactive
+behavior.
+
+You should _not_ use `When`, `Claim`, or `Wish` directly inside an
+`On` block; those only make sense inside a normal reactive context.
+
+##### On process
 
 ```
 On process A {
@@ -323,11 +333,23 @@ On process A {
 }
 ```
 
-#### On unmatch
+##### On unmatch
 
-#### On convergence
+```
+set pid [exec chmod 33]
+On unmatch {
+    kill $pid
+}
+```
 
-### Before convergence
+##### On convergence
 
-### Assert and Retract
+TODO: unimplemented
 
+#### Assert and Retract
+
+General note: `Assert` and `Retract` are used for weird non-reactive
+behavior.
+
+You should generally _not_ use `Assert` and `Retract` inside a `When`
+block. Use `Claim`, `Wish`, and `When` instead.
