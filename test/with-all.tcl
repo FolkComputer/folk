@@ -5,10 +5,6 @@ proc assert condition {
    }
 }
 
-set fd [open "virtual-programs/with-all.folk" r]
-Assert program1 has program code [read $fd]
-close $fd
-
 Assert programOakland has program code {
     Claim Omar lives in "Oakland"
 }

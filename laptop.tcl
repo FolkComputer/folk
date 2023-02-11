@@ -70,67 +70,12 @@ if {[info exists ::shareNode]} {
             lappend auto_path "./vendor"
             package require websocket
 
-            proc handleWs {sock type msg} {
-                if {$type eq "connect"} {
-                    puts "sharer: Connected"
-                } elseif {$type eq "disconnect"} {
-                    puts "sharer: Disconnected"
-                    after 2000 { setupSock }
-                } elseif {$type eq "error"} {
-                    puts "sharer: WebSocket error: $type $msg"
-                    after 2000 { setupSock }
-                } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
-                    # We don't handle responses yet.
-                } else {
-                    error "Unknown WebSocket event: $type $msg"
-                }
-            }
-            proc setupSock {} {
-                puts "sharer: Trying to connect to: ws://$::shareNode:4273/ws"
-                set ::sock [::websocket::open "ws://$::shareNode:4273/ws" handleWs]
-            }
-            setupSock
 
             thread::wait
         } $::shareNode]]
     }
 }
-proc StepFromGUI {} {
-    Step
-
-    if {![info exists ::shareNode] ||
-        ![info exists ::sharerThread]} {
-        return
-    }
-
-    # share root statement set to Pi
-    set rootClauses [list]
-    dict for {_ stmt} [Statements::all] {
-        set parentMatchIds [statement parentMatchIds $stmt]
-        if {([dict exists $parentMatchIds {}] ||
-             [dict exists $parentMatchIds {idx {-1}}]) &&
-            [lindex [statement clause $stmt] 0] eq "laptop.tcl"} {
-            lappend rootClauses [statement clause $stmt]
-        }
-    }
-    thread::send -async $::sharerThread [format {
-        if {[catch {
-            set shareNode {%s}
-            set nodename {%s}
-            set rootClauses {%s}
-
-            set msg [subst {
-                Assert \$::nodename has root statements {$rootClauses} from $nodename with generation [incr ::gen]
-                Retract \$::nodename has root statements /anything/ from \$::nodename with generation /any/
-                Retract \$::nodename has root statements /anything/ from $nodename with generation [expr {$::gen - 1}]
-            }]
-            ::websocket::send $::sock text $msg
-
-        } err]} {
-            puts stderr "share error: $err"
-        }
-    } $::shareNode $::nodename $rootClauses]
-}
+proc StepFromGUI {} { Step }
 
 proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"}} {
     set range [expr {[string length $chars]-1}]
@@ -279,6 +224,48 @@ Assert when /program/ has program code /code/ {
     }
 }
 
+if {[info exists ::shareNode]} {
+    lappend auto_path "./vendor"
+    package require websocket
+
+    namespace eval Peers::$::shareNode {
+        proc setupSock {} {
+            puts "sharer: Trying to connect to: ws://$::shareNode:4273/ws"
+            variable sock [::websocket::open "ws://$::shareNode:4273/ws" [namespace code handleWs]]
+        }
+        proc handleWs {sock type msg} {
+            if {$type eq "connect"} {
+                puts "sharer: Connected"
+            } elseif {$type eq "disconnect"} {
+                puts "sharer: Disconnected"
+                after 2000 [namespace code setupSock]
+            } elseif {$type eq "error"} {
+                puts "sharer: WebSocket error: $type $msg"
+                after 2000 [namespace code setupSock]
+            } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
+                # We don't handle responses yet.
+            } else {
+                error "Unknown WebSocket event: $type $msg"
+            }
+        }
+        setupSock
+
+        proc run {msg} {
+            variable sock
+            ::websocket::send $sock text $msg
+        }
+    }
+
+    Assert "laptop.tcl" is providing root statements
+    Assert "laptop.tcl" wishes $::nodename shares statements like \
+        [list "laptop.tcl" is providing root statements]
+    Assert "laptop.tcl" wishes $::nodename shares statements like \
+        [list "laptop.tcl" claims /program/ has program code /code/]
+    Assert "laptop.tcl" wishes $::nodename shares statements like \
+        [list "laptop.tcl" claims /program/ has region /region/]
+}
+
 Display::init
+StepFromGUI
 
 vwait forever

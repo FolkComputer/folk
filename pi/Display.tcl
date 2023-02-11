@@ -187,9 +187,14 @@ dc proc drawImage {int x0 int y0 image_t image} void {
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
             int i = y*image.bytesPerRow + x*image.components;
-            uint8_t r = image.data[i];
-            uint8_t g = image.data[i+1];
-            uint8_t b = image.data[i+2];
+            uint8_t r; uint8_t g; uint8_t b;
+            if (image.components == 3) {
+                r = image.data[i]; g = image.data[i+1]; b = image.data[i+2];
+            } else if (image.components == 1) {
+                r = image.data[i]; g = image.data[i]; b = image.data[i];
+            } else {
+                exit(1);
+            }
             staging[(y0+y)*fbwidth + x0+x] = PIXEL(r, g, b);
         }
     }

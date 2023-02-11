@@ -11,7 +11,7 @@ proc On-process {name body} {
     # TODO: send it the serialized environment
     # TODO: establish I/O w/o stdout/stdin
     set stdio [open "|tclsh8.6 $tclfile 2>@stderr" w+]
-    set pid $stdio
+    set pid [pid $stdio]
 
     set ::onScript$pid ""
     proc ::rl {pid stdio} {

@@ -142,11 +142,11 @@ foreach programFilename [glob virtual-programs/*.folk] {
     loadProgram $programFilename
 }
 
-# so we can retract them all at once if a laptop connects
-Assert $::nodename has root statements $::rootStatements from $::nodename with generation 0
-
-Assert when $::nodename has root statements /statements/ from /someone/ with generation /any/ {
-    foreach stmt $statements { Say {*}$stmt }
+# so we can retract them all at once if a laptop connects:
+Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {
+    if {[llength $roots] == 0} {
+        foreach stmt $::rootStatements { Say {*}$stmt }
+    }
 }
 
 proc every {ms body} {

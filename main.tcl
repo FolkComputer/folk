@@ -237,15 +237,14 @@ proc Retract {args} {lappend ::log [list Retract $args]}
 proc Say {args} {
     set ::log [linsert $::log 0 [list Say $::matchId $args]]
 }
-proc Claim {args} { uplevel [list Say someone claims {*}$args] }
-proc Wish {args} { uplevel [list Say someone wishes {*}$args] }
+proc Claim {args} { uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
+proc Wish {args} { uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 
 source "lib/environment.tcl"
 proc When {args} {
     uplevel [list Say when {*}$args with environment [serializeEnvironment]]
 }
 
-source "lib/process.tcl"
 proc On {event args} {
     if {$event eq "process"} {
         lassign $args name body
@@ -256,6 +255,7 @@ proc On {event args} {
         dict set Statements::matches $::matchId destructor [list $body [serializeEnvironment]]
     }
 }
+proc Do {args} { lappend ::log [list Do $::matchId $args {}] }
 proc Before {event body} {
     if {$event eq "convergence"} {
         lappend ::log [list Do $::matchId $body [serializeEnvironment]]
@@ -403,28 +403,88 @@ proc StepImpl {} {
 
 set ::nodename "[info hostname]-[pid]"
 
+namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
-    # puts "$::nodename: Step"
-
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
     set ::stepTime [time {StepImpl}]
+
+    foreach peer [namespace children Peers] {
+        namespace eval $peer {
+            if {[info exists shareStatements]} {
+                variable prevShareStatements $shareStatements
+            } else {
+                variable prevShareStatements [list]
+            }
+
+            variable shareStatements [list]
+            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
+                set pattern [dict get $m pattern]
+                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                    set clause [statement clause [Statements::get $id]]
+                    set match [Statements::unify $pattern $clause]
+                    if {$match != false} {
+                        lappend shareStatements [list {*}$clause]
+                    }
+                }
+            }
+
+            incr sequenceNumber
+            run [subst {
+                Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
+                Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
+            }]
+        }
+    }
+}
+Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
+    foreach stmt $statements { Say {*}$stmt }
 }
 
 source "lib/math.tcl"
 
-# this defines $this in the contained scopes
-Assert when /this/ has program code /__code/ {
-    if {[catch $__code err] == 1} {
-        puts "$::nodename: Error in $this: $err\n$::errorInfo"
+set ::collectedMatches [dict create]
+Assert when when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
+    set varNames [lmap word $clause {expr {
+        [regexp {^/([^/ ]+)/$} $word -> varName] ? $varName : [continue]
+    }}]
+    When {*}$clause {
+        set match [dict create]
+        foreach varName $varNames { dict set match $varName [set $varName] }
+
+        dict set ::collectedMatches $clause $match true
+        On unmatch {
+            if {[dict exists $::collectedMatches $clause]} {
+                dict unset ::collectedMatches $clause $match
+            }
+        }
     }
+
+    When $::nodename has step count /c/ {
+        if {[dict exists $::collectedMatches $clause]} {
+            set matches [dict get $::collectedMatches $clause]
+            Say the collected matches for $clause are [dict keys $matches]
+        } else {
+            Say the collected matches for $clause are {}
+        }
+    }
+    On unmatch { dict unset ::collectedMatches $clause }
 }
 
 if {[info exists ::entry]} {
+    # This all only runs if we're in a primary Folk process; we don't
+    # want it to run in subprocesses (which also run main.tcl).
+
+    # this defines $this in the contained scopes
+    Assert when /this/ has program code /__code/ {
+        if {[catch $__code err] == 1} {
+            puts "$::nodename: Error in $this: $err\n$::errorInfo"
+        }
+    }
+    source "lib/process.tcl"
     source "./web.tcl"
     source $::entry
 }
-
