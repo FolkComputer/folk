@@ -96,7 +96,7 @@ namespace eval Statements { ;# singleton Statement store
     }
     proc matchExists {id} { variable matches; dict exists $matches $id }
 
-    proc add {clause {newParentMatchIds {{} true}}} {
+    proc add {clause {newParentMatchIds {{} 1}}} {
         # empty set in newParentMatchIds = an assertion
  
         variable statements
@@ -121,7 +121,9 @@ namespace eval Statements { ;# singleton Statement store
             trie add statementClauseToId $clause $id
         } else {
             dict with statements $id {
-                set parentMatchIds [dict merge $parentMatchIds $newParentMatchIds]
+                dict for {newParentMatchId count} $newParentMatchIds {
+                    dict incr parentMatchIds $newParentMatchId $count
+                }
             }
         }
 
@@ -338,6 +340,15 @@ proc StepImpl {} {
         namespace import Statements::reactToStatementAddition
         namespace import Statements::reactToStatementRemoval
     }
+    proc reactToStatementRetraction {id} {
+        dict with Statements::statements $id {
+            dict incr parentMatchIds {} -1
+            if {[dict get $parentMatchIds {}] == 0} {
+                reactToStatementRemoval $id
+                Statements::remove $id
+            }
+        }
+    }
 
     # d ""
     # d "Step:"
@@ -352,32 +363,31 @@ proc StepImpl {} {
 
         set op [lindex $entry 0]
         # d "$op: [string map {\n { }} [string range $entry 0 100]]"
-        if {$op == "Assert"} {
+        if {$op eq "Assert"} {
             set clause [lindex $entry 1]
             # insert empty environment if not present
-            if {[lindex $clause 0] == "when" && [lrange $clause end-2 end-1] != "with environment"} {
+            if {[lindex $clause 0] eq "when" && [lrange $clause end-2 end-1] != "with environment"} {
                 set clause [list {*}$clause with environment {}]
             }
             lassign [Statements::add $clause] id isNewStatement ;# statement without parents
             if {$isNewStatement} { reactToStatementAddition $id }
 
-        } elseif {$op == "Retract"} {
+        } elseif {$op eq "Retract"} {
             set clause [lindex $entry 1]
             set ids [lmap match [Statements::findMatches $clause] {
                 dict get $match __matcheeId
             }]
             foreach id $ids {
-                reactToStatementRemoval $id
-                Statements::remove $id
+                reactToStatementRetraction $id
             }
 
-        } elseif {$op == "Say"} {
+        } elseif {$op eq "Say"} {
             set parentMatchId [lindex $entry 1]
             set clause [lindex $entry 2]
-            lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
+            lassign [Statements::add $clause [dict create $parentMatchId 1]] id isNewStatement
             if {$isNewStatement} { reactToStatementAddition $id }
 
-        } elseif {$op == "Do"} {
+        } elseif {$op eq "Do"} {
             lassign $entry _ matchId body env
             if {[Statements::matchExists $matchId]} {
                 set ::matchId $matchId
