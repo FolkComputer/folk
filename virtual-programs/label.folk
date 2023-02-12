@@ -17,7 +17,7 @@ When /thing/ has region /region/ {
 		set fontSize 12
 		for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
 			   set ly [expr {abs($radians) < 1.57 ? $y+$lineNum*18 : $y+$lineNum*18}]
-                           Do Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
+                           Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
 		}
 	}
 }
