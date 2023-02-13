@@ -10,7 +10,7 @@ proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
     if {$path eq "/"} {
         set l [list]
-        dict for {id stmt} [Statements::all] {
+        dict for {id stmt} $Statements::statements {
             lappend l [subst {
                 <li>
                 <details>
