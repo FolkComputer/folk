@@ -125,7 +125,6 @@ namespace eval Statements {
             set id [incr nextStatementId]
             set stmt [statement create $clause $parents]
             dict set statements $id $stmt
-            puts "trie add statementClauseToId $clause $id"
             trie add statementClauseToId $clause $id
         } else {
             # Add the parent matches that were passed in as parents to
@@ -160,8 +159,8 @@ namespace eval Evaluator {
     proc Assert {args} { variable log; lappend log [list Assert $args] }
     proc Retract {args} { variable log; lappend log [list Retract $args] }
 
-    # Trie<StatementPattern, Tuple<StatementId, Reaction>>
-    variable statementPatternToReaction [trie create]
+    # Trie<StatementPattern, Dict<StatementId, Reaction>>
+    variable statementPatternToReactions [trie create]
 
     # When reactTo is called, it scans the existing statement set for
     # anything that already matches the pattern. Then it keeps
@@ -180,8 +179,13 @@ namespace eval Evaluator {
 
         # Store this pattern and reaction so it can be called when a
         # new matching statement is added later.
-        variable statementPatternToReaction
-        trie add statementPatternToReaction $pattern [list $reactingId $reaction]
+        variable statementPatternToReactions
+        set reactions [trie lookup $statementPatternToReactions $pattern]
+        if {[llength $reactions] > 1} { error "Statement pattern is fan-out" }
+        if {[llength $reactions] == 1} { set reactions [lindex $reactions 0] }
+        if {[llength $reactions] == 0} { set reactions [dict create] }
+        dict set reactions $reactingId $reaction
+        trie add statementPatternToReactions $pattern $reactions
     }
     proc reactToStatementAdditionThatMatchesWhen {whenId statementId} {
         set when [Statements::get $whenId]
@@ -203,11 +207,12 @@ namespace eval Evaluator {
         }
 
         # Trigger any prior reactions.
-        variable statementPatternToReaction
-        set reactions [trie lookup $statementPatternToReaction $clause]
-        foreach reactingIdAndReaction $reactions {
-            lassign $reactingIdAndReaction reactingId reaction
-            {*}$reaction $reactingId $id
+        variable statementPatternToReactions
+        set reactionses [trie lookup $statementPatternToReactions $clause]
+        foreach reactions $reactionses {
+            dict for {reactingId reaction} $reactions {
+                {*}$reaction $reactingId $id
+            }
         }
     }
 
@@ -228,6 +233,7 @@ namespace eval Evaluator {
 
 Evaluator::Assert the time is 4
 Evaluator::Assert when the time is /t/ { puts "the time is $t" }
+Evaluator::Assert when the time is /t/ { puts "also!!! the time is $t" }
 Evaluator::Assert the time is 5
 Evaluator::Evaluate
 
