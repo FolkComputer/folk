@@ -25,6 +25,10 @@ proc Step {} {
     Retract $::nodename has step count [expr {$::stepCount - 1}]
     set ::stepTime [time {StepImpl}]
 
+    if {[namespace exists Display]} {
+        Display::commit ;# TODO: this is weird, not right level
+    }
+
     foreach peer [namespace children Peers] {
         namespace eval $peer {
             if {[info exists shareStatements]} {
