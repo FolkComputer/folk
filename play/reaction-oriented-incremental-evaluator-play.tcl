@@ -159,6 +159,25 @@ namespace eval Statements {
         dict unset statements $id
         trie remove statementClauseToId $clause
     }
+    proc size {} { variable statements; dict size $statements }
+
+    # TODO: rename to something that doesn't have word 'Matches'
+    proc findMatches {pattern} {
+        variable statementClauseToId
+        variable statements
+        # Returns a list of bindings like
+        # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
+
+        set matches [list]
+        foreach id [trie lookup $statementClauseToId $pattern] {
+            set match [statement unify $pattern [statement clause [get $id]]]
+            if {$match != false} {
+                dict set match __matcheeId $id
+                lappend matches $match
+            }
+        }
+        set matches
+    }
 }
 
 namespace eval Evaluator {
@@ -166,13 +185,34 @@ namespace eval Evaluator {
 
     # Trie<StatementPattern, Dict<StatementId, Reaction>>
     variable statementPatternToReactions [trie create]
+    proc addReaction {pattern reactingId reaction} {
+        variable statementPatternToReactions
+        set reactionses [trie lookup $statementPatternToReactions $pattern]
+        if {[llength $reactionses] > 1} { error "Statement pattern is fan-out" }
+        if {[llength $reactionses] == 1} { set reactions [lindex $reactionses 0] }
+        if {[llength $reactionses] == 0} { set reactions [dict create] }
+        dict set reactions $reactingId $reaction
+        trie add statementPatternToReactions $pattern $reactions
+    }
+    proc removeReaction {pattern reactingId} {
+        variable statementPatternToReactions
+        set reactionses [trie lookup $statementPatternToReactions $pattern]
+        if {[llength $reactionses] != 1} { error "Statement pattern is fan-out or zero" }
+        set reactions [lindex $reactionses 0]
+        dict unset reactions $reactingId
+        if {[dict size $reactions] == 0} {
+            trie remove statementPatternToReactions $pattern
+        } else {
+            trie add statementPatternToReactions $pattern $reactions
+        }
+    }
 
     # When reactTo is called, it scans the existing statement set for
     # anything that already matches the pattern. Then it keeps
     # watching afterward as new statements come in that match the
     # pattern.
     #
-    # A reaction is runnable script that gets passed the reactingId
+    # A reaction is a runnable script that gets passed the reactingId
     # and the ID of the matching statement.
     proc reactTo {pattern reactingId reaction} {
         # Scan the existing statement set for any already-existing
@@ -184,15 +224,15 @@ namespace eval Evaluator {
 
         # Store this pattern and reaction so it can be called when a
         # new matching statement is added later.
-        variable statementPatternToReactions
-        set reactions [trie lookup $statementPatternToReactions $pattern]
-        if {[llength $reactions] > 1} { error "Statement pattern is fan-out" }
-        if {[llength $reactions] == 1} { set reactions [lindex $reactions 0] }
-        if {[llength $reactions] == 0} { set reactions [dict create] }
-        dict set reactions $reactingId $reaction
-        trie add statementPatternToReactions $pattern $reactions
+        addReaction $pattern $reactingId $reaction
     }
     proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern statementId} {
+        if {![Statements::exists $whenId]} {
+            # FIXME: delete this reaction
+            variable statementPatternToReactions
+            removeReaction $whenPattern $whenId
+            return
+        }
         set when [Statements::get $whenId]
         set stmt [Statements::get $statementId]
 
@@ -293,10 +333,19 @@ namespace eval Evaluator {
                 error "Unsupported log operation $op"
             }
         }
+
+        if {[namespace exists Display]} {
+            Display::commit ;# TODO: this is weird, not right level
+        }
     }
 }
 # invoke at top level, add/remove independent 'axioms' for the system
-proc Assert {args} { lappend Evaluator::log [list Assert $args] }
+proc Assert {args} {
+    if {[lindex $args 0] eq "when" && [lindex $args end-1] ne "environment"} {
+        set args [list {*}$args with environment {}]
+    }
+    lappend Evaluator::log [list Assert $args]
+}
 proc Retract {args} { lappend Evaluator::log [list Retract $args] }
 
 # invoke from within a When context, add dependent statements
@@ -311,30 +360,15 @@ proc When {args} {
     set pattern [lreplace $args end end]
     uplevel [list Say when {*}$pattern $body with environment [serializeEnvironment]]
 }
+proc On {event args} {
+    if {$event eq "process"} {
+        lassign $args name body
+        uplevel [list On-process $name $body]
 
-Assert the time is 4
-Assert when the time is /t/ {
-    puts "the time is $t"
-    Claim the doubled time is [expr {$t*2}]
-} with environment {}
-Assert when the time is /t/ {
-    puts "also!!! the time is $t"
-    When the doubled time is /dt/ {
-        puts "the doubled time of $t is $dt"
+    } elseif {$event eq "unmatch"} {
+        set body [lindex $args 0]
+        dict set Statements::matches $::matchId destructor [list $body [serializeEnvironment]]
     }
-} with environment {}
-Assert the time is 5
-Evaluator::Evaluate
-
-Retract the time is 4
-Evaluator::Evaluate
-
-dict for {_ stmt} $Statements::statements {
-    puts [statement short $stmt]
 }
 
-# set t [trie create]
-# trie add t [list hello there] 1
-# trie add t [list hello there] 2
-# exec dot -Tpdf >trie.pdf <<[trie dot $t]
-# puts [trie lookup $t [list hello there]]
+proc StepImpl {} { Evaluator::Evaluate }

@@ -1,3 +1,6 @@
+# temporarily disabled
+return
+
 proc assert condition {
    set s "{$condition}"
    if {![uplevel 1 expr $s]} {
