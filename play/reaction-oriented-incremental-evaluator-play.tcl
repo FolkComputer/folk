@@ -168,8 +168,18 @@ namespace eval Evaluator {
     # watching afterward as new statements come in that match the
     # pattern.
     #
-    # A reaction is runnable script 
+    # A reaction is runnable script that gets passed the reactingId
+    # and the ID of the matching statement.
     proc reactTo {pattern reactingId reaction} {
+        # Scan the existing statement set for any already-existing
+        # matching statements.
+        set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $pattern]
+        foreach id $alreadyMatchingStatements {
+            {*}$reaction $reactingId $id
+        }
+
+        # Store this pattern and reaction so it can be called when a
+        # new matching statement is added later.
         variable statementPatternToReaction
         trie add statementPatternToReaction $pattern [list $reactingId $reaction]
     }
@@ -192,7 +202,7 @@ namespace eval Evaluator {
             reactTo $pattern $id reactToStatementAdditionThatMatchesWhen
         }
 
-        # Trigger any existing reactions.
+        # Trigger any prior reactions.
         variable statementPatternToReaction
         set reactions [trie lookup $statementPatternToReaction $clause]
         foreach reactingIdAndReaction $reactions {
@@ -216,6 +226,7 @@ namespace eval Evaluator {
     }
 }
 
+Evaluator::Assert the time is 4
 Evaluator::Assert when the time is /t/ { puts "the time is $t" }
 Evaluator::Assert the time is 5
 Evaluator::Evaluate
