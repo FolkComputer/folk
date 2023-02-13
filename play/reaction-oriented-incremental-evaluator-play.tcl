@@ -106,6 +106,9 @@ namespace eval Statements {
 
     variable statementClauseToId [trie create] ;# Trie<StatementClause, StatementId>
 
+    proc exists {id} { variable statements; dict exists $statements $id }
+    proc get {id} { variable statements; dict get $statements $id }
+
     proc add {clause {parents {{} true}}} {
         variable statements
         variable nextStatementId
@@ -149,8 +152,13 @@ namespace eval Statements {
 
         list $id $isNewStatement
     }
-    proc exists {id} { variable statements; dict exists $statements $id }
-    proc get {id} { variable statements; dict get $statements $id }
+    proc remove {id} {
+        variable statements
+        variable statementClauseToId
+        set clause [statement clause [get $id]]
+        dict unset statements $id
+        trie remove statementClauseToId $clause
+    }
 }
 
 namespace eval Evaluator {
@@ -219,6 +227,41 @@ namespace eval Evaluator {
             }
         }
     }
+    proc reactToStatementRemoval {id} {
+        # unset all things downstream of statement
+        set childMatchIds [statement children [Statements::get $id]]
+        dict for {matchId _} $childMatchIds {
+            if {![Matches::exists $matchId]} { continue } ;# if was removed earlier
+
+            dict with Matches::matches $matchId {
+                # this match will be dead, so remove the match from the
+                # other parents of the match
+                foreach parentStatementId $parents {
+                    if {![Statements::exists $parentStatementId]} { continue }
+                    dict with Statements::statements $parentStatementId {
+                        dict unset children $matchId
+                    }
+                }
+
+                foreach childStatementId $children {
+                    if {![Statements::exists $childStatementId]} { continue }
+                    dict with Statements::statements $childStatementId {
+                        dict unset parents $matchId
+
+                        # is this child out of parent matches? => it's dead
+                        if {[dict size $parents] == 0} {
+                            reactToStatementRemoval $childStatementId
+                            Statements::remove $childStatementId
+                            set children [lmap cid $children {expr {$cid == $childStatementId ? [continue] : $cid }}]
+                        }
+                    }
+                }
+
+                if {$destructor ne ""} { runInSerializedEnvironment {*}$destructor }
+            }
+            dict unset Matches::matches $matchId
+        }
+    }
 
     proc Evaluate {} {
         variable log
@@ -230,6 +273,14 @@ namespace eval Evaluator {
                 set clause [lindex $entry 1]
                 lassign [Statements::add $clause] id isNewStatement ;# statement without parents
                 if {$isNewStatement} { reactToStatementAddition $id }
+
+            } elseif {$op eq "Retract"} {
+                set pattern [lindex $entry 1]
+                set ids [trie lookup $Statements::statementClauseToId $pattern]
+                foreach id $ids {
+                    reactToStatementRemoval $id
+                    Statements::remove $id
+                }
 
             } elseif {$op eq "Say"} {
                 lassign $entry _ parentMatchId clause
@@ -267,6 +318,13 @@ Assert when the time is /t/ {
 }
 Assert the time is 5
 Evaluator::Evaluate
+
+Retract the time is 4
+Evaluator::Evaluate
+
+dict for {_ stmt} $Statements::statements {
+    puts [statement short $stmt]
+}
 
 # set t [trie create]
 # trie add t [list hello there] 1
