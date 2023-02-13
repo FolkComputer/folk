@@ -67,7 +67,7 @@ namespace eval Matches {
             dict create \
                 parents $parents \
                 children [list] \
-                destructor {}
+                destructors [list]
         }
 
         namespace ensemble create
@@ -177,6 +177,33 @@ namespace eval Statements {
             }
         }
         set matches
+    }
+
+    proc dot {} {
+        variable statements
+        set dot [list]
+        dict for {id stmt} $statements {
+            lappend dot "subgraph cluster_$id {"
+            lappend dot "color=lightgray;"
+
+            set label [statement clause $stmt]
+            set label [join [lmap line [split $label "\n"] {
+                expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+            }] "\n"]
+            set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+            lappend dot "s$id \[label=\"s$id: $label\"\];"
+
+            dict for {matchId _} [statement parents $stmt] {
+                lappend dot "m$matchId \[label=\"m$matchId\"\];"
+                lappend dot "m$matchId -> s$id;"
+            }
+
+            lappend dot "}"
+            dict for {matchId _} [statement children $stmt] {
+                lappend dot "s$id -> m$matchId;"
+            }
+        }
+        return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
 }
 
@@ -367,7 +394,9 @@ proc On {event args} {
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
-        dict set Statements::matches $::matchId destructor [list $body [serializeEnvironment]]
+        dict with Matches::matches $::matchId {
+            lappend destructors [list $body [serializeEnvironment]]
+        }
     }
 }
 
