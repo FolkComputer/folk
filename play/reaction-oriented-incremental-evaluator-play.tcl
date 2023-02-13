@@ -8,17 +8,6 @@ namespace eval trie {
     namespace ensemble create
 }
 
-namespace eval match { ;# match record type
-    namespace ensemble create
-
-    namespace export create
-    proc create {{parents {}}} {
-        dict create \
-            parents $parents \
-            children [list] \
-            destructor {}
-    }
-}
 namespace eval statement { ;# statement record type
     # A statement contains a clause (a Tcl list of words), parents (a
     # set of match IDs), and children (a set of match IDs). Sets are
@@ -72,6 +61,18 @@ namespace eval statement { ;# statement record type
 
 # This singleton match store lets you add and remove matches.
 namespace eval Matches {
+    namespace eval match { ;# match record type
+        namespace export create
+        proc create {{parents {}}} {
+            dict create \
+                parents $parents \
+                children [list] \
+                destructor {}
+        }
+
+        namespace ensemble create
+    }
+
     # Dict<MatchId, [parents: List<StatementId>, children: List<StatementId>]>
     variable matches [dict create]
     variable nextMatchId 1
@@ -155,10 +156,6 @@ namespace eval Statements {
 namespace eval Evaluator {
     variable log [list]
 
-    # invoke at top level, add/remove independent 'axioms' for the system
-    proc Assert {args} { variable log; lappend log [list Assert $args] }
-    proc Retract {args} { variable log; lappend log [list Retract $args] }
-
     # Trie<StatementPattern, Dict<StatementId, Reaction>>
     variable statementPatternToReactions [trie create]
 
@@ -174,7 +171,7 @@ namespace eval Evaluator {
         # matching statements.
         set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $pattern]
         foreach id $alreadyMatchingStatements {
-            {*}$reaction $reactingId $id
+            {*}$reaction $id
         }
 
         # Store this pattern and reaction so it can be called when a
@@ -187,23 +184,30 @@ namespace eval Evaluator {
         dict set reactions $reactingId $reaction
         trie add statementPatternToReactions $pattern $reactions
     }
-    proc reactToStatementAdditionThatMatchesWhen {whenId statementId} {
+    proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern statementId} {
         set when [Statements::get $whenId]
         set stmt [Statements::get $statementId]
 
         set bindings [statement unify \
-                          [lrange [statement clause $when] 1 end-1] \
+                          $whenPattern \
                           [statement clause $stmt]]
 
-        set body [lindex [statement clause $when] end]
-        dict with bindings $body
+        if {$bindings ne false} {
+            set ::matchId [Matches::add [list $whenId $statementId]]
+            set body [lindex [statement clause $when] end]
+            dict with bindings $body
+        }
     }
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lindex $clause 0] eq "when"} {
             # when the time is /t/ { ... } -> the time is /t/
             set pattern [lrange $clause 1 end-1]
-            reactTo $pattern $id reactToStatementAdditionThatMatchesWhen
+            reactTo $pattern $id [list reactToStatementAdditionThatMatchesWhen $id $pattern]
+
+            # when the time is /t/ { ... } -> /someone/ claims the time is /t/
+            set claimizedPattern [list /someone/ claims {*}$pattern]
+            reactTo $claimizedPattern $id [list reactToStatementAdditionThatMatchesWhen $id $claimizedPattern]
         }
 
         # Trigger any prior reactions.
@@ -211,7 +215,7 @@ namespace eval Evaluator {
         set reactionses [trie lookup $statementPatternToReactions $clause]
         foreach reactions $reactionses {
             dict for {reactingId reaction} $reactions {
-                {*}$reaction $reactingId $id
+                {*}$reaction $id
             }
         }
     }
@@ -226,15 +230,42 @@ namespace eval Evaluator {
                 set clause [lindex $entry 1]
                 lassign [Statements::add $clause] id isNewStatement ;# statement without parents
                 if {$isNewStatement} { reactToStatementAddition $id }
+
+            } elseif {$op eq "Say"} {
+                lassign $entry _ parentMatchId clause
+                lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
+                if {$isNewStatement} { reactToStatementAddition $id }
+
+            } else {
+                error "Unsupported log operation $op"
             }
         }
     }
 }
+# invoke at top level, add/remove independent 'axioms' for the system
+proc Assert {args} { lappend Evaluator::log [list Assert $args] }
+proc Retract {args} { lappend Evaluator::log [list Retract $args] }
 
-Evaluator::Assert the time is 4
-Evaluator::Assert when the time is /t/ { puts "the time is $t" }
-Evaluator::Assert when the time is /t/ { puts "also!!! the time is $t" }
-Evaluator::Assert the time is 5
+# invoke from within a When context, add dependent statements
+proc Say {args} {
+    set Evaluator::log [linsert $Evaluator::log 0 [list Say $::matchId $args]]
+}
+proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
+proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
+proc When {args} { uplevel [list Say when {*}$args] }
+
+Assert the time is 4
+Assert when the time is /t/ {
+    puts "the time is $t"
+    Claim the doubled time is [expr {$t*2}]
+}
+Assert when the time is /t/ {
+    puts "also!!! the time is $t"
+    When the doubled time is /dt/ {
+        puts "the doubled time is $dt"
+    }
+}
+Assert the time is 5
 Evaluator::Evaluate
 
 # set t [trie create]
