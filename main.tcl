@@ -59,35 +59,6 @@ Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
 
 source "lib/math.tcl"
 
-set ::collectedMatches [dict create]
-Assert when when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
-    set varNames [lmap word $clause {expr {
-        [regexp {^/([^/ ]+)/$} $word -> varName] ? $varName : [continue]
-    }}]
-    When {*}$clause {
-        set match [dict create]
-        foreach varName $varNames { dict set match $varName [set $varName] }
-
-        dict set ::collectedMatches $clause $match true
-        On unmatch {
-            if {[dict exists $::collectedMatches $clause]} {
-                dict unset ::collectedMatches $clause $match
-            }
-        }
-    } with environment [dict create varNames $varNames clause $clause]
-
-    When $::nodename has step count /c/ {
-        if {[dict exists $::collectedMatches $clause]} {
-            set matches [dict get $::collectedMatches $clause]
-            Say the collected matches for $clause are [dict keys $matches]
-        } else {
-            Say the collected matches for $clause are {}
-        }
-    } with environment [dict create clause $clause]
-
-    On unmatch { dict unset ::collectedMatches $clause }
-}
-
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).

@@ -18,16 +18,19 @@ namespace eval statement { ;# statement record type
         # clause = [list the fox is out]
         # parentMatchIds = [dict create 503 true 208 true]
         # childMatchIds = [dict create 101 true 433 true]
+        # isZombie = false
         dict create \
             clause $clause \
             parents $parents \
-            children $children
+            children $children \
+            isZombie false
     }
 
-    namespace export clause parents children
+    namespace export clause parents children isZombie
     proc clause {stmt} { dict get $stmt clause }
     proc parents {stmt} { dict get $stmt parents }
     proc children {stmt} { dict get $stmt children }
+    proc isZombie {stmt} { dict get $stmt isZombie }
 
     namespace export unify
     proc unify {a b} {
@@ -152,6 +155,10 @@ namespace eval Statements {
 
         list $id $isNewStatement
     }
+    proc markZombie {id} {
+        variable statements
+        dict set statements $id isZombie true
+    }
     proc remove {id} {
         variable statements
         variable statementClauseToId
@@ -170,7 +177,10 @@ namespace eval Statements {
 
         set matches [list]
         foreach id [trie lookup $statementClauseToId $pattern] {
-            set match [statement unify $pattern [statement clause [get $id]]]
+            set stmt [get $id]
+            if {[statement isZombie $stmt]} { continue }
+
+            set match [statement unify $pattern [statement clause $stmt]]
             if {$match != false} {
                 dict set match __matcheeId $id
                 lappend matches $match
@@ -255,7 +265,6 @@ namespace eval Evaluator {
     }
     proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern statementId} {
         if {![Statements::exists $whenId]} {
-            # FIXME: delete this reaction
             variable statementPatternToReactions
             removeReaction $whenPattern $whenId
             return
@@ -266,7 +275,6 @@ namespace eval Evaluator {
         set bindings [statement unify \
                           $whenPattern \
                           [statement clause $stmt]]
-
         if {$bindings ne false} {
             set ::matchId [Matches::add [list $whenId $statementId]]
             set body [lindex [statement clause $when] end-3]
@@ -275,9 +283,56 @@ namespace eval Evaluator {
             runInSerializedEnvironment $body $env
         }
     }
+    proc recollect {collectId collectPattern} {
+        # Called when a statement that someone is collecting has been
+        # added or removed.
+
+        set collect [Statements::get $collectId]
+        set children [statement children $collect]
+        if {[dict size $children] > 1} {
+            exec dot -Tpdf >preerr.pdf <<[Statements::dot]
+            error "Collect $collectId has more than 1 match: {$children}"
+        } elseif {[dict size $children] == 1} {
+            # Delete the existing match child immediately.
+            set childMatchId [lindex [dict keys $children] 0]
+            # Delete the first destructor (which does a recollect) before doing the removal.
+            dict set Matches::matches $childMatchId destructors [lreplace [dict get $Matches::matches $childMatchId destructors] 0 0]
+            reactToMatchRemoval $childMatchId
+            dict set Statements::statements $collectId children [dict create]
+        }
+
+        set body [lindex [statement clause $collect] end-3]
+        set matchesVar [string range [lindex [statement clause $collect] end-4] 1 end-1] 
+        set env [lindex [statement clause $collect] end]
+
+        set matches [Statements::findMatches $collectPattern]
+        set ::matchId [Matches::add [list $collectId {*}[lmap m $matches {dict get $m __matcheeId}]]]
+        dict with Matches::matches $::matchId {
+            lappend destructors [list [list Evaluator::recollect $collectId $collectPattern] {}]
+        }
+
+        dict set env $matchesVar $matches
+        runInSerializedEnvironment $body $env
+    }
+    proc reactToStatementAdditionThatMatchesCollect {collectId collectPattern statementId} {
+        if {![Statements::exists $collectId]} {
+            variable statementPatternToReactions
+            removeReaction $collectPattern $collectId
+            return
+        }
+        recollect $collectId $collectPattern
+    }
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
-        if {[lindex $clause 0] eq "when"} {
+        if {[lrange $clause 0 4] eq "when the collected matches for"} {
+            # when the collected matches for [list the time is /t/] are /matches/ { ... } with environment /__env/ -> the time is /t/
+            set pattern [lindex $clause 5]
+            reactTo $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
+
+            set claimizedPattern [list /someone/ claims {*}$pattern]
+            reactTo $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
+
+        } elseif {[lindex $clause 0] eq "when"} {
             # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
             set pattern [lrange $clause 1 end-4]
             reactTo $pattern $id [list reactToStatementAdditionThatMatchesWhen $id $pattern]
@@ -296,38 +351,44 @@ namespace eval Evaluator {
             }
         }
     }
+    proc reactToMatchRemoval {matchId} {
+        dict with Matches::matches $matchId {
+            # this match will be dead, so remove the match from the
+            # other parents of the match
+            foreach parentStatementId $parents {
+                if {![Statements::exists $parentStatementId]} { continue }
+                dict with Statements::statements $parentStatementId {
+                    dict unset children $matchId
+                }
+            }
+
+            foreach childStatementId $children {
+                if {![Statements::exists $childStatementId]} { continue }
+                dict with Statements::statements $childStatementId {
+                    dict unset parents $matchId
+
+                    # is this child out of parent matches? => it's dead
+                    if {[dict size $parents] == 0} {
+                        reactToStatementRemoval $childStatementId
+                        Statements::remove $childStatementId
+                        set children [lmap cid $children {expr {$cid == $childStatementId ? [continue] : $cid }}]
+                    }
+                }
+            }
+
+            foreach destructor $destructors {
+                runInSerializedEnvironment {*}$destructor
+            }
+        }
+    }
     proc reactToStatementRemoval {id} {
         # unset all things downstream of statement
+        Statements::markZombie $id
         set childMatchIds [statement children [Statements::get $id]]
         dict for {matchId _} $childMatchIds {
             if {![Matches::exists $matchId]} { continue } ;# if was removed earlier
 
-            dict with Matches::matches $matchId {
-                # this match will be dead, so remove the match from the
-                # other parents of the match
-                foreach parentStatementId $parents {
-                    if {![Statements::exists $parentStatementId]} { continue }
-                    dict with Statements::statements $parentStatementId {
-                        dict unset children $matchId
-                    }
-                }
-
-                foreach childStatementId $children {
-                    if {![Statements::exists $childStatementId]} { continue }
-                    dict with Statements::statements $childStatementId {
-                        dict unset parents $matchId
-
-                        # is this child out of parent matches? => it's dead
-                        if {[dict size $parents] == 0} {
-                            reactToStatementRemoval $childStatementId
-                            Statements::remove $childStatementId
-                            set children [lmap cid $children {expr {$cid == $childStatementId ? [continue] : $cid }}]
-                        }
-                    }
-                }
-
-                if {$destructor ne ""} { runInSerializedEnvironment {*}$destructor }
-            }
+            reactToMatchRemoval $matchId
             dict unset Matches::matches $matchId
         }
     }
