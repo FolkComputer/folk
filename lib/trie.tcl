@@ -35,11 +35,6 @@ namespace eval ctrie {
             size_t nbranches;
             trie_t* branches[];
         };
-
-        Tcl_Obj* WILDCARD;
-    }
-    $cc proc init {} void {
-        WILDCARD = Tcl_NewStringObj("?", -1);
     }
 
     $cc proc create {} trie_t* {
@@ -74,7 +69,6 @@ namespace eval ctrie {
         }
 
         Tcl_Obj* word = wordv[0];
-        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
 
         trie_t** match = NULL;
 
@@ -128,7 +122,6 @@ namespace eval ctrie {
     $cc proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
         if (wordc == 0) return 1;
         Tcl_Obj* word = wordv[0];
-        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
 
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
@@ -174,12 +167,16 @@ namespace eval ctrie {
         }
 
         Tcl_Obj* word = wordv[0];
-        if (scanVariable(word, NULL, 0)) { word = WILDCARD; }
+        if (scanVariable(word, NULL, 0)) { word = NULL; }
 
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == word) {
+            if (trie->branches[j]->key == word ||
+                // is the word a variable?
+                word == NULL ||
+                // is the trie key a variable?
+                scanVariable(trie->branches[j]->key, NULL, 0)) {
                 lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
@@ -242,7 +239,6 @@ namespace eval ctrie {
     }
 
     $cc compile
-    init
 
     rename remove_ remove
     namespace export create add addWithVar remove removeWithVar lookup tclify dot

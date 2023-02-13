@@ -220,28 +220,18 @@ namespace eval Statements {
 namespace eval Evaluator {
     variable log [list]
 
-    # Trie<StatementPattern, Dict<StatementId, Reaction>>
+    # Given a statement pattern, tells you all the reactions you
+    # should run if such a statement is added to the database.
+    #
+    # Trie<StatementPattern + StatementId, Reaction>
     variable statementPatternToReactions [trie create]
     proc addReaction {pattern reactingId reaction} {
         variable statementPatternToReactions
-        set reactionses [trie lookup $statementPatternToReactions $pattern]
-        if {[llength $reactionses] > 1} { error "Statement pattern is fan-out" }
-        if {[llength $reactionses] == 1} { set reactions [lindex $reactionses 0] }
-        if {[llength $reactionses] == 0} { set reactions [dict create] }
-        dict set reactions $reactingId $reaction
-        trie add statementPatternToReactions $pattern $reactions
+        trie add statementPatternToReactions [list {*}$pattern $reactingId] $reaction
     }
     proc removeReaction {pattern reactingId} {
         variable statementPatternToReactions
-        set reactionses [trie lookup $statementPatternToReactions $pattern]
-        if {[llength $reactionses] != 1} { error "Statement pattern is fan-out or zero" }
-        set reactions [lindex $reactionses 0]
-        dict unset reactions $reactingId
-        if {[dict size $reactions] == 0} {
-            trie remove statementPatternToReactions $pattern
-        } else {
-            trie add statementPatternToReactions $pattern $reactions
-        }
+        trie remove statementPatternToReactions [list {*}$pattern $reactingId]
     }
 
     # When reactTo is called, it scans the existing statement set for
@@ -344,11 +334,9 @@ namespace eval Evaluator {
 
         # Trigger any prior reactions.
         variable statementPatternToReactions
-        set reactionses [trie lookup $statementPatternToReactions $clause]
-        foreach reactions $reactionses {
-            dict for {reactingId reaction} $reactions {
-                {*}$reaction $id
-            }
+        set reactions [trie lookup $statementPatternToReactions [list {*}$clause /reactingId/]]
+        foreach reaction $reactions {
+            {*}$reaction $id
         }
     }
     proc reactToMatchRemoval {matchId} {
