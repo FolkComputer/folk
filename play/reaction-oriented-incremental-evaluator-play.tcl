@@ -202,18 +202,20 @@ namespace eval Evaluator {
 
         if {$bindings ne false} {
             set ::matchId [Matches::add [list $whenId $statementId]]
-            set body [lindex [statement clause $when] end]
-            dict with bindings $body
+            set body [lindex [statement clause $when] end-3]
+            set env [lindex [statement clause $when] end]
+            set env [dict merge $env $bindings]
+            runInSerializedEnvironment $body $env
         }
     }
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lindex $clause 0] eq "when"} {
-            # when the time is /t/ { ... } -> the time is /t/
-            set pattern [lrange $clause 1 end-1]
+            # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
+            set pattern [lrange $clause 1 end-4]
             reactTo $pattern $id [list reactToStatementAdditionThatMatchesWhen $id $pattern]
 
-            # when the time is /t/ { ... } -> /someone/ claims the time is /t/
+            # when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
             set claimizedPattern [list /someone/ claims {*}$pattern]
             reactTo $claimizedPattern $id [list reactToStatementAdditionThatMatchesWhen $id $claimizedPattern]
         }
@@ -303,19 +305,24 @@ proc Say {args} {
 }
 proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
-proc When {args} { uplevel [list Say when {*}$args] }
+source "lib/environment.tcl"
+proc When {args} {
+    set body [lindex $args end]
+    set pattern [lreplace $args end end]
+    uplevel [list Say when {*}$pattern $body with environment [serializeEnvironment]]
+}
 
 Assert the time is 4
 Assert when the time is /t/ {
     puts "the time is $t"
     Claim the doubled time is [expr {$t*2}]
-}
+} with environment {}
 Assert when the time is /t/ {
     puts "also!!! the time is $t"
     When the doubled time is /dt/ {
-        puts "the doubled time is $dt"
+        puts "the doubled time of $t is $dt"
     }
-}
+} with environment {}
 Assert the time is 5
 Evaluator::Evaluate
 
