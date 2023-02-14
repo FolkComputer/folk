@@ -475,7 +475,12 @@ proc When {args} {
 }
 proc On {event args} {
     if {$event eq "process"} {
-        lassign $args name body
+        if {[llength $args] == 2} {
+            lassign $args name body
+        } elseif {[llength $args] == 1} {
+            set name "${::matchId}-process"
+            set body [lindex $args 0]
+        }
         uplevel [list On-process $name $body]
 
     } elseif {$event eq "unmatch"} {
