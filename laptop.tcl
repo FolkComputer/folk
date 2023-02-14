@@ -263,6 +263,8 @@ if {[info exists ::shareNode]} {
         [list "laptop.tcl" claims /program/ has program code /code/]
     Assert "laptop.tcl" wishes $::nodename shares statements like \
         [list "laptop.tcl" claims /program/ has region /region/]
+    Assert "laptop.tcl" wishes $::nodename shares statements like \
+        [list "laptop.tcl" wishes to print /code/ with job id /jobid/]
 }
 
 Display::init
