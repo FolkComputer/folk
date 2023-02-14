@@ -9,9 +9,6 @@ proc serializeEnvironment {} {
             dict set env [namespace tail $name] [set $name]
         }
     }
-    foreach name [info locals] {
-        dict set env $name [set $name]
-    }
     foreach procName [info procs ::SerializableEnvironment::*] {
         dict set env ^[namespace tail $procName] \
             [list [info args $procName] [info body $procName]]

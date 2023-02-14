@@ -43,7 +43,9 @@ namespace eval statement { ;# statement record type
     proc children {stmt} { dict get $stmt children }
 
     namespace export unify
+    variable blanks [list someone something anyone anything]
     proc unify {a b} {
+        variable blanks
         if {[llength $a] != [llength $b]} { return false }
 
         set match [dict create]
@@ -51,14 +53,18 @@ namespace eval statement { ;# statement record type
             set aWord [lindex $a $i]
             set bWord [lindex $b $i]
             if {[regexp {^/([^/ ]+)/$} $aWord -> aVarName]} {
-                dict set match $aVarName $bWord
-            } elseif {[regexp {^/([^/ ]+)/$} $bWord -> bVarName]} {
-                dict set match $bVarName $aWord
-            } elseif {$aWord != $bWord} {
+                if {!($aVarName in $blanks)} {
+                    dict set match $aVarName $bWord
+                }
+            } elseif {[regexp {^/([^/ ]+)/$} $bWord -> bVarName] && !($bVarName in $blanks)} {
+                if {!($bVarName in $blanks)} {
+                    dict set match $bVarName $aWord
+                }
+            } elseif {$aWord ne $bWord} {
                 return false
             }
         }
-        return $match
+        set match
     }
 
     namespace export short
