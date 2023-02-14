@@ -56,7 +56,7 @@ namespace eval statement { ;# statement record type
                 if {!($aVarName in $blanks)} {
                     dict set match $aVarName $bWord
                 }
-            } elseif {[regexp {^/([^/ ]+)/$} $bWord -> bVarName] && !($bVarName in $blanks)} {
+            } elseif {[regexp {^/([^/ ]+)/$} $bWord -> bVarName]} {
                 if {!($bVarName in $blanks)} {
                     dict set match $bVarName $aWord
                 }
@@ -483,6 +483,9 @@ proc On {event args} {
         dict with Matches::matches $::matchId {
             lappend destructors [list $body [serializeEnvironment]]
         }
+
+    } else {
+        error "Unknown On $event $args"
     }
 }
 

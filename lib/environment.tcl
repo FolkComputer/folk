@@ -9,12 +9,14 @@ proc serializeEnvironment {} {
             dict set env [namespace tail $name] [set $name]
         }
     }
-    foreach procName [info procs ::SerializableEnvironment::*] {
-        dict set env ^[namespace tail $procName] \
-            [list [info args $procName] [info body $procName]]
-    }
     foreach importName [namespace eval ::SerializableEnvironment {namespace import}] {
         dict set env %$importName [namespace origin ::SerializableEnvironment::$importName]
+    }
+    foreach procName [info procs ::SerializableEnvironment::*] {
+        if {![dict exists $env %[namespace tail $procName]]} {
+            dict set env ^[namespace tail $procName] \
+                [list [info args $procName] [info body $procName]]
+        }
     }
     set env
 }
