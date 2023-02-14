@@ -129,13 +129,13 @@ proc loadProgram {programFilename} {
     # this is a proc so its variables don't leak
     set fp [open $programFilename r]
     lappend ::rootStatements [list root claims $programFilename has program code [read $fp]]
-    set x 0; set y 100; set w 100; set h 100
-    set vertices [list [list $x $y] \
-                      [list [expr {$x+$w}] $y] \
-                      [list [expr {$x+$w}] [expr {$y+$h}]] \
-                      [list $x [expr {$y+$h}]]]
-    set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-    lappend ::rootStatements [list root claims $programFilename has region [list $vertices $edges]]
+    # set x 0; set y 100; set w 100; set h 100
+    # set vertices [list [list $x $y] \
+    #                   [list [expr {$x+$w}] $y] \
+    #                   [list [expr {$x+$w}] [expr {$y+$h}]] \
+    #                   [list $x [expr {$y+$h}]]]
+    # set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+    # lappend ::rootStatements [list root claims $programFilename has region [list $vertices $edges]]
     close $fp
 }
 foreach programFilename [glob virtual-programs/*.folk] {
