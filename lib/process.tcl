@@ -4,15 +4,16 @@ set ::processPrelude {
         try $body
         after $ms [list after idle [namespace code [info level 0]]]
     }
-    # TODO: do a socket connection to localhost
-    
+
+    source "lib/peer.tcl"
+    peer "localhost"
 }
 
 proc On-process {name body} {
     namespace eval ::Processes::$name {}
     set ::Processes::${name}::name $name
     set ::Processes::${name}::body $body
-    set ::Processes::${name}::this [uplevel {set this}]
+    set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
@@ -28,6 +29,7 @@ proc On-process {name body} {
             variable log
             if {[gets $stdio line] >= 0} {
                 lappend log $line
+                puts "$name: $line"
                 Retract process $name has standard output log /l/
                 Assert process $name has standard output log $log
                 Step
@@ -36,7 +38,7 @@ proc On-process {name body} {
         fconfigure $stdio -blocking 0 -buffering line
         fileevent $stdio readable [namespace code handleReadable]
 
-        if {[info exists this]} {
+        if {$this ne "<unknown>"} {
             Assert $this is running process $name
         }
 

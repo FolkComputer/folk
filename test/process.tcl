@@ -1,5 +1,4 @@
 Assert when we are running {
-    set this T00
     On process A {
         puts hello
     }
@@ -7,10 +6,19 @@ Assert when we are running {
 Assert we are running
 Step
 
-after 500 {
-    dict for {id stmt} $Statements::statements { puts [statement short $stmt] }
+Assert when we are running {
+    On process {
+        Commit { Claim things are good }
+    }
 
-    exit 0
+    When things are good {
+        set ::good true
+    }
 }
+Step
 
+after 500 {
+    if {[info exists ::good] && $::good} { exit 0 } \
+        else { exit 1 }
+}
 vwait forever

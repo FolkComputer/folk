@@ -205,24 +205,21 @@ if {[info exists ::shareNode]} {
     } err]} {
         puts "error syncing: $err"
         puts "Proceeding without sharing to table."
-        unset ::shareNode
+
+    } else {
+        source "lib/peer.tcl"
+        peer $::shareNode
+
+        Assert "laptop.tcl" is providing root statements
+        Assert "laptop.tcl" wishes $::nodename shares statements like \
+            [list "laptop.tcl" is providing root statements]
+        Assert "laptop.tcl" wishes $::nodename shares statements like \
+            [list "laptop.tcl" claims /program/ has program code /code/]
+        Assert "laptop.tcl" wishes $::nodename shares statements like \
+            [list "laptop.tcl" claims /program/ has region /region/]
+        Assert "laptop.tcl" wishes $::nodename shares statements like \
+            [list "laptop.tcl" wishes to print /code/ with job id /jobid/]
     }
-
-    lappend auto_path "./vendor"
-    package require websocket
-
-    source "lib/peer.tcl"
-    peer $::shareNode
-
-    Assert "laptop.tcl" is providing root statements
-    Assert "laptop.tcl" wishes $::nodename shares statements like \
-        [list "laptop.tcl" is providing root statements]
-    Assert "laptop.tcl" wishes $::nodename shares statements like \
-        [list "laptop.tcl" claims /program/ has program code /code/]
-    Assert "laptop.tcl" wishes $::nodename shares statements like \
-        [list "laptop.tcl" claims /program/ has region /region/]
-    Assert "laptop.tcl" wishes $::nodename shares statements like \
-        [list "laptop.tcl" wishes to print /code/ with job id /jobid/]
 }
 
 Display::init

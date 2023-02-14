@@ -1,8 +1,11 @@
+lappend auto_path "./vendor"
+package require websocket
+
 proc ::peer {node} {
     namespace eval Peers::$node {
         proc setupSock {} {
             variable node
-            puts "sharer: Trying to connect to: ws://$node:4273/ws"
+            puts "peer: Trying to connect to: ws://$node:4273/ws"
             variable sock [::websocket::open "ws://$node:4273/ws" [namespace code handleWs]]
         }
         proc handleWs {sock type msg} {
@@ -26,10 +29,7 @@ proc ::peer {node} {
             ::websocket::send $sock text $msg
         }
 
-        proc init {n} {
-            variable node $n
-            setupSock
-        }
+        proc init {n} { variable node $n; setupSock }
         init
     } $node
 }
