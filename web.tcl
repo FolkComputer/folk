@@ -5,7 +5,7 @@ package require websocket
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
-# TODO: Cache errors & return 501
+# TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
     if {$path eq "/"} {
@@ -44,6 +44,11 @@ proc handlePage {path contentTypeVar} {
     } elseif {$path eq "/statements.pdf"} {
         set contentType "application/pdf"
         set fd [open |[list dot -Tpdf <<[Statements::dot]] r]
+        fconfigure $fd -encoding binary -translation binary
+        set response [read $fd]; close $fd; return $response
+    } elseif {$path eq "/statementPatternToReactions.pdf"} {
+        set contentType "application/pdf"
+        set fd [open |[list dot -Tpdf <<[trie dot $Evaluator::statementPatternToReactions]] r]
         fconfigure $fd -encoding binary -translation binary
         set response [read $fd]; close $fd; return $response
     } elseif {[regexp -all {/page/(\d*)$}  $path whole_match pageNumber]} {

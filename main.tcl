@@ -296,11 +296,6 @@ namespace eval Evaluator {
         runInSerializedEnvironment $body $env
     }
     proc reactToStatementAdditionThatMatchesCollect {collectId collectPattern statementId} {
-        if {![Statements::exists $collectId]} {
-            variable statementPatternToReactions
-            removeReaction $collectPattern $collectId
-            return
-        }
         variable log
         lappend log [list Recollect $collectId]
     }
@@ -314,8 +309,7 @@ namespace eval Evaluator {
             set claimizedPattern [list /someone/ claims {*}$pattern]
             addReaction $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
 
-            variable log
-            lappend log [list Recollect $id $pattern]
+            variable log; lappend log [list Recollect $id $pattern]
 
         } elseif {[lindex $clause 0] eq "when"} {
             # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
@@ -371,7 +365,29 @@ namespace eval Evaluator {
         }
     }
     proc reactToStatementRemoval {id} {
-        # unset all things downstream of statement
+        # Remove corresponding reactions from the reaction trie.
+        set clause [statement clause [Statements::get $id]]
+        if {[lrange $clause 0 4] eq "when the collected matches for"} {
+            # when the collected matches for [list the time is /t/] are /matches/ { ... } with environment /__env/ -> the time is /t/
+            set pattern [lindex $clause 5]
+            removeReaction $pattern $id
+
+            set claimizedPattern [list /someone/ claims {*}$pattern]
+            removeReaction $claimizedPattern $id
+
+            variable log; lappend log [list Recollect $id $pattern]
+
+        } elseif {[lindex $clause 0] eq "when"} {
+            # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
+            set pattern [lrange $clause 1 end-4]
+            removeReaction $pattern $id
+
+            # when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
+            set claimizedPattern [list /someone/ claims {*}$pattern]
+            removeReaction $claimizedPattern $id
+        }
+
+        # Unset all things downstream of statement.
         set childMatchIds [statement children [Statements::get $id]]
         dict for {matchId _} $childMatchIds {
             if {![Matches::exists $matchId]} { continue } ;# if was removed earlier
