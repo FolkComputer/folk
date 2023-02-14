@@ -42,7 +42,7 @@ proc Step {} {
                 set pattern [dict get $m pattern]
                 foreach id [trie lookup $Statements::statementClauseToId $pattern] {
                     set clause [statement clause [Statements::get $id]]
-                    set match [Statements::unify $pattern $clause]
+                    set match [statement unify $pattern $clause]
                     if {$match != false} {
                         lappend shareStatements [list {*}$clause]
                     }

@@ -315,6 +315,10 @@ namespace eval Evaluator {
             set claimizedPattern [list /someone/ claims {*}$pattern]
             reactTo $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
 
+            variable log
+            lappend log [list Recollect $id $pattern]
+            lappend log [list Recollect $id $claimizedPattern]
+
         } elseif {[lindex $clause 0] eq "when"} {
             # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
             set pattern [lrange $clause 1 end-4]
@@ -369,6 +373,11 @@ namespace eval Evaluator {
 
     proc Evaluate {} {
         variable log
+
+        # FIXME: We're only retaining this global for compatibility
+        # with old metrics program.
+        set ::logsize [llength $log]
+
         while {[llength $log]} {
             set log [lassign $log entry]
 
