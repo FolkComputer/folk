@@ -43,6 +43,9 @@ assert {[llength [Statements::findMatches [list /someone/ claims there are /n/ m
 assert {[llength [Statements::findMatches [list /someone/ claims there are 1 matches]]] == 0}
 assert {[llength [Statements::findMatches [list /someone/ claims there are 0 matches]]] == 1}
 
+Retract /x/ has program code /y/
+Step
+
 Assert labeller has program code {
     When labelling is on /k/ {
         When the collected matches for [list /someone/ wishes /p/ is labelled /label/] are /matches/ {
@@ -55,7 +58,15 @@ Assert programWithLabels has program code {
     Wish $this is labelled "Label Two"
 }
 Assert labelling is on A
+Step
+exec dot -Tpdf >A.pdf <<[Statements::dot]
+
 Retract labelling is on A
+Step
+exec dot -Tpdf >Ax.pdf <<[Statements::dot]
+
 Assert labelling is on B
 Step
+exec dot -Tpdf >AxB.pdf <<[Statements::dot]
+
 assert {[llength [Statements::findMatches [list /someone/ claims the total label on /k/ is /l/]]] == 1}

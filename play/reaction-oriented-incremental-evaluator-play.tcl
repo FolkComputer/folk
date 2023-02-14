@@ -18,19 +18,16 @@ namespace eval statement { ;# statement record type
         # clause = [list the fox is out]
         # parentMatchIds = [dict create 503 true 208 true]
         # childMatchIds = [dict create 101 true 433 true]
-        # isZombie = false
         dict create \
             clause $clause \
             parents $parents \
-            children $children \
-            isZombie false
+            children $children
     }
 
-    namespace export clause parents children isZombie
+    namespace export clause parents children
     proc clause {stmt} { dict get $stmt clause }
     proc parents {stmt} { dict get $stmt parents }
     proc children {stmt} { dict get $stmt children }
-    proc isZombie {stmt} { dict get $stmt isZombie }
 
     namespace export unify
     proc unify {a b} {
@@ -84,7 +81,7 @@ namespace eval Matches {
         variable matches
         variable nextMatchId
         set matchId [incr nextMatchId]
-        dict set matches $matchId [match create]
+        dict set matches $matchId [match create $parents]
 
         # Add this match as a child to all the statement parents that
         # were passed in.
@@ -137,10 +134,8 @@ namespace eval Statements {
             # Add the parent matches that were passed in as parents to
             # the existing statement.
             set addingParents $parents
-            dict with statements $id {
-                dict for {parentMatchId _} $addingParents {
-                    dict set parents $parentMatchId true
-                }
+            dict for {parentMatchId _} $addingParents {
+                dict set statements $id parents $parentMatchId true
             }
         }
 
@@ -148,16 +143,13 @@ namespace eval Statements {
         # that were passed in.
         dict for {parentMatchId _} $parents {
             if {$parentMatchId eq {}} { continue }
+            # if {![Matches::exists $parentMatchId]} { continue }
             dict with Matches::matches $parentMatchId {
                 lappend children $id
             }
         }
 
         list $id $isNewStatement
-    }
-    proc markZombie {id} {
-        variable statements
-        dict set statements $id isZombie true
     }
     proc remove {id} {
         variable statements
@@ -178,7 +170,6 @@ namespace eval Statements {
         set matches [list]
         foreach id [trie lookup $statementClauseToId $pattern] {
             set stmt [get $id]
-            if {[statement isZombie $stmt]} { continue }
 
             set match [statement unify $pattern [statement clause $stmt]]
             if {$match != false} {
@@ -274,20 +265,21 @@ namespace eval Evaluator {
         }
     }
     proc recollect {collectId collectPattern} {
-        # Called when a statement that someone is collecting has been
-        # added or removed.
+        # Called when a statement of a pattern that someone is
+        # collecting has been added or removed.
 
         set collect [Statements::get $collectId]
         set children [statement children $collect]
         if {[dict size $children] > 1} {
-            exec dot -Tpdf >preerr.pdf <<[Statements::dot]
             error "Collect $collectId has more than 1 match: {$children}"
         } elseif {[dict size $children] == 1} {
-            # Delete the existing match child immediately.
+            # Delete the existing match child.
             set childMatchId [lindex [dict keys $children] 0]
             # Delete the first destructor (which does a recollect) before doing the removal.
             dict set Matches::matches $childMatchId destructors [lreplace [dict get $Matches::matches $childMatchId destructors] 0 0]
             reactToMatchRemoval $childMatchId
+            dict unset Matches::matches $childMatchId
+
             dict set Statements::statements $collectId children [dict create]
         }
 
@@ -298,7 +290,7 @@ namespace eval Evaluator {
         set matches [Statements::findMatches $collectPattern]
         set ::matchId [Matches::add [list $collectId {*}[lmap m $matches {dict get $m __matcheeId}]]]
         dict with Matches::matches $::matchId {
-            lappend destructors [list [list Evaluator::recollect $collectId $collectPattern] {}]
+            lappend destructors [list [list lappend Evaluator::log [list Recollect $collectId $collectPattern]] {}]
         }
 
         dict set env $matchesVar $matches
@@ -310,7 +302,8 @@ namespace eval Evaluator {
             removeReaction $collectPattern $collectId
             return
         }
-        recollect $collectId $collectPattern
+        variable log
+        lappend log [list Recollect $collectId $collectPattern]
     }
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
@@ -345,22 +338,16 @@ namespace eval Evaluator {
             # other parents of the match
             foreach parentStatementId $parents {
                 if {![Statements::exists $parentStatementId]} { continue }
-                dict with Statements::statements $parentStatementId {
-                    dict unset children $matchId
-                }
+                dict unset Statements::statements $parentStatementId children $matchId
             }
 
             foreach childStatementId $children {
                 if {![Statements::exists $childStatementId]} { continue }
-                dict with Statements::statements $childStatementId {
-                    dict unset parents $matchId
-
+                dict unset Statements::statements $childStatementId parents $matchId
+                if {[dict size [dict get $Statements::statements $childStatementId parents]] == 0} {
                     # is this child out of parent matches? => it's dead
-                    if {[dict size $parents] == 0} {
-                        reactToStatementRemoval $childStatementId
-                        Statements::remove $childStatementId
-                        set children [lmap cid $children {expr {$cid == $childStatementId ? [continue] : $cid }}]
-                    }
+                    reactToStatementRemoval $childStatementId
+                    Statements::remove $childStatementId
                 }
             }
 
@@ -371,7 +358,6 @@ namespace eval Evaluator {
     }
     proc reactToStatementRemoval {id} {
         # unset all things downstream of statement
-        Statements::markZombie $id
         set childMatchIds [statement children [Statements::get $id]]
         dict for {matchId _} $childMatchIds {
             if {![Matches::exists $matchId]} { continue } ;# if was removed earlier
@@ -387,6 +373,8 @@ namespace eval Evaluator {
             set log [lassign $log entry]
 
             set op [lindex $entry 0]
+            # puts "============="
+            # puts $entry
             if {$op eq "Assert"} {
                 set clause [lindex $entry 1]
                 lassign [Statements::add $clause] id isNewStatement ;# statement without parents
@@ -402,8 +390,16 @@ namespace eval Evaluator {
 
             } elseif {$op eq "Say"} {
                 lassign $entry _ parentMatchId clause
-                lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
-                if {$isNewStatement} { reactToStatementAddition $id }
+                if {[Matches::exists $parentMatchId]} {
+                    lassign [Statements::add $clause [dict create $parentMatchId true]] id isNewStatement
+                    if {$isNewStatement} { reactToStatementAddition $id }
+                }
+
+            } elseif {$op eq "Recollect"} {
+                lassign $entry _ collectId collectPattern
+                if {[Statements::exists $collectId]} {
+                    recollect $collectId $collectPattern
+                }
 
             } else {
                 error "Unsupported log operation $op"
