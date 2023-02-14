@@ -1,5 +1,6 @@
 Wish $this has filename "watchdog.folk"
 
+return
 if {$::isLaptop} { return }
 
 On process "watchdog" {
