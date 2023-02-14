@@ -1,6 +1,8 @@
 Wish $this has filename "watchdog.folk"
 
+# Temporarily disabling watchdog while we work out IPC.
 return
+
 if {$::isLaptop} { return }
 
 On process "watchdog" {
