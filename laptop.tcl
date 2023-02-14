@@ -45,36 +45,6 @@ namespace eval Display {
     }
 }
 
-source "hosts.tcl"
-
-if {[info exists ::shareNode]} {
-    # copy to Pi
-    if {[catch {
-        # TODO: forward entry point
-        # TODO: handle rsync strict host key failure
-        exec make sync FOLK_SHARE_NODE=$::shareNode
-        exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
-    } err]} {
-        puts "error syncing: $err"
-        puts "Proceeding without sharing to table."
-        unset ::shareNode
-    }
-}
-
-package require Thread
-if {[info exists ::shareNode]} {
-    after 2000 {
-        set ::sharerThread [thread::create [format {
-            set ::shareNode "%s"
-
-            lappend auto_path "./vendor"
-            package require websocket
-
-
-            thread::wait
-        } $::shareNode]]
-    }
-}
 proc StepFromGUI {} { Step }
 
 proc randomRangeString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"}} {
@@ -224,37 +194,25 @@ Assert when /program/ has program code /code/ {
     }
 }
 
+source "hosts.tcl"
 if {[info exists ::shareNode]} {
+    # copy to Pi
+    if {[catch {
+        # TODO: forward entry point
+        # TODO: handle rsync strict host key failure
+        exec make sync FOLK_SHARE_NODE=$::shareNode
+        exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
+    } err]} {
+        puts "error syncing: $err"
+        puts "Proceeding without sharing to table."
+        unset ::shareNode
+    }
+
     lappend auto_path "./vendor"
     package require websocket
 
-    namespace eval Peers::$::shareNode {
-        proc setupSock {} {
-            puts "sharer: Trying to connect to: ws://$::shareNode:4273/ws"
-            variable sock [::websocket::open "ws://$::shareNode:4273/ws" [namespace code handleWs]]
-        }
-        proc handleWs {sock type msg} {
-            if {$type eq "connect"} {
-                puts "sharer: Connected"
-            } elseif {$type eq "disconnect"} {
-                puts "sharer: Disconnected"
-                after 2000 [namespace code setupSock]
-            } elseif {$type eq "error"} {
-                puts "sharer: WebSocket error: $type $msg"
-                after 2000 [namespace code setupSock]
-            } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
-                # We don't handle responses yet.
-            } else {
-                error "Unknown WebSocket event: $type $msg"
-            }
-        }
-        setupSock
-
-        proc run {msg} {
-            variable sock
-            ::websocket::send $sock text $msg
-        }
-    }
+    source "lib/peer.tcl"
+    peer $::shareNode
 
     Assert "laptop.tcl" is providing root statements
     Assert "laptop.tcl" wishes $::nodename shares statements like \

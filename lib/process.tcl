@@ -1,3 +1,13 @@
+set ::processPrelude {
+    source "main.tcl"
+    proc every {ms body} {
+        try $body
+        after $ms [list after idle [namespace code [info level 0]]]
+    }
+    # TODO: do a socket connection to localhost
+    
+}
+
 proc On-process {name body} {
     namespace eval ::Processes::$name {}
     set ::Processes::${name}::name $name
@@ -5,16 +15,9 @@ proc On-process {name body} {
     set ::Processes::${name}::this [uplevel {set this}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
-        puts $tclfd [join [list {
-            source "main.tcl"
-            proc every {ms body} {
-                try $body
-                after $ms [list after idle [namespace code [info level 0]]]
-            }
-        } $body] "\n"]; close $tclfd
+        puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 
         # TODO: send it the serialized environment
-        # TODO: establish I/O w/o stdout/stdin
         variable stdio [open "|tclsh8.6 $tclfile 2>@1" w+]
         variable pid [pid $stdio]
 
