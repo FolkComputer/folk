@@ -193,6 +193,14 @@ Assert when /program/ has program code /code/ {
         catch {.$program.saved configure -text "Saved to $filename!"}
     }
 }
+Assert when /program/ has error /err/ with info /info/ {
+    label .$program.err -text "Error: $err\n$info" -background red
+    place .$program.err -x 40 -y 100
+
+    On unmatch {
+        catch {destroy .$program.err}
+    }
+}
 
 source "hosts.tcl"
 if {[info exists ::shareNode]} {
