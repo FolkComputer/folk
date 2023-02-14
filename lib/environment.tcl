@@ -32,17 +32,18 @@ proc runInSerializedEnvironment {body env} {
             set ::SerializableEnvironment::$name $value
         }
     }
-    if {[catch {namespace eval ::SerializableEnvironment $body} err] == 1} {
-        puts "$::nodename: Error: $err\n$::errorInfo"
-    }
-    # Clean up:
-    foreach procName [info procs ::SerializableEnvironment::*] {
-        rename $procName ""
-    }
-    foreach name [info vars ::SerializableEnvironment::*] {
-        unset $name
-    }
-    namespace eval ::SerializableEnvironment {
-        namespace forget {*}[namespace import]
+    try {
+        namespace eval ::SerializableEnvironment $body
+    } finally {
+        # Clean up:
+        foreach procName [info procs ::SerializableEnvironment::*] {
+            rename $procName ""
+        }
+        foreach name [info vars ::SerializableEnvironment::*] {
+            unset $name
+        }
+        namespace eval ::SerializableEnvironment {
+            namespace forget {*}[namespace import]
+        }
     }
 }

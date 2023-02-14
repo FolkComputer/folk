@@ -236,6 +236,15 @@ namespace eval Statements {
 namespace eval Evaluator {
     variable log [list]
 
+    source "lib/environment.tcl"
+    proc tryRunInSerializedEnvironment {body env} {
+        try {
+            runInSerializedEnvironment $body $env
+        } on error err {
+            puts stderr "$::nodename: Error in [dict get $env this], match $::matchId: $err\n$::errorInfo"
+        }
+    }
+
     # Given a statement pattern, tells you all the reactions you
     # should run if such a statement is added to the database.
     #
@@ -269,7 +278,7 @@ namespace eval Evaluator {
             set body [lindex [statement clause $when] end-3]
             set env [lindex [statement clause $when] end]
             set env [dict merge $env $bindings]
-            runInSerializedEnvironment $body $env
+            tryRunInSerializedEnvironment $body $env
         }
     }
     proc recollect {collectId} {
@@ -305,7 +314,7 @@ namespace eval Evaluator {
         }
 
         dict set env $matchesVar $matches
-        runInSerializedEnvironment $body $env
+        tryRunInSerializedEnvironment $body $env
     }
     proc reactToStatementAdditionThatMatchesCollect {collectId collectPattern statementId} {
         variable log
@@ -372,7 +381,7 @@ namespace eval Evaluator {
             }
 
             foreach destructor $destructors {
-                runInSerializedEnvironment {*}$destructor
+                tryRunInSerializedEnvironment {*}$destructor
             }
         }
     }
@@ -473,11 +482,11 @@ proc Say {args} {
 }
 proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
-source "lib/environment.tcl"
+
 proc When {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
-    uplevel [list Say when {*}$pattern $body with environment [serializeEnvironment]]
+    uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
 }
 proc On {event args} {
     if {$event eq "process"} {
@@ -492,7 +501,7 @@ proc On {event args} {
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
         dict with Matches::matches $::matchId {
-            lappend destructors [list $body [serializeEnvironment]]
+            lappend destructors [list $body [Evaluator::serializeEnvironment]]
         }
 
     } else {
@@ -564,9 +573,7 @@ if {[info exists ::entry]} {
 
     # this defines $this in the contained scopes
     Assert when /this/ has program code /__code/ {
-        if {[catch $__code err] == 1} {
-            puts "$::nodename: Error in $this: $err\n$::errorInfo"
-        }
+        eval $__code
     }
     source "lib/process.tcl"
     source "./web.tcl"
