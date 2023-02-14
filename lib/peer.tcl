@@ -11,6 +11,7 @@ proc ::peer {node} {
         proc handleWs {sock type msg} {
             if {$type eq "connect"} {
                 puts "peer: Connected"
+                variable connected true
             } elseif {$type eq "disconnect"} {
                 puts "peer: Disconnected"
                 after 2000 [namespace code setupSock]

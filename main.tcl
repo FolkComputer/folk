@@ -225,6 +225,12 @@ namespace eval Statements {
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
+    proc print {} {
+        variable statements
+        dict for {_ stmt} $statements {
+            puts [statement short $stmt]
+        }
+    }
 }
 
 namespace eval Evaluator {
@@ -520,13 +526,19 @@ proc Step {} {
             }
 
             variable shareStatements [list]
-            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
-                set pattern [dict get $m pattern]
-                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
-                    set clause [statement clause [Statements::get $id]]
-                    set match [statement unify $pattern $clause]
-                    if {$match != false} {
-                        lappend shareStatements [list {*}$clause]
+            if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
+                dict for {_ stmt} $Statements::statements {
+                    lappend shareStatements [statement clause $stmt]
+                }
+            } else {
+                foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
+                    set pattern [dict get $m pattern]
+                    foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                        set clause [statement clause [Statements::get $id]]
+                        set match [statement unify $pattern $clause]
+                        if {$match != false} {
+                            lappend shareStatements $clause
+                        }
                     }
                 }
             }
@@ -539,15 +551,16 @@ proc Step {} {
         }
     }
 }
-Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
-    foreach stmt $statements { Say {*}$stmt }
-}
 
 source "lib/math.tcl"
 
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
+
+    Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
+        foreach stmt $statements { Say {*}$stmt }
+    }
 
     # this defines $this in the contained scopes
     Assert when /this/ has program code /__code/ {

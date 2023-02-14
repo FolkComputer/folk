@@ -8,7 +8,8 @@ Step
 
 Assert when we are running {
     On process {
-        Commit { Claim things are good }
+        Assert things are good
+        Step
     }
 
     When things are good {
