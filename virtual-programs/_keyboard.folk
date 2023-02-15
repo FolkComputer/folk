@@ -1,0 +1,68 @@
+Wish $this has filename "_keyboard.folk"
+
+Wish $this is outlined seagreen
+Wish $this has neighbors
+
+proc getOrigin region {
+  return [lindex [lindex $region 0] 0]
+}
+
+set editing false
+set fileId false
+
+When $this has region /kRegion/ {
+  set kOrigin [getOrigin $kRegion]
+  # TODO: make this dynamic based on neighborAbove's name!
+  set filename "/home/folk/folk/virtual-programs/camera-slice.folk"
+  if {$::isLaptop} {
+    # TODO: generalize, this is just for cwervobook
+    set filename "/Users/andrescuervo/code/folk/virtual-programs/camera-slice.folk"
+  }
+  lassign $kOrigin _ kOriginY
+  When $this has neighbor /n/ {
+    When $n has region /r/ {
+      set neighborOrigin [getOrigin $r]
+      lassign $neighborOrigin _ nOriginY
+
+      if {$nOriginY < $kOriginY} {
+        Wish $this is labelled "has a neighbor above"
+        # read in the file, if it doesn't contain "#---editing---", copy file content, append that string, & update ...
+        # Eventually use this for a cursor blink ...
+        #When $::nodename has step count /c/ {
+        #  Wish $this is labelled [expr $c % 2 == 0]
+        #}
+        if {$editing && !$fileId} {
+          # listen for keyboard input $ insert it at cursor position
+        } else {
+          #set editing true
+          #set fileId [open $filename a]
+          #puts $fileId "#===editing==="
+          #close $fileId
+          #puts "opening ... $fileId editing: $editing"
+        }
+      } else {
+        puts "hmmm editing: $editing"
+        if {$editing} {
+          set editing false
+          close $fileId
+          puts "closing ... $editing"
+        }
+      }
+    }
+  }
+}
+
+return
+# ---- good simple keyboard controller code
+When the keyboard character log is /keyLog/ {
+  set k [lindex $keyLog end]
+  Wish $this is labelled $k
+  switch -nocase $k {
+    Up { Wish $this is outlined red}
+    Down { Wish $this is outlined green }
+    Left { Wish $this is outlined blue}
+    Right { Wish $this is outlined goldenrod}
+  } 
+  Wish $this is labelled $k
+  #Wish $this is outlined $ca
+}
