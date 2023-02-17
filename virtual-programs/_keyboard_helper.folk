@@ -1,0 +1,6 @@
+Wish $this has filename "_keyboard_helper.folk"
+
+if {![info exists ::counters]} {
+  set ::counters [dict create]
+}
+
