@@ -18,7 +18,7 @@ When /thing/ has region /region/ {
 		for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
 			   set shouldFlip [expr {abs($radians) < 1.57}]
 			   set ly [expr {$shouldFlip ? $y+$lineNum*18 : $y+$lineNum*18}]
-			   Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? $lines : [lreverse $lines] }] $lineNum] $radians
+			   Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] $radians
 		}
 	}
 }
