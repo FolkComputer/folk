@@ -1,6 +1,5 @@
 Wish $this has filename "outline.folk"
 
-
 proc loopRegion {edges vertices weight color} {
 	foreach edge $edges {
 		set from [lindex $vertices [lindex $edge 0]]
@@ -9,11 +8,20 @@ proc loopRegion {edges vertices weight color} {
 	}
 }
 
-When /someone/ wishes /thing/ is outlined /color/ {
-    When $thing has region /region/ {
-	# FIXME: assumes path
-	lassign $region vertices edges
-	loopRegion $edges $vertices 3 $color
+When the collected matches for [list /someone/ wishes /thing/ is outlined /color/] are /matches/ {
+    set thingColors [dict create]
+    foreach match $matches {
+        dict lappend thingColors [dict get $match thing] [dict get $match color]
+    }
+    foreach thing [dict keys $thingColors] {
+        When $thing has region /region/ {
+            set thickness 0
+            foreach color [dict get $thingColors $thing] {
+                    # FIXME: assumes path
+                    lassign $region vertices edges
+                    loopRegion $edges $vertices [incr thickness 3] $color
+            }
+        }
     }
 }
 
