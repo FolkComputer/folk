@@ -16,8 +16,9 @@ When /thing/ has region /region/ {
 		set lines [split $text "\n"]
 		set fontSize 12
 		for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-			   set ly [expr {abs($radians) < 1.57 ? $y+$lineNum*18 : $y+$lineNum*18}]
-                           Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
+			   set shouldFlip [expr {abs($radians) < 1.57}]
+			   set ly [expr {$shouldFlip ? $y+$lineNum*18 : $y+$lineNum*18}]
+			   Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] $radians
 		}
 	}
 }
