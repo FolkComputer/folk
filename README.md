@@ -260,7 +260,8 @@ clone https://github.com/krh/vkcube
 
 Folk is built around Tcl. We don't add any additional syntax or
 preprocessing to the basic Tcl language; all our 'language constructs'
-like `When` and `Wish` are really just plain Tcl functions that we've created. Therefore, it will eventually be useful for you to know
+like `When` and `Wish` are really just plain Tcl functions that we've
+created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 

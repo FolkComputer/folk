@@ -5,7 +5,17 @@ namespace eval Keyboard {
 
     proc init {} {
         variable kb
-        set kb [open "/dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse" r]
+        if {[info hostname] eq "folk0"} {
+            set kb [open "/dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse" r]
+        } elseif {[info hostname] eq "folk-omar"} {
+            # This path is set based on the keyboard unique MAC
+            # address by a udev rule on machine.
+            while {![file exists "/dev/input/btkeyboard-omar-gray"]} {
+                puts "Keyboard not found, waiting."
+                exec sleep 2
+            }
+            set kb [open "/dev/input/btkeyboard-omar-gray" r]
+        }
         fconfigure $kb -translation binary
     }
 
