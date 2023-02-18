@@ -140,6 +140,25 @@ not the PS for it to work, probably)
    you're done! Run Folk! If not, rerun calibration until you do see a
    red triangle on each tag.
 
+### Bluetooth keyboards
+
+Install `bluetoothctl`. Follow the instructions in
+https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
+and connect.
+
+Write down the Bluetooth MAC address of your keyboard. We'll proceed
+as though it's "f4:73:35:93:7f:9d" (it's important that you turn it
+into lowercase).
+
+Next, add a udev rule on a new line at the end of `/etc/udev/rules.d/99-input.rules` to create
+a stable device file at `/dev/input/btkeyboard-f4-73-35-93-7f-9d` that Folk can
+get events on:
+
+```
+KERNEL=="event[0-9]|event[0-9][0-9]", SUBSYSTEM=="input", ATTRS{uniq}=="f4:73:35:93:7f:9d", ACTION=="add", SYMLINK+="input/btkeyboard-f4-73-35-93-7f-9d"
+```
+
+
 ### Potentially useful
 
 Potentially useful for graphs: `graphviz`
