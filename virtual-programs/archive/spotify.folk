@@ -1,0 +1,281 @@
+package require http
+package require tls 1.7
+package require json
+
+# # Instructions for use:
+# 1. edit Makefile or systemctl file to set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET
+# 2. Run folk
+# 3. Open folk-whatever.local:8888 and login to spotify
+# 4. Now folk programs can control spotify
+# Wish "spotify:track:232Y5lAjifWnc5NhUn34mz" would be played on spotify
+# When spotify is currently playing /song/ {
+#     Wish $this is labelled "Playing: $song"
+# }
+
+http::register https 443 [list ::tls::socket -autoservername true]
+
+proc ::handleConnectSpotify {chan addr port} {
+    fileevent $chan readable [list ::handleReadSpotify $chan $addr $port]
+}
+# TODO: Catch errors & return 501
+proc ::handlePageSpotify {path contentTypeVar} {
+    upvar $contentTypeVar contentType
+
+    if {($path eq "/") || ([string match {/\?*} $path])} {
+        return {
+<!doctype html>
+<html>
+
+<head>
+    <title>Authorization Code flow with Spotify</title>
+    <style type="text/css">
+        #login,
+        #loggedin {
+            display: none;
+        }
+
+        .text-overflow {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            width: 500px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div id="login">
+            <h1>Authorization Code flow</h1>
+            <a href="/login" class="btn btn-primary">Log in with Spotify</a>
+        </div>
+        <div id="loggedin">
+            <div id="user-profile">
+            </div>
+            <div id="oauth">
+                <h2>oAuth info</h2>
+                <dl>
+                    <dt>Access token</dt><dd class="text-overflow" id="accessToken"></dd>
+                    <dt>Refresh token</dt><dd class="text-overflow" id="refreshToken"></dd>
+                </dl>
+            </div>
+            <button id="obtain-new-token">Obtain new token using the refresh token</button>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var userProfileTemplateFunc = (d) => `
+                <h1>Logged in as ${d.display_name}</h1>
+      <div>
+        <div>
+          <img width="150" src="${d.images.length > 0 ? d.images[0].url : ""}" />
+        </div>
+        <div>
+          <dl>
+            <dt>Display name</dt><dd class="clearfix">${d.display_name}</dd>
+            <dt>Id</dt><dd>${d.id}</dd>
+            <dt>Email</dt><dd>${d.email}</dd>
+            <dt>Spotify URI</dt><dd><a href="${d.external_urls.spotify}">${d.external_urls.spotify}</a></dd>
+            <dt>Link</dt><dd><a href="${d.href}">${d.href}</a></dd>
+            <dt>Profile Image</dt><dd class="clearfix"><a href="${d.images.length > 0 ? d.images[0].url : ""}">${d.images.length > 0 ? d.images[0].url : ""}</a></dd>
+            <dt>Country</dt><dd>${d.country}</dd>
+          </dl>
+        </div>
+      </div>
+            `;
+            var $userProfilePlaceholder = document.getElementById('user-profile');
+
+            var $accessToken = document.getElementById('accessToken');
+            var $refreshToken = document.getElementById('refreshToken');
+            var $login = document.getElementById('login');
+            var $loggedin = document.getElementById('loggedin');
+
+            const params = new Proxy(new URLSearchParams(window.location.search), {
+                get: (searchParams, prop) => searchParams.get(prop),
+            });
+
+            var access_token = params.access_token,
+                refresh_token = params.refresh_token,
+                error = params.error;
+
+            if (error) {
+                alert('There was an error during the authentication');
+            } else {
+                if (access_token) {
+                    console.log("logged in");
+                    $accessToken.innerHTML = access_token;
+                    $refreshToken.innerHTML = refresh_token;
+                    fetch('https://api.spotify.com/v1/me', {headers: {
+                      'Authorization': 'Bearer ' + access_token
+                    }})
+                    .then((response) => response.json())
+                    .then((data) => {
+                        $userProfilePlaceholder.innerHTML = userProfileTemplateFunc(data);
+                        $login.style.display = 'none';
+                        $loggedin.style.display = 'block';
+                    })
+                } else {
+                    // render initial screen
+                    $login.style.display = 'block';
+                    $loggedin.style.display = 'none';
+                }
+
+                document.getElementById('obtain-new-token').addEventListener('click', function () {
+                    fetch('/refresh_token?' + (new URLSearchParams({'refresh_token': refresh_token})).toString())
+                    .then((response) => response.json())
+                    .then((data) => {
+                        access_token = data.access_token;
+                        $accessToken.innerHTML = access_token;
+                        $refreshToken.innerHTML = refresh_token;
+                    })
+                }, false);
+            }
+        })();
+    </script>
+</body>
+
+</html>
+        }
+    }
+
+    subst {
+        <html>
+        <b>$path</b>
+        </html>
+    }
+}
+proc ::generateRandomString {length {chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"}} {
+    set range [expr {[string length $chars]-1}]
+    set txt ""
+    for {set i 0} {$i < $length} {incr i} {
+       set pos [expr {int(rand()*$range)}]
+       append txt [string range $chars $pos $pos]
+    }
+    return $txt
+}
+proc ::handleReadSpotify {chan addr port} {
+    chan configure $chan -translation crlf
+    gets $chan line; set firstline $line
+    puts "Http: $chan $addr $port: $line"
+    set headers [list]
+    while {[gets $chan line] >= 0 && $line ne ""} {
+        if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
+            lappend headers $k $v
+        } else { break }
+    }
+    set tclHostname [info hostname]
+    set hostnameWithoutDotLocal [string map {".local" ""} $tclHostname]
+    set redirectUrl "http://$hostnameWithoutDotLocal.local:8888/callback"
+    set redirectUrlEncoded "http%3A%2F%2F$hostnameWithoutDotLocal.local%3A8888%2Fcallback"
+    set clientId $::env(SPOTIFY_CLIENT_ID)
+    set clientSecret $::env(SPOTIFY_CLIENT_SECRET)
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
+        set contentType "text/html; charset=utf-8"
+        puts "Path: $path"
+        if {($path eq "/") || ([string match {/\?*} $path])} {
+            set response [::handlePageSpotify $path contentType]
+            puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
+            chan configure $chan -encoding binary -translation binary
+            puts -nonewline $chan $response
+        } elseif {$path eq "/login"} {
+            set state [::generateRandomString 16]
+            set responseTypeParam "response_type=code"
+            set redirectUrlParam "redirect_uri=$redirectUrlEncoded"
+            set clientIdParam "client_id=$clientId"
+            set scopeParam "scope=user-read-private%20user-read-email%20user-read-currently-playing%20user-modify-playback-state"
+            set stateParam "state=$state"
+            puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=$state\nLocation: https://accounts.spotify.com/authorize?$responseTypeParam&$clientIdParam&$scopeParam&$redirectUrlParam&$stateParam"
+        } elseif {[string match "/callback*" $path]} {
+            regexp {/?code=(.+)&state=(.+)} $path qpFullMatch qpCode qpState
+            set encodedAuthorization [binary encode base64 "$clientId:$clientSecret"]
+            dict set hd "Content-Type" "application/x-www-form-urlencoded"
+            dict set hd Authorization "Basic $encodedAuthorization"
+            set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type authorization_code redirect_uri $redirectUrl code $qpCode]]
+            set responseBody [::http::data $token]
+            ::http::cleanup $token
+            puts $responseBody
+            set resultData [::json::json2dict $responseBody]
+            set accessToken [dict get $resultData access_token]
+            set refreshToken [dict get $resultData refresh_token]
+            set ::spotifyAccessToken $accessToken
+            puts -nonewline $chan "HTTP/1.1 302 Found\nSet-Cookie: spotify_auth_state=0; Max-Age=0\nLocation: /?access_token=$accessToken&refresh_token=$refreshToken"
+        } elseif {[string match "/refresh_token*" $path]} {
+            regexp {/?refresh_token=(.+)} $path qpFullMatch qpRefreshToken
+            set encodedAuthorization [binary encode base64 "$clientId:$clientSecret"]
+            dict set hd "Content-Type" "application/x-www-form-urlencoded"
+            dict set hd Authorization "Basic $encodedAuthorization"
+            set token [::http::geturl "https://accounts.spotify.com/api/token" -headers $hd -query [::http::formatQuery grant_type refresh_token refresh_token $qpRefreshToken]]
+            set responseBody [::http::data $token]
+            ::http::cleanup $token
+            puts $responseBody
+            set resultData [::json::json2dict $responseBody]
+            set accessToken [dict get $resultData access_token]
+            set ::spotifyAccessToken $accessToken
+            set response "{\"access_token\": \"$accessToken\"}"
+            puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n"
+            chan configure $chan -encoding binary -translation binary
+            puts -nonewline $chan $response
+        }
+        close $chan
+    } else { puts "Closing: $chan $addr $port $headers"; close $chan }
+}
+
+if {[catch {set ::serverSockSpotify [socket -server ::handleConnectSpotify 8888]}] == 1} {
+    error "There's already a Web-capable Folk node running on this machine."
+}
+
+set ::spotifyAccessToken ""
+When /someone/ wishes /uri/ would be played on spotify {
+    if {$::spotifyAccessToken eq ""} {
+        puts "spotifyAccessToken is empty"
+    } else {
+        dict set hd "Content-Type" "application/json"
+        dict set hd Authorization "Bearer $::spotifyAccessToken"
+        puts "Requesting play of $uri on Spotify"
+        # "spotify:album:04HMMwLmjkftjWy7xc6Bho"
+        set queryParam "{\"context_uri\": \"$uri\"}"
+        if {[string match "*track*" $uri]} {
+            # "spotify:track:232Y5lAjifWnc5NhUn34mz"
+            set queryParam "{\"uris\": \[\"$uri\"\]}"
+        }
+        set token [::http::geturl "https://api.spotify.com/v1/me/player/play" -method PUT -headers $hd -query $queryParam]
+        set responseBody [::http::data $token]
+        ::http::cleanup $token
+        puts $responseBody
+    }
+}
+
+proc ::pollCurrentSong {} {
+    puts "Polling current song"
+    if {$::spotifyAccessToken eq ""} {
+        puts "spotifyAccessToken is empty"
+    } else {
+        dict set hd "Content-Type" "application/json"
+        dict set hd Authorization "Bearer $::spotifyAccessToken"
+        set token [::http::geturl "https://api.spotify.com/v1/me/player/currently-playing" -headers $hd]
+        set responseBody [::http::data $token]
+        puts $responseBody
+        set responseCode [::http::ncode $token]
+        ::http::cleanup $token
+        puts $responseCode
+        if {$responseCode == 204} {
+            Retract spotify claims spotify is currently playing /something/
+            Assert spotify claims spotify is currently playing {}
+            puts "done doing the thing, for nothing"
+        } else {
+            set resultData [::json::json2dict $responseBody]
+            set item [dict get $resultData item]
+            set songTitle [dict get $item name]
+            set artists [dict get $item artists]
+            set artistsNames {}
+            foreach element $artists {lappend artistsNames [dict get $element name]}
+            set artistsString [join $artistsNames ", "]
+            Retract spotify claims spotify is currently playing /something/
+            Assert spotify claims spotify is currently playing "$songTitle by $artistsString"
+            puts "done doing the thing"
+        }
+    }
+    after 20000 [list ::pollCurrentSong]
+}
+::pollCurrentSong
