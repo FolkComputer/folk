@@ -146,7 +146,12 @@ ele.addEventListener('mousedown', mouseDownHandler);
 </script>
 
 <script>
-const program = String(Math.random());
+function uuidv4() {
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  );
+}
+const program = "web-program-" + uuidv4();
 
 let ws;
 let send;
@@ -175,7 +180,9 @@ function wsConnect() {
 wsConnect();
 
 function handleDrag() {
-  const [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+  let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+  top = (top + (top/window.innerHeight) * h) * (2160 / window.innerHeight);
+  left = (left + (left/window.innerWidth) * w) * (3840 / window.innerWidth);
     send(`
 proc handleConfigure {program x y w h} {
         set vertices [list [list $x $y] \
