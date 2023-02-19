@@ -175,7 +175,9 @@ function wsConnect() {
 wsConnect();
 
 function handleDrag() {
-  const [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+  let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+  top = (top + (top/window.innerHeight) * h) * (2160 / window.innerHeight);
+  left = (left + (left/window.innerWidth) * w) * (3840 / window.innerWidth);
     send(`
 proc handleConfigure {program x y w h} {
         set vertices [list [list $x $y] \
