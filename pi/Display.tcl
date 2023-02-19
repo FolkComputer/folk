@@ -249,7 +249,13 @@ namespace eval Display {
         return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
     }
     proc getColor {color} {
-        expr {[string is integer $color] ? $color : [set Display::$color]}
+        if {[info exists Display::$color]} {
+            set Display::$color
+        } elseif {[string is integer $color]} {
+            set color
+        } else {
+            set Display::white
+        }
     }
     proc fillTriangle {p0 p1 p2 color} {
         fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [getColor $color]
