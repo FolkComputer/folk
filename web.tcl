@@ -59,7 +59,7 @@ proc handlePage {path contentTypeVar} {
         return [subst {
             <html>
             <body>
-                $file_data
+                <pre>$file_data</pre>
             </body>
             </html>
         }]

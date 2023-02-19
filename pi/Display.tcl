@@ -159,7 +159,9 @@ dc proc drawText {int x0 int y0 int upsidedown char* text} void {
                     int sx = ((len-i)*font.char_width + x0-x);
                     int sy = y0 - y;
                     if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-                        staging[(sy*fbwidth) + sx] = bit ? 0xFFFF : 0x0000;
+                        if (bit) {
+                            staging[(sy*fbwidth) + sx] = 0xFFFF;
+                        }
                     }
                 }
             }
@@ -174,7 +176,9 @@ dc proc drawText {int x0 int y0 int upsidedown char* text} void {
                     int sx = (i*font.char_width + x0+x);
                     int sy = y0 + y;
                     if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-                        staging[(sy*fbwidth) + sx] = bit ? 0xFFFF : 0x0000;
+                        if (bit) {
+                            staging[(sy*fbwidth) + sx] = 0xFFFF;
+                        }
                     }
                 }
             }

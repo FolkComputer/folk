@@ -97,6 +97,14 @@ close $scStartup
 
 set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
 
+proc ::Music::exec {args} {
+  variable musicDir
+  if {[lindex $args end] eq "&"} {
+    ::exec {*}[lreplace $args end end] >>$musicDir/music.log 2>>$musicDir/music.log &
+  } else {
+    ::exec {*}$args >>$musicDir/music.log 2>>$musicDir/music.log
+  }
+}
 proc ::Music::finishSetup {} {
   variable musicDir
 
@@ -106,7 +114,8 @@ proc ::Music::finishSetup {} {
   exec jack_control dps rate 48000
   exec jack_control dps nperiods 2
   exec jack_control dps period 64
-  
+
+  catch {exec pkill sclang}
   exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc &
 
   set fifo $musicDir/tidal-input
@@ -114,7 +123,7 @@ proc ::Music::finishSetup {} {
   exec mkfifo $fifo
   exec -ignorestderr sh -c "ghci < $fifo" &
   set fifoId [open $fifo w]
-  exec cat $musicDir/BootTidal.hs > $fifo
+  ::exec cat $musicDir/BootTidal.hs > $fifo
 }
 
 proc ::Music::waitForDbus {} {
