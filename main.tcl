@@ -241,8 +241,13 @@ namespace eval Evaluator {
         try {
             runInSerializedEnvironment $body $env
         } on error err {
-            Say [dict get $env this] has error $err with info $::errorInfo
-            puts stderr "$::nodename: Error in [dict get $env this], match $::matchId: $err\n$::errorInfo"
+            if {[dict exists $env this]} {
+                Say [dict get $env this] has error $err with info $::errorInfo
+                puts stderr "$::nodename: Error in [dict get $env this], match $::matchId: $err\n$::errorInfo"
+            } else {
+                Say $::matchId has error $err with info $::errorInfo
+                puts stderr "$::nodename: Error in match $::matchId: $err\n$::errorInfo"
+            }
         }
     }
 
