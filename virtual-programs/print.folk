@@ -127,7 +127,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         newpath
         [join [lmap lineinfo $lines {
             lassign $lineinfo linenum line
-            set line [string map {"\\" "\\\\" ")" "\\)"} $line]
+            set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
             incr lineidx
             subst {
                 $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
