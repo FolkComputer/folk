@@ -194,8 +194,10 @@ Assert when /program/ has program code /code/ {
     }
 }
 Assert when /program/ has error /err/ with info /info/ {
-    label .$program.err -text "Error: $err\n$info" -background red
-    place .$program.err -x 40 -y 100
+    catch {
+        label .$program.err -text "Error: $err\n$info" -background red
+        place .$program.err -x 40 -y 100
+    }
 
     On unmatch {
         catch {destroy .$program.err}

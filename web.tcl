@@ -78,6 +78,7 @@ proc handlePage {path contentTypeVar} {
             <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
             <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
             <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button><button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button></p>
+            <pre id="error"></pre>
             </div>
 
             <script>
@@ -176,14 +177,26 @@ function wsConnect() {
         console.error('Socket encountered error: ', err.message, 'Closing socket');
         ws.close();
     }
+  ws.onmessage = (msg) => {
+    if (msg.data.startsWith("ERROR:")) {
+      const errorEl = document.getElementById("error");
+      if (msg.data == "ERROR: {}") {
+        errorEl.style.backgroundColor = "";
+        errorEl.innerText = "";
+      } else {
+        errorEl.style.backgroundColor = "#f55";
+        errorEl.innerText = msg.data;
+      }
+    }
+  }
 };
 wsConnect();
 
 function handleDrag() {
   let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
-  top = (top + (top/window.innerHeight) * h) * (2160 / window.innerHeight);
-  left = (left + (left/window.innerWidth) * w) * (3840 / window.innerWidth);
-    send(`
+  send(`
+set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
+set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
 proc handleConfigure {program x y w h} {
         set vertices [list [list $x $y] \
                           [list [expr {$x+$w}] $y] \
@@ -193,13 +206,20 @@ proc handleConfigure {program x y w h} {
         Retract web claims $program has region /something/
         Assert web claims $program has region [list $vertices $edges]
 }
-handleConfigure {${program}} {${left}} {${top}} {${w}} {${h}}
+handleConfigure {${program}} $left $top {${w}} {${h}}
+if {$::isLaptop} { Step }
     `);
 }
 function handleSave() {
     const code = document.getElementById("code").value;
-    send(`Retract web claims {${program}} has program code /something/`);
-    send(`Assert web claims {${program}} has program code {${code}}`);
+  send(`
+Retract web claims {${program}} has program code /something/
+Assert web claims {${program}} has program code {${code}}
+if {$::isLaptop} { Step }
+`);
+    setTimeout(() => {
+      send(`list ERROR: [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]`);
+    }, 500);
 }
 let jobid;
 function handlePrint() {
