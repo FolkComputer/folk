@@ -4,7 +4,7 @@ Wish $this is outlined seagreen
 Wish $this has neighbors
 
 proc getOrigin region {
-  return [lindex [lindex $region 0] 0]
+  lindex $region 0 0 
 }
 
 # dict set ::editors $this [expr {[dict exists $::editors $this] ? [dict get $::editors $this] : 0}]
@@ -13,13 +13,14 @@ if {![dict exists ::editors $this]} {
   cursor [dict create x 0 y 0]\
   editing false\
   chars [list]\
+  keyLogSize 0\
   ]
 }
 
 When $this has region /kRegion/ {
   set kOrigin [getOrigin $kRegion]
   # TODO: make this dynamic based on neighborAbove's name!
-  set filename "/home/folk/folk/virtual-programs/camera-slice.folk"
+  set filename ""
   if {$::isLaptop} {
     # TODO: generalize, this is just for cwervobook
     set filename "/Users/andrescuervo/code/folk/virtual-programs/camera-slice.folk"
@@ -30,14 +31,18 @@ When $this has region /kRegion/ {
       set neighborOrigin [getOrigin $r]
       lassign $neighborOrigin _ nOriginY
 
-      if {$nOriginY < $kOriginY} {
-        Wish $this is labelled "has a neighbor above"
-        # dict set ::editors $this [expr {[dict get $::editors $this] + 1}]
-        # When $::nodename has step count /c/ {
-        #   if {[dict exists ::editors $this]} {
-        #     Wish $this is labelled "The fox has been out [dict get $::editors $this] times"
-        #   }
-        # }
+      if {$nOriginY < $kOriginY && [string is integer $n]} {
+        Wish $this is labelled "keyboard origin: $kOriginY\nneighbor origin: $nOriginY"
+        if {!$::isLaptop} {
+          if {[string is integer $n]} {
+            set filename "/home/folk/folk-printed-programs/$n.folk"
+          } else {
+            # filter out virtual programs
+            return
+            set filename [string map {^ .} "/home/folk/folk/$n"]
+          }
+        }
+        #Wish $this is labelled "has a neighbor above: $filename"
         set editing [dict get $::editors $this editing]
         puts "in editing .... $editing"
 
@@ -57,88 +62,68 @@ When $this has region /kRegion/ {
           }
         } else {
           When the keyboard character log is /keyLog/ {
-            set k [lindex $keyLog end]
-            set cursor [dict get [dict get $::editors $this] cursor]
-            set currentX [dict get $cursor x]
-            set currentY [dict get $cursor y]
-            Wish $this is labelled $k
-            set displayChars [dict get $::editors $this chars]
-            
-            set currentLine [lindex $displayChars $currentY]
-            set cursorChar "_"
-            When $::nodename has step count /c/ {
-              # set $cursor
-              if {[expr $c % 2 == 0]} {
-                set cursorChar " "
+            set keyLogSize [dict get $::editors $this keyLogSize]
+            if {[expr [llength $keyLog] > $keyLogSize]} {
+              dict set $::editors $this keyLogSize [llength $keyLog]
+              set k [lindex $keyLog end]
+              set cursor [dict get [dict get $::editors $this] cursor]
+              set currentX [dict get $cursor x]
+              set currentY [dict get $cursor y]
+              Wish $this is labelled "keylogisze: $keyLogSize | keyLogLength: [llength $keyLog] | \n\$k: $k"
+              set displayChars [dict get $::editors $this chars]
+              
+              set currentLine [lindex $displayChars $currentY]
+              set cursorChar "_"
+              When $::nodename has step count /c/ {
+                # set $cursor
+                if {[expr $c % 2 == 0]} {
+                  set cursorChar " "
+                }
+                # Wish $this is labelled $cursorChar
               }
-              # Wish $this is labelled $cursorChar
-            }
-            
-            set currentChar [string index $currentLine $currentX]
-            set replacedLine [string replace $currentLine $currentX $currentX "$cursorChar$currentChar"]
-            puts "before: [llength $displayChars]"
-            set displayChars [lreplace $displayChars $currentY $currentY $replacedLine]
-            puts "after: [llength $displayChars]"
-            puts "line $currentY: $replacedLine"
-            # in chars, get y line & swap x char with _$x-char ||  $x-char
-            # set currentChar [lindex [join $currentLine ""] $currentX]
-            # puts "currentChar: $currentChar"
-            # set currentLine $currentX [concat $cursorChar]
-            Wish $this is labelled "$cursorChar | chars:\n[join $displayChars \n]"
+              
+              set currentChar [string index $currentLine $currentX]
+              set replacedLine [string replace $currentLine $currentX $currentX "$cursorChar$currentChar"]
+              set displayChars [lreplace $displayChars $currentY $currentY $replacedLine]
 
-            switch -nocase $k {
-              Up {
-                set currentY [dict get $cursor y]
-                if {$currentY > 0} {
-                  dict set ::editors $this cursor y [expr {$currentY - 1}]
+              Wish $this is labelled "$cursorChar | chars:\n[join $displayChars \n]"
+
+              switch -nocase $k {
+                Up {
+                  set currentY [dict get $cursor y]
+                  if {$currentY > 0} {
+                    dict set ::editors $this cursor y [expr {$currentY - 1}]
+                  }
                 }
-              }
-              Right {
-                set currentX [dict get $cursor x]
-                # TODO: make an accessor method for the current lines' width
-                # make sure this is bounded by that 
-                dict set ::editors $this cursor x [expr {$currentX + 1}]
-              }
-              Down {
-                # TODO: make an accessor method for the current line count
-                # make sure this is bounded by that 
-                set currentY [dict get $cursor y]
-                dict set ::editors $this cursor y [expr {$currentY + 1}]
-              }
-              Left {
-                set currentX [dict get $cursor x]
-                if {$currentX > 0} {
-                  dict set ::editors $this cursor x [expr {$currentX - 1}]
+                Right {
+                  set currentX [dict get $cursor x]
+                  # TODO: make an accessor method for the current lines' width
+                  # make sure this is bounded by that 
+                  dict set ::editors $this cursor x [expr {$currentX + 1}]
                 }
+                Down {
+                  # TODO: make an accessor method for the current line count
+                  # make sure this is bounded by that 
+                  set currentY [dict get $cursor y]
+                  dict set ::editors $this cursor y [expr {$currentY + 1}]
+                }
+                Left {
+                  set currentX [dict get $cursor x]
+                  if {$currentX > 0} {
+                    dict set ::editors $this cursor x [expr {$currentX - 1}]
+                  }
+                }
+                default {
+                  # insert $k into cursor position
+                }
+              } 
+              if {[info exists cursor]} {
+                # puts "$::editors | cursors: $cursor" 
+                puts "cursors: $cursor" 
               }
-              default {
-                # insert $k into cursor position
-              }
-            } 
-            if {[info exists cursor]} {
-              # puts "$::editors | cursors: $cursor" 
-              puts "cursors: $cursor" 
             }
-            Wish $this is labelled $k
-            #Wish $this is outlined $ca
-            unset k
           }
         }
-
-        # read in the file, if it doesn't contain "#---editing---", copy file content, append that string, & update ...
-        # Eventually use this for a cursor blink ...
-        #When $::nodename has step count /c/ {
-        #  Wish $this is labelled [expr $c % 2 == 0]
-        #}
-        # if {$editing && !$fileId} {
-        #   # listen for keyboard input $ insert it at cursor position
-        # } else {
-        #   #set editing true
-        #   #set fileId [open $filename a]
-        #   #puts $fileId "#===editing==="
-        #   #close $fileId
-        #   #puts "opening ... $fileId editing: $editing"
-        # }
       } else {
         # check for ::editors -> editing & set editing to false
         set editing [dict get $::editors $this editing]
