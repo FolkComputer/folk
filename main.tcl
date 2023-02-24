@@ -253,26 +253,42 @@ namespace eval Evaluator {
         }
     }
 
-    # Given a statement pattern, tells you all the reactions you
-    # should run if such a statement is added to the database.
+    # Given a StatementPattern, tells you all the reactions to run
+    # when a matching statement is added to / removed from the
+    # database. StatementId is the ID of the statement that wanted to
+    # react.
+    #
+    # For example, if you add `When the time is /t/`, it will register
+    # a reaction to the addition and removal of statements matching
+    # the pattern `the time is /t/`.
     #
     # Trie<StatementPattern + StatementId, Reaction>
-    variable statementPatternToReactions [trie create]
+    variable reactionsToStatementAddition [trie create]
+    # Used to quickly remove reactions when the reacting statement is removed:
+    # Dict<StatementId, List<StatementPattern + StatementId>>
+    variable reactionPatternsOfReactingId [dict create]
     # A reaction is a runnable script that gets passed the reactingId
     # and the ID of the matching statement.
     proc addReaction {pattern reactingId reaction} {
-        variable statementPatternToReactions
-        trie add statementPatternToReactions [list {*}$pattern $reactingId] $reaction
+        variable reactionsToStatementAddition
+        trie add reactionsToStatementAddition [list {*}$pattern $reactingId] $reaction
+        variable reactionPatternsOfReactingId
+        dict lappend reactionPatternsOfReactingId $reactingId [list {*}$pattern $reactingId]
     }
-    proc removeReaction {pattern reactingId} {
-        variable statementPatternToReactions
-        trie remove statementPatternToReactions [list {*}$pattern $reactingId]
+    proc removeAllReactions {reactingId} {
+        variable reactionPatternsOfReactingId
+        if {![dict exists $reactionPatternsOfReactingId $reactingId]} { return }
+
+        variable reactionsToStatementAddition
+        foreach reactionPattern [dict get $reactionPatternsOfReactingId $reactingId] {
+            trie remove reactionsToStatementAddition $reactionPattern
+        }
+        dict unset reactionPatternsOfReactingId $reactingId
     }
 
     proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern statementId} {
         if {![Statements::exists $whenId]} {
-            variable statementPatternToReactions
-            removeReaction $whenPattern $whenId
+            removeAllReactions $whenId
             return
         }
         set when [Statements::get $whenId]
@@ -361,10 +377,9 @@ namespace eval Evaluator {
             }
         }
 
-        # Trigger any prior reactions to the addition of this
-        # statement.
-        variable statementPatternToReactions
-        set reactions [trie lookup $statementPatternToReactions [list {*}$clause /reactingId/]]
+        # Trigger any reactions to the addition of this statement.
+        variable reactionsToStatementAddition
+        set reactions [trie lookup $reactionsToStatementAddition [list {*}$clause /reactingId/]]
         foreach reaction $reactions {
             {*}$reaction $id
         }
@@ -394,27 +409,7 @@ namespace eval Evaluator {
         }
     }
     proc reactToStatementRemoval {id} {
-        # Remove corresponding reactions from the reaction trie.
-        set clause [statement clause [Statements::get $id]]
-        if {[lrange $clause 0 4] eq "when the collected matches for"} {
-            # when the collected matches for [list the time is /t/] are /matches/ { ... } with environment /__env/ -> the time is /t/
-            set pattern [lindex $clause 5]
-            removeReaction $pattern $id
-
-            set claimizedPattern [list /someone/ claims {*}$pattern]
-            removeReaction $claimizedPattern $id
-
-            variable log; lappend log [list Recollect $id $pattern]
-
-        } elseif {[lindex $clause 0] eq "when"} {
-            # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
-            set pattern [lrange $clause 1 end-4]
-            removeReaction $pattern $id
-
-            # when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
-            set claimizedPattern [list /someone/ claims {*}$pattern]
-            removeReaction $claimizedPattern $id
-        }
+        removeAllReactions $id
 
         # Unset all things downstream of statement.
         set childMatchIds [statement children [Statements::get $id]]
