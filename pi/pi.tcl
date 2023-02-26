@@ -141,7 +141,7 @@ proc loadProgram {programFilename} {
 foreach programFilename [glob virtual-programs/*.folk] {
     loadProgram $programFilename
 }
-foreach programFilename [glob "user-programs/[info hostname]/*.folk"] {
+foreach programFilename [glob -nocomplain "user-programs/[info hostname]/*.folk"] {
     loadProgram $programFilename
 }
 
