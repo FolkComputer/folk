@@ -141,6 +141,9 @@ proc loadProgram {programFilename} {
 foreach programFilename [glob virtual-programs/*.folk] {
     loadProgram $programFilename
 }
+foreach programFilename [glob "user-programs/[info hostname]/*.folk"] {
+    loadProgram $programFilename
+}
 
 # so we can retract them all at once if a laptop connects:
 Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {
