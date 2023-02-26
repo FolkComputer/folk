@@ -200,6 +200,34 @@ namespace eval Statements {
         }
         set matches
     }
+    proc findMatchesJoining {patterns {bindings {}}} {
+        if {[llength $patterns] == 0} {
+            return [list $bindings]
+        }
+
+        # patterns = [list {/p/ is a person} {/p/ lives in /place/}]
+
+        # Split first pattern from the other patterns
+        set otherPatterns [lassign $patterns firstPattern]
+        # Do substitution of bindings into first pattern
+        set substitutedFirstPattern [list]
+        foreach word $firstPattern {
+            if {[regexp {^/([^/ ]+)/$} $word -> varName] &&
+                [dict exists $bindings $varName]} {
+                lappend substitutedFirstPattern [dict get $bindings $varName]
+            } else {
+                lappend substitutedFirstPattern $word
+            }
+        }
+
+        set matches [list]
+        set matchesForFirstPattern [findMatches $substitutedFirstPattern]
+        foreach matchBindings $matchesForFirstPattern {
+            lappend matches {*}[findMatchesJoining $otherPatterns \
+                                    [dict merge $bindings $matchBindings]]
+        }
+        set matches
+    }
 
     proc dot {} {
         variable statements
