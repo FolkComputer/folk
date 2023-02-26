@@ -164,7 +164,8 @@ bind . <KeyPress> {handleKeyPress %K}
 
 # also see how it's done in pi.tcl
 foreach programFilename [list {*}[glob virtual-programs/*.folk] \
-                             {*}[glob virtual-programs/*/*.folk]] {
+                             {*}[glob virtual-programs/*/*.folk] \
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
     # Skip archived programs.
     if {[string first "/archive/" $programFilename] != -1} {
         continue
