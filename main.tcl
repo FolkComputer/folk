@@ -365,13 +365,12 @@ namespace eval Evaluator {
         }
 
         set clause [statement clause $collect]
-        set pattern [lindex $clause 5]
+        set patterns [lsplit [lindex $clause 5] &]
         set body [lindex $clause end-3]
         set matchesVar [string range [lindex $clause end-4] 1 end-1] 
         set env [lindex $clause end]
 
-        set matches [list {*}[Statements::findMatches $pattern] \
-                         {*}[Statements::findMatches [list /someone/ claims {*}$pattern]]]
+        set matches [Statements::findMatchesJoining $patterns]
         set parentStatementIds [list $collectId]
         foreach matchBindings $matches {
             lappend parentStatementIds {*}[dict get $matchBindings __matcheeIds]
