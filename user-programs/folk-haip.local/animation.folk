@@ -1,0 +1,19 @@
+Wish $this is outlined blue
+
+set ::xx 10
+set ::yy 10
+
+When $::nodename has step count /c/ {
+  When "laptop.tcl" claims "virtual-programs/animation^folk" has region /r/ {
+    set goalX [lindex $r 0 0 0]
+    set goalY [lindex $r 0 0 1]
+    if {$goalX > $::xx} {
+      incr ::xx 1
+    }
+    if {$goalY > $::yy} {
+       incr ::yy 1
+    }
+    Wish $this is labelled "$goalX $goalY $::xx $::yy"
+    Display::stroke [list [list 0 0] [list $::xx $::yy]] 3 skyblue
+  }
+}

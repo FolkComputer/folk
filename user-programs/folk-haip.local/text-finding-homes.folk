@@ -1,0 +1,104 @@
+Wish "Hello" with id 1 would find a home starting from 100 100
+Wish "Number 2" with id 2 would find a home starting from 100 100
+Wish "Good bye" with id 3 would find a home starting from 100 100
+Wish "Multi\n\line\ntext" with id 4 would find a home starting from 100 100
+Wish "I have an idea!" with id 5 would find a home starting from 100 100
+
+if {![info exists ::assignments]} {set ::assignments [dict create]}
+if {![info exists ::assignedRegions]} {set ::assignedRegions [dict create]}
+
+When $::nodename has step count /c/ {
+    When the collected matches for [list /someone/ wishes /label/ with id /id/ would find a home starting from /x/ /y/] are /labelMatches/ {
+        When the collected matches for [list /regionName/ has region /region/] are /regionMatches/ {
+            set eligibleNewRegions {}
+            set regionMap [dict create]
+            foreach match $regionMatches {
+                set regionName [dict get $match regionName]
+                set regionData [dict get $match region]
+                dict set regionMap $regionName $regionData
+                # For now, consider all programs eligible for mapping
+                if {![dict exists $::assignedRegions $regionName]} {
+                    if {![string match *virtual-programs* $regionName] && ![string match *user-programs* $regionName]} {
+                        lappend eligibleNewRegions $regionName
+                    }
+                }
+            }
+            set seenLabels [dict create]	
+            foreach match $labelMatches {
+                set id [dict get $match id]
+                # puts "looking at label $id"
+                dict set seenLabels $id 1
+                # new assignments
+                if {![dict exists $::assignments $id]} {
+                    # puts "trying to assign $id, [llength $eligibleNewRegions] eligible regions"
+                    if {[llength $eligibleNewRegions] > 0} {
+                        set assignedRegionId [lindex $eligibleNewRegions 0]
+                        set eligibleNewRegions [lrange $eligibleNewRegions 1 end]
+                        set label [dict get $match label]
+                        set x [dict get $match x]
+                        set y [dict get $match y]
+                        dict set ::assignments $id [list $id $label $x $y $assignedRegionId 0]
+                        dict set ::assignedRegions $assignedRegionId 1
+                        puts "found assignment for $id to $assignedRegionId"
+                    } else {
+                        set label [dict get $match label]
+                        set x [expr {[dict get $match x] - 20 + rand()*40}]
+                        set y [expr {[dict get $match y] - 20 + rand()*40}]
+                        Display::text device $x $y 12 "unhomed $label" 0
+                    }
+                }
+                foreach assignmentId [dict keys $::assignments] {
+                    set assignment [dict get $::assignments $assignmentId]
+                    # puts "looking at assignment $assignment"
+                    lassign $assignment id label x y target reachedTarget
+                    set fontSize 12
+                    if {$reachedTarget} {
+                        # puts "wishing $id is labelled on target $target"
+                        Wish $target is labelled "$id: $label"
+                    } else {
+                        if {![dict exists $regionMap $target]} {
+                            # Targetted region wasn't seen
+                            puts "targetted region wasn't seen for $id, unassigning"
+                            set assignment [dict get $::assignments $id]
+                            set target [lindex $assignment 4]
+                            # TODO: should keep label in assignment dict so that previous x y isn't lost
+                            dict unset ::assignments $id
+                            dict unset ::assignedRegions $target
+                        } else {
+                            # Move
+                            set targetRegion [dict get $regionMap $target]
+                            set bbox [regionToBbox $targetRegion]
+                            lassign [boxCentroid $bbox] targetX targetY
+                            set distanceSquared [expr {pow($targetX - $x, 2) + pow($targetY - $y, 2)}]
+                            set xDiff [expr {$targetX - $x}]
+                            set yDiff [expr {$targetY - $y}]
+                            if {$xDiff > 3} {set xDiff 3}
+                            if {$xDiff < -3} {set xDiff -3}
+                            if {$yDiff > 3} {set yDiff 3}
+                            if {$yDiff < -3} {set yDiff -3}
+                            set xNew [expr {$x + $xDiff}]
+                            set yNew [expr {$y + $yDiff}]
+                            set snapDistance 9
+                            set reachedTarget [expr {$distanceSquared < $snapDistance}]
+                            # puts "moved $id to $xNew $yNew. Reached target? $reachedTarget"
+                            dict set ::assignments $id [list $id $label $xNew $yNew $target $reachedTarget]
+                            set radians 0
+                            Display::text device $xNew $yNew $fontSize "$id: $label" $radians
+                            Display::stroke [list [list $xNew $yNew] [list $targetX $targetY]] 3 red
+                        }
+                    }
+                }
+            }
+            set prevAssigments [dict keys $::assignments]
+            foreach id $prevAssigments {
+                if {![dict exists $seenLabels $id]} {
+                    set assignment [dict get $::assignments $id]
+                    set target [lindex $assignment 4]
+                    puts "wish to show label is gone, removing from cache: $id"
+                    dict unset ::assignments $id
+                    dict unset ::assignedRegions $target
+                }
+            }
+        }
+    }
+}
