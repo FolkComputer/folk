@@ -79,7 +79,7 @@ assert {[llength $::unmatchedStatementMatches] == 0}
 
 Assert Omar claims blah has number 3
 Assert Omar claims blah has text "three"
-When the collected matches for [list /x/ has number /n/ & /x/ has text /text/] are /matches/ {
+Assert when the collected matches for [list /x/ has number /n/ & /x/ has text /text/] are /matches/ {
     set match [lindex $matches 0]
     dict with match {
         set ::collectedjoin [list $x has number $n & $x has text $text]
