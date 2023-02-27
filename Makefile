@@ -13,3 +13,6 @@ repl:
 
 journal:
 	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
+
+backup-printed-programs:
+	tar -zcvf ~/"folk-printed-programs_$(shell date '+%Y-%m-%d_%H-%M-%S%z').tar.gz" ~/folk-printed-programs
