@@ -1,8 +1,12 @@
 proc assert condition {
-   set s "{$condition}"
-   if {![uplevel 1 expr $s]} {
-       return -code error "assertion failed: $condition"
-   }
+    set s "{$condition}"
+    if {![uplevel 1 expr $s]} {
+        set errmsg "assertion failed: $condition"
+        if {[lindex $condition 1] eq "eq" && [string index [lindex $condition 0] 0] eq "$"} {
+            set errmsg "$errmsg\n[uplevel 1 [list set [string range [lindex $condition 0] 1 end]]] is not equal to [lindex $condition 2]"
+        }
+        return -code error $errmsg
+    }
 }
 
 Assert programOakland has program code {
@@ -80,10 +84,17 @@ assert {[llength $::unmatchedStatementMatches] == 0}
 Assert Omar claims blah has number 3
 Assert Omar claims blah has text "three"
 Assert when the collected matches for [list /x/ has number /n/ & /x/ has text /text/] are /matches/ {
-    set match [lindex $matches 0]
-    dict with match {
-        set ::collectedjoin [list $x has number $n & $x has text $text]
+    set ::collectedjoin [list]
+    foreach match $matches {
+        dict with match {
+            lappend ::collectedjoin [list $x has number $n & $x has text $text]
+        }
     }
 }
 Step
-assert {$::collectedjoin eq "blah has number 3 & blah has text three"}
+assert {$::collectedjoin eq "{blah has number 3 & blah has text three}"}
+
+Assert Omar claims whup has number 4
+Assert Omar claims whup has text "four"
+Step
+assert {$::collectedjoin eq "{blah has number 3 & blah has text three} {whup has number 4 & whup has text four}"}

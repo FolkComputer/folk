@@ -405,9 +405,13 @@ namespace eval Evaluator {
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lrange $clause 0 4] eq "when the collected matches for"} {
-            # when the collected matches for [list the time is /t/] are /matches/ { ... } with environment /__env/ -> the time is /t/
-            set pattern [lindex $clause 5]
-            addReaction $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
+            # when the collected matches for [list the time is /t/ & Omar is cool] are /matches/ { ... } with environment /__env/
+            #   -> {the time is /t/} {Omar is cool}
+            set patterns [lsplit [lindex $clause 5] &]
+            # For each pattern, add a reaction to that pattern.
+            foreach pattern $patterns {
+                addReaction $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
+            }
 
             variable log; lappend log [list Recollect $id $pattern]
 
