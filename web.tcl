@@ -5,6 +5,7 @@ package require websocket
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
+proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;"} $s }
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
@@ -14,8 +15,8 @@ proc handlePage {path contentTypeVar} {
             lappend l [subst {
                 <li>
                 <details>
-                <summary>$id: [statement short $stmt]</summary>
-                <pre>[statement clause $stmt]</pre>
+                <summary>$id: [htmlEscape [statement short $stmt]]</summary>
+                <pre>[htmlEscape [statement clause $stmt]]</pre>
                 </details>
                 </li>
             }]
@@ -59,7 +60,7 @@ proc handlePage {path contentTypeVar} {
         return [subst {
             <html>
             <body>
-                <pre>$file_data</pre>
+            <pre>[htmlEscape $file_data]</pre>
             </body>
             </html>
         }]
