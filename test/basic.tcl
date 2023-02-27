@@ -38,15 +38,20 @@ Assert when /someone/ wishes /thing/ is outlined /color/ {
         dict set ::outlinecolors $thing $color
     }
 }
+set ::joinoutlinecolors [dict create]
+Assert when /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /r/ {
+    dict set ::joinoutlinecolors $thing $color
+}
 Assert someone wishes GreenThing is outlined green
 Assert someone claims GreenThing has region GreenThingRegion
 Step
 
 assert {$::outlinecolors eq "BlueThing blue GreenThing green"}
+assert {$::outlinecolors eq $::joinoutlinecolors}
 
 Assert someone claims BlueThing has region BlueThingRegion2
 Retract someone claims BlueThing has region BlueThingRegion
 Step
 
 assert {$::outlinecolors eq "BlueThing blue GreenThing green"}
-
+assert {$::outlinecolors eq $::joinoutlinecolors}
