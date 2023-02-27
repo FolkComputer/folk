@@ -308,10 +308,47 @@ When /actor/ is cool {
 ```
 
 The inside block of the `When` gets executed for each claim that is
-being made that it matches. The `/actor/` in the `When` binds the
+being made that it matches. It will get reactively rerun as new
+matching claims are added (or old ones are removed).
+
+Any wishes/claims you make in the body will get automatically revoked
+if the claim that the `When` is matching is revoked. (so if Omar stops
+being cool, the downstream label `Omar seems pretty cool` will go away
+automatically)
+
+The `/actor/` in the `When` binds the
 variable `actor` to whatever is at that position in the
-statement. It's like variables in Datalog, or parentheses in regular
-expressions.
+statement.
+
+It's like variables in Datalog, or parentheses in regular expressions.
+
+#### `&` joins
+
+You can match multiple patterns at once:
+
+```
+Claim Omar is cool
+Claim Omar is a person with /n/ legs
+When /x/ is cool & /x/ is a person with /n/ legs {
+   Wish $this is labelled "$x is a cool person with $n legs"
+}
+```
+
+Notice that `x` here will have to be the same in both arms of the
+match.
+
+You can match as many patterns as you want, separated by `&`.
+
+If you want to break your `When` onto multiple lines, remember to
+terminate each line with a `\` so you can continue onto the next
+line:
+
+```
+When /x/ is cool & \
+    /x/ is a person with /n/ legs {
+  Wish $this is labelled "$x is a cool person with $n legs"
+}
+```
 
 ### Collecting matches
 
@@ -325,14 +362,10 @@ This gets you an array of all matches for the pattern `/actor/ is
 cool`.
 
 (We use the Tcl `list` function to construct a pattern as a
-first-class object.)
+first-class object. You can use `&` joins in that pattern as
+well.)
 
 ### You usually won't need these
-
-#### Before convergence
-
-`Before convergence` was implemented so that collecting matches could
-be implemented.
 
 #### On
 
@@ -361,10 +394,6 @@ On unmatch {
     kill $pid
 }
 ```
-
-##### On convergence
-
-TODO: unimplemented
 
 #### Assert and Retract
 
