@@ -186,7 +186,7 @@ namespace eval Statements {
         variable statementClauseToId
         variable statements
         # Returns a list of bindings like
-        # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
+        # {{name Bob age 27 __matcheeIds {6}} {name Omar age 28 __matcheeIds {7}}}
 
         set matches [list]
         foreach id [trie lookup $statementClauseToId $pattern] {
@@ -194,7 +194,7 @@ namespace eval Statements {
 
             set match [statement unify $pattern [statement clause $stmt]]
             if {$match != false} {
-                dict set match __matcheeId $id
+                dict set match __matcheeIds [list $id]
                 lappend matches $match
             }
         }
@@ -220,11 +220,17 @@ namespace eval Statements {
             }
         }
 
+        set matcheeIds [if {[dict exists $bindings __matcheeIds]} {
+            dict get $bindings __matcheeIds
+        } else { list }]
+
         set matches [list]
         set matchesForFirstPattern [findMatches $substitutedFirstPattern]
+        lappend matchesForFirstPattern {*}[findMatches [list /someone/ claims {*}$substitutedFirstPattern]]
         foreach matchBindings $matchesForFirstPattern {
-            lappend matches {*}[findMatchesJoining $otherPatterns \
-                                    [dict merge $bindings $matchBindings]]
+            dict lappend matchBindings __matcheeIds {*}$matcheeIds
+            set matchBindings [dict merge $bindings $matchBindings]
+            lappend matches {*}[findMatchesJoining $otherPatterns $matchBindings]
         }
         set matches
     }
@@ -314,7 +320,7 @@ namespace eval Evaluator {
         dict unset reactionPatternsOfReactingId $reactingId
     }
 
-    proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern statementId} {
+    proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern otherWhenPatterns statementId} {
         if {![Statements::exists $whenId]} {
             removeAllReactions $whenId
             return
@@ -325,8 +331,13 @@ namespace eval Evaluator {
         set bindings [statement unify \
                           $whenPattern \
                           [statement clause $stmt]]
-        if {$bindings ne false} {
-            set ::matchId [Matches::add [list $whenId $statementId]]
+        if {$bindings eq false} { return }
+
+        set matches [Statements::findMatchesJoining \
+                         $otherWhenPatterns \
+                         $bindings]
+        foreach bindings $matches {
+            set ::matchId [Matches::add [list $whenId {*}[dict get $bindings __matcheeIds]]]
             set body [lindex [statement clause $when] end-3]
             set env [lindex [statement clause $when] end]
             set env [dict merge $env $bindings]
@@ -360,9 +371,15 @@ namespace eval Evaluator {
 
         set matches [list {*}[Statements::findMatches $pattern] \
                          {*}[Statements::findMatches [list /someone/ claims {*}$pattern]]]
-        set ::matchId [Matches::add [list $collectId {*}[lmap m $matches {dict get $m __matcheeId}]]]
+        set parentStatementIds [list $collectId]
+        foreach matchBindings $matches {
+            lappend parentStatementIds {*}[dict get $matchBindings __matcheeIds]
+        }
+
+        set ::matchId [Matches::add $parentStatementIds]
         dict with Matches::matches $::matchId {
-            lappend destructors [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            set destructor [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            lappend destructors $destructor
         }
 
         dict set env $matchesVar $matches
@@ -372,6 +389,19 @@ namespace eval Evaluator {
         variable log
         lappend log [list Recollect $collectId]
     }
+
+    proc lsplit {lst delimiter} {
+        set lsts [list]
+        set lastLst [list]
+        foreach item $lst {
+            if {$item eq $delimiter} {
+                lappend lsts $lastLst
+                set lastLst [list]
+            } else { lappend lastLst $item }
+        }
+        lappend lsts $lastLst
+        set lsts
+    }
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lrange $clause 0 4] eq "when the collected matches for"} {
@@ -379,35 +409,38 @@ namespace eval Evaluator {
             set pattern [lindex $clause 5]
             addReaction $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
 
-            set claimizedPattern [list /someone/ claims {*}$pattern]
-            addReaction $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
-
             variable log; lappend log [list Recollect $id $pattern]
 
         } elseif {[lindex $clause 0] eq "when"} {
-            # when the time is /t/ { ... } with environment /__env/ -> the time is /t/
-            set pattern [lrange $clause 1 end-4]
-            addReaction $pattern $id [list reactToStatementAdditionThatMatchesWhen $id $pattern]
+            # when the time is /t/ & the fox is out { ... } with environment /__env/ -> {the time is /t/} {the fox is out}
+            set patterns [lsplit [lrange $clause 1 end-4] &]
 
-            # when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
-            set claimizedPattern [list /someone/ claims {*}$pattern]
-            addReaction $claimizedPattern $id [list reactToStatementAdditionThatMatchesWhen $id $claimizedPattern]
+            # For each pattern, add a reaction to that pattern that,
+            # on matching-statement-addition, will do a full scan for
+            # the join.
+            for {set i 0} {$i < [llength $patterns]} {incr i} {
+                set pattern [lindex $patterns $i]
+                set otherPatterns [lreplace $patterns $i $i]
+                addReaction $pattern $id [list reactToStatementAdditionThatMatchesWhen $id $pattern $otherPatterns]
 
-            # Scan the existing statement set for any already-existing
-            # matching statements.
-            set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $pattern]
-            foreach alreadyMatchingId $alreadyMatchingStatements {
-                reactToStatementAdditionThatMatchesWhen $id $pattern $alreadyMatchingId
-            }
-            set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $claimizedPattern]
-            foreach alreadyMatchingId $alreadyMatchingStatements {
-                reactToStatementAdditionThatMatchesWhen $id $claimizedPattern $alreadyMatchingId
+                if {$i == 0} {
+                    # Scan the existing statement set for any already-existing
+                    # matching statements.
+                    set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $pattern]
+                    foreach alreadyMatchingId $alreadyMatchingStatements {
+                        reactToStatementAdditionThatMatchesWhen $id $pattern $otherPatterns $alreadyMatchingId
+                    }
+                }
             }
         }
 
         # Trigger any reactions to the addition of this statement.
         variable reactionsToStatementAddition
         set reactions [trie lookup $reactionsToStatementAddition [list {*}$clause /reactingId/]]
+        if {[lindex $clause 1] eq "claims"} {
+            set unclaimizedClause [lrange $clause 2 end]
+            lappend reactions {*}[trie lookup $reactionsToStatementAddition [list {*}$unclaimizedClause /reactingId/]]
+        }
         foreach reaction $reactions {
             {*}$reaction $id
         }

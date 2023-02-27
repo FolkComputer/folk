@@ -23,9 +23,13 @@ set places [lmap m [Statements::findMatchesJoining \
                 {dict get $m place}]
 assert {$places eq {{New York} {Sesame Street}}}
 
-# Assert when /x/ is a person & /x/ lives in /place/ {
-#     set ::foundX $x
-# }
-# Step
+Assert when /x/ is a person & /x/ lives in /place/ {
+    set ::found$x $place
+}
+Assert Ash is a person
+Assert Ash lives in "Pallet Town"
+Step
 
-# assert {$::foundX eq "Omar"}
+assert {$::foundOmar eq "New York" &&
+    $::foundElmo eq "Sesame Street" &&
+    $::foundAsh eq "Pallet Town"}
