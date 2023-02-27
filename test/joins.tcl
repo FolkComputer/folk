@@ -30,6 +30,8 @@ Assert Ash is a person
 Assert Ash lives in "Pallet Town"
 Step
 
-assert {$::foundOmar eq "New York" &&
+assert {
+    $::foundOmar eq "New York" &&
     $::foundElmo eq "Sesame Street" &&
-    $::foundAsh eq "Pallet Town"}
+    $::foundAsh eq "Pallet Town"
+}

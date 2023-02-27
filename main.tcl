@@ -320,18 +320,19 @@ namespace eval Evaluator {
         dict unset reactionPatternsOfReactingId $reactingId
     }
 
-    proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern otherWhenPatterns statementId} {
+    proc reactToStatementAdditionThatMatchesWhen {whenId whenPattern otherWhenPatterns
+                                                  statementId statementClause} {
         if {![Statements::exists $whenId]} {
             removeAllReactions $whenId
             return
         }
         set when [Statements::get $whenId]
-        set stmt [Statements::get $statementId]
 
         set bindings [statement unify \
                           $whenPattern \
-                          [statement clause $stmt]]
+                          $statementClause]
         if {$bindings eq false} { return }
+        dict set bindings __matcheeIds [list $statementId]
 
         set matches [Statements::findMatchesJoining \
                          $otherWhenPatterns \
@@ -385,7 +386,7 @@ namespace eval Evaluator {
         dict set env $matchesVar $matches
         tryRunInSerializedEnvironment $body $env
     }
-    proc reactToStatementAdditionThatMatchesCollect {collectId collectPattern statementId} {
+    proc reactToStatementAdditionThatMatchesCollect {collectId collectPattern statementId statementClause} {
         variable log
         lappend log [list Recollect $collectId]
     }
@@ -428,7 +429,14 @@ namespace eval Evaluator {
                     # matching statements.
                     set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $pattern]
                     foreach alreadyMatchingId $alreadyMatchingStatements {
-                        reactToStatementAdditionThatMatchesWhen $id $pattern $otherPatterns $alreadyMatchingId
+                        reactToStatementAdditionThatMatchesWhen $id $pattern $otherPatterns \
+                            $alreadyMatchingId [statement clause [Statements::get $alreadyMatchingId]]
+                    }
+                    set claimizedPattern [list /someone/ claims {*}$pattern]
+                    set alreadyMatchingStatements [trie lookup $Statements::statementClauseToId $claimizedPattern]
+                    foreach alreadyMatchingId $alreadyMatchingStatements {
+                        reactToStatementAdditionThatMatchesWhen $id $claimizedPattern $otherPatterns \
+                            $alreadyMatchingId [statement clause [Statements::get $alreadyMatchingId]]
                     }
                 }
             }
@@ -437,12 +445,16 @@ namespace eval Evaluator {
         # Trigger any reactions to the addition of this statement.
         variable reactionsToStatementAddition
         set reactions [trie lookup $reactionsToStatementAddition [list {*}$clause /reactingId/]]
+        foreach reaction $reactions {
+            {*}$reaction $id $clause
+        }
+
         if {[lindex $clause 1] eq "claims"} {
             set unclaimizedClause [lrange $clause 2 end]
-            lappend reactions {*}[trie lookup $reactionsToStatementAddition [list {*}$unclaimizedClause /reactingId/]]
-        }
-        foreach reaction $reactions {
-            {*}$reaction $id
+            set unclaimizedReactions [trie lookup $reactionsToStatementAddition [list {*}$unclaimizedClause /reactingId/]]
+            foreach unclaimizedReaction $unclaimizedReactions {
+                {*}$unclaimizedReaction $id $unclaimizedClause
+            }
         }
     }
     proc reactToMatchRemoval {matchId} {
