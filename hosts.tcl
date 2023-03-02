@@ -10,6 +10,7 @@ catch {
 if {$wifi eq "cynosure"} { set ::shareNode "folk-omar.local" } \
 elseif {$wifi eq "Verizon_TWRHB4"} { set ::shareNode "folk-cwervo.local" } \
 elseif {$wifi eq "WONDERLAND"} { set ::shareNode "folk-haip.local" } \
+elseif {$wifi eq "GETNEAR"} { set ::shareNode "folk-ian.local" } \
 elseif {$wifi eq "Fios-LGTS3-5G" || $wifi eq "Fios-LGTS3"} { set ::shareNode "folk0.local" } \
 else { set ::shareNode "folk0.local" }
 
