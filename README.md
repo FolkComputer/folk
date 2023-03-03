@@ -197,10 +197,10 @@ https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-
 
 ## License
 
-We intend to release this repo as open-source under an MIT, GPLv3, or
-AGPLv3 license by June 2023 or earlier; by contributing code, you're
-also agreeing to license your code under whichever license we end up
-choosing.
+We intend to release this repo as open-source under an MIT, GPLv3,
+Apache 2.0, or AGPLv3 license by June 2023 or earlier; by contributing
+code, you're also agreeing to license your code under whichever
+license we end up choosing.
 
 ## Stuff
 
@@ -284,8 +284,8 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-These are all implemented in `main.tcl`. You should probably only need
-`Wish`, `Claim`, and `When` for most things.
+These are all implemented in `main.tcl`. For most things, you'll
+probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
 
 ### Wish and Claim
 
@@ -307,12 +307,12 @@ When /actor/ is cool {
 }
 ```
 
-The inside block of the `When` gets executed for each claim that is
-being made that it matches. It will get reactively rerun as new
-matching claims are added (or old ones are removed).
+The inside block (body) of the `When` gets executed for each claim
+that is being made that it matches. It will get reactively rerun
+whenever a new matching claim is introduced.
 
 Any wishes/claims you make in the body will get automatically revoked
-if the claim that the `When` is matching is revoked. (so if Omar stops
+if the claim that the `When` was matching is revoked. (so if Omar stops
 being cool, the downstream label `Omar seems pretty cool` will go away
 automatically)
 
@@ -328,7 +328,7 @@ You can match multiple patterns at once:
 
 ```
 Claim Omar is cool
-Claim Omar is a person with /n/ legs
+Claim Omar is a person with 2 legs
 When /x/ is cool & /x/ is a person with /n/ legs {
    Wish $this is labelled "$x is a cool person with $n legs"
 }
@@ -337,7 +337,7 @@ When /x/ is cool & /x/ is a person with /n/ legs {
 Notice that `x` here will have to be the same in both arms of the
 match.
 
-You can match as many patterns as you want, separated by `&`.
+You can join as many patterns as you want, separated by `&`.
 
 If you want to break your `When` onto multiple lines, remember to
 terminate each line with a `\` so you can continue onto the next
@@ -364,6 +364,44 @@ cool`.
 (We use the Tcl `list` function to construct a pattern as a
 first-class object. You can use `&` joins in that pattern as
 well.)
+
+### Commit
+
+Experimental: `Commit` is used to register claims that will stick
+around until you do another `Commit`. You can use this to create the
+equivalent of 'variables', stateful statements.
+
+```
+Commit { Claim there is a ball at x 100 y 100 }
+
+When there is a ball at x /x/ y /y/ {
+    puts "ball at $x $y"
+    After 10 milliseconds {
+        Commit { Claim there is a ball at x $x y [expr {$y+1}] }
+        if {$y > 115} { set ::done true }
+    }
+}
+```
+
+`Commit` will overwrite all statements made by the previous `Commit`
+(scoped to the current `$this`).
+
+If you want multiple state atoms, you can also provide a key -- you
+can be like
+
+```
+Commit the ball position {
+  Claim the ball is at blahblah
+}
+```
+
+and then future commits with that key, `the ball position`, will
+overwrite this statement but not override different commits with
+different keys
+
+(there's currently no way to overwrite state from other pages, but we
+could probably add a way to provide an absolute key that would allow
+that if it was useful.)
 
 ### You usually won't need these
 
