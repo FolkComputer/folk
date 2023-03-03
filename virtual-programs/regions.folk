@@ -1,0 +1,65 @@
+Wish $this has filename "regions.folk"
+
+namespace eval ::vec2 {
+    namespace import ::tcl::mathop::+ ::tcl::mathop::- ::tcl::mathop::*
+    proc add {a b} {
+        list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
+    }
+    proc sub {a b} {
+        list [- [lindex $a 0] [lindex $b 0]] [- [lindex $a 1] [lindex $b 1]]        
+    }
+    proc scale {s a} {
+        list [* $s [lindex $a 0]] [* $s [lindex $a 1]]
+    }
+    proc distance {a b} {
+        lassign $a ax ay
+        lassign $b bx by
+        expr {sqrt(pow($ax-$bx, 2) + pow($ay-$by, 2))}
+    }
+    proc dot {a b} {
+        expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
+    }
+    namespace import ::tcl::mathfunc::max ::tcl::mathfunc::min
+    namespace import ::tcl::mathop::/
+    proc distanceToLineSegment {a v w} {
+        set l2 [vec2 distance $v $w]
+        if {$l2 == 0.0} {
+            return [distance $a $v]
+        }
+        set t [max 0 [min 1 [/ [dot [sub $a $v] [sub $w $v]] $l2]]]
+        set proj [add $v [scale $t [sub $w $v]]]
+        vec2 distance $a $proj
+    }
+    namespace export *
+    namespace ensemble create
+}
+
+namespace eval ::region {
+    proc new {vertices edges angle space} {
+        list region $vertices $edges $angle $space
+    }
+
+    proc vertices {r} { lindex $r 0 }
+    proc edges {r} { lindex $r 1 }
+
+    proc edgeToLineSegment {r e} {
+        list [lindex [vertices $r] [lindex $e 0]] [lindex [vertices $r] [lindex $e 1]]
+    }
+    proc distance {r1 r2} {
+	puts $r2
+        set minDist 1e9
+        foreach v1 [vertices $r1] e2 [edges $r2] {
+            set dist [vec2 distanceToLineSegment $v1 {*}[edgeToLineSegment $r2 $e2]]
+            if {$dist < $minDist} { set minDist $dist }
+        }
+        set minDist
+    }
+    namespace export distance
+    namespace ensemble create
+}
+
+When when the distance between /p1/ and /p2/ is /distanceVar/ /body/ with environment /e/ {
+    When $p1 has region /r1/ & $p2 has region /r2/ {
+        Claim the distance between $p1 and $p2 is [region distance $r1 $r2]
+    }
+}
