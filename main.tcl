@@ -186,7 +186,7 @@ namespace eval Statements {
         variable statementClauseToId
         variable statements
         # Returns a list of bindings like
-        # {{name Bob age 27 __matcheeId 6} {name Omar age 28 __matcheeId 7}}
+        # {{name Bob age 27 __matcheeIds {6}} {name Omar age 28 __matcheeIds {7}}}
 
         set matches [list]
         foreach id [trie lookup $statementClauseToId $pattern] {
@@ -194,9 +194,43 @@ namespace eval Statements {
 
             set match [statement unify $pattern [statement clause $stmt]]
             if {$match != false} {
-                dict set match __matcheeId $id
+                dict set match __matcheeIds [list $id]
                 lappend matches $match
             }
+        }
+        set matches
+    }
+    proc findMatchesJoining {patterns {bindings {}}} {
+        if {[llength $patterns] == 0} {
+            return [list $bindings]
+        }
+
+        # patterns = [list {/p/ is a person} {/p/ lives in /place/}]
+
+        # Split first pattern from the other patterns
+        set otherPatterns [lassign $patterns firstPattern]
+        # Do substitution of bindings into first pattern
+        set substitutedFirstPattern [list]
+        foreach word $firstPattern {
+            if {[regexp {^/([^/ ]+)/$} $word -> varName] &&
+                [dict exists $bindings $varName]} {
+                lappend substitutedFirstPattern [dict get $bindings $varName]
+            } else {
+                lappend substitutedFirstPattern $word
+            }
+        }
+
+        set matcheeIds [if {[dict exists $bindings __matcheeIds]} {
+            dict get $bindings __matcheeIds
+        } else { list }]
+
+        set matches [list]
+        set matchesForFirstPattern [findMatches $substitutedFirstPattern]
+        lappend matchesForFirstPattern {*}[findMatches [list /someone/ claims {*}$substitutedFirstPattern]]
+        foreach matchBindings $matchesForFirstPattern {
+            dict lappend matchBindings __matcheeIds {*}$matcheeIds
+            set matchBindings [dict merge $bindings $matchBindings]
+            lappend matches {*}[findMatchesJoining $otherPatterns $matchBindings]
         }
         set matches
     }
@@ -325,16 +359,21 @@ namespace eval Evaluator {
         }
 
         set clause [statement clause $collect]
-        set pattern [lindex $clause 5]
+        set patterns [lsplit [lindex $clause 5] &]
         set body [lindex $clause end-3]
         set matchesVar [string range [lindex $clause end-4] 1 end-1] 
         set env [lindex $clause end]
 
-        set matches [list {*}[Statements::findMatches $pattern] \
-                         {*}[Statements::findMatches [list /someone/ claims {*}$pattern]]]
-        set ::matchId [Matches::add [list $collectId {*}[lmap m $matches {dict get $m __matcheeId}]]]
+        set matches [Statements::findMatchesJoining $patterns]
+        set parentStatementIds [list $collectId]
+        foreach matchBindings $matches {
+            lappend parentStatementIds {*}[dict get $matchBindings __matcheeIds]
+        }
+
+        set ::matchId [Matches::add $parentStatementIds]
         dict with Matches::matches $::matchId {
-            lappend destructors [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            set destructor [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            lappend destructors $destructor
         }
 
         dict set env $matchesVar $matches
@@ -348,12 +387,15 @@ namespace eval Evaluator {
     proc reactToStatementAddition {id} {
         set clause [statement clause [Statements::get $id]]
         if {[lrange $clause 0 4] eq "when the collected matches for"} {
-            # when the collected matches for [list the time is /t/] are /matches/ { ... } with environment /__env/ -> the time is /t/
-            set pattern [lindex $clause 5]
-            addReaction $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
-
-            set claimizedPattern [list /someone/ claims {*}$pattern]
-            addReaction $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
+            # when the collected matches for [list the time is /t/ & Omar is cool] are /matches/ { ... } with environment /__env/
+            #   -> {the time is /t/} {Omar is cool}
+            set patterns [lsplit [lindex $clause 5] &]
+            # For each pattern, add a reaction to that pattern.
+            foreach pattern $patterns {
+                addReaction $pattern $id [list reactToStatementAdditionThatMatchesCollect $id $pattern]
+                set claimizedPattern [list /someone/ claims {*}$pattern]
+                addReaction $claimizedPattern $id [list reactToStatementAdditionThatMatchesCollect $id $claimizedPattern]
+            }
 
             variable log; lappend log [list Recollect $id $pattern]
 
