@@ -39,8 +39,10 @@ Assert when /someone/ wishes /thing/ is outlined /color/ {
     }
 }
 set ::joinoutlinecolors [dict create]
-Assert when /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /r/ {
-    dict set ::joinoutlinecolors $thing $color
+Assert programJoin has program code {
+    When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /r/ {
+        dict set ::joinoutlinecolors $thing $color
+    }
 }
 Assert someone wishes GreenThing is outlined green
 Assert someone claims GreenThing has region GreenThingRegion
