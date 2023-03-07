@@ -606,11 +606,13 @@ proc Commit {args} {
     upvar this this
     set body [lindex $args end]
     set key [list [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
-    Assert $key has program code [list Evaluator::tryRunInSerializedEnvironment $body [Evaluator::serializeEnvironment]]
-    if {[dict exists ::committed $key] && [dict get ::committed $key] ne $body} {
-        Retract $key has program code [dict get ::committed $key]
+
+    set code [list Evaluator::tryRunInSerializedEnvironment $body [Evaluator::serializeEnvironment]]
+    Assert $key has program code $code
+    if {[dict exists $::committed $key] && [dict get $::committed $key] ne $code} {
+        Retract $key has program code [dict get $::committed $key]
     }
-    dict set ::committed $key $body
+    dict set ::committed $key $code
 }
 
 proc StepImpl {} { Evaluator::Evaluate }
