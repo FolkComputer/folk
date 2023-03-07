@@ -23,6 +23,19 @@ namespace eval trie {
     namespace ensemble create
 }
 
+proc lsplit {lst delimiter} {
+    set lsts [list]
+    set lastLst [list]
+    foreach item $lst {
+        if {$item eq $delimiter} {
+            lappend lsts $lastLst
+            set lastLst [list]
+        } else { lappend lastLst $item }
+    }
+    lappend lsts $lastLst
+    set lsts
+}
+
 namespace eval statement { ;# statement record type
     # A statement contains a clause (a Tcl list of words), parents (a
     # set of match IDs), and children (a set of match IDs). Sets are
@@ -530,18 +543,6 @@ proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this]
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 
 proc When {args} {
-    proc lsplit {lst delimiter} {
-        set lsts [list]
-        set lastLst [list]
-        foreach item $lst {
-            if {$item eq $delimiter} {
-                lappend lsts $lastLst
-                set lastLst [list]
-            } else { lappend lastLst $item }
-        }
-        lappend lsts $lastLst
-        set lsts
-    }
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     set wordsWillBeBound [list]
