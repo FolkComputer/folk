@@ -101,8 +101,8 @@ const mouseDownHandler = function (e) {
     y = e.clientY;
 
     // Attach the listeners to `document`
-    document.addEventListener('mousemove', mouseMoveHandler);
-    document.addEventListener('mouseup', mouseUpHandler);
+    document.addEventListener('pointermove', mouseMoveHandler);
+    document.addEventListener('pointerup', mouseUpHandler);
 };
 
 const mouseMoveHandler = function (e) {
@@ -125,8 +125,8 @@ const mouseMoveHandler = function (e) {
 
 const mouseUpHandler = function () {
     // Remove the handlers of `mousemove` and `mouseup`
-    document.removeEventListener('mousemove', mouseMoveHandler);
-    document.removeEventListener('mouseup', mouseUpHandler);
+    document.removeEventListener('pointermove', mouseMoveHandler);
+    document.removeEventListener('pointerup', mouseUpHandler);
 };
 
 // Cmd + S || Ctrl + S => Save
@@ -144,7 +144,7 @@ document.addEventListener('keydown', function(e) {
   }
 }, false);
 
-ele.addEventListener('mousedown', mouseDownHandler);
+ele.addEventListener('pointerdown', mouseDownHandler);
 </script>
 
 <script>
