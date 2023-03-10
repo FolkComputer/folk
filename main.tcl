@@ -476,6 +476,19 @@ namespace eval Evaluator {
             dict unset Matches::matches $matchId
         }
     }
+    proc Unmatch {{level 0}} {
+        # Forces an unmatch of the current match or its `level`-th ancestor match.
+
+        set unmatchId $::matchId
+        for {set i 0} {$i < $level} {incr i} {
+            # Get first parent of unmatchId (should be the When)
+            set unmatchWhenId [lindex [dict get $Matches::matches $unmatchId parents] 0]
+            set unmatchId [lindex [dict get $Statements::statements $unmatchWhenId parents] 0]
+        }
+
+        Evaluator::reactToMatchRemoval $unmatchId
+        dict unset Matches::matches $unmatchId
+    }
 
     proc Evaluate {} {
         variable log
@@ -570,6 +583,15 @@ proc When {args} {
     }
 
     uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+}
+proc Every {event args} {
+    if {$event eq "time"} {
+        set body [lindex $args end]
+        set pattern [lreplace $args end end]
+        set level 0
+        foreach word $pattern { if {$word eq "&"} {incr level} }
+        uplevel [list When {*}$pattern "$body\nEvaluator::Unmatch $level"]
+    }
 }
 proc On {event args} {
     if {$event eq "process"} {

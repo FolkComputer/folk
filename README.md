@@ -403,6 +403,30 @@ different keys
 could probably add a way to provide an absolute key that would allow
 that if it was useful.)
 
+### Every time
+
+Experimental: `Every time` works almost like `When`, but it's used to
+handle 'events' without causing a reaction cascade.
+
+Example:
+
+```
+Commit { Claim there have been 0 boops }
+
+Every time there is a boop & there have been /n/ boops {
+  Commit { Claim there have been [expr {$n + 1}] boops }
+}
+```
+
+If you had used `When` here, it wouldn't terminate, since the new
+`there have been n+1 boops` commit would cause the `When` to retrigger,
+resulting in a `there have been n+2 boops` commit, then another
+retrigger, and so on.
+
+`Every time`, in contrast, will 'only react once' to the boop; nothing
+in its body will run again unless the boop goes away and an entirely
+new boop appears.
+
 ### You usually won't need these
 
 #### On
