@@ -75,6 +75,12 @@ proc handlePage {path contentTypeVar} {
     } elseif {$path eq "/new"} {
         return {
             <html>
+            <head>
+            <style>
+            body { overflow: hidden; }
+            </style>
+            </head>
+            <body>
             <span id="status">Status</span>
             <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
             <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
@@ -239,6 +245,7 @@ function handlePrintBack() {
     });
 }
 </script>
+            </body>
             </html>
         }
     }
