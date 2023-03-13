@@ -17,9 +17,20 @@ Assert when we are running {
     }
 }
 Step
+vwait good
 
-after 500 {
-    if {[info exists ::good] && $::good} { exit 0 } \
-        else { exit 1 }
+Assert when we are running {
+    On process {
+        set ::n 0
+        while true {
+            Commit { Claim the counter is [incr ::n] }
+            Step
+        }
+    }
+
+    When the counter is /n/ {
+        puts $n
+    }
 }
-vwait forever
+Step
+vwait done

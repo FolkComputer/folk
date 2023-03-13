@@ -7,23 +7,6 @@ set ::processPrelude {
 
     Assert $::nodename wishes $::nodename shares all statements
 
-    # proc Claim {args} { lappend ::commit [list $::nodename claims {*}$args] }
-    # proc Wish {args} { lappend ::commit [list $::nodename wishes {*}$args] }
-    # set ::commitKeyToStatements [dict create]
-    # proc Commit {args} {
-    #     set key [lreplace $args end end]
-    #     set body [lindex $args end]
-
-    #     # A commit runs with respect to a particular $this.
-    #     if {[dict exists $::commitKeyToStatements $key]} {
-    #         set prevCommit [dict get $::commitKeyToStatements $key]
-    #     } else {
-    #         set prevCommit [list]
-    #     }
-    #     set ::commit [list]
-    #     eval $body
-    # }
-
     source "lib/peer.tcl"
     peer "localhost"
     vwait Peers::localhost::connected
