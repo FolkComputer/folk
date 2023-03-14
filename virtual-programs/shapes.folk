@@ -1,0 +1,66 @@
+Wish $this has filename "shapes.folk"
+
+# Tcl procs that depend on Display::stroke
+
+proc polyline {points {strokeWeight 5} {color white} args} {
+  set i 0
+  set pointsLength [llength $points]
+  set PL_less_one [expr {$pointsLength - 1}]
+  while {$i < $pointsLength} {
+      if {$i eq $PL_less_one} { return }
+      set current [lindex $points $i]
+      incr i
+      set next [lindex $points $i]
+      Display::stroke [list $current $next] $strokeWeight $color
+  }
+}
+
+proc rectangle {x y w h} {
+  set start [list $x $y]
+  set points [list $start]
+
+  puts [list [expr {$x + $w}] $y]
+
+  lappend points [list [expr {$x + $w}] $y]
+  lappend points [list [expr {$x + $w}] [expr {$y + $h}]]
+  lappend points [list $x [expr {$y + $h}]]
+  lappend points $start
+  polyline $points
+}
+
+# --- POLYLINE ---
+
+When /someone/ wishes /p/ has a polyline {
+  Wish $p is labelled "polyline!"
+  When $p has region /r/ {
+    polyline [lindex $r 0] 5 blue
+  }
+}
+
+set sizeDict [dict create small 1 medium 4 large 10]
+
+proc isSizeWord {word} {
+  expr {[lsearch [list small medium large] $word] >= 0}
+}
+
+When /someone/ wishes /p/ has a /attribute/ polyline {
+  Wish $p is labelled "ATTR: $attribute polyline"
+
+
+  When $p has region /r/ {
+    if {[isSizeWord $attribute]} {
+      polyline [lindex $r 0] [dict get $sizeDict $attribute] white
+      Wish $p is labelled [dict get $sizeDict $attribute]
+    } else {
+      polyline [lindex $r 0] 5 $attribute
+    }
+  }
+}
+
+When /someone/ wishes /p/ has a /attr1/ /attr2/ polyline {
+  Wish $p is labelled "$attr1 $attr2 polyline"
+  # TODO: make this less strict, rn assume $SIZE, $COLOR
+  When $p has region /r/ {
+    polyline [lindex $r 0] $attr1 $attr2
+  }
+}
