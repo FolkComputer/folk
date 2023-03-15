@@ -1,0 +1,151 @@
+When /p1/ is a game tool stove & \
+     /p2/ is a game ingredient /ingredient/ & \
+     the distance between /p1/ and /p2/ is /d/ {
+    Every time $p2 has state /state/ /value/ {
+        if {$d < 10} {
+            set newValue [expr {$value + 1}]
+            if {$state eq "raw"} {
+                After 10 milliseconds {
+                    if {$newValue <= 500} {
+                        Commit $p2 { Claim $p2 has state $state $newValue }
+                    } else {
+                        Commit $p2 { Claim $p2 has state cooked 0 }
+                    }
+                }
+            } elseif {$state eq "cooked"} {
+                After 10 milliseconds {
+                    if {$newValue <= 100} {
+                        Commit $p2 { Claim $p2 has state $state $newValue }
+                    } else {
+                        Commit $p2 { Claim $p2 has state overcooked 0 }
+                    }
+                }
+            }
+        }
+    }
+}
+
+When the collected matches for [list /p1/ is a game goal /goalId/ & \
+                                     /p2/ is a game ingredient /ingredient/ & \
+                                     /p2/ has state /state/ /value/ & \
+                                     /p1/ has region /r1/ & \
+                                     /p2/ has region /r2/] are /matches/ {
+    puts "Considering [llength $matches] matches"
+    set partsMatches {}
+    foreach match $matches {
+        dict with match {
+            set bbox1 [regionToBbox $r1]
+            set bbox2 [regionToBbox $r2]
+            lassign [boxCentroid $bbox1] rx1 ry1
+            lassign [boxCentroid $bbox2] rx2 ry2
+            set dist [expr {sqrt(pow($rx1 - $rx2, 2) + pow($ry1 - $ry2, 2))}]
+            if {$dist < 50} {
+                if {$goalId == 0 && $ingredient eq "tomato" && $state eq "cooked"} {
+                    lappend partsMatches $p2
+                } elseif {$goalId == 1 && $ingredient eq "tomato" && $state eq "cooked"} {
+                    lappend partsMatches $p2
+                }
+            }
+        }
+    }
+    if {[llength $partsMatches] == 2} {
+        Every time game score is /score/ {
+            After 10 milliseconds {
+                Commit score { Claim game score is [expr {$score + 1}]}
+            }
+        }
+        foreach partsMatchId $partsMatches {
+            Every time $partsMatchId has state /state/ /value/ {
+                After 10 milliseconds {
+                    Commit $partsMatchId { Claim $partsMatchId has state eaten 0 }
+                }
+            }
+        }
+    }
+}
+
+When /someone/ claims /they/ is a game ingredient /ingredient/ {
+    Commit $they { Claim $they has state raw 0 }
+}
+
+When /thing/ has region /r/ & /thing/ is a game ingredient /ingredient/ & /thing/ has state /state/ /value/ {
+    Wish $thing is labelled "State: $state:$value"
+}
+
+Commit score { Claim game score is 0 }
+
+When game score is /score/ {
+   Wish $this is labelled "Score: $score"
+}
+
+When /p1/ is a game tool stove & \
+     /p1/ has region /region/ {
+    set bbox [regionToBbox $region]
+    lassign [boxCentroid $bbox] centerX centerY
+    set x $centerX
+    set y $centerY
+    set prevX $x
+    set prevY $y
+    set d 10
+    set a 0
+    for {set i 0} {$i < 70} {incr i} {
+        set x [expr {$centerX + $d * cos($a)}]
+        set y [expr {$centerY + $d * sin($a)}]
+        Display::stroke [list [list $prevX $prevY] [list $x $y]] 2 red
+        set prevX $x
+        set prevY $y
+        set d [expr {$d + 1}]
+        set a [expr {$a + 0.3}]
+    }
+}
+
+When /p1/ is a game goal /goalId/ & \
+     /p1/ has region /region/ {
+    set bbox [regionToBbox $region]
+    lassign [boxCentroid $bbox] centerX centerY
+    Wish $p1 is labelled "Serving #$goalId"
+    set d 40
+    set a 0.785
+    set x [expr {$centerX + $d * cos($a)}]
+    set y [expr {$centerY + $d * sin($a)}]
+    set prevX $x
+    set prevY $y
+    for {set i 0} {$i < 5} {incr i} {
+        set x [expr {$centerX + $d * cos($a)}]
+        set y [expr {$centerY + $d * sin($a)}]
+        Display::stroke [list [list $prevX $prevY] [list $x $y]] 2 blue
+        set prevX $x
+        set prevY $y
+        set d [expr {$d + 1}]
+        set a [expr {$a + 1.57}]
+    }
+}
+
+When /p1/ is a game ingredient tomato & \
+     /p1/ has state /state/ /value/ & \
+     /p1/ has region /region/ {
+    set bbox [regionToBbox $region]
+    lassign [boxCentroid $bbox] centerX centerY
+    set d 40
+    set a 0
+    set x [expr {$centerX + $d * cos($a)}]
+    set y [expr {$centerY + $d * sin($a)}]
+    set prevX $x
+    set prevY $y
+    for {set i 0} {$i < 21} {incr i} {
+        set x [expr {$centerX + $d * cos($a)}]
+        set y [expr {$centerY + $d * sin($a)}]
+        set c "red"
+        if {$state eq "cooked"} {
+            set c "green"
+        } elseif {$state eq "overcooked"} {
+            set c "gray"
+        } elseif {$state eq "eaten"} {
+            set c "blue"
+        }
+        Display::stroke [list [list $prevX $prevY] [list $x $y]] 5 $c
+        set prevX $x
+        set prevY $y
+        set a [expr {$a + 0.314}]
+    }
+}
