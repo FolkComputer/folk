@@ -288,6 +288,8 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
+See also our [WIP language style guide](docs/tcl.md).
+
 These are all implemented in `main.tcl`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
 
