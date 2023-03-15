@@ -1,5 +1,9 @@
 # Folk
 
+## Hardware/setup info
+
+<http://folk.computer/pilot/>
+
 ## Mac installation
 
 to run on (Mac) laptop:
