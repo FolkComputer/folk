@@ -1,8 +1,16 @@
 When /p1/ is a game tool stove & \
      /p2/ is a game ingredient /ingredient/ & \
-     the distance between /p1/ and /p2/ is /d/ {
+     /p1/ has region /r1/ & \
+     /p2/ has region /r2/ {
     Every time $p2 has state /state/ /value/ {
-        if {$d < 10} {
+        set bbox1 [regionToBbox $r1]
+        set bbox2 [regionToBbox $r2]
+        lassign [boxCentroid $bbox1] rx1 ry1
+        # offset to allow for papers to overlap
+        set rx1 [expr {$rx1 - 150}]
+        lassign [boxCentroid $bbox2] rx2 ry2
+        set dist [expr {sqrt(pow($rx1 - $rx2, 2) + pow($ry1 - $ry2, 2))}]
+        if {$dist < 100} {
             set newValue [expr {$value + 1}]
             if {$state eq "raw"} {
                 After 10 milliseconds {
@@ -30,16 +38,18 @@ When the collected matches for [list /p1/ is a game goal /goalId/ & \
                                      /p2/ has state /state/ /value/ & \
                                      /p1/ has region /r1/ & \
                                      /p2/ has region /r2/] are /matches/ {
-    puts "Considering [llength $matches] matches"
+    # puts "Considering [llength $matches] matches"
     set partsMatches {}
     foreach match $matches {
         dict with match {
             set bbox1 [regionToBbox $r1]
             set bbox2 [regionToBbox $r2]
             lassign [boxCentroid $bbox1] rx1 ry1
+            # offset to allow for papers to overlap
+            set rx1 [expr {$rx1 - 150}]
             lassign [boxCentroid $bbox2] rx2 ry2
             set dist [expr {sqrt(pow($rx1 - $rx2, 2) + pow($ry1 - $ry2, 2))}]
-            if {$dist < 50} {
+            if {$dist < 100} {
                 if {$goalId == 0 && $ingredient eq "tomato" && $state eq "cooked"} {
                     lappend partsMatches $p2
                 } elseif {$goalId == 1 && $ingredient eq "tomato" && $state eq "cooked"} {
@@ -65,7 +75,11 @@ When the collected matches for [list /p1/ is a game goal /goalId/ & \
 }
 
 When /someone/ claims /they/ is a game ingredient /ingredient/ {
-    Commit $they { Claim $they has state raw 0 }
+    When the collected matches for [list $they has state /state/ /value/] are /matches/ {
+        if {[llength $matches] == 0} {
+            Commit $they { Claim $they has state raw 0 }
+        }
+    }
 }
 
 When /thing/ has region /r/ & /thing/ is a game ingredient /ingredient/ & /thing/ has state /state/ /value/ {
@@ -78,10 +92,16 @@ When game score is /score/ {
    Wish $this is labelled "Score: $score"
 }
 
+When /they/ has state /state/ /value/ {
+    Wish $this is labelled "Tracking: $state: $value $they"
+}
+
 When /p1/ is a game tool stove & \
      /p1/ has region /region/ {
     set bbox [regionToBbox $region]
     lassign [boxCentroid $bbox] centerX centerY
+    # offset to allow for papers to overlap
+    set centerX [expr {$centerX - 150}]
     set x $centerX
     set y $centerY
     set prevX $x
@@ -103,6 +123,8 @@ When /p1/ is a game goal /goalId/ & \
      /p1/ has region /region/ {
     set bbox [regionToBbox $region]
     lassign [boxCentroid $bbox] centerX centerY
+    # offset to allow for papers to overlap
+    set centerX [expr {$centerX - 150}]
     Wish $p1 is labelled "Serving #$goalId"
     set d 40
     set a 0.785
@@ -110,6 +132,7 @@ When /p1/ is a game goal /goalId/ & \
     set y [expr {$centerY + $d * sin($a)}]
     set prevX $x
     set prevY $y
+    set a [expr {$a + 1.57}]
     for {set i 0} {$i < 5} {incr i} {
         set x [expr {$centerX + $d * cos($a)}]
         set y [expr {$centerY + $d * sin($a)}]
@@ -132,6 +155,7 @@ When /p1/ is a game ingredient tomato & \
     set y [expr {$centerY + $d * sin($a)}]
     set prevX $x
     set prevY $y
+    set a [expr {$a + 0.314}]
     for {set i 0} {$i < 21} {incr i} {
         set x [expr {$centerX + $d * cos($a)}]
         set y [expr {$centerY + $d * sin($a)}]
