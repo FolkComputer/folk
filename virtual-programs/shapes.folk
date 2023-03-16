@@ -18,8 +18,6 @@ proc polyline {points {strokeWeight 5} {color white} args} {
   }
 }
 
-# Use polyline to draw a rectangle
-
 proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
   set start [list $x $y]
   set points [list $start]
@@ -36,17 +34,6 @@ proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
 proc square {x y w {strokeWeight 5} {color "white"} args} {
   rectangle $x $y $w $w $strokeWeight $color
 }
-# Use polyline to draw a triangle
-proc triangle {x y w h {strokeWeight 5} {color "white"}} {
-  set start [list $x $y]
-  set points [list $start]
-  lappend points [list [expr {$x + $w}] $y]
-  lappend points [list [expr {$x + $w / 2}] [expr {$y + $h}]]
-  lappend points $start
-  polyline $points $strokeWeight $color
-}
-
-# --- RECTANGLE ---
 
 proc regionToInnerRect {region} {
     set vertices [lindex $region 0]
@@ -61,42 +48,7 @@ proc regionToInnerRect {region} {
     return [list $x $y $width $height]
 }
 
-When /someone/ wishes /p/ has a rectangle {
-  Wish $p has a white rectangle
-}
-
-When /someone/ wishes /p/ has a /attribute/ rectangle {
-  Wish $p is labelled "ATTR: $attribute rectangle "
-  When $p has region /r/ {
-    lassign [regionToInnerRect $r] x y width height
-
-    if {[isSizeWord $attribute]} {
-      rectangle $x $y $width $height [dict get $sizeDict $attribute] white
-    } else {
-      rectangle $x $y $width $height 5 $attribute
-    }
-  }
-}
-
-When /someone/ wishes /p/ has a /attr1/ /attr2/ rectangle {
-  Wish $p is labelled "$attr1 $attr2 rectangle "
-  # TODO: make this less strict, rn assume $SIZE, $COLOR
-  When $p has region /r/ {
-    lassign [regionToInnerRect $r] x y width height
-    rectangle $x $y $width $height $attr1 $attr2
-  }
-}
-
-proc trimParens {string} { string map {( "" ) ""} $string }
-
-When /someone/ wishes /p/ has a rectangle at /position/ {
-  When $p has region /r/ {
-    lassign [regionToInnerRect $r] x y width height
-    
-    lassign [split [trimParens $position] ,] posX posY
-    rectangle $posX $posY 100 100 5 red
-  }
-}
+# --- Wish $this has ... ----
 
 # numPoints 2 => line
 # numPoints 3 => triangle
@@ -115,29 +67,49 @@ proc shape {numPoints x y r {color white} args} {
   polyline $points 5 $color
 }
 
-When /someone/ wishes /p/ has a circle {
-  When $p has region /r/ {
-    lassign [regionToInnerRect $r] x y width height
-    set radius [expr {$width * 0.035}]
+When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
+  lassign [regionToInnerRect $r] x y width height
+  lassign $offsetVector offsetX offsetY
  
-    set x [expr {$x + $width * 0.6}]
-    set y [expr {$y + $height * 0.1}]
-    shape 50 $x $y $radius green
+  if {$offsetX != 0} {
+    set x [expr {$x + $offsetX}]
+  }
+  if {$offsetY != 0} {
+    set y [expr {$y + $offsetY}]
+  }
+
+  puts "drawing $shape at $x $y"
+
+  set adjustedWidth [expr {$width * 0.25}]
+  set x [expr { $x * 1.3}]
+  set y [expr { $y * 1.25}]
+  switch -nocase $shape {
+    triangle {
+      shape 3 $x $y $adjustedWidth $color
+    }
+    square {
+      shape 4 $x $y $adjustedWidth $color
+    }
+    # TODO: cwervo - fix magic numbers here
+    circle {
+      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color
+    }
+    default {
+      shape 5 $x $y $adjustedWidth $color
+    }
   }
 }
 
-# TODO: cwervo - extend this attr1 to be a bigger list, rn just color
-When /someone/ wishes /p/ has a /attr1/ triangle {
-  When $p has region /r/ {
-    lassign [regionToInnerRect $r] x y width height
-    set radius [expr {$width * 0.6}]
- 
-    set x [expr {$x + $width * 0.8}]
-    set y [expr {$y + $height * 0.1}]
-    shape 3 $x $y $radius $attr1
-  }
+When /someone/ wishes /p/ draws a /color/ /shape/ & /p/ has region /r/ {
+  Wish $p draws a $color $shape offset {0 0}
 }
 
-When /someone/ wishes /p/ has a triangle {
-  Wish $p has a white triangle
+When /someone/ wishes /p/ draws a /shape/ & /p/ has region /r/ {
+  Wish $p draws a white $shape
 }
+
+When /someone/ wishes /p/ draws a /shape/ offset /offsetVector/ {
+  Wish $p draws a white $shape offset $offsetVector 
+}
+
+# --- TODO: Wish table has ... ----
