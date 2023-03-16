@@ -1,7 +1,10 @@
 Wish $this has filename "shapes.folk"
 
-# Tcl procs that depend on Display::stroke
+set sizeDict [dict create small 1 medium 4 large 10]
 
+proc isSizeWord {word} {
+  expr {[lsearch [list small medium large] $word] >= 0}
+}
 proc polyline {points {strokeWeight 5} {color white} args} {
   set i 0
   set pointsLength [llength $points]
@@ -15,7 +18,9 @@ proc polyline {points {strokeWeight 5} {color white} args} {
   }
 }
 
-proc rectangle {x y w h} {
+# Use polyline to draw a rectangle
+
+proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
   set start [list $x $y]
   set points [list $start]
 
@@ -25,42 +30,114 @@ proc rectangle {x y w h} {
   lappend points [list [expr {$x + $w}] [expr {$y + $h}]]
   lappend points [list $x [expr {$y + $h}]]
   lappend points $start
-  polyline $points
+  polyline $points $strokeWeight $color
 }
 
-# --- POLYLINE ---
+proc square {x y w {strokeWeight 5} {color "white"} args} {
+  rectangle $x $y $w $w $strokeWeight $color
+}
+# Use polyline to draw a triangle
+proc triangle {x y w h {strokeWeight 5} {color "white"}} {
+  set start [list $x $y]
+  set points [list $start]
+  lappend points [list [expr {$x + $w}] $y]
+  lappend points [list [expr {$x + $w / 2}] [expr {$y + $h}]]
+  lappend points $start
+  polyline $points $strokeWeight $color
+}
 
-When /someone/ wishes /p/ has a polyline {
-  Wish $p is labelled "polyline!"
+# --- RECTANGLE ---
+
+proc regionToInnerRect {region} {
+    set vertices [lindex $region 0]
+    lassign $vertices a b c d
+    lassign $a aX aY
+    lassign $c cX cY
+    set shrinkConstant 0.65
+    set width [expr {($cX - $aX) * $shrinkConstant}]
+    set height [expr {($cY - $aY) * $shrinkConstant}]
+    set x [expr {$aX + $width * 0.25}]
+    set y [expr {$aY + $height * 0.25}]
+    return [list $x $y $width $height]
+}
+
+When /someone/ wishes /p/ has a rectangle {
+  Wish $p has a white rectangle
+}
+
+When /someone/ wishes /p/ has a /attribute/ rectangle {
+  Wish $p is labelled "ATTR: $attribute rectangle "
   When $p has region /r/ {
-    polyline [lindex $r 0] 5 blue
-  }
-}
+    lassign [regionToInnerRect $r] x y width height
 
-set sizeDict [dict create small 1 medium 4 large 10]
-
-proc isSizeWord {word} {
-  expr {[lsearch [list small medium large] $word] >= 0}
-}
-
-When /someone/ wishes /p/ has a /attribute/ polyline {
-  Wish $p is labelled "ATTR: $attribute polyline"
-
-
-  When $p has region /r/ {
     if {[isSizeWord $attribute]} {
-      polyline [lindex $r 0] [dict get $sizeDict $attribute] white
-      Wish $p is labelled [dict get $sizeDict $attribute]
+      rectangle $x $y $width $height [dict get $sizeDict $attribute] white
     } else {
-      polyline [lindex $r 0] 5 $attribute
+      rectangle $x $y $width $height 5 $attribute
     }
   }
 }
 
-When /someone/ wishes /p/ has a /attr1/ /attr2/ polyline {
-  Wish $p is labelled "$attr1 $attr2 polyline"
+When /someone/ wishes /p/ has a /attr1/ /attr2/ rectangle {
+  Wish $p is labelled "$attr1 $attr2 rectangle "
   # TODO: make this less strict, rn assume $SIZE, $COLOR
   When $p has region /r/ {
-    polyline [lindex $r 0] $attr1 $attr2
+    lassign [regionToInnerRect $r] x y width height
+    rectangle $x $y $width $height $attr1 $attr2
   }
+}
+
+proc trimParens {string} { string map {( "" ) ""} $string }
+
+When /someone/ wishes /p/ has a rectangle at /position/ {
+  When $p has region /r/ {
+    lassign [regionToInnerRect $r] x y width height
+    
+    lassign [split [trimParens $position] ,] posX posY
+    rectangle $posX $posY 100 100 5 red
+  }
+}
+
+# numPoints 2 => line
+# numPoints 3 => triangle
+# numPoints 4 => square
+proc shape {numPoints x y r {color white} args} {
+  set start [list $x $y]
+  set points [list $start]
+  set i 0
+  while {$i < $numPoints} {
+    incr i
+    set angle [expr {2 * 3.14159 * $i / $numPoints}]
+    set x [expr {$x + $r * cos($angle)}]
+    set y [expr {$y + $r * sin($angle)}]
+    lappend points [list $x $y]
+  }
+  polyline $points 5 $color
+}
+
+When /someone/ wishes /p/ has a circle {
+  When $p has region /r/ {
+    lassign [regionToInnerRect $r] x y width height
+    set radius [expr {$width * 0.035}]
+ 
+    set x [expr {$x + $width * 0.6}]
+    set y [expr {$y + $height * 0.1}]
+    shape 50 $x $y $radius green
+  }
+}
+
+# TODO: cwervo - extend this attr1 to be a bigger list, rn just color
+When /someone/ wishes /p/ has a /attr1/ triangle {
+  When $p has region /r/ {
+    lassign [regionToInnerRect $r] x y width height
+    set radius [expr {$width * 0.6}]
+ 
+    set x [expr {$x + $width * 0.8}]
+    set y [expr {$y + $height * 0.1}]
+    shape 3 $x $y $radius $attr1
+  }
+}
+
+When /someone/ wishes /p/ has a triangle {
+  Wish $p has a white triangle
 }
