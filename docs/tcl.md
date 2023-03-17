@@ -26,6 +26,16 @@ puts [add {*}$numbers]
 
 ## Style guide
 
+### Tcl code vs. virtual programs vs. printed programs
+
+In general, avoid adding new .tcl files to the Git repo. Pure Tcl
+libraries are an antipattern; we should only need them for the hard
+core of the system.
+
+Most new code (both libraries and applications) should be virtual
+programs (which ilve as .folk files in the virtual-programs/
+subfolder) or printed programs.
+
 ### Folk 
 
 - Use complete sentences when you word your claims and wishes.
