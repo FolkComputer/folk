@@ -1,0 +1,115 @@
+Wish $this has filename "shapes.folk"
+
+set sizeDict [dict create small 1 medium 4 large 10]
+
+proc isSizeWord {word} {
+  expr {[lsearch [list small medium large] $word] >= 0}
+}
+proc polyline {points {strokeWeight 5} {color white} args} {
+  set i 0
+  set pointsLength [llength $points]
+  set PL_less_one [expr {$pointsLength - 1}]
+  while {$i < $pointsLength} {
+      if {$i eq $PL_less_one} { return }
+      set current [lindex $points $i]
+      incr i
+      set next [lindex $points $i]
+      Display::stroke [list $current $next] $strokeWeight $color
+  }
+}
+
+proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
+  set start [list $x $y]
+  set points [list $start]
+
+  puts [list [expr {$x + $w}] $y]
+
+  lappend points [list [expr {$x + $w}] $y]
+  lappend points [list [expr {$x + $w}] [expr {$y + $h}]]
+  lappend points [list $x [expr {$y + $h}]]
+  lappend points $start
+  polyline $points $strokeWeight $color
+}
+
+proc square {x y w {strokeWeight 5} {color "white"} args} {
+  rectangle $x $y $w $w $strokeWeight $color
+}
+
+proc regionToInnerRect {region} {
+    set vertices [lindex $region 0]
+    lassign $vertices a b c d
+    lassign $a aX aY
+    lassign $c cX cY
+    set shrinkConstant 0.65
+    set width [expr {($cX - $aX) * $shrinkConstant}]
+    set height [expr {($cY - $aY) * $shrinkConstant}]
+    set x [expr {$aX + $width * 0.25}]
+    set y [expr {$aY + $height * 0.25}]
+    return [list $x $y $width $height]
+}
+
+# --- Wish $this has ... ----
+
+# numPoints 2 => line
+# numPoints 3 => triangle
+# numPoints 4 => square
+proc shape {numPoints x y r {color white} args} {
+  set start [list $x $y]
+  set points [list $start]
+  set i 0
+  while {$i < $numPoints} {
+    incr i
+    set angle [expr {2 * 3.14159 * $i / $numPoints}]
+    set x [expr {$x + $r * cos($angle)}]
+    set y [expr {$y + $r * sin($angle)}]
+    lappend points [list $x $y]
+  }
+  polyline $points 5 $color
+}
+
+When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
+  lassign [regionToInnerRect $r] x y width height
+  lassign $offsetVector offsetX offsetY
+ 
+  if {$offsetX != 0} {
+    set x [expr {$x + $offsetX}]
+  }
+  if {$offsetY != 0} {
+    set y [expr {$y + $offsetY}]
+  }
+
+  puts "drawing $shape at $x $y"
+
+  set adjustedWidth [expr {$width * 0.25}]
+  set x [expr { $x * 1.3}]
+  set y [expr { $y * 1.25}]
+  switch -nocase $shape {
+    triangle {
+      shape 3 $x $y $adjustedWidth $color
+    }
+    square {
+      shape 4 $x $y $adjustedWidth $color
+    }
+    # TODO: cwervo - fix magic numbers here
+    circle {
+      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color
+    }
+    default {
+      shape 5 $x $y $adjustedWidth $color
+    }
+  }
+}
+
+When /someone/ wishes /p/ draws a /color/ /shape/ & /p/ has region /r/ {
+  Wish $p draws a $color $shape offset {0 0}
+}
+
+When /someone/ wishes /p/ draws a /shape/ & /p/ has region /r/ {
+  Wish $p draws a white $shape
+}
+
+When /someone/ wishes /p/ draws a /shape/ offset /offsetVector/ {
+  Wish $p draws a white $shape offset $offsetVector 
+}
+
+# --- TODO: Wish table has ... ----

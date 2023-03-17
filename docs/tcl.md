@@ -64,3 +64,23 @@ create`.
 ### Singletons
 
 Capitalized namespace, like `Statements`.
+
+
+### Working with regions
+
+A common pattern I've found myself doing is:
+
+```tcl
+When /thing/ has region /r/ {
+  lassign $r vertices edges
+  lassign $vertices a b c d
+}
+```
+
+Now you can think about addressing
+
+```
+a - b
+|   |
+d - c
+```
