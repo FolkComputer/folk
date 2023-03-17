@@ -21,9 +21,10 @@ vwait good
 
 Assert when we are running {
     On process {
-        set ::n 0
+        set n 0
         while true {
-            Commit { Claim the counter is [incr ::n] }
+            incr n
+            Commit { Claim the counter is $n }
             Step
         }
     }

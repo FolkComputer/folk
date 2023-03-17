@@ -19,6 +19,7 @@ proc On-process {name body} {
     set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
+        set body [list Evaluator::tryRunInSerializedEnvironment $body [list]]
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 
         # TODO: send it the serialized environment
