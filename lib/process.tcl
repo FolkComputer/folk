@@ -5,7 +5,7 @@ set ::processPrelude {
         after $ms [list after idle [namespace code [info level 0]]]
     }
 
-    Assert $::nodename wishes $::nodename shares all statements
+    Assert $::nodename wishes $::nodename shares all claims
 
     source "lib/peer.tcl"
     peer "localhost"

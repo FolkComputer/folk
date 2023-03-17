@@ -8,7 +8,7 @@ Step
 
 Assert when we are running {
     On process {
-        Assert things are good
+        Assert <root> claims things are good
         Step
     }
 
@@ -20,11 +20,12 @@ Step
 vwait good
 
 Assert when we are running {
+    puts "Core: $::nodename"
     On process {
         set n 0
         while true {
             incr n
-            Commit { Claim the counter is $n }
+            Commit { puts com; Claim the counter is $n }
             Step
         }
     }

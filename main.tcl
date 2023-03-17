@@ -667,15 +667,20 @@ proc Step {} {
                 dict for {_ stmt} $Statements::statements {
                     lappend shareStatements [statement clause $stmt]
                 }
-            } else {
-                foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
-                    set pattern [dict get $m pattern]
-                    foreach id [trie lookup $Statements::statementClauseToId $pattern] {
-                        set clause [statement clause [Statements::get $id]]
-                        set match [statement unify $pattern $clause]
-                        if {$match != false} {
-                            lappend shareStatements $clause
-                        }
+            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
+                dict for {_ stmt} $Statements::statements {
+                    if {[lindex [statement clause $stmt] 1] eq "claims"} {
+                        lappend shareStatements [statement clause $stmt]
+                    }
+                }
+            }
+            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
+                set pattern [dict get $m pattern]
+                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                    set clause [statement clause [Statements::get $id]]
+                    set match [statement unify $pattern $clause]
+                    if {$match != false} {
+                        lappend shareStatements $clause
                     }
                 }
             }
@@ -691,6 +696,13 @@ proc Step {} {
 
 source "lib/math.tcl"
 
+
+# this defines $this in the contained scopes
+# it's also used to implement Commit
+Assert when /this/ has program code /__code/ {
+    eval $__code
+}
+
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
@@ -699,10 +711,6 @@ if {[info exists ::entry]} {
         foreach stmt $statements { Say {*}$stmt }
     }
 
-    # this defines $this in the contained scopes
-    Assert when /this/ has program code /__code/ {
-        eval $__code
-    }
     source "lib/process.tcl"
     source "./web.tcl"
     source $::entry
