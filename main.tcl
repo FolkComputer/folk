@@ -627,7 +627,7 @@ set ::committed [dict create]
 proc Commit {args} {
     upvar this this
     set body [lindex $args end]
-    set key [list [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
 
     set code [list Evaluator::tryRunInSerializedEnvironment $body [Evaluator::serializeEnvironment]]
     Assert $key has program code $code
