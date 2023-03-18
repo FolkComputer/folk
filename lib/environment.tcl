@@ -21,7 +21,7 @@ proc serializeEnvironment {} {
     set env
 }
 
-proc runInSerializedEnvironment {body env} {
+proc deserializeEnvironment {env} {
     dict for {name value} $env {
         if {[string index $name 0] eq "^"} {
             proc ::SerializableEnvironment::[string range $name 1 end] {*}$value
@@ -32,6 +32,13 @@ proc runInSerializedEnvironment {body env} {
             set ::SerializableEnvironment::$name $value
         }
     }
+}
+
+proc isRunningInSerializedEnvironment {} {
+    expr {[uplevel {namespace current}] eq "::SerializableEnvironment"}
+}
+proc runInSerializedEnvironment {body env} {
+    deserializeEnvironment $env
     try {
         namespace eval ::SerializableEnvironment $body
     } finally {

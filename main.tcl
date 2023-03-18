@@ -645,6 +645,10 @@ namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
+    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
+        set env [uplevel {Evaluator::serializeEnvironment}]
+    }
+
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
@@ -691,6 +695,10 @@ proc Step {} {
                 Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
             }]
         }
+    }
+
+    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
+        Evaluator::deserializeEnvironment $env
     }
 }
 
