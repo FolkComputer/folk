@@ -435,6 +435,20 @@ new boop appears.
 
 ### You usually won't need these
 
+#### When when
+
+Lets you create statements only on demand, when someone is looking for
+that statement.
+
+```
+When /thing/ is cool {
+    Wish $this is labelled "$thing is cool"
+}
+When when /personVar/ is cool /body/ with environment /e/ {
+    Claim Folk is cool
+}
+```
+
 #### On
 
 General note: the `On` block is used for weird non-reactive
