@@ -1,0 +1,13 @@
+Wish $this has filename "editor.folk"
+
+Commit cursor { Claim the program [list 0 0]}
+Commit { Claim the program is [list] }
+
+
+Every time the keyboard character log is /k/ & the program is /p/ {
+  Commit { Claim the program is [list {*}$p [lindex $k end]] }
+}
+
+When the program is /p/ {
+  Wish $this is labelled $p
+}
