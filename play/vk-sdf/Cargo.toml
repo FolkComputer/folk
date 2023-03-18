@@ -1,0 +1,12 @@
+[package]
+name = "vk-sdf"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vulkano = "0.19.0"
+vulkano-win = "0.19.0"
+vk-sys = "0.2.3"
+winit = "0.26.0"

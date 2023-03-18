@@ -53,9 +53,10 @@ proc regionToInnerRect {region} {
 # numPoints 2 => line
 # numPoints 3 => triangle
 # numPoints 4 => square
-proc shape {numPoints x y r {color white} args} {
+proc shape {numPoints x y size {color white} args} {
   set start [list $x $y]
   set points [list $start]
+  set r [expr {$size / 2.0}]
   set i 0
   while {$i < $numPoints} {
     incr i
@@ -104,12 +105,64 @@ When /someone/ wishes /p/ draws a /color/ /shape/ & /p/ has region /r/ {
   Wish $p draws a $color $shape offset {0 0}
 }
 
+# Calculates a Bezier curve with the specified control points
+proc bezier {points {stepSize 0.01}} {
+  set n [expr {[llength $points] - 1}]
+  set curve [list]
+
+  for {set t 0.0} {$t <= 1.0} {set t [expr {$t + $stepSize}]} {
+    set x 0.0
+    set y 0.0
+    for {set i 0} {$i <= $n} {incr i} {
+      set coeff [expr {pow(1 - $t, $n - $i) * pow($t, $i) * [binomial $n $i]}]
+      set x [expr {$x + $coeff * [lindex [lindex $points $i] 0]}]
+      set y [expr {$y + $coeff * [lindex [lindex $points $i] 1]}]
+    }
+    lappend curve [list $x $y]
+  }
+
+  return $curve
+}
+
+# Returns the binomial coefficient of n and k
+proc binomial {n k} {
+  if {$k == 0 || $k == $n} {
+    return 1
+  } elseif {$k < 0 || $k > $n} {
+    return 0
+  } else {
+    set a [binomial [expr {$n - 1}] [expr {$k - 1}]]
+    set b [binomial [expr {$n - 1}] $k]
+    return [expr {$a + $b}]
+  }
+}
+
+When /someone/ wishes /p/ drawss a bezier /points/ {
+  polyline [bezier $points 0.01] 5 white
+}
+
+When /someone/ wishes /p/ draws a polyline /points/ {
+  polyline $points 5 white
+}
+
+When /someone/ wishes /p/ draws a /color/ polyline /points/ {
+  polyline $points 5 $color
+}
+
 When /someone/ wishes /p/ draws a /shape/ & /p/ has region /r/ {
-  Wish $p draws a white $shape
+  if {$shape eq "bezier"} {
+  } else {
+    Wish $p draws a white $shape
+  }
 }
 
 When /someone/ wishes /p/ draws a /shape/ offset /offsetVector/ {
   Wish $p draws a white $shape offset $offsetVector 
 }
 
+
+When /someone/ wishes /p/ draws a /color/ /shape/ size /s/ & /p/ has region /r/ {
+  lassign [regionToInnerRect $r] x y w h
+  shape 10 $x $y $s $color
+}
 # --- TODO: Wish table has ... ----

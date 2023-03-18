@@ -1,0 +1,19 @@
+Wish $this has filename "test.folk"
+
+# Set the background color to yellow
+# Wish $this fills rectangle {0 0 200 200} yellow
+
+
+Wish $this is outlined yellow
+
+Wish $this draws a circle offset {-50 -10}
+Wish $this draws a circle offset {50 -10}
+
+return
+
+for {set i 0} {$i < 10} {incr i} {
+    Wish $this draws a circle offset [list [expr {-40 + $i * 10}] 60]
+}
+
+Wish $this draws a circle offset [list [expr {-60}] 50]
+Wish $this draws a circle offset [list [expr {60}] 50]
