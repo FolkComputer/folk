@@ -347,7 +347,7 @@ function handlePrintBack() {
         puts "INNER LEVEL [info level]"
         if {[regexp -all $route $path whole_match]} {
             set env [Evaluator::serializeEnvironment]
-            # dict set env path $path
+            dict set env path $path
             Evaluator::tryRunInSerializedEnvironment $handler $env
         }
     }
