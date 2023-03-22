@@ -6,11 +6,14 @@ Wish the Web server handles route "/score/$" with handler {
     set response [dict create contentType "application/json" body "{\"score\": 5}"]
 }
 
-When /program/ has region /region/ {
-  Wish the Web server handles route "/region/$" with handler {
-    # We are currently missing $region from being in scope
-    set html "<h1>[info vars]</h1>"
-  }
+When the collected matches for [list /regionName/ has region /region/] are /regionMatches/ {
+  Wish the Web server handles route "/region/$" with handler [list Evaluator::tryRunInSerializedEnvironment {
+    set html "<ol>"
+    foreach match $regionMatches {
+      append html "<li><strong>[dict get $match regionName]</strong>: [dict get $match region]</li>"
+    }
+    append html "</ol>"
+  } [Evaluator::serializeEnvironment]]
 }
 
 Wish the Web server handles route {/pagee/(\d*)$} with handler {
