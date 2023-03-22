@@ -335,11 +335,35 @@ function handlePrintBack() {
         }
     }
 
-    subst {
-        <html>
-        <b>$path</b>
-        </html>
+    variable html ""
+    variable response ""
+    set matches [Statements::findMatches {/someone/ wishes the Web server handles route /route/ with handler /handler/}]
+    puts "Got collected matches"
+    puts [llength $matches]
+    foreach match $matches {
+        set route [dict get $match route]
+        set handler [dict get $match handler]
+        puts "considering route $route vs $path"
+        puts "INNER LEVEL [info level]"
+        if {[regexp -all $route $path whole_match]} {
+            set env [Evaluator::serializeEnvironment]
+            # dict set env path $path
+            Evaluator::tryRunInSerializedEnvironment $handler $env
+        }
     }
+    if {$html ne ""} {
+      return $html
+    } elseif {$response ne ""} {
+      if {[dict exists $response contentType]} {
+          set contentType [dict get $response contentType]
+      }
+      if {[dict exists $response body]} {
+          set response [dict get $response body]
+      } else {
+          set response "error missing body"
+      }
+    }
+    return "ERROR"
 }
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf

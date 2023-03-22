@@ -1,0 +1,20 @@
+Wish the Web server handles route "/static-html/$" with handler {
+    set html "<h1>Hello World!</h1>"
+}
+
+Wish the Web server handles route "/score/$" with handler {
+    set response [dict create contentType "application/json" body "{\"score\": 5}"]
+}
+
+When /program/ has region /region/ {
+  Wish the Web server handles route "/region/$" with handler {
+    # We are currently missing $region from being in scope
+    set html "<h1>[info vars]</h1>"
+  }
+}
+
+Wish the Web server handles route {/pagee/(\d*)$} with handler {
+    if {[regexp -all {/pagee/(\d*)$} $path whole_match pageNumber]} {
+        set html "<h1>Hello Page Number $pageNumber</h1>"
+    }
+}
