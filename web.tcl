@@ -84,13 +84,9 @@ proc handleRead {chan addr port} {
         variable html ""
         variable response ""
         set matches [Statements::findMatches {/someone/ wishes the Web server handles route /route/ with handler /handler/}]
-        puts "Got collected matches"
-        puts [llength $matches]
         foreach match $matches {
             set route [dict get $match route]
             set handler [dict get $match handler]
-            puts "considering route $route vs $path"
-            puts "INNER LEVEL [info level]"
             if {[regexp -all $route $path whole_match]} {
                 set env [Evaluator::serializeEnvironment]
                 dict set env path $path
