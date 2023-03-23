@@ -1,0 +1,66 @@
+Wish $this has filename "neighbors.folk"
+
+Wish $this has neighbors
+
+# Goal: make it possible to
+#        When $this has neighbor /n/ above { ... }
+#                                    ^ or below, rightward, leftward
+# ==============================
+
+proc x { vertices } { return [lindex $vertices 0] }
+proc y { vertices } { return [lindex $vertices 1] }
+proc center { region } {
+  lassign [lindex $region 0] a b c d
+  set width  [expr {[x $b] - [x $a]}]
+  set height [expr {[y $d] - [y $a]}]
+  return [list [expr {[x $a] + 0.5 * $width}] [expr {[y $a] + 0.5 * $height}]]
+}
+
+proc getEdgeOfRegion { region direction } {
+  lassign [lindex $region 0] a b c d
+  switch $direction {
+    up    { return [list [x $a] [y $a] [x $b] [y $b]] }
+    down  { return [list [x $d] [y $d] [x $c] [y $c]] }
+    left  { return [list [x $a] [y $a] [x $d] [y $d]] }
+    right { return [list [x $b] [y $b] [x $c] [y $c]] }
+  }
+}
+
+proc getTopYOfRegion { region } { return [y [lindex [lindex $region 0] 0]] }
+proc getBottomYOfRegion { region } { return [y [lindex [lindex $region 0] 2]] }
+
+proc regionAboveCenter { region center } {
+  set regionTopY [getTopYOfRegion $region]
+  set regionBottomY [getBottomYOfRegion $region]
+  return [expr {$regionTopY < [y $center] && $regionBottomY < [y $center]}]
+}
+
+Wish $this is outlined blue
+
+When /someone/ wishes /thing/ has neighbor above {
+  Wish $thing is has neighbors
+  When $thing has neighbor /n/ {
+    When $thing has region /r1/ & $n has region /r2/ {
+      # find centers for r1 & r2
+      set r1Center [center $r1]
+      set r2Center [center $r2]
+
+      set color red
+
+      set regionTopY [getTopYOfRegion $r2]
+      set regionBottomY [getBottomYOfRegion $r2]
+      set isAbove [regionAboveCenter $r2 $r1Center]
+
+      Wish $thing is labelled "\[bottom/top\] $n | $r1Center | $regionTopY  | $regionBottomY | $isAbove"
+
+      if {$isAbove} {
+        set color green
+        Claim $thing has neighbor $n above
+        Wish $n is outlined white
+      }
+      Display::stroke [list $r1Center $r2Center ] 3 $color
+    }
+  }
+}
+
+# Wish $this has neighbor above

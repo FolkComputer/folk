@@ -8,8 +8,7 @@ When $this has neighbor /n/ {
 
 #Wish $this has neighbors
 
-When /someone/ wishes /p/ has neighbors {
-  When $p has region /r/ {
+When /someone/ wishes /p/ has neighbors & /p/ has region /r/ {
     When /p2/ has region /r2/ {
       if {$p eq $p2} { return }
       lassign [regionToBbox $r] bMinX bMinY bMaxX bMaxY
@@ -30,5 +29,4 @@ When /someone/ wishes /p/ has neighbors {
         #Display::stroke [list [list $b2MinX $b2MinY] [list $b2MaxX $b2MaxY]] 10 blue
       }
     }
-  }
 }
