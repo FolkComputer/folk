@@ -96,24 +96,24 @@ proc handleRead {chan addr port} {
         if {$response ne "" && [dict exists $response raw]} {
             puts -nonewline $chan [dict get $response raw]
         } else {
-            set response {}
+            set finalResponse {}
             if {$html ne ""} {
-                set response $html
+                set finalResponse $html
             } elseif {$response ne ""} {
                 if {[dict exists $response contentType]} {
                     set contentType [dict get $response contentType]
                 }
                 if {[dict exists $response body]} {
-                    set response [dict get $response body]
+                    set finalResponse [dict get $response body]
                 } else {
-                    set response "error missing body"
+                    set finalResponse "error missing body"
                 }
             } else {
-                set response [handlePage $path contentType]
+                set finalResponse [handlePage $path contentType]
             }
             puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
             chan configure $chan -encoding binary -translation binary
-            puts -nonewline $chan $response
+            puts -nonewline $chan $finalResponse
         }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
