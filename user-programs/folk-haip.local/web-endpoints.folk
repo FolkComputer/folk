@@ -16,6 +16,10 @@ When the collected matches for [list /regionName/ has region /region/] are /regi
   } [Evaluator::serializeEnvironment]]
 }
 
+Wish the Web server handles route "/redirect/$" with handler {
+    set response {raw "HTTP/1.1 302 Found\nLocation: https://folk.computer"}
+}
+
 Wish the Web server handles route {/pagee/(\d*)$} with handler {
     if {[regexp -all {/pagee/(\d*)$} $path whole_match pageNumber]} {
         set html "<h1>Hello Page Number $pageNumber</h1>"

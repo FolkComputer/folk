@@ -334,36 +334,11 @@ function handlePrintBack() {
             </html>
         }
     }
-
-    variable html ""
-    variable response ""
-    set matches [Statements::findMatches {/someone/ wishes the Web server handles route /route/ with handler /handler/}]
-    puts "Got collected matches"
-    puts [llength $matches]
-    foreach match $matches {
-        set route [dict get $match route]
-        set handler [dict get $match handler]
-        puts "considering route $route vs $path"
-        puts "INNER LEVEL [info level]"
-        if {[regexp -all $route $path whole_match]} {
-            set env [Evaluator::serializeEnvironment]
-            dict set env path $path
-            Evaluator::tryRunInSerializedEnvironment $handler $env
-        }
+    subst {
+        <html>
+        <b>$path</b>
+        </html>
     }
-    if {$html ne ""} {
-      return $html
-    } elseif {$response ne ""} {
-      if {[dict exists $response contentType]} {
-          set contentType [dict get $response contentType]
-      }
-      if {[dict exists $response body]} {
-          set response [dict get $response body]
-      } else {
-          set response "error missing body"
-      }
-    }
-    return "ERROR"
 }
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
@@ -377,10 +352,45 @@ proc handleRead {chan addr port} {
     }
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set contentType "text/html; charset=utf-8"
-        set response [handlePage $path contentType]
-        puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
-        chan configure $chan -encoding binary -translation binary
-        puts -nonewline $chan $response
+
+        variable html ""
+        variable response ""
+        set matches [Statements::findMatches {/someone/ wishes the Web server handles route /route/ with handler /handler/}]
+        puts "Got collected matches"
+        puts [llength $matches]
+        foreach match $matches {
+            set route [dict get $match route]
+            set handler [dict get $match handler]
+            puts "considering route $route vs $path"
+            puts "INNER LEVEL [info level]"
+            if {[regexp -all $route $path whole_match]} {
+                set env [Evaluator::serializeEnvironment]
+                dict set env path $path
+                Evaluator::tryRunInSerializedEnvironment $handler $env
+            }
+        }
+        if {$response ne "" && [dict exists $response raw]} {
+            puts -nonewline $chan [dict get $response raw]
+        } else {
+            set response {}
+            if {$html ne ""} {
+                set response $html
+            } elseif {$response ne ""} {
+                if {[dict exists $response contentType]} {
+                    set contentType [dict get $response contentType]
+                }
+                if {[dict exists $response body]} {
+                    set response [dict get $response body]
+                } else {
+                    set response "error missing body"
+                }
+            } else {
+                set response [handlePage $path contentType]
+            }
+            puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
+            chan configure $chan -encoding binary -translation binary
+            puts -nonewline $chan $response
+        }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
         puts "WS: $chan $addr $port"
