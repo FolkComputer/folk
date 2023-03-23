@@ -38,7 +38,6 @@ proc regionAboveCenter { region center } {
 Wish $this is outlined blue
 
 When /someone/ wishes /thing/ has neighbor above {
-  Wish $thing is has neighbors
   When $thing has neighbor /n/ {
     When $thing has region /r1/ & $n has region /r2/ {
       # find centers for r1 & r2
@@ -62,5 +61,4 @@ When /someone/ wishes /thing/ has neighbor above {
     }
   }
 }
-
-# Wish $this has neighbor above
+#Wish $this has neighbor above
