@@ -79,9 +79,7 @@ proc handleRead {chan addr port} {
         } else { break }
     }
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        set contentType "text/html; charset=utf-8"
-
-        set response [dict create statusAndHeaders {} body {}]
+        set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
         foreach match $matches {
             set route [dict get $match route]
@@ -93,6 +91,11 @@ proc handleRead {chan addr port} {
                 dict set env ^json {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}}
                 set response [Evaluator::tryRunInSerializedEnvironment $handler $env]
             }
+        }
+        if {$response eq ""} {
+            set contentType "text/html; charset=utf-8"
+            set body [handlePage $path contentType]
+            set response [dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n" body $body]
         }
         if {![dict exists $response statusAndHeaders]} {
             puts -nonewline $chan "HTTP/1.1 500 Internal Server Error\nConnection: close"
