@@ -1,5 +1,5 @@
-Wish the Web server handles route "/new" with handler {
-    set html {
+Wish the web server handles route "/new" with handler {
+    html {
         <html>
         <head>
         <style>

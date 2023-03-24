@@ -1,9 +1,9 @@
-Wish the Web server handles route {/page/(\d*)$} with handler {
+Wish the web server handles route {/page/(\d*)$} with handler {
     if {[regexp -all {/page/(\d*)$} $path whole_match pageNumber]} {
         set fp [open "../folk-printed-programs/$pageNumber.folk" r]
         set file_data [read $fp]
         close $fp
-        set html [string map [list file_data [htmlEscape $file_data] my_page_number $pageNumber] {
+        html [string map [list file_data [htmlEscape $file_data] my_page_number $pageNumber] {
             <html>
             <body>
             <div>
