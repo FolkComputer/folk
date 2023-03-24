@@ -1,0 +1,48 @@
+When web claims web-cursor is /data/ {
+    set parsed [split $data ,]
+    lassign $parsed a b x y
+    Wish $this is labelled "x: $x \ny: $y"
+    set x [expr {$x - 200}]
+    set y [expr {$y - 200}]
+    Wish $this draws a circle offset [list $x $y]
+    Wish $this is outlined white
+}
+
+Wish the web server handles route "/web-cursor" with handler {
+    html {
+        <html><head></head>
+        <body>
+          <span id="status">Status</span>
+          <div id="log"></div>
+<script>
+const thisProgramId = "web-cursor";
+const log = document.getElementById('log');
+let ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+
+const moveHandler = ({offsetX, offsetY}) => {
+    ws.send(`Retract web claims {${thisProgramId}} is /blah/;Assert web claims {${thisProgramId}} is "0,0,${offsetX},${offsetY}"`);
+    log.innerHTML = `<div style="font-size: 10rem; font-family: monospace">x: ${offsetX} y: ${offsetY}</div>`;
+};
+
+ws.onopen = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
+    document.body.addEventListener('mousemove', moveHandler);
+    document.body.addEventListener('touchmove', moveHandler);
+};
+ws.onclose = window.onbeforeunload = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
+    ws.send(`Retract web claims {${thisProgramId}} is /blah/`);
+};
+ws.onerror = (err) => {
+    document.getElementById('status').innerText = "Error";
+    console.error('Socket encountered error: ', err.message, 'Closing socket');
+    ws.close();
+}
+ws.onmessage = (msg) => {
+    console.log(msg.data);
+}
+</script>
+        </body>
+        </html>
+    }
+}
