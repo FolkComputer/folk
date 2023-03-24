@@ -1,0 +1,28 @@
+Wish the web server handles route "/static-html/$" with handler {
+  html "<h1>Hello World!</h1>"
+}
+
+Wish the web server handles route "/score/$" with handler {
+  json "{\"score\": 5}"
+}
+
+When the collected matches for [list /regionName/ has region /region/] are /regionMatches/ {
+  Wish the web server handles route "/regions/$" with handler [list Evaluator::tryRunInSerializedEnvironment {
+    set body "<ol>"
+    foreach match $regionMatches {
+      append body "<li><strong>[dict get $match regionName]</strong>: [dict get $match region]</li>"
+    }
+    append body "</ol>"
+    html $body
+  } [Evaluator::serializeEnvironment]]
+}
+
+Wish the web server handles route "/redirect/$" with handler {
+  dict create statusAndHeaders "HTTP/1.1 302 Found\nLocation: https://folk.computer"
+}
+
+Wish the web server handles route {/pagee/(\d*)$} with handler {
+  if {[regexp -all {/pagee/(\d*)$} $path whole_match pageNumber]} {
+    html "<h1>Hello Page Number $pageNumber</h1>"
+  }
+}
