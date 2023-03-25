@@ -45,12 +45,12 @@ $cc compile
 
 proc ::programToPs {id text {format "letter"} {side "front"}} {
     set margin 36
-    set PageWidth 612; set PageHeight 792
+    set PageWidth 612; set PageHeight 613
 
     if {$format eq "indexcard"} {
         # front in portrait, back in landscape
-        set tagwidth 150; set tagheight 150
-        set fontsize 8; set lineheight [expr $fontsize*1.5]
+        set tagwidth 500; set tagheight 500
+        set fontsize 24; set lineheight [expr $fontsize*1.5]
         set margin 36
         if {$side eq "front"} {
             set image [::tagImageForId $id]
@@ -67,7 +67,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
                 grestore
 
                 /Helvetica-Narrow findfont
-                10 scalefont
+                $fontsize scalefont
                 setfont
                 newpath
                 [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth-16] moveto
