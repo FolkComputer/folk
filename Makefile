@@ -7,6 +7,8 @@ sync:
 .PHONY: test
 test:
 	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
+test/%:
+	make FOLK_ENTRY=$@.tcl
 
 repl:
 	tclsh8.6 replmain.tcl

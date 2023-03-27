@@ -131,7 +131,8 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Print 4 AprilTags.
+1. Print 4 AprilTags (either print throwaway programs from Folk or
+   manually print tagStandard52h13 tags yourself).
 
 1. On the tabletop, suspend the system with `sudo systemctl stop folk` and run
    `tclsh8.6 pi/Camera.tcl` and position your camera to cover your

@@ -75,6 +75,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
             }]
         } elseif {$side eq "back"} {
+            set linenum 1
             return [subst {
                 %!PS
                 << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
