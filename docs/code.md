@@ -1,0 +1,35 @@
+# What each file does...
+
+1. `main.tcl`:
+    1. Defines the Folk language
+    2. Initializes Evaluator (statements, matches, tries)
+    3. Provides Peers functionality to synchronize between machines
+    4. Starts up the web-server
+    5. Starts up the entry (laptop or pi)
+2. `/pi`
+    1. Functionality to setup the pi entry, e.g.
+    2. Handling the camera input (`/pi/Camera.tcl`)
+    3. Writing to the projector output (`/pi/Display.tcl`)
+    4. Setting up keyboard events (`/pi/Keyboard.tcl`)
+3. `laptop.tcl`
+    1. Virtual program editor, each program is a window
+    2. Also manages sharing between laptop and pi via `shareNode`
+4. `vendor`
+    1. Just a bunch of low-level C files
+5. `lib`
+    1. Our own low-level C files
+6. `virtual-programs`
+    1. Our own high-level Folk programs
+    2. They could be printed out... Perhaps, should be.
+7. `play`
+    1. TCL experiments
+8. `calibrate.tcl`
+    1. Calibrates the `pi` projector and dumps a bunch of homography metadata
+       to disk
+    2. Maybe should go into `/pi`?
+9. `replmain.tcl`
+    1. A front-end to the statements database, like `laptop` or `pi`
+    2. Should there just be a `/clients` directory, where all of the possible
+       entries go, and live in parallel.
+10. `host.tcl`
+    1. Mapping from WiFi network, to name of Folk machines

@@ -70,7 +70,7 @@ dc rtype Vec2i {
     $robj = Tcl_ObjPrintf("%d %d", rv.x, rv.y);
 }
 
-source "pi/Display/lineclip.tcl"
+source "pi/lineclip.tcl"
 
 dc proc fillTriangleImpl {Vec2i t0 Vec2i t1 Vec2i t2 int color} void {
     if (t0.x < 0 || t0.y < 0 || t1.x < 0 || t1.y < 0 || t2.x < 0 || t2.y < 0 ||
