@@ -104,24 +104,28 @@ namespace eval Camera {
     }
 }
 
-set keyboardThread [thread::create [format {
-    source "pi/Keyboard.tcl"
-    source "lib/c.tcl"
-    source "pi/cUtils.tcl"
-    Keyboard::init
-    puts "Keyboard tid: [getTid]"
+try {
+    set keyboardThread [thread::create [format {
+        source "pi/Keyboard.tcl"
+        source "lib/c.tcl"
+        source "pi/cUtils.tcl"
+        Keyboard::init
+        puts "Keyboard tid: [getTid]"
 
-    set chs [list]
-    while true {
-        lappend chs [Keyboard::getChar]
+        set chs [list]
+        while true {
+            lappend chs [Keyboard::getChar]
 
-        thread::send -async "%s" [subst {
-            Retract keyboard claims the keyboard character log is /something/
-            Assert keyboard claims the keyboard character log is "$chs"
-        }]
-    }
-} [thread::id]]]
-puts "Keyboard thread id: $keyboardThread"
+            thread::send -async "%s" [subst {
+                Retract keyboard claims the keyboard character log is /something/
+                Assert keyboard claims the keyboard character log is "$chs"
+            }]
+        }
+    } [thread::id]]]
+    puts "Keyboard thread id: $keyboardThread"
+} on error error {
+    puts stderr "Keyboard thread failed: $error"
+}
 
 # also see how it's done in laptop.tcl
 set ::rootStatements [list]
