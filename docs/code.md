@@ -15,9 +15,11 @@
     1. Virtual program editor, each program is a window
     2. Also manages sharing between laptop and pi via `shareNode`
 4. `vendor`
-    1. Just a bunch of low-level C files
+    1. Mostly Tcl libraries other people wrote (most or all are just
+       copied from tcllib?). Except font.tcl, which is inlined C that
+       other people wrote
 5. `lib`
-    1. Our own low-level C files
+    1. Tcl/Folk libraries that we wrote, as well as the C FFI and the C trie
 6. `virtual-programs`
     1. Our own high-level Folk programs
     2. They could be printed out... Perhaps, should be.
@@ -26,7 +28,10 @@
 8. `calibrate.tcl`
     1. Calibrates the `pi` projector and dumps a bunch of homography metadata
        to disk
-    2. Maybe should go into `/pi`?
+    2. Maybe should go into `/pi`? (I think the only reason it doesn't
+       go in /pi is it's a runnable entry point and not a
+       library. Maybe it could go into /pi and then we'd have `make
+       calibrate` or something)
 9. `replmain.tcl`
     1. A front-end to the statements database, like `laptop` or `pi`
     2. Should there just be a `/clients` directory, where all of the possible
