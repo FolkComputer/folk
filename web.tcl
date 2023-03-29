@@ -1,11 +1,12 @@
-
 lappend auto_path "./vendor"
 package require websocket
 
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
+
 proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
@@ -68,6 +69,7 @@ proc handlePage {path contentTypeVar} {
         </html>
     }
 }
+
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -113,6 +115,7 @@ proc handleRead {chan addr port} {
         # from now the handleWS will be called (not anymore handleRead).
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
+
 proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
     } elseif {$type eq "text"} {
@@ -130,5 +133,6 @@ proc handleWS {chan type msg} {
 if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
     error "There's already a Web-capable Folk node running on this machine."
 }
+
 ::websocket::server $::serverSock
 ::websocket::live $::serverSock /ws handleWS
