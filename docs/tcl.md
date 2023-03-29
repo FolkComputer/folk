@@ -51,7 +51,14 @@ subfolder) or printed programs.
 
   Good: `Claim $this has value 3`
 
-### Tcl datatypes
+### Tcl
+
+#### Error handling
+
+Use `try` (and `on error`) in new code. Avoid using `catch`; it's
+older and easier to get wrong.
+
+#### Tcl datatypes
 
 Create a namespace for your datatype that is an ensemble command with
 operations on that datatype.
@@ -61,7 +68,7 @@ operations on that datatype.
 Call the constructor `create`, as in `dict create` and `statement
 create`.
 
-### Singletons
+#### Singletons
 
 Capitalized namespace, like `Statements`.
 
