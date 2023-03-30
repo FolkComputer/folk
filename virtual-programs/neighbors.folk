@@ -35,8 +35,6 @@ proc regionAboveCenter { region center } {
   return [expr {$regionTopY < [y $center] && $regionBottomY < [y $center]}]
 }
 
-Wish $this is outlined blue
-
 When /someone/ wishes /thing/ has neighbor above {
   When $thing has neighbor /n/ {
     When $thing has region /r1/ & $n has region /r2/ {

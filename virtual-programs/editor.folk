@@ -1,13 +1,22 @@
 Wish $this has filename "editor.folk"
 
 Commit cursor { Claim the program [list 0 0]}
-Commit { Claim the program is [list] }
+Commit k { Claim the program is [list] }
 
-
-Every time the keyboard character log is /k/ & the program is /p/ {
-  Commit { Claim the program is [list {*}$p [lindex $k end]] }
+proc isCommandWithChar { currentKey lastKey matchChar } {
+  set isS [expr {$currentKey == $matchChar}]
+  set isMeta [string match "Meta*" $lastKey]
+  return [expr {$isS && $isMeta}]
 }
 
-When the program is /p/ {
-  Wish $this is labelled $p
+Every time the keyboard character log is /k/ & the program is /p/ {
+  Commit lastKey { Claim the last key is [lindex $p end] }
+  Commit k { Claim the program is [list {*}$p [lindex $k end]] }
+}
+
+When the program is /p/ & the last key is /lk/ {
+  set currentKey [lindex $p end]
+  Wish $this is labelled "current: $currentKey\nlk: $lk"
+  Wish $this is labelled "CMD + S: [isCommandWithChar $currentKey $lk "s"]"
+  Wish $this is labelled "CMD + R: [isCommandWithChar $currentKey $lk "r"]"
 }

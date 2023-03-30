@@ -17,7 +17,7 @@ When $this has region /r/ {
 
 When $this has neighbor /n/ {
     Wish $n is outlined thick papayawhip
-    # Wish $this is labelled $::pageOrigin
+    Wish $this is labelled $::pageOrigin
     When $n has region /r/ {
       set neighborOrigin [lindex [lindex $r 0] 0]
       lassign $neighborOrigin _ nOriginY
