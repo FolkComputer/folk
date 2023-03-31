@@ -323,11 +323,30 @@ if the claim that the `When` was matching is revoked. (so if Omar stops
 being cool, the downstream label `Omar seems pretty cool` will go away
 automatically)
 
-The `/actor/` in the `When` binds the
-variable `actor` to whatever is at that position in the
-statement.
+The `/actor/` in the `When` binds the variable `actor` to whatever is
+at that position in the statement.
 
 It's like variables in Datalog, or parentheses in regular expressions.
+
+#### Non-capturing
+
+`/someone/`, `/something/`, `/anyone/`, `/anything/` are special cases
+if you want a wildcard that _does not bind_ (you don't care about the
+value, like non-capturing groups `(?:)` in regex), so you don't get access
+to `$someone` or `$something` inside the When.
+
+#### Negation
+
+`/nobody/`, `/nothing/` invert the polarity of the match, so it'll run
+only when no statements exist that it would match.
+
+This When will stop labelling if someone does `Claim Omar is cool`:
+
+```
+When /nobody/ is cool {
+   Wish $this is labelled "nobody is cool"
+}
+```
 
 #### `&` joins
 
