@@ -38,6 +38,9 @@ namespace eval Keyboard {
         # TODO: Should properly catch this error
         # e.g. Jan 28 04:11:28 folk0 make[1991]: Thread error: tid0x7f45fd2b0640 can't\ read\ \"name\":\ no\ such\ variable ...
 
+        # When pressing the Windows key on the keyboard, the following error is printed:
+        # Thread error: tid0x7fbc4e2c7640 can't\ read\ \"name\":\ no\ such\ variable\n\ \ \ \ while\ executing\n\"string\ range\ \$name\ 4\ end\"\n\ \ \ \ (procedure\ \"Keyboard::getChar\"\ line\ 22)\n\ \ \ \ invoked\ from\ within\n\"Keyboard::getChar\"\n\ \ \ \ (\"while\"\ body\ line\ 2)\n\ \ \ \ invoked\ from\ within\n\"while\ true\ \{\n\ \ \ \ \ \ \ \ lappend\ chs\ \[Keyboard::getChar\]\n\n\ \ \ \ \ \ \ \ thread::send\ -async\ \"tid0x7fbc4f348e00\"\ \[subst\ \{\n\ \ \ \ \ \ \ \ \ \ \ \ Retract\ keyboard\ claims\ the...\"
+
         # scancode name, like KEY_A
         catch { set name [dict get $Keyboard::KeyCodes $code] } err
         set ch [string tolower [string range $name 4 end]]
