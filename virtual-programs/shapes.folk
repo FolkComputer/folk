@@ -40,11 +40,10 @@ proc regionToInnerRect {region} {
     lassign $vertices a b c d
     lassign $a aX aY
     lassign $c cX cY
-    set shrinkConstant 0.65
-    set width [expr {($cX - $aX) * $shrinkConstant}]
-    set height [expr {($cY - $aY) * $shrinkConstant}]
-    set x [expr {$aX + $width * 0.25}]
-    set y [expr {$aY + $height * 0.25}]
+    set width [expr {($cX - $aX)}]
+    set height [expr {($cY - $aY)}]
+    set x [expr {$aX + $width * 0.5}]
+    set y [expr {$aY + $height * 0.5}]
     return [list $x $y $width $height]
 }
 
@@ -53,7 +52,7 @@ proc regionToInnerRect {region} {
 # numPoints 2 => line
 # numPoints 3 => triangle
 # numPoints 4 => square
-proc shape {numPoints x y r {color white} args} {
+proc shape {numPoints x y r {color white} {filled false} args} {
   set start [list $x $y]
   set points [list $start]
   set i 0
@@ -64,13 +63,18 @@ proc shape {numPoints x y r {color white} args} {
     set y [expr {$y + $r * sin($angle)}]
     lappend points [list $x $y]
   }
-  polyline $points 5 $color
+  if {$filled} {
+    polyline $points 5 $color
+  } else {
+    polyline $points 10 $color
+  }
 }
 
 When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
   lassign [regionToInnerRect $r] x y width height
   lassign $offsetVector offsetX offsetY
- 
+
+  set filled false
   if {$offsetX != 0} {
     set x [expr {$x + $offsetX}]
   }
@@ -81,21 +85,22 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
   puts "drawing $shape at $x $y"
 
   set adjustedWidth [expr {$width * 0.25}]
-  set x [expr { $x * 1.3}]
-  set y [expr { $y * 1.25}]
+  set x [expr { $x + $offsetX}]
+  set y [expr { $y + $offsetY}]
+
   switch -nocase $shape {
     triangle {
-      shape 3 $x $y $adjustedWidth $color
+      shape 3 $x $y $adjustedWidth $color $filled
     }
     square {
-      shape 4 $x $y $adjustedWidth $color
+      shape 4 $x $y $adjustedWidth $color $filled
     }
     # TODO: cwervo - fix magic numbers here
     circle {
-      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color
+      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color $filled
     }
     default {
-      shape 5 $x $y $adjustedWidth $color
+      shape 5 $x $y $adjustedWidth $color $filled
     }
   }
 }

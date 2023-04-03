@@ -21,6 +21,10 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
+    proc circle {x y radius thickness color} {
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
+    }
+
     proc text {fb x y fontSize text {radians 0}} {
         uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
     }
