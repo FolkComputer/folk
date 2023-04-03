@@ -64,9 +64,9 @@ proc shape {numPoints x y r {color white} {filled false} args} {
     lappend points [list $x $y]
   }
   if {$filled} {
-    polyline $points 5 $color
-  } else {
     polyline $points 10 $color
+  } else {
+    polyline $points 2 $color
   }
 }
 
