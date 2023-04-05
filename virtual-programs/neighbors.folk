@@ -1,6 +1,11 @@
 Wish $this has filename "neighbors.folk"
 Wish $this has neighbors
 
+# use collected matches to find neighbors
+# join regions & the work on that collected thing
+
+# claim that neighbors are above & then in a new block you can claim they 
+
 # Goal: make it possible to
 #        When $this has neighbor /n/ above { ... }
 #                                    ^ or below, rightward, leftward
