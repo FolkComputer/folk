@@ -25,13 +25,15 @@ Assert when we are running {
         set n 0
         while true {
             incr n
-            Commit { puts com; Claim the counter is $n }
+            Commit { Claim the counter is $n }
             Step
         }
     }
 
     When the counter is /n/ {
-        puts $n
+        if {$n > 5} {
+            set ::done true
+        }
     }
 }
 Step

@@ -693,6 +693,7 @@ proc Step {} {
             run [subst {
                 Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
                 Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
+                Step
             }]
         }
     }
