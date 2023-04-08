@@ -1,5 +1,9 @@
 # Folk
 
+## Hardware/setup info
+
+<http://folk.computer/pilot/>
+
 ## Mac installation
 
 to run on (Mac) laptop:
@@ -127,7 +131,8 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Print 4 AprilTags.
+1. Print 4 AprilTags (either print throwaway programs from Folk or
+   manually print tagStandard52h13 tags yourself).
 
 1. On the tabletop, suspend the system with `sudo systemctl stop folk` and run
    `tclsh8.6 pi/Camera.tcl` and position your camera to cover your
@@ -284,6 +289,8 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
+See also our [WIP language style guide](docs/tcl.md).
+
 These are all implemented in `main.tcl`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
 
@@ -316,11 +323,30 @@ if the claim that the `When` was matching is revoked. (so if Omar stops
 being cool, the downstream label `Omar seems pretty cool` will go away
 automatically)
 
-The `/actor/` in the `When` binds the
-variable `actor` to whatever is at that position in the
-statement.
+The `/actor/` in the `When` binds the variable `actor` to whatever is
+at that position in the statement.
 
 It's like variables in Datalog, or parentheses in regular expressions.
+
+#### Non-capturing
+
+`/someone/`, `/something/`, `/anyone/`, `/anything/` are special cases
+if you want a wildcard that _does not bind_ (you don't care about the
+value, like non-capturing groups `(?:)` in regex), so you don't get access
+to `$someone` or `$something` inside the When.
+
+#### Negation
+
+`/nobody/`, `/nothing/` invert the polarity of the match, so it'll run
+only when no statements exist that it would match.
+
+This When will stop labelling if someone does `Claim Omar is cool`:
+
+```
+When /nobody/ is cool {
+   Wish $this is labelled "nobody is cool"
+}
+```
 
 #### `&` joins
 
@@ -428,6 +454,20 @@ in its body will run again unless the boop goes away and an entirely
 new boop appears.
 
 ### You usually won't need these
+
+#### When when
+
+Lets you create statements only on demand, when someone is looking for
+that statement.
+
+```
+When /thing/ is cool {
+    Wish $this is labelled "$thing is cool"
+}
+When when /personVar/ is cool /body/ with environment /e/ {
+    Claim Folk is cool
+}
+```
 
 #### On
 

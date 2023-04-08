@@ -299,6 +299,7 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
         # FIXME: hacky
         Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT "(uint8_t*) [dict get $gray data]" $Camera::WIDTH $Camera::HEIGHT
         freeImage $gray
+        freeImage $rgb
     }
 }
 

@@ -1,11 +1,12 @@
-
 lappend auto_path "./vendor"
 package require websocket
 
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
-proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;"} $s }
+
+proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
@@ -52,18 +53,6 @@ proc handlePage {path contentTypeVar} {
         set fd [open |[list dot -Tpdf <<[trie dot $Evaluator::statementPatternToReactions]] r]
         fconfigure $fd -encoding binary -translation binary
         set response [read $fd]; close $fd; return $response
-    } elseif {[regexp -all {/page/(\d*)$}  $path whole_match pageNumber]} {
-        set fp [open "../folk-printed-programs/$pageNumber.folk" r]
-        set file_data [read $fp]
-        close $fp
-
-        return [subst {
-            <html>
-            <body>
-            <pre>[htmlEscape $file_data]</pre>
-            </body>
-            </html>
-        }]
     } elseif {[regexp -all {/page/(\d*).pdf$}  $path whole_match pageNumber]} {
         set fp [open "/home/folk/folk-printed-programs/$pageNumber.pdf" r]
         fconfigure $fp -encoding binary -translation binary
@@ -72,175 +61,6 @@ proc handlePage {path contentTypeVar} {
         close $fp
         set contentType "application/pdf"
         return $file_data
-    } elseif {$path eq "/new"} {
-        return {
-            <html>
-            <span id="status">Status</span>
-            <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
-            <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
-            <p><button onclick="handleSave()">Save</button> <button onclick="handlePrint()">Print</button><button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button></p>
-            <pre id="error"></pre>
-            </div>
-
-            <script>
-// The current position of mouse
-let x = 0;
-let y = 0;
-
-// Query the element
-const ele = document.getElementById('dragme');
-const codeEle = document.getElementById("code");
-
-// Handle the mousedown event
-// that's triggered when user drags the element
-const mouseDownHandler = function (e) {
-    if (e.target == codeEle) return;
-
-    // Get the current mouse position
-    x = e.clientX;
-    y = e.clientY;
-
-    // Attach the listeners to `document`
-    document.addEventListener('pointermove', mouseMoveHandler);
-    document.addEventListener('pointerup', mouseUpHandler);
-};
-
-const mouseMoveHandler = function (e) {
-    if (e.target == codeEle) return;
-
-    // How far the mouse has been moved
-    const dx = e.clientX - x;
-    const dy = e.clientY - y;
-
-    // Set the position of element
-    const [top, left] = [ele.offsetTop + dy, ele.offsetLeft + dx];
-    ele.style.top = `${top}px`;
-    ele.style.left = `${left}px`;
-    handleDrag();
-
-    // Reassign the position of mouse
-    x = e.clientX;
-    y = e.clientY;
-};
-
-const mouseUpHandler = function () {
-    // Remove the handlers of `mousemove` and `mouseup`
-    document.removeEventListener('pointermove', mouseMoveHandler);
-    document.removeEventListener('pointerup', mouseUpHandler);
-};
-
-// Cmd + S || Ctrl + S => Save
-document.addEventListener('keydown', function(e) {
-  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 83) {
-    e.preventDefault();
-    handleSave();
-  }
-}, false);
-// Cmd + P || Ctrl + P => Print
-document.addEventListener('keydown', function(e) {
-  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 80) {
-    e.preventDefault();
-    handlePrint();
-  }
-}, false);
-
-ele.addEventListener('pointerdown', mouseDownHandler);
-</script>
-
-<script>
-function uuidv4() {
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-  );
-}
-const program = "web-program-" + uuidv4();
-
-let ws;
-let send;
-function wsConnect() {
-    ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-    send = function(s) { ws.send(s); }
-
-    ws.onopen = () => {
-        document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
-
-        handleDrag();
-    };
-    ws.onclose = window.onbeforeunload = () => {
-        document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
-
-        send(`Retract web claims {${program}} has region /something/`);
-        send(`Retract web claims {${program}} has program code /something/`);
-        setTimeout(() => { wsConnect(); }, 1000);
-    };
-    ws.onerror = (err) => {
-        document.getElementById('status').innerText = "Error";
-        console.error('Socket encountered error: ', err.message, 'Closing socket');
-        ws.close();
-    }
-  ws.onmessage = (msg) => {
-    if (msg.data.startsWith("ERROR:")) {
-      const errorEl = document.getElementById("error");
-      if (msg.data == "ERROR: {}") {
-        errorEl.style.backgroundColor = "";
-        errorEl.innerText = "";
-      } else {
-        errorEl.style.backgroundColor = "#f55";
-        errorEl.innerText = msg.data;
-      }
-    }
-  }
-};
-wsConnect();
-
-function handleDrag() {
-  let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
-  send(`
-set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
-set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
-proc handleConfigure {program x y w h} {
-        set vertices [list [list $x $y] \
-                          [list [expr {$x+$w}] $y] \
-                          [list [expr {$x+$w}] [expr {$y+$h}]] \
-                          [list $x [expr {$y+$h}]]]
-        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-        Retract web claims $program has region /something/
-        Assert web claims $program has region [list $vertices $edges]
-}
-handleConfigure {${program}} $left $top {${w}} {${h}}
-if {$::isLaptop} { Step }
-    `);
-}
-function handleSave() {
-    const code = document.getElementById("code").value;
-  send(`
-Retract web claims {${program}} has program code /something/
-Assert web claims {${program}} has program code {${code}}
-if {$::isLaptop} { Step }
-`);
-    setTimeout(() => {
-      send(`list ERROR: [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]`);
-    }, 500);
-}
-let jobid;
-function handlePrint() {
-    const code = document.getElementById("code").value;
-    jobid = String(Math.random());
-    send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
-    setTimeout(500, () => {
-      send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
-    });
-    document.getElementById('printback').style.display = '';
-}
-function handlePrintBack() {
-    send(`Assert web wishes to print the back of job id {${jobid}}`);
-    setTimeout(500, () => {
-      send(`Retract web wishes to print the back of job id {${jobid}}`);
-    });
-}
-</script>
-            </html>
-        }
     }
 
     subst {
@@ -249,6 +69,7 @@ function handlePrintBack() {
         </html>
     }
 }
+
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -260,11 +81,33 @@ proc handleRead {chan addr port} {
         } else { break }
     }
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
-        set contentType "text/html; charset=utf-8"
-        set response [handlePage $path contentType]
-        puts -nonewline $chan "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n"
-        chan configure $chan -encoding binary -translation binary
-        puts -nonewline $chan $response
+        set response {}
+        set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
+        foreach match $matches {
+            set route [dict get $match route]
+            set handler [dict get $match handler]
+            if {[regexp -all $route $path whole_match]} {
+                set env [dict create]
+                dict set env path $path
+                dict set env ^html {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}}
+                dict set env ^json {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}}
+                set response [Evaluator::tryRunInSerializedEnvironment $handler $env]
+            }
+        }
+        if {$response eq ""} {
+            set contentType "text/html; charset=utf-8"
+            set body [handlePage $path contentType]
+            set response [dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+        }
+        if {![dict exists $response statusAndHeaders]} {
+            puts -nonewline $chan "HTTP/1.1 500 Internal Server Error\nConnection: close"
+        } else {
+            puts -nonewline $chan [dict get $response statusAndHeaders]
+            if {[dict exists $response body]} {
+                chan configure $chan -encoding binary -translation binary
+                puts -nonewline $chan [dict get $response body]
+            }
+        }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
         puts "WS: $chan $addr $port"
@@ -272,6 +115,7 @@ proc handleRead {chan addr port} {
         # from now the handleWS will be called (not anymore handleRead).
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
+
 proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
     } elseif {$type eq "text"} {
@@ -289,5 +133,6 @@ proc handleWS {chan type msg} {
 if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
     error "There's already a Web-capable Folk node running on this machine."
 }
+
 ::websocket::server $::serverSock
 ::websocket::live $::serverSock /ws handleWS

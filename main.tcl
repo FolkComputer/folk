@@ -58,6 +58,7 @@ namespace eval statement { ;# statement record type
     proc children {stmt} { dict get $stmt children }
 
     namespace export unify
+    variable negations [list nobody nothing]
     variable blanks [list someone something anyone anything]
     proc unify {a b} {
         variable blanks
@@ -559,9 +560,11 @@ proc When {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     set wordsWillBeBound [list]
+    set negate false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
         set word [lindex $pattern $i]
         if {$word eq "&"} {
+            # Desugar this join into nested Whens.
             set remainingPattern [lrange $pattern $i+1 end]
             set pattern [lrange $pattern 0 $i-1]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
@@ -574,15 +577,27 @@ proc When {args} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[regexp {^/([^/ ]+)/$} $word -> varName] && !($varName in $statement::blanks)} {
-            lappend wordsWillBeBound $word
-
+        } elseif {[regexp {^/([^/ ]+)/$} $word -> varName]} {
+            if {$varName in $statement::blanks} {
+            } elseif {$varName in $statement::negations} {
+                # Rewrite this entire clause to be negated.
+                set negate true
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                lappend wordsWillBeBound $word
+            }
         } elseif {[string index $word 0] eq "\$"} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }
 
-    uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+    if {$negate} {
+        set negateBody [list if {[llength $__matches] == 0} $body]
+        uplevel [list Say when the collected matches for $pattern are /__matches/ $negateBody with environment [Evaluator::serializeEnvironment]]
+    } else {
+        uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+    }
 }
 proc Every {event args} {
     if {$event eq "time"} {
@@ -627,7 +642,7 @@ set ::committed [dict create]
 proc Commit {args} {
     upvar this this
     set body [lindex $args end]
-    set key [list [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
 
     set code [list Evaluator::tryRunInSerializedEnvironment $body [Evaluator::serializeEnvironment]]
     Assert $key has program code $code

@@ -26,6 +26,16 @@ puts [add {*}$numbers]
 
 ## Style guide
 
+### Tcl code vs. virtual programs vs. printed programs
+
+In general, avoid adding new .tcl files to the Git repo. Pure Tcl
+libraries are an antipattern; we should only need them for the hard
+core of the system.
+
+Most new code (both libraries and applications) should be virtual
+programs (which ilve as .folk files in the virtual-programs/
+subfolder) or printed programs.
+
 ### Folk 
 
 - Use complete sentences when you word your claims and wishes.
@@ -41,7 +51,27 @@ puts [add {*}$numbers]
 
   Good: `Claim $this has value 3`
 
-### Tcl datatypes
+### Tcl
+
+#### Error handling
+
+Use `try` (and `on error`) in new code. Avoid using `catch`; it's
+older and easier to get wrong.
+
+#### Return
+
+In general, don't use `return` if it's the last statement in a code
+block. Just put the statement there whose value you want to return.
+
+Bad: `proc add {a b} { return [expr {$a + $b}] }`
+Good: `proc add {a b} { expr {$a + $b} }`
+
+Bad: `set x 3; return $x`
+Good: `set x 3; set x`
+
+You should use `return` only when you actually need to return _early_.
+
+#### Tcl datatypes
 
 Create a namespace for your datatype that is an ensemble command with
 operations on that datatype.
@@ -51,6 +81,26 @@ operations on that datatype.
 Call the constructor `create`, as in `dict create` and `statement
 create`.
 
-### Singletons
+#### Singletons
 
 Capitalized namespace, like `Statements`.
+
+
+### Working with regions
+
+A common pattern I've found myself doing is:
+
+```tcl
+When /thing/ has region /r/ {
+  lassign $r vertices edges
+  lassign $vertices a b c d
+}
+```
+
+Now you can think about addressing
+
+```
+a - b
+|   |
+d - c
+```

@@ -75,6 +75,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
             }]
         } elseif {$side eq "back"} {
+            set linenum 1
             return [subst {
                 %!PS
                 << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -193,6 +194,26 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
     puts $fp $code
     close $fp
+
+    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
+    puts $fp $ps
+    close $fp
+
+    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
+    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
+}
+When /someone/ wishes to print program /id/ with code /code/ with job id /jobid/ {
+    puts "Wish to print jobid $jobid"
+    if {[dict exists $::printjobs $jobid]} {return}
+
+    dict set ::printjobs $jobid [list $id $code]
+
+    set format "letter"
+    if {[string first {Wish $this prints on an index card} $code] != -1} {
+       set format "indexcard"
+    }
+
+    set ps [programToPs $id $code $format front]
 
     set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
     puts $fp $ps
