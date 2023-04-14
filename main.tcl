@@ -287,9 +287,11 @@ namespace eval Evaluator {
     variable log [list]
 
     source "lib/environment.tcl"
+    variable timingsMap [dict create]
     proc tryRunInSerializedEnvironment {body env} {
         try {
-            runInSerializedEnvironment $body $env
+            variable timingsMap
+            dict lappend timingsMap $body [time [list runInSerializedEnvironment $body $env]]
         } on error err {
             if {[dict exists $env this]} {
                 Say [dict get $env this] has error $err with info $::errorInfo
@@ -386,7 +388,7 @@ namespace eval Evaluator {
 
         set ::matchId [Matches::add $parentStatementIds]
         dict with Matches::matches $::matchId {
-            set destructor [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            set destructor [list {lappend Evaluator::log [list Recollect $collectId]} {collectId $collectId}]
             lappend destructors $destructor
         }
 
