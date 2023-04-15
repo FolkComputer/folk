@@ -25,14 +25,37 @@ proc handlePage {path contentTypeVar} {
         return [subst {
             <html>
             <ul>
-            <li><a href="/new">New program</a></li>
+            <li><a href="/new">New program</a></li>   
+            <li><a href="/timings">Timings</a></li>
             <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
             <li><a href="/statements.pdf">statements graph</a></li>
             </ul>
             <ul>[join $l "\n"]</ul>
             </html>
         }]
-    } elseif {$path eq "/favico.ico"} {
+    } elseif {$path eq "/timings"} {
+        set totalTimes [list]
+        dict for {body totalTime} $Evaluator::totalTimesMap {
+            lappend totalTimes $body $totalTime
+        }
+        set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+
+        set l [list]
+        foreach {body totalTime} $totalTimes {
+            set runs [dict get $Evaluator::runsMap $body]
+            lappend l [subst {
+                <li>
+                <pre>[htmlEscape $body]</pre>: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                </li>
+            }]
+        }
+        return [subst {
+            <html>
+            <h1>Timings</h1>
+            <ul>[join $l "\n"]</ul>
+            </html>
+        }]
+    } elseif {$path eq "/favicon.ico"} {
         set contentType "image/x-icon"
         set fd [open "../favicon.ico" r]
         fconfigure $fd -encoding binary -translation binary
