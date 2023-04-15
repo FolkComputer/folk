@@ -151,7 +151,11 @@ namespace eval c {
 
             ::proc include {h} {
                 variable code
-                lappend code "#include $h"
+                if {[string index $h 0] eq "<"} {
+                    lappend code "#include $h"
+                } else {
+                    lappend code "#include \"$h\""
+                }
             }
             ::proc linedirective {} {
                 set frame [info frame -2]
