@@ -287,11 +287,16 @@ namespace eval Evaluator {
     variable log [list]
 
     source "lib/environment.tcl"
-    variable timingsMap [dict create]
+    variable totalTimesMap [dict create]
+    variable runsMap [dict create]
     proc tryRunInSerializedEnvironment {body env} {
         try {
-            variable timingsMap
-            dict lappend timingsMap $body [time [list runInSerializedEnvironment $body $env]]
+            variable totalTimesMap
+            set timing [time [list runInSerializedEnvironment $body $env]]
+            set timing [string map {" microseconds per iteration" ""} $timing]
+            dict incr totalTimesMap $body $timing
+            variable runsMap
+            dict incr runsMap $body
         } on error err {
             if {[dict exists $env this]} {
                 Say [dict get $env this] has error $err with info $::errorInfo
