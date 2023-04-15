@@ -292,11 +292,12 @@ namespace eval Evaluator {
     proc tryRunInSerializedEnvironment {body env} {
         try {
             variable totalTimesMap
-            set timing [time [list runInSerializedEnvironment $body $env]]
+            set timing [time {set ret [runInSerializedEnvironment $body $env]}]
             set timing [string map {" microseconds per iteration" ""} $timing]
             dict incr totalTimesMap $body $timing
             variable runsMap
             dict incr runsMap $body
+            set ret
         } on error err {
             if {[dict exists $env this]} {
                 Say [dict get $env this] has error $err with info $::errorInfo
