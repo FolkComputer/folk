@@ -394,7 +394,7 @@ namespace eval Evaluator {
 
         set ::matchId [Matches::add $parentStatementIds]
         dict with Matches::matches $::matchId {
-            set destructor [list {lappend Evaluator::log [list Recollect $collectId]} {collectId $collectId}]
+            set destructor [list {lappend Evaluator::log [list Recollect $collectId]} [list collectId $collectId]]
             lappend destructors $destructor
         }
 
