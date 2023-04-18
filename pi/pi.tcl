@@ -21,6 +21,10 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
+    proc circle {x y radius thickness color} {
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
+    }
+
     proc text {fb x y fontSize text {radians 0}} {
         uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
     }
@@ -104,24 +108,28 @@ namespace eval Camera {
     }
 }
 
-set keyboardThread [thread::create [format {
-    source "pi/Keyboard.tcl"
-    source "lib/c.tcl"
-    source "pi/cUtils.tcl"
-    Keyboard::init
-    puts "Keyboard tid: [getTid]"
+try {
+    set keyboardThread [thread::create [format {
+        source "pi/Keyboard.tcl"
+        source "lib/c.tcl"
+        source "pi/cUtils.tcl"
+        Keyboard::init
+        puts "Keyboard tid: [getTid]"
 
-    set chs [list]
-    while true {
-        lappend chs [Keyboard::getChar]
+        set chs [list]
+        while true {
+            lappend chs [Keyboard::getChar]
 
-        thread::send -async "%s" [subst {
-            Retract keyboard claims the keyboard character log is /something/
-            Assert keyboard claims the keyboard character log is "$chs"
-        }]
-    }
-} [thread::id]]]
-puts "Keyboard thread id: $keyboardThread"
+            thread::send -async "%s" [subst {
+                Retract keyboard claims the keyboard character log is /something/
+                Assert keyboard claims the keyboard character log is "$chs"
+            }]
+        }
+    } [thread::id]]]
+    puts "Keyboard thread id: $keyboardThread"
+} on error error {
+    puts stderr "Keyboard thread failed: $error"
+}
 
 # also see how it's done in laptop.tcl
 set ::rootStatements [list]

@@ -1,11 +1,12 @@
-
 lappend auto_path "./vendor"
 package require websocket
 
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }
+
 proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
@@ -24,14 +25,37 @@ proc handlePage {path contentTypeVar} {
         return [subst {
             <html>
             <ul>
-            <li><a href="/new">New program</a></li>
+            <li><a href="/new">New program</a></li>   
+            <li><a href="/timings">Timings</a></li>
             <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
             <li><a href="/statements.pdf">statements graph</a></li>
             </ul>
             <ul>[join $l "\n"]</ul>
             </html>
         }]
-    } elseif {$path eq "/favico.ico"} {
+    } elseif {$path eq "/timings"} {
+        set totalTimes [list]
+        dict for {body totalTime} $Evaluator::totalTimesMap {
+            lappend totalTimes $body $totalTime
+        }
+        set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+
+        set l [list]
+        foreach {body totalTime} $totalTimes {
+            set runs [dict get $Evaluator::runsMap $body]
+            lappend l [subst {
+                <li>
+                <pre>[htmlEscape $body]</pre>: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                </li>
+            }]
+        }
+        return [subst {
+            <html>
+            <h1>Timings</h1>
+            <ul>[join $l "\n"]</ul>
+            </html>
+        }]
+    } elseif {$path eq "/favicon.ico"} {
         set contentType "image/x-icon"
         set fd [open "../favicon.ico" r]
         fconfigure $fd -encoding binary -translation binary
@@ -68,6 +92,7 @@ proc handlePage {path contentTypeVar} {
         </html>
     }
 }
+
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -113,6 +138,7 @@ proc handleRead {chan addr port} {
         # from now the handleWS will be called (not anymore handleRead).
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
 }
+
 proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
     } elseif {$type eq "text"} {
@@ -130,5 +156,6 @@ proc handleWS {chan type msg} {
 if {[catch {set ::serverSock [socket -server handleConnect 4273]}] == 1} {
     error "There's already a Web-capable Folk node running on this machine."
 }
+
 ::websocket::server $::serverSock
 ::websocket::live $::serverSock /ws handleWS

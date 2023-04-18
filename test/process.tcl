@@ -8,7 +8,7 @@ Step
 
 Assert when we are running {
     On process {
-        Assert things are good
+        Assert <root> claims things are good
         Step
     }
 
@@ -17,9 +17,24 @@ Assert when we are running {
     }
 }
 Step
+vwait good
 
-after 500 {
-    if {[info exists ::good] && $::good} { exit 0 } \
-        else { exit 1 }
+Assert when we are running {
+    puts "Core: $::nodename"
+    On process {
+        set n 0
+        while true {
+            incr n
+            Commit { Claim the counter is $n }
+            Step
+        }
+    }
+
+    When the counter is /n/ {
+        if {$n > 5} {
+            set ::done true
+        }
+    }
 }
-vwait forever
+Step
+vwait done

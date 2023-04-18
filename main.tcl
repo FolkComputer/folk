@@ -58,6 +58,7 @@ namespace eval statement { ;# statement record type
     proc children {stmt} { dict get $stmt children }
 
     namespace export unify
+    variable negations [list nobody nothing]
     variable blanks [list someone something anyone anything]
     proc unify {a b} {
         variable blanks
@@ -286,9 +287,17 @@ namespace eval Evaluator {
     variable log [list]
 
     source "lib/environment.tcl"
+    variable totalTimesMap [dict create]
+    variable runsMap [dict create]
     proc tryRunInSerializedEnvironment {body env} {
         try {
-            runInSerializedEnvironment $body $env
+            variable totalTimesMap
+            set timing [time {set ret [runInSerializedEnvironment $body $env]}]
+            set timing [string map {" microseconds per iteration" ""} $timing]
+            dict incr totalTimesMap $body $timing
+            variable runsMap
+            dict incr runsMap $body
+            set ret
         } on error err {
             if {[dict exists $env this]} {
                 Say [dict get $env this] has error $err with info $::errorInfo
@@ -385,7 +394,7 @@ namespace eval Evaluator {
 
         set ::matchId [Matches::add $parentStatementIds]
         dict with Matches::matches $::matchId {
-            set destructor [list [list lappend Evaluator::log [list Recollect $collectId]] {}]
+            set destructor [list {lappend Evaluator::log [list Recollect $collectId]} [list collectId $collectId]]
             lappend destructors $destructor
         }
 
@@ -559,9 +568,11 @@ proc When {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     set wordsWillBeBound [list]
+    set negate false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
         set word [lindex $pattern $i]
         if {$word eq "&"} {
+            # Desugar this join into nested Whens.
             set remainingPattern [lrange $pattern $i+1 end]
             set pattern [lrange $pattern 0 $i-1]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
@@ -574,15 +585,27 @@ proc When {args} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[regexp {^/([^/ ]+)/$} $word -> varName] && !($varName in $statement::blanks)} {
-            lappend wordsWillBeBound $word
-
+        } elseif {[regexp {^/([^/ ]+)/$} $word -> varName]} {
+            if {$varName in $statement::blanks} {
+            } elseif {$varName in $statement::negations} {
+                # Rewrite this entire clause to be negated.
+                set negate true
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                lappend wordsWillBeBound $word
+            }
         } elseif {[string index $word 0] eq "\$"} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }
 
-    uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+    if {$negate} {
+        set negateBody [list if {[llength $__matches] == 0} $body]
+        uplevel [list Say when the collected matches for $pattern are /__matches/ $negateBody with environment [Evaluator::serializeEnvironment]]
+    } else {
+        uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+    }
 }
 proc Every {event args} {
     if {$event eq "time"} {
@@ -645,6 +668,10 @@ namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
+    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
+        set env [uplevel {Evaluator::serializeEnvironment}]
+    }
+
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
@@ -667,15 +694,20 @@ proc Step {} {
                 dict for {_ stmt} $Statements::statements {
                     lappend shareStatements [statement clause $stmt]
                 }
-            } else {
-                foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
-                    set pattern [dict get $m pattern]
-                    foreach id [trie lookup $Statements::statementClauseToId $pattern] {
-                        set clause [statement clause [Statements::get $id]]
-                        set match [statement unify $pattern $clause]
-                        if {$match != false} {
-                            lappend shareStatements $clause
-                        }
+            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
+                dict for {_ stmt} $Statements::statements {
+                    if {[lindex [statement clause $stmt] 1] eq "claims"} {
+                        lappend shareStatements [statement clause $stmt]
+                    }
+                }
+            }
+            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
+                set pattern [dict get $m pattern]
+                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                    set clause [statement clause [Statements::get $id]]
+                    set match [statement unify $pattern $clause]
+                    if {$match != false} {
+                        lappend shareStatements $clause
                     }
                 }
             }
@@ -684,12 +716,24 @@ proc Step {} {
             run [subst {
                 Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
                 Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
+                Step
             }]
         }
+    }
+
+    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
+        Evaluator::deserializeEnvironment $env
     }
 }
 
 source "lib/math.tcl"
+
+
+# this defines $this in the contained scopes
+# it's also used to implement Commit
+Assert when /this/ has program code /__code/ {
+    eval $__code
+}
 
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
@@ -699,10 +743,6 @@ if {[info exists ::entry]} {
         foreach stmt $statements { Say {*}$stmt }
     }
 
-    # this defines $this in the contained scopes
-    Assert when /this/ has program code /__code/ {
-        eval $__code
-    }
     source "lib/process.tcl"
     source "./web.tcl"
     source $::entry
