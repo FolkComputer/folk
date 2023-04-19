@@ -20,6 +20,7 @@ namespace eval trie {
     namespace export *
     rename add add_; rename addWithVar add
     rename remove remove_; rename removeWithVar remove
+    rename lookup lookup_; rename lookupTclObjs lookup
     namespace ensemble create
 }
 
@@ -548,6 +549,7 @@ namespace eval Evaluator {
         }
     }
 }
+source "play/c-statements.tcl"
 # invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {
     if {[lindex $args 0] eq "when" && [lindex $args end-1] ne "environment"} {

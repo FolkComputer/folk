@@ -11,7 +11,7 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    $cc struct statement_handle_t { int idx; }
+    $cc struct statement_handle_t { intptr_t idx; }
     $cc struct match_handle_t { int idx; }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
@@ -311,12 +311,11 @@ namespace eval Statements { ;# singleton Statement store
                       Tcl_Obj* clause
                       size_t n_parents match_handle_t parents[]} Tcl_Obj* {
         // Is this clause already present among the existing statements?
-        Tcl_Obj* ids = trieLookup(interp, statementClauseToId, clause);
-        int idslen; Tcl_ListObjLength(interp, ids, &idslen);
+        void *ids[10];
+        int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
         statement_handle_t id;
         if (idslen == 1) {
-            Tcl_Obj* idobj; Tcl_ListObjIndex(interp, ids, 0, &idobj);
-            Tcl_GetIntFromObj(interp, idobj, &id.idx);
+            id.idx = (intptr_t)ids[0];
 
         } else if (idslen == 0) {
             id.idx = -1;
@@ -332,7 +331,7 @@ namespace eval Statements { ;# singleton Statement store
             id = new();
 
             *get(id) = statementCreate(clause, n_parents, parents, 0, NULL);
-            trieAdd(interp, &statementClauseToId, clause, id.idx);
+            trieAdd(interp, &statementClauseToId, clause, (void *)id.idx);
 
         } else {
             statement_t* stmt = get(id);
@@ -349,7 +348,7 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         // return {id, isNewStatement};
-        return Tcl_ObjPrintf("{idx %d} %d", id.idx, isNewStatement);
+        return Tcl_ObjPrintf("{idx %ld} %d", id.idx, isNewStatement);
     }
     proc add {clause {parents {{idx -1} true}}} {
         addImpl $clause [dict size $parents] [dict keys $parents]
@@ -383,103 +382,20 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc findStatementsMatching {Tcl_Interp* interp Tcl_Obj* pattern} Tcl_Obj* {
-        Tcl_Obj* idsobj = trieLookup(interp, statementClauseToId, pattern);
-        int idslen; Tcl_Obj** ids;
-        if (Tcl_ListObjGetElements(interp, idsobj, &idslen, &ids) != TCL_OK) { exit(1); }
+        void *ids[50];
+        int idslen = trieLookup(interp, ids, 50, statementClauseToId, pattern);
 
         Tcl_Obj* matches[idslen]; int matchcount = 0;
         for (int i = 0; i < idslen; i++) {
-            int id; Tcl_GetIntFromObj(interp, ids[i], &id);
+            intptr_t id = (intptr_t)ids[i];
             Tcl_Obj* match = unifyImpl(interp, pattern, statements[id].clause);
             if (match != NULL) {
-                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %d", id));
+                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %ld", id));
                 matches[matchcount++] = match;
             }
         }
 
         return Tcl_NewListObj(matchcount, matches);
-    }
-
-    $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
-        Tcl_Obj* clause = get(id)->clause;
-        Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
-        if (strcmp(Tcl_GetString(head), "when") == 0) {
-            // Is the statement a When? Match it against existing
-            // statements.
-
-            int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
-
-            // when the time is /t/ { ... } with environment /env/ -> the time is /t/
-            Tcl_Obj* unwhenizedClause = Tcl_DuplicateObj(clause);
-            Tcl_ListObjReplace(interp, unwhenizedClause, clauselen-3, 3, 0, NULL);
-            Tcl_ListObjReplace(interp, unwhenizedClause, 0, 1, 0, NULL);
-
-            Tcl_Obj* matches = findStatementsMatching(interp, unwhenizedClause);
-            Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
-            Tcl_ListObjReplace(interp, unwhenizedClause, 0, 0, 2, someoneClaims);
-            Tcl_ListObjAppendList(interp, matches, findStatementsMatching(interp, unwhenizedClause));
-
-            Tcl_Obj* body; Tcl_ListObjIndex(interp, clause, clauselen-4, &body);
-            Tcl_Obj* env; Tcl_ListObjIndex(interp, clause, clauselen-1, &env);
-            int matchc; Tcl_Obj** matchv;
-            Tcl_ListObjGetElements(interp, matches, &matchc, &matchv);
-            for (int i = 0; i < matchc; i++) {
-                Tcl_Obj* match = matchv[i];
-
-                Tcl_Obj* matcheeId;
-                Tcl_DictObjGet(interp, match, Tcl_NewStringObj("__matcheeId", -1), &matcheeId);
-                Tcl_ConvertToType(interp, matcheeId, &statement_t_ObjType);
-                statement_handle_t parents[] = {
-                    id,
-                    *(statement_handle_t*)matcheeId->internalRep.otherValuePtr,
-                };
-                match_handle_t matchId = addMatchImpl(sizeof(parents)/sizeof(parents[0]), parents);
-                (void)matchId;
-
-                Tcl_Obj* env;
-                runInSerializedEnvironment(body, env);
-            }
-        }
-
-        // Match this statement against existing Whens.
-
-        // the time is 3 -> when the time is 3 /__body/ with environment /__env/
-    }
-    $cc proc reactToStatementRemoval {statement_handle_t id} void {
-        // unset all things downstream of statement
-        statement_t* stmt = get(id);
-        for (int i = 0; i < stmt->n_edges; i++) {
-            edge_to_match_t* edge = statementEdgeAt(stmt, i);
-
-            if (edge->type != CHILD) continue;
-            match_handle_t matchId = edge->match;
-
-            if (!matchExists(matchId)) continue; // if was removed earlier
-            match_t* match = matchGet(matchId);
-
-            for (int j = 0; j < match->n_edges; j++) {
-                // this match will be dead, so remove the match from the
-                // other parents of the match
-                if (match->edges[j].type == PARENT) {
-                    statement_handle_t parentId = match->edges[j].statement;
-                    if (!exists(parentId)) { continue; }
-
-                    statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
-
-                } else if (match->edges[j].type == CHILD) {
-                    statement_handle_t childId = match->edges[j].statement;
-                    if (!exists(childId)) { continue; }
-
-                    if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
-                        // is this child statement out of parent matches? => it's dead
-                        reactToStatementRemoval(childId);
-                        remove_(childId);
-                        matchRemoveEdgeToStatement(match, CHILD, childId);
-                    }
-                }
-            }
-            matchRemove(matchId);
-        }
     }
 
     $cc proc all {} Tcl_Obj* {
@@ -529,10 +445,206 @@ namespace eval Statements { ;# singleton Statement store
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
+}
+
+namespace eval Evaluator {
+    variable cc $::statement::cc
+    namespace import ::statement::$cc
+
+    $cc code {
+        // Given a StatementPattern, tells you all the reactions to run
+        // when a matching statement is added to / removed from the
+        // database. StatementId is the ID of the statement that wanted to
+        // react.
+        //
+        // For example, if you add `When the time is /t/`, it will register
+        // a reaction to the addition and removal of statements matching
+        // the pattern `the time is /t/`.
+        //
+        // Trie<StatementPattern + StatementId, Reaction>
+        trie_t* reactionsToStatementAddition;
+        // Used to quickly remove reactions when the reacting statement is removed:
+        // Dict<StatementId, List<StatementPattern + StatementId>>
+        Tcl_Obj* reactionPatternsOfReactingId[32768];
+        typedef void (*reaction_fn_t)(statement_handle_t reactingId,
+                                      Tcl_Obj* reactToPattern,
+                                      statement_handle_t newStatementId);
+        typedef struct reaction_t {
+            reaction_fn_t react;
+            statement_handle_t reactingId;
+            Tcl_Obj* reactToPattern;
+        } reaction_t;
+
+        void addReaction(Tcl_Obj* reactToPattern, statement_handle_t reactingId, reaction_fn_t react) {
+            reaction_t *reaction = ckalloc(sizeof(reaction_t));
+            reaction->react = react;
+            reaction->reactingId = reactingId;
+            Tcl_IncrRefCount(reactToPattern);
+            reaction->reactToPattern = reactToPattern;
+
+            Tcl_Obj* reactToPatternAndReactingId = Tcl_DuplicateObj(reactToPattern);
+            Tcl_Obj* reactingIdObj = Tcl_NewIntObj(reactingId.idx);
+            int reactToPatternLength; Tcl_ListObjLength(NULL, reactToPattern, &reactToPatternLength);
+            Tcl_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength-1, 0, 1, &reactingIdObj);
+            trieAdd(NULL, &reactionsToStatementAddition, reactToPatternAndReactingId, reaction);
+
+            if (reactionPatternsOfReactingId[reactingId.idx] == NULL) {
+                reactionPatternsOfReactingId[reactingId.idx] = Tcl_NewListObj(0, NULL);
+                Tcl_IncrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
+            }
+            Tcl_ListObjAppendElement(NULL, reactionPatternsOfReactingId[reactingId.idx],
+                                     reactToPatternAndReactingId);
+        }
+        void removeAllReactions(statement_handle_t reactingId) {
+            if (reactionPatternsOfReactingId[reactingId.idx] == NULL) { return; }
+            // TODO: list walk
+            int patternCount; Tcl_Obj** patterns;
+            Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
+                                   &patternCount, &patterns);
+            for (int i = 0; i < patternCount; i++) {
+                trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
+            }
+            Tcl_DecrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
+            reactionPatternsOfReactingId[reactingId.idx] = NULL;
+        }
+
+        void tryRunInSerializedEnvironment(Tcl_Interp* interp, Tcl_Obj* body, Tcl_Obj* env) {
+            int objc = 3; Tcl_Obj *objv[3];
+            objv[0] = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
+            objv[1] = body;
+            objv[2] = env;
+            Tcl_EvalObjv(interp, objc, objv, 0);
+        }
+        static statement_t* get(statement_handle_t id);
+        static int exists(statement_handle_t id);
+        static Tcl_Obj* unifyImpl(Tcl_Interp* interp, Tcl_Obj* a, Tcl_Obj* b);
+        static match_handle_t addMatchImpl(size_t n_parents, statement_handle_t parents[]);
+        void reactToStatementAdditionThatMatchesWhen(statement_handle_t whenId,
+                                                     Tcl_Obj* whenPattern,
+                                                     statement_handle_t statementId) {
+            if (!exists(whenId)) {
+                removeAllReactions(whenId);
+                return;
+            }
+            statement_t* when = get(whenId);
+            statement_t* stmt = get(statementId);
+
+            Tcl_Obj* bindings = unifyImpl(NULL, whenPattern, stmt->clause);
+            if (bindings) {
+                int whenClauseLength; Tcl_ListObjLength(NULL, when->clause, &whenClauseLength);
+
+                statement_handle_t matchParentIds[] = {whenId, statementId};
+                match_handle_t matchId = addMatchImpl(2, matchParentIds);
+                Tcl_Obj* body; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-3, &body);
+                Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
+
+                // Merge env into bindings (weakly)
+                Tcl_DictSearch search;
+                Tcl_Obj *key, *value;
+                int done;
+                if (Tcl_DictObjFirst(NULL, env, &search,
+                                     &key, &value, &done) != TCL_OK) {
+                    exit(1);
+                }
+                for (; !done ; Tcl_DictObjNext(&search, &key, &value, &done)) {
+                    Tcl_Obj *existingValue; Tcl_DictObjGet(NULL, bindings, key, &existingValue);
+                    if (existingValue == NULL) {
+                        Tcl_DictObjPut(NULL, bindings, key, value);
+                    }
+                }
+                Tcl_DictObjDone(&search);
+
+                Tcl_ObjSetVar2(NULL, Tcl_ObjPrintf("matchId"), NULL, Tcl_NewIntObj(matchId.idx), 0);
+                tryRunInSerializedEnvironment(NULL, body, bindings);
+            }
+        }
+    }
+    $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
+        Tcl_Obj* clause = get(id)->clause;
+        Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
+        if (strcmp(Tcl_GetString(head), "when") == 0) {
+            int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
+
+            // when the time is /t/ { ... } with environment /env/ -> the time is /t/
+            Tcl_Obj* pattern = Tcl_DuplicateObj(clause);
+            Tcl_ListObjReplace(interp, pattern, clauselen-3, 3, 0, NULL);
+            Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
+            addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
+
+            // when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
+            Tcl_Obj* claimizedPattern = Tcl_DuplicateObj(pattern);
+            Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
+            Tcl_ListObjReplace(interp, claimizedPattern, 0, 0, 2, someoneClaims);
+            addReaction(claimizedPattern, id, reactToStatementAdditionThatMatchesWhen);
+
+            // Scan the existing statement set for any
+            // already-existing matching statements.
+            void* alreadyMatchingStatementIds[50];
+            int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
+                                                              statementClauseToId, pattern);
+            for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
+                statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
+                reactToStatementAdditionThatMatchesWhen(id, pattern, alreadyMatchingStatementId);
+            }
+            alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
+                                                          statementClauseToId, claimizedPattern);
+            for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
+                statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
+                reactToStatementAdditionThatMatchesWhen(id, claimizedPattern, alreadyMatchingStatementId);
+            }
+        }
+
+        // Trigger any reactions to the addition of this statement.
+        Tcl_Obj* clauseWithReactingId = Tcl_DuplicateObj(clause);
+        void* reactions[50];
+        int reactioncount = trieLookup(interp, reactions, 50,
+                                       reactionsToStatementAddition, clauseWithReactingId);
+        for (int i = 0; i < reactioncount; i++) {
+            reaction_t* reaction = reactions[i];
+            reaction->react(reaction->reactingId, reaction->reactToPattern, id);
+        }
+    }
+    $cc proc reactToStatementRemoval {statement_handle_t id} void {
+        // unset all things downstream of statement
+        statement_t* stmt = get(id);
+        for (int i = 0; i < stmt->n_edges; i++) {
+            edge_to_match_t* edge = statementEdgeAt(stmt, i);
+
+            if (edge->type != CHILD) continue;
+            match_handle_t matchId = edge->match;
+
+            if (!matchExists(matchId)) continue; // if was removed earlier
+            match_t* match = matchGet(matchId);
+
+            for (int j = 0; j < match->n_edges; j++) {
+                // this match will be dead, so remove the match from the
+                // other parents of the match
+                if (match->edges[j].type == PARENT) {
+                    statement_handle_t parentId = match->edges[j].statement;
+                    if (!exists(parentId)) { continue; }
+
+                    statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
+
+                } else if (match->edges[j].type == CHILD) {
+                    statement_handle_t childId = match->edges[j].statement;
+                    if (!exists(childId)) { continue; }
+
+                    if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
+                        // is this child statement out of parent matches? => it's dead
+                        reactToStatementRemoval(childId);
+                        remove_(childId);
+                        matchRemoveEdgeToStatement(match, CHILD, childId);
+                    }
+                }
+            }
+            matchRemove(matchId);
+        }
+    }
 
     $cc compile
-    init        
+}
 
+namespace eval Statements {
     # compatibility with older Tcl statements module interface
     namespace export reactToStatementAddition reactToStatementRemoval
     rename remove_ remove
@@ -540,6 +652,7 @@ namespace eval Statements { ;# singleton Statement store
     rename get getImpl
     proc get {id} { deref [getImpl $id] }
 }
+Statements::init
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     puts [Statements::addImpl [list whatever dude] 0 [list]]

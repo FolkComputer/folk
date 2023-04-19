@@ -65,6 +65,7 @@ namespace eval c {
             variable argtypes {
                 int { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
                 size_t { expr {{ size_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
+                intptr_t { expr {{ intptr_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
                 uint16_t { expr {{ uint16_t $argname; Tcl_GetIntFromObj(interp, $obj, (int *)&$argname); }}}
                 uint32_t { expr {{ uint32_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
                 uint64_t { expr {{ uint64_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
@@ -111,6 +112,7 @@ namespace eval c {
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
+                intptr_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
                 Tcl_Obj* { expr {{ $robj = $rvalue; }}}
                 default {
