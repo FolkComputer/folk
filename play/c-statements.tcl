@@ -485,7 +485,7 @@ namespace eval Evaluator {
             Tcl_Obj* reactToPatternAndReactingId = Tcl_DuplicateObj(reactToPattern);
             Tcl_Obj* reactingIdObj = Tcl_NewIntObj(reactingId.idx);
             int reactToPatternLength; Tcl_ListObjLength(NULL, reactToPattern, &reactToPatternLength);
-            Tcl_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength-1, 0, 1, &reactingIdObj);
+            Tcl_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength, 0, 1, &reactingIdObj);
             trieAdd(NULL, &reactionsToStatementAddition, reactToPatternAndReactingId, reaction);
 
             if (reactionPatternsOfReactingId[reactingId.idx] == NULL) {
@@ -564,13 +564,13 @@ namespace eval Evaluator {
     }
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
         Tcl_Obj* clause = get(id)->clause;
+        int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
+
         Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
         if (strcmp(Tcl_GetString(head), "when") == 0) {
-            int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
-
             // when the time is /t/ { ... } with environment /env/ -> the time is /t/
             Tcl_Obj* pattern = Tcl_DuplicateObj(clause);
-            Tcl_ListObjReplace(interp, pattern, clauselen-3, 3, 0, NULL);
+            Tcl_ListObjReplace(interp, pattern, clauselen-4, 4, 0, NULL);
             Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
             addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
 
@@ -598,10 +598,15 @@ namespace eval Evaluator {
         }
 
         // Trigger any reactions to the addition of this statement.
-        Tcl_Obj* clauseWithReactingId = Tcl_DuplicateObj(clause);
+        Tcl_Obj* clauseWithReactingIdWildcard = Tcl_DuplicateObj(clause); {
+            Tcl_Obj* reactingIdWildcard = Tcl_ObjPrintf("/reactingId/");
+            Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauselen, 0,
+                               1, &reactingIdWildcard);
+        }
         void* reactions[50];
         int reactioncount = trieLookup(interp, reactions, 50,
-                                       reactionsToStatementAddition, clauseWithReactingId);
+                                       reactionsToStatementAddition, clauseWithReactingIdWildcard);
+        printf("react to statement addition (%s) -> %d\n", Tcl_GetString(clause), reactioncount);
         for (int i = 0; i < reactioncount; i++) {
             reaction_t* reaction = reactions[i];
             reaction->react(reaction->reactingId, reaction->reactToPattern, id);
