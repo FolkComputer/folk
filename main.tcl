@@ -520,8 +520,9 @@ namespace eval Evaluator {
 
             } elseif {$op eq "Retract"} {
                 set pattern [lindex $entry 1]
-                set ids [trie lookup $Statements::statementClauseToId $pattern]
-                foreach id $ids {
+                set matches [Statements::findMatches $pattern]
+                foreach match $matches {
+                    set id [dict get $match __matcheeId]
                     reactToStatementRemoval $id
                     Statements::remove $id
                 }

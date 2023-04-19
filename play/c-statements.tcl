@@ -287,7 +287,7 @@ namespace eval Statements { ;# singleton Statement store
     $cc import ::ctrie::cc add as trieAdd
     $cc import ::ctrie::cc remove_ as trieRemove
     $cc import ::ctrie::cc scanVariable as scanVariable
-    $cc proc init {} void {
+    $cc proc StatementsInit {} void {
         statementClauseToId = trieCreate();
     }
 
@@ -559,6 +559,9 @@ namespace eval Evaluator {
             }
         }
     }
+    $cc proc EvaluatorInit {} void {
+        reactionsToStatementAddition = trieCreate();
+    }
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
         Tcl_Obj* clause = get(id)->clause;
         Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
@@ -640,6 +643,8 @@ namespace eval Evaluator {
             matchRemove(matchId);
         }
     }
+    rename Evaluator::reactToStatementAddition ""
+    rename Evaluator::reactToStatementRemoval ""
 
     $cc compile
 }
@@ -652,7 +657,8 @@ namespace eval Statements {
     rename get getImpl
     proc get {id} { deref [getImpl $id] }
 }
-Statements::init
+Statements::StatementsInit
+Evaluator::EvaluatorInit
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     puts [Statements::addImpl [list whatever dude] 0 [list]]
