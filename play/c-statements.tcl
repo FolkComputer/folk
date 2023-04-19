@@ -412,6 +412,40 @@ namespace eval Statements { ;# singleton Statement store
 
         return Tcl_NewListObj(matchcount, matches);
     }
+    proc findMatchesJoining {patterns {bindings {}}} {
+        if {[llength $patterns] == 0} {
+            return [list $bindings]
+        }
+
+        # patterns = [list {/p/ is a person} {/p/ lives in /place/}]
+
+        # Split first pattern from the other patterns
+        set otherPatterns [lassign $patterns firstPattern]
+        # Do substitution of bindings into first pattern
+        set substitutedFirstPattern [list]
+        foreach word $firstPattern {
+            if {[regexp {^/([^/ ]+)/$} $word -> varName] &&
+                [dict exists $bindings $varName]} {
+                lappend substitutedFirstPattern [dict get $bindings $varName]
+            } else {
+                lappend substitutedFirstPattern $word
+            }
+        }
+
+        set matcheeIds [if {[dict exists $bindings __matcheeIds]} {
+            dict get $bindings __matcheeIds
+        } else { list }]
+
+        set matches [list]
+        set matchesForFirstPattern [findMatches $substitutedFirstPattern]
+        lappend matchesForFirstPattern {*}[findMatches [list /someone/ claims {*}$substitutedFirstPattern]]
+        foreach matchBindings $matchesForFirstPattern {
+            dict lappend matchBindings __matcheeIds {*}$matcheeIds
+            set matchBindings [dict merge $bindings $matchBindings]
+            lappend matches {*}[findMatchesJoining $otherPatterns $matchBindings]
+        }
+        set matches
+    }
 
     $cc proc all {} Tcl_Obj* {
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
