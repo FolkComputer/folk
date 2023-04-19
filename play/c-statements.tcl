@@ -222,6 +222,9 @@ namespace eval statement {
         if {[string length $line] > 80} {set line "[string range $line 0 80]..."}
         format "{%s} %s {%s}" [parentMatchIds $stmt] $line [childMatchIds $stmt]
     }
+
+    variable negations [list nobody nothing]
+    variable blanks [list someone something anyone anything]
 }
 
 namespace eval Statements { ;# singleton Statement store
@@ -466,7 +469,8 @@ namespace eval Evaluator {
         // Used to quickly remove reactions when the reacting statement is removed:
         // Dict<StatementId, List<StatementPattern + StatementId>>
         Tcl_Obj* reactionPatternsOfReactingId[32768];
-        typedef void (*reaction_fn_t)(statement_handle_t reactingId,
+        typedef void (*reaction_fn_t)(Tcl_Interp* interp,
+                                      statement_handle_t reactingId,
                                       Tcl_Obj* reactToPattern,
                                       statement_handle_t newStatementId);
         typedef struct reaction_t {
@@ -513,13 +517,16 @@ namespace eval Evaluator {
             objv[0] = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
             objv[1] = body;
             objv[2] = env;
-            Tcl_EvalObjv(interp, objc, objv, 0);
+            if (Tcl_EvalObjv(interp, objc, objv, 0) == TCL_ERROR) {
+                printf("oh god: %s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+            }
         }
         static statement_t* get(statement_handle_t id);
         static int exists(statement_handle_t id);
         static Tcl_Obj* unifyImpl(Tcl_Interp* interp, Tcl_Obj* a, Tcl_Obj* b);
         static match_handle_t addMatchImpl(size_t n_parents, statement_handle_t parents[]);
-        void reactToStatementAdditionThatMatchesWhen(statement_handle_t whenId,
+        void reactToStatementAdditionThatMatchesWhen(Tcl_Interp* interp,
+                                                     statement_handle_t whenId,
                                                      Tcl_Obj* whenPattern,
                                                      statement_handle_t statementId) {
             if (!exists(whenId)) {
@@ -535,7 +542,7 @@ namespace eval Evaluator {
 
                 statement_handle_t matchParentIds[] = {whenId, statementId};
                 match_handle_t matchId = addMatchImpl(2, matchParentIds);
-                Tcl_Obj* body; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-3, &body);
+                Tcl_Obj* body; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-4, &body);
                 Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
                 // Merge env into bindings (weakly)
@@ -554,8 +561,8 @@ namespace eval Evaluator {
                 }
                 Tcl_DictObjDone(&search);
 
-                Tcl_ObjSetVar2(NULL, Tcl_ObjPrintf("matchId"), NULL, Tcl_NewIntObj(matchId.idx), 0);
-                tryRunInSerializedEnvironment(NULL, body, bindings);
+                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_NewIntObj(matchId.idx), 0);
+                tryRunInSerializedEnvironment(interp, body, bindings);
             }
         }
     }
@@ -587,13 +594,13 @@ namespace eval Evaluator {
                                                               statementClauseToId, pattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
-                reactToStatementAdditionThatMatchesWhen(id, pattern, alreadyMatchingStatementId);
+                reactToStatementAdditionThatMatchesWhen(interp, id, pattern, alreadyMatchingStatementId);
             }
             alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
                                                           statementClauseToId, claimizedPattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
-                reactToStatementAdditionThatMatchesWhen(id, claimizedPattern, alreadyMatchingStatementId);
+                reactToStatementAdditionThatMatchesWhen(interp, id, claimizedPattern, alreadyMatchingStatementId);
             }
         }
 
@@ -606,10 +613,9 @@ namespace eval Evaluator {
         void* reactions[50];
         int reactioncount = trieLookup(interp, reactions, 50,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
-        printf("react to statement addition (%s) -> %d\n", Tcl_GetString(clause), reactioncount);
         for (int i = 0; i < reactioncount; i++) {
             reaction_t* reaction = reactions[i];
-            reaction->react(reaction->reactingId, reaction->reactToPattern, id);
+            reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
     }
     $cc proc reactToStatementRemoval {statement_handle_t id} void {

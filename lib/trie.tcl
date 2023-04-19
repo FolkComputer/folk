@@ -162,8 +162,8 @@ namespace eval ctrie {
                          trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
             if (trie->value != NULL) {
-                if ((*resultsidx)++ < maxresults) {
-                    results[*resultsidx] = trie->value;
+                if (*resultsidx < maxresults) {
+                    results[(*resultsidx)++] = trie->value;
                 }
             }
             return;
