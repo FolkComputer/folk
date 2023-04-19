@@ -11,7 +11,7 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    $cc struct statement_handle_t { intptr_t idx; }
+    $cc struct statement_handle_t { int32_t idx; int32_t gen; }
     $cc struct match_handle_t { int idx; }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
@@ -36,6 +36,8 @@ namespace eval statement {
         edge_to_match_t edges[1]; // should be 0
     }
     $cc struct statement_t {
+        int32_t gen;
+
         Tcl_Obj* clause;
 
         size_t n_edges;
@@ -62,7 +64,9 @@ namespace eval statement {
             return ret;
         }
         bool matchHandleIsEqual(match_handle_t a, match_handle_t b) { return a.idx == b.idx; }
-        bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) { return a.idx == b.idx; }
+        bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) {
+            return a.idx == b.idx && a.gen == b.gen;
+        }
 
         static edge_to_match_t* statementEdgeAt(statement_t* stmt, size_t i) {
             return i < sizeof(stmt->edges)/sizeof(stmt->edges[0]) ?
@@ -262,18 +266,27 @@ namespace eval Statements { ;# singleton Statement store
         while (statements[nextStatementIdx].clause != NULL) {
             nextStatementIdx = (nextStatementIdx + 1) % (sizeof(statements)/sizeof(statements[0]));
         }
-        return (statement_handle_t) { .idx = nextStatementIdx };
+        return (statement_handle_t) {
+            .idx = nextStatementIdx,
+            .gen = ++statements[nextStatementIdx].gen
+        };
     }
     $cc proc get {statement_handle_t id} statement_t* {
+        if (id.gen != statements[id.idx].gen || statements[id.idx].clause == NULL) {
+            return NULL;
+        }
         return &statements[id.idx];
     }
     $cc proc deref {statement_t* ptr} statement_t { return *ptr; }
     $cc proc exists {statement_handle_t id} int {
-        return get(id)->clause != NULL;
+        return get(id) != NULL;
     }
     $cc proc remove_ {statement_handle_t id} void {
-        Tcl_Obj* clause = get(id)->clause;
-        memset(get(id), 0, sizeof(*get(id)));
+        statement_t* stmt = get(id);
+        int32_t gen = stmt->gen;
+        Tcl_Obj* clause = stmt->clause;
+        memset(stmt, 0, sizeof(*stmt));
+        stmt->gen = gen;
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
     }
@@ -318,11 +331,9 @@ namespace eval Statements { ;# singleton Statement store
         int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
         statement_handle_t id;
         if (idslen == 1) {
-            id.idx = (intptr_t)ids[0];
-
+            id = *(statement_handle_t *)&ids[0];
         } else if (idslen == 0) {
             id.idx = -1;
-
         } else {
             // error WTF
             printf("WTF: looked up %s\n", Tcl_GetString(clause));
@@ -333,8 +344,9 @@ namespace eval Statements { ;# singleton Statement store
         if (isNewStatement) {
             id = new();
 
-            *get(id) = statementCreate(clause, n_parents, parents, 0, NULL);
-            trieAdd(interp, &statementClauseToId, clause, (void *)id.idx);
+            statements[id.idx] = statementCreate(clause, n_parents, parents, 0, NULL);
+            statements[id.idx].gen = id.gen;
+            trieAdd(interp, &statementClauseToId, clause, *(void **)&id);
 
         } else {
             statement_t* stmt = get(id);
@@ -351,7 +363,7 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         // return {id, isNewStatement};
-        return Tcl_ObjPrintf("{idx %ld} %d", id.idx, isNewStatement);
+        return Tcl_ObjPrintf("{idx %d gen %d} %d", id.idx, id.gen, isNewStatement);
     }
     proc add {clause {parents {{idx -1} true}}} {
         addImpl $clause [dict size $parents] [dict keys $parents]
@@ -390,10 +402,10 @@ namespace eval Statements { ;# singleton Statement store
 
         Tcl_Obj* matches[idslen]; int matchcount = 0;
         for (int i = 0; i < idslen; i++) {
-            intptr_t id = (intptr_t)ids[i];
-            Tcl_Obj* match = unifyImpl(interp, pattern, statements[id].clause);
+            statement_handle_t id = *(statement_handle_t *)&ids[i];
+            Tcl_Obj* match = unifyImpl(interp, pattern, get(id)->clause);
             if (match != NULL) {
-                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %ld", id));
+                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %d gen %d", id.idx, id.gen));
                 matches[matchcount++] = match;
             }
         }
@@ -551,7 +563,12 @@ namespace eval Evaluator {
                 int done;
                 if (Tcl_DictObjFirst(NULL, env, &search,
                                      &key, &value, &done) != TCL_OK) {
-                    exit(1);
+                    printf("Reacting %d(%s) to addition of (%s): env is weird (%s)\n",
+                           whenId.idx,
+                           Tcl_GetString(when->clause),
+                           Tcl_GetString(stmt->clause),
+                           Tcl_GetString(env));
+                    exit(2);
                 }
                 for (; !done ; Tcl_DictObjNext(&search, &key, &value, &done)) {
                     Tcl_Obj *existingValue; Tcl_DictObjGet(NULL, bindings, key, &existingValue);
@@ -593,13 +610,13 @@ namespace eval Evaluator {
             int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
                                                               statementClauseToId, pattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
-                statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
+                statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, pattern, alreadyMatchingStatementId);
             }
             alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
                                                           statementClauseToId, claimizedPattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
-                statement_handle_t alreadyMatchingStatementId = {(intptr_t)alreadyMatchingStatementIds[i]};
+                statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, claimizedPattern, alreadyMatchingStatementId);
             }
         }
@@ -671,7 +688,7 @@ namespace eval Evaluator {
                     break;
                 }
             }
-            if (unmatchWhenId.idx == 0) { exit(1); }
+            if (unmatchWhenId.idx == 0) { exit(3); }
             statement_t* unmatchWhen = get(unmatchWhenId);
             for (int j = 0; j < unmatchWhen->n_edges; j++) {
                 if (unmatchWhen->edges[j].type == PARENT) {
