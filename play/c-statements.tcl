@@ -618,6 +618,32 @@ namespace eval Evaluator {
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
     }
+    $cc code { static void reactToStatementRemoval(statement_handle_t id); }
+    $cc proc reactToMatchRemoval {match_handle_t matchId} void {
+        match_t* match = matchGet(matchId);
+
+        for (int j = 0; j < match->n_edges; j++) {
+            // this match will be dead, so remove the match from the
+            // other parents of the match
+            if (match->edges[j].type == PARENT) {
+                statement_handle_t parentId = match->edges[j].statement;
+                if (!exists(parentId)) { continue; }
+
+                statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
+
+            } else if (match->edges[j].type == CHILD) {
+                statement_handle_t childId = match->edges[j].statement;
+                if (!exists(childId)) { continue; }
+
+                if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
+                    // is this child statement out of parent matches? => it's dead
+                    reactToStatementRemoval(childId);
+                    remove_(childId);
+                    matchRemoveEdgeToStatement(match, CHILD, childId);
+                }
+            }
+        }
+    }
     $cc proc reactToStatementRemoval {statement_handle_t id} void {
         // unset all things downstream of statement
         statement_t* stmt = get(id);
@@ -628,32 +654,40 @@ namespace eval Evaluator {
             match_handle_t matchId = edge->match;
 
             if (!matchExists(matchId)) continue; // if was removed earlier
-            match_t* match = matchGet(matchId);
 
-            for (int j = 0; j < match->n_edges; j++) {
-                // this match will be dead, so remove the match from the
-                // other parents of the match
-                if (match->edges[j].type == PARENT) {
-                    statement_handle_t parentId = match->edges[j].statement;
-                    if (!exists(parentId)) { continue; }
-
-                    statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
-
-                } else if (match->edges[j].type == CHILD) {
-                    statement_handle_t childId = match->edges[j].statement;
-                    if (!exists(childId)) { continue; }
-
-                    if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
-                        // is this child statement out of parent matches? => it's dead
-                        reactToStatementRemoval(childId);
-                        remove_(childId);
-                        matchRemoveEdgeToStatement(match, CHILD, childId);
-                    }
-                }
-            }
+            reactToMatchRemoval(matchId);
             matchRemove(matchId);
         }
     }
+    $cc proc UnmatchImpl {match_handle_t currentMatchId int level} void {
+        match_handle_t unmatchId = currentMatchId;
+        for (int i = 0; i < level; i++) {
+            match_t* unmatch = matchGet(unmatchId);
+            // Get first parent of unmatchId (should be the When)
+            statement_handle_t unmatchWhenId = {0};
+            for (int j = 0; j < unmatch->n_edges; j++) {
+                if (unmatch->edges[j].type == PARENT) {
+                    unmatchWhenId = unmatch->edges[j].statement;
+                    break;
+                }
+            }
+            if (unmatchWhenId.idx == 0) { exit(1); }
+            statement_t* unmatchWhen = get(unmatchWhenId);
+            for (int j = 0; j < unmatchWhen->n_edges; j++) {
+                if (unmatchWhen->edges[j].type == PARENT) {
+                    unmatchId = unmatchWhen->edges[j].match;
+                    break;
+                }
+            }
+        }
+        reactToMatchRemoval(unmatchId);
+        matchRemove(unmatchId);
+    }
+    proc Unmatch {{level 0}} {
+        # Forces an unmatch of the current match or its `level`-th ancestor match.
+        UnmatchImpl $::matchId $level
+    }
+
     rename Evaluator::reactToStatementAddition ""
     rename Evaluator::reactToStatementRemoval ""
 
