@@ -561,7 +561,7 @@ namespace eval Evaluator {
                 }
                 Tcl_DictObjDone(&search);
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_NewIntObj(matchId.idx), 0);
+                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d", matchId.idx), 0);
                 tryRunInSerializedEnvironment(interp, body, bindings);
             }
         }
@@ -667,6 +667,10 @@ namespace eval Statements {
     rename findStatementsMatching findMatches
     rename get getImpl
     proc get {id} { deref [getImpl $id] }
+}
+namespace eval Matches {
+    rename exists ""
+    rename ::Statements::matchExists ::Matches::exists
 }
 Statements::StatementsInit
 Evaluator::EvaluatorInit

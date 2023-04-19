@@ -129,7 +129,7 @@ namespace eval ctrie {
                 strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(word)) == 0) {
                 if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
                     Tcl_DecrRefCount(trie->branches[j]->key);
-                    if (trie->branches[j]->value != NULL) Tcl_DecrRefCount(trie->branches[j]->value);
+                    /* if (trie->branches[j]->value != NULL) Tcl_DecrRefCount(trie->branches[j]->value); */
                     ckfree(trie->branches[j]);
                     trie->branches[j] = NULL;
                     if (j == 0 && trie->branches[1] == NULL) {
