@@ -616,19 +616,57 @@ namespace eval Evaluator {
                 tryRunInSerializedEnvironment(interp, body, bindings);
             }
         }
+        void reactToStatementAdditionThatMatchesCollect(Tcl_Interp* interp,
+                                                        statement_handle_t collectId,
+                                                        Tcl_Obj* collectPattern,
+                                                        statement_handle_t statementId) {
+            Tcl_EvalObjEx(interp, Tcl_ObjPrintf("lappend Evaluator::log [list Recollect {idx %d gen %d}]", collectId.idx, collectId.gen), 0);
+        }
     }
     $cc proc EvaluatorInit {} void {
         reactionsToStatementAddition = trieCreate();
     }
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
         Tcl_Obj* clause = get(id)->clause;
-        int clauselen; Tcl_ListObjLength(interp, clause, &clauselen);
+        int clauseLength; Tcl_Obj** clauseWords;
+        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
 
-        Tcl_Obj* head; Tcl_ListObjIndex(interp, clause, 0, &head);
-        if (strcmp(Tcl_GetString(head), "when") == 0) {
+        if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0 &&
+            strcmp(Tcl_GetString(clauseWords[1]), "the") == 0 &&
+            strcmp(Tcl_GetString(clauseWords[2]), "collected") == 0 &&
+            strcmp(Tcl_GetString(clauseWords[3]), "matches") == 0 &&
+            strcmp(Tcl_GetString(clauseWords[4]), "for") == 0) {
+
+            // when the collected matches for [list the time is /t/ & Omar is cool] are /matches/ { ... } with environment /__env/
+            //   -> {the time is /t/} {Omar is cool}
+            Tcl_Obj* pattern = clauseWords[5];
+            int patternLength; Tcl_Obj** patternWords;
+            Tcl_ListObjGetElements(interp, pattern, &patternLength, &patternWords);
+            int subpatternLength = 0;
+            for (int i = 0; i <= patternLength; i++) {
+                if (i == patternLength ||
+                    strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
+                    
+                    Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
+                    addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
+                    Tcl_Obj* claimizedSubpattern = Tcl_DuplicateObj(subpattern);
+                    Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
+                    Tcl_ListObjReplace(interp, claimizedSubpattern, 0, 0, 2, someoneClaims);
+                    addReaction(claimizedSubpattern, id, reactToStatementAdditionThatMatchesCollect);
+
+                    subpatternLength = 0;
+
+                } else {
+                    subpatternLength++;
+                }
+            }
+
+            Tcl_EvalObjEx(interp, Tcl_ObjPrintf("lappend Evaluator::log [list Recollect {idx %d gen %d}]", id.idx, id.gen), 0);
+
+        } else if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0) {
             // when the time is /t/ { ... } with environment /env/ -> the time is /t/
             Tcl_Obj* pattern = Tcl_DuplicateObj(clause);
-            Tcl_ListObjReplace(interp, pattern, clauselen-4, 4, 0, NULL);
+            Tcl_ListObjReplace(interp, pattern, clauseLength-4, 4, 0, NULL);
             Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
             addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
 
@@ -658,7 +696,7 @@ namespace eval Evaluator {
         // Trigger any reactions to the addition of this statement.
         Tcl_Obj* clauseWithReactingIdWildcard = Tcl_DuplicateObj(clause); {
             Tcl_Obj* reactingIdWildcard = Tcl_ObjPrintf("/reactingId/");
-            Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauselen, 0,
+            Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
                                1, &reactingIdWildcard);
         }
         void* reactions[50];
