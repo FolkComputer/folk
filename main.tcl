@@ -522,7 +522,7 @@ namespace eval Evaluator {
                 set pattern [lindex $entry 1]
                 set matches [Statements::findMatches $pattern]
                 foreach match $matches {
-                    set id [dict get $match __matcheeId]
+                    set id [lindex [dict get $match __matcheeIds] 0]
                     reactToStatementRemoval $id
                     Statements::remove $id
                 }

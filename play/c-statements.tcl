@@ -432,7 +432,7 @@ namespace eval Statements { ;# singleton Statement store
             statement_handle_t id = *(statement_handle_t *)&ids[i];
             Tcl_Obj* match = unifyImpl(interp, pattern, get(id)->clause);
             if (match != NULL) {
-                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeId"), Tcl_ObjPrintf("idx %d gen %d", id.idx, id.gen));
+                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
                 matches[matchcount++] = match;
             }
         }
