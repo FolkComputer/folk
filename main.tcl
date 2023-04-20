@@ -367,18 +367,19 @@ namespace eval Evaluator {
         # collecting has been added or removed.
 
         set collect [Statements::get $collectId]
-        set children [statement children $collect]
-        if {[dict size $children] > 1} {
-            error "Collect $collectId has more than 1 match: {$children}"
-        } elseif {[dict size $children] == 1} {
+        set childMatchIds [statement childMatchIds $collect]
+        if {[dict size $childMatchIds] > 1} {
+            error "Collect $collectId has more than 1 match: {$childMatchIds}"
+        } elseif {[dict size $childMatchIds] == 1} {
             # Delete the existing match child.
-            set childMatchId [lindex [dict keys $children] 0]
+            set childMatchId [lindex [dict keys $childMatchIds] 0]
             # Delete the first destructor (which does a recollect) before doing the removal.
-            dict set Matches::matches $childMatchId destructors [lreplace [dict get $Matches::matches $childMatchId destructors] 0 0]
+            Statements::matchRemoveFirstDestructor $childMatchId
+
             reactToMatchRemoval $childMatchId
             dict unset Matches::matches $childMatchId
 
-            dict set Statements::statements $collectId children [dict create]
+            Statements::removeChildMatch $collectId $childMatchId
         }
 
         set clause [statement clause $collect]
@@ -393,11 +394,10 @@ namespace eval Evaluator {
             lappend parentStatementIds {*}[dict get $matchBindings __matcheeIds]
         }
 
-        set ::matchId [Matches::add $parentStatementIds]
-        dict with Matches::matches $::matchId {
-            set destructor [list {lappend Evaluator::log [list Recollect $collectId]} [list collectId $collectId]]
-            lappend destructors $destructor
-        }
+        set ::matchId [Statements::addMatch $parentStatementIds]
+        Statements::matchAddDestructor $::matchId \
+            {lappend Evaluator::log [list Recollect $collectId]} \
+            [list collectId $collectId]
 
         dict set env $matchesVar $matches
         tryRunInSerializedEnvironment $body $env
@@ -631,9 +631,7 @@ proc On {event args} {
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
-        dict with Matches::matches $::matchId {
-            lappend destructors [list $body [Evaluator::serializeEnvironment]]
-        }
+        Statements::matchAddDestructor $::matchId $body [Evaluator::serializeEnvironment]
 
     } else {
         error "Unknown On $event $args"

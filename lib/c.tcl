@@ -251,12 +251,12 @@ namespace eval c {
                 variable argtypes
                 set argscripts [list {$argtype $argname;}]
                 foreach {fieldtype fieldname} $fields {
-                    lappend argscripts [csubst {
+                    lappend argscripts [csubst {\{
                         Tcl_Obj* obj_$fieldname;
                         Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
                     }]
                     lappend argscripts [arg $fieldtype \${argname}_$fieldname obj_$fieldname]
-                    lappend argscripts [subst {\$argname.$fieldname = \${argname}_$fieldname;}]
+                    lappend argscripts [subst {\$argname.$fieldname = \${argname}_$fieldname;\}}]
                 }
                 argtype $type [join $argscripts "\n"]
 

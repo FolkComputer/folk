@@ -20,9 +20,15 @@ namespace eval statement {
         edge_type_t type;
         statement_handle_t statement;
     }
+    $cc struct match_destructor_t {
+        Tcl_Obj* body;
+        Tcl_Obj* env;
+    }
     $cc struct match_t {
         size_t n_edges;
         edge_to_statement_t edges[32];
+
+        match_destructor_t destructors[8];
     }
 
     $cc struct edge_to_match_t {
@@ -159,8 +165,7 @@ namespace eval statement {
             int parentEdges = 0;
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 edge_to_match_t* edge = statementEdgeAt(stmt, i);
-                if (edge->type == type &&
-                    matchHandleIsEqual(edge->match, matchId)) {
+                if (edge->type == type && matchHandleIsEqual(edge->match, matchId)) {
                     edge->type = EMPTY;
                     edge->match = (match_handle_t) {0};
                 }
@@ -257,9 +262,23 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc matchDeref {match_t* match} match_t { return *match; }
     $cc proc matchRemove {match_handle_t matchId} void {
         matchGet(matchId)->n_edges = 0;
+        // TODO: free destructors
     }
     $cc proc matchExists {match_handle_t matchId} bool {
         return matchGet(matchId)->n_edges > 0;
+    }
+    $cc proc matchAddDestructor {match_handle_t matchId Tcl_Obj* body Tcl_Obj* env} void {
+        match_t* match = matchGet(matchId);
+        for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+            if (match->destructors[i].body == NULL) {
+                match->destructors[i].body = body;
+                match->destructors[i].env = env;
+                Tcl_IncrRefCount(body);
+                Tcl_IncrRefCount(env);
+                return;
+            }
+        }
+        exit(1);
     }
 
     $cc proc new {} statement_handle_t {
@@ -494,6 +513,17 @@ namespace eval Statements { ;# singleton Statement store
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
+
+    # these are kind of arbitrary/temporary bridge
+    $cc proc matchRemoveFirstDestructor {match_handle_t matchId} void {
+        Tcl_DecrRefCount(matchGet(matchId)->destructors[0].body);
+        Tcl_DecrRefCount(matchGet(matchId)->destructors[0].env);
+        matchGet(matchId)->destructors[0].body = NULL;
+        matchGet(matchId)->destructors[0].env = NULL;
+    }
+    $cc proc removeChildMatch {statement_handle_t statementId match_handle_t matchId} void {
+        statementRemoveEdgeToMatch(get(statementId), CHILD, matchId);
+    }
 }
 
 namespace eval Evaluator {
@@ -623,9 +653,69 @@ namespace eval Evaluator {
             Tcl_EvalObjEx(interp, Tcl_ObjPrintf("lappend Evaluator::log [list Recollect {idx %d gen %d}]", collectId.idx, collectId.gen), 0);
         }
     }
+    
     $cc proc EvaluatorInit {} void {
         reactionsToStatementAddition = trieCreate();
     }
+    
+    # WIP: do recollect in Tcl for now
+    if 0 {
+    $cc proc recollect {Tcl_Obj* interp statement_handle_t collectId} void {
+        // Called when a statement of a pattern that someone is
+        // collecting has been added or removed.
+
+        // First, delete the existing match child.
+        {
+            statement_t* collect = get(collectId);
+            match_id_t childMatchId = {0}; // There should be exactly 0 or 1.
+            for (size_t i = 0; i < collect->n_edges; i++) {
+                if (collect->edges[i].type == CHILD) {
+                    childMatchId = collect->edges[i].match;
+                    break;
+                }
+            }
+            if (childMatchId.idx != 0) {
+                // Delete the first destructor (which would do a
+                // recollect) before doing the removal, so the
+                // destructor doesn't trigger an infinite cascade of
+                // recollects.
+                match_t* childMatch = matchGet(childMatchId);
+                childMatch->destructors[0] = NULL;
+
+                reactToMatchRemoval(interp, childMatchId);
+                matchRemove(childMatchId);
+                statementRemoveEdgeToMatch(collect, CHILD, childMatchId);
+            }
+        }
+
+        Tcl_Obj* clause = collect->clause;
+        int clauseLength; Tcl_Obj** clauseWords;
+        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
+        
+        char matchesVarName[100];
+        scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
+        Tcl_Obj* env = clauseWords[clauseLength-1];
+        
+        Tcl_Obj* matches; {
+            Tcl_Obj* pattern = clauseWords[5];
+            Tcl_Obj* cmd[] = {"Statements::findMatchesJoining", pattern};
+            Tcl_EvalObjv(interp, sizeof(cmd)/sizeof(cmd[0]), cmd);
+            matches = Tcl_GetObjResult(interp);
+        }
+
+        int matchesLength; Tcl_Obj** matchesBindings;
+        Tcl_ListObjGetElements(interp, matches, &matchesLength, &matchesBindings);
+        statement_handle_t parents[matchesLength];
+        size_t n_parents = 0;
+        for (int i = 0; i < matchesBindingsLength; i++) {
+            Tcl_Obj* matchBindings = matchesBindings[i];
+//            parents[n_parents++] =
+        }
+
+        addMatchImpl(n_parents, parents);
+    }
+    }
+
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
         Tcl_Obj* clause = get(id)->clause;
         int clauseLength; Tcl_Obj** clauseWords;
@@ -707,8 +797,8 @@ namespace eval Evaluator {
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
     }
-    $cc code { static void reactToStatementRemoval(statement_handle_t id); }
-    $cc proc reactToMatchRemoval {match_handle_t matchId} void {
+    $cc code { static void reactToStatementRemoval(Tcl_Interp* interp, statement_handle_t id); }
+    $cc proc reactToMatchRemoval {Tcl_Interp* interp match_handle_t matchId} void {
         match_t* match = matchGet(matchId);
 
         for (int j = 0; j < match->n_edges; j++) {
@@ -726,14 +816,20 @@ namespace eval Evaluator {
 
                 if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
                     // is this child statement out of parent matches? => it's dead
-                    reactToStatementRemoval(childId);
+                    reactToStatementRemoval(interp, childId);
                     remove_(childId);
                     matchRemoveEdgeToStatement(match, CHILD, childId);
                 }
             }
         }
+
+        for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+            if (match->destructors[i].body != NULL) {
+                tryRunInSerializedEnvironment(interp, match->destructors[i].body, match->destructors[i].env);
+            }
+        }
     }
-    $cc proc reactToStatementRemoval {statement_handle_t id} void {
+    $cc proc reactToStatementRemoval {Tcl_Interp* interp statement_handle_t id} void {
         // unset all things downstream of statement
         statement_t* stmt = get(id);
         for (int i = 0; i < stmt->n_edges; i++) {
@@ -744,11 +840,11 @@ namespace eval Evaluator {
 
             if (!matchExists(matchId)) continue; // if was removed earlier
 
-            reactToMatchRemoval(matchId);
+            reactToMatchRemoval(interp, matchId);
             matchRemove(matchId);
         }
     }
-    $cc proc UnmatchImpl {match_handle_t currentMatchId int level} void {
+    $cc proc UnmatchImpl {Tcl_Interp* interp match_handle_t currentMatchId int level} void {
         match_handle_t unmatchId = currentMatchId;
         for (int i = 0; i < level; i++) {
             match_t* unmatch = matchGet(unmatchId);
@@ -769,7 +865,7 @@ namespace eval Evaluator {
                 }
             }
         }
-        reactToMatchRemoval(unmatchId);
+        reactToMatchRemoval(interp, unmatchId);
         matchRemove(unmatchId);
     }
     proc Unmatch {{level 0}} {
