@@ -20,9 +20,17 @@ namespace eval statement {
         edge_type_t type;
         statement_handle_t statement;
     }
-    $cc struct match_destructor_t {
-        Tcl_Obj* body;
-        Tcl_Obj* env;
+    $cc code {
+        typedef struct match_destructor_t {
+            Tcl_Obj* body;
+            Tcl_Obj* env;
+        } match_destructor_t;
+    }
+    $cc rtype match_destructor_t {
+        $robj = Tcl_ObjPrintf("DESTRUCTOR");
+    }
+    $cc argtype match_destructor_t {
+        match_destructor_t $argname;
     }
     $cc struct match_t {
         size_t n_edges;
@@ -497,6 +505,7 @@ namespace eval Statements { ;# singleton Statement store
 
             dict for {matchId _} [statement parentMatchIds $stmt] {
                 set matchId [dict get $matchId idx]
+                if {$matchId == -1} continue
                 set parents [lmap edge [dict get [matchDeref [matchGet [list idx $matchId]]] edges] {expr {
                     [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
                 }}]
