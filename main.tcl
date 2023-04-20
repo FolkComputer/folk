@@ -692,11 +692,11 @@ proc Step {} {
 
             variable shareStatements [list]
             if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
-                dict for {_ stmt} $Statements::statements {
+                dict for {_ stmt} [Statements::all] {
                     lappend shareStatements [statement clause $stmt]
                 }
             } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
-                dict for {_ stmt} $Statements::statements {
+                dict for {_ stmt} [Statements::all] {
                     if {[lindex [statement clause $stmt] 1] eq "claims"} {
                         lappend shareStatements [statement clause $stmt]
                     }
