@@ -556,14 +556,12 @@ proc Assert {args} {
     if {[lindex $args 0] eq "when" && [lindex $args end-1] ne "environment"} {
         set args [list {*}$args with environment {}]
     }
-    lappend Evaluator::log [list Assert $args]
+    Evaluator::LogWriteAssert $args
 }
-proc Retract {args} { lappend Evaluator::log [list Retract $args] }
+proc Retract {args} { Evaluator::LogWriteRetract $args }
 
 # invoke from within a When context, add dependent statements
-proc Say {args} {
-    set Evaluator::log [linsert $Evaluator::log 0 [list Say $::matchId $args]]
-}
+proc Say {args} { Evaluator::LogWriteSay $::matchId $args }
 proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args] }
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 

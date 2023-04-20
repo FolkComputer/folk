@@ -286,7 +286,7 @@ namespace eval Statements { ;# singleton Statement store
                 return;
             }
         }
-        exit(1);
+        exit(10);
     }
 
     $cc proc new {} statement_handle_t {
@@ -904,9 +904,9 @@ namespace eval Evaluator {
     $cc code {
         typedef enum {
             NONE, ASSERT, RETRACT, SAY, RECOLLECT
-        } log_entry_type_t;
+        } log_entry_op_t;
         typedef struct log_entry_t {
-            log_entry_type_t type;
+            log_entry_op_t op;
             union {
                 struct { Tcl_Obj* clause; } assert;
                 struct { Tcl_Obj* pattern; } retract;
@@ -924,9 +924,10 @@ namespace eval Evaluator {
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
         while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
-            log_entry_t entry = evaluatorLog[evaluatorLogReadIndex++];
+            log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
+            evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % (sizeof(evaluatorLog)/sizeof(evaluatorLog[0]));
             
-            if (entry.type == ASSERT) {
+            if (entry.op == ASSERT) {
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
@@ -934,7 +935,7 @@ namespace eval Evaluator {
                     reactToStatementAddition(interp, id);
                 }
 
-            } else if (entry.type == RETRACT) {
+            } else if (entry.op == RETRACT) {
                 statement_handle_t matches[50];
                 int matchCount = findStatementsMatching_(interp, 50, matches, entry.retract.pattern);
                 for (int i = 0; i < matchCount; i++) {
@@ -943,7 +944,7 @@ namespace eval Evaluator {
                     remove_(id);
                 }
 
-            } else if (entry.type == SAY) {
+            } else if (entry.op == SAY) {
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -953,10 +954,33 @@ namespace eval Evaluator {
                     }
                 }
 
-            } else if (entry.type == RECOLLECT) {
+            } else if (entry.op == RECOLLECT) {
                 
             }
         }
+    }
+    $cc code {
+        void LogWrite(log_entry_t entry) {
+            evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % (sizeof(evaluatorLog)/sizeof(evaluatorLog[0]));
+            if (evaluatorLogWriteIndex == evaluatorLogReadIndex) { exit(100); }
+
+            evaluatorLog[evaluatorLogWriteIndex] = entry;
+        }
+    }
+    $cc proc LogWriteAssert {Tcl_Obj* clause} void {
+        Tcl_IncrRefCount(clause);
+        LogWrite((log_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
+    }
+    $cc proc LogWriteRetract {Tcl_Obj* pattern} void {
+        Tcl_IncrRefCount(pattern);
+        LogWrite((log_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
+    }
+    $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
+        Tcl_IncrRefCount(clause);
+        LogWrite((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
+    }
+    $cc proc LogWriteRecollect {statement_handle_t collectId} void {
+        LogWrite((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
 
     rename Evaluator::reactToStatementAddition ""
