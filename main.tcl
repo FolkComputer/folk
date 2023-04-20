@@ -704,12 +704,10 @@ proc Step {} {
             }
             foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
                 set pattern [dict get $m pattern]
-                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                foreach match [Statements::findMatches $pattern] {
+                    set id [lindex [dict get $match __matcheeIds] 0]
                     set clause [statement clause [Statements::get $id]]
-                    set match [statement unify $pattern $clause]
-                    if {$match != false} {
-                        lappend shareStatements $clause
-                    }
+                    lappend shareStatements $clause
                 }
             }
 
