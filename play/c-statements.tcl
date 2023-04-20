@@ -352,7 +352,9 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc proc addImpl {Tcl_Interp* interp
                       Tcl_Obj* clause
-                      size_t n_parents match_handle_t parents[]} Tcl_Obj* {
+                      size_t n_parents match_handle_t parents[]
+                      statement_handle_t* outStatement
+                      bool* outIsNewStatement} void {
         // Is this clause already present among the existing statements?
         void *ids[10];
         int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
@@ -389,8 +391,8 @@ namespace eval Statements { ;# singleton Statement store
             matchAddEdgeToStatement(match, CHILD, id);
         }
 
-        // return {id, isNewStatement};
-        return Tcl_ObjPrintf("{idx %d gen %d} %d", id.idx, id.gen, isNewStatement);
+        *outStatement = id;
+        *outIsNewStatement = isNewStatement;
     }
     proc add {clause {parents {{idx -1} true}}} {
         addImpl $clause [dict size $parents] [dict keys $parents]
@@ -438,6 +440,23 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         return Tcl_NewListObj(matchcount, matches);
+    }
+    $cc proc findStatementsMatching_ {Tcl_Interp* interp
+                                      int outCount statement_handle_t* outMatches
+                                      Tcl_Obj* pattern} int {
+        void* ids[outCount];
+        int idslen = trieLookup(interp, ids, outCount, statementClauseToId, pattern);
+
+        int matchCount = 0;
+        for (int i = 0; i < idslen; i++) {
+            statement_handle_t id = *(statement_handle_t *)&ids[i];
+            Tcl_Obj* match = unifyImpl(interp, pattern, get(id)->clause);
+            if (match != NULL) {
+                outMatches[matchCount++] = id;
+            }
+        }
+
+        return matchCount;
     }
     proc findMatchesJoining {patterns {bindings {}}} {
         if {[llength $patterns] == 0} {
@@ -880,6 +899,64 @@ namespace eval Evaluator {
     proc Unmatch {{level 0}} {
         # Forces an unmatch of the current match or its `level`-th ancestor match.
         UnmatchImpl $::matchId $level
+    }
+
+    $cc code {
+        typedef enum {
+            NONE, ASSERT, RETRACT, SAY, RECOLLECT
+        } log_entry_type_t;
+        typedef struct log_entry_t {
+            log_entry_type_t type;
+            union {
+                struct { Tcl_Obj* clause; } assert;
+                struct { Tcl_Obj* pattern; } retract;
+                struct {
+                    match_handle_t parentMatchId;
+                    Tcl_Obj* clause;
+                } say;
+                struct { statement_handle_t collectId; } recollect;
+            };
+        } log_entry_t;
+
+        log_entry_t evaluatorLog[1024] = {0};
+        int evaluatorLogReadIndex = 0;
+        int evaluatorLogWriteIndex = 0;
+    }
+    $cc proc Evaluate {Tcl_Interp* interp} void {
+        while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
+            log_entry_t entry = evaluatorLog[evaluatorLogReadIndex++];
+            
+            if (entry.type == ASSERT) {
+                statement_handle_t id; bool isNewStatement;
+                addImpl(interp, entry.assert.clause, 0, NULL,
+                        &id, &isNewStatement);
+                if (isNewStatement) {
+                    reactToStatementAddition(interp, id);
+                }
+
+            } else if (entry.type == RETRACT) {
+                statement_handle_t matches[50];
+                int matchCount = findStatementsMatching_(interp, 50, matches, entry.retract.pattern);
+                for (int i = 0; i < matchCount; i++) {
+                    statement_handle_t id = matches[i];
+                    reactToStatementRemoval(interp, id);
+                    remove_(id);
+                }
+
+            } else if (entry.type == SAY) {
+                if (matchExists(entry.say.parentMatchId)) {
+                    statement_handle_t id; bool isNewStatement;
+                    addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
+                            &id, &isNewStatement);
+                    if (isNewStatement) {
+                        reactToStatementAddition(interp, id);
+                    }
+                }
+
+            } else if (entry.type == RECOLLECT) {
+                
+            }
+        }
     }
 
     rename Evaluator::reactToStatementAddition ""
