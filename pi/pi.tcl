@@ -79,7 +79,8 @@ namespace eval Camera {
             }
             set cameraTime [time {
                 set grayFrame [Camera::grayFrame]
-                set tags [AprilTags::detect $grayFrame]
+                # set tags [AprilTags::detect $grayFrame]
+                set tags [LaserBlobTracker::detect $grayFrame]
                 lappend grayFrames $grayFrame
             }]
             set statements [list]
