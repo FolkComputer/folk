@@ -259,9 +259,9 @@ namespace eval Statements { ;# singleton Statement store
         uint16_t nextMatchIdx = 1;
     }]
     $cc proc matchNew {} match_handle_t {
-        while (matches[nextMatchIdx].n_edges != 0) {
+        do {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
-        }
+        } while (matches[nextMatchIdx].n_edges != 0);
         return (match_handle_t) { .idx = nextMatchIdx };
     }
     $cc proc matchGet {match_handle_t matchId} match_t* {
@@ -958,7 +958,9 @@ namespace eval Evaluator {
                 }
 
             } else if (entry.op == RECOLLECT) {
-                Tcl_EvalObjEx(interp, Tcl_ObjPrintf("Evaluator::recollect {idx %d gen %d}", entry.recollect.collectId.idx, entry.recollect.collectId.gen), 0);
+                if (exists(entry.recollect.collectId)) {
+                    Tcl_EvalObjEx(interp, Tcl_ObjPrintf("Evaluator::recollect {idx %d gen %d}", entry.recollect.collectId.idx, entry.recollect.collectId.gen), 0);
+                }
             }
         }
     }

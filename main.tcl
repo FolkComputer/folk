@@ -377,9 +377,7 @@ namespace eval Evaluator {
             Statements::matchRemoveFirstDestructor $childMatchId
 
             reactToMatchRemoval $childMatchId
-            dict unset Matches::matches $childMatchId
-
-            Statements::removeChildMatch $collectId $childMatchId
+            Statements::matchRemove $childMatchId
         }
 
         set clause [statement clause $collect]
