@@ -674,11 +674,12 @@ namespace eval Evaluator {
                 tryRunInSerializedEnvironment(interp, body, bindings);
             }
         }
+        static void LogWriteRecollect(statement_handle_t collectId);
         void reactToStatementAdditionThatMatchesCollect(Tcl_Interp* interp,
                                                         statement_handle_t collectId,
                                                         Tcl_Obj* collectPattern,
                                                         statement_handle_t statementId) {
-            Tcl_EvalObjEx(interp, Tcl_ObjPrintf("lappend Evaluator::log [list Recollect {idx %d gen %d}]", collectId.idx, collectId.gen), 0);
+            LogWriteRecollect(collectId);
         }
     }
     
@@ -779,7 +780,7 @@ namespace eval Evaluator {
                 }
             }
 
-            Tcl_EvalObjEx(interp, Tcl_ObjPrintf("lappend Evaluator::log [list Recollect {idx %d gen %d}]", id.idx, id.gen), 0);
+            LogWriteRecollect(id);
 
         } else if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0) {
             // when the time is /t/ { ... } with environment /env/ -> the time is /t/
@@ -818,9 +819,10 @@ namespace eval Evaluator {
                                1, &reactingIdWildcard);
         }
         void* reactions[50];
-        int reactioncount = trieLookup(interp, reactions, 50,
+        int reactionCount = trieLookup(interp, reactions, 50,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
-        for (int i = 0; i < reactioncount; i++) {
+        // printf("React to %s: %d\n", Tcl_GetString(clauseWithReactingIdWildcard), reactionCount);
+        for (int i = 0; i < reactionCount; i++) {
             reaction_t* reaction = reactions[i];
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
@@ -919,14 +921,15 @@ namespace eval Evaluator {
         } log_entry_t;
 
         log_entry_t evaluatorLog[1024] = {0};
-        int evaluatorLogReadIndex = 0;
+        #define EVALUATOR_LOG_CAPACITY (sizeof(evaluatorLog)/sizeof(evaluatorLog[1]))
+        int evaluatorLogReadIndex = EVALUATOR_LOG_CAPACITY - 1;
         int evaluatorLogWriteIndex = 0;
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
         while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
             log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
-            evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % (sizeof(evaluatorLog)/sizeof(evaluatorLog[0]));
-            
+            evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
+
             if (entry.op == ASSERT) {
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
@@ -955,16 +958,15 @@ namespace eval Evaluator {
                 }
 
             } else if (entry.op == RECOLLECT) {
-                
+                Tcl_EvalObjEx(interp, Tcl_ObjPrintf("Evaluator::recollect {idx %d gen %d}", entry.recollect.collectId.idx, entry.recollect.collectId.gen), 0);
             }
         }
     }
     $cc code {
         void LogWrite(log_entry_t entry) {
-            evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % (sizeof(evaluatorLog)/sizeof(evaluatorLog[0]));
-            if (evaluatorLogWriteIndex == evaluatorLogReadIndex) { exit(100); }
-
+            if ((evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogReadIndex) { exit(100); }
             evaluatorLog[evaluatorLogWriteIndex] = entry;
+            evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY;
         }
     }
     $cc proc LogWriteAssert {Tcl_Obj* clause} void {

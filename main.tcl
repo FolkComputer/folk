@@ -396,7 +396,7 @@ namespace eval Evaluator {
 
         set ::matchId [Statements::addMatch $parentStatementIds]
         Statements::matchAddDestructor $::matchId \
-            {lappend Evaluator::log [list Recollect $collectId]} \
+            {Evaluator::LogWriteRecollect $collectId} \
             [list collectId $collectId]
 
         dict set env $matchesVar $matches
