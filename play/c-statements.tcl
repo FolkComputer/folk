@@ -12,7 +12,7 @@ namespace eval statement {
     $cc include <assert.h>
 
     $cc struct statement_handle_t { int32_t idx; int32_t gen; }
-    $cc struct match_handle_t { int idx; }
+    $cc struct match_handle_t { int32_t idx; int32_t gen; }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
 
@@ -33,6 +33,8 @@ namespace eval statement {
         match_destructor_t $argname;
     }
     $cc struct match_t {
+        int32_t gen;
+
         size_t n_edges;
         edge_to_statement_t edges[32];
 
@@ -259,21 +261,35 @@ namespace eval Statements { ;# singleton Statement store
         uint16_t nextMatchIdx = 1;
     }]
     $cc proc matchNew {} match_handle_t {
-        do {
+        while (matches[nextMatchIdx].n_edges != 0) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
-        } while (matches[nextMatchIdx].n_edges != 0);
-        return (match_handle_t) { .idx = nextMatchIdx };
+        }
+        return (match_handle_t) {
+            .idx = nextMatchIdx,
+            .gen = ++matches[nextMatchIdx].gen
+        };
     }
     $cc proc matchGet {match_handle_t matchId} match_t* {
+        if (matchId.gen != matches[matchId.idx].gen || matches[matchId.idx].n_edges == 0) {
+            return NULL;
+        }
         return &matches[matchId.idx];
     }
     $cc proc matchDeref {match_t* match} match_t { return *match; }
     $cc proc matchRemove {match_handle_t matchId} void {
-        matchGet(matchId)->n_edges = 0;
-        // TODO: free destructors
+        match_t* match = matchGet(matchId);
+        for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+            if (match->destructors[i].body != NULL) {
+                Tcl_DecrRefCount(match->destructors[i].body);
+                Tcl_DecrRefCount(match->destructors[i].env);
+                match->destructors[i].body = NULL;
+                match->destructors[i].env = NULL;
+            }
+        }
+        match->n_edges = 0;
     }
     $cc proc matchExists {match_handle_t matchId} bool {
-        return matchGet(matchId)->n_edges > 0;
+        return matchGet(matchId) != NULL;
     }
     $cc proc matchAddDestructor {match_handle_t matchId Tcl_Obj* body Tcl_Obj* env} void {
         match_t* match = matchGet(matchId);
@@ -337,7 +353,8 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         // Essentially, allocate a new match object.
         match_handle_t matchId = matchNew();
-        match_t* match = matchGet(matchId);
+        // Unguarded access to match pointer because it's still n_edges == 0 at this point.
+        match_t* match = &matches[matchId.idx];
 
         for (int i = 0; i < n_parents; i++) {
             matchAddEdgeToStatement(match, PARENT, parents[i]);
@@ -373,6 +390,7 @@ namespace eval Statements { ;# singleton Statement store
         if (isNewStatement) {
             id = new();
 
+            // Unguarded access to statement because it's still uncreated at this point.
             statements[id.idx] = statementCreate(clause, n_parents, parents, 0, NULL);
             statements[id.idx].gen = id.gen;
             trieAdd(interp, &statementClauseToId, clause, *(void **)&id);
@@ -429,17 +447,17 @@ namespace eval Statements { ;# singleton Statement store
         void *ids[50];
         int idslen = trieLookup(interp, ids, 50, statementClauseToId, pattern);
 
-        Tcl_Obj* matches[idslen]; int matchcount = 0;
+        Tcl_Obj* results[idslen]; int resultCount = 0;
         for (int i = 0; i < idslen; i++) {
             statement_handle_t id = *(statement_handle_t *)&ids[i];
-            Tcl_Obj* match = unifyImpl(interp, pattern, get(id)->clause);
-            if (match != NULL) {
-                Tcl_DictObjPut(interp, match, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
-                matches[matchcount++] = match;
+            Tcl_Obj* result = unifyImpl(interp, pattern, get(id)->clause);
+            if (result != NULL) {
+                Tcl_DictObjPut(interp, result, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
+                results[resultCount++] = result;
             }
         }
 
-        return Tcl_NewListObj(matchcount, matches);
+        return Tcl_NewListObj(resultCount, results);
     }
     $cc proc findStatementsMatching_ {Tcl_Interp* interp
                                       int outCount statement_handle_t* outMatches
@@ -522,10 +540,10 @@ namespace eval Statements { ;# singleton Statement store
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
             lappend dot "s$id \[label=\"s$id: $label\"\];"
 
-            dict for {matchId _} [statement parentMatchIds $stmt] {
-                set matchId [dict get $matchId idx]
+            dict for {matchId_ _} [statement parentMatchIds $stmt] {
+                set matchId [dict get $matchId_ idx]
                 if {$matchId == -1} continue
-                set parents [lmap edge [dict get [matchDeref [matchGet [list idx $matchId]]] edges] {expr {
+                set parents [lmap edge [dict get [matchDeref [matchGet $matchId_]] edges] {expr {
                     [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
                 }}]
                 lappend dot "m$matchId \[label=\"m$matchId <- $parents\"\];"
@@ -670,7 +688,7 @@ namespace eval Evaluator {
                 }
                 Tcl_DictObjDone(&search);
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d", matchId.idx), 0);
+                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, body, bindings);
             }
         }
