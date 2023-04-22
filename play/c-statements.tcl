@@ -877,14 +877,19 @@ namespace eval Evaluator {
         statement_t* stmt = get(id);
         for (int i = 0; i < stmt->n_edges; i++) {
             edge_to_match_t* edge = statementEdgeAt(stmt, i);
+            if (edge->type == PARENT) {
+                match_handle_t matchId = edge->match;
+                if (!matchExists(matchId)) continue;
 
-            if (edge->type != CHILD) continue;
-            match_handle_t matchId = edge->match;
+                matchRemoveEdgeToStatement(matchGet(matchId), CHILD, id);
 
-            if (!matchExists(matchId)) continue; // if was removed earlier
+            } else if (edge->type == CHILD) {
+                match_handle_t matchId = edge->match;
+                if (!matchExists(matchId)) continue; // if was removed earlier
 
-            reactToMatchRemoval(interp, matchId);
-            matchRemove(matchId);
+                reactToMatchRemoval(interp, matchId);
+                matchRemove(matchId);
+            }
         }
     }
     $cc proc UnmatchImpl {Tcl_Interp* interp match_handle_t currentMatchId int level} void {
@@ -978,7 +983,12 @@ namespace eval Evaluator {
         }
     }
     $cc code {
-        void LogWrite(log_entry_t entry) {
+        void LogWriteFront(log_entry_t entry) {
+            if ((evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogWriteIndex) { exit(100); }
+            evaluatorLogReadIndex = (evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY;
+            evaluatorLog[evaluatorLogReadIndex] = entry;
+        }
+        void LogWriteBack(log_entry_t entry) {
             if ((evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogReadIndex) { exit(100); }
             evaluatorLog[evaluatorLogWriteIndex] = entry;
             evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY;
@@ -986,18 +996,18 @@ namespace eval Evaluator {
     }
     $cc proc LogWriteAssert {Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWrite((log_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
+        LogWriteBack((log_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
     }
     $cc proc LogWriteRetract {Tcl_Obj* pattern} void {
         Tcl_IncrRefCount(pattern);
-        LogWrite((log_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
+        LogWriteBack((log_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
     }
     $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWrite((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
+        LogWriteFront((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
     }
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
-        LogWrite((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
+        LogWriteBack((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
 
     $cc compile
