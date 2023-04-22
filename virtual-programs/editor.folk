@@ -56,7 +56,7 @@ When $this has neighbor /n/ & $this has region /r/ {
     set myVertices [lindex $r 0]
     lassign $myVertices mA mB mC mD
     set isAbove [expr {[y $a] < [y $mA]}]
-    set notVirtual [expr {![string match "virtual-programs*" $n]}]
+    set notVirtual [expr {![string match "virtual-programs*" $n] & ![string match "web-program*" $n]}]
     if {$isAbove && $notVirtual} {
       Wish $this is labelled "$n: [expr {[y $mA] - [y $a]}]"
     }
