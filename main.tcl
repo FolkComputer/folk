@@ -15,14 +15,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
 source "lib/c.tcl"
 source "lib/trie.tcl"
-namespace eval trie {
-    namespace import ::ctrie::*
-    namespace export *
-    rename add add_; rename addWithVar add
-    rename remove remove_; rename removeWithVar remove
-    rename lookup lookup_; rename lookupTclObjs lookup
-    namespace ensemble create
-}
 
 proc lsplit {lst delimiter} {
     set lsts [list]
@@ -100,6 +92,7 @@ namespace eval Evaluator {
         tryRunInSerializedEnvironment $body $env
     }
 }
+set ::logsize -1 ;# Hack to keep metrics working
 source "play/c-statements.tcl"
 # invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {

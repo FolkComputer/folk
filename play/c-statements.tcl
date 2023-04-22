@@ -368,7 +368,7 @@ namespace eval Statements { ;# singleton Statement store
                       statement_handle_t* outStatement
                       bool* outIsNewStatement} void {
         // Is this clause already present among the existing statements?
-        void *ids[10];
+        uint64_t ids[10];
         int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
         statement_handle_t id;
         if (idslen == 1) {
@@ -388,7 +388,7 @@ namespace eval Statements { ;# singleton Statement store
             // Unguarded access to statement because it's still uncreated at this point.
             statements[id.idx] = statementCreate(clause, n_parents, parents, 0, NULL);
             statements[id.idx].gen = id.gen;
-            trieAdd(interp, &statementClauseToId, clause, *(void **)&id);
+            trieAdd(interp, &statementClauseToId, clause, *(uint64_t*)&id);
 
         } else {
             statement_t* stmt = get(id);
@@ -439,7 +439,7 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc findStatementsMatching {Tcl_Interp* interp Tcl_Obj* pattern} Tcl_Obj* {
-        void *ids[50];
+        uint64_t ids[50];
         int idslen = trieLookup(interp, ids, 50, statementClauseToId, pattern);
 
         Tcl_Obj* results[idslen]; int resultCount = 0;
@@ -457,7 +457,7 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc findStatementsMatching_ {Tcl_Interp* interp
                                       int outCount statement_handle_t* outMatches
                                       Tcl_Obj* pattern} int {
-        void* ids[outCount];
+        uint64_t ids[outCount];
         int idslen = trieLookup(interp, ids, outCount, statementClauseToId, pattern);
 
         int matchCount = 0;
@@ -607,7 +607,7 @@ namespace eval Evaluator {
             Tcl_Obj* reactingIdObj = Tcl_NewIntObj(reactingId.idx);
             int reactToPatternLength; Tcl_ListObjLength(NULL, reactToPattern, &reactToPatternLength);
             Tcl_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength, 0, 1, &reactingIdObj);
-            trieAdd(NULL, &reactionsToStatementAddition, reactToPatternAndReactingId, reaction);
+            trieAdd(NULL, &reactionsToStatementAddition, reactToPatternAndReactingId, (uintptr_t)reaction);
 
             if (reactionPatternsOfReactingId[reactingId.idx] == NULL) {
                 reactionPatternsOfReactingId[reactingId.idx] = Tcl_NewListObj(0, NULL);
@@ -810,7 +810,7 @@ namespace eval Evaluator {
 
             // Scan the existing statement set for any
             // already-existing matching statements.
-            void* alreadyMatchingStatementIds[50];
+            uint64_t alreadyMatchingStatementIds[50];
             int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
                                                               statementClauseToId, pattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
@@ -831,12 +831,12 @@ namespace eval Evaluator {
             Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
                                1, &reactingIdWildcard);
         }
-        void* reactions[50];
+        uint64_t reactions[50];
         int reactionCount = trieLookup(interp, reactions, 50,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
         // printf("React to %s: %d\n", Tcl_GetString(clauseWithReactingIdWildcard), reactionCount);
         for (int i = 0; i < reactionCount; i++) {
-            reaction_t* reaction = reactions[i];
+            reaction_t* reaction = (reaction_t*)(uintptr_t)reactions[i];
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
     }
