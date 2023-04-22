@@ -204,7 +204,7 @@ namespace eval ctrie {
         int objc = 2 + trie->nbranches;
         Tcl_Obj* objv[objc];
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
-        objv[1] = trie->value ? Tcl_ObjPrintf("%llu", trie->value) : Tcl_ObjPrintf("NULL");
+        objv[1] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
         for (int i = 0; i < trie->nbranches; i++) {
             objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
         }
