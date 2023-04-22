@@ -1,8 +1,3 @@
-# if c-statements.tcl is sourced, it will stomp the old Tcl statement
-# implementation
-namespace delete statement
-namespace delete Statements
-
 namespace eval statement {
     variable cc [c create]
     namespace export $cc
@@ -1005,9 +1000,6 @@ namespace eval Evaluator {
         LogWrite((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
 
-    rename Evaluator::reactToStatementAddition ""
-    rename Evaluator::reactToStatementRemoval ""
-
     $cc compile
 }
 
@@ -1020,7 +1012,6 @@ namespace eval Statements {
     proc get {id} { deref [getImpl $id] }
 }
 namespace eval Matches {
-    rename exists ""
     rename ::Statements::matchExists ::Matches::exists
 }
 Statements::StatementsInit
