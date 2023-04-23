@@ -874,6 +874,7 @@ namespace eval Evaluator {
     }
     $cc proc reactToStatementRemoval {Tcl_Interp* interp statement_handle_t id} void {
         // unset all things downstream of statement
+        removeAllReactions(id);
         statement_t* stmt = get(id);
         for (int i = 0; i < stmt->n_edges; i++) {
             edge_to_match_t* edge = statementEdgeAt(stmt, i);
