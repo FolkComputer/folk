@@ -17,7 +17,7 @@ repl:
 journal:
 	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
 flamegraph:
-	sudo perf record -F 997 -p $(shell pgrep tclsh8.6) -g -- sleep 30
+	sudo perf record -F 997 --tid=$(shell pgrep tclsh8.6) -g -- sleep 30
 	sudo perf script -f > out.perf
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
