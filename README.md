@@ -398,12 +398,12 @@ around until you do another `Commit`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Commit { Claim there is a ball at x 100 y 100 }
+Commit { Claim $this has a ball at x 100 y 100 }
 
-When there is a ball at x /x/ y /y/ {
+When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Commit { Claim there is a ball at x $x y [expr {$y+1}] }
+        Commit { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
@@ -411,6 +411,12 @@ When there is a ball at x /x/ y /y/ {
 
 `Commit` will overwrite all statements made by the previous `Commit`
 (scoped to the current `$this`).
+
+**Notice that you should scope your claim: it's `$this has a ball`, not `there
+is a ball`, so different programs with different values of `$this`
+will not stomp over each other.** Not scoping your claims will bite
+you once you print your program and have both virtual & printed
+instances of your program running.
 
 If you want multiple state atoms, you can also provide a key -- you
 can be like
@@ -437,16 +443,16 @@ handle 'events' without causing a reaction cascade.
 Example:
 
 ```
-Commit { Claim there have been 0 boops }
+Commit { Claim $this has seen 0 boops }
 
-Every time there is a boop & there have been /n/ boops {
-  Commit { Claim there have been [expr {$n + 1}] boops }
+Every time there is a boop & $this has seen /n/ boops {
+  Commit { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
 If you had used `When` here, it wouldn't terminate, since the new
-`there have been n+1 boops` commit would cause the `When` to retrigger,
-resulting in a `there have been n+2 boops` commit, then another
+`$this has seen n+1 boops` commit would cause the `When` to retrigger,
+resulting in a `$this has seen n+2 boops` commit, then another
 retrigger, and so on.
 
 `Every time`, in contrast, will 'only react once' to the boop; nothing
