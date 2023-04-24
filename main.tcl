@@ -31,17 +31,9 @@ proc lsplit {lst delimiter} {
 
 namespace eval Evaluator {
     source "lib/environment.tcl"
-    variable totalTimesMap [dict create]
-    variable runsMap [dict create]
     proc tryRunInSerializedEnvironment {body env} {
         try {
-            variable totalTimesMap
-            set timing [time {set ret [runInSerializedEnvironment $body $env]}]
-            set timing [string map {" microseconds per iteration" ""} $timing]
-            dict incr totalTimesMap $body $timing
-            variable runsMap
-            dict incr runsMap $body
-            set ret
+            runInSerializedEnvironment $body $env
         } on error err {
             if {[dict exists $env this]} {
                 Say [dict get $env this] has error $err with info $::errorInfo
