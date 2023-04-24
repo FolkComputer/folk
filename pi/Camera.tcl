@@ -400,7 +400,6 @@ namespace eval LaserBlobTracker {
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "hk.h"
 
 // Note from Haip: code copied from https://www.ocf.berkeley.edu/~fricke/projects/hoshenkopelman/hk.c
 // because I haven't figure out where I could import this file from
