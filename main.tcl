@@ -542,10 +542,6 @@ namespace eval Evaluator {
                 error "Unsupported log operation $op"
             }
         }
-
-        if {[namespace exists Display]} {
-            Display::commit ;# TODO: this is weird, not right level
-        }
     }
 }
 # invoke at top level, add/remove independent 'axioms' for the system
