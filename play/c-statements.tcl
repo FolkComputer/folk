@@ -533,7 +533,10 @@ namespace eval Statements { ;# singleton Statement store
         environment_t* results[50];
         int resultsCount = searchByPattern(pattern, 50, results);
         for (int i = 0; i < resultsCount; i++) {
-            Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
+            Tcl_Obj* matchObj = environmentToTclDict(results[i]);
+            statement_handle_t id = results[i]->matchedStatementIds[0];
+            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
+            Tcl_ListObjAppendElement(NULL, ret, matchObj);
             ckfree(results[i]);
         }
         return ret;
@@ -621,6 +624,7 @@ namespace eval Statements { ;# singleton Statement store
 
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
         for (int i = 0; i < resultsCount; i++) {
+            // TODO: Emit __matcheeIds properly based on results[i]
             Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
             ckfree(results[i]);
         }
