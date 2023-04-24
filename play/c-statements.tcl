@@ -244,6 +244,30 @@ namespace eval statement {
 
     variable negations [list nobody nothing]
     variable blanks [list someone something anyone anything]
+    $cc proc splitPattern {Tcl_Obj* pattern
+                           int maxSubpatternsCount Tcl_Obj** outSubpatterns} int {
+        int patternLength; Tcl_Obj** patternWords;
+        Tcl_ListObjGetElements(NULL, pattern, &patternLength, &patternWords);
+        int subpatternLength = 0;
+        int subpatternsCount = 0;
+        for (int i = 0; i <= patternLength; i++) {
+            if (i == patternLength || strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
+                Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
+                outSubpatterns[subpatternsCount++] = subpattern;
+                subpatternLength = 0;
+            } else {
+                subpatternLength++;
+            }
+        }
+        return subpatternsCount;
+    }
+    $cc proc claimizePattern {Tcl_Obj* pattern} Tcl_Obj* {
+        // the time is /t/ -> /someone/ claims the time is /t/
+        Tcl_Obj* ret = Tcl_DuplicateObj(pattern);
+        Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
+        Tcl_ListObjReplace(NULL, ret, 0, 0, 2, someoneClaims);
+        return ret;
+    }
 }
 
 namespace eval Statements { ;# singleton Statement store
@@ -260,6 +284,9 @@ namespace eval Statements { ;# singleton Statement store
         match_t matches[32768];
         uint16_t nextMatchIdx = 1;
     }]
+    $cc proc statementClauseToIdTrie {} trie_t* {
+        return statementClauseToId;
+    }
     $cc proc matchNew {} match_handle_t {
         while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
@@ -285,6 +312,9 @@ namespace eval Statements { ;# singleton Statement store
                 match->destructors[i].body = NULL;
                 match->destructors[i].env = NULL;
             }
+        }
+        if (match->recollectOnDestruction) {
+            LogWriteRecollect(match->recollectCollectId);
         }
         match->alive = false;
         match->n_edges = 0;
@@ -540,9 +570,11 @@ namespace eval Statements { ;# singleton Statement store
         }
 
         environment_t* resultsForFirstPattern[50];
-        int resultsForFirstPatternCount =
-            searchByPattern(substitutedFirstPattern,
-                            50, resultsForFirstPattern);
+        int resultsForFirstPatternCount = searchByPattern(substitutedFirstPattern,
+                                                          50, resultsForFirstPattern);
+        resultsForFirstPatternCount += searchByPattern(claimizePattern(substitutedFirstPattern),
+                                                       50 - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
+            
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
             if (env != NULL) {
@@ -790,23 +822,6 @@ namespace eval Evaluator {
         reactionsToStatementAddition = trieCreate();
     }
 
-    $cc proc splitPattern {Tcl_Obj* pattern
-                           int maxSubpatternsCount Tcl_Obj** outSubpatterns} int {
-        int patternLength; Tcl_Obj** patternWords;
-        Tcl_ListObjGetElements(NULL, pattern, &patternLength, &patternWords);
-        int subpatternLength = 0;
-        int subpatternsCount = 0;
-        for (int i = 0; i <= patternLength; i++) {
-            if (i == patternLength || strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
-                Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
-                outSubpatterns[subpatternsCount++] = subpattern;
-            } else {
-                subpatternLength++;
-            }
-        }
-        return subpatternsCount;
-    }
-
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
         Tcl_Obj* clause = get(id)->clause;
         int clauseLength; Tcl_Obj** clauseWords;
@@ -826,10 +841,7 @@ namespace eval Evaluator {
             for (int i = 0; i < subpatternsCount; i++) {
                 Tcl_Obj* subpattern = subpatterns[i];
                 addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
-                Tcl_Obj* claimizedSubpattern = Tcl_DuplicateObj(subpattern);
-                Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
-                Tcl_ListObjReplace(interp, claimizedSubpattern, 0, 0, 2, someoneClaims);
-                addReaction(claimizedSubpattern, id, reactToStatementAdditionThatMatchesCollect);
+                addReaction(claimizePattern(subpattern), id, reactToStatementAdditionThatMatchesCollect);
             }
 
             LogWriteRecollect(id);
@@ -840,11 +852,7 @@ namespace eval Evaluator {
             Tcl_ListObjReplace(interp, pattern, clauseLength-4, 4, 0, NULL);
             Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
             addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
-
-            // when the time is /t/ { ... } with environment /__env/ -> /someone/ claims the time is /t/
-            Tcl_Obj* claimizedPattern = Tcl_DuplicateObj(pattern);
-            Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
-            Tcl_ListObjReplace(interp, claimizedPattern, 0, 0, 2, someoneClaims);
+            Tcl_Obj* claimizedPattern = claimizePattern(pattern);
             addReaction(claimizedPattern, id, reactToStatementAdditionThatMatchesWhen);
 
             // Scan the existing statement set for any
