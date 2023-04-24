@@ -36,7 +36,9 @@ proc handlePage {path contentTypeVar} {
     } elseif {$path eq "/timings"} {
         set totalTimes [list]
         dict for {body totalTime} $Evaluator::totalTimesMap {
-            lappend totalTimes $body $totalTime
+            dict with totalTime {
+                lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
+            }
         }
         set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
 
@@ -45,7 +47,7 @@ proc handlePage {path contentTypeVar} {
             set runs [dict get $Evaluator::runsMap $body]
             lappend l [subst {
                 <li>
-                <pre>[htmlEscape $body]</pre>: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
                 </li>
             }]
         }
