@@ -1,4 +1,4 @@
-When the collected matches for [list tag /t/ has center /c/ size /s/] are /matches/ {
+When the collected matches for [list laser blob /t/ has center /c/ size /s/] are /matches/ {
   Wish the web server handles route "/laser-web-debug" with handler [list Evaluator::tryRunInSerializedEnvironment {
     set blobsHtml "<ol>"
     set blobsJson ""
