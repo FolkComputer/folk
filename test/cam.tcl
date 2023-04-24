@@ -6,4 +6,4 @@ Retract tag 2 has name Omar
 Retract tag 3 has name Andres
 Step
 
-exec dot -Tpdf >trie.pdf <<[trie dot $Statements::statementClauseToId]
+exec dot -Tpdf >trie.pdf <<[ctrie dot [Statements::statementClauseToIdTrie]]
