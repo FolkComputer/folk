@@ -497,6 +497,18 @@ namespace eval Statements { ;# singleton Statement store
         }
         return resultsCount;
     }
+    $cc proc findMatches {Tcl_Obj* pattern} Tcl_Obj* {
+        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+
+        environment_t* results[50];
+        int resultsCount = searchByPattern(pattern, 50, results);
+        for (int i = 0; i < resultsCount; i++) {
+            Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
+            ckfree(results[i]);
+        }
+        return ret;
+    }
+
     $cc proc count {Tcl_Obj* pattern} int {
         environment_t* outResults[50];
         return searchByPattern(pattern, 50, outResults);
@@ -537,12 +549,50 @@ namespace eval Statements { ;# singleton Statement store
                 memcpy(&result->matchedStatementIds[result->matchedStatementIdsCount],
                        &env->matchedStatementIds[0],
                        sizeof(env->matchedStatementIds[0])*env->matchedStatementIdsCount);
+                result->matchedStatementIdsCount += env->matchedStatementIdsCount;
+                memcpy(&result->bindings[result->bindingsCount],
+                       &env->bindings[0],
+                       sizeof(env->bindings[0])*env->bindingsCount);
+                result->bindingsCount += env->bindingsCount;
             }
             searchByPatterns(patternsCount - 1, &patterns[1],
                              result,
                              maxResultsCount - 1, outResults,
                              outResultsCount);
         }
+    }
+    $cc proc findMatchesJoining {Tcl_Obj* patterns Tcl_Obj* bindings} Tcl_Obj* {
+        environment_t* results[50];
+        int patternsCount; Tcl_Obj** patternsObjs;
+        Tcl_ListObjGetElements(NULL, patterns, &patternsCount, &patternsObjs);
+        int resultsCount = 0;
+
+        environment_t* env = ckalloc(sizeof(environment_t) + 10*sizeof(environment_binding_t));
+        memset(env, 0, sizeof(*env));
+        Tcl_DictSearch search;
+        Tcl_Obj *key, *value;
+        int done;
+        if (Tcl_DictObjFirst(NULL, bindings, &search,
+                             &key, &value, &done) != TCL_OK) {
+            exit(2);
+        }
+        for (; !done ; Tcl_DictObjNext(&search, &key, &value, &done)) {
+            environment_binding_t* b = &env->bindings[env->bindingsCount++];
+            int nameLen; char* namePtr = Tcl_GetStringFromObj(key, &nameLen);
+            memcpy(b->name, namePtr, nameLen);
+            b->value = value;
+        }
+        Tcl_DictObjDone(&search);
+        searchByPatterns(patternsCount, patternsObjs,
+                         env,
+                         50, results, &resultsCount);
+
+        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+        for (int i = 0; i < resultsCount; i++) {
+            Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
+            ckfree(results[i]);
+        }
+        return ret;
     }
 
     $cc proc all {} Tcl_Obj* {
