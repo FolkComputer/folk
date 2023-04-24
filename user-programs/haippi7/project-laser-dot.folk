@@ -1,6 +1,4 @@
 When laser blob /t/ has center /c/ size /s/ {
     lassign [::cameraToProjector $c] cx cy
-    # Display::stroke [list [list $cx $cy] [list [expr {$cx+1}] [expr {$cy+1}]]] 20 red
     Display::text device $cx $cy 12 "Laser blob" 0
-    puts "Drawing blobbbb at $cx $cy"
 }
