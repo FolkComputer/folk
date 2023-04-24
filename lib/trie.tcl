@@ -112,6 +112,11 @@ namespace eval ctrie {
         }
         addImpl(trie, objc, objv, value);
     }
+    $cc proc addWithVar {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause uint64_t value} void {
+        trie_t* trie; sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, trieVar, NULL, 0)), "(trie_t*) 0x%p", &trie);
+        add(interp, &trie, clause, value);
+        Tcl_ObjSetVar2(interp, trieVar, NULL, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) trie), 0);
+    }
 
     $cc proc removeImpl {trie_t* trie int wordc Tcl_Obj** wordv} int {
         if (wordc == 0) return 1;
@@ -198,6 +203,17 @@ namespace eval ctrie {
         lookupImpl(interp, results, &resultcount, maxresults,
                    trie, objc, objv);
         return resultcount;
+     }
+    $cc proc lookupTclObjs {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
+        uint64_t results[50];
+        int resultcount = lookup(interp, results, 50, trie, pattern);
+        if (resultcount >= 50) { exit(1); }
+
+        Tcl_Obj* resultsobj = Tcl_NewListObj(resultcount, NULL);
+        for (int i = 0; i < resultcount; i++) {
+            Tcl_ListObjAppendElement(interp, resultsobj, Tcl_ObjPrintf("%d", (int)results[i]));
+        }
+        return resultsobj;
     }
 
     $cc proc tclify {trie_t* trie} Tcl_Obj* {
@@ -242,6 +258,16 @@ namespace eval ctrie {
     $cc compile
 
     rename remove_ remove
-    namespace export create add addWithVar remove removeWithVar lookup tclify dot
+    namespace export create add addWithVar remove removeWithVar lookup lookupTclObjs tclify dot
+    namespace ensemble create
+}
+
+# Compatibility with test/trie and old Tcl impl of trie.
+namespace eval trie {
+    namespace import ::ctrie::*
+    namespace export *
+    rename add add_; rename addWithVar add
+    rename remove remove_; rename removeWithVar remove
+    rename lookup lookup_; rename lookupTclObjs lookup
     namespace ensemble create
 }
