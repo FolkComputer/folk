@@ -30,8 +30,13 @@ namespace eval statement {
     $cc struct match_t {
         int32_t gen;
 
+        bool alive;
+
         size_t n_edges;
         edge_to_statement_t edges[32];
+
+        bool recollectOnDestruction;
+        statement_handle_t recollectCollectId;
 
         match_destructor_t destructors[8];
     }
@@ -256,7 +261,7 @@ namespace eval Statements { ;# singleton Statement store
         uint16_t nextMatchIdx = 1;
     }]
     $cc proc matchNew {} match_handle_t {
-        while (matches[nextMatchIdx].n_edges != 0) {
+        while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
         }
         return (match_handle_t) {
@@ -265,7 +270,7 @@ namespace eval Statements { ;# singleton Statement store
         };
     }
     $cc proc matchGet {match_handle_t matchId} match_t* {
-        if (matchId.gen != matches[matchId.idx].gen || matches[matchId.idx].n_edges == 0) {
+        if (matchId.gen != matches[matchId.idx].gen || !matches[matchId.idx].alive) {
             return NULL;
         }
         return &matches[matchId.idx];
@@ -281,10 +286,11 @@ namespace eval Statements { ;# singleton Statement store
                 match->destructors[i].env = NULL;
             }
         }
+        match->alive = false;
         match->n_edges = 0;
     }
     $cc proc matchExists {match_handle_t matchId} bool {
-        return matchGet(matchId) != NULL;
+        return matchGet(matchId)->alive;
     }
     $cc proc matchAddDestructor {match_handle_t matchId Tcl_Obj* body Tcl_Obj* env} void {
         match_t* match = matchGet(matchId);
@@ -348,8 +354,9 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         // Essentially, allocate a new match object.
         match_handle_t matchId = matchNew();
-        // Unguarded access to match pointer because it's still n_edges == 0 at this point.
+        // Unguarded access to match pointer because it's still not alive at this point.
         match_t* match = &matches[matchId.idx];
+        match->alive = true;
 
         for (int i = 0; i < n_parents; i++) {
             matchAddEdgeToStatement(match, PARENT, parents[i]);
@@ -411,99 +418,131 @@ namespace eval Statements { ;# singleton Statement store
         addImpl $clause [dict size $parents] [dict keys $parents]
     }
 
-    $cc proc unifyImpl {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
+    $cc struct environment_binding_t {
+        char name[100];
+        Tcl_Obj* value;
+    }
+    $cc struct environment_t {
+        // This environment corresponds to a single concrete match.
+
+        // One statement ID for each pattern in the join.
+        int matchedStatementIdsCount;
+        statement_handle_t matchedStatementIds[10];
+
+        int bindingsCount;
+        environment_binding_t bindings[1];
+    }
+    $cc code {
+        Tcl_Obj* environmentLookup(environment_t* env, const char* varName) {
+            for (int i = 0; i < env->bindingsCount; i++) {
+                if (strcmp(env->bindings[i].name, varName) == 0) {
+                    return env->bindings[i].value;
+                }
+            }
+            return NULL;
+        }
+        Tcl_Obj* environmentToTclDict(environment_t* env) {
+            Tcl_Obj* ret = Tcl_NewDictObj();
+            for (int i = 0; i < env->bindingsCount; i++) {
+                Tcl_DictObjPut(NULL, ret,
+                               Tcl_NewStringObj(env->bindings[i].name, -1),
+                               env->bindings[i].value);
+            }
+            return ret;
+        }
+    }
+
+    # unify allocates a new environment.
+    $cc proc unify {Tcl_Obj* a Tcl_Obj* b} environment_t* {
         int alen; Tcl_Obj** awords;
         int blen; Tcl_Obj** bwords;
-        Tcl_ListObjGetElements(interp, a, &alen, &awords);
-        Tcl_ListObjGetElements(interp, b, &blen, &bwords);
+        Tcl_ListObjGetElements(NULL, a, &alen, &awords);
+        Tcl_ListObjGetElements(NULL, b, &blen, &bwords);
         if (alen != blen) { return NULL; }
 
-        Tcl_Obj* match = Tcl_NewDictObj();
+        environment_t* env = ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
+        memset(env, 0, sizeof(*env));
         for (int i = 0; i < alen; i++) {
-            char aVarName[100]; char bVarName[100];
+            char aVarName[100] = {0}; char bVarName[100] = {0};
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
-                Tcl_DictObjPut(interp, match, Tcl_NewStringObj(aVarName, -1), bwords[i]);
+                environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                memcpy(binding->name, aVarName, sizeof(binding->name));
+                binding->value = bwords[i];
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
-                Tcl_DictObjPut(interp, match, Tcl_NewStringObj(bVarName, -1), awords[i]);
+                environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                memcpy(binding->name, bVarName, sizeof(binding->name));
+                binding->value = awords[i];
             } else if (!(awords[i] == bwords[i] ||
                          strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
+                ckfree(env);
                 return NULL;
             }
         }
-        return match;
+        return env;
     }
-    $cc proc unify {Tcl_Interp* interp Tcl_Obj* a Tcl_Obj* b} Tcl_Obj* {
-        Tcl_Obj* ret = unifyImpl(interp, a, b);
-        if (ret == NULL) return Tcl_NewStringObj("false", -1);
-        return ret;
-    }
+    $cc proc searchByPattern {Tcl_Obj* pattern
+                              int maxResultsCount environment_t** outResults} int {
+        uint64_t ids[maxResultsCount];
+        int idsCount = trieLookup(NULL, ids, maxResultsCount, statementClauseToId, pattern);
 
-    $cc proc findStatementsMatching {Tcl_Interp* interp Tcl_Obj* pattern} Tcl_Obj* {
-        uint64_t ids[50];
-        int idslen = trieLookup(interp, ids, 50, statementClauseToId, pattern);
-
-        Tcl_Obj* results[idslen]; int resultCount = 0;
-        for (int i = 0; i < idslen; i++) {
+        int resultsCount = 0;
+        for (int i = 0; i < idsCount; i++) {
             statement_handle_t id = *(statement_handle_t *)&ids[i];
-            Tcl_Obj* result = unifyImpl(interp, pattern, get(id)->clause);
+            environment_t* result = unify(pattern, get(id)->clause);
             if (result != NULL) {
-                Tcl_DictObjPut(interp, result, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
-                results[resultCount++] = result;
+                result->matchedStatementIdsCount = 1;
+                result->matchedStatementIds[0] = id;
+                outResults[resultsCount++] = result;
             }
         }
-
-        return Tcl_NewListObj(resultCount, results);
+        return resultsCount;
     }
-    $cc proc findStatementsMatching_ {Tcl_Interp* interp
-                                      int outCount statement_handle_t* outMatches
-                                      Tcl_Obj* pattern} int {
-        uint64_t ids[outCount];
-        int idslen = trieLookup(interp, ids, outCount, statementClauseToId, pattern);
-
-        int matchCount = 0;
-        for (int i = 0; i < idslen; i++) {
-            statement_handle_t id = *(statement_handle_t *)&ids[i];
-            Tcl_Obj* match = unifyImpl(interp, pattern, get(id)->clause);
-            if (match != NULL) {
-                outMatches[matchCount++] = id;
-            }
-        }
-
-        return matchCount;
+    $cc proc count {Tcl_Obj* pattern} int {
+        environment_t* outResults[50];
+        return searchByPattern(pattern, 50, outResults);
     }
-    proc findMatchesJoining {patterns {bindings {}}} {
-        if {[llength $patterns] == 0} {
-            return [list $bindings]
+    $cc proc searchByPatterns {int patternsCount Tcl_Obj* patterns[]
+                               environment_t* env
+                               int maxResultsCount environment_t** outResults
+                               int* outResultsCount} void {
+        if (patternsCount == 0) {
+            outResults[(*outResultsCount)++] = env;
+            return;
         }
 
-        # patterns = [list {/p/ is a person} {/p/ lives in /place/}]
+        // Do substitution of bindings into first pattern
+        Tcl_Obj* substitutedFirstPattern = Tcl_DuplicateObj(patterns[0]);
+        int wordCount; Tcl_Obj** words;
+        Tcl_ListObjGetElements(NULL, substitutedFirstPattern,
+                               &wordCount, &words);
+        for (int i = 0; i < wordCount; i++) {
+            char varName[100];
+            Tcl_Obj* boundValue = NULL;
+            if (scanVariable(words[i], varName, sizeof(varName)) &&
+                env != NULL &&
+                (boundValue = environmentLookup(env, varName))) {
 
-        # Split first pattern from the other patterns
-        set otherPatterns [lassign $patterns firstPattern]
-        # Do substitution of bindings into first pattern
-        set substitutedFirstPattern [list]
-        foreach word $firstPattern {
-            if {[regexp {^/([^/ ]+)/$} $word -> varName] &&
-                [dict exists $bindings $varName]} {
-                lappend substitutedFirstPattern [dict get $bindings $varName]
-            } else {
-                lappend substitutedFirstPattern $word
+                Tcl_ListObjReplace(NULL, substitutedFirstPattern, i, 1,
+                                   1, &boundValue);
             }
         }
 
-        set matcheeIds [if {[dict exists $bindings __matcheeIds]} {
-            dict get $bindings __matcheeIds
-        } else { list }]
-
-        set matches [list]
-        set matchesForFirstPattern [findMatches $substitutedFirstPattern]
-        lappend matchesForFirstPattern {*}[findMatches [list /someone/ claims {*}$substitutedFirstPattern]]
-        foreach matchBindings $matchesForFirstPattern {
-            dict lappend matchBindings __matcheeIds {*}$matcheeIds
-            set matchBindings [dict merge $bindings $matchBindings]
-            lappend matches {*}[findMatchesJoining $otherPatterns $matchBindings]
+        environment_t* resultsForFirstPattern[50];
+        int resultsForFirstPatternCount =
+            searchByPattern(substitutedFirstPattern,
+                            50, resultsForFirstPattern);
+        for (int i = 0; i < resultsForFirstPatternCount; i++) {
+            environment_t* result = resultsForFirstPattern[i];
+            if (env != NULL) {
+                memcpy(&result->matchedStatementIds[result->matchedStatementIdsCount],
+                       &env->matchedStatementIds[0],
+                       sizeof(env->matchedStatementIds[0])*env->matchedStatementIdsCount);
+            }
+            searchByPatterns(patternsCount - 1, &patterns[1],
+                             result,
+                             maxResultsCount - 1, outResults,
+                             outResultsCount);
         }
-        set matches
     }
 
     $cc proc all {} Tcl_Obj* {
@@ -640,8 +679,8 @@ namespace eval Evaluator {
         }
         static statement_t* get(statement_handle_t id);
         static int exists(statement_handle_t id);
-        static Tcl_Obj* unifyImpl(Tcl_Interp* interp, Tcl_Obj* a, Tcl_Obj* b);
         static match_handle_t addMatchImpl(size_t n_parents, statement_handle_t parents[]);
+        static environment_t* unify(Tcl_Obj* a, Tcl_Obj* b);
         void reactToStatementAdditionThatMatchesWhen(Tcl_Interp* interp,
                                                      statement_handle_t whenId,
                                                      Tcl_Obj* whenPattern,
@@ -653,8 +692,8 @@ namespace eval Evaluator {
             statement_t* when = get(whenId);
             statement_t* stmt = get(statementId);
 
-            Tcl_Obj* bindings = unifyImpl(NULL, whenPattern, stmt->clause);
-            if (bindings) {
+            environment_t* result = unify(whenPattern, stmt->clause);
+            if (result) {
                 int whenClauseLength; Tcl_ListObjLength(NULL, when->clause, &whenClauseLength);
 
                 statement_handle_t matchParentIds[] = {whenId, statementId};
@@ -663,6 +702,7 @@ namespace eval Evaluator {
                 Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
                 // Merge env into bindings (weakly)
+                Tcl_Obj *bindings = environmentToTclDict(result);
                 Tcl_DictSearch search;
                 Tcl_Obj *key, *value;
                 int done;
@@ -699,63 +739,22 @@ namespace eval Evaluator {
     $cc proc EvaluatorInit {} void {
         reactionsToStatementAddition = trieCreate();
     }
-    
-    # WIP: do recollect in Tcl for now
-    if 0 {
-    $cc proc recollect {Tcl_Obj* interp statement_handle_t collectId} void {
-        // Called when a statement of a pattern that someone is
-        // collecting has been added or removed.
 
-        // First, delete the existing match child.
-        {
-            statement_t* collect = get(collectId);
-            match_id_t childMatchId = {0}; // There should be exactly 0 or 1.
-            for (size_t i = 0; i < collect->n_edges; i++) {
-                if (collect->edges[i].type == CHILD) {
-                    childMatchId = collect->edges[i].match;
-                    break;
-                }
-            }
-            if (childMatchId.idx != 0) {
-                // Delete the first destructor (which would do a
-                // recollect) before doing the removal, so the
-                // destructor doesn't trigger an infinite cascade of
-                // recollects.
-                match_t* childMatch = matchGet(childMatchId);
-                childMatch->destructors[0] = NULL;
-
-                reactToMatchRemoval(interp, childMatchId);
-                matchRemove(childMatchId);
-                statementRemoveEdgeToMatch(collect, CHILD, childMatchId);
+    $cc proc splitPattern {Tcl_Obj* pattern
+                           int maxSubpatternsCount Tcl_Obj** outSubpatterns} int {
+        int patternLength; Tcl_Obj** patternWords;
+        Tcl_ListObjGetElements(NULL, pattern, &patternLength, &patternWords);
+        int subpatternLength = 0;
+        int subpatternsCount = 0;
+        for (int i = 0; i <= patternLength; i++) {
+            if (i == patternLength || strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
+                Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
+                outSubpatterns[subpatternsCount++] = subpattern;
+            } else {
+                subpatternLength++;
             }
         }
-
-        Tcl_Obj* clause = collect->clause;
-        int clauseLength; Tcl_Obj** clauseWords;
-        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
-        
-        char matchesVarName[100];
-        scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
-        Tcl_Obj* env = clauseWords[clauseLength-1];
-        
-        Tcl_Obj* matches; {
-            Tcl_Obj* pattern = clauseWords[5];
-            Tcl_Obj* cmd[] = {"Statements::findMatchesJoining", pattern};
-            Tcl_EvalObjv(interp, sizeof(cmd)/sizeof(cmd[0]), cmd);
-            matches = Tcl_GetObjResult(interp);
-        }
-
-        int matchesLength; Tcl_Obj** matchesBindings;
-        Tcl_ListObjGetElements(interp, matches, &matchesLength, &matchesBindings);
-        statement_handle_t parents[matchesLength];
-        size_t n_parents = 0;
-        for (int i = 0; i < matchesBindingsLength; i++) {
-            Tcl_Obj* matchBindings = matchesBindings[i];
-//            parents[n_parents++] =
-        }
-
-        addMatchImpl(n_parents, parents);
-    }
+        return subpatternsCount;
     }
 
     $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
@@ -772,25 +771,15 @@ namespace eval Evaluator {
             // when the collected matches for [list the time is /t/ & Omar is cool] are /matches/ { ... } with environment /__env/
             //   -> {the time is /t/} {Omar is cool}
             Tcl_Obj* pattern = clauseWords[5];
-            int patternLength; Tcl_Obj** patternWords;
-            Tcl_ListObjGetElements(interp, pattern, &patternLength, &patternWords);
-            int subpatternLength = 0;
-            for (int i = 0; i <= patternLength; i++) {
-                if (i == patternLength ||
-                    strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
-                    
-                    Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
-                    addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
-                    Tcl_Obj* claimizedSubpattern = Tcl_DuplicateObj(subpattern);
-                    Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
-                    Tcl_ListObjReplace(interp, claimizedSubpattern, 0, 0, 2, someoneClaims);
-                    addReaction(claimizedSubpattern, id, reactToStatementAdditionThatMatchesCollect);
-
-                    subpatternLength = 0;
-
-                } else {
-                    subpatternLength++;
-                }
+            Tcl_Obj* subpatterns[10];
+            int subpatternsCount = splitPattern(pattern, 10, subpatterns);
+            for (int i = 0; i < subpatternsCount; i++) {
+                Tcl_Obj* subpattern = subpatterns[i];
+                addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
+                Tcl_Obj* claimizedSubpattern = Tcl_DuplicateObj(subpattern);
+                Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
+                Tcl_ListObjReplace(interp, claimizedSubpattern, 0, 0, 2, someoneClaims);
+                addReaction(claimizedSubpattern, id, reactToStatementAdditionThatMatchesCollect);
             }
 
             LogWriteRecollect(id);
@@ -922,6 +911,72 @@ namespace eval Evaluator {
         UnmatchImpl $::matchId $level
     }
 
+    $cc proc recollect {Tcl_Interp* interp statement_handle_t collectId} void {
+        // Called when a statement of a pattern that someone is
+        // collecting has been added or removed.
+
+        statement_t* collect = get(collectId);
+
+        // First, delete the existing match child.
+        {
+            match_handle_t childMatchId = {0}; // There should be exactly 0 or 1.
+            for (size_t i = 0; i < collect->n_edges; i++) {
+                if (collect->edges[i].type == CHILD) {
+                    childMatchId = collect->edges[i].match;
+                    break;
+                }
+            }
+            if (childMatchId.idx != 0) {
+                reactToMatchRemoval(interp, childMatchId);
+                matchRemove(childMatchId);
+            }
+        }
+
+        Tcl_Obj* clause = collect->clause;
+        int clauseLength; Tcl_Obj** clauseWords;
+        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
+
+        Tcl_Obj* body = clauseWords[clauseLength-4];
+        char matchesVarName[100];
+        scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
+        Tcl_Obj* env = clauseWords[clauseLength-1];
+
+        int resultsCount = 0; environment_t* results[50]; {
+            Tcl_Obj* pattern = clauseWords[5];
+            Tcl_Obj* subpatterns[10];
+            int subpatternsCount = splitPattern(pattern, 10, subpatterns);
+            searchByPatterns(subpatternsCount, subpatterns,
+                             NULL,
+                             50, results,
+                             &resultsCount);
+        }
+
+        Tcl_Obj* matches = Tcl_NewListObj(0, NULL);
+
+        int parentsCount = 1;
+        statement_handle_t parents[resultsCount*10];
+        parents[0] = collectId;
+        for (int i = 0; i < resultsCount; i++) {
+            Tcl_ListObjAppendElement(NULL, matches, environmentToTclDict(results[i]));
+            for (int j = 0; j < results[i]->matchedStatementIdsCount; j++) {
+                parents[parentsCount++] = results[i]->matchedStatementIds[j];
+            }
+        }
+
+        match_handle_t matchId = addMatchImpl(parentsCount, parents);
+        match_t* match = matchGet(matchId);
+        match->recollectOnDestruction = true;
+        match->recollectCollectId = collectId;
+
+        /* environment_binding_t* matchesVarBinding = env->bindings[env->bindingsCount++]; */
+        /* memcpy(matchesVarBinding->name, matchesVarName, 100); */
+        /* matchesVarBinding->value = matches; */
+        env = Tcl_DuplicateObj(env);
+        Tcl_DictObjPut(NULL, env, Tcl_NewStringObj(matchesVarName, -1), matches);
+        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
+        tryRunInSerializedEnvironment(interp, body, env);
+    }
+
     $cc code {
         typedef enum {
             NONE, ASSERT, RETRACT, SAY, RECOLLECT
@@ -958,12 +1013,14 @@ namespace eval Evaluator {
                 }
 
             } else if (entry.op == RETRACT) {
-                statement_handle_t matches[50];
-                int matchCount = findStatementsMatching_(interp, 50, matches, entry.retract.pattern);
-                for (int i = 0; i < matchCount; i++) {
-                    statement_handle_t id = matches[i];
+                environment_t* results[50];
+                int resultsCount = searchByPattern(entry.retract.pattern,
+                                                   50, results);
+                for (int i = 0; i < resultsCount; i++) {
+                    statement_handle_t id = results[i]->matchedStatementIds[0];
                     reactToStatementRemoval(interp, id);
                     remove_(id);
+                    ckfree(results[i]);
                 }
 
             } else if (entry.op == SAY) {
@@ -978,7 +1035,7 @@ namespace eval Evaluator {
 
             } else if (entry.op == RECOLLECT) {
                 if (exists(entry.recollect.collectId)) {
-                    Tcl_EvalObjEx(interp, Tcl_ObjPrintf("Evaluator::recollect {idx %d gen %d}", entry.recollect.collectId.idx, entry.recollect.collectId.gen), 0);
+                    recollect(interp, entry.recollect.collectId);
                 }
             }
         }
@@ -1018,7 +1075,6 @@ namespace eval Statements {
     # compatibility with older Tcl statements module interface
     namespace export reactToStatementAddition reactToStatementRemoval
     rename remove_ remove
-    rename findStatementsMatching findMatches
     rename get getImpl
     proc get {id} { deref [getImpl $id] }
 }

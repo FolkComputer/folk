@@ -5,7 +5,7 @@ proc assert condition {
    }
 }
 proc count condition {
-    llength [Statements::findMatches $condition]
+    Statements::count $condition
 }
 
 Assert programOakland has program code {
