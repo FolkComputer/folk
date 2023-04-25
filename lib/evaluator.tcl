@@ -361,12 +361,15 @@ namespace eval Statements { ;# singleton Statement store
     }
     $cc proc remove_ {statement_handle_t id} void {
         statement_t* stmt = get(id);
+
         int32_t gen = stmt->gen;
         Tcl_Obj* clause = stmt->clause;
+        if (stmt->indirect != NULL) ckfree(stmt->indirect);
         memset(stmt, 0, sizeof(*stmt));
-        stmt->gen = gen;
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
+
+        stmt->gen = gen;
     }
     $cc proc size {} size_t {
         size_t size = 0;
@@ -551,11 +554,6 @@ namespace eval Statements { ;# singleton Statement store
                                environment_t* env
                                int maxResultsCount environment_t** outResults
                                int* outResultsCount} void {
-        if (patternsCount == 0) {
-            outResults[(*outResultsCount)++] = env;
-            return;
-        }
-
         // Do substitution of bindings into first pattern
         Tcl_Obj* substitutedFirstPattern = Tcl_DuplicateObj(patterns[0]);
         int wordCount; Tcl_Obj** words;
@@ -577,7 +575,6 @@ namespace eval Statements { ;# singleton Statement store
                                                           maxResultsCount, resultsForFirstPattern);
         resultsForFirstPatternCount += searchByPattern(claimizePattern(substitutedFirstPattern),
                                                        maxResultsCount - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
-            
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
             if (env != NULL) {
@@ -590,10 +587,15 @@ namespace eval Statements { ;# singleton Statement store
                        sizeof(env->bindings[0])*env->bindingsCount);
                 result->bindingsCount += env->bindingsCount;
             }
-            searchByPatterns(patternsCount - 1, &patterns[1],
-                             result,
-                             maxResultsCount - 1, outResults,
-                             outResultsCount);
+            if (patternsCount - 1 == 0) {
+                outResults[(*outResultsCount)++] = result;
+            } else {
+                searchByPatterns(patternsCount - 1, &patterns[1],
+                                 result,
+                                 maxResultsCount - 1, outResults,
+                                 outResultsCount);
+                ckfree(result);
+            }
         }
     }
     $cc proc findMatchesJoining {Tcl_Obj* patterns Tcl_Obj* bindings} Tcl_Obj* {
@@ -621,6 +623,7 @@ namespace eval Statements { ;# singleton Statement store
         searchByPatterns(patternsCount, patternsObjs,
                          env,
                          1000, results, &resultsCount);
+        ckfree(env);
 
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
         for (int i = 0; i < resultsCount; i++) {
@@ -785,7 +788,7 @@ namespace eval Evaluator {
                 Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
                 // Merge env into bindings (weakly)
-                Tcl_Obj *bindings = environmentToTclDict(result);
+                Tcl_Obj *bindings = environmentToTclDict(result); ckfree(result);
                 Tcl_DictSearch search;
                 Tcl_Obj *key, *value;
                 int done;
