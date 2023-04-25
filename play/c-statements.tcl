@@ -79,7 +79,9 @@ namespace eval statement {
             }
             return ret;
         }
-        bool matchHandleIsEqual(match_handle_t a, match_handle_t b) { return a.idx == b.idx; }
+        bool matchHandleIsEqual(match_handle_t a, match_handle_t b) {
+            return a.idx == b.idx && a.gen == b.gen;
+        }
         bool statementHandleIsEqual(statement_handle_t a, statement_handle_t b) {
             return a.idx == b.idx && a.gen == b.gen;
         }
@@ -291,6 +293,8 @@ namespace eval Statements { ;# singleton Statement store
         while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
         }
+        matches[nextMatchIdx].alive = true;
+        matches[nextMatchIdx].n_edges = 0;
         return (match_handle_t) {
             .idx = nextMatchIdx,
             .gen = ++matches[nextMatchIdx].gen
@@ -382,11 +386,8 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
-        // Essentially, allocate a new match object.
         match_handle_t matchId = matchNew();
-        // Unguarded access to match pointer because it's still not alive at this point.
-        match_t* match = &matches[matchId.idx];
-        match->alive = true;
+        match_t* match = matchGet(matchId);
 
         for (int i = 0; i < n_parents; i++) {
             matchAddEdgeToStatement(match, PARENT, parents[i]);
@@ -687,9 +688,6 @@ namespace eval Statements { ;# singleton Statement store
         matchGet(matchId)->destructors[0].body = NULL;
         matchGet(matchId)->destructors[0].env = NULL;
     }
-    $cc proc removeChildMatch {statement_handle_t statementId match_handle_t matchId} void {
-        statementRemoveEdgeToMatch(get(statementId), CHILD, matchId);
-    }
 }
 
 namespace eval Evaluator {
@@ -981,16 +979,15 @@ namespace eval Evaluator {
 
         // First, delete the existing match child.
         {
-            match_handle_t childMatchId = {0}; // There should be exactly 0 or 1.
             for (size_t i = 0; i < collect->n_edges; i++) {
-                if (collect->edges[i].type == CHILD) {
-                    childMatchId = collect->edges[i].match;
+                edge_to_match_t* edge = statementEdgeAt(collect, i);
+                if (edge->type == CHILD) {
+                    match_handle_t childMatchId = edge->match;
+                    matchGet(childMatchId)->recollectOnDestruction = false;
+                    reactToMatchRemoval(interp, childMatchId);
+                    matchRemove(childMatchId);
                     break;
                 }
-            }
-            if (childMatchId.idx != 0) {
-                reactToMatchRemoval(interp, childMatchId);
-                matchRemove(childMatchId);
             }
         }
 
