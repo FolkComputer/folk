@@ -15,20 +15,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
 source "lib/c.tcl"
 source "lib/trie.tcl"
-
-proc lsplit {lst delimiter} {
-    set lsts [list]
-    set lastLst [list]
-    foreach item $lst {
-        if {$item eq $delimiter} {
-            lappend lsts $lastLst
-            set lastLst [list]
-        } else { lappend lastLst $item }
-    }
-    lappend lsts $lastLst
-    set lsts
-}
-
+source "lib/evaluator.tcl"
 namespace eval Evaluator {
     source "lib/environment.tcl"
     proc tryRunInSerializedEnvironment {body env} {
@@ -44,48 +31,9 @@ namespace eval Evaluator {
             }
         }
     }
-
-    proc recollect {collectId} {
-        # Called when a statement of a pattern that someone is
-        # collecting has been added or removed.
-
-        set collect [Statements::get $collectId]
-        set childMatchIds [statement childMatchIds $collect]
-        if {[dict size $childMatchIds] > 1} {
-            error "Collect $collectId has more than 1 match: {$childMatchIds}"
-        } elseif {[dict size $childMatchIds] == 1} {
-            # Delete the existing match child.
-            set childMatchId [lindex [dict keys $childMatchIds] 0]
-            # Delete the first destructor (which does a recollect) before doing the removal.
-            Statements::matchRemoveFirstDestructor $childMatchId
-
-            reactToMatchRemoval $childMatchId
-            Statements::matchRemove $childMatchId
-        }
-
-        set clause [statement clause $collect]
-        set patterns [lsplit [lindex $clause 5] &]
-        set body [lindex $clause end-3]
-        set matchesVar [string range [lindex $clause end-4] 1 end-1] 
-        set env [lindex $clause end]
-
-        set matches [Statements::findMatchesJoining $patterns]
-        set parentStatementIds [list $collectId]
-        foreach matchBindings $matches {
-            lappend parentStatementIds {*}[dict get $matchBindings __matcheeIds]
-        }
-
-        set ::matchId [Statements::addMatch $parentStatementIds]
-        Statements::matchAddDestructor $::matchId \
-            {Evaluator::LogWriteRecollect $collectId} \
-            [list collectId $collectId]
-
-        dict set env $matchesVar $matches
-        tryRunInSerializedEnvironment $body $env
-    }
 }
 set ::logsize -1 ;# Hack to keep metrics working
-source "play/c-statements.tcl"
+
 # invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {
     if {[lindex $args 0] eq "when" && [lindex $args end-1] ne "environment"} {
