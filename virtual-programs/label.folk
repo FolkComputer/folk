@@ -15,10 +15,11 @@ When /thing/ has region /region/ {
         if {$text eq ""} { return }
 
         set lines [split $text "\n"]
+        if {$shouldFlip} {set lines [lreverse $lines]}
         set fontSize 12
         for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
             set ly [expr {$shouldFlip ? $y+$lineNum*18 : $y+$lineNum*18}]
-            Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] $radians
+            Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
         }
     } with environment [dict create x $x y $y radians $radians shouldFlip $shouldFlip]
 }
