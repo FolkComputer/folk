@@ -33,7 +33,7 @@ namespace eval statement {
         bool alive;
 
         size_t n_edges;
-        edge_to_statement_t edges[32];
+        edge_to_statement_t edges[64];
 
         bool recollectOnDestruction;
         statement_handle_t recollectCollectId;

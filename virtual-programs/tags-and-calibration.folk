@@ -96,7 +96,7 @@ When tag /tag/ has corners /corners/ {
 	set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
 	set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
 
-	set offsets {{-4.7 -3.5} {1 -3.5} {1 0.8} {-4.7 0.8}}
+	set offsets {{-4.7 -2.6} {1 -2.6} {1 0.8} {-4.7 0.8}}
 	set corners [add $tagcorners [matmul $offsets [list $tagbottom $tagright]]]
 	set edges [list]
 	for {set i 0} {$i < [llength $corners]} {incr i} {
