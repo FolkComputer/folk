@@ -39,3 +39,28 @@ Step
 
 assert {[dict get [lindex [Statements::findMatches [list /someone/ claims /thing/ has seen /n/ boops]] 0] n] eq 2}
 
+#################
+
+Assert programTestReset has program code {
+    When $this has context color /color/ {
+        Commit { Claim $this has counter 0 }
+        Every time $::nodename has step count /c/ & $this has counter /counter/ {
+            Commit { Claim $this has counter [incr counter] }
+        }
+    }
+}
+Assert programTestReset has context color red
+Step
+Step
+Step
+proc getCounter {} {
+    set results [Statements::findMatches [list /someone/ claims programTestReset has counter /counter/]]
+    set firstResult [lindex $results 0]
+    dict get $firstResult counter
+}
+assert {[getCounter] == 3}
+
+Retract programTestReset has context color red
+Assert programTestReset has context color blue
+Step
+assert {[getCounter] == 1}
