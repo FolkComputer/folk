@@ -14,7 +14,7 @@ Assert programOakland has program code {
 Assert when $::nodename has step count /c/ {
     When Omar lives in /place/ {
         Claim $place is a place where Omar lives
-    }
+    } with environment {}
 }
 Assert programNewYork has program code {
     Claim Omar lives in "New York"

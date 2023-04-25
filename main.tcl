@@ -101,8 +101,15 @@ proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this]
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 
 proc When {args} {
-    set body [lindex $args end]
-    set pattern [lreplace $args end end]
+    if {[lindex $args end-1] eq "environment"} {
+        set body [lindex $args end-3]
+        set pattern [lreplace $args end-3 end]
+        set environment [lindex $args end]
+    } else {
+        set body [lindex $args end]
+        set pattern [lreplace $args end end]
+        set environment [Evaluator::serializeEnvironment]
+    }
     set wordsWillBeBound [list]
     set negate false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
@@ -138,9 +145,9 @@ proc When {args} {
 
     if {$negate} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        uplevel [list Say when the collected matches for $pattern are /__matches/ $negateBody with environment [Evaluator::serializeEnvironment]]
+        uplevel [list Say when the collected matches for $pattern are /__matches/ $negateBody with environment $environment]
     } else {
-        uplevel [list Say when {*}$pattern $body with environment [Evaluator::serializeEnvironment]]
+        uplevel [list Say when {*}$pattern $body with environment $environment]
     }
 }
 proc Every {event args} {
