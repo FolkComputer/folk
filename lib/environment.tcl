@@ -52,16 +52,8 @@ proc runInSerializedEnvironment {body env} {
         set ret
     } finally {
         set unloadTime_ [time {
-            # Clean up:
-            foreach procName [info procs ::SerializableEnvironment::*] {
-                rename $procName ""
-            }
-            foreach name [info vars ::SerializableEnvironment::*] {
-                unset $name
-            }
-            namespace eval ::SerializableEnvironment {
-                namespace forget {*}[namespace import]
-            }
+            namespace delete ::SerializableEnvironment
+            namespace eval ::SerializableEnvironment {}
         }]
         dict with ::Evaluator::totalTimesMap $body {
             incr loadTime [string map {" microseconds per iteration" ""} $loadTime_]
