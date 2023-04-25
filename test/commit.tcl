@@ -44,14 +44,19 @@ assert {[dict get [lindex [Statements::findMatches [list /someone/ claims /thing
 Assert programTestReset has program code {
     When $this has context color /color/ {
         Commit { Claim $this has counter 0 }
-        Every time $::nodename has step count /c/ & $this has counter /counter/ {
+        Every time a button is pressed & $this has counter /counter/ {
             Commit { Claim $this has counter [incr counter] }
         }
     }
 }
 Assert programTestReset has context color red
+Assert a button is pressed
 Step
+Retract a button is pressed
+Assert a button is pressed
 Step
+Retract a button is pressed
+Assert a button is pressed
 Step
 proc getCounter {} {
     set results [Statements::findMatches [list /someone/ claims programTestReset has counter /counter/]]
