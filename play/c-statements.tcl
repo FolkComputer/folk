@@ -531,8 +531,8 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc findMatches {Tcl_Obj* pattern} Tcl_Obj* {
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
 
-        environment_t* results[50];
-        int resultsCount = searchByPattern(pattern, 50, results);
+        environment_t* results[1000];
+        int resultsCount = searchByPattern(pattern, 1000, results);
         for (int i = 0; i < resultsCount; i++) {
             Tcl_Obj* matchObj = environmentToTclDict(results[i]);
             statement_handle_t id = results[i]->matchedStatementIds[0];
@@ -544,8 +544,8 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     $cc proc count {Tcl_Obj* pattern} int {
-        environment_t* outResults[50];
-        return searchByPattern(pattern, 50, outResults);
+        environment_t* outResults[1000];
+        return searchByPattern(pattern, 1000, outResults);
     }
     $cc proc searchByPatterns {int patternsCount Tcl_Obj* patterns[]
                                environment_t* env
@@ -562,8 +562,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_ListObjGetElements(NULL, substitutedFirstPattern,
                                &wordCount, &words);
         for (int i = 0; i < wordCount; i++) {
-            char varName[100];
-            Tcl_Obj* boundValue = NULL;
+            char varName[100]; Tcl_Obj* boundValue = NULL;
             if (scanVariable(words[i], varName, sizeof(varName)) &&
                 env != NULL &&
                 (boundValue = environmentLookup(env, varName))) {
@@ -573,11 +572,11 @@ namespace eval Statements { ;# singleton Statement store
             }
         }
 
-        environment_t* resultsForFirstPattern[50];
+        environment_t* resultsForFirstPattern[maxResultsCount];
         int resultsForFirstPatternCount = searchByPattern(substitutedFirstPattern,
-                                                          50, resultsForFirstPattern);
+                                                          maxResultsCount, resultsForFirstPattern);
         resultsForFirstPatternCount += searchByPattern(claimizePattern(substitutedFirstPattern),
-                                                       50 - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
+                                                       maxResultsCount - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
             
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
@@ -598,7 +597,7 @@ namespace eval Statements { ;# singleton Statement store
         }
     }
     $cc proc findMatchesJoining {Tcl_Obj* patterns Tcl_Obj* bindings} Tcl_Obj* {
-        environment_t* results[50];
+        environment_t* results[1000];
         int patternsCount; Tcl_Obj** patternsObjs;
         Tcl_ListObjGetElements(NULL, patterns, &patternsCount, &patternsObjs);
         int resultsCount = 0;
@@ -621,7 +620,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_DictObjDone(&search);
         searchByPatterns(patternsCount, patternsObjs,
                          env,
-                         50, results, &resultsCount);
+                         1000, results, &resultsCount);
 
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
         for (int i = 0; i < resultsCount; i++) {
@@ -859,14 +858,14 @@ namespace eval Evaluator {
 
             // Scan the existing statement set for any
             // already-existing matching statements.
-            uint64_t alreadyMatchingStatementIds[50];
-            int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
+            uint64_t alreadyMatchingStatementIds[1000];
+            int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
                                                               statementClauseToId, pattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, pattern, alreadyMatchingStatementId);
             }
-            alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 50,
+            alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
                                                           statementClauseToId, claimizedPattern);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
@@ -880,8 +879,8 @@ namespace eval Evaluator {
             Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
                                1, &reactingIdWildcard);
         }
-        uint64_t reactions[50];
-        int reactionCount = trieLookup(interp, reactions, 50,
+        uint64_t reactions[1000];
+        int reactionCount = trieLookup(interp, reactions, 1000,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
         // printf("React to %s: %d\n", Tcl_GetString(clauseWithReactingIdWildcard), reactionCount);
         for (int i = 0; i < reactionCount; i++) {
@@ -1000,13 +999,13 @@ namespace eval Evaluator {
         scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
         Tcl_Obj* env = clauseWords[clauseLength-1];
 
-        int resultsCount = 0; environment_t* results[50]; {
+        int resultsCount = 0; environment_t* results[1000]; {
             Tcl_Obj* pattern = clauseWords[5];
             Tcl_Obj* subpatterns[10];
             int subpatternsCount = splitPattern(pattern, 10, subpatterns);
             searchByPatterns(subpatternsCount, subpatterns,
                              NULL,
-                             50, results,
+                             1000, results,
                              &resultsCount);
         }
 
@@ -1072,9 +1071,9 @@ namespace eval Evaluator {
                 }
 
             } else if (entry.op == RETRACT) {
-                environment_t* results[50];
+                environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
-                                                   50, results);
+                                                   1000, results);
                 for (int i = 0; i < resultsCount; i++) {
                     statement_handle_t id = results[i]->matchedStatementIds[0];
                     reactToStatementRemoval(interp, id);
