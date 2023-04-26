@@ -59,7 +59,7 @@ proc handlePage {path contentTypeVar} {
         }]
     } elseif {$path eq "/favicon.ico"} {
         set contentType "image/x-icon"
-        set fd [open "../favicon.ico" r]
+        set fd [open "assets/favicon.ico" r]
         fconfigure $fd -encoding binary -translation binary
         set response [read $fd]; close $fd; return $response
 
