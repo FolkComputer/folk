@@ -949,18 +949,16 @@ namespace eval Evaluator {
         for (int i = 0; i < level; i++) {
             match_t* unmatch = matchGet(unmatchId);
             // Get first parent of unmatchId (should be the When)
-            statement_handle_t unmatchWhenId = {0};
             for (int j = 0; j < unmatch->n_edges; j++) {
                 if (unmatch->edges[j].type == PARENT) {
-                    unmatchWhenId = unmatch->edges[j].statement;
-                    break;
-                }
-            }
-            if (unmatchWhenId.idx == 0) { exit(3); }
-            statement_t* unmatchWhen = get(unmatchWhenId);
-            for (int j = 0; j < unmatchWhen->n_edges; j++) {
-                if (unmatchWhen->edges[j].type == PARENT) {
-                    unmatchId = unmatchWhen->edges[j].match;
+                    statement_handle_t unmatchWhenId = unmatch->edges[j].statement;
+                    statement_t* unmatchWhen = get(unmatchWhenId);
+                    for (int k = 0; k < unmatchWhen->n_edges; k++) {
+                        if (unmatchWhen->edges[k].type == PARENT) {
+                            unmatchId = unmatchWhen->edges[k].match;
+                            break;
+                        }
+                    }
                     break;
                 }
             }
