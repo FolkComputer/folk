@@ -75,7 +75,7 @@ exec dot -Tpdf >AxB.pdf <<[Statements::dot]
 
 assert {[llength [Statements::findMatches [list /someone/ claims the total label on /k/ is /l/]]] == 1}
 
-When the collected matches for [list unmatched statement] are /matches/ {
+Assert when the collected matches for [list unmatched statement] are /matches/ {
     set ::unmatchedStatementMatches $matches
 }
 Step
