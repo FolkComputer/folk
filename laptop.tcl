@@ -142,7 +142,9 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
             # temporarily unbind this program
             # (if it's a file, it'll still survive on disk when you restart the system)
             Retract "laptop.tcl" claims $program has program code /something/
-            Commit $program region {}
+            Evaluator::runInSerializedEnvironment {
+                Commit $program region {}
+            } {}
             StepFromGUI
         }
     }]
