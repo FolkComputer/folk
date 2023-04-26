@@ -54,6 +54,6 @@ proc On-process {name body} {
             Retract process $name has standard output log /something/
             namespace delete ::Processes::$name
         }
-        On unmatch [namespace code handleUnmatch]
+        uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
     }
 }

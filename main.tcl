@@ -56,7 +56,7 @@ proc When {args} {
     } else {
         set body [lindex $args end]
         set pattern [lreplace $args end end]
-        set environment [Evaluator::serializeEnvironment]
+        set environment [uplevel Evaluator::serializeEnvironment]
     }
     set wordsWillBeBound [list]
     set negate false
@@ -119,7 +119,7 @@ proc On {event args} {
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
-        Statements::matchAddDestructor $::matchId $body [Evaluator::serializeEnvironment]
+        Statements::matchAddDestructor $::matchId $body [uplevel Evaluator::serializeEnvironment]
 
     } else {
         error "Unknown On $event $args"
@@ -128,7 +128,7 @@ proc On {event args} {
 
 proc After {n unit body} {
     if {$unit eq "milliseconds"} {
-        set env [Evaluator::serializeEnvironment]
+        set env [uplevel Evaluator::serializeEnvironment]
         after $n [list apply {{body env} {
             Evaluator::tryRunInSerializedEnvironment $body $env
             Step
@@ -141,7 +141,7 @@ proc Commit {args} {
     set body [lindex $args end]
     set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
 
-    set code [list Evaluator::tryRunInSerializedEnvironment $body [Evaluator::serializeEnvironment]]
+    set code [list Evaluator::tryRunInSerializedEnvironment $body [uplevel Evaluator::serializeEnvironment]]
     Assert $key has program code $code
     if {[dict exists $::committed $key] && [dict get $::committed $key] ne $code} {
         Retract $key has program code [dict get $::committed $key]
@@ -157,8 +157,8 @@ namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
-    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
-        set env [uplevel {Evaluator::serializeEnvironment}]
+    if {[uplevel Evaluator::isRunningInSerializedEnvironment]} {
+        set env [uplevel Evaluator::serializeEnvironment]
     }
 
     incr ::stepCount
@@ -208,8 +208,8 @@ proc Step {} {
         }
     }
 
-    if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
-        Evaluator::deserializeEnvironment $env
+    if {[uplevel Evaluator::isRunningInSerializedEnvironment]} {
+        Evaluator::deserializeEnvironment $env [uplevel {namespace current}]
     }
 }
 
