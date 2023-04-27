@@ -1,0 +1,153 @@
+When the collected matches for [list /someone/ claims /something/ region /id/ data /data/] are /regionMatches/ {
+    set regionDataJsStrList {}
+    foreach match $regionMatches {
+        set m [dict get $match data]
+        # Convert tcl list to javascript array
+        lappend regionDataJsStrList "\[[string map {"{" "\[" "}" "\]" " " ", "} $m]\]"
+    }
+    set jsArrayString "\[[join $regionDataJsStrList ", "]\]"
+    Wish the web server handles route "/laser-regions-test" with handler [list Evaluator::tryRunInSerializedEnvironment {
+        html [string map [list REGION_DATA $jsArrayString] {
+        <html><head></head>
+        <body>
+          <div style="display: flex">
+            <span id="status">Status</span>
+            <button id="reset">Reset</button>
+            <button id="addRegion">Add Region</button>
+            <button id="reloadFrame">Reload frame</button>
+          </div>
+          <canvas id="canvas" width="1280" height="720"></canvas>
+          <h3>Regions</h3>
+          <ul id="regionsList">
+          </ul>
+          
+<script>
+const regionsData = REGION_DATA;
+const thisProgramId = "laser-regions-test.folk";
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+canvas.addEventListener("click", onClick, false);
+const resetButton = document.getElementById('reset');
+const regionList = document.getElementById('regionsList');
+const addRegionButton = document.getElementById('addRegion');
+const reloadFrameButton = document.getElementById('reloadFrame');
+var frameImage = new Image();
+var haveImage = false;
+let pendingRegion = [];
+let ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+
+function updateFrameImage() {
+    console.log("refreshing frame");
+    haveImage = false;
+    frameImage.onload = () => {
+        haveImage = true;
+        renderCanvas();
+    };
+    frameImage.onerror = () => {
+        haveImage = false;
+        renderCanvas();
+    }
+    frameImage.src = '/frame-image/';
+}
+updateFrameImage();
+
+function onClick(e) {
+    var element = canvas;
+    var offsetX = 0, offsetY = 0;
+    if (element.offsetParent) {
+      do {
+        offsetX += element.offsetLeft;
+        offsetY += element.offsetTop;
+      } while ((element = element.offsetParent));
+    }
+    const x = e.pageX - offsetX;
+    const y = e.pageY - offsetY;
+    if (pendingRegion.length < 4) {
+        pendingRegion.push([x, y]);
+        renderCanvas();
+    }
+}
+
+function renderCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (haveImage) {
+        ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+    } else {
+        ctx.fillStyle = 'rgba(0, 0, 255, 1)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    if (pendingRegion.length > 0) {
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.2)';
+        ctx.strokeStyle = 'rgba(255, 165, 0, 0.5)';
+        ctx.beginPath();
+        ctx.moveTo(pendingRegion[0][0], pendingRegion[0][1]);
+        for (let i = 1; i < pendingRegion.length; i++) {
+            ctx.lineTo(pendingRegion[i][0], pendingRegion[i][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        for (let i = 0; i < pendingRegion.length; i++) {
+            ctx.fillStyle = 'rgba(255, 165, 0, 0.7)';
+            ctx.beginPath();
+            ctx.arc(pendingRegion[i][0], pendingRegion[i][1], 5, 0, 2 * Math.PI);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+}
+
+const updateRegionsList = () => {
+    regionList.innerHTML = "";
+    regionsData.forEach((region) => {
+        const li = document.createElement('li');
+        li.innerText = JSON.stringify(region);
+        regionList.appendChild(li);
+    });
+};
+updateRegionsList();
+
+reloadFrameButton.onclick = () => {
+    updateFrameImage();
+};
+
+resetButton.onclick = () => {
+    pendingRegion = [];
+    renderCanvas();
+};
+
+addRegionButton.onclick = () => {
+    if (pendingRegion.length !== 4) { alert("only supporting 4 points regions for now"); return; }
+    regionsData.push(pendingRegion);
+    pendingRegion = [];
+    updateRegionsList();
+    renderCanvas();
+    let statement = `Retract web claims {${thisProgramId}} region /id/ data /data/;`;
+    regionsData.forEach((region, i) => {
+        const j = JSON.stringify(region).replaceAll("[", "{").replaceAll("]", "}").replaceAll(",", " ");
+        statement += `Assert web claims {${thisProgramId}} region {${i}} data ${j};`;
+    });
+    ws.send(statement);
+};
+
+ws.onopen = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
+};
+ws.onclose = window.onbeforeunload = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
+    // ws.send(`Retract web claims {${thisProgramId}} is /blah/`);
+};
+ws.onerror = (err) => {
+    document.getElementById('status').innerText = "Error";
+    console.error('Socket encountered error: ', err.message, 'Closing socket');
+    ws.close();
+}
+ws.onmessage = (msg) => {
+    console.log(msg.data);
+}
+</script>
+        </body>
+        </html>
+        }]
+  } [Evaluator::serializeEnvironment]]
+}

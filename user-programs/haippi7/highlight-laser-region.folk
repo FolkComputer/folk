@@ -1,0 +1,27 @@
+source "vendor/math/geometry.tcl"
+
+When /someone/ claims /something/ region /id/ data /regionData/ & \
+     laser blob /t/ has center /c/ size /s/ {
+    # Unnest {{0 0} {1 1}} into {0 0 1 1}
+    set unnestedRegionDataPoints $regionData
+    while {[set t [join $unnestedRegionDataPoints]] ne $unnestedRegionDataPoints} {set unnestedRegionDataPoints $t}
+    if {[::math::geometry::pointInsidePolygon $c $unnestedRegionDataPoints]} {
+        Claim laser blob $t inside region $id
+    }
+}
+
+When laser blob /something/ inside region /id/ & \
+     /someone/ claims /something/ region /id/ data /regionData/ {
+    set tl [::cameraToProjector [lindex $regionData 0]]
+    set tr [::cameraToProjector [lindex $regionData 1]]
+    set br [::cameraToProjector [lindex $regionData 2]]
+    set bl [::cameraToProjector [lindex $regionData 3]]
+    Display::stroke [list $tl $tr] 5 red
+    Display::stroke [list $tr $br] 5 red
+    Display::stroke [list $br $bl] 5 red
+    Display::stroke [list $bl $tl] 5 red
+}
+
+When laser blob /something/ inside region 1 {
+    Display::text fb 500 50 20 "Laser inside region 1!" 0
+}
