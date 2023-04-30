@@ -41,8 +41,8 @@ Server 22.04 LTS-minimal.
 7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
-9. Get AprilTags: `cd ~; git clone
-   https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
+9. Get AprilTags: `cd ~ && git clone
+   https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
 10. Add the systemd service so it starts on boot and can be managed
