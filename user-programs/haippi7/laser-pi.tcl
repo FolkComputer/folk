@@ -65,6 +65,7 @@ namespace eval Camera {
 
     variable cameraThread [thread::create [format {
         source pi/Camera.tcl
+        source vendor/blobdetect/blobdetect.tcl
         Camera::init %d %d
         puts "Camera tid: [getTid]"
 
@@ -78,7 +79,8 @@ namespace eval Camera {
             }
             set cameraTime [time {
                 set grayFrame [Camera::grayFrame]
-                set tags [LaserBlobTracker::detect $grayFrame]
+                set threshold 128
+                set tags [::BlobDetect::detect $grayFrame $threshold]
                 lappend grayFrames $grayFrame
             }]
             set statements [list]
