@@ -1,0 +1,11 @@
+When laser blob /something/ inside region 0 {
+    Wish spotify:album:3l7JWewI3ZByxaT5BCgRx2 would be played on spotify
+}
+
+When laser blob /something/ inside region 1 {
+    Wish spotify:track:0ZAdCDeysyoh5BOpuSGKy3 would be played on spotify
+}
+
+When laser blob /something/ inside region 2 {
+    Wish spotify:artist:65dGLGjkw3UbddUg2GKQoZ would be played on spotify
+}

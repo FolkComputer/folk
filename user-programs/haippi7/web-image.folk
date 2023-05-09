@@ -1,0 +1,96 @@
+set cc [c create]
+$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+
+# defineImageType $cc
+# for some reason defineImageType doesn't work here so we do it manually
+$cc code {
+    typedef struct {
+        uint32_t width;
+        uint32_t height;
+        int components;
+        uint32_t bytesPerRow;
+
+        uint8_t *data;
+    } image_t;
+}
+
+$cc argtype image_t {
+    image_t $argname; sscanf(Tcl_GetString($obj), "width %u height %u components %d bytesPerRow %u data 0x%p", &$argname.width, &$argname.height, &$argname.components, &$argname.bytesPerRow, &$argname.data);
+}
+$cc rtype image_t {
+    $robj = Tcl_ObjPrintf("width %u height %u components %d bytesPerRow %u data 0x%" PRIxPTR, $rvalue.width, $rvalue.height, $rvalue.components, $rvalue.bytesPerRow, (uintptr_t) $rvalue.data);
+}
+
+$cc include <stdlib.h>
+$cc include <string.h>
+$cc include <jpeglib.h>
+
+$cc code {
+    #include <jpeglib.h>
+    #include <stdint.h>
+    #include <unistd.h>
+
+    void 
+jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
+{
+  JSAMPARRAY image;
+  image = calloc(height, sizeof (JSAMPROW));
+  for (size_t i = 0; i < height; i++) {
+    image[i] = calloc(width * 3, sizeof (JSAMPLE));
+    for (size_t j = 0; j < width; j++) {
+      image[i][j * 3 + 0] = rgb[(i * width + j)];
+      image[i][j * 3 + 1] = rgb[(i * width + j)];
+      image[i][j * 3 + 2] = rgb[(i * width + j)];
+    }
+  }
+  
+  struct jpeg_compress_struct compress;
+  struct jpeg_error_mgr error;
+  compress.err = jpeg_std_error(&error);
+  jpeg_create_compress(&compress);
+  jpeg_stdio_dest(&compress, dest);
+  
+  compress.image_width = width;
+  compress.image_height = height;
+  compress.input_components = 3;
+  compress.in_color_space = JCS_RGB;
+  jpeg_set_defaults(&compress);
+  jpeg_set_quality(&compress, quality, TRUE);
+  jpeg_start_compress(&compress, TRUE);
+  jpeg_write_scanlines(&compress, image, height);
+  jpeg_finish_compress(&compress);
+  jpeg_destroy_compress(&compress);
+
+  for (size_t i = 0; i < height; i++) {
+    free(image[i]);
+  }
+  free(image);
+}
+
+}
+
+
+$cc proc saveTempImage {image_t im char* filename} void {
+	// write capture to jpeg
+    // char filename[100] = "web-image-test.jpg";
+    FILE* out = fopen(filename, "w");
+    jpeg(out, im.data, im.width, im.height, 100);
+    fclose(out);
+}
+c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+$cc compile
+
+When the camera frame is /im/ {
+  Wish the web server handles route "/frame-image/$" with handler [list Evaluator::tryRunInSerializedEnvironment {
+    # set width [dict get $im width]
+    # set height [dict get $im height]
+    set filename "/tmp/web-image-frame.jpg"
+    saveTempImage $im $filename
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+  } [Evaluator::serializeEnvironment]]
+}
