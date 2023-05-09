@@ -21,7 +21,7 @@ proc serializeEnvironment {} {
     set env
 }
 
-proc runInSerializedEnvironment {body env} {
+proc deserializeEnvironment {env} {
     dict for {name value} $env {
         if {[string index $name 0] eq "^"} {
             proc ::SerializableEnvironment::[string range $name 1 end] {*}$value
@@ -32,18 +32,42 @@ proc runInSerializedEnvironment {body env} {
             set ::SerializableEnvironment::$name $value
         }
     }
+}
+
+proc isRunningInSerializedEnvironment {} {
+    expr {[uplevel {namespace current}] eq "::SerializableEnvironment"}
+}
+
+set ::Evaluator::totalTimesMap [dict create]
+set ::Evaluator::runsMap [dict create]
+proc runInSerializedEnvironment {body env} {
+    dict incr ::Evaluator::runsMap $body
+    if {![dict exists $::Evaluator::totalTimesMap $body]} {
+        dict set ::Evaluator::totalTimesMap $body [dict create loadTime 0 runTime 0 unloadTime 0]
+    }
+    set loadTime_ [time {deserializeEnvironment $env}]
     try {
-        namespace eval ::SerializableEnvironment $body
+        set runTime_ [time {set ret [namespace eval ::SerializableEnvironment $body]}]
+        set ret
     } finally {
-        # Clean up:
-        foreach procName [info procs ::SerializableEnvironment::*] {
-            rename $procName ""
-        }
-        foreach name [info vars ::SerializableEnvironment::*] {
-            unset $name
-        }
-        namespace eval ::SerializableEnvironment {
-            namespace forget {*}[namespace import]
+        set unloadTime_ [time {
+            # Clean up:
+            foreach procName [info procs ::SerializableEnvironment::*] {
+                rename $procName ""
+            }
+            foreach name [info vars ::SerializableEnvironment::*] {
+                unset $name
+            }
+            namespace eval ::SerializableEnvironment {
+                namespace forget {*}[namespace import]
+            }
+        }]
+        dict with ::Evaluator::totalTimesMap $body {
+            incr loadTime [string map {" microseconds per iteration" ""} $loadTime_]
+            if {[info exists runTime_]} {
+                incr runTime [string map {" microseconds per iteration" ""} $runTime_]
+            }
+            incr unloadTime [string map {" microseconds per iteration" ""} $unloadTime_]
         }
     }
 }

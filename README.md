@@ -41,8 +41,8 @@ Server 22.04 LTS-minimal.
 7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
-9. Get AprilTags: `cd ~; git clone
-   https://github.com/AprilRobotics/apriltag.git; cd apriltag; make`
+9. Get AprilTags: `cd ~ && git clone
+   https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
 10. Add the systemd service so it starts on boot and can be managed
@@ -323,11 +323,30 @@ if the claim that the `When` was matching is revoked. (so if Omar stops
 being cool, the downstream label `Omar seems pretty cool` will go away
 automatically)
 
-The `/actor/` in the `When` binds the
-variable `actor` to whatever is at that position in the
-statement.
+The `/actor/` in the `When` binds the variable `actor` to whatever is
+at that position in the statement.
 
 It's like variables in Datalog, or parentheses in regular expressions.
+
+#### Non-capturing
+
+`/someone/`, `/something/`, `/anyone/`, `/anything/` are special cases
+if you want a wildcard that _does not bind_ (you don't care about the
+value, like non-capturing groups `(?:)` in regex), so you don't get access
+to `$someone` or `$something` inside the When.
+
+#### Negation
+
+`/nobody/`, `/nothing/` invert the polarity of the match, so it'll run
+only when no statements exist that it would match.
+
+This When will stop labelling if someone does `Claim Omar is cool`:
+
+```
+When /nobody/ is cool {
+   Wish $this is labelled "nobody is cool"
+}
+```
 
 #### `&` joins
 
@@ -379,12 +398,12 @@ around until you do another `Commit`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Commit { Claim there is a ball at x 100 y 100 }
+Commit { Claim $this has a ball at x 100 y 100 }
 
-When there is a ball at x /x/ y /y/ {
+When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Commit { Claim there is a ball at x $x y [expr {$y+1}] }
+        Commit { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
@@ -392,6 +411,12 @@ When there is a ball at x /x/ y /y/ {
 
 `Commit` will overwrite all statements made by the previous `Commit`
 (scoped to the current `$this`).
+
+**Notice that you should scope your claim: it's `$this has a ball`, not `there
+is a ball`, so different programs with different values of `$this`
+will not stomp over each other.** Not scoping your claims will bite
+you once you print your program and have both virtual & printed
+instances of your program running.
 
 If you want multiple state atoms, you can also provide a key -- you
 can be like
@@ -418,16 +443,16 @@ handle 'events' without causing a reaction cascade.
 Example:
 
 ```
-Commit { Claim there have been 0 boops }
+Commit { Claim $this has seen 0 boops }
 
-Every time there is a boop & there have been /n/ boops {
-  Commit { Claim there have been [expr {$n + 1}] boops }
+Every time there is a boop & $this has seen /n/ boops {
+  Commit { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
 If you had used `When` here, it wouldn't terminate, since the new
-`there have been n+1 boops` commit would cause the `When` to retrigger,
-resulting in a `there have been n+2 boops` commit, then another
+`$this has seen n+1 boops` commit would cause the `When` to retrigger,
+resulting in a `$this has seen n+2 boops` commit, then another
 retrigger, and so on.
 
 `Every time`, in contrast, will 'only react once' to the boop; nothing

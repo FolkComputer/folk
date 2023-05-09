@@ -5,24 +5,7 @@ set ::processPrelude {
         after $ms [list after idle [namespace code [info level 0]]]
     }
 
-    Assert $::nodename wishes $::nodename shares all statements
-
-    # proc Claim {args} { lappend ::commit [list $::nodename claims {*}$args] }
-    # proc Wish {args} { lappend ::commit [list $::nodename wishes {*}$args] }
-    # set ::commitKeyToStatements [dict create]
-    # proc Commit {args} {
-    #     set key [lreplace $args end end]
-    #     set body [lindex $args end]
-
-    #     # A commit runs with respect to a particular $this.
-    #     if {[dict exists $::commitKeyToStatements $key]} {
-    #         set prevCommit [dict get $::commitKeyToStatements $key]
-    #     } else {
-    #         set prevCommit [list]
-    #     }
-    #     set ::commit [list]
-    #     eval $body
-    # }
+    Assert $::nodename wishes $::nodename shares all claims
 
     source "lib/peer.tcl"
     peer "localhost"
@@ -36,6 +19,7 @@ proc On-process {name body} {
     set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
+        set body [list Evaluator::runInSerializedEnvironment $body [list]]
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 
         # TODO: send it the serialized environment
