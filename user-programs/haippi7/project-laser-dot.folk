@@ -1,0 +1,4 @@
+When laser blob /t/ has center /c/ size /s/ {
+    lassign [::cameraToProjector $c] cx cy
+    Display::text device $cx $cy 12 "Laser blob" 0
+}

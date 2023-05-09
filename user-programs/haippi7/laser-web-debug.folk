@@ -1,0 +1,77 @@
+When the collected matches for [list laser blob /t/ has center /c/ size /s/] are /matches/ {
+  Wish the web server handles route "/laser-web-debug" with handler [list Evaluator::tryRunInSerializedEnvironment {
+    set blobsHtml "<ol>"
+    set blobsJson ""
+    foreach match $matches {
+      append blobsHtml "<li><strong>[dict get $match t]</strong>: [dict get $match c]</li>"
+      append blobsJson "{\"id\": [dict get $match t], \"x\": [lindex [dict get $match c] 0], \"y\": [lindex [dict get $match c] 1]},"
+    }
+    append blobsHtml "</ol>"
+    append blobsJson ""
+    html [string map [list MY_BLOBS_HTML $blobsHtml MY_BLOBS_JSON $blobsJson] {
+
+<html>
+        <head>
+        <style>
+        body { overflow: hidden; }
+        </style>
+        </head>
+        <body>
+        <canvas id="canvas" width="1280" height="720"></canvas>  
+        MY_BLOBS_HTML
+
+        <script>
+        var blobData = [MY_BLOBS_JSON];
+// from https://github.com/processing/p5.js/blob/main/src/image/filters.js
+  function thresholdFilter(pixels, level) {
+    if (level === undefined) {
+      level = 0.5;
+    }
+    const thresh = Math.floor(level * 255);
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      // const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const gray = r;
+      let val;
+      if (gray >= thresh) {
+        val = 255;
+      } else {
+        val = 0;
+      }
+      pixels[i] = pixels[i + 1] = pixels[i + 2] = val;
+    }
+  }
+
+function preprocessImage(ctx, canvas) {
+  const processedImageData = ctx.getImageData(0,0,canvas.width, canvas.height);
+  thresholdFilter(processedImageData.data, level=0.5);
+  return processedImageData;
+  }
+
+function Test1() {
+    var canvas = document.getElementById('canvas');
+    if (canvas.getContext) {
+        ctx = canvas.getContext('2d');
+        var img1 = new Image();
+        img1.onload = function () {
+            ctx.drawImage(img1, 0, 0);
+            ctx.putImageData(preprocessImage(ctx, canvas), 0, 0);
+            blobData.forEach((d) => {
+                ctx.fillStyle = "rgba(200, 0, 0, 0.5)";
+                const halfSize = 20;
+                ctx.fillRect(d.x - halfSize, d.y - halfSize, halfSize*2, halfSize*2);
+            });
+        };
+        img1.src = '/frame-image/';
+    }
+}
+Test1();
+</script>
+        </body>
+        </html>
+
+    }]
+  } [Evaluator::serializeEnvironment]]
+}
