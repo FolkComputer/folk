@@ -124,7 +124,7 @@ namespace eval ::BlobDetect {
 
     apc proc detect {image_t gray int threshold} Tcl_Obj* {
         assert(gray.components == 1);
-        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.width, .buf = gray.data };
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
         zarray_t *detections = blob_detector_detect(&im, threshold);
         int detectionCount = zarray_size(detections);
