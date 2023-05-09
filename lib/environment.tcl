@@ -44,6 +44,7 @@ proc isRunningInSerializedEnvironment {} {
 set ::Evaluator::totalTimesMap [dict create]
 set ::Evaluator::runsMap [dict create]
 set ::Evaluator::nextRunId 0
+
 proc runInSerializedEnvironment {body env} {
     dict incr ::Evaluator::runsMap $body
     if {![dict exists $::Evaluator::totalTimesMap $body]} {

@@ -39,7 +39,7 @@ namespace eval ctrie {
 
     $cc proc create {} trie_t* {
         size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
-        trie_t* ret = ckalloc(size); memset(ret, 0, size);
+        trie_t* ret = (trie_t *) ckalloc(size); memset(ret, 0, size);
         *ret = (trie_t) {
             .key = NULL,
             .value = 0,
@@ -88,12 +88,12 @@ namespace eval ctrie {
             if (j == (*trie)->nbranches) {
                 // we're out of room, need to grow trie
                 (*trie)->nbranches *= 2;
-                *trie = ckrealloc(*trie, sizeof(trie_t) + (*trie)->nbranches*sizeof(trie_t*));
+                *trie = (trie_t *) ckrealloc((char *) *trie, sizeof(trie_t) + (*trie)->nbranches*sizeof(trie_t*));
                 memset(&(*trie)->branches[j], 0, ((*trie)->nbranches/2)*sizeof(trie_t*));
             }
 
             size_t size = sizeof(trie_t) + 10*sizeof(trie_t*);
-            trie_t* branch = ckalloc(size); memset(branch, 0, size);
+            trie_t* branch = (trie_t *) ckalloc(size); memset(branch, 0, size);
             branch->key = word;
             Tcl_IncrRefCount(branch->key);
             branch->value = 0;
@@ -128,7 +128,7 @@ namespace eval ctrie {
                 strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(word)) == 0) {
                 if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
                     Tcl_DecrRefCount(trie->branches[j]->key);
-                    ckfree(trie->branches[j]);
+                    ckfree((char *) trie->branches[j]);
                     trie->branches[j] = NULL;
                     if (j == 0 && trie->branches[1] == NULL) {
                         return 1;

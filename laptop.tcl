@@ -216,8 +216,8 @@ if {[info exists ::shareNode]} {
     if {[catch {
         # TODO: forward entry point
         # TODO: handle rsync strict host key failure
-        exec make sync FOLK_SHARE_NODE=$::shareNode
-        exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
+        exec -ignorestderr make sync FOLK_SHARE_NODE=$::shareNode
+        exec -ignorestderr ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
     } err]} {
         puts "error syncing: $err"
         puts "Proceeding without sharing to table."

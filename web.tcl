@@ -7,93 +7,97 @@ proc handleConnect {chan addr port} {
 
 proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
 
+proc readFile {filename contentTypeVar} {
+    upvar $contentTypeVar contentType
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set response [read $fd]; close $fd; return $response
+}
+
+proc readPdf {dotCmd contentTypeVar} {
+    upvar $contentTypeVar contentType
+    set contentType "application/pdf"
+    set fd [open |[list dot -Tpdf <<$dotCmd] r]
+    fconfigure $fd -encoding binary -translation binary
+    set response [read $fd]; close $fd; return $response
+}
+
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
-    if {$path eq "/"} {
-        set l [list]
-        dict for {id stmt} [Statements::all] {
-            lappend l [subst {
-                <li>
-                <details>
-                <summary>$id: [htmlEscape [statement short $stmt]]</summary>
-                <pre>[htmlEscape [statement clause $stmt]]</pre>
-                </details>
-                </li>
+    switch -exact -- $path {
+        "/" {
+            set l [list]
+            dict for {id stmt} [Statements::all] {
+                lappend l [subst {
+                    <li>
+                    <details>
+                    <summary>$id: [htmlEscape [statement short $stmt]]</summary>
+                    <pre>[htmlEscape [statement clause $stmt]]</pre>
+                    </details>
+                    </li>
+                }]
+            }
+            return [subst {
+                <html>
+                <ul>
+                <li><a href="/new">New program</a></li>   
+                <li><a href="/timings">Timings</a></li>
+                <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
+                <li><a href="/statements.pdf">statements graph</a></li>
+                </ul>
+                <ul>[join $l "\n"]</ul>
+                </html>
             }]
         }
-        return [subst {
-            <html>
-            <ul>
-            <li><a href="/new">New program</a></li>   
-            <li><a href="/timings">Timings</a></li>
-            <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
-            <li><a href="/statements.pdf">statements graph</a></li>
-            </ul>
-            <ul>[join $l "\n"]</ul>
-            </html>
-        }]
-    } elseif {$path eq "/timings"} {
-        set totalTimes [list]
-        dict for {body totalTime} $Evaluator::totalTimesMap {
-            dict with totalTime {
-                lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
+        "/timings" {
+            set totalTimes [list]
+            dict for {body totalTime} $Evaluator::totalTimesMap {
+                dict with totalTime {
+                    lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
+                }
+            }
+            set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+
+            set l [list]
+            foreach {body totalTime} $totalTimes {
+                set runs [dict get $Evaluator::runsMap $body]
+                lappend l [subst {
+                    <li>
+                    <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                    </li>
+                }]
+            }
+            return [subst {
+                <html>
+                <h1>Timings</h1>
+                <ul>[join $l "\n"]</ul>
+                </html>
+            }]
+        }
+        "/favicon.ico" {
+            set contentType "image/x-icon"
+            return [readFile "assets/favicon.ico" contentType]
+        }
+        "/statementClauseToId.pdf" {
+            return [readPdf [trie dot $Statements::statementClauseToId] contentType]
+        }
+        "/statements.pdf" {
+            return [readPdf [Statements::dot] contentType]
+        }
+        "/statementPatternToReactions.pdf" {
+            return [readPdf [trie dot $Evaluator::statementPatternToReactions] contentType]
+        }
+        default {
+            subst {
+                <html>
+                <b>$path</b>
+                </html>
             }
         }
-        set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
-
-        set l [list]
-        foreach {body totalTime} $totalTimes {
-            set runs [dict get $Evaluator::runsMap $body]
-            lappend l [subst {
-                <li>
-                <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
-                </li>
-            }]
-        }
-        return [subst {
-            <html>
-            <h1>Timings</h1>
-            <ul>[join $l "\n"]</ul>
-            </html>
-        }]
-    } elseif {$path eq "/favicon.ico"} {
-        set contentType "image/x-icon"
-        set fd [open "../favicon.ico" r]
-        fconfigure $fd -encoding binary -translation binary
-        set response [read $fd]; close $fd; return $response
-
-    } elseif {$path eq "/statementClauseToId.pdf"} {
-        set contentType "application/pdf"
-        set fd [open |[list dot -Tpdf <<[trie dot $Statements::statementClauseToId]] r]
-        fconfigure $fd -encoding binary -translation binary
-        set response [read $fd]; close $fd; return $response
-    } elseif {$path eq "/statements.pdf"} {
-        set contentType "application/pdf"
-        set fd [open |[list dot -Tpdf <<[Statements::dot]] r]
-        fconfigure $fd -encoding binary -translation binary
-        set response [read $fd]; close $fd; return $response
-    } elseif {$path eq "/statementPatternToReactions.pdf"} {
-        set contentType "application/pdf"
-        set fd [open |[list dot -Tpdf <<[trie dot $Evaluator::statementPatternToReactions]] r]
-        fconfigure $fd -encoding binary -translation binary
-        set response [read $fd]; close $fd; return $response
-    } elseif {[regexp -all {/page/(\d*).pdf$}  $path whole_match pageNumber]} {
-        set fp [open "/home/folk/folk-printed-programs/$pageNumber.pdf" r]
-        fconfigure $fp -encoding binary -translation binary
-        set file_data [read $fp]
-        puts "found $pageNumber.pdf ...."
-        close $fp
-        set contentType "application/pdf"
-        return $file_data
-    }
-
-    subst {
-        <html>
-        <b>$path</b>
-        </html>
     }
 }
+
 
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf

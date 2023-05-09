@@ -130,7 +130,7 @@ namespace eval statement {
                 // statement. Allocate an indirect block with more
                 // slots.
                 size_t capacity_edges = sizeof(stmt->edges)/sizeof(stmt->edges[0]);
-                statement_indirect_t* indirect = ckalloc(sizeof(statement_indirect_t) + capacity_edges*sizeof(edge_to_match_t));
+                statement_indirect_t* indirect = (statement_indirect_t*)ckalloc(sizeof(statement_indirect_t) + capacity_edges*sizeof(edge_to_match_t));
                 memset(indirect, 0, sizeof(statement_indirect_t) + capacity_edges*sizeof(edge_to_match_t));
                 indirect->capacity_edges = capacity_edges;
 
@@ -153,7 +153,7 @@ namespace eval statement {
                 // printf("Growing indirect for %p (%zu -> %zu)\n", stmt,
                 //       stmt->indirect->capacity_edges, new_capacity_edges);
 
-                stmt->indirect = ckrealloc(stmt->indirect,
+                stmt->indirect = (statement_indirect_t*)ckrealloc((char *)stmt->indirect,
                                            sizeof(*stmt->indirect) + new_capacity_edges*sizeof(edge_to_match_t));
                 memset(stmt->indirect, 0, sizeof(statement_indirect_t) + stmt->indirect->capacity_edges*sizeof(edge_to_match_t));
                 stmt->indirect->capacity_edges = new_capacity_edges;
@@ -364,7 +364,7 @@ namespace eval Statements { ;# singleton Statement store
 
         int32_t gen = stmt->gen;
         Tcl_Obj* clause = stmt->clause;
-        if (stmt->indirect != NULL) ckfree(stmt->indirect);
+        if (stmt->indirect != NULL) ckfree((char *)stmt->indirect);
         memset(stmt, 0, sizeof(*stmt));
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
@@ -494,7 +494,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_ListObjGetElements(NULL, b, &blen, &bwords);
         if (alen != blen) { return NULL; }
 
-        environment_t* env = ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
+        environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
         memset(env, 0, sizeof(*env));
         for (int i = 0; i < alen; i++) {
             char aVarName[100] = {0}; char bVarName[100] = {0};
@@ -508,7 +508,7 @@ namespace eval Statements { ;# singleton Statement store
                 binding->value = awords[i];
             } else if (!(awords[i] == bwords[i] ||
                          strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
-                ckfree(env);
+                ckfree((char *)env);
                 return NULL;
             }
         }
@@ -541,7 +541,7 @@ namespace eval Statements { ;# singleton Statement store
             statement_handle_t id = results[i]->matchedStatementIds[0];
             Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
             Tcl_ListObjAppendElement(NULL, ret, matchObj);
-            ckfree(results[i]);
+            ckfree((char *)results[i]);
         }
         return ret;
     }
@@ -594,7 +594,7 @@ namespace eval Statements { ;# singleton Statement store
                                  result,
                                  maxResultsCount - 1, outResults,
                                  outResultsCount);
-                ckfree(result);
+                ckfree((char *)result);
             }
         }
     }
@@ -604,7 +604,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_ListObjGetElements(NULL, patterns, &patternsCount, &patternsObjs);
         int resultsCount = 0;
 
-        environment_t* env = ckalloc(sizeof(environment_t) + 10*sizeof(environment_binding_t));
+        environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + 10*sizeof(environment_binding_t));
         memset(env, 0, sizeof(*env));
         Tcl_DictSearch search;
         Tcl_Obj *key, *value;
@@ -623,13 +623,13 @@ namespace eval Statements { ;# singleton Statement store
         searchByPatterns(patternsCount, patternsObjs,
                          env,
                          1000, results, &resultsCount);
-        ckfree(env);
+        ckfree((char *)env);
 
         Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
         for (int i = 0; i < resultsCount; i++) {
             // TODO: Emit __matcheeIds properly based on results[i]
             Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
-            ckfree(results[i]);
+            ckfree((char *)results[i]);
         }
         return ret;
     }
@@ -722,7 +722,7 @@ namespace eval Evaluator {
         } reaction_t;
 
         void addReaction(Tcl_Obj* reactToPattern, statement_handle_t reactingId, reaction_fn_t react) {
-            reaction_t *reaction = ckalloc(sizeof(reaction_t));
+            reaction_t *reaction = (reaction_t*)ckalloc(sizeof(reaction_t));
             reaction->react = react;
             reaction->reactingId = reactingId;
             Tcl_IncrRefCount(reactToPattern);
@@ -788,7 +788,7 @@ namespace eval Evaluator {
                 Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
                 // Merge env into bindings (weakly)
-                Tcl_Obj *bindings = environmentToTclDict(result); ckfree(result);
+                Tcl_Obj *bindings = environmentToTclDict(result); ckfree((char *)result);
                 Tcl_DictSearch search;
                 Tcl_Obj *key, *value;
                 int done;
@@ -1079,7 +1079,7 @@ namespace eval Evaluator {
                     statement_handle_t id = results[i]->matchedStatementIds[0];
                     reactToStatementRemoval(interp, id);
                     remove_(id);
-                    ckfree(results[i]);
+                    ckfree((char *)results[i]);
                 }
 
             } else if (entry.op == SAY) {

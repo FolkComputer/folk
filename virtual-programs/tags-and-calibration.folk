@@ -71,7 +71,7 @@ proc ::projectorToCamera {projectorPoint} {
 }
 # Wish $this is highlighted white
 
-When tag /tag/ has center /c/ size /size/ {
+Say when tag /tag/ has center /c/ size /size/ {
      Claim tag $tag is a tag
 
      lassign [::cameraToProjector $c] px py
@@ -90,9 +90,9 @@ When tag /tag/ is a tag {
 }
 
 
-When tag /tag/ has corners /corners/ {
+Say when tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {::cameraToProjector $p}]
-	foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
+	# foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
 	set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
 	set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
 
