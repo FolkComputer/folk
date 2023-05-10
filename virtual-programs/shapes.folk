@@ -95,9 +95,14 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
     square {
       shape 4 $x $y $adjustedWidth $color $filled
     }
-    # TODO: cwervo - fix magic numbers here
+    hexagon {
+      shape 6 $x $y $adjustedWidth $color $filled
+    }
+    octagon {
+      shape 8 $x $y $adjustedWidth $color $filled
+    }
     circle {
-      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color $filled
+      shape 30 $x $y [expr {$adjustedWidth * 0.1}] $color $filled
     }
     default {
       shape 5 $x $y $adjustedWidth $color $filled
