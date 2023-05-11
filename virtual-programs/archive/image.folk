@@ -19,14 +19,12 @@ namespace eval ::image {
 	namespace ensemble create
 }
 
-When the camera frame is /f/ {
-	When $this has region /r/ {
-		lassign [projectorToCamera [lindex $r 0 0]] x0 y0
-		lassign [projectorToCamera [lindex $r 0 2]] x1 y1
-		set thisimage [image subimage $f \
-			[expr {min($x0,$x1)}] [expr {min($y0,$y1)}] \
-			[expr {int(abs($x1-$x0))}] [expr {int(abs($y1-$y0))}]]
-		Wish display runs [list Display::image {*}[lindex $r 0 0] $thisimage]
-	}
+When the camera frame is /f/ & $this has region /r/ {
+	lassign [projectorToCamera [lindex $r 0 0]] x0 y0
+	lassign [projectorToCamera [lindex $r 0 2]] x1 y1
+	set thisimage [image subimage $f \
+		[expr {min($x0,$x1)}] [expr {min($y0,$y1)}] \
+		[expr {int(abs($x1-$x0))}] [expr {int(abs($y1-$y0))}]]
+	Wish display runs [list Display::image {*}[lindex $r 0 0] $thisimage]
 }
 Wish $this is outlined red
