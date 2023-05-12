@@ -1,5 +1,50 @@
 Wish $this has filename "editor.folk"
 
+Wish $this has top dock
+
+proc polyline {points {strokeWeight 5} {color white} args} {
+  set i 0
+  set pointsLength [llength $points]
+  set PL_less_one [expr {$pointsLength - 1}]
+  while {$i < $pointsLength} {
+      if {$i eq $PL_less_one} { return }
+      set current [lindex $points $i]
+      incr i
+      set next [lindex $points $i]
+      Display::stroke [list $current $next] $strokeWeight $color
+  }
+}
+
+proc subtractBy50 {coords} {
+  list [lindex $coords 0] [expr {[lindex $coords 1] - 50}]
+}
+
+When /thing/ wishes /page/ has /position/ dock & /page/ has region /r/ & /p2/ has region /r2/ {
+     if {$page eq $p2} { return }
+     lassign [lindex $r 0] a b c d
+     lassign $a x y
+     polyline [list $a $b [subtractBy50 $b] [subtractBy50 $a] $a] 8 green
+     set bMinX [expr {$x}]
+     set bMinY [expr {$y - 50}]
+     set bMaxX [lindex $b 0]
+     set bMaxY [lindex $b 1]
+     lassign [regionToBbox $r2] b2MinX b2MinY b2MaxX b2MaxY
+     
+     set hasIntersections [rectanglesOverlap [list $bMinX $bMinY] \
+                 [list $bMaxX $bMaxY]\
+                 [list $b2MinX $b2MinY]\
+                 [list $b2MaxX $b2MaxY]\
+     false ]
+     if {$hasIntersections} {
+       Claim $p2 has docked program $p2
+     }
+}
+
+When /page/ has docked program /d/ & /d/ has program code /c/ {
+  Wish $page is outlined white
+  Wish $this is labelled $c
+}
+
 Commit cursor { Claim $this has a cursor [list 0 0]}
 Commit lastKey { Claim $this has a program [list] }
 
@@ -27,24 +72,15 @@ Every time the keyboard character log is /k/ & $this has a program /p/ {
     set CTRLSPressed [isControlWithChar $currentKey $lastKey "s"]
     set CTRLRPressed [isControlWithChar $currentKey $lastKey "r"]
 
-    Wish $this is labelled "CMD + S: $CMDSPressed"
-    Wish $this is labelled "CMD + R: $CMDRPressed"
-    Wish $this is labelled "CTRL + S: $CTRLSPressed"
-    Wish $this is labelled "CTRL + R: $CTRLRPressed"
+    # Wish $this is labelled "CMD + S: $CMDSPressed"
+    # Wish $this is labelled "CMD + R: $CMDRPressed"
+    # Wish $this is labelled "CTRL + S: $CTRLSPressed"
+    # Wish $this is labelled "CTRL + R: $CTRLRPressed"
     Wish $this is labelled "$currentKey | $lastKey"
   }
 }
 
-When /someone/ has a program /p/ & /someone/ has a last key /lk/ {
-  set currentKey [lindex $p end]
-  Wish $this is labelled "CMD + S: [isCommandWithChar $currentKey $lk "s"]"
-  Wish $this is labelled "CMD + R: [isCommandWithChar $currentKey $lk "r"]"
-}
-
-
-
 Wish $this has neighbors
-
 proc x {v} { lindex $v 0 }
 proc y {v} { lindex $v 1 }
 
