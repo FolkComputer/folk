@@ -21,7 +21,7 @@ namespace eval Display {
     }
 
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color]]
+        uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color -width $width]]
     }
 
     proc text {fb x y fontSize text {radians 0}} {
