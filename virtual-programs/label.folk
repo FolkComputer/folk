@@ -25,7 +25,7 @@ When /thing/ has region /region/ {
 }
 
 proc text {coords text angle} {
-  Display::text Display::fb [lindex $coords 0] [lindex $coords 1] _ $text $angle
+  Display::text Display::fb [lindex $coords 0] [lindex $coords 1] 32 $text $angle
 }
 
 When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {

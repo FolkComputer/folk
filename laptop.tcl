@@ -25,6 +25,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text {radians 0}} {
+        # TODO: @cwervo - implement font rotation
         uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
     }
 

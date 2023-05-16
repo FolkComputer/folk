@@ -260,6 +260,16 @@ namespace eval Display {
     proc fillTriangle {p0 p1 p2 color} {
         fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [getColor $color]
     }
+
+    proc quad {p0 p1 p2 p3 color {filled false}} {
+        if {$filled} {
+            fillTriangle $p0 $p1 $p2 $color
+            fillTriangle $p0 $p2 $p3 $color
+        } else {
+            stroke [list $p0 $p1 $p2 $p3 $p0] 1 $color
+        }
+    }
+
     proc stroke {points width color} {
         for {set i 0} {$i < [llength $points]} {incr i} {
             set a [lindex $points $i]
@@ -308,9 +318,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     for {set i 0} {$i < 5} {incr i} {
         fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
-        # fillRectangle 400 400 410 410 $Display::red ;# t0
-        # fillRectangle 500 500 510 510 $Display::red ;# t1
-        # fillRectangle 400 600 410 610 $Display::red ;# t2
         
         drawText 309 400 "B" 0
         drawText 318 400 "O" 0
