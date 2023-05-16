@@ -1,7 +1,8 @@
 Wish $this has filename "editor.folk"
 
 Wish $this has top dock
-
+proc x {v} { lindex $v 0 }
+proc y {v} { lindex $v 1 }
 proc subtractBy50 {coords} {
   list [lindex $coords 0] [expr {[lindex $coords 1] - 50}]
 }
@@ -27,9 +28,33 @@ When /thing/ wishes /page/ has /position/ dock & /page/ has region /r/ & /p2/ ha
      }
 }
 
-When /page/ has docked program /d/ & /d/ has program code /c/ {
+proc blinkingCursor {count} {
+  expr {$count % 16 == 0 ? "_" : " "}
+}
+
+proc insertCursor {code cursor count} {
+  set lines [split $code "\n"]
+  return [lindex $lines 0]
+
+
+  lassign $cursor x y
+  # Get the current line
+  set line [lindex $lines $y]
+  return [lindex $lines 0]
+  # Replace the character at position x with the new character
+  set character [string cat [lindex $line $x] [blinkingCursor $count]]
+  set line [string replace $line $x $x $character]
+
+  # Put the modified line back in the array
+  lset lines $y $line
+
+  # Return the modified lines
+  return $lines
+}
+
+When /page/ has docked program /d/ & /d/ has program code /code/ & /node/ has step count /count/ & $this has a cursor /cursor/ {
   Wish $page is outlined white
-  Wish $this is labelled $c
+  Wish $this is labelled [insertCursor $code $cursor $count]
 }
 
 Commit cursor { Claim $this has a cursor [list 0 0]}
@@ -47,29 +72,33 @@ proc isControlWithChar {currentKey lastKey matchChar} {
   expr {$isS && $isMeta}
 }
 
-Every time the keyboard character log is /k/ & $this has a program /p/ {
-  Wish $this is labelled "p: $p"
+Every time the keyboard character log is /k/ & $this has a program /p/ & $this has a cursor /c/ {
+  set currentKey [lindex $p end]
+  set lastKey [lindex $p end-1]
   Commit lastKey {
     Claim $this has a last key [lindex $p end]
     Claim $this has a program [list {*}$p [lindex $k end]]
-    set currentKey [lindex $p end]
-    set lastKey [lindex $p end-1]
     set CMDRPressed [isCommandWithChar $currentKey $lastKey "r"]
     set CMDSPressed [isCommandWithChar $currentKey $lastKey "s"]
     set CTRLSPressed [isControlWithChar $currentKey $lastKey "s"]
     set CTRLRPressed [isControlWithChar $currentKey $lastKey "r"]
-
-    # Wish $this is labelled "CMD + S: $CMDSPressed"
-    # Wish $this is labelled "CMD + R: $CMDRPressed"
-    # Wish $this is labelled "CTRL + S: $CTRLSPressed"
-    # Wish $this is labelled "CTRL + R: $CTRLRPressed"
-    Wish $this is labelled "$currentKey | $lastKey"
+    # Wish $this is labelled "$currentKey | $lastKey"
+  }
+  Commit cursor {
+switch $currentKey {
+       up { Claim $this has a cursor [list [x $c] [expr {[y $c] - 1}]] }
+       down { Claim $this has a cursor [list [x $c] [expr {[y $c] + 1}]] }
+       right { Claim $this has a cursor [list [expr {[x $c] + 1}] [y $c]] }
+       left { Claim $this has a cursor [list [expr {[x $c] - 1}] [y $c]] }
+       
+       default {
+          # enter text into the program variable
+       }
+    }
   }
 }
 
 Wish $this has neighbors
-proc x {v} { lindex $v 0 }
-proc y {v} { lindex $v 1 }
 
 When $this has neighbor /n/ & $this has region /r/ {
   set above [list]
@@ -81,9 +110,13 @@ When $this has neighbor /n/ & $this has region /r/ {
     set isAbove [expr {[y $a] < [y $mA]}]
     set notVirtual [expr {![string match "virtual-programs*" $n] & ![string match "web-program*" $n]}]
     if {$isAbove && $notVirtual} {
-      Wish $this is labelled "$n: [expr {[y $mA] - [y $a]}]"
+      # Wish $this is labelled "$n: [expr {[y $mA] - [y $a]}]"
     }
   }
+}
+
+When $this has a cursor /c/ {
+  Wish $this is labelled "cursor: ---- $c"
 }
 
 Wish $this is outlined blue
