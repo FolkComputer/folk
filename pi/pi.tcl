@@ -29,6 +29,14 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
     }
 
+    proc fillTriangle args {
+        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
+    }
+
+    proc fillQuad args {
+        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
+    }
+
     variable displayTime none
     proc commit {} {
         set displayList [list]

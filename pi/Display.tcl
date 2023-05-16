@@ -261,13 +261,9 @@ namespace eval Display {
         fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [getColor $color]
     }
 
-    proc quad {p0 p1 p2 p3 color {filled false}} {
-        if {$filled} {
-            fillTriangle $p0 $p1 $p2 $color
-            fillTriangle $p0 $p2 $p3 $color
-        } else {
-            stroke [list $p0 $p1 $p2 $p3 $p0] 1 $color
-        }
+    proc fillQuad {p0 p1 p2 p3 color} {
+      fillTriangle $p1 $p2 $p3 color
+      fillTriangle $p0 $p1 $p3 color
     }
 
     proc stroke {points width color} {
