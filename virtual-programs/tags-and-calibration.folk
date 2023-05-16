@@ -28,21 +28,24 @@ $cc proc deserializeDenseCorrespondence {} void {
   fread(&dense->height, sizeof(uint32_t), 1, in);
   dense->rowCorr = calloc(dense->width*dense->height, sizeof(uint16_t));
   dense->columnCorr = calloc(dense->width*dense->height, sizeof(uint16_t));
-  fread(dense->rowCorr, sizeof(uint16_t), dense->width*dense->height, in);
   fread(dense->columnCorr, sizeof(uint16_t), dense->width*dense->height, in); 
+  fread(dense->rowCorr, sizeof(uint16_t), dense->width*dense->height, in);
 }
-$cc proc ::cameraToProjector {Tcl_Obj* cameraPoint} Tcl_Obj* {
+$cc proc ::cameraToProjector {Tcl_Obj* cameraPoint} Tcl_Obj* [csubst {
     int cameraPointLength; Tcl_Obj** cameraPointValues;
     Tcl_ListObjGetElements(NULL, cameraPoint, &cameraPointLength, &cameraPointValues);
     double cx; Tcl_GetDoubleFromObj(NULL, cameraPointValues[0], &cx);
     double cy; Tcl_GetDoubleFromObj(NULL, cameraPointValues[1], &cy);
 
-    int i = (int)cy * dense->width + (int)cx;
+    double dcx = cx/$Camera::WIDTH * dense->width;
+    double dcy = cy/$Camera::HEIGHT * dense->height;
+    
+    int i = (int)dcy*dense->width + (int)dcx;
     int Hx = dense->columnCorr[i];
     int Hy = dense->rowCorr[i];
     Tcl_Obj* projectorPointValues[] = {Tcl_NewIntObj(Hx), Tcl_NewIntObj(Hy)};
     return Tcl_NewListObj(2, projectorPointValues);
-}
+}]
 $cc proc ::projectorToCamera {Tcl_Obj* projectorPoint} Tcl_Obj* {
     Tcl_Obj* cameraPointValues[] = {Tcl_NewIntObj(100), Tcl_NewIntObj(100)};
     return Tcl_NewListObj(2, cameraPointValues);
