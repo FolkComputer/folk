@@ -92,7 +92,8 @@ When tag /tag/ is a tag {
 
 Say when tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {cameraToProjector $p}]
-	#foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
+  #foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
+  Display::fillQuad {*}$tagcorners white
 	set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
 	set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
 

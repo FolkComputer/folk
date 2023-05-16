@@ -21,20 +21,8 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
-    proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
-    }
-
     proc text {fb x y fontSize text {radians 0}} {
         uplevel [list Wish display runs [list Display::text $fb $x $y $fontSize $text $radians]]
-    }
-
-    proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
-    }
-
-    proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
     }
 
     variable displayTime none
@@ -77,8 +65,8 @@ namespace eval Camera {
 
     variable cameraThread [thread::create [format {
         source pi/Camera.tcl
+        source vendor/blobdetect/blobdetect.tcl
         Camera::init %d %d
-        AprilTags::init
         puts "Camera tid: [getTid]"
 
         set grayFrames [list]
@@ -91,15 +79,15 @@ namespace eval Camera {
             }
             set cameraTime [time {
                 set grayFrame [Camera::grayFrame]
-                set tags [AprilTags::detect $grayFrame]
+                set threshold 128
+                set tags [::BlobDetect::detect $grayFrame $threshold]
                 lappend grayFrames $grayFrame
             }]
             set statements [list]
             lappend statements [list camera claims the camera time is $cameraTime]
             lappend statements [list camera claims the camera frame is $grayFrame]
             foreach tag $tags {
-                lappend statements [list camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
-                lappend statements [list camera claims tag [dict get $tag id] has corners [dict get $tag corners]]
+                lappend statements [list camera claims laser blob [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
             }
 
             # send this script back to the main Folk thread
@@ -116,28 +104,24 @@ namespace eval Camera {
     }
 }
 
-try {
-    set keyboardThread [thread::create [format {
-        source "pi/Keyboard.tcl"
-        source "lib/c.tcl"
-        source "pi/cUtils.tcl"
-        Keyboard::init
-        puts "Keyboard tid: [getTid]"
+set keyboardThread [thread::create [format {
+    source "pi/Keyboard.tcl"
+    source "lib/c.tcl"
+    source "pi/cUtils.tcl"
+    Keyboard::init
+    puts "Keyboard tid: [getTid]"
 
-        set chs [list]
-        while true {
-            lappend chs [Keyboard::getChar]
+    set chs [list]
+    while true {
+        lappend chs [Keyboard::getChar]
 
-            thread::send -async "%s" [subst {
-                Retract keyboard claims the keyboard character log is /something/
-                Assert keyboard claims the keyboard character log is "$chs"
-            }]
-        }
-    } [thread::id]]]
-    puts "Keyboard thread id: $keyboardThread"
-} on error error {
-    puts stderr "Keyboard thread failed: $error"
-}
+        thread::send -async "%s" [subst {
+            Retract keyboard claims the keyboard character log is /something/
+            Assert keyboard claims the keyboard character log is "$chs"
+        }]
+    }
+} [thread::id]]]
+puts "Keyboard thread id: $keyboardThread"
 
 # also see how it's done in laptop.tcl
 set ::rootStatements [list]

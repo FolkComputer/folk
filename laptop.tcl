@@ -21,10 +21,11 @@ namespace eval Display {
     }
 
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color]]
+        uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color -width $width]]
     }
 
     proc text {fb x y fontSize text {radians 0}} {
+        # TODO: @cwervo - implement font rotation
         uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
     }
 
@@ -211,8 +212,8 @@ if {[info exists ::shareNode]} {
     if {[catch {
         # TODO: forward entry point
         # TODO: handle rsync strict host key failure
-        exec make sync FOLK_SHARE_NODE=$::shareNode
-        exec ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
+        exec -ignorestderr make sync FOLK_SHARE_NODE=$::shareNode
+        exec -ignorestderr ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
     } err]} {
         puts "error syncing: $err"
         puts "Proceeding without sharing to table."

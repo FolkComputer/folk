@@ -25,10 +25,8 @@ When the collected matches for [list /someone/ wishes /thing/ is outlined /color
     }
 }
 
-When /someone/ wishes /thing/ is outlined thick /color/ {
-    When $thing has region /region/ {
+When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
 	# FIXME: assumes path
 	lassign $region vertices edges
 	loopRegion $edges $vertices 6 $color
-    }
 }
