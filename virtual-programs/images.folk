@@ -22,14 +22,10 @@ namespace eval ::image {
 	namespace ensemble create
 }
 
-When /someone/ wishes /p/ has camera image {
-	When the camera frame is /f/ {
-		When $p has region /r/ {
-			lassign [regionToBbox $r] minX minY maxX maxY
-			set subimage [image subimage $f \
-				$minX $minY \
-				[expr {int($maxX - $minX)}] [expr {int($maxY - $minY)}]]
-			Claim $p has camera image $subimage
-		}
-	}
+When /someone/ wishes /p/ has camera image & the camera frame is /f/ & /p/ has region /r/ {
+	lassign [regionToBbox $r] minX minY maxX maxY
+	set subimage [image subimage $f \
+		$minX $minY \
+		[expr {int($maxX - $minX)}] [expr {int($maxY - $minY)}]]
+	Claim $p has camera image $subimage
 }
