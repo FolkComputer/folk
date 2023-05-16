@@ -295,8 +295,63 @@ $cc proc remap {int x int x0 int x1 int y0 int y1} int {
   return y0 + (x - x0) * (y1 - y0) / (x1 - x0);
 }
 
-$cc proc writeDenseCorrespondenseToDisk {dense_t* dense} void [csubst {
-  char* filename = "/tmp/dense$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
+$cc proc cleanCorrespondense {uint16_t* corr uint16_t* cleanCorr} void [csubst {
+  uint32_t width = $Camera::WIDTH;
+  uint32_t height = $Camera::HEIGHT;
+
+  int startOfLake = -1;
+
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int i = y * width + x;
+      uint16_t v = corr[i];
+      if (startOfLake == -1) {
+        if (v == 0xFFFF) {
+          // we're in the beginning of our image
+          cleanCorr[i] = 0xFFFF; // keep the sentinel for now
+        } else {
+          startOfLake = i;
+          cleanCorr[i] = v;
+        }
+      } else {
+        // we do have a start of the lake
+        // find the next one
+        if (v == 0xFFFF) {
+          // write a sentinel just in case we never hit the end of a lake
+          cleanCorr[i] = 0xFFFF;
+        } else {
+          // write the valid data we found first
+          cleanCorr[i] = v;
+
+          for (int j = startOfLake+1; j < i; j++) {
+            float t = (float)(j - startOfLake) / (float)(i - startOfLake);
+            uint16_t startOfLakeValue = corr[startOfLake];
+            cleanCorr[j] = startOfLakeValue + t * (v - startOfLakeValue);
+          }
+
+          startOfLake = i;
+        }
+      }
+    }
+  }
+}]
+
+$cc proc cleanDenseCorrespondense {dense_t* dense} dense_t* [csubst {
+  uint32_t width = $Camera::WIDTH;
+  uint32_t height = $Camera::HEIGHT;
+
+  dense_t* cleanDense = malloc(sizeof(dense_t));
+  cleanDense->rowCorr = calloc(width*height, sizeof(uint16_t));
+  cleanDense->columnCorr = calloc(width*height, sizeof(uint16_t));
+
+  cleanCorrespondense(dense->rowCorr, cleanDense->rowCorr);
+  cleanCorrespondense(dense->columnCorr, cleanDense->columnCorr);
+
+  return cleanDense;
+}]
+
+
+$cc proc writeDenseCorrespondenseToDisk {dense_t* dense char* filename} void [csubst {
   FILE* out = fopen(filename, "w");
 
   uint32_t width = $Camera::WIDTH;
@@ -350,15 +405,19 @@ $cc proc writeDenseCorrespondenseToDisk {dense_t* dense} void [csubst {
   fclose(out);
 }]
 
-$cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [subst -nobackslashes {
+$cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [csubst {
     // image the base scene in black for reference
-    [eachDisplayPixel { *it = BLACK; }]
+    $[eachDisplayPixel { *it = BLACK; }]
     uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
 
-    writeDenseCorrespondenseToDisk(dense);
+    char* filename = "/tmp/dense-$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
+    writeDenseCorrespondenseToDisk(dense, filename);
+    dense_t* cleanDense = cleanDenseCorrespondense(dense);
+    filename = "/tmp/clean-dense-$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
+    writeDenseCorrespondenseToDisk(cleanDense, filename);
 
     // display dense correspondence directly. just for fun
-    [eachCameraPixel [subst -nocommands -nobackslashes {
+    $[eachCameraPixel [subst -nocommands -nobackslashes {
         if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ???
             fb[(y * $Display::WIDTH) + x] = PIXEL(255, 255, 0);
         } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
