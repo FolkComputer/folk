@@ -405,6 +405,18 @@ $cc proc writeDenseCorrespondenseToDisk {dense_t* dense char* filename} void [cs
   fclose(out);
 }]
 
+$cc proc serializeDenseCorrespondence {dense_t* dense char* filename} void [csubst {
+    uint32_t width = $Camera::WIDTH;
+    uint32_t height = $Camera::HEIGHT;
+
+    FILE* out = fopen(filename, "w");
+    fwrite(&width, sizeof(uint32_t), 1, out);
+    fwrite(&height, sizeof(uint32_t), 1, out);
+    fwrite(dense->columnCorr, sizeof(uint16_t), width*height, out);
+    fwrite(dense->rowCorr, sizeof(uint16_t), width*height, out);
+    fclose(out);
+}]
+    
 $cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [csubst {
     // image the base scene in black for reference
     $[eachDisplayPixel { *it = BLACK; }]
@@ -415,6 +427,8 @@ $cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* den
     dense_t* cleanDense = cleanDenseCorrespondense(dense);
     filename = "/tmp/clean-dense-$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
     writeDenseCorrespondenseToDisk(cleanDense, filename);
+
+    serializeDenseCorrespondence(cleanDense, "/home/folk/generated-clean-dense.dense");
 
     // display dense correspondence directly. just for fun
     $[eachCameraPixel [subst -nocommands -nobackslashes {

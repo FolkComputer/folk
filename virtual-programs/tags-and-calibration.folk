@@ -10,66 +10,46 @@ namespace import ::math::linearalgebra::add \
 	::math::linearalgebra::angle \
 	::math::linearalgebra::solvePGauss
 
-# camera (tag) point -> projection point
-# calibration for Hex
-if [catch {source "/home/folk/generated-calibration.tcl"}] {
-  set points {
-	{622 404 1706 1051}
-	{624 650 1661 51}
-	{1031 669 8 44}
-	{1024 403 13 1146}
-  }
-} else {
-  set points [list]
-  foreach correspondence $generatedCalibration::points {
-    lassign $correspondence cx cy dx dy
-    lappend points [list [expr {double($cx)/$generatedCalibration::cameraWidth*$Camera::WIDTH}] \
-                         [expr {double($cy)/$generatedCalibration::cameraHeight*$Camera::HEIGHT}] \
-                         [expr {double($dx)/$generatedCalibration::displayWidth*$Display::WIDTH}] \
-                         [expr {double($dy)/$generatedCalibration::displayHeight*$Display::HEIGHT}]]
-  }
+set cc [c create]
+$cc include <stdlib.h>
+$cc code {
+  typedef struct {
+      uint32_t width;
+      uint32_t height;
+      uint16_t* columnCorr;
+      uint16_t* rowCorr;
+  } dense_t;
+  dense_t* dense;
 }
-for {set i 0} {$i < [llength $points]} {incr i} {
-    lassign [lindex $points $i] x$i y$i u$i v$i
+$cc proc deserializeDenseCorrespondence {} void {
+  FILE* in = fopen("/home/folk/generated-clean-dense.dense", "r");
+  dense = calloc(sizeof(dense_t), 1);
+  fread(&dense->width, sizeof(uint32_t), 1, in);
+  fread(&dense->height, sizeof(uint32_t), 1, in);
+  dense->rowCorr = calloc(dense->width*dense->height, sizeof(uint16_t));
+  dense->columnCorr = calloc(dense->width*dense->height, sizeof(uint16_t));
+  fread(dense->rowCorr, sizeof(uint16_t), dense->width*dense->height, in);
+  fread(dense->columnCorr, sizeof(uint16_t), dense->width*dense->height, in); 
 }
+$cc proc ::cameraToProjector {Tcl_Obj* cameraPoint} Tcl_Obj* {
+    int cameraPointLength; Tcl_Obj** cameraPointValues;
+    Tcl_ListObjGetElements(NULL, cameraPoint, &cameraPointLength, &cameraPointValues);
+    double cx; Tcl_GetDoubleFromObj(NULL, cameraPointValues[0], &cx);
+    double cy; Tcl_GetDoubleFromObj(NULL, cameraPointValues[1], &cy);
 
-set A [subst {
-    {$x0 $y0 1 0   0   0 [expr -$x0*$u0] [expr -$y0*$u0]}
-    {$x1 $y1 1 0   0   0 [expr -$x1*$u1] [expr -$y1*$u1]}
-    {$x2 $y2 1 0   0   0 [expr -$x2*$u2] [expr -$y2*$u2]}
-    {$x3 $y3 1 0   0   0 [expr -$x3*$u3] [expr -$y3*$u3]}
-    {0   0   0 $x0 $y0 1 [expr -$x0*$v0] [expr -$y0*$v0]}
-    {0   0   0 $x1 $y1 1 [expr -$x1*$v1] [expr -$y1*$v1]}
-    {0   0   0 $x2 $y2 1 [expr -$x2*$v2] [expr -$y2*$v2]}
-    {0   0   0 $x3 $y3 1 [expr -$x3*$v3] [expr -$y3*$v3]}
-}]
-
-set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
-
-lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
-
-set ::H [subst {
-    {$a0 $a1 $a2}
-    {$b0 $b1 $b2}
-    {$c0 $c1 1}
-}]
-set ::Hinv [solvePGauss $::H [math::linearalgebra::mkIdentity 3]]
-
-# FIXME: these shouldn't be global
-proc ::cameraToProjector {cameraPoint} {
-    # FIXME: this is slow but not the cause of leak
-    lassign [::math::linearalgebra::matmul $::H [list [lindex $cameraPoint 0] [lindex $cameraPoint 1] 1]] Hx Hy Hz
-    set Hx [expr {$Hx / $Hz}]
-    set Hy [expr {$Hy / $Hz}]
-    return [list $Hx $Hy]
+    int i = (int)cy * dense->width + (int)cx;
+    int Hx = dense->columnCorr[i];
+    int Hy = dense->rowCorr[i];
+    Tcl_Obj* projectorPointValues[] = {Tcl_NewIntObj(Hx), Tcl_NewIntObj(Hy)};
+    return Tcl_NewListObj(2, projectorPointValues);
 }
-proc ::projectorToCamera {projectorPoint} {
-    lassign [::math::linearalgebra::matmul $::Hinv [list [lindex $projectorPoint 0] [lindex $projectorPoint 1] 1]] Hinvx Hinvy Hinvz
-    set Hinvx [expr {$Hinvx / $Hinvz}]
-    set Hinvy [expr {$Hinvy / $Hinvz}]
-    return [list $Hinvx $Hinvy]
+$cc proc ::projectorToCamera {Tcl_Obj* projectorPoint} Tcl_Obj* {
+    Tcl_Obj* cameraPointValues[] = {Tcl_NewIntObj(100), Tcl_NewIntObj(100)};
+    return Tcl_NewListObj(2, cameraPointValues);
 }
-# Wish $this is highlighted white
+$cc compile
+
+deserializeDenseCorrespondence
 
 Say when tag /tag/ has center /c/ size /size/ {
      Claim tag $tag is a tag
