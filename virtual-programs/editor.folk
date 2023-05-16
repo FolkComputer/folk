@@ -2,19 +2,6 @@ Wish $this has filename "editor.folk"
 
 Wish $this has top dock
 
-proc polyline {points {strokeWeight 5} {color white} args} {
-  set i 0
-  set pointsLength [llength $points]
-  set PL_less_one [expr {$pointsLength - 1}]
-  while {$i < $pointsLength} {
-      if {$i eq $PL_less_one} { return }
-      set current [lindex $points $i]
-      incr i
-      set next [lindex $points $i]
-      Display::stroke [list $current $next] $strokeWeight $color
-  }
-}
-
 proc subtractBy50 {coords} {
   list [lindex $coords 0] [expr {[lindex $coords 1] - 50}]
 }
@@ -23,7 +10,7 @@ When /thing/ wishes /page/ has /position/ dock & /page/ has region /r/ & /p2/ ha
      if {$page eq $p2} { return }
      lassign [lindex $r 0] a b c d
      lassign $a x y
-     polyline [list $a $b [subtractBy50 $b] [subtractBy50 $a] $a] 8 green
+     Display::stroke [list $a $b [subtractBy50 $b] [subtractBy50 $a] $a] 8 green
      set bMinX [expr {$x}]
      set bMinY [expr {$y - 50}]
      set bMaxX [lindex $b 0]
