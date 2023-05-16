@@ -58,6 +58,6 @@ namespace eval ::region {
     namespace ensemble create
 }
 
-When the distance between /p1/ and /p2/ is /distanceVar/ /body/ with environment /e/ & /p1/ has region /r1/ & /p2/ has region /r2/ {
+When when the distance between /p1/ and /p2/ is /distanceVar/ /body/ with environment /e/ & /p1/ has region /r1/ & /p2/ has region /r2/ {
     Claim the distance between $p1 and $p2 is [region distance $r1 $r2]
 }
