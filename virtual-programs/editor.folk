@@ -36,13 +36,13 @@ proc blinkingCursor {count} {
 
 Wish $this is outlined red
 
-proc insertCursor {code cursor count} {
+proc insertCharacter {code newCharacter cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   # Get the current line
   set line [lindex $lines $y]
   # Replace the character at position x with the new character
-  set character [string cat [string index $line $x] [blinkingCursor $count]]
+  set character [string cat [string index $line $x] $newCharacter]
   set line [string replace $line $x $x $character]
   # Put the modified line back in the array
   lset lines $y $line
@@ -51,23 +51,12 @@ proc insertCursor {code cursor count} {
   return [join $lines "\n"]
 }
 
+proc insertCursor {code cursor count} {
+  return [insertCharacter $code [blinkingCursor $count] $cursor]
+}
+
 When /page/ has docked program /d/ & /d/ has program code /code/ {
   Wish $this is outlined blue
-}
-
-When $this has a cursor /cursor/ {
-  Wish $this is labelled "===== 4 (cursor))"
-}
-When /node/ has step count /count/ {
-  Wish $this is labelled "===== 3 (node)"
-}
-
-When /page/ has docked program /d/ & /d/ has program code /code/ {
-  Wish $this is labelled "===== 1 (dock)"
-}
-
-When /d/ has program code /code/ {
-  Wish $this is labelled "===== 2 (code)"
 }
 
 When /page/ has docked program /d/ & /d/ has program code /code/ & /node/ has step count /count/ & $this has a cursor /cursor/ {
@@ -76,7 +65,6 @@ When /page/ has docked program /d/ & /d/ has program code /code/ & /node/ has st
 }
 
 Commit cursor { Claim $this has a cursor [list 0 0]}
-Commit lastKey { Claim $this has a program [list] }
 
 proc isCommandWithChar { currentKey lastKey matchChar } {
   set isS [expr {$currentKey == $matchChar}]
@@ -90,27 +78,20 @@ proc isControlWithChar {currentKey lastKey matchChar} {
   expr {$isS && $isMeta}
 }
 
-Every time the keyboard character log is /k/ & $this has a program /p/ & $this has a cursor /c/ {
-  set currentKey [lindex $p end]
-  set lastKey [lindex $p end-1]
-  Commit lastKey {
-    Claim $this has a last key [lindex $p end]
-    Claim $this has a program [list {*}$p [lindex $k end]]
-    set CMDRPressed [isCommandWithChar $currentKey $lastKey "r"]
-    set CMDSPressed [isCommandWithChar $currentKey $lastKey "s"]
-    set CTRLSPressed [isControlWithChar $currentKey $lastKey "s"]
-    set CTRLRPressed [isControlWithChar $currentKey $lastKey "r"]
-    # Wish $this is labelled "$currentKey | $lastKey"
-  }
+Every time the keyboard character log is /k/ & $this has a cursor /c/ {
   Commit cursor {
-switch $currentKey {
-       up { Claim $this has a cursor [list [x $c] [expr {[y $c] - 1}]] }
-       down { Claim $this has a cursor [list [x $c] [expr {[y $c] + 1}]] }
-       right { Claim $this has a cursor [list [expr {[x $c] + 1}] [y $c]] }
-       left { Claim $this has a cursor [list [expr {[x $c] - 1}] [y $c]] }
-       default {
-          # enter text into the program variable
-       }
+    set currentCharacter [lindex $k end]
+    switch $currentCharacter {
+      up { Claim $this has a cursor [list [x $c] [expr {[y $c] - 1}]] }
+      down { Claim $this has a cursor [list [x $c] [expr {[y $c] + 1}]] }
+      right { Claim $this has a cursor [list [expr {[x $c] + 1}] [y $c]] }
+      left { Claim $this has a cursor [list [expr {[x $c] - 1}] [y $c]] }
+      default {
+        When /page/ has docked program /d/ & /d/ has program code /code/ {
+          Claim $this has patched program code [insertCharacter $code $currentCharacter $c]
+        }
+        Claim $this has a cursor $c
+      }
     }
   }
 }
@@ -119,4 +100,8 @@ When $this has a cursor /c/ {
   Wish $this is labelled "cursor: ---- $c"
 }
 
-Wish $this is outlined blue
+Wish $this has halo message "hi"
+
+When $this has patched program code /code/ {
+  Wish $this is labelled "\n====\n $code \n===\n"
+}

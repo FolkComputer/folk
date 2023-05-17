@@ -86,9 +86,13 @@ When tag /tag/ is a tag {
      close $fp
 
      # Wish $tag is outlined green
-     Claim $tag has program code $code
+     When $tag has patched program code /c/ {
+      Claim $tag has program code $c
+     }
+     When $tag has patched program code /nothing/ {
+      Claim $tag has program code $code
+     }
 }
-
 
 Say when tag /tag/ has corners /corners/ {
 	set tagcorners [lmap p $corners {cameraToProjector $p}]
