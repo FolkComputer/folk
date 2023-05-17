@@ -1,6 +1,7 @@
 Wish $this has filename "editor.folk"
 
 Wish $this has top dock
+
 proc x {v} { lindex $v 0 }
 proc y {v} { lindex $v 1 }
 proc subtractBy50 {coords} {
@@ -23,7 +24,8 @@ When /thing/ wishes /page/ has /position/ dock & /page/ has region /r/ & /p2/ ha
                  [list $b2MinX $b2MinY]\
                  [list $b2MaxX $b2MaxY]\
      false ]
-     if {$hasIntersections} {
+     set notVirtual [expr {![string match "virtual-programs*" $p2] & ![string match "web-program*" $p2]}]
+     if {$hasIntersections & $notVirtual} {
        Claim $p2 has docked program $p2
      }
 }
@@ -32,24 +34,40 @@ proc blinkingCursor {count} {
   expr {$count % 16 == 0 ? "_" : " "}
 }
 
+Wish $this is outlined red
+
 proc insertCursor {code cursor count} {
   set lines [split $code "\n"]
-  return [lindex $lines 0]
-
-
   lassign $cursor x y
   # Get the current line
   set line [lindex $lines $y]
-  return [lindex $lines 0]
   # Replace the character at position x with the new character
-  set character [string cat [lindex $line $x] [blinkingCursor $count]]
+  set character [string cat [string index $line $x] [blinkingCursor $count]]
   set line [string replace $line $x $x $character]
-
   # Put the modified line back in the array
   lset lines $y $line
 
   # Return the modified lines
-  return $lines
+  return [join $lines "\n"]
+}
+
+When /page/ has docked program /d/ & /d/ has program code /code/ {
+  Wish $this is outlined blue
+}
+
+When $this has a cursor /cursor/ {
+  Wish $this is labelled "===== 4 (cursor))"
+}
+When /node/ has step count /count/ {
+  Wish $this is labelled "===== 3 (node)"
+}
+
+When /page/ has docked program /d/ & /d/ has program code /code/ {
+  Wish $this is labelled "===== 1 (dock)"
+}
+
+When /d/ has program code /code/ {
+  Wish $this is labelled "===== 2 (code)"
 }
 
 When /page/ has docked program /d/ & /d/ has program code /code/ & /node/ has step count /count/ & $this has a cursor /cursor/ {
@@ -90,27 +108,9 @@ switch $currentKey {
        down { Claim $this has a cursor [list [x $c] [expr {[y $c] + 1}]] }
        right { Claim $this has a cursor [list [expr {[x $c] + 1}] [y $c]] }
        left { Claim $this has a cursor [list [expr {[x $c] - 1}] [y $c]] }
-       
        default {
           # enter text into the program variable
        }
-    }
-  }
-}
-
-Wish $this has neighbors
-
-When $this has neighbor /n/ & $this has region /r/ {
-  set above [list]
-  When $n has region /nr/ {
-    lassign $nr v e
-    lassign $v a b c d
-    set myVertices [lindex $r 0]
-    lassign $myVertices mA mB mC mD
-    set isAbove [expr {[y $a] < [y $mA]}]
-    set notVirtual [expr {![string match "virtual-programs*" $n] & ![string match "web-program*" $n]}]
-    if {$isAbove && $notVirtual} {
-      # Wish $this is labelled "$n: [expr {[y $mA] - [y $a]}]"
     }
   }
 }
