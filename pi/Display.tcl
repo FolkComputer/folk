@@ -137,47 +137,23 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
     }
 }
 
-dc proc drawText {int x0 int y0 int upsidedown char* text} void {
+dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
     // Draws 1 line of text (no linebreak handling).
-
-    /* size_t width = text.len * font.char_width; */
-    /* size_t height = font.char_height; */
-    /* if (x0 < 0 || y0 < 0 || */
-    /*     x0 + width >= fbwidth || y0 + height >= fbheight) return; */
-
-    /* printf("%d x %d\n", font.char_width, font.char_height); */
-    /* printf("[%c] (%d)\n", c, c); */
-
     int len = strlen(text);
-    if (upsidedown) {
-        for (unsigned i = 0; i < len; i++) {
-            for (unsigned y = 0; y < font.char_height; y++) {
-                for (unsigned x = 0; x < font.char_width; x++) {
-                    int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-                    int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+    for (unsigned i = 0; i < len; i++) {
+        for (unsigned y = 0; y < font.char_height; y++) {
+            for (unsigned x = 0; x < font.char_width; x++) {
+                int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
+                int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
 
-                    int sx = ((len-i)*font.char_width + x0-x);
-                    int sy = y0 - y;
-                    if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-                        if (bit) {
-                            staging[(sy*fbwidth) + sx] = 0xFFFF;
-                        }
-                    }
-                }
-            }
-        }   
-    } else {
-        for (unsigned i = 0; i < len; i++) {
-            for (unsigned y = 0; y < font.char_height; y++) {
-                for (unsigned x = 0; x < font.char_width; x++) {
-                    int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-                    int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-
-                    int sx = (i*font.char_width + x0+x);
-                    int sy = y0 + y;
-                    if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-                        if (bit) {
-                            staging[(sy*fbwidth) + sx] = 0xFFFF;
+                if(bit) {
+                    for (int dy = 0; dy < scale; dy++) {
+                        for (int dx = 0; dx < scale; dx++) {
+                            int sx = x0 + (((upsidedown ? len-i : i) * font.char_width + (upsidedown ? -x : x))) * scale + dx;
+                            int sy = y0 + (y * (upsidedown ? -1 : 1)) * scale + dy;
+                            if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
+                                staging[(sy*fbwidth) + sx] = 0xFFFF;
+                            }
                         }
                     }
                 }
@@ -290,7 +266,7 @@ namespace eval Display {
     }
 
     proc text {fb x y fontSize text radians} {
-        drawText [expr {int($x)}] [expr {int($y)}] [expr {abs($radians) < 1.57}] $text
+        drawText [expr {int($x)}] [expr {int($y)}] [expr {abs($radians) < 1.57}] $fontSize $text
     }
     proc circle {x y radius thickness color} {
         for {set i 0} {$i < $thickness} {incr i} {
