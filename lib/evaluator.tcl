@@ -227,7 +227,19 @@ namespace eval Statements { ;# singleton Statement store
         }
         return &matches[matchId.idx];
     }
-    $cc proc matchDeref {match_t* match} match_t { return *match; }
+    $cc proc matchEdges {Tcl_Interp* interp match_handle_t matchId} Tcl_Obj* {
+        match_t* match = matchGet(matchId);
+        Tcl_Obj* ret = Tcl_NewListObj(match->n_edges, NULL);
+        for (size_t i = 0; i < match->n_edges; i++) {
+            edge_to_statement_t* edge = &match->edges[i];
+            Tcl_Obj* edgeobj = Tcl_NewObj();
+            edgeobj->typePtr = &edge_to_statement_t_ObjType;
+            edgeobj->bytes = NULL;
+            edgeobj->internalRep.otherValuePtr = edge;
+            Tcl_ListObjAppendElement(interp, ret, edgeobj);
+        }
+        return ret;
+    }
     $cc proc matchRemove {match_handle_t matchId} void {
         match_t* match = matchGet(matchId);
         for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
@@ -662,7 +674,7 @@ namespace eval Statements { ;# singleton Statement store
             dict for {matchId_ _} [statement parentMatchIds $stmt] {
                 set matchId [dict get $matchId_ idx]
                 if {$matchId == -1} continue
-                set parents [lmap edge [dict get [matchDeref [matchGet $matchId_]] edges] {expr {
+                set parents [lmap edge [matchEdges $matchId_] {expr {
                     [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
                 }}]
                 lappend dot "m$matchId \[label=\"m$matchId <- $parents\"\];"
