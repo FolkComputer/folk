@@ -29,37 +29,30 @@ namespace eval statement {
     }
     $cc struct match_t {
         int32_t gen;
-
         bool alive;
-
-        size_t n_edges;
-        edge_to_statement_t edges[64];
 
         bool recollectOnDestruction;
         statement_handle_t recollectCollectId;
 
         match_destructor_t destructors[8];
+
+        size_t capacity_edges;
+        size_t n_edges; // This is an estimate.
+        edge_to_statement_t* edges; // Allocated separately so it can be resized.
     }
 
     $cc struct edge_to_match_t {
         edge_type_t type;
         match_handle_t match;
     }
-    # Indirect block that can hold extra edges, if a statement has a
-    # lot of match children. This block may get reallocated and resized.
-    $cc struct statement_indirect_t {
-        size_t capacity_edges;
-        edge_to_match_t edges[1]; // should be 0
-    }
     $cc struct statement_t {
         int32_t gen;
 
         Tcl_Obj* clause;
 
-        size_t n_edges;
-        edge_to_match_t edges[16];
-
-        statement_indirect_t* indirect;
+        size_t capacity_edges;
+        size_t n_edges; // This is an estimate.
+        edge_to_match_t* edges; // Allocated separately so it can be resized.
     }
 
     $cc include <stdbool.h>
@@ -67,10 +60,13 @@ namespace eval statement {
         statement_t statementCreate(Tcl_Obj* clause,
                                     size_t n_parents, match_handle_t parents[],
                                     size_t n_children, match_handle_t children[]) {
-            statement_t ret = {0};
+            statement_t ret;
             ret.clause = clause; Tcl_IncrRefCount(clause);
+            ret.capacity_edges = (n_parents + n_children) * 2;
+            if (ret.capacity_edges < 8) { ret.capacity_edges = 8; }
             // FIXME: Use edge helpers.
-            assert(n_parents + n_children < sizeof(ret.edges)/sizeof(ret.edges[0]));
+            ret.n_edges = 0;
+            ret.edges = ckalloc(sizeof(edge_to_match_t) * ret.capacity_edges);
             for (size_t i = 0; i < n_parents; i++) {
                 ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = PARENT, .match = parents[i] };
             }
@@ -87,9 +83,10 @@ namespace eval statement {
         }
 
         static edge_to_match_t* statementEdgeAt(statement_t* stmt, size_t i) {
-            return i < sizeof(stmt->edges)/sizeof(stmt->edges[0]) ?
-                &stmt->edges[i] :
-                &stmt->indirect->edges[i - sizeof(stmt->edges)/sizeof(stmt->edges[0])];
+            assert(i < stmt->n_edges);
+            assert(stmt->n_edges <= stmt->capacity_edges);
+            assert(i < stmt->capacity_edges);
+            return &stmt->edges[i];
         }
         // Given stmt, moves all non-EMPTY edges to the front of the
         // statement's edgelist, then updates stmt->n_edges
@@ -99,109 +96,32 @@ namespace eval statement {
         // the statement edgelist if you keep adding and removing
         // edges on the same statement.
         static void statementDefragmentEdges(statement_t* stmt) {
-            // Copy all non-EMPTY edges into a temporary edgelist.
+            // Copy all non-EMPTY edges into a new edgelist.
             size_t n_edges = 0;
-            edge_to_match_t edges[stmt->n_edges];
+            edge_to_match_t* edges = ckalloc(stmt->capacity_edges * sizeof(edge_to_match_t));
+            memset(edges, 0, stmt->capacity_edges * sizeof(edge_to_match_t));
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 edge_to_match_t* edge = statementEdgeAt(stmt, i);
                 if (edge->type != EMPTY) { edges[n_edges++] = *edge; }
             }
 
-            // Copy edges back from the temporary edgelist.
-            for (size_t i = 0; i < n_edges; i++) {
-                *statementEdgeAt(stmt, i) = edges[i];
-            }
             stmt->n_edges = n_edges;
+            ckfree(stmt->edges);
+            stmt->edges = edges;
         }
-        void statementAddEdgeToMatch(statement_t* stmt,
-                                     edge_type_t type, match_handle_t matchId) {
-            edge_to_match_t edge = (edge_to_match_t) { .type = type, .match = matchId };
-
-            if (stmt->n_edges < sizeof(stmt->edges)/sizeof(stmt->edges[0])) {
-                // There's at least one free slot among the direct
-                // edge slots in the statement itself.
-                stmt->edges[stmt->n_edges++] = edge;
-                return;
-            }
-
-            if (stmt->n_edges == sizeof(stmt->edges)/sizeof(stmt->edges[0]) &&
-                stmt->indirect == NULL) {
-                // We've run out of edge slots in the
-                // statement. Allocate an indirect block with more
-                // slots.
-                size_t capacity_edges = sizeof(stmt->edges)/sizeof(stmt->edges[0]);
-                statement_indirect_t* indirect = (statement_indirect_t*)ckalloc(sizeof(statement_indirect_t) + capacity_edges*sizeof(edge_to_match_t));
-                memset(indirect, 0, sizeof(statement_indirect_t) + capacity_edges*sizeof(edge_to_match_t));
-                indirect->capacity_edges = capacity_edges;
-
-                stmt->indirect = indirect;
-
-                statementDefragmentEdges(stmt);
-
-                // Start again from the top with the defragmented state.
-                statementAddEdgeToMatch(stmt, type, matchId);
-                return;
-            }
-
-            // Seems like we'll have to store the edge in the indirect block.
-            assert(stmt->indirect != NULL);
-
-            if (stmt->n_edges == sizeof(stmt->edges)/sizeof(stmt->edges[0]) + stmt->indirect->capacity_edges) {
-                // We've run out of edge pointer slots in the current
-                // indirect block; we need to grow the indirect block.
-                size_t new_capacity_edges = stmt->indirect->capacity_edges*2;
-                // printf("Growing indirect for %p (%zu -> %zu)\n", stmt,
-                //       stmt->indirect->capacity_edges, new_capacity_edges);
-
-                stmt->indirect = (statement_indirect_t*)ckrealloc((char *)stmt->indirect,
-                                           sizeof(*stmt->indirect) + new_capacity_edges*sizeof(edge_to_match_t));
-                memset(stmt->indirect, 0, sizeof(statement_indirect_t) + stmt->indirect->capacity_edges*sizeof(edge_to_match_t));
-                stmt->indirect->capacity_edges = new_capacity_edges;
-
-                statementDefragmentEdges(stmt);
-
-                // Start again from the top with the defragmented state.
-                statementAddEdgeToMatch(stmt, type, matchId);
-                return;
-            }
-
-            size_t edgeIdx = stmt->n_edges++;
-            size_t edgeIdxInIndirect = edgeIdx - sizeof(stmt->edges)/sizeof(stmt->edges[0]);
-            // There should be room for the new edge in the indirect block.
-            assert(edgeIdxInIndirect < stmt->indirect->capacity_edges);
-            // Store the edge in the indirect block.
-            stmt->indirect->edges[edgeIdxInIndirect] = edge;
-        }
-        int statementRemoveEdgeToMatch(statement_t* stmt,
-                                       edge_type_t type, match_handle_t matchId) {
-            int parentEdges = 0;
-            for (size_t i = 0; i < stmt->n_edges; i++) {
-                edge_to_match_t* edge = statementEdgeAt(stmt, i);
-                if (edge->type == type && matchHandleIsEqual(edge->match, matchId)) {
-                    edge->type = EMPTY;
-                    edge->match = (match_handle_t) {0};
-                }
-                if (edge->type == PARENT) { parentEdges++; }
-            }
-            return parentEdges;
-        }
-        void matchAddEdgeToStatement(match_t* match,
-                                     edge_type_t type, statement_handle_t statementId) {
-            size_t edgeIdx = match->n_edges++;
-            assert(edgeIdx < sizeof(match->edges)/sizeof(match->edges[0]));
-            match->edges[edgeIdx] = (edge_to_statement_t) { .type = type, .statement = statementId };
-        }
-        void matchRemoveEdgeToStatement(match_t* match,
-                                        edge_type_t type, statement_handle_t statementId) {
+        static void matchDefragmentEdges(match_t* match) {
+            // Copy all non-EMPTY edges into a new edgelist.
+            size_t n_edges = 0;
+            edge_to_statement_t* edges = ckalloc(match->capacity_edges * sizeof(edge_to_statement_t));
+            memset(edges, 0, match->capacity_edges * sizeof(edge_to_statement_t));
             for (size_t i = 0; i < match->n_edges; i++) {
                 edge_to_statement_t* edge = &match->edges[i];
-                if (edge->type == type &&
-                    statementHandleIsEqual(edge->statement, statementId)) {
-                    edge->type = EMPTY;
-                    edge->statement = (statement_handle_t) {0};
-                }
+                if (edge->type != EMPTY) { edges[n_edges++] = *edge; }
             }
-            // TODO: compact
+
+            match->n_edges = n_edges;
+            ckfree(match->edges);
+            match->edges = edges;
         }
     }
 
@@ -293,8 +213,9 @@ namespace eval Statements { ;# singleton Statement store
         while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
         }
+        matches[nextMatchIdx].capacity_edges = 16;
+        matches[nextMatchIdx].edges = ckalloc(16 * sizeof(edge_to_statement_t));
         matches[nextMatchIdx].alive = true;
-        matches[nextMatchIdx].n_edges = 0;
         return (match_handle_t) {
             .idx = nextMatchIdx,
             .gen = ++matches[nextMatchIdx].gen
@@ -364,7 +285,7 @@ namespace eval Statements { ;# singleton Statement store
 
         int32_t gen = stmt->gen;
         Tcl_Obj* clause = stmt->clause;
-        if (stmt->indirect != NULL) ckfree((char *)stmt->indirect);
+        ckfree(stmt->edges);
         memset(stmt, 0, sizeof(*stmt));
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
@@ -390,11 +311,9 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc proc addMatchImpl {size_t n_parents statement_handle_t parents[]} match_handle_t {
         match_handle_t matchId = matchNew();
-        match_t* match = matchGet(matchId);
-
         for (int i = 0; i < n_parents; i++) {
-            matchAddEdgeToStatement(match, PARENT, parents[i]);
-            statementAddEdgeToMatch(get(parents[i]), CHILD, matchId);
+            matchAddEdgeToStatement(matchId, PARENT, parents[i]);
+            statementAddEdgeToMatch(parents[i], CHILD, matchId);
         }
 
         return matchId;
@@ -432,17 +351,14 @@ namespace eval Statements { ;# singleton Statement store
             trieAdd(interp, &statementClauseToId, clause, *(uint64_t*)&id);
 
         } else {
-            statement_t* stmt = get(id);
             for (size_t i = 0; i < n_parents; i++) {
-                statementAddEdgeToMatch(stmt, PARENT, parents[i]);
+                statementAddEdgeToMatch(id, PARENT, parents[i]);
             }
         }
 
         for (size_t i = 0; i < n_parents; i++) {
             if (parents[i].idx == -1) { continue; } // ?
-
-            match_t* match = matchGet(parents[i]);
-            matchAddEdgeToStatement(match, CHILD, id);
+            matchAddEdgeToStatement(parents[i], CHILD, id);
         }
 
         *outStatement = id;
@@ -450,6 +366,86 @@ namespace eval Statements { ;# singleton Statement store
     }
     proc add {clause {parents {{idx -1} true}}} {
         addImpl $clause [dict size $parents] [dict keys $parents]
+    }
+    $cc code {
+        static statement_t* get(statement_handle_t id);
+        void statementRealloc(statement_handle_t id) {
+            statement_t* stmt = get(id);
+            assert(stmt != NULL);
+            stmt->edges = ckrealloc(stmt->edges, stmt->capacity_edges*sizeof(edge_to_match_t));
+        }
+        void statementAddEdgeToMatch(statement_handle_t statementId,
+                                     edge_type_t type, match_handle_t matchId) {
+            statement_t* stmt = get(statementId);
+            if (stmt->n_edges == stmt->capacity_edges) {
+                // We've run out of edge slots at the end of the
+                // statement. Try defragmenting the statement.
+                statementDefragmentEdges(stmt);
+                if (stmt->n_edges == stmt->capacity_edges) {
+                    // Still no slots? Grow the statement to
+                    // accommodate.
+                    stmt->capacity_edges = stmt->capacity_edges * 2;
+                    statementRealloc(statementId);
+                }
+            }
+
+            assert(stmt->n_edges < stmt->capacity_edges);
+            // There's a free slot at the end of the edgelist in
+            // the statement. Use it.
+            stmt->edges[stmt->n_edges++] = (edge_to_match_t) { .type = type, .match = matchId };
+        }
+        int statementRemoveEdgeToMatch(statement_handle_t statementId,
+                                       edge_type_t type, match_handle_t matchId) {
+            statement_t* stmt = get(statementId);
+            assert(stmt != NULL);
+            int parentEdges = 0;
+            for (size_t i = 0; i < stmt->n_edges; i++) {
+                edge_to_match_t* edge = statementEdgeAt(stmt, i);
+                if (edge->type == type && matchHandleIsEqual(edge->match, matchId)) {
+                    edge->type = EMPTY;
+                    edge->match = (match_handle_t) {0};
+                }
+                if (edge->type == PARENT) { parentEdges++; }
+            }
+            return parentEdges;
+        }
+        static match_t* matchGet(match_handle_t id);
+        void matchRealloc(match_handle_t id) {
+            match_t* match = matchGet(id);
+            assert(match != NULL);
+            match->edges = ckrealloc(match->edges, match->capacity_edges*sizeof(edge_to_statement_t));
+        }
+        void matchAddEdgeToStatement(match_handle_t matchId,
+                                     edge_type_t type, statement_handle_t statementId) {
+            match_t* match = matchGet(matchId);
+            if (match->n_edges == match->capacity_edges) {
+                // We've run out of edge slots at the end of the
+                // match. Try defragmenting the match.
+                matchDefragmentEdges(match);
+                if (match->n_edges == match->capacity_edges) {
+                    // Still no slots? Grow the match to accommodate.
+                    match->capacity_edges = match->capacity_edges * 2;
+                    matchRealloc(matchId);
+                }
+            }
+
+            assert(match->n_edges < match->capacity_edges);
+            match->edges[match->n_edges++] = (edge_to_statement_t) { .type = type, .statement = statementId };
+        }
+        void matchRemoveEdgeToStatement(match_handle_t matchId,
+                                        edge_type_t type, statement_handle_t statementId) {
+            match_t* match = matchGet(matchId);
+            assert(match != NULL);
+            for (size_t i = 0; i < match->n_edges; i++) {
+                edge_to_statement_t* edge = &match->edges[i];
+                if (edge->type == type &&
+                    statementHandleIsEqual(edge->statement, statementId)) {
+                    edge->type = EMPTY;
+                    edge->statement = (statement_handle_t) {0};
+                }
+            }
+            // TODO: compact
+        }
     }
 
     $cc struct environment_binding_t {
@@ -902,17 +898,17 @@ namespace eval Evaluator {
                 statement_handle_t parentId = match->edges[j].statement;
                 if (!exists(parentId)) { continue; }
 
-                statementRemoveEdgeToMatch(get(parentId), CHILD, matchId);
+                statementRemoveEdgeToMatch(parentId, CHILD, matchId);
 
             } else if (match->edges[j].type == CHILD) {
                 statement_handle_t childId = match->edges[j].statement;
                 if (!exists(childId)) { continue; }
 
-                if (statementRemoveEdgeToMatch(get(childId), PARENT, matchId) == 0) {
+                if (statementRemoveEdgeToMatch(childId, PARENT, matchId) == 0) {
                     // is this child statement out of parent matches? => it's dead
                     reactToStatementRemoval(interp, childId);
                     remove_(childId);
-                    matchRemoveEdgeToStatement(match, CHILD, childId);
+                    matchRemoveEdgeToStatement(matchId, CHILD, childId);
                 }
             }
         }
@@ -933,7 +929,7 @@ namespace eval Evaluator {
                 match_handle_t matchId = edge->match;
                 if (!matchExists(matchId)) continue;
 
-                matchRemoveEdgeToStatement(matchGet(matchId), CHILD, id);
+                matchRemoveEdgeToStatement(matchId, CHILD, id);
 
             } else if (edge->type == CHILD) {
                 match_handle_t matchId = edge->match;
