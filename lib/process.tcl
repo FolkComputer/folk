@@ -19,7 +19,10 @@ proc On-process {name body} {
     set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
-        set body [list Evaluator::runInSerializedEnvironment $body [list]]
+        set body [format {
+            Assert <process.tcl> claims <root> has program code {%s}
+            Step
+        } $body]
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 
         # TODO: send it the serialized environment

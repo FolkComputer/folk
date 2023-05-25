@@ -17,7 +17,7 @@ Assert when we are running {
     }
 }
 Step
-vwait good
+vwait ::good
 
 Assert when we are running {
     puts "Core: $::nodename"
@@ -27,14 +27,29 @@ Assert when we are running {
             incr n
             Commit { Claim the counter is $n }
             Step
+            if {$n > 10} { break }
         }
     }
 
     When the counter is /n/ {
         if {$n > 5} {
-            set ::done true
+            set ::ok true
         }
     }
 }
 Step
-vwait done
+vwait ::ok
+
+Assert when we are running {
+    On process {
+        Claim I am in a process
+        When I am in a process {
+            Commit { Claim we were in a process }
+        }
+        When we were in a process {
+            set ::wereinaprocess true
+        }
+    }
+}
+Step
+vwait ::wereinaprocess

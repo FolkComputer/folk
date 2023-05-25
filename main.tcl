@@ -671,12 +671,6 @@ proc Step {} {
 
     foreach peer [namespace children Peers] {
         namespace eval $peer {
-            if {[info exists shareStatements]} {
-                variable prevShareStatements $shareStatements
-            } else {
-                variable prevShareStatements [list]
-            }
-
             variable shareStatements [list]
             if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
                 dict for {_ stmt} $Statements::statements {
