@@ -670,37 +670,39 @@ proc Step {} {
     }
 
     foreach peer [namespace children Peers] {
-        namespace eval $peer {
-            variable shareStatements [list]
-            if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
-                dict for {_ stmt} $Statements::statements {
+        set peer [namespace tail $peer]
+
+        variable shareStatements [list]
+        if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
+            dict for {_ stmt} $Statements::statements {
+                lappend shareStatements [statement clause $stmt]
+            }
+        } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
+            dict for {_ stmt} $Statements::statements {
+                if {[lindex [statement clause $stmt] 1] eq "claims"} {
                     lappend shareStatements [statement clause $stmt]
                 }
-            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
-                dict for {_ stmt} $Statements::statements {
-                    if {[lindex [statement clause $stmt] 1] eq "claims"} {
-                        lappend shareStatements [statement clause $stmt]
-                    }
-                }
             }
-            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
-                set pattern [dict get $m pattern]
-                foreach id [trie lookup $Statements::statementClauseToId $pattern] {
-                    set clause [statement clause [Statements::get $id]]
-                    set match [statement unify $pattern $clause]
-                    if {$match != false} {
-                        lappend shareStatements $clause
-                    }
-                }
-            }
-
-            incr sequenceNumber
-            run [subst {
-                Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
-                Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
-                Step
-            }]
         }
+        set matches [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]]
+        lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
+        foreach m $matches {
+            set pattern [dict get $m pattern]
+            foreach id [trie lookup $Statements::statementClauseToId $pattern] {
+                set clause [statement clause [Statements::get $id]]
+                set match [statement unify $pattern $clause]
+                if {$match != false} {
+                    lappend shareStatements $clause
+                }
+            }
+        }
+
+        set sequenceNumber [incr Peers::${peer}::sequenceNumber]
+        Peers::${peer}::run [subst {
+            Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
+            Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
+            Step
+        }]
     }
 
     if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {
@@ -717,13 +719,13 @@ Assert when /this/ has program code /__code/ {
     eval $__code
 }
 
+Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
+    foreach stmt $statements { Say {*}$stmt }
+}
+
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
-
-    Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
-        foreach stmt $statements { Say {*}$stmt }
-    }
 
     source "lib/process.tcl"
     source "./web.tcl"

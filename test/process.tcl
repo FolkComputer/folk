@@ -53,3 +53,21 @@ Assert when we are running {
 }
 Step
 vwait ::wereinaprocess
+
+Assert when we are running {
+    On process {
+        Wish $::nodename receives statements like [list /x/ claims the main process exists]
+        When the main process exists {
+            Commit {
+                Claim the subprocess heard that the main process exists
+            }
+            Step
+        }
+    }
+    Claim the main process exists
+    When the subprocess heard that the main process exists {
+        set ::heard true
+    }
+}
+Step
+vwait ::heard

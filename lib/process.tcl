@@ -6,10 +6,11 @@ set ::processPrelude {
     }
 
     Assert $::nodename wishes $::nodename shares all claims
+    Assert $::nodename wishes $::nodename shares statements like \
+        [list /someone/ wishes $::nodename receives statements like /pattern/]
 
     source "lib/peer.tcl"
-    peer "localhost"
-    vwait Peers::localhost::connected
+    ::peer "localhost"
 }
 
 proc On-process {name body} {
@@ -22,6 +23,7 @@ proc On-process {name body} {
         set body [format {
             Assert <process.tcl> claims <root> has program code {%s}
             Step
+            vwait forever
         } $body]
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 

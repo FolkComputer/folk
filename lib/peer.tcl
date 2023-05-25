@@ -30,7 +30,18 @@ proc ::peer {node} {
             ::websocket::send $sock text $msg
         }
 
-        proc init {n} { variable node $n; setupSock }
+        proc init {n} {
+            variable node $n; setupSock
+            vwait Peers::${n}::connected
+
+            run [format {
+                namespace eval Peers::%s [format {
+                    proc run {msg} {
+                        ::websocket::send %%s text $msg
+                    }
+                } $chan]
+            } $::nodename]
+        }
         init
     } $node
 }
