@@ -246,7 +246,7 @@ namespace eval Display {
         for {set i 0} {$i < [llength $points]} {incr i} {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
-            if {$b == ""} break
+            if {$b == "" || $a eq $b} break
 
             # if line is past edge of screen, clip it to the nearest
             # point along edge of screen
