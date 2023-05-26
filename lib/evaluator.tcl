@@ -756,6 +756,13 @@ namespace eval Evaluator {
             Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                    &patternCount, &patterns);
             for (int i = 0; i < patternCount; i++) {
+                reaction_t* reactions[1000];
+                int reactionsCount = trieLookup(NULL, (uint64_t*) reactions, 1000,
+                                                reactionsToStatementAddition, patterns[i]);
+                for (int j = 0; j < reactionsCount; j++) {
+                    Tcl_DecrRefCount(reactions[j]->reactToPattern);
+                    ckfree(reactions[j]);
+                }
                 trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
             }
             Tcl_DecrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
@@ -1078,6 +1085,7 @@ namespace eval Evaluator {
                 if (isNewStatement) {
                     reactToStatementAddition(interp, id);
                 }
+                Tcl_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
                 environment_t* results[1000];
@@ -1089,6 +1097,7 @@ namespace eval Evaluator {
                     remove_(id);
                     ckfree((char *)results[i]);
                 }
+                Tcl_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
                 if (matchExists(entry.say.parentMatchId)) {
@@ -1099,6 +1108,7 @@ namespace eval Evaluator {
                         reactToStatementAddition(interp, id);
                     }
                 }
+                Tcl_DecrRefCount(entry.say.clause);
 
             } else if (entry.op == RECOLLECT) {
                 if (exists(entry.recollect.collectId)) {
