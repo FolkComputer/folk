@@ -161,7 +161,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    #subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {

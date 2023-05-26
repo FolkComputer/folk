@@ -148,7 +148,7 @@ proc handleRead {chan addr port} {
 
 proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
-        puts "Event $type from chan $chan"
+        # puts "Event $type from chan $chan"
     } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
