@@ -8,6 +8,49 @@ proc subtractBy50 {coords} {
   list [lindex $coords 0] [expr {[lindex $coords 1] - 50}]
 }
 
+proc checkFileExists {number} {
+    # build the path
+    set path "~/folk-printed-programs/${number}.folk.temp"
+
+    # Expand user directory (~)
+    set fullPath [file normalize $path]
+
+    return [file exists $fullPath]
+}
+
+proc createTempFile {number} {
+  set sourcePath "~/folk-printed-programs/${number}.folk"
+  set destPath "~/folk-printed-programs/${number}.folk.temp"
+
+  set fullSourcePath [file normalize $sourcePath]
+  set fullDestPath [file normalize $destPath]
+
+  if {[file exists $fullSourcePath]} {
+      if {[catch {file copy -- $fullSourcePath $fullDestPath} errMsg]} {
+          return "Failed to create file: $errMsg"
+      }
+  } else {
+      return "Source file does not exist"
+  }
+}
+
+
+
+proc deleteFile {number} {
+    set path "~/folk-printed-programs/${number}.folk.temp"
+    set fullPath [file normalize $path]
+    if {[file exists $fullPath]} {
+        if {[catch {file delete -- $fullPath} errMsg]} {
+            # return "Failed to delete file: $errMsg"
+        } else {
+            # return "File deleted successfully | [file exists $fullPath]"
+        }
+    } else {
+        # return "File does not exist"
+    }
+}
+
+
 When /thing/ wishes /page/ has /position/ dock & /page/ has region /r/ & /p2/ has region /r2/ {
      if {$page eq $p2} { return }
      lassign [lindex $r 0] a b c d
@@ -59,12 +102,33 @@ When /page/ has docked program /d/ & /d/ has program code /code/ {
   Wish $this is outlined blue
 }
 
+
+
+When $this has file /f/ {
+  When /page/ has docked program /d/ {
+    if {[string length $f] == 0} {
+      Commit file { Claim $this has file $d }
+    }
+  }
+  When /nobody/ has docked program /d/ {
+      if {[string length $f] > 0} {
+        deleteFile $f
+        Commit file { Claim $this has file ""}
+      }
+  }
+}
+
 When /page/ has docked program /d/ & /d/ has program code /code/ & /node/ has step count /count/ & $this has a cursor /cursor/ {
   Wish $page is outlined white
   Wish $this is labelled [insertCursor $code $cursor $count]
+  Wish $this has halo message $d
+  if {![checkFileExists $d]} {
+    createTempFile $d
+  }
 }
 
 Commit cursor { Claim $this has a cursor [list 0 0]}
+Commit file { Claim $this has file "" }
 
 proc isCommandWithChar { currentKey lastKey matchChar } {
   set isS [expr {$currentKey == $matchChar}]
@@ -88,7 +152,7 @@ Every time the keyboard character log is /k/ & $this has a cursor /c/ {
       left { Claim $this has a cursor [list [expr {[x $c] - 1}] [y $c]] }
       default {
         When /page/ has docked program /d/ & /d/ has program code /code/ {
-          Claim $this has patched program code [insertCharacter $code $currentCharacter $c]
+          Claim $d has patched program code [insertCharacter $code $currentCharacter $c]
         }
         Claim $this has a cursor $c
       }
@@ -98,10 +162,4 @@ Every time the keyboard character log is /k/ & $this has a cursor /c/ {
 
 When $this has a cursor /c/ {
   Wish $this is labelled "cursor: ---- $c"
-}
-
-Wish $this has halo message "hi"
-
-When $this has patched program code /code/ {
-  Wish $this is labelled "\n====\n $code \n===\n"
 }
