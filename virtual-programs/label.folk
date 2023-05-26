@@ -16,24 +16,21 @@ When /thing/ has region /region/ {
 
         set lines [split $text "\n"]
         if {$shouldFlip} {set lines [lreverse $lines]}
-        set fontSize 12
+        set fontSize 1
         for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-            set ly [expr {$shouldFlip ? $y+$lineNum*18 : $y+$lineNum*18}]
+            set ly [expr {$shouldFlip ? $y+$lineNum*$fontSize*18 : $y+$lineNum*$fontSize*18}]
             Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
         }
     } with environment [dict create x $x y $y radians $radians shouldFlip $shouldFlip]
 }
 
 proc text {coords text angle} {
-  Display::text Display::fb [lindex $coords 0] [lindex $coords 1] _ $text $angle
+  Display::text Display::fb [lindex $coords 0] [lindex $coords 1] 2 $text $angle
 }
 
-When /anyone/ wishes /p/ has halo message /message/ {
-  When $p has region /r/ {
-     lassign [lindex $r 0] a b c d
-     lassign $a x y
-     text $a $message 0
-     text $d $message 180
-     Wish $this is labelled TEST
-  }
+When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {
+	lassign [lindex $r 0] a b c d
+	lassign $a x y
+	text $a $message 0
+	text $d $message 180
 }

@@ -51,10 +51,8 @@ Retract /x/ has program code /y/
 Step
 
 Assert labeller has program code {
-    When labelling is on /k/ {
-        When the collected matches for [list /someone/ wishes /p/ is labelled /label/] are /matches/ {
-            Claim the total label on $k is [lmap m $matches {dict get $m label}]
-        }
+    When labelling is on /k/ & the collected matches for [list /someone/ wishes /p/ is labelled /label/] are /matches/ {
+        Claim the total label on $k is [lmap m $matches {dict get $m label}]
     }
 }
 Assert programWithLabels has program code {

@@ -1,6 +1,4 @@
 Wish $this has filename "process.folk"
-When /p/ is running process /process/ {
-     When process $process has standard output log /log/ {
-          Wish $p is labelled [join $log "\n"]
-     }
+When /p/ is running process /process/ & process /process/ has standard output log /log/ {
+     Wish $p is labelled [join $log "\n"]
 }

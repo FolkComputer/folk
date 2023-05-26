@@ -1,38 +1,11 @@
 Wish $this has filename "shapes.folk"
 
+source "vendor/math/geometry.tcl"
+
 set sizeDict [dict create small 1 medium 4 large 10]
 
 proc isSizeWord {word} {
   expr {[lsearch [list small medium large] $word] >= 0}
-}
-proc polyline {points {strokeWeight 5} {color white} args} {
-  set i 0
-  set pointsLength [llength $points]
-  set PL_less_one [expr {$pointsLength - 1}]
-  while {$i < $pointsLength} {
-      if {$i eq $PL_less_one} { return }
-      set current [lindex $points $i]
-      incr i
-      set next [lindex $points $i]
-      Display::stroke [list $current $next] $strokeWeight $color
-  }
-}
-
-proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
-  set start [list $x $y]
-  set points [list $start]
-
-  puts [list [expr {$x + $w}] $y]
-
-  lappend points [list [expr {$x + $w}] $y]
-  lappend points [list [expr {$x + $w}] [expr {$y + $h}]]
-  lappend points [list $x [expr {$y + $h}]]
-  lappend points $start
-  polyline $points $strokeWeight $color
-}
-
-proc square {x y w {strokeWeight 5} {color "white"} args} {
-  rectangle $x $y $w $w $strokeWeight $color
 }
 
 proc regionToInnerRect {region} {
@@ -49,24 +22,26 @@ proc regionToInnerRect {region} {
 
 # --- Wish $this has ... ----
 
-# numPoints 2 => line
 # numPoints 3 => triangle
 # numPoints 4 => square
 proc shape {numPoints x y r {color white} {filled false} args} {
   set start [list $x $y]
-  set points [list $start]
+  set points [list [lindex $start 0] [lindex $start 1]]
   set i 0
+  # adjust radius as shape increases in number of points
+  set radiusAdjustment [expr {300 * $r  / $numPoints}]
   while {$i < $numPoints} {
     incr i
     set angle [expr {2 * 3.14159 * $i / $numPoints}]
-    set x [expr {$x + $r * cos($angle)}]
-    set y [expr {$y + $r * sin($angle)}]
-    lappend points [list $x $y]
+    set x [expr {$x + $radiusAdjustment * cos($angle)}]
+    set y [expr {$y + $radiusAdjustment * sin($angle)}]
+    lappend points $x
+    lappend points $y
   }
   if {$filled} {
-    polyline $points 10 $color
+    Display::stroke $points 10 $color
   } else {
-    polyline $points 2 $color
+    Display::stroke $points 3 $color
   }
 }
 
@@ -82,25 +57,28 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
     set y [expr {$y + $offsetY}]
   }
 
-  puts "drawing $shape at $x $y"
 
-  set adjustedWidth [expr {$width * 0.25}]
   set x [expr { $x + $offsetX}]
   set y [expr { $y + $offsetY}]
 
   switch -nocase $shape {
     triangle {
-      shape 3 $x $y $adjustedWidth $color $filled
+      shape 3 $x $y 1 $color $filled
     }
     square {
-      shape 4 $x $y $adjustedWidth $color $filled
+      shape 4 $x $y 1 $color $filled
     }
-    # TODO: cwervo - fix magic numbers here
+    hexagon {
+      shape 6 $x $y 1 $color $filled
+    }
+    octagon {
+      shape 8 $x $y 1 $color $filled
+    }
     circle {
-      shape 10 [expr {$x * 0.98}] $y [expr {$adjustedWidth * 0.4}] $color $filled
+      shape 30 $x $y 1 $color $filled
     }
     default {
-      shape 5 $x $y $adjustedWidth $color $filled
+      shape 3 $x $y 1 $color $filled
     }
   }
 }

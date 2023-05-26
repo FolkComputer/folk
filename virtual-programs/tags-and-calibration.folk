@@ -91,20 +91,22 @@ When tag /tag/ is a tag {
 
 
 Say when tag /tag/ has corners /corners/ {
-	set tagcorners [lmap p $corners {::cameraToProjector $p}]
-	# foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
-	set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
-	set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
+    set tagcorners [lmap p $corners {::cameraToProjector $p}]
+    # foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
+    Display::fillQuad {*}$tagcorners white
 
-	set offsets {{-4.7 -2.6} {1 -2.6} {1 0.8} {-4.7 0.8}}
-	set corners [add $tagcorners [matmul $offsets [list $tagbottom $tagright]]]
-	set edges [list]
-	for {set i 0} {$i < [llength $corners]} {incr i} {
-		if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
-	}
-	lappend edges [list [expr {[llength $corners] - 1}] 0]
-	set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$tagright]] 
-	Claim $tag has region $region
+    set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
+    set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
+
+    set offsets {{-4.7 -2.6} {1 -2.6} {1 0.8} {-4.7 0.8}}
+    set corners [add $tagcorners [matmul $offsets [list $tagbottom $tagright]]]
+    set edges [list]
+    for {set i 0} {$i < [llength $corners]} {incr i} {
+        if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
+    }
+    lappend edges [list [expr {[llength $corners] - 1}] 0]
+    set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$tagright]] 
+    Claim $tag has region $region
 } with environment {
     %matmul ::math::linearalgebra::matmul
     %sub ::math::linearalgebra::sub

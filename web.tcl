@@ -38,7 +38,7 @@ proc handlePage {path contentTypeVar} {
                     </li>
                 }]
             }
-            return [subst {
+            subst {
                 <html>
                 <ul>
                 <li><a href="/new">New program</a></li>   
@@ -48,7 +48,7 @@ proc handlePage {path contentTypeVar} {
                 </ul>
                 <ul>[join $l "\n"]</ul>
                 </html>
-            }]
+            }
         }
         "/timings" {
             set totalTimes [list]
@@ -68,25 +68,25 @@ proc handlePage {path contentTypeVar} {
                     </li>
                 }]
             }
-            return [subst {
+            subst {
                 <html>
                 <h1>Timings</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
-            }]
+            }
         }
         "/favicon.ico" {
             set contentType "image/x-icon"
-            return [readFile "assets/favicon.ico" contentType]
+            readFile "assets/favicon.ico" contentType
         }
         "/statementClauseToId.pdf" {
-            return [readPdf [trie dot $Statements::statementClauseToId] contentType]
+            readPdf [trie dot $Statements::statementClauseToId] contentType
         }
         "/statements.pdf" {
-            return [readPdf [Statements::dot] contentType]
+            readPdf [Statements::dot] contentType
         }
         "/statementPatternToReactions.pdf" {
-            return [readPdf [trie dot $Evaluator::statementPatternToReactions] contentType]
+            readPdf [trie dot $Evaluator::statementPatternToReactions] contentType
         }
         default {
             subst {

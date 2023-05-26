@@ -4,11 +4,8 @@ return
 Wish $this has camera image
 Wish $this is outlined thick palegoldenrod
 
-When $this has camera image /im/ {
-	When $this has region /r/ {
-		set coords [lmap n [lindex $r 0 0] {expr $n * 1}]
-		Wish display runs [list Display::image {*}$coords $im]
-		Wish $this is labelled "$coords $im"
-		# filter $im
-	}
+When $this has camera image /im/ & $this has region /r/ {
+	set coords [lmap n [lindex $r 0 0] {expr $n * 1}]
+	Wish display runs [list Display::image {*}$coords $im]
+	Wish $this is labelled "$coords $im"
 }
