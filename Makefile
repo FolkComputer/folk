@@ -25,4 +25,4 @@ remote-flamegraph:
 	scp folk@$(FOLK_SHARE_NODE):~/folk/out.svg .
 
 backup-printed-programs:
-	tar -zcvf ~/"folk-printed-programs_$(shell date '+%Y-%m-%d_%H-%M-%S%z').tar.gz" ~/folk-printed-programs
+	cd ~/folk-printed-programs && timestamp=$$(date '+%Y-%m-%d_%H-%M-%S%z') && tar -zcvf ~/"folk-printed-programs_$$timestamp.tar.gz" . && echo "Saved to: ~/folk-printed-programs_$$timestamp.tar.gz"
