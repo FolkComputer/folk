@@ -19,7 +19,8 @@ When /thing/ has region /region/ {
 			   set shouldFlip [expr {abs($radians) < 1.57}]
 			   if {$::isLaptop} { set shouldFlip false}
 			   set ly [expr {$shouldFlip ? $y+$lineNum*$fontSize*18 : $y+$lineNum*$fontSize*18}]
-			   Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] $radians
+			   set line [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] 
+			   Display::text device $x $ly $fontSize $line $radians
 		}
 	}
 }

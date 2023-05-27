@@ -141,24 +141,34 @@ dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
     // Draws 1 line of text (no linebreak handling).
     int len = strlen(text);
     for (unsigned i = 0; i < len; i++) {
-        for (unsigned y = 0; y < font.char_height; y++) {
-            for (unsigned x = 0; x < font.char_width; x++) {
-                int idx = (text[i] * font.char_height * 2) + (y * 2) + (x >= 8 ? 1 : 0);
-                int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+	const letterOffset = text[i] * font.char_height * 2;
 
-                if(bit) {
-                    for (int dy = 0; dy < scale; dy++) {
-                        for (int dx = 0; dx < scale; dx++) {
-                            int sx = x0 + (((upsidedown ? len-i : i) * font.char_width + (upsidedown ? -x : x))) * scale + dx;
-                            int sy = y0 + (y * (upsidedown ? -1 : 1)) * scale + dy;
-                            if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-                                staging[(sy*fbwidth) + sx] = 0xFFFF;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+	// Loop over the font bitmap
+	for (unsigned y = 0; y < font.char_height; y++) {
+	    for (unsigned x = 0; x < font.char_width; x++) {
+
+		// Index into bitmap for pixel
+		int idx = letterOffset + (y * 2) + (x >= 8 ? 1 : 0);
+		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
+		if (!bit) continue;
+
+		// If should be colored, draw scaled to font-size!
+		for (int dy = 0; dy < scale; dy++) {
+		    for (int dx = 0; dx < scale; dx++) {
+
+			int N = upsidedown ? len-i : i;
+			int sign = upsidedown ? -1 : 1;
+
+			int sx = x0 + dx + scale * (sign * x + N * font.char_width);
+			int sy = y0 + dy + scale * sign * y;
+
+			if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
+			    staging[(sy*fbwidth) + sx] = 0xFFFF;
+			}
+		    }
+		}
+	    }
+	}
     }
 }
 
