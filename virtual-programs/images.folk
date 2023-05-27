@@ -3,29 +3,55 @@
 Wish $this has filename "images.folk"
 
 namespace eval ::image {
-	proc width {im} { dict get $im width }
-	proc height {im} { dict get $im height }
-	proc subimage {im x y subwidth subheight} {
-		dict with im {
-			set x [expr {int($x)}]
-			set y [expr {int($y)}]
-			set subdata [expr {$data + ($y*$width + $x) *
-				$components}]
-			dict create \
-				width $subwidth height $subheight \
-				components $components \
-				bytesPerRow $bytesPerRow \
-				data [format 0x%x $subdata]
-		}
-	}
-	namespace export *
-	namespace ensemble create
+  proc width {im} { dict get $im width }
+  proc height {im} { dict get $im height }
+  proc subimage {im x y subwidth subheight} {
+    dict with im {
+      set x [expr {int($x)}]
+      set y [expr {int($y)}]
+      set subdata [expr {$data + ($y*$width + $x) * $components}]
+      dict create \
+        width $subwidth \
+        height $subheight \
+        components $components \
+        bytesPerRow $bytesPerRow \
+        data [format 0x%x $subdata]
+    }
+  }
+  namespace export *
+  namespace ensemble create
 }
 
-When /someone/ wishes /p/ has camera image & the camera frame is /f/ & /p/ has region /r/ {
-	lassign [regionToBbox $r] minX minY maxX maxY
-	set subimage [image subimage $f \
-		$minX $minY \
-		[expr {int($maxX - $minX)}] [expr {int($maxY - $minY)}]]
-	Claim $p has camera image $subimage
+
+When /someone/ wishes /p/ has camera image {
+  When the camera frame is /f/ {
+    When $p has region /r/ {
+      lassign [regionToBbox $r] minX minY maxX maxY
+
+      set imW [image width $f]
+      set imH [image height $f]
+
+      set x [expr {int(max($minX * $imW / $Display::WIDTH, 0))}]
+      set y [expr {int(max($minY * $imH / $Display::HEIGHT, 0))}]
+      set w [expr {int(min(($maxX - $minX) * $imW / $Display::WIDTH, $imW))}]
+      set h [expr {int(min(($maxY - $minY) * $imH / $Display::HEIGHT, $imH))}]
+
+      Wish $p is labelled "display: $Display::WIDTH $Display::HEIGHT"
+      Wish $p is labelled "display bbox: $minX $minY $maxX $maxY"
+      Wish $p is labelled "image: $imW $imH"
+      Wish $p is labelled "sub-image: $x $y $w $h"
+
+      set subimage [image subimage $f $x $y $w $h]
+      Claim $p has camera image $subimage
+    }
+  }
 }
+
+
+# Wish $this has camera image
+# Wish $this is outlined thick palegoldenrod
+# 
+# When $this has camera image /im/ & $this has region /r/ {
+#   set coords [lmap n [lindex $r 0 0] {expr $n * 1}]
+#   Wish display runs [list Display::image {*}$coords $im]
+# }
