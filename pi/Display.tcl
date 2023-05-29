@@ -139,9 +139,13 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 
 dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
     // Draws 1 line of text (no linebreak handling).
+    // TODO: upsidedown/radians is still funky
     int len = strlen(text);
+    int S = upsidedown ? -1 : 1;
+
     for (unsigned i = 0; i < len; i++) {
-	const letterOffset = text[i] * font.char_height * 2;
+	int N = upsidedown ? len-i-1 : i;
+	int letterOffset = text[N] * font.char_height * 2;
 
 	// Loop over the font bitmap
 	for (unsigned y = 0; y < font.char_height; y++) {
@@ -152,19 +156,15 @@ dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
 		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
 		if (!bit) continue;
 
-		// If should be colored, draw scaled to font-size!
+		// When bit is on, repeat to scale to font-size
 		for (int dy = 0; dy < scale; dy++) {
 		    for (int dx = 0; dx < scale; dx++) {
 
-			int N = upsidedown ? len-i : i;
-			int sign = upsidedown ? -1 : 1;
+			int sx = x0 + S * (scale * x + dx + N * font.char_width);
+			int sy = y0 + S * (scale * y + dy);
+			if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
 
-			int sx = x0 + dx + scale * (sign * x + N * font.char_width);
-			int sy = y0 + dy + scale * sign * y;
-
-			if (sx >= 0 && sx < fbwidth && sy >= 0 && sy < fbheight) {
-			    staging[(sy*fbwidth) + sx] = 0xFFFF;
-			}
+			staging[sy*fbwidth + sx] = 0xFFFF;
 		    }
 		}
 	    }
@@ -234,6 +234,7 @@ namespace eval Display {
     proc vec2i {p} {
         return [list [expr {int([lindex $p 0])}] [expr {int([lindex $p 1])}]]
     }
+
     proc getColor {color} {
         if {[info exists Display::$color]} {
             set Display::$color
@@ -243,6 +244,7 @@ namespace eval Display {
             set Display::white
         }
     }
+
     proc fillTriangle {p0 p1 p2 color} {
         fillTriangleImpl [vec2i $p0] [vec2i $p1] [vec2i $p2] [getColor $color]
     }
@@ -276,14 +278,17 @@ namespace eval Display {
         }
     }
 
-    proc text {fb x y fontSize text radians} {
-        drawText [expr {int($x)}] [expr {int($y)}] [expr {abs($radians) < 1.57}] $fontSize $text
+    proc text {fb x y scale text radians} {
+	set upsidedown [expr {abs($radians) < 1.57}]
+        drawText [expr {int($x)}] [expr {int($y)}] $upsidedown $scale $text
     }
+
     proc circle {x y radius thickness color} {
         for {set i 0} {$i < $thickness} {incr i} {
             drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] [getColor $color]
         }
     }
+
     proc image {x y im} {
         drawImage [expr {int($x)}] [expr {int($y)}] $im
     }
