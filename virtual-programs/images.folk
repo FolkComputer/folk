@@ -23,7 +23,7 @@ namespace eval ::image {
 }
 
 
-When /someone/ wishes /p/ has camera image {
+When /someone/ wishes /p/ has camera slice {
     When the camera frame is /f/ {
 	When $p has region /r/ {
 	    # Convert region in projector coordinates to camera
@@ -47,7 +47,7 @@ When /someone/ wishes /p/ has camera image {
 Wish $this is outlined thick palegoldenrod
 
 
-Wish $this has camera image
+Wish $this has camera slice
 When $this has camera slice /im/ for region /r/ {
   set origin [lindex $r 0 0]
 
