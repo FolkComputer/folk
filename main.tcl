@@ -209,7 +209,7 @@ proc Step {} {
     }
 
     if {[uplevel Evaluator::isRunningInSerializedEnvironment]} {
-        Evaluator::deserializeEnvironment $env [uplevel {namespace current}]
+        Evaluator::deserializeEnvironment $env
     }
 }
 
