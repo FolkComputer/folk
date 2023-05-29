@@ -173,7 +173,7 @@ dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
 }
 
 defineImageType dc
-dc proc drawImage {int x0 int y0 image_t image float scale} void {
+dc proc drawImage {int x0 int y0 image_t image int scale} void {
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
 

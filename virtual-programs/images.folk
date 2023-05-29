@@ -39,7 +39,7 @@ When /someone/ wishes /p/ has camera image {
 
 	    # Extract and claim the image for the page
 	    set subimage [image subimage $f $x $y $w $h]
-	    Claim $p has camera slice $subimage
+	    Claim $p has camera slice $subimage for region $r
 	}
     }
 }
@@ -48,7 +48,7 @@ Wish $this is outlined thick palegoldenrod
 
 
 Wish $this has camera image
-When $this has camera slice /im/ & $this has region /r/ {
+When $this has camera slice /im/ for region /r/ {
   set origin [lindex $r 0 0]
 
   lassign [regionToBbox $r] minX minY maxX maxY
