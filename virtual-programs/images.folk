@@ -44,10 +44,16 @@ When /someone/ wishes /p/ has camera image {
     }
 }
 
-Wish $this has camera image
 Wish $this is outlined thick palegoldenrod
 
+
+Wish $this has camera image
 When $this has camera slice /im/ & $this has region /r/ {
-    set origin [lindex $r 0 0]
-    Wish display runs [list Display::image {*}$origin $im]
+  set origin [lindex $r 0 0]
+
+  lassign [regionToBbox $r] minX minY maxX maxY
+  set regionWidth [expr {$maxX - $minX}]
+  set scale [expr {$Display::WIDTH / $regionWidth}] 
+
+  Wish display runs [list Display::image {*}$origin $im $scale]
 }

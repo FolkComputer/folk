@@ -173,9 +173,11 @@ dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
 }
 
 defineImageType dc
-dc proc drawImage {int x0 int y0 image_t image} void {
+dc proc drawImage {int x0 int y0 image_t image float scale} void {
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
+
+	    // Index into image to get color
             int i = y*image.bytesPerRow + x*image.components;
             uint8_t r; uint8_t g; uint8_t b;
             if (image.components == 3) {
@@ -185,7 +187,19 @@ dc proc drawImage {int x0 int y0 image_t image} void {
             } else {
                 exit(1);
             }
-            staging[(y0+y)*fbwidth + x0+x] = PIXEL(r, g, b);
+
+	    // Write repeatedly to framebuffer to scale up image
+	    for (int dy = 0; dy < scale; dy++) {
+		for (int dx = 0; dx < scale; dx++) {
+
+		    int sx = x0 + scale * x + dx;
+		    int sy = y0 + scale * y + dy;
+		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
+
+		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
+
+		}
+	    }
         }
     }
 }
@@ -289,8 +303,8 @@ namespace eval Display {
         }
     }
 
-    proc image {x y im} {
-        drawImage [expr {int($x)}] [expr {int($y)}] $im
+    proc image {x y im {scale 1.0}} {
+        drawImage [expr {int($x)}] [expr {int($y)}] $im $scale
     }
 
     # for debugging
