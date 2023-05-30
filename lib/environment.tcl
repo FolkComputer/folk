@@ -2,8 +2,7 @@ namespace eval ::SerializableEnvironment {}
 
 proc serializeEnvironment {} {
     set env [dict create]
-    # get all variables and serialize them
-    # (to fake lexical scope)
+    # Get all variables and serialize them, to fake lexical scope.
     foreach name [info vars ::SerializableEnvironment::*] {
         if {![string match "::SerializableEnvironment::__*" $name]} {
             dict set env [namespace tail $name] [set $name]
