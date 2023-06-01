@@ -124,11 +124,11 @@ proc On {event args} {
 
 proc After {n unit body} {
     if {$unit eq "milliseconds"} {
-        set env [uplevel Evaluator::serializeEnvironment]
-        after $n [list apply {{body env} {
-            Evaluator::tryRunInSerializedEnvironment $body $env
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        after $n [list apply [list $argNames [subst {
+            $body
             Step
-        }} $body $env]
+        }]] {*}$argValues]
     } else { error }
 }
 set ::committed [dict create]
@@ -136,13 +136,13 @@ proc Commit {args} {
     upvar this this
     set body [lindex $args end]
     set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
-
-    set code [list Evaluator::tryRunInSerializedEnvironment $body [uplevel Evaluator::serializeEnvironment]]
-    Assert $key has program code $code
-    if {[dict exists $::committed $key] && [dict get $::committed $key] ne $code} {
-        Retract $key has program code [dict get $::committed $key]
+    lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+    set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
+    Assert $key has program $lambda
+    if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
+        Retract $key has program [dict get $::committed $key]
     }
-    dict set ::committed $key $code
+    dict set ::committed $key $lambda
 }
 
 proc StepImpl {} { Evaluator::Evaluate }
