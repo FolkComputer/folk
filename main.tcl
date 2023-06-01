@@ -115,7 +115,8 @@ proc On {event args} {
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
-        Statements::matchAddDestructor $::matchId $body [uplevel Evaluator::serializeEnvironment]
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        Statements::matchAddDestructor $::matchId [list $argNames $body] $argValues
 
     } else {
         error "Unknown On $event $args"
@@ -208,6 +209,10 @@ source "lib/math.tcl"
 # it's also used to implement Commit
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
+}}
+# For backward compat(?):
+Assert when /this/ has program code /__programCode/ {{this __programCode} {
+    Claim $this has program [list {this} $__programCode]
 }}
 
 if {[info exists ::entry]} {
