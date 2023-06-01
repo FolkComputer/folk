@@ -219,9 +219,9 @@ if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
 
-    Assert when /peer/ shares statements /statements/ with sequence number /gen/ {
+    Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {
         foreach stmt $statements { Say {*}$stmt }
-    }
+    }}
 
     source "lib/process.tcl"
     source "./web.tcl"
