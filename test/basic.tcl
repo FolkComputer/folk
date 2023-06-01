@@ -49,7 +49,6 @@ Assert someone claims GreenThing has region GreenThingRegion
 Step
 
 assert {$::outlinecolors eq "BlueThing blue GreenThing green"}
-puts "outlinecolors $::outlinecolors joinoutlinecolors $::joinoutlinecolors"
 assert {$::outlinecolors eq $::joinoutlinecolors}
 
 Assert someone claims BlueThing has region BlueThingRegion2

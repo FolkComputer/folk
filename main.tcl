@@ -63,8 +63,8 @@ proc When {args} {
             set pattern [lrange $pattern 0 $i-1]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
                 set remainingWord [lindex $remainingPattern $j]
-                regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName
-                if {$remainingVarName in $varNamesWillBeBound} {
+                if {[regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName] &&
+                    $remainingVarName in $varNamesWillBeBound} {
                     lset remainingPattern $j \$$remainingVarName
                 }
             }
