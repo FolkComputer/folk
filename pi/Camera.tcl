@@ -260,6 +260,20 @@ namespace eval Camera {
 
         folkImagesMount
 
+        try {
+          while {1} {
+            set pid [exec lsof -t "/dev/video0"]
+            if {$pid eq ""} break
+            exec kill -9 $pid 
+          }
+        } on error err { 
+          puts "got an error when trying to claim the video input as our own: ${err}"
+        }
+
+        # FIXME: This is bad. Something about the state of /dev/video0 makes the ioctl in cameraInit
+        # return "device busy" - sleeping helps...
+        exec sleep .5
+
         variable camera
         set camera [cameraOpen "/dev/video0" $WIDTH $HEIGHT]
         cameraInit $camera

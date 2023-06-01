@@ -10,6 +10,14 @@ On process {
     # FIXME: do these in outer scope
     Camera::init 1280 720
     puts "Camera tid: [getTid]"
+    
+    while true {
+      set grayFrame [Camera::grayFrame]
+      Commit {
+        Claim the camera frame is $grayFrame;
+      }
+      Step
+    }
 }
 
 On process {

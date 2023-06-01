@@ -58,7 +58,17 @@ proc On-process {name body} {
         proc handleUnmatch {} {
             variable pid
             variable name
-            catch {exec kill $pid}
+            variable stdio
+            close $stdio
+            exec kill -9 $pid 
+            while {1} {
+              try {
+                exec kill -0 $pid
+              } on error err {
+                break
+              }
+              puts "waiting for unmatch kill to work"
+            }
             Retract /someone/ is running process $name
             Retract process $name has standard output log /something/
             namespace delete ::Processes::$name
