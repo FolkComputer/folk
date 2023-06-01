@@ -33,7 +33,10 @@ proc handlePage {path contentTypeVar} {
                 lappend l [subst {
                     <li>
                     <details>
-                    <summary>$id: [htmlEscape [statement short $stmt]]</summary>
+                    <summary style="[expr {
+                    [lsearch -exact [statement clause $stmt] error] != -1
+                    ? "color: red"
+                    : ""}]">$id: [htmlEscape [statement short $stmt]]</summary>
                     <pre>[htmlEscape [statement clause $stmt]]</pre>
                     </details>
                     </li>
