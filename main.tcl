@@ -49,16 +49,11 @@ proc Claim {args} { upvar this this; uplevel [list Say [expr {[info exists this]
 proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args] }
 
 proc When {args} {
-    if {[lindex $args end-1] eq "environment"} {
-        set body [lindex $args end-3]
-        set pattern [lreplace $args end-3 end]
-        set environment [lindex $args end]
-    } else {
-        set body [lindex $args end]
-        set pattern [lreplace $args end end]
-        set environment [uplevel Evaluator::serializeEnvironment]
-    }
-    set wordsWillBeBound [list]
+    set body [lindex $args end]
+    set pattern [lreplace $args end end]
+    lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+
+    set varNamesWillBeBound [list]
     set negate false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
         set word [lindex $pattern $i]
@@ -68,8 +63,8 @@ proc When {args} {
             set pattern [lrange $pattern 0 $i-1]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
                 set remainingWord [lindex $remainingPattern $j]
-                if {$remainingWord in $wordsWillBeBound} {
-                    regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName
+                regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName
+                if {$remainingVarName in $varNamesWillBeBound} {
                     lset remainingPattern $j \$$remainingVarName
                 }
             }
@@ -84,18 +79,19 @@ proc When {args} {
             } else {
                 # Rewrite subsequent instances of this variable name /x/
                 # (in joined clauses) to be bound $x.
-                lappend wordsWillBeBound $word
+                lappend varNamesWillBeBound $varName
             }
         } elseif {[string index $word 0] eq "\$"} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }
+    lappend argNames {*}$varNamesWillBeBound
 
     if {$negate} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        uplevel [list Say when the collected matches for $pattern are /__matches/ $negateBody with environment $environment]
+        uplevel [list Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues]
     } else {
-        uplevel [list Say when {*}$pattern $body with environment $environment]
+        uplevel [list Say when {*}$pattern [list $argNames $body] with environment $argValues]
     }
 }
 proc Every {event args} {
@@ -157,10 +153,6 @@ namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
 proc Step {} {
-    if {[uplevel Evaluator::isRunningInSerializedEnvironment]} {
-        set env [uplevel Evaluator::serializeEnvironment]
-    }
-
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
@@ -207,10 +199,6 @@ proc Step {} {
             }]
         }
     }
-
-    if {[uplevel Evaluator::isRunningInSerializedEnvironment]} {
-        Evaluator::deserializeEnvironment $env
-    }
 }
 
 source "lib/math.tcl"
@@ -218,9 +206,9 @@ source "lib/math.tcl"
 
 # this defines $this in the contained scopes
 # it's also used to implement Commit
-Assert when /this/ has program code /__code/ {
-    eval $__code
-}
+Assert when /this/ has program /__program/ {{this __program} {
+    apply $__program $this
+}}
 
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't

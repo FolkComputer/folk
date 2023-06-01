@@ -495,6 +495,12 @@ namespace eval Statements { ;# singleton Statement store
     }
 
     # unify allocates a new environment.
+    $cc proc isBlank {char* varName} bool [subst {
+        [join [lmap blank $statement::blanks {subst {
+            if (strcmp(varName, "$blank") == 0) { return true; }
+        }}] "\n"]
+        return false;
+    }]
     $cc proc unify {Tcl_Obj* a Tcl_Obj* b} environment_t* {
         int alen; Tcl_Obj** awords;
         int blen; Tcl_Obj** bwords;
@@ -507,13 +513,17 @@ namespace eval Statements { ;# singleton Statement store
         for (int i = 0; i < alen; i++) {
             char aVarName[100] = {0}; char bVarName[100] = {0};
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
-                environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = bwords[i];
+                if (!isBlank(aVarName)) {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, aVarName, sizeof(binding->name));
+                    binding->value = bwords[i];
+                }
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
-                environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = awords[i];
+                if (!isBlank(bVarName)) {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, bVarName, sizeof(binding->name));
+                    binding->value = awords[i];
+                }
             } else if (!(awords[i] == bwords[i] ||
                          strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
                 ckfree((char *)env);
@@ -769,10 +779,10 @@ namespace eval Evaluator {
             reactionPatternsOfReactingId[reactingId.idx] = NULL;
         }
 
-        void tryRunInSerializedEnvironment(Tcl_Interp* interp, Tcl_Obj* body, Tcl_Obj* env) {
+        void tryRunInSerializedEnvironment(Tcl_Interp* interp, Tcl_Obj* lambda, Tcl_Obj* env) {
             int objc = 3; Tcl_Obj *objv[3];
             objv[0] = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
-            objv[1] = body;
+            objv[1] = lambda;
             objv[2] = env;
             if (Tcl_EvalObjv(interp, objc, objv, 0) == TCL_ERROR) {
                 printf("oh god: %s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
@@ -799,33 +809,20 @@ namespace eval Evaluator {
 
                 statement_handle_t matchParentIds[] = {whenId, statementId};
                 match_handle_t matchId = addMatchImpl(2, matchParentIds);
-                Tcl_Obj* body; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-4, &body);
+                Tcl_Obj* lambda; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-4, &lambda);
                 Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
-                // Merge env into bindings (weakly)
-                Tcl_Obj *bindings = environmentToTclDict(result); ckfree((char *)result);
-                Tcl_DictSearch search;
-                Tcl_Obj *key, *value;
-                int done;
-                if (Tcl_DictObjFirst(NULL, env, &search,
-                                     &key, &value, &done) != TCL_OK) {
-                    printf("Reacting %d(%s) to addition of (%s): env is weird (%s)\n",
-                           whenId.idx,
-                           Tcl_GetString(when->clause),
-                           Tcl_GetString(stmt->clause),
-                           Tcl_GetString(env));
-                    exit(2);
+                env = Tcl_DuplicateObj(env);
+                // Append bindings to end of env
+                // TODO: does this preserve order?
+                // FIXME: need to only get bindings on the When side
+                for (int i = 0; i < result->bindingsCount; i++) {
+                    /* printf("Appending binding: [%s]->[%s]\n", result->bindings[i].name, Tcl_GetString(result->bindings[i].value)); */
+                    Tcl_ListObjAppendElement(interp, env, result->bindings[i].value);
                 }
-                for (; !done ; Tcl_DictObjNext(&search, &key, &value, &done)) {
-                    Tcl_Obj *existingValue; Tcl_DictObjGet(NULL, bindings, key, &existingValue);
-                    if (existingValue == NULL) {
-                        Tcl_DictObjPut(NULL, bindings, key, value);
-                    }
-                }
-                Tcl_DictObjDone(&search);
 
                 Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
-                tryRunInSerializedEnvironment(interp, body, bindings);
+                tryRunInSerializedEnvironment(interp, lambda, env);
             }
         }
         static void LogWriteRecollect(statement_handle_t collectId);
@@ -1010,7 +1007,7 @@ namespace eval Evaluator {
         int clauseLength; Tcl_Obj** clauseWords;
         Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
 
-        Tcl_Obj* body = clauseWords[clauseLength-4];
+        Tcl_Obj* lambda = clauseWords[clauseLength-4];
         char matchesVarName[100];
         scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
         Tcl_Obj* env = clauseWords[clauseLength-1];
@@ -1042,13 +1039,10 @@ namespace eval Evaluator {
         match->recollectOnDestruction = true;
         match->recollectCollectId = collectId;
 
-        /* environment_binding_t* matchesVarBinding = env->bindings[env->bindingsCount++]; */
-        /* memcpy(matchesVarBinding->name, matchesVarName, 100); */
-        /* matchesVarBinding->value = matches; */
         env = Tcl_DuplicateObj(env);
-        Tcl_DictObjPut(NULL, env, Tcl_NewStringObj(matchesVarName, -1), matches);
+        Tcl_ListObjAppendElement(NULL, env, matches);
         Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
-        tryRunInSerializedEnvironment(interp, body, env);
+        tryRunInSerializedEnvironment(interp, lambda, env);
     }
 
     $cc code {
