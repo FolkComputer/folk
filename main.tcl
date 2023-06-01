@@ -604,12 +604,19 @@ proc Every {event args} {
         uplevel [list When {*}$pattern "$body\nEvaluator::Unmatch $level"]
     }
 }
+
 proc On {event args} {
     if {$event eq "process"} {
         if {[llength $args] == 2} {
             lassign $args name body
         } elseif {[llength $args] == 1} {
-            set name "${::matchId}-process"
+
+            if {![info exists ::SerializableEnvironment::nextSubprocessId]} {
+              set ::SerializableEnvironment::nextSubprocessId 0
+            }
+            set subprocessId [incr ::SerializableEnvironment::nextSubprocessId]
+
+            set name "${::matchId}-${subprocessId}-process"
             set body [lindex $args 0]
         }
         uplevel [list On-process $name $body]

@@ -1,4 +1,8 @@
 set ::processPrelude {
+    if {[info exists ::entry]} {
+      return; # don't run if we're in the main process
+    }
+
     source "main.tcl"
     proc every {ms body} {
         try $body
