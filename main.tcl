@@ -705,11 +705,15 @@ proc Step {} {
         }
 
         set sequenceNumber [incr Peers::${peer}::sequenceNumber]
-        Peers::${peer}::run [subst {
-            Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
-            Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
-            Step
-        }]
+        try { 
+          Peers::${peer}::run [subst {
+              Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
+              Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
+              Step
+          }]
+        } on error err {
+          puts stderr "error from peer $peer: $err"
+        }
     }
 
     if {[uplevel {Evaluator::isRunningInSerializedEnvironment}]} {

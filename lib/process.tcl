@@ -32,24 +32,28 @@ proc On-process {name body} {
         puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
 
         # TODO: send it the serialized environment
-        variable stdio [open "|tclsh8.6 $tclfile 2>@1" w+]
-        variable pid [pid $stdio]
+        variable stdout_reader; variable stdout_writer
+        lassign [chan pipe] stdout_reader stdout_writer
+
+        set pid [exec tclsh8.6 $tclfile >@ $stdout_writer 2>@ $stdout_writer &]
 
         variable log [list]
         proc handleReadable {} {
             variable name
-            variable stdio
             variable log
-            if {[gets $stdio line] >= 0} {
+            if {[gets $stdout_reader line] >= 0} {
                 lappend log $line
-                puts "$name: $line"
+                puts "$name: $line **"
                 Retract process $name has standard output log /l/
                 Assert process $name has standard output log $log
                 Step
-            } elseif {[eof $stdio]} { close $stdio }
+            } elseif {[eof $stdout_reader]} { 
+              close $stdout_reader
+            }
         }
-        fconfigure $stdio -blocking 0 -buffering line
-        fileevent $stdio readable [namespace code handleReadable]
+        # fconfigure $stdio -blocking 0 -buffering line
+        fconfigure $stdout_reader -blocking 0 -buffering line
+        fileevent $stdout_reader readable [namespace code handleReadable]
 
         if {$this ne "<unknown>"} {
             Assert $this is running process $name
@@ -58,8 +62,8 @@ proc On-process {name body} {
         proc handleUnmatch {} {
             variable pid
             variable name
-            variable stdio
-            close $stdio
+            variable stdout_reader
+            close $stdout_reader
             exec kill -9 $pid 
             while {1} {
               try {
