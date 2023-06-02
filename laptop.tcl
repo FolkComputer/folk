@@ -117,7 +117,7 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
         puts -nonewline $fp [join [dict values $::programPositions] "\n"]
         close $fp
 
-        Evaluator::runInSerializedEnvironment {
+        apply {{program x y w h} {
             set vertices [list [list $x $y] \
                               [list [expr {$x+$w}] $y] \
                               [list [expr {$x+$w}] [expr {$y+$h}]] \
@@ -126,7 +126,7 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
             Commit $program region {
                 Say "laptop.tcl" claims $program has region [list $vertices $edges]
             }
-        } [dict create program $program x $x y $y w $w h $h]
+        }} $program $x $y $w $h
 
         StepFromGUI
     }
@@ -143,9 +143,9 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
             # temporarily unbind this program
             # (if it's a file, it'll still survive on disk when you restart the system)
             Retract "laptop.tcl" claims $program has program code /something/
-            Evaluator::runInSerializedEnvironment {
+            apply {{} {
                 Commit $program region {}
-            } {}
+            }}
             StepFromGUI
         }
     }]
@@ -187,7 +187,7 @@ catch {
     close $fp
 }
 
-Assert when /program/ has program code /code/ {
+Assert when /program/ has program code /code/ {{program code} {
     if {!$::isLaptop} { return }
     When /someone/ wishes $program has filename /filename/ {
         wm title .$program $filename
@@ -199,8 +199,8 @@ Assert when /program/ has program code /code/ {
 
         catch {.$program.saved configure -text "Saved to $filename!"}
     }
-}
-Assert when /program/ has error /err/ with info /info/ {
+}}
+Assert when /program/ has error /err/ with info /info/ {{program err info} {
     catch {
         label .$program.err -text "Error: $err\n$info" -background red
         place .$program.err -x 40 -y 100
@@ -209,7 +209,7 @@ Assert when /program/ has error /err/ with info /info/ {
     On unmatch {
         catch {destroy .$program.err}
     }
-}
+}}
 
 source "hosts.tcl"
 if {[info exists ::shareNode]} {

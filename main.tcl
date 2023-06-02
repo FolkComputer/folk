@@ -34,6 +34,11 @@ namespace eval Evaluator {
 }
 set ::logsize -1 ;# Hack to keep metrics working
 
+proc fn {name argNames body} {
+    puts "adding fn $name"
+    uplevel [list set ^$name [list $argNames $body]]
+}
+
 # invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {
     if {[lindex $args 0] eq "when" && [lindex $args end-1] ne "environment"} {
