@@ -2,7 +2,6 @@
 # Example program, i.e the public API
 #
 # When $this has camera slice /slice/ {
-#     Wish $this is labelled "hello"
 #     Wish $this displays slice $slice
 # }
 
