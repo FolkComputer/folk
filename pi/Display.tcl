@@ -304,7 +304,7 @@ namespace eval Display {
     }
 
     proc image {x y im {scale 1.0}} {
-        drawImage [expr {int($x)}] [expr {int($y)}] $im $scale
+        drawImage [expr {int($x)}] [expr {int($y)}] $im [expr {int($scale)}]
     }
 
     # for debugging
