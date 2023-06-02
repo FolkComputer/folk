@@ -26,7 +26,7 @@ namespace eval Display {
 
     proc text {fb x y fontSize text {radians 0}} {
         # TODO: @cwervo - implement font rotation
-        uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica $fontSize" -fill white]]
+        uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica [expr {$fontSize * 12}]" -fill white]]
     }
 
     variable displayTime
@@ -117,13 +117,16 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
         puts -nonewline $fp [join [dict values $::programPositions] "\n"]
         close $fp
 
-        set vertices [list [list $x $y] \
-                          [list [expr {$x+$w}] $y] \
-                          [list [expr {$x+$w}] [expr {$y+$h}]] \
-                          [list $x [expr {$y+$h}]]]
-        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-        Retract "laptop.tcl" claims $program has region /something/
-        Assert "laptop.tcl" claims $program has region [list $vertices $edges]
+        apply {{program x y w h} {
+            set vertices [list [list $x $y] \
+                              [list [expr {$x+$w}] $y] \
+                              [list [expr {$x+$w}] [expr {$y+$h}]] \
+                              [list $x [expr {$y+$h}]]]
+            set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+            Commit $program region {
+                Say "laptop.tcl" claims $program has region [list $vertices $edges]
+            }
+        }} $program $x $y $w $h
 
         StepFromGUI
     }
@@ -140,7 +143,9 @@ proc newProgram {{programCode {Wish $this is outlined blue}} {program ""}} {
             # temporarily unbind this program
             # (if it's a file, it'll still survive on disk when you restart the system)
             Retract "laptop.tcl" claims $program has program code /something/
-            Retract "laptop.tcl" claims $program has region /something/
+            apply {{} {
+                Commit $program region {}
+            }}
             StepFromGUI
         }
     }]
@@ -182,7 +187,7 @@ catch {
     close $fp
 }
 
-Assert when /program/ has program code /code/ {
+Assert when /program/ has program code /code/ {{program code} {
     if {!$::isLaptop} { return }
     When /someone/ wishes $program has filename /filename/ {
         wm title .$program $filename
@@ -194,8 +199,8 @@ Assert when /program/ has program code /code/ {
 
         catch {.$program.saved configure -text "Saved to $filename!"}
     }
-}
-Assert when /program/ has error /err/ with info /info/ {
+}}
+Assert when /program/ has error /err/ with info /info/ {{program err info} {
     catch {
         label .$program.err -text "Error: $err\n$info" -background red
         place .$program.err -x 40 -y 100
@@ -204,7 +209,7 @@ Assert when /program/ has error /err/ with info /info/ {
     On unmatch {
         catch {destroy .$program.err}
     }
-}
+}}
 
 source "hosts.tcl"
 if {[info exists ::shareNode]} {
