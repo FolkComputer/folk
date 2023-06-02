@@ -21,7 +21,8 @@ When /thing/ has region /region/ {
             set ly [expr {$shouldFlip ? $y+$lineNum*$fontSize*18 : $y+$lineNum*$fontSize*18}]
             Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
         }
-    } with environment [dict create x $x y $y radians $radians shouldFlip $shouldFlip]
+    }
+    # with environment [dict create x $x y $y radians $radians shouldFlip $shouldFlip]
 }
 
 fn text {coords text angle} {
