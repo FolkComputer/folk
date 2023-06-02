@@ -1,68 +1,58 @@
 namespace eval ::SerializableEnvironment {}
 
 proc serializeEnvironment {} {
-    set env [dict create]
-    # get all variables and serialize them
-    # (to fake lexical scope)
-    foreach name [info vars ::SerializableEnvironment::*] {
-        if {![string match "::SerializableEnvironment::__*" $name]} {
-            dict set env [namespace tail $name] [set $name]
+    set argnames [list]
+    set argvalues [list]
+    # Get all variables and serialize them, to fake lexical scope.
+    foreach name [uplevel {info locals}] {
+        if {![string match "__*" $name]} {
+            lappend argnames $name
+            lappend argvalues [uplevel [list set $name]]
         }
     }
-    foreach importName [namespace eval ::SerializableEnvironment {namespace import}] {
-        dict set env %$importName [namespace origin ::SerializableEnvironment::$importName]
-    }
-    foreach procName [info procs ::SerializableEnvironment::*] {
-        if {![dict exists $env %[namespace tail $procName]]} {
-            dict set env ^[namespace tail $procName] \
-                [list [info args $procName] [info body $procName]]
-        }
-    }
-    set env
+    # foreach importName [namespace eval ::SerializableEnvironment {namespace import}] {
+    #     dict set env %$importName [namespace origin ::SerializableEnvironment::$importName]
+    # }
+    # foreach procName [info procs ::SerializableEnvironment::*] {
+    #     if {![dict exists $env %[namespace tail $procName]]} {
+    #         dict set env ^[namespace tail $procName] \
+    #             [list [info args $procName] [info body $procName]]
+    #     }
+    # }
+    list $argnames $argvalues
 }
 
-proc deserializeEnvironment {env} {
-    dict for {name value} $env {
-        if {[string index $name 0] eq "^"} {
-            proc ::SerializableEnvironment::[string range $name 1 end] {*}$value
-        } elseif {[string index $name 0] eq "%"} {
-            namespace eval ::SerializableEnvironment \
-                [list namespace import -force $value]
-        } else {
-            set ::SerializableEnvironment::$name $value
-        }
-    }
-}
-
-proc isRunningInSerializedEnvironment {} {
-    expr {[uplevel {namespace current}] eq "::SerializableEnvironment"}
-}
+# proc deserializeEnvironment {env} {
+#     dict for {name value} $env {
+#         if {[string index $name 0] eq "^"} {
+#             proc ::SerializableEnvironment::[string range $name 1 end] {*}$value
+#         } elseif {[string index $name 0] eq "%"} {
+#             namespace eval ::SerializableEnvironment \
+#                 [list namespace import -force $value]
+#         } else {
+#             set ::SerializableEnvironment::$name $value
+#         }
+#     }
+# }
 
 set ::Evaluator::totalTimesMap [dict create]
 set ::Evaluator::runsMap [dict create]
-proc runInSerializedEnvironment {body env} {
-    dict incr ::Evaluator::runsMap $body
-    if {![dict exists $::Evaluator::totalTimesMap $body]} {
-        dict set ::Evaluator::totalTimesMap $body [dict create loadTime 0 runTime 0 unloadTime 0]
+
+proc runInSerializedEnvironment {lambda env} {
+    dict incr ::Evaluator::runsMap $lambda
+    if {![dict exists $::Evaluator::totalTimesMap $lambda]} {
+        dict set ::Evaluator::totalTimesMap $lambda [dict create loadTime 0 runTime 0 unloadTime 0]
     }
-    set loadTime_ [time {deserializeEnvironment $env}]
+    set loadTime_ [time {}]
+
     try {
-        set runTime_ [time {set ret [namespace eval ::SerializableEnvironment $body]}]
+        # puts "applying $lambda ($env)"
+        set runTime_ [time {set ret [apply $lambda {*}$env]}]
         set ret
+
     } finally {
-        set unloadTime_ [time {
-            # Clean up:
-            foreach procName [info procs ::SerializableEnvironment::*] {
-                rename $procName ""
-            }
-            foreach name [info vars ::SerializableEnvironment::*] {
-                unset $name
-            }
-            namespace eval ::SerializableEnvironment {
-                namespace forget {*}[namespace import]
-            }
-        }]
-        dict with ::Evaluator::totalTimesMap $body {
+        set unloadTime_ [time {}]
+        dict with ::Evaluator::totalTimesMap $lambda {
             incr loadTime [string map {" microseconds per iteration" ""} $loadTime_]
             if {[info exists runTime_]} {
                 incr runTime [string map {" microseconds per iteration" ""} $runTime_]

@@ -2,14 +2,15 @@ start:
 	tclsh8.6 main.tcl
 FOLK_SHARE_NODE := $(shell tclsh8.6 hosts.tcl shareNode)
 sync:
-	rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
+	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
 
 .PHONY: test
 test:
 	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
+test/%.debug:
+	FOLK_ENTRY=test/$*.tcl lldb -- tclsh8.6 main.tcl
 test/%:
 	make FOLK_ENTRY=$@.tcl
-
 repl:
 	tclsh8.6 replmain.tcl
 

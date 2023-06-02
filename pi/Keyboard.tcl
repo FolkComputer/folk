@@ -10,9 +10,11 @@ namespace eval Keyboard {
         } elseif {[info hostname] eq "folk-omar"} {
             # This path is set based on the keyboard unique MAC
             # address by a udev rule on machine.
+            set sleepTime 1
             while {![file exists "/dev/input/btkeyboard-omar-gray"]} {
-                puts "Keyboard not found, waiting."
-                exec sleep 2
+                set sleepTime [expr {$sleepTime * 2}]
+                puts "Keyboard not found, waiting $sleepTime s."
+                exec sleep $sleepTime
             }
             set kb [open "/dev/input/btkeyboard-omar-gray" r]
         }

@@ -1,30 +1,31 @@
 Wish $this has filename "label.folk"
 
 When /thing/ has region /region/ {
-	set bbox [regionToBbox $region]
-	lassign [boxCentroid $bbox] x y
-	set width [boxWidth $bbox]
-	set height [boxHeight $bbox]
+    set bbox [regionToBbox $region]
+    lassign [boxCentroid $bbox] x y
 
-	set radians [lindex $region 2]
-	if {$radians eq ""} {set radians 0}
+    set radians [lindex $region 2]
+    if {$radians eq ""} {set radians 0}
 
-	When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
-		set text [join [lmap match $matches {dict get $match text}] "\n"]
-		if {$text eq ""} { return }
+    set shouldFlip [expr {abs($radians) < 1.57}]
+    if {$::isLaptop} { set shouldFlip false }
 
-		set lines [split $text "\n"]
-		set fontSize 1
-		for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-			   set shouldFlip [expr {abs($radians) < 1.57}]
-			   if {$::isLaptop} { set shouldFlip false}
-			   set ly [expr {$shouldFlip ? $y+$lineNum*$fontSize*18 : $y+$lineNum*$fontSize*18}]
-			   Display::text device $x $ly $fontSize [lindex [expr {$shouldFlip ? [lreverse $lines] : $lines }] $lineNum] $radians
-		}
-	}
+    When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
+        set text [join [lmap match $matches {dict get $match text}] "\n"]
+        if {$text eq ""} { return }
+
+        set lines [split $text "\n"]
+        if {$shouldFlip} {set lines [lreverse $lines]}
+        set fontSize 1
+        for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
+            set ly [expr {$shouldFlip ? $y+$lineNum*$fontSize*18 : $y+$lineNum*$fontSize*18}]
+            Display::text device $x $ly $fontSize [lindex $lines $lineNum] $radians
+        }
+    }
+    # with environment [dict create x $x y $y radians $radians shouldFlip $shouldFlip]
 }
 
-proc text {coords text angle} {
+fn text {coords text angle} {
   Display::text Display::fb [lindex $coords 0] [lindex $coords 1] 2 $text $angle
 }
 
