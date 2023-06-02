@@ -71,12 +71,13 @@ proc ::projectorToCamera {projectorPoint} {
 }
 # Wish $this is highlighted white
 
-Say when tag /tag/ has center /c/ size /size/ {
+When tag /tag/ has center /c/ size /size/ {
      Claim tag $tag is a tag
 
      lassign [::cameraToProjector $c] px py
      Claim $tag is a rectangle with x [expr $px-20] y [expr $py-10] width [expr $size*2] height [expr $size*2]
-} with environment {}
+}
+# with environment {}
 
 When tag /tag/ is a tag {
      puts "Added tag $tag"
@@ -90,7 +91,7 @@ When tag /tag/ is a tag {
 }
 
 
-Say when tag /tag/ has corners /corners/ {
+When tag /tag/ has corners /corners/ {
     set tagcorners [lmap p $corners {::cameraToProjector $p}]
     # foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
     Display::fillQuad {*}$tagcorners white
@@ -107,8 +108,9 @@ Say when tag /tag/ has corners /corners/ {
     lappend edges [list [expr {[llength $corners] - 1}] 0]
     set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$tagright]] 
     Claim $tag has region $region
-} with environment {
-    %matmul ::math::linearalgebra::matmul
-    %sub ::math::linearalgebra::sub
-    %add ::math::linearalgebra::add
 }
+# with environment {
+#     %matmul ::math::linearalgebra::matmul
+#     %sub ::math::linearalgebra::sub
+#     %add ::math::linearalgebra::add
+# }
