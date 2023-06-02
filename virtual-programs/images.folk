@@ -23,11 +23,10 @@ namespace eval ::image {
 }
 
 
-When \
-    /someone/ wishes /p/ has camera slice \
-    & the camera frame is /f/ \
-    & /p/ has region /r/ \
-{
+When /someone/ wishes /p/ has camera slice & \
+     the camera frame is /f/ & \
+     /p/ has region /r/ {
+
     # Convert region in projector coordinates to camera
     lassign [regionToBbox $r] minX minY maxX maxY
     lassign [projectorToCamera [list $minX $minY]] px0 py0
