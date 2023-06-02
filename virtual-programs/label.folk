@@ -13,18 +13,19 @@ When /thing/ has region /region/ {
     if {$::isLaptop} {set upsidedown false}
 
     When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
-	set lines [lmap match $matches {dict get $match text}]
-	if {[llength lines] eq 0} { return }
+        set text [join [lmap match $matches {dict get $match text}] "\n"]
+        if {$text eq ""} { return }
+        set lines [split $text "\n"]
 
-	set lines [expr {$upsidedown ? [lreverse $lines] : $lines}]
-	set scale 1
-	set fontSize [expr {18 * $scale}]
+        set lines [expr {$upsidedown ? [lreverse $lines] : $lines}]
+        set scale 1
+        set fontSize [expr {18 * $scale}]
 
-	for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-	    set line [lindex  $lines $lineNum]
-	    set ly [expr {$y + $lineNum * $fontSize}]
-	    Display::text device $x $ly $scale $line $radians
-	}
+        for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
+            set line [lindex  $lines $lineNum]
+            set ly [expr {$y + $lineNum * $fontSize}]
+            Display::text device $x $ly $scale $line $radians
+        }
     }
 }
 
@@ -33,8 +34,8 @@ fn text {coords text angle} {
 }
 
 When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {
-	lassign [lindex $r 0] a b c d
-	lassign $a x y
-	text $a $message 0
-	text $d $message 180
+        lassign [lindex $r 0] a b c d
+        lassign $a x y
+        text $a $message 0
+        text $d $message 180
 }
