@@ -35,8 +35,15 @@ namespace eval Evaluator {
 set ::logsize -1 ;# Hack to keep metrics working
 
 proc fn {name argNames body} {
-    puts "adding fn $name"
     uplevel [list set ^$name [list $argNames $body]]
+}
+rename unknown _original_unknown
+proc unknown {name args} {
+    if {[uplevel [list info exists ^$name]]} {
+        apply [uplevel [list set ^$name]] {*}$args
+    } else {
+        uplevel [list _original_unknown $name {*}$args]
+    }
 }
 
 # invoke at top level, add/remove independent 'axioms' for the system
