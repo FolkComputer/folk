@@ -1,7 +1,13 @@
-# Images
 
-Wish $this has filename "images.folk"
+# Example program, i.e the public API
+#
+# When $this has camera slice /slice/ {
+#     Wish $this is labelled "hello"
+#     Wish $this displays slice $slice
+# }
 
+
+# Generic image class for sub-image manipulations
 namespace eval ::image {
     proc width {im} { dict get $im width }
     proc height {im} { dict get $im height }
@@ -22,7 +28,7 @@ namespace eval ::image {
     namespace ensemble create
 }
 
-
+# Callback: extract out a camera slice
 When /someone/ wishes /p/ has camera slice & \
      the camera frame is /f/ & \
      /p/ has region /r/ {
@@ -40,20 +46,21 @@ When /someone/ wishes /p/ has camera slice & \
 
     # Extract and claim the image for the page
     set subimage [image subimage $f $x $y $w $h]
-    Claim $p has camera slice $subimage for region $r
+    Claim $p has camera slice $subimage
 }
 
-Wish $this has camera slice
-When $this has camera slice /im/ for region /r/ {
+# Auto-trigger callback for `when has camera slice` statements
+When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
+  Wish $p has camera slice
+}
+
+# Display a camera slice
+When /someone/ wishes /p/ displays slice /slice/ & /p/ has region /r/ {
   set origin [lindex $r 0 0]
 
   lassign [regionToBbox $r] minX minY maxX maxY
   set regionWidth [expr {$maxX - $minX}]
   set scale [expr {$Display::WIDTH / $regionWidth}] 
 
-  Wish display runs [list Display::image {*}$origin $im $scale]
+  Wish display runs [list Display::image {*}$origin $slice $scale]
 }
-
-Wish $this is outlined thick palegoldenrod
-
-
