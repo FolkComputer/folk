@@ -66,7 +66,7 @@ namespace eval statement {
             if (ret.capacity_edges < 8) { ret.capacity_edges = 8; }
             // FIXME: Use edge helpers.
             ret.n_edges = 0;
-            ret.edges = ckalloc(sizeof(edge_to_match_t) * ret.capacity_edges);
+            ret.edges = (edge_to_match_t *)ckalloc(sizeof(edge_to_match_t) * ret.capacity_edges);
             for (size_t i = 0; i < n_parents; i++) {
                 ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = PARENT, .match = parents[i] };
             }
@@ -98,7 +98,7 @@ namespace eval statement {
         static void statementDefragmentEdges(statement_t* stmt) {
             // Copy all non-EMPTY edges into a new edgelist.
             size_t n_edges = 0;
-            edge_to_match_t* edges = ckalloc(stmt->capacity_edges * sizeof(edge_to_match_t));
+            edge_to_match_t* edges = (edge_to_match_t *)ckalloc(stmt->capacity_edges * sizeof(edge_to_match_t));
             memset(edges, 0, stmt->capacity_edges * sizeof(edge_to_match_t));
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 edge_to_match_t* edge = statementEdgeAt(stmt, i);
@@ -106,13 +106,13 @@ namespace eval statement {
             }
 
             stmt->n_edges = n_edges;
-            ckfree(stmt->edges);
+            ckfree((char *)stmt->edges);
             stmt->edges = edges;
         }
         static void matchDefragmentEdges(match_t* match) {
             // Copy all non-EMPTY edges into a new edgelist.
             size_t n_edges = 0;
-            edge_to_statement_t* edges = ckalloc(match->capacity_edges * sizeof(edge_to_statement_t));
+            edge_to_statement_t* edges = (edge_to_statement_t *)ckalloc(match->capacity_edges * sizeof(edge_to_statement_t));
             memset(edges, 0, match->capacity_edges * sizeof(edge_to_statement_t));
             for (size_t i = 0; i < match->n_edges; i++) {
                 edge_to_statement_t* edge = &match->edges[i];
@@ -120,7 +120,7 @@ namespace eval statement {
             }
 
             match->n_edges = n_edges;
-            ckfree(match->edges);
+            ckfree((char *)match->edges);
             match->edges = edges;
         }
     }
@@ -214,7 +214,7 @@ namespace eval Statements { ;# singleton Statement store
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
         }
         matches[nextMatchIdx].capacity_edges = 16;
-        matches[nextMatchIdx].edges = ckalloc(16 * sizeof(edge_to_statement_t));
+        matches[nextMatchIdx].edges = (edge_to_statement_t *)ckalloc(16 * sizeof(edge_to_statement_t));
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
             .idx = nextMatchIdx,
@@ -297,7 +297,7 @@ namespace eval Statements { ;# singleton Statement store
 
         int32_t gen = stmt->gen;
         Tcl_Obj* clause = stmt->clause;
-        ckfree(stmt->edges);
+        ckfree((char *)stmt->edges);
         memset(stmt, 0, sizeof(*stmt));
         trieRemove(NULL, statementClauseToId, clause);
         Tcl_DecrRefCount(clause);
@@ -384,7 +384,7 @@ namespace eval Statements { ;# singleton Statement store
         void statementRealloc(statement_handle_t id) {
             statement_t* stmt = get(id);
             assert(stmt != NULL);
-            stmt->edges = ckrealloc(stmt->edges, stmt->capacity_edges*sizeof(edge_to_match_t));
+            stmt->edges = (edge_to_match_t *)ckrealloc((char *)stmt->edges, stmt->capacity_edges*sizeof(edge_to_match_t));
         }
         void statementAddEdgeToMatch(statement_handle_t statementId,
                                      edge_type_t type, match_handle_t matchId) {
@@ -425,7 +425,7 @@ namespace eval Statements { ;# singleton Statement store
         void matchRealloc(match_handle_t id) {
             match_t* match = matchGet(id);
             assert(match != NULL);
-            match->edges = ckrealloc(match->edges, match->capacity_edges*sizeof(edge_to_statement_t));
+            match->edges = (edge_to_statement_t *)ckrealloc((char *)match->edges, match->capacity_edges*sizeof(edge_to_statement_t));
         }
         void matchAddEdgeToStatement(match_handle_t matchId,
                                      edge_type_t type, statement_handle_t statementId) {
@@ -771,7 +771,7 @@ namespace eval Evaluator {
                                                 reactionsToStatementAddition, patterns[i]);
                 for (int j = 0; j < reactionsCount; j++) {
                     Tcl_DecrRefCount(reactions[j]->reactToPattern);
-                    ckfree(reactions[j]);
+                    ckfree((char *)reactions[j]);
                 }
                 trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
             }
