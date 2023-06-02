@@ -41,6 +41,7 @@ proc On-process {name body} {
         proc handleReadable {} {
             variable name
             variable log
+            variable stdout_reader
             if {[gets $stdout_reader line] >= 0} {
                 lappend log $line
                 puts "$name: $line **"
