@@ -56,7 +56,12 @@ proc Wish {args} { upvar this this; uplevel [list Say [expr {[info exists this] 
 proc When {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
-    lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+    if {[lindex $pattern 0] eq "(non-capturing)"} {
+        set argNames [list]; set argValues [list]
+        set pattern [lreplace $pattern 0 0]
+    } else {
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+    }
 
     set varNamesWillBeBound [list]
     set negate false
