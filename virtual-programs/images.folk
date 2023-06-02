@@ -2,7 +2,7 @@
 # Example program, i.e the public API
 #
 # When $this has camera slice /slice/ {
-#     Wish $this displays slice $slice
+#     Wish $this displays camera slice $slice
 # }
 
 
@@ -54,7 +54,7 @@ When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
 }
 
 # Display a camera slice
-When /someone/ wishes /p/ displays slice /slice/ & /p/ has region /r/ {
+When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
   set origin [lindex $r 0 0]
   set scale [expr {$Display::WIDTH / $Camera::WIDTH}]
   Wish display runs [list Display::image {*}$origin $slice $scale]
