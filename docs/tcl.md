@@ -51,7 +51,22 @@ subfolder) or printed programs.
 
   Good: `Claim $this has value 3`
 
+- Style for joins across multiple lines -- use `&\` and align on the
+  first token after `When`:
+
+  ```
+  When the fox is out &\
+       the label is "Hello" &\
+       everything seems good {
+    ...
+  }
+  ```
+
 ### Tcl
+
+#### fn
+
+Use `fn` instead of `proc` to get a lexically captured command.
 
 #### Error handling
 

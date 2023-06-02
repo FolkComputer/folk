@@ -470,7 +470,7 @@ that statement.
 When /thing/ is cool {
     Wish $this is labelled "$thing is cool"
 }
-When when /personVar/ is cool /body/ with environment /e/ {
+When when /personVar/ is cool /lambda/ with environment /e/ {
     Claim Folk is cool
 }
 ```
@@ -497,32 +497,26 @@ On process A {
 ##### On unmatch
 
 ```
-set pid [exec chmod 33]
+set pid [exec python3]
 On unmatch {
     kill $pid
 }
 ```
 
-#### Explicit lexical environments
+#### Non-capturing
 
-You can provide a `with environment` suffix to a When to provide an
-explicit lexical environment for that When.
+You can disable capturing of lexical context around a When with the
+`(non-capturing)` flag.
 
 This is mostly to help runtime performance if a When is declared
-somewhere that has a lot of stuff in scope at declaration time,
-because the evaluator won't need to deserialize all that stuff (that
-is by default automatically serialized from the environment around the
-When) every time the When executes.
+somewhere that has a lot of stuff in scope at declaration time.
 
 ```
-When /p/ is cool {
+set foo 3
+When (non-capturing) /p/ is cool {
    Claim $p is awesome
-} with environment {}
-
-set adverb "very"
-When /p/ is cool {
-   Claim $p is $adverb awesome
-} with environment [dict create adverb $adverb]
+   # can't access $foo from in here
+}
 ```
 
 #### Assert and Retract
