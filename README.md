@@ -503,6 +503,28 @@ On unmatch {
 }
 ```
 
+#### Explicit lexical environments
+
+You can provide a `with environment` suffix to a When to provide an
+explicit lexical environment for that When.
+
+This is mostly to help runtime performance if a When is declared
+somewhere that has a lot of stuff in scope at declaration time,
+because the evaluator won't need to deserialize all that stuff (that
+is by default automatically serialized from the environment around the
+When) every time the When executes.
+
+```
+When /p/ is cool {
+   Claim $p is awesome
+} with environment {}
+
+set adverb "very"
+When /p/ is cool {
+   Claim $p is $adverb awesome
+} with environment [dict create adverb $adverb]
+```
+
 #### Assert and Retract
 
 General note: `Assert` and `Retract` are used for weird non-reactive
