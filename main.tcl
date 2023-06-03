@@ -18,13 +18,20 @@ source "lib/trie.tcl"
 source "lib/evaluator.tcl"
 namespace eval Evaluator {
     source "lib/environment.tcl"
-    proc tryRunInSerializedEnvironment {body env} {
+    proc tryRunInSerializedEnvironment {lambda env} {
         try {
-            runInSerializedEnvironment $body $env
+            runInSerializedEnvironment $lambda $env
         } on error err {
-            if {[dict exists $env this]} {
-                Say [dict get $env this] has error $err with info $::errorInfo
-                puts stderr "$::nodename: Error in [dict get $env this], match $::matchId: $err\n$::errorInfo"
+            set this ""
+            for {set i 0} {$i < [llength [lindex $lambda 0]]} {incr i} {
+                if {[lindex $lambda 0 $i] eq "this"} {
+                    set this [lindex $env $i]
+                    break
+                }
+            }
+            if {$this ne ""} {
+                Say $this has error $err with info $::errorInfo
+                puts stderr "$::nodename: Error in $this, match $::matchId: $err\n$::errorInfo"
             } else {
                 Say $::matchId has error $err with info $::errorInfo
                 puts stderr "$::nodename: Error in match $::matchId: $err\n$::errorInfo"
@@ -180,14 +187,8 @@ proc Step {} {
         Display::commit ;# TODO: this is weird, not right level
     }
 
-    foreach peer [namespace children Peers] {
-        namespace eval $peer {
-            if {[info exists shareStatements]} {
-                variable prevShareStatements $shareStatements
-            } else {
-                variable prevShareStatements [list]
-            }
-
+    foreach peerNs [namespace children Peers] {
+        apply [list {peer} {
             variable shareStatements [list]
             if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
@@ -200,7 +201,10 @@ proc Step {} {
                     }
                 }
             }
-            foreach m [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]] {
+
+            set matches [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]]
+            lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
+            foreach m $matches {
                 set pattern [dict get $m pattern]
                 foreach match [Statements::findMatches $pattern] {
                     set id [lindex [dict get $match __matcheeIds] 0]
@@ -215,7 +219,7 @@ proc Step {} {
                 Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
                 Step
             }]
-        }
+        } $peerNs] [namespace tail $peerNs]
     }
 }
 
