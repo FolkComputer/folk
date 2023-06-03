@@ -232,8 +232,8 @@ Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }}
 # For backward compat(?):
-Assert when /this/ has program code /__programCode/ {{this __programCode} {
-    Claim $this has program [list {this} $__programCode]
+Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
+    Claim $__this has program [list {this} $__programCode]
 }}
 
 if {[info exists ::entry]} {
