@@ -214,7 +214,8 @@ namespace eval Statements { ;# singleton Statement store
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
         }
         matches[nextMatchIdx].capacity_edges = 16;
-        matches[nextMatchIdx].edges = (edge_to_statement_t *)ckalloc(16 * sizeof(edge_to_statement_t));
+        matches[nextMatchIdx].edges = (edge_to_statement_t*)ckalloc(16 * sizeof(edge_to_statement_t));
+        matches[nextMatchIdx].recollectOnDestruction = false;
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
             .idx = nextMatchIdx,
@@ -255,9 +256,11 @@ namespace eval Statements { ;# singleton Statement store
         }
         match->alive = false;
         match->n_edges = 0;
+        ckfree((char*)match->edges);
     }
     $cc proc matchExists {match_handle_t matchId} bool {
-        return matchGet(matchId)->alive;
+        match_t* match = matchGet(matchId);
+        return match != NULL && match->alive;
     }
     $cc proc matchAddDestructor {match_handle_t matchId Tcl_Obj* body Tcl_Obj* env} void {
         match_t* match = matchGet(matchId);
