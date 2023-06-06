@@ -70,6 +70,7 @@ namespace eval c {
                 char { expr {{ char $argname = Tcl_GetString($obj)[0]; }}}
                 size_t { expr {{ size_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
                 intptr_t { expr {{ intptr_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
+                uint8_t { expr {{ uint8_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu8, &$argname); }}}
                 uint16_t { expr {{ uint16_t $argname; Tcl_GetIntFromObj(interp, $obj, (int *)&$argname); }}}
                 uint32_t { expr {{ uint32_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
                 uint64_t { expr {{ uint64_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}

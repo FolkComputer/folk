@@ -21,7 +21,33 @@ $cc proc omar {} Person {
     };
     return ret;
 }
+
 $cc compile
 
 puts [omar]
 assert {[dict get [omar] name last] eq "Rizwan"}
+
+
+set c2 [c create]
+
+$c2 struct image_t {
+  uint32_t width;
+  uint32_t height;
+  int components;
+  uint32_t bytesPerRow;
+  uint8_t* data;
+}
+
+$c2 proc imageThereAndBack {image_t im} image_t {
+    return im;
+}
+
+$c2 compile
+
+set im [ dict create width 1 \
+		     height 1 \
+		     components 1 \
+		     bytesPerRow 1 \
+		     data 0x0]
+
+[imageThereAndBack im]
