@@ -470,7 +470,7 @@ that statement.
 When /thing/ is cool {
     Wish $this is labelled "$thing is cool"
 }
-When when /personVar/ is cool /body/ with environment /e/ {
+When when /personVar/ is cool /lambda/ with environment /e/ {
     Claim Folk is cool
 }
 ```
@@ -497,9 +497,25 @@ On process A {
 ##### On unmatch
 
 ```
-set pid [exec chmod 33]
+set pid [exec python3]
 On unmatch {
     kill $pid
+}
+```
+
+#### Non-capturing
+
+You can disable capturing of lexical context around a When with the
+`(non-capturing)` flag.
+
+This is mostly to help runtime performance if a When is declared
+somewhere that has a lot of stuff in scope at declaration time.
+
+```
+set foo 3
+When (non-capturing) /p/ is cool {
+   Claim $p is awesome
+   # can't access $foo from in here
 }
 ```
 

@@ -81,7 +81,7 @@ c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 $cc compile
 
 When the camera frame is /im/ {
-  Wish the web server handles route "/frame-image/$" with handler [list Evaluator::tryRunInSerializedEnvironment {
+  Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
     # set width [dict get $im width]
     # set height [dict get $im height]
     set filename "/tmp/web-image-frame.jpg"
@@ -92,5 +92,5 @@ When the camera frame is /im/ {
     set body [read $fd $fsize]
     close $fd
     dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-  } [Evaluator::serializeEnvironment]]
+  }} $im]
 }

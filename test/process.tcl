@@ -1,12 +1,12 @@
-Assert when we are running {
+Assert when we are running {{} {
     On process A {
         puts hello
     }
-}
+}}
 Assert we are running
 Step
 
-Assert when we are running {
+Assert when we are running {{} {
     On process {
         Assert <root> claims things are good
         Step
@@ -15,11 +15,11 @@ Assert when we are running {
     When things are good {
         set ::good true
     }
-}
+}}
 Step
 vwait good
 
-Assert when we are running {
+Assert when we are running {{} {
     puts "Core: $::nodename"
     On process {
         set n 0
@@ -35,6 +35,6 @@ Assert when we are running {
             set ::done true
         }
     }
-}
+}}
 Step
 vwait done
