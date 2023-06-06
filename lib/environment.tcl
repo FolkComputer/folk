@@ -46,7 +46,6 @@ proc runInSerializedEnvironment {lambda env} {
     set loadTime_ [time {}]
 
     try {
-        # puts "applying $lambda ($env)"
         set runTime_ [time {set ret [apply $lambda {*}$env]}]
         set ret
 

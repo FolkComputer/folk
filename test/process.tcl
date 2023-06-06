@@ -40,7 +40,7 @@ Assert when we are running {{} {
 Step
 vwait ::ok
 
-Assert when we are running {
+Assert when we are running {{} {
     On process {
         Claim I am in a process
         When I am in a process {
@@ -50,11 +50,11 @@ Assert when we are running {
             set ::wereinaprocess true
         }
     }
-}
+}}
 Step
 vwait ::wereinaprocess
 
-Assert when we are running {
+Assert when we are running {{} {
     On process {
         Wish $::nodename receives statements like [list /x/ claims the main process exists]
         When the main process exists {
@@ -68,6 +68,6 @@ Assert when we are running {
     When the subprocess heard that the main process exists {
         set ::heard true
     }
-}
+}}
 Step
 vwait ::heard
