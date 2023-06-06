@@ -1,5 +1,9 @@
 start:
 	tclsh8.6 main.tcl
+debug:
+	gdb --args tclsh8.6 main.tcl
+remote-debug: sync
+	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl stop folk && make -C /home/folk/folk debug'
 
 FOLK_SHARE_NODE := $(shell tclsh8.6 hosts.tcl shareNode)
 
