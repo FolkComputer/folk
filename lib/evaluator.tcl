@@ -219,7 +219,7 @@ namespace eval Statements { ;# singleton Statement store
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
             .idx = nextMatchIdx,
-            .gen = ++matches[nextMatchIdx].gen
+            .gen = matches[nextMatchIdx].gen
         };
     }
     $cc proc matchGet {match_handle_t matchId} match_t* {
@@ -255,6 +255,7 @@ namespace eval Statements { ;# singleton Statement store
             LogWriteRecollect(match->recollectCollectId);
         }
         match->alive = false;
+        match->gen++;
         match->n_edges = 0;
         ckfree((char*)match->edges);
     }
@@ -282,7 +283,7 @@ namespace eval Statements { ;# singleton Statement store
         }
         return (statement_handle_t) {
             .idx = nextStatementIdx,
-            .gen = ++statements[nextStatementIdx].gen
+            .gen = statements[nextStatementIdx].gen
         };
     }
     $cc proc get {statement_handle_t id} statement_t* {
@@ -306,6 +307,7 @@ namespace eval Statements { ;# singleton Statement store
         Tcl_DecrRefCount(clause);
 
         stmt->gen = gen;
+        stmt->gen++;
     }
     $cc proc size {} size_t {
         size_t size = 0;
