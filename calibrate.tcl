@@ -1,4 +1,5 @@
 source "lib/c.tcl"
+c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libpng] end]
 
 exec sudo systemctl stop folk
 catch {
@@ -7,7 +8,6 @@ catch {
 }
 
 set cc [c create]
-$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
@@ -42,57 +42,56 @@ if {$Display::DEPTH == 16} {
 }
 
 $cc code {
-    #include <jpeglib.h>
+    #include <png.h>
 
-  void rgb_jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
-{
+  void rgb_png(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
+  {
+      png_bytep* row_pointers = (png_bytep*) calloc(height, sizeof(png_bytep));
+      for (size_t i = 0; i < height; i++) {
+          row_pointers[i] = calloc(4 * width, sizeof(png_byte));
+          for (size_t j = 0; j < width; j++) {
+              row_pointers[i][j * 4 + 0] = rgb[(i * width + j) * 3 + 0];
+              row_pointers[i][j * 4 + 1] = rgb[(i * width + j) * 3 + 1];
+              row_pointers[i][j * 4 + 2] = rgb[(i * width + j) * 3 + 2];
+              row_pointers[i][j * 4 + 3] = 255;
+          }
+      }
 
-  JSAMPARRAY image;
-  image = calloc(height, sizeof (JSAMPROW));
-  for (size_t i = 0; i < height; i++) {
-    image[i] = calloc(width * 3, sizeof (JSAMPLE));
-    for (size_t j = 0; j < width; j++) {
-      image[i][j * 3 + 0] = rgb[(i * width + j) * 3 + 0];
-      image[i][j * 3 + 1] = rgb[(i * width + j) * 3 + 1];
-      image[i][j * 3 + 2] = rgb[(i * width + j) * 3 + 2];
-    }
+      png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+      if (!png_ptr) { exit(1); }
+
+      png_infop info_ptr = png_create_info_struct(png_ptr);
+      if (!info_ptr) { exit(1); }
+
+      if (setjmp(png_jmpbuf(png_ptr))) { exit(2); }
+
+      png_init_io(png_ptr, dest);
+      png_set_IHDR(png_ptr, info_ptr, width, height,
+                   8, PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+      png_write_info(png_ptr, info_ptr);
+      png_write_image(png_ptr, row_pointers);
+      png_write_end(png_ptr, NULL);
+
+      png_destroy_write_struct(&png_ptr, &info_ptr);
+      for (size_t i = 0; i < height; i++) {
+          free(row_pointers[i]);
+      }
+      free(row_pointers);
   }
-  
-  struct jpeg_compress_struct compress;
-  struct jpeg_error_mgr error;
-  compress.err = jpeg_std_error(&error);
-  jpeg_create_compress(&compress);
-  jpeg_stdio_dest(&compress, dest);
-  
-  compress.image_width = width;
-  compress.image_height = height;
-  compress.input_components = 3;
-  compress.in_color_space = JCS_RGB;
-  jpeg_set_defaults(&compress);
-  jpeg_set_quality(&compress, quality, TRUE);
-  jpeg_start_compress(&compress, TRUE);
-  jpeg_write_scanlines(&compress, image, height);
-  jpeg_finish_compress(&compress);
-  jpeg_destroy_compress(&compress);
 
-  for (size_t i = 0; i < height; i++) {
-    free(image[i]);
+  // a grayscale image
+  void png(FILE* dest, uint8_t* grey, uint32_t width, uint32_t height, int quality)
+  {
+      uint8_t* rgb = calloc(width*3, height);
+      for (int i = 0; i < width * height; i++) {
+          rgb[i*3] = grey[i];
+          rgb[i*3+1] = grey[i];
+          rgb[i*3+2] = grey[i];
+      }
+      
+      rgb_png(dest, rgb, width, height, quality);
+      free(rgb);
   }
-  free(image);
-}
-
-// a grayscale image
-void jpeg(FILE* dest, uint8_t* grey, uint32_t width, uint32_t height, int quality)
-{
-  uint8_t* rgb = calloc(width*3, height);
-  for (int i = 0; i < width * height; i++) {
-    rgb[i*3] = grey[i];
-    rgb[i*3+1] = grey[i];
-    rgb[i*3+2] = grey[i];
-  }
-  
-  rgb_jpeg(dest, rgb, width, height, quality);
-}
 
 
     int captureNum = 0;
@@ -111,10 +110,10 @@ void jpeg(FILE* dest, uint8_t* grey, uint32_t width, uint32_t height, int qualit
 
         captureNum++;
         printf("capture result %d (%s): %p (%dx%d)\n", captureNum, description, image, width, height);
-        // write capture to jpeg
-        char filename[100]; snprintf(filename, 100, "capture%02d-%s.jpg", captureNum, description);
+        // write capture to png
+        char filename[100]; snprintf(filename, 100, "capture%02d-%s.png", captureNum, description);
         FILE* out = fopen(filename, "w");
-        jpeg(out, image, width, height, 100);
+        png(out, image, width, height, 100);
         fclose(out);
 
         return image;
@@ -401,7 +400,7 @@ $cc proc writeDenseCorrespondenseToDisk {dense_t* dense char* filename} void [cs
     }
   }
 
-  rgb_jpeg(out, rgb, width, height, 100);
+  rgb_png(out, rgb, width, height, 100);
   fclose(out);
 }]
 
@@ -422,10 +421,10 @@ $cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* den
     $[eachDisplayPixel { *it = BLACK; }]
     uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
 
-    char* filename = "/tmp/dense-$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
+    char* filename = "/tmp/dense-$[clock format [clock seconds] -format "%H.%M.%S" ].png";
     writeDenseCorrespondenseToDisk(dense, filename);
     dense_t* cleanDense = cleanDenseCorrespondense(dense);
-    filename = "/tmp/clean-dense-$[clock format [clock seconds] -format "%H.%M.%S" ].jpeg";
+    filename = "/tmp/clean-dense-$[clock format [clock seconds] -format "%H.%M.%S" ].png";
     writeDenseCorrespondenseToDisk(cleanDense, filename);
 
     serializeDenseCorrespondence(cleanDense, "/home/folk/generated-clean-dense.dense");
