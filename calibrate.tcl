@@ -400,6 +400,9 @@ $cc proc writeDenseCorrespondenseToDisk {dense_t* dense char* filename} void [cs
     }
   }
 
+    printf("\n\nrowCorrMin: %d\nrowCorrMax: %d\ncolumnCorrMin: %d\ncolumnCorrMax: %d\n\n",
+           rowCorrMin, rowCorrMax, columnCorrMin, columnCorrMax);
+
   rgb_png(out, rgb, width, height, 100);
   fclose(out);
 }]
