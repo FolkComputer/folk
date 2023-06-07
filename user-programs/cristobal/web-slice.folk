@@ -1,9 +1,17 @@
-Wish $this is outlined blue
+#
+#
+# Web-slice
+# --------------------------------------------
+# Serves slice at host:4273/web-slice/$x-$y
+#
+#
 
-# see webcam image on: http://folk0.local:4273/frame-image/
+Wish $this is outlined white
+
 set cc [c create]
 $cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 
+# TODO: get C-structs to work
 # $cc struct image_t {
 #   uint32_t width;
 #   uint32_t height;
@@ -95,10 +103,21 @@ $cc proc writeJPEG {image_t im char* filename} void {
 c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 $cc compile
 
-When $this has camera slice /im/ {
-  Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
+When $this has camera slice /im/ & $this has region /r/ {
 
-    set filename "/tmp/web-image-frame.jpg"
+  # Serve slice at its coordinates
+  lassign [lindex $r 0 0] ox oy
+  set x [expr {round(floor($ox / 10) * 10)}]
+  set y [expr {round(floor($oy / 10) * 10)}]
+
+  set path "/web-slice/$x-$y$"
+  Wish $this is labelled $path
+
+  # TODO: I don't like this [list apply] with parameter capture.
+  # Understand why this is needed, and then make it better.
+  Wish the web server handles route $path with handler [list apply {{im x y} {
+
+    set filename "/tmp/web-slice-$x-$y.jpg"
     writeJPEG $im $filename
     set fsize [file size $filename]
     set fd [open $filename r]
@@ -116,5 +135,6 @@ When $this has camera slice /im/ {
 
     dict create statusAndHeaders "$headers\n\n" body $body
 
-  }} $im]
+  }} $im $x $y]
 }
+

@@ -1,0 +1,14 @@
+#
+#
+# Local-slice
+# --------------------------------------------
+# Render slice on the table
+#
+#
+
+Wish $this is outlined white
+
+When $this has camera slice /slice/ {
+    Wish $this displays camera slice $slice
+}
+
