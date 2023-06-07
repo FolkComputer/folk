@@ -1,0 +1,16 @@
+When the collected matches for [list /someone/ wishes the web server handles route /route/ with handler /handler/] are /matches/ {
+  Wish $this is outlined white
+
+  set routes {}
+  foreach match $matches {
+    set route [dict get $match route]
+    lappend routes $route
+  }
+
+  Wish $this is labelled [join $routes "\n"]
+  Wish $this is labelled "routes found: [llength $routes]"
+
+  Wish the web server handles route /all-routes$ with handler {
+    html $routes
+  }
+}
