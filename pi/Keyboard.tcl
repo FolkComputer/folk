@@ -17,6 +17,32 @@ namespace eval Keyboard {
                 exec sleep $sleepTime
             }
             set kb [open "/dev/input/btkeyboard-omar-gray" r]
+        } else {
+            # Get the list of all /dev/input/event* files
+            set allDevices [glob -nocomplain "/dev/input/event*"]
+            # Prepare a list to hold keyboard devices
+            set keyboardDevices {}
+            # Loop through each device file
+            foreach device $allDevices {
+                # Get udevadm information for the device
+                set deviceInfo [exec udevadm info --query=property --name=$device]
+
+                # Check if it's a keyboard by looking for "ID_INPUT_KEYBOARD=1" in the udevadm output
+                if {[string first "ID_INPUT_KEYBOARD=1" $deviceInfo] >= 0} {
+                    # It's a keyboard, add to list of keyboard devices
+                    lappend keyboardDevices $device
+                }
+            }
+
+            foreach device $keyboardDevices {
+                if {[file readable $device] == 0} {
+                    puts "Device $device is not readable. Attempting to change permissions."
+                    # Attempt to change permissions so that the file can be read
+                    exec sudo chmod +r $device
+                }
+
+                set kb [open [lindex $keyboardDevices 0] r]
+            }
         }
         fconfigure $kb -translation binary
     }
