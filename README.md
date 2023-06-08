@@ -33,6 +33,10 @@ Server 22.04 LTS-minimal.
         sudo useradd -m folk; sudo passwd folk;
         sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
 
+   (If you get errors from usermod like `group 'gpio' does not exist`,
+   try running again omitting the groups that don't exist from the
+   command.)
+
 3. `sudo apt update`
 2. Set up OpenSSH server if needed, connect to network.
 4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
@@ -183,6 +187,11 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
 
+### Changing camera settings
+
+Install `v4l-utils` and use `v4l2-ctl` to adjust exposure/autofocus
+settings for a webcam.
+
 ### HDMI No signal on Pi 4
 
 Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issuecomment-971500256
@@ -206,21 +215,6 @@ We intend to release this repo as open-source under an MIT, GPLv3,
 Apache 2.0, or AGPLv3 license by June 2023 or earlier; by contributing
 code, you're also agreeing to license your code under whichever
 license we end up choosing.
-
-## Stuff
-
-- implement generators (~point at~)
-- ~implement even-better fake lexical scope~
-- ~share (axiom) statements from laptop -> Pi~
-- ~mmap or otherwise hw-accelerate pi graphics~
-- ~bareword/nicer colors for Pi~ (could support more colors)
-- keyboard support for Pi
-- ~watchdog on Pi~, ~autoupdate on Pi~
-- parallelize tag detection / camera processing
-- text editor
-- ~print support~
-- ~clean up lexical scope~
-- ~with-all-matches~
 
 ## Troubleshooting
 
