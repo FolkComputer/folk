@@ -24,7 +24,7 @@ Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
 Server 22.04 LTS-minimal.
 
 1. Install Linux with username `folk`, hostname
-   `folk-SOMETHING.local`? (check hosts.tcl in this repo to make sure
+   `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
    On Pi, Raspberry Pi OS Lite => if no `folk`
