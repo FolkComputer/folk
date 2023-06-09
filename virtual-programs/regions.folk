@@ -54,7 +54,23 @@ namespace eval ::region {
         }
         set minDist
     }
-    namespace export distance
+
+    proc contains {r1 p} {
+        lassign $r1 vertices edges
+        lassign $vertices a b c d
+
+        set ab [vec2 sub $b $a]
+        set ap [vec2 sub $p $a]
+        set bc [vec2 sub $c $b]
+        set bp [vec2 sub $p $b]
+        set dot_abap [vec2 dot $ab $ap]
+        set dot_bcbp [vec2 dot $bc $bp]
+
+        expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
+                0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
+    }
+
+    namespace export distance contains
     namespace ensemble create
 }
 

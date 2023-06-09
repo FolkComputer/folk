@@ -98,7 +98,6 @@ proc handlePage {path contentTypeVar} {
     }
 }
 
-
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -109,6 +108,7 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
+
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
