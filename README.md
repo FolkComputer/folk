@@ -155,18 +155,9 @@ Install `bluetoothctl`. Follow the instructions in
 https://wiki.archlinux.org/title/bluetooth_keyboard to pair and trust
 and connect.
 
-Write down the Bluetooth MAC address of your keyboard. We'll proceed
-as though it's "f4:73:35:93:7f:9d" (it's important that you turn it
-into lowercase).
-
-Next, add a udev rule on a new line at the end of `/etc/udev/rules.d/99-input.rules` to create
-a stable device file at `/dev/input/btkeyboard-f4-73-35-93-7f-9d` that Folk can
-get events on:
-
-```
-KERNEL=="event[0-9]|event[0-9][0-9]", SUBSYSTEM=="input", ATTRS{uniq}=="f4:73:35:93:7f:9d", ACTION=="add", SYMLINK+="input/btkeyboard-f4-73-35-93-7f-9d"
-```
-
+(FIXME: Write down the Bluetooth MAC address of your keyboard. We'll
+proceed as though it's "f4:73:35:93:7f:9d" (it's important that you
+turn it into lowercase).)
 
 ### Potentially useful
 
@@ -520,3 +511,103 @@ behavior.
 
 You should generally _not_ use `Assert` and `Retract` inside a `When`
 block. Use `Claim`, `Wish`, and `When` instead.
+
+## Tcl for JavaScripters
+
+JS:
+```
+let names = ["64", "GameCube", "Wii", "Switch"];
+names = names.map(name => `Nintendo ${name}`);
+console.log(names);
+
+function add(a, b) { return a + b; }
+const numbers = [1, 2];
+console.log(add(...numbers));
+```
+
+Tcl:
+```
+set names [list 64 GameCube Wii Switch]
+set names [lmap name $names {expr {"Nintendo $name"}}]
+puts $names
+
+proc add {a b} { expr {$a + $b} }
+set numbers [list 1 2]
+puts [add {*}$numbers]
+```
+
+## Style guide
+
+### Tcl code vs. virtual programs vs. printed programs
+
+In general, avoid adding new .tcl files to the Git repo. Pure Tcl
+libraries are an antipattern; we should only need them for the hard
+core of the system.
+
+Most new code (both libraries and applications) should be virtual
+programs (which ilve as .folk files in the virtual-programs/
+subfolder) or printed programs.
+
+### Folk 
+
+- Use complete sentences when you word your claims and wishes.
+
+  Bad: `Claim $this firstName Omar`
+
+  Good: `Claim $this has first name Omar`
+
+- Scope using `$this` where appropriate to prevent weird global
+  interactions
+
+  Bad: `Claim the value is 3`
+
+  Good: `Claim $this has value 3`
+
+- Style for joins across multiple lines -- use `&\` and align on the
+  first token after `When`:
+
+  ```
+  When the fox is out &\
+       the label is "Hello" &\
+       everything seems good {
+    ...
+  }
+  ```
+
+### Tcl
+
+#### fn
+
+Use `fn` instead of `proc` to get a lexically captured command.
+
+#### Error handling
+
+Use `try` (and `on error`) in new code. Avoid using `catch`; it's
+older and easier to get wrong.
+
+#### Return
+
+In general, don't use `return` if it's the last statement in a code
+block. Just put the statement there whose value you want to return.
+
+Bad: `proc add {a b} { return [expr {$a + $b}] }`
+Good: `proc add {a b} { expr {$a + $b} }`
+
+Bad: `set x 3; return $x`
+Good: `set x 3; set x`
+
+You should use `return` only when you actually need to return _early_.
+
+#### Tcl datatypes
+
+Create a namespace for your datatype that is an ensemble command with
+operations on that datatype.
+
+(Examples: `statement`, `c`, `region`, `point`, `image`)
+
+Call the constructor `create`, as in `dict create` and `statement
+create`.
+
+#### Singletons
+
+Capitalized namespace, like `Statements`.
