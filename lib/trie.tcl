@@ -30,7 +30,7 @@ namespace eval ctrie {
 
             // Can be NULL or a value.
             // Only filled at leaves.
-            Tcl_Obj* value;
+            uint64_t value;
 
             size_t nbranches;
             trie_t* branches[];
@@ -42,7 +42,7 @@ namespace eval ctrie {
         trie_t* ret = (trie_t *) ckalloc(size); memset(ret, 0, size);
         *ret = (trie_t) {
             .key = NULL,
-            .value = NULL,
+            .value = 0,
             .nbranches = 10
         };
         return ret;
@@ -61,10 +61,9 @@ namespace eval ctrie {
         return true;
     }
 
-    $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv Tcl_Obj* value} void {
+    $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv uint64_t value} void {
         if (wordc == 0) {
             (*trie)->value = value;
-            Tcl_IncrRefCount(value);
             return;
         }
 
@@ -97,7 +96,7 @@ namespace eval ctrie {
             trie_t* branch = (trie_t *) ckalloc(size); memset(branch, 0, size);
             branch->key = word;
             Tcl_IncrRefCount(branch->key);
-            branch->value = NULL;
+            branch->value = 0;
             branch->nbranches = 10;
 
             (*trie)->branches[j] = branch;
@@ -106,14 +105,14 @@ namespace eval ctrie {
 
         addImpl(match, wordc - 1, wordv + 1, value);
     }
-    $cc proc add {Tcl_Interp* interp trie_t** trie Tcl_Obj* clause Tcl_Obj* value} void {
+    $cc proc add {Tcl_Interp* interp trie_t** trie Tcl_Obj* clause uint64_t value} void {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, clause, &objc, &objv) != TCL_OK) {
             exit(1);
         }
         addImpl(trie, objc, objv, value);
     }
-    $cc proc addWithVar {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause Tcl_Obj* value} void {
+    $cc proc addWithVar {Tcl_Interp* interp Tcl_Obj* trieVar Tcl_Obj* clause uint64_t value} void {
         trie_t* trie; sscanf(Tcl_GetString(Tcl_ObjGetVar2(interp, trieVar, NULL, 0)), "(trie_t*) 0x%p", &trie);
         add(interp, &trie, clause, value);
         Tcl_ObjSetVar2(interp, trieVar, NULL, Tcl_ObjPrintf("(trie_t*) 0x%" PRIxPTR, (uintptr_t) trie), 0);
@@ -129,7 +128,6 @@ namespace eval ctrie {
                 strcmp(Tcl_GetString(trie->branches[j]->key), Tcl_GetString(word)) == 0) {
                 if (removeImpl(trie->branches[j], wordc - 1, wordv + 1)) {
                     Tcl_DecrRefCount(trie->branches[j]->key);
-                    if (trie->branches[j]->value != NULL) Tcl_DecrRefCount(trie->branches[j]->value);
                     ckfree((char *) trie->branches[j]);
                     trie->branches[j] = NULL;
                     if (j == 0 && trie->branches[1] == NULL) {
@@ -157,11 +155,14 @@ namespace eval ctrie {
         remove_(interp, trie, clause);
     }
 
-    $cc proc lookupImpl {Tcl_Interp* interp Tcl_Obj* results
-                        trie_t* trie int wordc Tcl_Obj** wordv} void {
+    $cc proc lookupImpl {Tcl_Interp* interp
+                         uint64_t* results int* resultsidx size_t maxresults
+                         trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
-            if (trie->value != NULL) {
-                Tcl_ListObjAppendElement(interp, results, trie->value);
+            if (trie->value != 0) {
+                if (*resultsidx < maxresults) {
+                    results[(*resultsidx)++] = trie->value;
+                }
             }
             return;
         }
@@ -177,33 +178,49 @@ namespace eval ctrie {
                 word == NULL ||
                 // is the trie key a variable?
                 scanVariable(trie->branches[j]->key, NULL, 0)) {
-                lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
+                lookupImpl(interp, results, resultsidx, maxresults,
+                           trie->branches[j], wordc - 1, wordv + 1);
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
                 const char *wordString = Tcl_GetString(word);
                 if ((keyString[0] == '?' && keyString[1] == '\0') ||
                     (wordString[0] == '?' && wordString[1] == '\0') ||
                     (strcmp(keyString, wordString) == 0)) {
-                    lookupImpl(interp, results, trie->branches[j], wordc - 1, wordv + 1);
+                    lookupImpl(interp, results, resultsidx, maxresults,
+                               trie->branches[j], wordc - 1, wordv + 1);
                 }
             }
         }
     }
-    $cc proc lookup {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
+    $cc proc lookup {Tcl_Interp* interp
+                     uint64_t* results size_t maxresults
+                     trie_t* trie Tcl_Obj* pattern} int {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, pattern, &objc, &objv) != TCL_OK) {
             exit(1);
         }
-        Tcl_Obj* results = Tcl_NewListObj(50, NULL);
-        lookupImpl(interp, results, trie, objc, objv);
-        return results;
+        int resultcount = 0;
+        lookupImpl(interp, results, &resultcount, maxresults,
+                   trie, objc, objv);
+        return resultcount;
+     }
+    $cc proc lookupTclObjs {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
+        uint64_t results[50];
+        int resultcount = lookup(interp, results, 50, trie, pattern);
+        if (resultcount >= 50) { exit(1); }
+
+        Tcl_Obj* resultsobj = Tcl_NewListObj(resultcount, NULL);
+        for (int i = 0; i < resultcount; i++) {
+            Tcl_ListObjAppendElement(interp, resultsobj, Tcl_ObjPrintf("%d", (int)results[i]));
+        }
+        return resultsobj;
     }
 
     $cc proc tclify {trie_t* trie} Tcl_Obj* {
         int objc = 2 + trie->nbranches;
         Tcl_Obj* objv[objc];
         objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
-        objv[1] = trie->value ? trie-> value : Tcl_ObjPrintf("NULL");
+        objv[1] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
         for (int i = 0; i < trie->nbranches; i++) {
             objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
         }
@@ -241,6 +258,16 @@ namespace eval ctrie {
     $cc compile
 
     rename remove_ remove
-    namespace export create add addWithVar remove removeWithVar lookup tclify dot
+    namespace export create add addWithVar remove removeWithVar lookup lookupTclObjs tclify dot
+    namespace ensemble create
+}
+
+# Compatibility with test/trie and old Tcl impl of trie.
+namespace eval trie {
+    namespace import ::ctrie::*
+    namespace export *
+    rename add add_; rename addWithVar add
+    rename remove remove_; rename removeWithVar remove
+    rename lookup lookup_; rename lookupTclObjs lookup
     namespace ensemble create
 }

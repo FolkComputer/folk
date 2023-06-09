@@ -42,7 +42,7 @@ namespace eval ::BlobDetect {
                     int v = im_orig->buf[i];
 
                     // threshold
-                    if (v > threshold) {
+                    if ((threshold >= 0 && v > threshold) || (threshold < 0 && v < -threshold)) {
                         v = 1;
                     } else {
                         v = 0;

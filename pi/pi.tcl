@@ -109,11 +109,11 @@ namespace eval Camera {
     } $WIDTH $HEIGHT [thread::id]]]
     puts "Camera thread id: $cameraThread"
 
-    Assert when $::nodename has step count /c/ {
+    Assert when $::nodename has step count /c/ {{c} {
         foreach stmt $Camera::statements {
             Say {*}$stmt
         }
-    }
+    }}
 }
 
 try {
@@ -162,11 +162,11 @@ foreach programFilename [glob -nocomplain "user-programs/[info hostname]/*.folk"
 }
 
 # so we can retract them all at once if a laptop connects:
-Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {
+Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {{roots} {
     if {[llength $roots] == 0} {
         foreach stmt $::rootStatements { Say {*}$stmt }
     }
-}
+}}
 
 proc every {ms body} {
     try $body

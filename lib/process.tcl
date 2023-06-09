@@ -19,10 +19,11 @@ proc On-process {name body} {
     set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
         variable tclfd [file tempfile tclfile tclfile.tcl]
-        set body [list Evaluator::runInSerializedEnvironment $body [list]]
-        puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
-
         # TODO: send it the serialized environment
+        set lambda [list {} $body]
+        set run [list Evaluator::runInSerializedEnvironment $lambda [list]]
+        puts $tclfd [join [list $::processPrelude $run] "\n"]; close $tclfd
+
         variable stdio [open "|tclsh8.6 $tclfile 2>@1" w+]
         variable pid [pid $stdio]
 
@@ -54,6 +55,6 @@ proc On-process {name body} {
             Retract process $name has standard output log /something/
             namespace delete ::Processes::$name
         }
-        On unmatch [namespace code handleUnmatch]
+        uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
     }
 }

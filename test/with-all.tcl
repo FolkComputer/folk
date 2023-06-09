@@ -73,22 +73,22 @@ exec dot -Tpdf >AxB.pdf <<[Statements::dot]
 
 assert {[llength [Statements::findMatches [list /someone/ claims the total label on /k/ is /l/]]] == 1}
 
-When the collected matches for [list unmatched statement] are /matches/ {
+Assert when the collected matches for [list unmatched statement] are /matches/ {{matches} {
     set ::unmatchedStatementMatches $matches
-}
+}}
 Step
 assert {[llength $::unmatchedStatementMatches] == 0}
 
 Assert Omar claims blah has number 3
 Assert Omar claims blah has text "three"
-Assert when the collected matches for [list /x/ has number /n/ & /x/ has text /text/] are /matches/ {
+Assert when the collected matches for [list /x/ has number /n/ & /x/ has text /text/] are /matches/ {{matches} {
     set ::collectedjoin [list]
     foreach match $matches {
         dict with match {
             lappend ::collectedjoin [list $x has number $n & $x has text $text]
         }
     }
-}
+}}
 Step
 assert {$::collectedjoin eq "{blah has number 3 & blah has text three}"}
 

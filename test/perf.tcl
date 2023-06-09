@@ -3,10 +3,10 @@ proc run {} {
 }
 
 Assert George is a dog
-Assert when /name/ is a /animal/ {
+Assert when /name/ is a /animal/ {{name animal} {
     puts "  Found an animal $name"
-}
-Assert when /node/ has step count /c/ {}
+}}
+Assert when /node/ has step count /c/ {{node c} {}}
 Assert Bob is a cat
 
 puts "$::nodename: No additional statements:"

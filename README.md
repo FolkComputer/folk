@@ -24,7 +24,7 @@ Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
 Server 22.04 LTS-minimal.
 
 1. Install Linux with username `folk`, hostname
-   `folk-SOMETHING.local`? (check hosts.tcl in this repo to make sure
+   `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
    On Pi, Raspberry Pi OS Lite => if no `folk`
@@ -32,6 +32,10 @@ Server 22.04 LTS-minimal.
 
         sudo useradd -m folk; sudo passwd folk;
         sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
+
+   (If you get errors from usermod like `group 'gpio' does not exist`,
+   try running again omitting the groups that don't exist from the
+   command.)
 
 3. `sudo apt update`
 2. Set up OpenSSH server if needed, connect to network.
@@ -183,6 +187,11 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
 
+### Changing camera settings
+
+Install `v4l-utils` and use `v4l2-ctl` to adjust exposure/autofocus
+settings for a webcam.
+
 ### HDMI No signal on Pi 4
 
 Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issuecomment-971500256
@@ -206,21 +215,6 @@ We intend to release this repo as open-source under an MIT, GPLv3,
 Apache 2.0, or AGPLv3 license by June 2023 or earlier; by contributing
 code, you're also agreeing to license your code under whichever
 license we end up choosing.
-
-## Stuff
-
-- implement generators (~point at~)
-- ~implement even-better fake lexical scope~
-- ~share (axiom) statements from laptop -> Pi~
-- ~mmap or otherwise hw-accelerate pi graphics~
-- ~bareword/nicer colors for Pi~ (could support more colors)
-- keyboard support for Pi
-- ~watchdog on Pi~, ~autoupdate on Pi~
-- parallelize tag detection / camera processing
-- text editor
-- ~print support~
-- ~clean up lexical scope~
-- ~with-all-matches~
 
 ## Troubleshooting
 
@@ -470,7 +464,7 @@ that statement.
 When /thing/ is cool {
     Wish $this is labelled "$thing is cool"
 }
-When when /personVar/ is cool /body/ with environment /e/ {
+When when /personVar/ is cool /lambda/ with environment /e/ {
     Claim Folk is cool
 }
 ```
@@ -497,9 +491,25 @@ On process A {
 ##### On unmatch
 
 ```
-set pid [exec chmod 33]
+set pid [exec python3]
 On unmatch {
     kill $pid
+}
+```
+
+#### Non-capturing
+
+You can disable capturing of lexical context around a When with the
+`(non-capturing)` flag.
+
+This is mostly to help runtime performance if a When is declared
+somewhere that has a lot of stuff in scope at declaration time.
+
+```
+set foo 3
+When (non-capturing) /p/ is cool {
+   Claim $p is awesome
+   # can't access $foo from in here
 }
 ```
 

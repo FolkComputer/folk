@@ -25,11 +25,10 @@ proc readPdf {dotCmd contentTypeVar} {
 # TODO: Catch errors & return 501
 proc handlePage {path contentTypeVar} {
     upvar $contentTypeVar contentType
-
     switch -exact -- $path {
         "/" {
             set l [list]
-            dict for {id stmt} $Statements::statements {
+            dict for {id stmt} [Statements::all] {
                 lappend l [subst {
                     <li>
                     <details>
@@ -99,7 +98,6 @@ proc handlePage {path contentTypeVar} {
     }
 }
 
-
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -110,6 +108,7 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
+
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
@@ -117,11 +116,9 @@ proc handleRead {chan addr port} {
             set route [dict get $match route]
             set handler [dict get $match handler]
             if {[regexp -all $route $path whole_match]} {
-                set env [dict create]
-                dict set env path $path
-                dict set env ^html {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}}
-                dict set env ^json {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}}
-                set response [Evaluator::tryRunInSerializedEnvironment $handler $env]
+                set ^html {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}}
+                set ^json {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}}
+                set response [apply [list {path ^html ^json} $handler] $path ${^html} ${^json}]
             }
         }
         if {$response eq ""} {

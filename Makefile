@@ -1,11 +1,21 @@
 start:
 	tclsh8.6 main.tcl
+debug:
+	gdb --args tclsh8.6 main.tcl
+remote-debug: sync
+	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl stop folk && make -C /home/folk/folk debug'
+
 FOLK_SHARE_NODE := $(shell tclsh8.6 hosts.tcl shareNode)
+
 sync:
-	rsync --delete --timeout=1 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
+	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
 
 test:
 	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
+
+test/%.debug:
+	FOLK_ENTRY=test/$*.tcl lldb -- tclsh8.6 main.tcl
+
 test/%:
 	make FOLK_ENTRY=$@.tcl
 
@@ -14,11 +24,13 @@ repl:
 
 journal:
 	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
+
 flamegraph:
 	sudo perf record -F 997 --tid=$(shell pgrep tclsh8.6) -g -- sleep 30
 	sudo perf script -f > out.perf
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
+
 remote-flamegraph:
 	ssh -t folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk flamegraph
 	scp folk@$(FOLK_SHARE_NODE):~/folk/out.svg .
