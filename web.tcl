@@ -108,10 +108,7 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
-    # insert empty protocl into $headers
-    dict set headers protocols [list]
 
-    puts "the keys in headers: [dict keys $headers]"
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
