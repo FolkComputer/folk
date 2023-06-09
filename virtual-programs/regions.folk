@@ -59,16 +59,15 @@ namespace eval ::region {
         lassign $r1 vertices edges
         lassign $vertices a b c d
 
-        # 0 <= dot(ab,ap) <= dot(ab,ab) && 0 <= dot(bc,bp) <= dot(bc,bc)
-	set ab [vec2 sub $b $a]
+        set ab [vec2 sub $b $a]
         set ap [vec2 sub $p $a]
         set bc [vec2 sub $c $b]
         set bp [vec2 sub $p $b]
         set dot_abap [vec2 dot $ab $ap]
         set dot_bcbp [vec2 dot $bc $bp]
 
-        return [expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
-                0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}]
+        expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
+                0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
     }
 
     namespace export distance contains
