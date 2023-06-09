@@ -1,4 +1,3 @@
-
 set pi 3.1415926535897931
 
 When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
@@ -17,7 +16,6 @@ When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
 
     set radians [lindex $region 2]
     if {$radians eq ""} {set radians 0}
-    #if {$radians < 0} { set radians [expr {$radians + ($pi*2)}]}
 
     set whisker_radians $radians
     set fac -1.0
