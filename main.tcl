@@ -213,6 +213,7 @@ proc Step {} {
                 }
             }
 
+            variable sequenceNumber
             incr sequenceNumber
             run [subst {
                 Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
