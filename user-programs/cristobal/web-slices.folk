@@ -1,0 +1,29 @@
+#
+#
+# Web-slice server
+# --------------------------------------------
+# Serves slice at host:4273/web-slice/$x-$y
+#
+#
+
+
+When the collected matches for [list /someone/ wishes the web server handles route /route/ with handler /handler/] are /matches/ {
+  Wish $this is outlined white
+
+  # Get /web-slice/* routes
+  set routes {}
+  foreach match $matches {
+    set route [dict get $match route]
+    if {[string match "/web-slice/*" $route]} {
+      lappend routes $route
+    }
+  }
+
+  Wish $this is labelled [join $routes "\n"]
+  Wish $this is labelled "web-slices found: [llength $routes]"
+
+  # Expose them on an index page
+  # Wish the web server handles route /web-slices$ with handler {
+  #   html $routes
+  # }
+}
