@@ -1,6 +1,3 @@
-set wsConnect {
-}
-
 Wish the web server handles route {/page/(.*)$} with handler {
     if {[regexp -all {/page/(\d*)$} $path whole_match program_id]} {
 	set filename "../folk-printed-programs/$program_id.folk" 
