@@ -336,7 +336,11 @@ namespace eval AprilTags {
             apriltag_detection_t *det;
             zarray_get(detections, i, &det);
 
-            int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            int size = sqrt(
+		(det->p[0][0] - det->p[1][0]) * (det->p[0][0] - det->p[1][0]) + 
+		(det->p[0][1] - det->p[1][1]) * (det->p[0][1] - det->p[1][1])
+	    );
+
             detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d",
                                              det->id,
                                              det->c[0], det->c[1],
