@@ -52,7 +52,7 @@ camc proc cameraOpen {char* device int width int height} camera_t* {
     printf("device [%s]\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
-    camera_t* camera = malloc(sizeof (camera_t));
+    camera_t* camera = ckalloc(sizeof (camera_t));
     camera->fd = fd;
     camera->width = width;
     camera->height = height;
@@ -103,7 +103,7 @@ camc proc cameraInit {camera_t* camera} void {
                  camera->fd, buf.m.offset);
         if (camera->buffers[i].start == MAP_FAILED) quit("mmap");
     }
-    camera->head.start = malloc(buf_max);
+    camera->head.start = ckalloc(buf_max);
 
     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
@@ -204,7 +204,7 @@ camc proc cameraDecompressGray {camera_t* camera image_t dest} void {
     jpeg_destroy_decompress(&cinfo);
 }
 camc proc rgbToGray {image_t rgb} image_t {
-    uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
+    uint8_t* gray = (uint8_t*) ckalloc(rgb.width * rgb.height * sizeof (uint8_t));
     for (int y = 0; y < rgb.height; y++) {
         for (int x = 0; x < rgb.width; x++) {
             // we're spending 10-20% of camera time here on Pi ... ??
@@ -224,15 +224,17 @@ camc proc rgbToGray {image_t rgb} image_t {
         .data = gray
     };
 }
-camc proc freeUint8Buffer {uint8_t* buf} void {
-    free(buf);
-}
 
 camc proc newImage {int width int height int components} image_t {
-    return (image_t) { width, height, components, width*components, malloc(width*height*components) };
+    return (image_t) {
+        .width = width, .height = height,
+        .components = components,
+        .bytesPerRow = width*components,
+        .data = (uint8_t*) ckalloc(width*height*components)
+    };
 }
 camc proc freeImage {image_t image} void {
-    free(image.data);
+    ckfree(image.data);
 }
 
 c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
