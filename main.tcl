@@ -254,8 +254,9 @@ if {[info exists ::entry]} {
     }
     # so we can retract them all at once if some other node connects and
     # wants to impose its root statements:
-    Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {{roots} {
-        if {[llength $roots] == 0} {
+    Assert when the collected matches for [list /node/ is providing root statements] are /roots/ {{roots} {
+        if {[llength $roots] == 0 ||
+            ([llength $roots] == 1 && [dict get [lindex $roots 0] node] eq $::nodename)} {
             foreach stmt $::rootStatements { Say {*}$stmt }
         }
     }}
