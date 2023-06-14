@@ -79,11 +79,7 @@ if {[info exists ::shareNode]} {
         Assert "laptop.tcl" wishes $::nodename shares statements like \
             [list $::nodename is providing root statements]
         Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list "laptop.tcl" claims /program/ has program code /code/]
-        Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list "laptop.tcl" claims /program/ has region /region/]
-        Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list "laptop.tcl" wishes to print /code/ with job id /jobid/]
+            [list $::nodename claims /program/ has program code /code/]
     }
 }
 
