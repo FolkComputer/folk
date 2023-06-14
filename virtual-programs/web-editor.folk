@@ -94,8 +94,11 @@ Wish the web server handles route {/page/(.*)$} with handler {
 
 	    if (isVirtualProgram) {
 		send(`
-		  Retract /anyone/ claims file_name has program code /something/
-		  Assert web claims file_name has program code {${code}}
+                  set oldRootVirtualPrograms $::rootVirtualPrograms
+                  dict set ::rootVirtualPrograms file_name {${code}}
+                  Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+                  Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+                  Step
 		`)
 	    }
 
@@ -117,5 +120,4 @@ Wish the web server handles route {/page/(.*)$} with handler {
 	</body>
 	</html>
     }]
-    }
 }

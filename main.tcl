@@ -241,23 +241,43 @@ if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
     
-    set ::rootStatements [list]
+    set ::rootVirtualPrograms [dict create]
     proc loadProgram {programFilename} {
         # this is a proc so its variables don't leak
         set fp [open $programFilename r]
-        lappend ::rootStatements [list $::nodename claims $programFilename has program code [read $fp]]
+        dict set ::rootVirtualPrograms $programFilename [read $fp]
         close $fp
     }
     foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                  {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
         loadProgram $programFilename
     }
-    # so we can retract them all at once if some other node connects and
-    # wants to impose its root statements:
-    Assert when the collected matches for [list /node/ is providing root statements] are /roots/ {{roots} {
-        if {[llength $roots] == 0 ||
-            ([llength $roots] == 1 && [dict get [lindex $roots 0] node] eq $::nodename)} {
-            foreach stmt $::rootStatements { Say {*}$stmt }
+    Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+
+    # So we can retract them all at once if some other node connects and
+    # wants to impose its root virtual programs:
+    Assert when the collected matches for \
+                [list /node/ is providing root virtual programs /rootVirtualPrograms/] \
+                are /roots/ {{roots} {
+
+        if {[llength $roots] == 0} {
+            error "No root virtual programs available for entry Tcl node."
+        }
+
+        # Are there foreign root virtual programs that should take priority over ours?
+        foreach root $roots {
+            if {[dict get $root node] ne $::nodename} {
+                set chosenRoot $root
+                break
+            }
+        }
+        if {![info exists chosenRoot]} {
+            # Default to first in the list if no foreign root.
+            set chosenRoot [lindex $roots 0]
+        }
+
+        dict for {programFilename programCode} [dict get $chosenRoot rootVirtualPrograms] {
+            Say [dict get $chosenRoot node] claims $programFilename has program code $programCode
         }
     }}
 

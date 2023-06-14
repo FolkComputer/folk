@@ -75,11 +75,8 @@ if {[info exists ::shareNode]} {
         source "lib/peer.tcl"
         peer $::shareNode
 
-        Assert $::nodename is providing root statements
         Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list $::nodename is providing root statements]
-        Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list $::nodename claims /program/ has program code /code/]
+            [list $::nodename is providing root virtual programs /rootVirtualPrograms/]
     }
 }
 
