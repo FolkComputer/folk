@@ -240,6 +240,25 @@ Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
+    
+    set ::rootStatements [list]
+    proc loadProgram {programFilename} {
+        # this is a proc so its variables don't leak
+        set fp [open $programFilename r]
+        lappend ::rootStatements [list $::nodename claims $programFilename has program code [read $fp]]
+        close $fp
+    }
+    foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                                 {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+        loadProgram $programFilename
+    }
+    # so we can retract them all at once if some other node connects and
+    # wants to impose its root statements:
+    Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {{roots} {
+        if {[llength $roots] == 0} {
+            foreach stmt $::rootStatements { Say {*}$stmt }
+        }
+    }}
 
     Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {
         foreach stmt $statements { Say {*}$stmt }

@@ -139,35 +139,6 @@ try {
     puts stderr "Keyboard thread failed: $error"
 }
 
-# also see how it's done in laptop.tcl
-set ::rootStatements [list]
-proc loadProgram {programFilename} {
-    # this is a proc so its variables don't leak
-    set fp [open $programFilename r]
-    lappend ::rootStatements [list root claims $programFilename has program code [read $fp]]
-    # set x 0; set y 100; set w 100; set h 100
-    # set vertices [list [list $x $y] \
-    #                   [list [expr {$x+$w}] $y] \
-    #                   [list [expr {$x+$w}] [expr {$y+$h}]] \
-    #                   [list $x [expr {$y+$h}]]]
-    # set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-    # lappend ::rootStatements [list root claims $programFilename has region [list $vertices $edges]]
-    close $fp
-}
-foreach programFilename [glob virtual-programs/*.folk] {
-    loadProgram $programFilename
-}
-foreach programFilename [glob -nocomplain "user-programs/[info hostname]/*.folk"] {
-    loadProgram $programFilename
-}
-
-# so we can retract them all at once if a laptop connects:
-Assert when the collected matches for [list /someone/ is providing root statements] are /roots/ {{roots} {
-    if {[llength $roots] == 0} {
-        foreach stmt $::rootStatements { Say {*}$stmt }
-    }
-}}
-
 proc every {ms body} {
     try $body
     after $ms [list after idle [namespace code [info level 0]]]
