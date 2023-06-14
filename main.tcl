@@ -281,6 +281,28 @@ if {[info exists ::entry]} {
         }
     }}
 
+    # Watch for virtual-programs/ changes.
+    try {
+        set fd [open "|fswatch virtual-programs" r]
+        fconfigure $fd -buffering line
+        fileevent $fd readable [list apply {{fd} {
+            set changedFilename [file tail [gets $fd]]
+            if {[string index $changedFilename 0] eq "."} { return }
+            set changedProgramName "virtual-programs/$changedFilename"
+
+            set oldRootVirtualPrograms $::rootVirtualPrograms
+            set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
+            dict set ::rootVirtualPrograms $changedProgramName $programCode
+
+            Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+            Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+            Step
+        }} $fd]
+    } on error err {
+        puts stderr "Warning: could not invoke `fswatch` ($err)."
+        puts stderr "Will not watch virtual-programs for changes."
+    }
+
     Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {
         foreach stmt $statements { Say {*}$stmt }
     }}
