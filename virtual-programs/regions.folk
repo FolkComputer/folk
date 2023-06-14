@@ -1,5 +1,3 @@
-Wish $this has filename "regions.folk"
-
 namespace eval ::vec2 {
     namespace import ::tcl::mathop::+ ::tcl::mathop::- ::tcl::mathop::*
     proc add {a b} {

@@ -1,5 +1,3 @@
-Wish $this has filename "print.folk"
-
 source "pi/cUtils.tcl"
 
 set cc [c create]

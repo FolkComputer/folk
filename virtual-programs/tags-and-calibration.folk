@@ -1,5 +1,3 @@
-Wish $this has filename "tags-and-calibration.folk"
-
 if {$::isLaptop} { return }
 
 package require math::linearalgebra

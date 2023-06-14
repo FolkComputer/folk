@@ -1,5 +1,3 @@
-Wish $this has filename "unix-commands.folk"
-
 set ::unixjobs [dict create]
 set ::nextunixjobid 0
 proc ::readline {jobid channel} {
