@@ -170,18 +170,16 @@ proc Commit {args} {
     dict set ::committed $key $lambda
 }
 
-proc StepImpl {} { Evaluator::Evaluate }
-
 set ::nodename "[info hostname]-[pid]"
 
-namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
+source "lib/peer.tcl"
 proc Step {} {
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
-    set ::stepTime [time {StepImpl}]
+    set ::stepTime [time {Evaluator::Evaluate}]
 
     if {[namespace exists Display]} {
         Display::commit ;# TODO: this is weird, not right level
@@ -189,15 +187,18 @@ proc Step {} {
 
     foreach peerNs [namespace children Peers] {
         apply [list {peer} {
-            variable shareStatements [list]
+            variable connected
+            if {!$connected} { return }
+
+            set shareStatements [clauseset create]
             if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
-                    lappend shareStatements [statement clause $stmt]
+                    clauseset add shareStatements [statement clause $stmt]
                 }
             } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
                     if {[lindex [statement clause $stmt] 1] eq "claims"} {
-                        lappend shareStatements [statement clause $stmt]
+                        clauseset add shareStatements [statement clause $stmt]
                     }
                 }
             }
@@ -209,17 +210,21 @@ proc Step {} {
                 foreach match [Statements::findMatches $pattern] {
                     set id [lindex [dict get $match __matcheeIds] 0]
                     set clause [statement clause [Statements::get $id]]
-                    lappend shareStatements $clause
+                    clauseset add shareStatements $clause
                 }
             }
 
-            variable sequenceNumber
-            incr sequenceNumber
-            run [subst {
-                Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
-                Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
-                Step
-            }]
+            variable prevShareStatements
+            set shareAssertStatements [clauseset clauses [clauseset minus $shareStatements $prevShareStatements]]
+            set shareRetractStatements [clauseset clauses [clauseset minus $prevShareStatements $shareStatements]]
+            if {[llength $shareAssertStatements] > 0 || [llength $shareRetractStatements] > 0} {
+                run [list apply {{shareAssertStatements shareRetractStatements} {
+                    foreach stmt $shareAssertStatements { Assert {*}$stmt }
+                    foreach stmt $shareRetractStatements { Retract {*}$stmt }
+                    Step
+                }} $shareAssertStatements $shareRetractStatements]
+            }
+            set prevShareStatements $shareStatements
         } $peerNs] [namespace tail $peerNs]
     }
 }
@@ -288,7 +293,11 @@ if {[info exists ::entry]} {
             fconfigure $fd -buffering line
             fileevent $fd readable [list apply {{fd} {
                 set changedFilename [file tail [gets $fd]]
-                if {[string index $changedFilename 0] eq "."} { return }
+                if {[string index $changedFilename 0] eq "." ||
+                    [string index $changedFilename 0] eq "#" ||
+                    [file extension $changedFilename] ne ".folk"} {
+                    return
+                }
                 set changedProgramName "virtual-programs/$changedFilename"
                 puts "$changedProgramName updated, reloading."
 
@@ -313,10 +322,6 @@ if {[info exists ::entry]} {
         Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
         Step
     }
-
-    Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {
-        foreach stmt $statements { Say {*}$stmt }
-    }}
 
     source "lib/process.tcl"
     source "./web.tcl"
