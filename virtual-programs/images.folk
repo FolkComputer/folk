@@ -26,6 +26,7 @@ namespace eval ::image {
 
     set cc [c create]
     $cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+    source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
