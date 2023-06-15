@@ -101,7 +101,6 @@ proc handlePage {path contentTypeVar} {
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
-    puts "Http: $chan $addr $port: $line"
     set headers [list]
     while {[gets $chan line] >= 0 && $line ne ""} {
         if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
@@ -137,7 +136,6 @@ proc handleRead {chan addr port} {
         }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
-        puts "WS: $chan $addr $port"
         ::websocket::upgrade $chan
         # from now the handleWS will be called (not anymore handleRead).
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
