@@ -17,11 +17,11 @@ namespace eval clauseset {
     namespace ensemble create
 }
 
-namespace eval Peers {}
+namespace eval ::Peers {}
 
 proc ::peer {node} {
     package require websocket
-    namespace eval Peers::$node {
+    namespace eval ::Peers::$node {
         variable connected false
         variable prevShareStatements [clauseset create]
 
@@ -60,10 +60,12 @@ proc ::peer {node} {
 
         proc init {n} {
             variable node $n; setupSock
-            vwait Peers::${n}::connected
+            vwait ::Peers::${n}::connected
 
             run [format {
-                namespace eval Peers::%s [format {
+                namespace eval ::Peers::%s [format {
+                    variable connected true
+                    variable prevShareStatements [clauseset create]
                     proc run {msg} {
                         ::websocket::send %%s text $msg
                     }

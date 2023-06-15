@@ -192,7 +192,7 @@ proc Step {} {
         Display::commit ;# TODO: this is weird, not right level
     }
 
-    foreach peerNs [namespace children Peers] {
+    foreach peerNs [namespace children ::Peers] {
         apply [list {peer} {
             variable connected
             if {!$connected} { return }
