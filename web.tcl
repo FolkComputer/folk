@@ -146,7 +146,7 @@ proc handleWS {chan type msg} {
     } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
-                puts "$::nodename: Error on receipt: $err"
+                puts stderr "$::nodename: Error on receipt: $err\n$::errorInfo"
                 ::websocket::send $chan text $err
             } err2] { puts "$::nodename: $err2" }
         }
