@@ -290,19 +290,28 @@ if {[info exists ::entry]} {
                 set changedFilename [file tail [gets $fd]]
                 if {[string index $changedFilename 0] eq "."} { return }
                 set changedProgramName "virtual-programs/$changedFilename"
+                puts "$changedProgramName updated, reloading."
 
-                set oldRootVirtualPrograms $::rootVirtualPrograms
                 set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-                dict set ::rootVirtualPrograms $changedProgramName $programCode
-
-                Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
-                Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
-                Step
+                EditVirtualProgram $changedProgramName $programCode
             }} $fd]
         } on error err {
             puts stderr "Warning: could not invoke `fswatch` ($err)."
             puts stderr "Will not watch virtual-programs for changes."
         }
+    }
+    proc ::EditVirtualProgram {programName programCode} {
+        set oldRootVirtualPrograms $::rootVirtualPrograms
+        if {[dict exists $oldRootVirtualPrograms $programName] &&
+            [dict get $oldRootVirtualPrograms $programName] eq $programCode} {
+            # Code hasn't changed.
+            return
+        }
+        dict set ::rootVirtualPrograms $programName $programCode
+
+        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+        Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+        Step
     }
 
     Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {

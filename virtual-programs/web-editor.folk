@@ -93,15 +93,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
 	    `);
 
               if (isVirtualProgram) {
-                send(`
-                  set oldRootVirtualPrograms $::rootVirtualPrograms
-                  dict set ::rootVirtualPrograms file_name {${code}}
-                  if {$::rootVirtualPrograms ne $oldRootVirtualPrograms} {
-                    Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
-                    Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
-                    Step
-                  }
-		`)
+                send(`EditVirtualProgram file_name {${code}}`)
 	    }
 
 	    setTimeout(() => {

@@ -146,4 +146,6 @@ proc every {ms body} {
 every 32 { Step }
 
 loadVirtualPrograms
+Step
+
 vwait forever
