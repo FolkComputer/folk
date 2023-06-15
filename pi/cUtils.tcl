@@ -39,7 +39,7 @@ proc ::defineFolkImages {cc} {
     $cc include <stdlib.h>
     $cc code {
         uint8_t* folkImagesBase = (uint8_t*) 0x280000000;
-        size_t folkImagesSize = 1000000000;
+        size_t folkImagesSize = 100000000; // 100MB
     }
     $cc proc folkImagesMount {} void {
         int fd = shm_open("/folk-images", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
@@ -50,4 +50,5 @@ proc ::defineFolkImages {cc} {
             fprintf(stderr, "shmMount: failed"); exit(1);
         }
     }
+    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so] end]
 }
