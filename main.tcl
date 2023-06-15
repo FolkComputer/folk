@@ -240,67 +240,69 @@ Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
-    
-    set ::rootVirtualPrograms [dict create]
-    proc loadProgram {programFilename} {
-        # this is a proc so its variables don't leak
-        set fp [open $programFilename r]
-        dict set ::rootVirtualPrograms $programFilename [read $fp]
-        close $fp
-    }
-    foreach programFilename [list {*}[glob virtual-programs/*.folk] \
-                                 {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
-        loadProgram $programFilename
-    }
-    Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
 
-    # So we can retract them all at once if some other node connects and
-    # wants to impose its root virtual programs:
-    Assert when the collected matches for \
-                [list /node/ is providing root virtual programs /rootVirtualPrograms/] \
-                are /roots/ {{roots} {
-
-        if {[llength $roots] == 0} {
-            error "No root virtual programs available for entry Tcl node."
+    proc ::loadVirtualPrograms {} {
+        set ::rootVirtualPrograms [dict create]
+        proc loadProgram {programFilename} {
+            # this is a proc so its variables don't leak
+            set fp [open $programFilename r]
+            dict set ::rootVirtualPrograms $programFilename [read $fp]
+            close $fp
         }
+        foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+            loadProgram $programFilename
+        }
+        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
 
-        # Are there foreign root virtual programs that should take priority over ours?
-        foreach root $roots {
-            if {[dict get $root node] ne $::nodename} {
-                set chosenRoot $root
-                break
+        # So we can retract them all at once if some other node connects and
+        # wants to impose its root virtual programs:
+        Assert when the collected matches for \
+                    [list /node/ is providing root virtual programs /rootVirtualPrograms/] \
+                    are /roots/ {{roots} {
+
+            if {[llength $roots] == 0} {
+                error "No root virtual programs available for entry Tcl node."
             }
+
+            # Are there foreign root virtual programs that should take priority over ours?
+            foreach root $roots {
+                if {[dict get $root node] ne $::nodename} {
+                    set chosenRoot $root
+                    break
+                }
+            }
+            if {![info exists chosenRoot]} {
+                # Default to first in the list if no foreign root.
+                set chosenRoot [lindex $roots 0]
+            }
+
+            dict for {programFilename programCode} [dict get $chosenRoot rootVirtualPrograms] {
+                Say [dict get $chosenRoot node] claims $programFilename has program code $programCode
+            }
+        }}
+
+        # Watch for virtual-programs/ changes.
+        try {
+            set fd [open "|fswatch virtual-programs" r]
+            fconfigure $fd -buffering line
+            fileevent $fd readable [list apply {{fd} {
+                set changedFilename [file tail [gets $fd]]
+                if {[string index $changedFilename 0] eq "."} { return }
+                set changedProgramName "virtual-programs/$changedFilename"
+
+                set oldRootVirtualPrograms $::rootVirtualPrograms
+                set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
+                dict set ::rootVirtualPrograms $changedProgramName $programCode
+
+                Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+                Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+                Step
+            }} $fd]
+        } on error err {
+            puts stderr "Warning: could not invoke `fswatch` ($err)."
+            puts stderr "Will not watch virtual-programs for changes."
         }
-        if {![info exists chosenRoot]} {
-            # Default to first in the list if no foreign root.
-            set chosenRoot [lindex $roots 0]
-        }
-
-        dict for {programFilename programCode} [dict get $chosenRoot rootVirtualPrograms] {
-            Say [dict get $chosenRoot node] claims $programFilename has program code $programCode
-        }
-    }}
-
-    # Watch for virtual-programs/ changes.
-    try {
-        set fd [open "|fswatch virtual-programs" r]
-        fconfigure $fd -buffering line
-        fileevent $fd readable [list apply {{fd} {
-            set changedFilename [file tail [gets $fd]]
-            if {[string index $changedFilename 0] eq "."} { return }
-            set changedProgramName "virtual-programs/$changedFilename"
-
-            set oldRootVirtualPrograms $::rootVirtualPrograms
-            set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-            dict set ::rootVirtualPrograms $changedProgramName $programCode
-
-            Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
-            Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
-            Step
-        }} $fd]
-    } on error err {
-        puts stderr "Warning: could not invoke `fswatch` ($err)."
-        puts stderr "Will not watch virtual-programs for changes."
     }
 
     Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {

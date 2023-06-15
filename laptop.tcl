@@ -83,4 +83,5 @@ if {[info exists ::shareNode]} {
 Display::init
 Step
 
+loadVirtualPrograms
 vwait forever
