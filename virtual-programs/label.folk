@@ -1,5 +1,3 @@
-Wish $this has filename "label.folk"
-
 When /thing/ has region /region/ {
     set bbox [regionToBbox $region]
     lassign [boxCentroid $bbox] x y

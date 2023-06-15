@@ -101,7 +101,6 @@ proc handlePage {path contentTypeVar} {
     }
 }
 
-
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
@@ -112,6 +111,7 @@ proc handleRead {chan addr port} {
             lappend headers $k $v
         } else { break }
     }
+
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
@@ -152,7 +152,7 @@ proc handleWS {chan type msg} {
     } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
-                puts "$::nodename: Error on receipt: $err"
+                puts stderr "$::nodename: Error on receipt: $err\n$::errorInfo"
                 ::websocket::send $chan text $err
             } err2] { puts "$::nodename: $err2" }
         }

@@ -177,18 +177,16 @@ proc Commit {args} {
     dict set ::committed $key $lambda
 }
 
-proc StepImpl {} { Evaluator::Evaluate }
-
 set ::nodename "[info hostname]-[pid]"
 
-namespace eval Peers {}
 set ::stepCount 0
 set ::stepTime "none"
+source "lib/peer.tcl"
 proc Step {} {
     incr ::stepCount
     Assert $::nodename has step count $::stepCount
     Retract $::nodename has step count [expr {$::stepCount - 1}]
-    set ::stepTime [time {StepImpl}]
+    set ::stepTime [time {Evaluator::Evaluate}]
 
     if {[namespace exists Display]} {
         Display::commit ;# TODO: this is weird, not right level
@@ -196,15 +194,18 @@ proc Step {} {
 
     foreach peerNs [namespace children Peers] {
         apply [list {peer} {
-            variable shareStatements [list]
+            variable connected
+            if {!$connected} { return }
+
+            set shareStatements [clauseset create]
             if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
-                    lappend shareStatements [statement clause $stmt]
+                    clauseset add shareStatements [statement clause $stmt]
                 }
             } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
                     if {[lindex [statement clause $stmt] 1] eq "claims"} {
-                        lappend shareStatements [statement clause $stmt]
+                        clauseset add shareStatements [statement clause $stmt]
                     }
                 }
              }
@@ -216,17 +217,21 @@ proc Step {} {
                 foreach match [Statements::findMatches $pattern] {
                     set id [lindex [dict get $match __matcheeIds] 0]
                     set clause [statement clause [Statements::get $id]]
-                    lappend shareStatements $clause
+                    clauseset add shareStatements $clause
                 }
             }
 
-            variable sequenceNumber
-            incr sequenceNumber
-            run [subst {
-                Assert $::nodename shares statements {$shareStatements} with sequence number $sequenceNumber
-                Retract $::nodename shares statements /any/ with sequence number [expr {$sequenceNumber - 1}]
-                Step
-            }]
+            variable prevShareStatements
+            set shareAssertStatements [clauseset clauses [clauseset minus $shareStatements $prevShareStatements]]
+            set shareRetractStatements [clauseset clauses [clauseset minus $prevShareStatements $shareStatements]]
+            if {[llength $shareAssertStatements] > 0 || [llength $shareRetractStatements] > 0} {
+                run [list apply {{shareAssertStatements shareRetractStatements} {
+                    foreach stmt $shareAssertStatements { Assert {*}$stmt }
+                    foreach stmt $shareRetractStatements { Retract {*}$stmt }
+                    Step
+                }} $shareAssertStatements $shareRetractStatements]
+            }
+            set prevShareStatements $shareStatements
         } $peerNs] [namespace tail $peerNs]
     }
 }
@@ -251,6 +256,83 @@ Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{p
 if {[info exists ::entry]} {
     # This all only runs if we're in a primary Folk process; we don't
     # want it to run in subprocesses (which also run main.tcl).
+
+    proc ::loadVirtualPrograms {} {
+        set ::rootVirtualPrograms [dict create]
+        proc loadProgram {programFilename} {
+            # this is a proc so its variables don't leak
+            set fp [open $programFilename r]
+            dict set ::rootVirtualPrograms $programFilename [read $fp]
+            close $fp
+        }
+        foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+            loadProgram $programFilename
+        }
+        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+
+        # So we can retract them all at once if some other node connects and
+        # wants to impose its root virtual programs:
+        Assert when the collected matches for \
+                    [list /node/ is providing root virtual programs /rootVirtualPrograms/] \
+                    are /roots/ {{roots} {
+
+            if {[llength $roots] == 0} {
+                error "No root virtual programs available for entry Tcl node."
+            }
+
+            # Are there foreign root virtual programs that should take priority over ours?
+            foreach root $roots {
+                if {[dict get $root node] ne $::nodename} {
+                    set chosenRoot $root
+                    break
+                }
+            }
+            if {![info exists chosenRoot]} {
+                # Default to first in the list if no foreign root.
+                set chosenRoot [lindex $roots 0]
+            }
+
+            dict for {programFilename programCode} [dict get $chosenRoot rootVirtualPrograms] {
+                Say [dict get $chosenRoot node] claims $programFilename has program code $programCode
+            }
+        }}
+
+        # Watch for virtual-programs/ changes.
+        try {
+            set fd [open "|fswatch virtual-programs" r]
+            fconfigure $fd -buffering line
+            fileevent $fd readable [list apply {{fd} {
+                set changedFilename [file tail [gets $fd]]
+                if {[string index $changedFilename 0] eq "." ||
+                    [string index $changedFilename 0] eq "#" ||
+                    [file extension $changedFilename] ne ".folk"} {
+                    return
+                }
+                set changedProgramName "virtual-programs/$changedFilename"
+                puts "$changedProgramName updated, reloading."
+
+                set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
+                EditVirtualProgram $changedProgramName $programCode
+            }} $fd]
+        } on error err {
+            puts stderr "Warning: could not invoke `fswatch` ($err)."
+            puts stderr "Will not watch virtual-programs for changes."
+        }
+    }
+    proc ::EditVirtualProgram {programName programCode} {
+        set oldRootVirtualPrograms $::rootVirtualPrograms
+        if {[dict exists $oldRootVirtualPrograms $programName] &&
+            [dict get $oldRootVirtualPrograms $programName] eq $programCode} {
+            # Code hasn't changed.
+            return
+        }
+        dict set ::rootVirtualPrograms $programName $programCode
+
+        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+        Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+        Step
+    }
 
     source "lib/process.tcl"
     source "./web.tcl"

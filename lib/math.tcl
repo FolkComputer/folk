@@ -39,6 +39,8 @@ proc rectanglesOverlap {P1 P2 Q1 Q2 strict} {
     }
 }
 
+# TODO: verticesToBbox is better name
+# It only really uses the first thing in the region
 proc regionToBbox {region} {
     set vertices [lindex $region 0]
     set minX 100000

@@ -12,6 +12,7 @@ elseif {$wifi eq "Verizon_TWRHB4"} { set ::shareNode "folk-cwervo.local" } \
 elseif {$wifi eq "WONDERLAND"} { set ::shareNode "folk-haip.local" } \
 elseif {$wifi eq "GETNEAR"} { set ::shareNode "folk-ian.local" } \
 elseif {$wifi eq "Fios-LGTS3-5G" || $wifi eq "Fios-LGTS3"} { set ::shareNode "folk0.local" } \
+elseif {[string match "_onefact.org*" $wifi]} { set ::shareNode "folk-onefact.local" } \
 else { set ::shareNode "folk0.local" }
 
 if {[info exists ::env(FOLK_SHARE_NODE)]} {

@@ -206,8 +206,8 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 columnCorr[i] = (columnCorr[i] << 1) | bit;
             }]
 
-            free(codeImage);
-            free(invertedCodeImage);
+            ckfree(codeImage);
+            ckfree(invertedCodeImage);
         }
 
         // convert column correspondences out of Gray code
@@ -259,8 +259,8 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 rowCorr[i] = (rowCorr[i] << 1) | bit;
             }]
 
-            free(codeImage);
-            free(invertedCodeImage);
+            ckfree(codeImage);
+            ckfree(invertedCodeImage);
         }
 
         // convert row correspondences out of Gray code
@@ -347,9 +347,13 @@ foreach tag $tags {
     set correspondences [list]
     foreach keypoint $keypoints {
         lassign $keypoint x y
-        lappend correspondences [lindex [findNearbyCorrespondences $dense [expr {int($x)}] [expr {int($y)}] 3] 0]
+        set nearby [findNearbyCorrespondences $dense [expr {int($x)}] [expr {int($y)}] 3]
+        if {[llength $nearby] > 0} {
+            lappend correspondences [lindex $nearby 0]
+        }
     }
 
+    if {[llength $correspondences] == 0} { continue }
     puts "nearby: [llength $correspondences] correspondences: $correspondences"
     puts ""
 
