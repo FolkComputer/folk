@@ -65,3 +65,20 @@ Assert when we are running {{} {
 }}
 Step
 vwait ::heard
+
+Retract when we are running /anything/
+Step
+
+Assert when we are running {{} {
+    On process {
+        eval [python3 {
+            print("Claim Python is done")
+        }]
+    }
+    When Python is done {
+        set ::pythondone true
+    }
+}}
+Step
+
+vwait ::pythondone
