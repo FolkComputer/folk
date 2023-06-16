@@ -26,13 +26,14 @@ namespace eval ::image {
 
     set cc [c create]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    $cc cflags -ljpeg
     source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
-    $cc include <jpeglib.h>
 
     $cc code {
+        #undef EXTERN
         #include <jpeglib.h>
         #include <stdint.h>
         #include <unistd.h>
@@ -80,7 +81,6 @@ namespace eval ::image {
         jpeg(out, im.data, im.width, im.height, 100);
         fclose(out);
     }
-    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
     $cc compile
 
     namespace export *
@@ -98,8 +98,8 @@ When /someone/ wishes /p/ has camera slice & \
     lassign [projectorToCamera [list $maxX $maxY]] px1 py1
 
     # Clamp to image bounds
-    set x [expr {int(max($px0, 0))}]
-    set y [expr {int(max($py0, 0))}]
+    set x [expr {int(max(min($px0, $px1), 0))}]
+    set y [expr {int(max(min($py0, $py1), 0))}]
     set w [expr {int(min(abs($px1 - $px0), [image width $f]))}]
     set h [expr {int(min(abs($py1 - $py0), [image height $f]))}]
 
