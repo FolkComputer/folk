@@ -65,9 +65,7 @@ proc On-process {name body} {
         set processCode [list apply {{__name __body} {
             set ::thisProcess $__name
 
-            Assert <lib/process.tcl> wishes $::thisProcess shares all claims
-            Assert <lib/process.tcl> wishes $::thisProcess shares statements like \
-                [list /someone/ wishes $ receives statements like /pattern/]
+            Assert <lib/process.tcl> wishes $::thisProcess shares all statements
 
             ::peer "localhost"
 

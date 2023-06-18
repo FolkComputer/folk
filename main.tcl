@@ -189,13 +189,7 @@ proc Step {} {
                 dict for {_ stmt} [Statements::all] {
                     clauseset add shareStatements [statement clause $stmt]
                 }
-            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0} {
-                dict for {_ stmt} [Statements::all] {
-                    if {[lindex [statement clause $stmt] 1] eq "claims"} {
-                        clauseset add shareStatements [statement clause $stmt]
-                    }
-                }
-             }
+            }
 
             set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
             lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]

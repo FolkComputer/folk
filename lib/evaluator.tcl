@@ -6,8 +6,14 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    $cc struct statement_handle_t { int32_t idx; int32_t gen; }
-    $cc struct match_handle_t { int32_t idx; int32_t gen; }
+    $cc code {
+        typedef struct statement_handle_t { int32_t idx; int32_t gen; } statement_handle_t;
+        typedef struct match_handle_t { int32_t idx; int32_t gen; } match_handle_t;
+    }
+    $cc rtype statement_handle_t { $robj = Tcl_ObjPrintf("s%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype statement_handle_t { statement_handle_t $argname; sscanf(Tcl_GetString($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
+    $cc rtype match_handle_t { $robj = Tcl_ObjPrintf("m%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype match_handle_t { match_handle_t $argname; sscanf(Tcl_GetString($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
 
@@ -562,7 +568,7 @@ namespace eval Statements { ;# singleton Statement store
         for (int i = 0; i < resultsCount; i++) {
             Tcl_Obj* matchObj = environmentToTclDict(results[i]);
             statement_handle_t id = results[i]->matchedStatementIds[0];
-            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
+            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{s%d:%d}", id.idx, id.gen));
             Tcl_ListObjAppendElement(NULL, ret, matchObj);
             ckfree((char *)results[i]);
         }
@@ -826,7 +832,7 @@ namespace eval Evaluator {
                     Tcl_ListObjAppendElement(interp, env, result->bindings[i].value);
                 }
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
+                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, lambda, env);
             }
         }
@@ -1046,7 +1052,7 @@ namespace eval Evaluator {
 
         env = Tcl_DuplicateObj(env);
         Tcl_ListObjAppendElement(NULL, env, matches);
-        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
+        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
         tryRunInSerializedEnvironment(interp, lambda, env);
     }
 
