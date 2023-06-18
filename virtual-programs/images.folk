@@ -23,6 +23,66 @@ namespace eval ::image {
 		data [format 0x%x $subdata]
 	}
     }
+
+    set cc [c create]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    $cc cflags -ljpeg
+    source "pi/cUtils.tcl"
+    defineImageType $cc
+    $cc include <stdlib.h>
+    $cc include <string.h>
+
+    $cc code {
+        #undef EXTERN
+        #include <jpeglib.h>
+        #include <stdint.h>
+        #include <unistd.h>
+
+        void 
+    jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
+    {
+      JSAMPARRAY image;
+      image = calloc(height, sizeof (JSAMPROW));
+      for (size_t i = 0; i < height; i++) {
+        image[i] = calloc(width * 3, sizeof (JSAMPLE));
+        for (size_t j = 0; j < width; j++) {
+          image[i][j * 3 + 0] = rgb[(i * width + j)];
+          image[i][j * 3 + 1] = rgb[(i * width + j)];
+          image[i][j * 3 + 2] = rgb[(i * width + j)];
+        }
+      }
+
+      struct jpeg_compress_struct compress;
+      struct jpeg_error_mgr error;
+      compress.err = jpeg_std_error(&error);
+      jpeg_create_compress(&compress);
+      jpeg_stdio_dest(&compress, dest);
+
+      compress.image_width = width;
+      compress.image_height = height;
+      compress.input_components = 3;
+      compress.in_color_space = JCS_RGB;
+      jpeg_set_defaults(&compress);
+      jpeg_set_quality(&compress, quality, TRUE);
+      jpeg_start_compress(&compress, TRUE);
+      jpeg_write_scanlines(&compress, image, height);
+      jpeg_finish_compress(&compress);
+      jpeg_destroy_compress(&compress);
+
+      for (size_t i = 0; i < height; i++) {
+        free(image[i]);
+      }
+      free(image);
+    }
+
+    }
+    $cc proc saveAsJpeg {image_t im char* filename} void {
+        FILE* out = fopen(filename, "w");
+        jpeg(out, im.data, im.width, im.height, 100);
+        fclose(out);
+    }
+    $cc compile
+
     namespace export *
     namespace ensemble create
 }
@@ -38,8 +98,8 @@ When /someone/ wishes /p/ has camera slice & \
     lassign [projectorToCamera [list $maxX $maxY]] px1 py1
 
     # Clamp to image bounds
-    set x [expr {int(max($px0, 0))}]
-    set y [expr {int(max($py0, 0))}]
+    set x [expr {int(max(min($px0, $px1), 0))}]
+    set y [expr {int(max(min($py0, $py1), 0))}]
     set w [expr {int(min(abs($px1 - $px0), [image width $f]))}]
     set h [expr {int(min(abs($py1 - $py0), [image height $f]))}]
 
