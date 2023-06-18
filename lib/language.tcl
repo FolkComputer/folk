@@ -4,6 +4,8 @@ proc fn {name argNames body} {
     uplevel [list set ^$name [list $argNames $body]]
 }
 rename unknown _original_unknown
+# Trap resolution of commands so that they can call the lambda in
+# lexical scope created by `fn`.
 proc unknown {name args} {
     if {[uplevel [list info exists ^$name]]} {
         apply [uplevel [list set ^$name]] {*}$args

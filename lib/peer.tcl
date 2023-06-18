@@ -27,7 +27,7 @@ proc ::peer {node} {
 
         proc log {s} {
             variable node
-            puts "$::nodename -> $node: $s"
+            puts "$::thisProcess -> $node: $s"
         }
         proc setupSock {} {
             variable node
@@ -62,15 +62,20 @@ proc ::peer {node} {
             variable node $n; setupSock
             vwait ::Peers::${n}::connected
 
+            # Establish a peering on their end, in the reverse
+            # direction, so they can send stuff back to us.
             run [format {
-                namespace eval ::Peers::%s [format {
+                namespace eval {::Peers::%s} {
                     variable connected true
                     variable prevShareStatements [clauseset create]
                     proc run {msg} {
-                        ::websocket::send %%s text $msg
+                        variable chan
+                        ::websocket::send $chan text $msg
                     }
-                } $chan]
-            } $::nodename]
+
+                    variable chan
+                } $chan
+            } $::thisProcess]
         }
         init
     } $node

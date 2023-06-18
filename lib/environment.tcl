@@ -1,5 +1,3 @@
-namespace eval ::SerializableEnvironment {}
-
 proc serializeEnvironment {} {
     set argnames [list]
     set argvalues [list]
@@ -10,30 +8,8 @@ proc serializeEnvironment {} {
             lappend argvalues [uplevel [list set $name]]
         }
     }
-    # foreach importName [namespace eval ::SerializableEnvironment {namespace import}] {
-    #     dict set env %$importName [namespace origin ::SerializableEnvironment::$importName]
-    # }
-    # foreach procName [info procs ::SerializableEnvironment::*] {
-    #     if {![dict exists $env %[namespace tail $procName]]} {
-    #         dict set env ^[namespace tail $procName] \
-    #             [list [info args $procName] [info body $procName]]
-    #     }
-    # }
     list $argnames $argvalues
 }
-
-# proc deserializeEnvironment {env} {
-#     dict for {name value} $env {
-#         if {[string index $name 0] eq "^"} {
-#             proc ::SerializableEnvironment::[string range $name 1 end] {*}$value
-#         } elseif {[string index $name 0] eq "%"} {
-#             namespace eval ::SerializableEnvironment \
-#                 [list namespace import -force $value]
-#         } else {
-#             set ::SerializableEnvironment::$name $value
-#         }
-#     }
-# }
 
 set ::Evaluator::totalTimesMap [dict create]
 set ::Evaluator::runsMap [dict create]

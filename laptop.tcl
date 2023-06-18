@@ -11,7 +11,7 @@ namespace eval Display {
 
     canvas .display -background black -width $Display::WIDTH -height $Display::HEIGHT
     pack .display
-    wm title . $::nodename
+    wm title . $::thisProcess
     wm geometry . [set Display::WIDTH]x[expr {$Display::HEIGHT + 40}]-0+0 ;# align to top-right of screen
 
     proc init {} {}
@@ -75,8 +75,8 @@ if {[info exists ::shareNode]} {
         source "lib/peer.tcl"
         peer $::shareNode
 
-        Assert "laptop.tcl" wishes $::nodename shares statements like \
-            [list $::nodename is providing root virtual programs /rootVirtualPrograms/]
+        Assert "laptop.tcl" wishes $::thisProcess shares statements like \
+            [list $::thisProcess is providing root virtual programs /rootVirtualPrograms/]
     }
 }
 

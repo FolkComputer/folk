@@ -152,12 +152,12 @@ proc handleWS {chan type msg} {
     } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
-                puts stderr "$::nodename: Error on receipt: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error on receipt: $err\n$::errorInfo"
                 ::websocket::send $chan text $err
-            } err2] { puts "$::nodename: $err2" }
+            } err2] { puts "$::thisProcess: $err2" }
         }
     } else {
-        puts "$::nodename: Unhandled WS event $type on $chan ($msg)"
+        puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }
 }
 

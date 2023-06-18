@@ -9,22 +9,22 @@ Assert when /name/ is a /animal/ {{name animal} {
 Assert when /node/ has step count /c/ {{node c} {}}
 Assert Bob is a cat
 
-puts "$::nodename: No additional statements:"
+puts "$::thisProcess: No additional statements:"
 puts "  [run]"
 
 for {set i 0} {$i < 100} {incr i} { Assert $i }
-puts "$::nodename: Asserted 100 statements:"
+puts "$::thisProcess: Asserted 100 statements:"
 puts "  [run]"
 
 Assert Omar is a human
-puts "$::nodename: Asserted 100 statements + Omar is a human:"
+puts "$::thisProcess: Asserted 100 statements + Omar is a human:"
 puts "  [run]"
 
-puts "$::nodename: Same:"
+puts "$::thisProcess: Same:"
 puts "  [run]"
 
-puts "$::nodename: Same:"
+puts "$::thisProcess: Same:"
 puts "  [run]"
 
-puts "$::nodename: Same:"
+puts "$::thisProcess: Same:"
 puts "  [run]"

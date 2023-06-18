@@ -7,7 +7,7 @@ proc assert condition {
 
 
 Assert we are running
-Assert when we are running {
+Assert when we are running {{} {
     On process {
         set cc [c create]
         $cc include <sys/mman.h>
@@ -59,7 +59,7 @@ Assert when we are running {
         $cc compile
         blup
     }
-}
+}}
 Step
 
 after 1000 {set done true}

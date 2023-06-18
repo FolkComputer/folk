@@ -11,7 +11,7 @@ proc count condition {
 Assert programOakland has program {{this} {
     Claim Omar lives in "Oakland"
 }}
-Assert when $::nodename has step count /c/ {{c} {
+Assert when $::thisProcess has step count /c/ {{c} {
     When Omar lives in /place/ {
         Claim $place is a place where Omar lives
     }

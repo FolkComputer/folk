@@ -31,10 +31,10 @@ namespace eval Evaluator {
             }
             if {$this ne ""} {
                 Say $this has error $err with info $::errorInfo
-                puts stderr "$::nodename: Error in $this, match $::matchId: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error in $this, match $::matchId: $err\n$::errorInfo"
             } else {
                 Say $::matchId has error $err with info $::errorInfo
-                puts stderr "$::nodename: Error in match $::matchId: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error in match $::matchId: $err\n$::errorInfo"
             }
         }
     }
@@ -123,16 +123,16 @@ proc On {event args} {
         if {[llength $args] == 2} {
             lassign $args name body
         } elseif {[llength $args] == 1} {
-
-            if {![info exists ::SerializableEnvironment::nextSubprocessId]} {
-              set ::SerializableEnvironment::nextSubprocessId 0
-            }
-            set subprocessId [incr ::SerializableEnvironment::nextSubprocessId]
-
-            set name "${::matchId}-${subprocessId}-process"
+            # Generate a unique name.
+            set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+            set subprocessId [uplevel {incr __subprocessId}]
+            set name "${this}-${::matchId}-${subprocessId}"
             set body [lindex $args 0]
         }
-        uplevel [list On-process $name $body]
+        # Serialize the lexical environment at the callsite so we can
+        # send that to the subprocess.
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        uplevel [list On-process $name [list apply [list $argNames $body] {*}$argValues]]
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
@@ -155,9 +155,8 @@ proc After {n unit body} {
 }
 set ::committed [dict create]
 proc Commit {args} {
-    upvar this this
     set body [lindex $args end]
-    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set key [list Commit [uplevel {expr {[info exists this] ? $this : "<unknown>"}}] {*}[lreplace $args end end]]
     lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
     set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
     Assert $key has program $lambda
@@ -167,15 +166,13 @@ proc Commit {args} {
     dict set ::committed $key $lambda
 }
 
-set ::nodename "[info hostname]-[pid]"
-
 set ::stepCount 0
 set ::stepTime "none"
 source "lib/peer.tcl"
 proc Step {} {
     incr ::stepCount
-    Assert $::nodename has step count $::stepCount
-    Retract $::nodename has step count [expr {$::stepCount - 1}]
+    Assert $::thisProcess has step count $::stepCount
+    Retract $::thisProcess has step count [expr {$::stepCount - 1}]
     set ::stepTime [time {Evaluator::Evaluate}]
 
     if {[namespace exists Display]} {
@@ -188,11 +185,11 @@ proc Step {} {
             if {!$connected} { return }
 
             set shareStatements [clauseset create]
-            if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
+            if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all statements]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
                     clauseset add shareStatements [statement clause $stmt]
                 }
-            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
+            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0} {
                 dict for {_ stmt} [Statements::all] {
                     if {[lindex [statement clause $stmt] 1] eq "claims"} {
                         clauseset add shareStatements [statement clause $stmt]
@@ -200,7 +197,7 @@ proc Step {} {
                 }
              }
 
-            set matches [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]]
+            set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
             lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
             foreach m $matches {
                 set pattern [dict get $m pattern]
@@ -239,13 +236,16 @@ Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
 }}
 
-Assert when /peer/ shares statements /statements/ with sequence number /gen/ {{peer statements gen} {
-    foreach stmt $statements { Say {*}$stmt }
-}}
+set ::thisNode "[info hostname]"
+set ::nodename $::thisNode ;# for backward compat
 
 if {[info exists ::entry]} {
-    # This all only runs if we're in a primary Folk process; we don't
-    # want it to run in subprocesses (which also run main.tcl).
+    source "lib/process.tcl"
+    Zygote::init
+
+    # Everything below here only runs if we're in the primary Folk
+    # process.
+    set ::thisProcess $::thisNode
 
     proc ::loadVirtualPrograms {} {
         set ::rootVirtualPrograms [dict create]
@@ -259,7 +259,7 @@ if {[info exists ::entry]} {
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
             loadProgram $programFilename
         }
-        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+        Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
 
         # So we can retract them all at once if some other node connects and
         # wants to impose its root virtual programs:
@@ -273,7 +273,7 @@ if {[info exists ::entry]} {
 
             # Are there foreign root virtual programs that should take priority over ours?
             foreach root $roots {
-                if {[dict get $root node] ne $::nodename} {
+                if {[dict get $root node] ne $::thisNode} {
                     set chosenRoot $root
                     break
                 }
@@ -319,12 +319,11 @@ if {[info exists ::entry]} {
         }
         dict set ::rootVirtualPrograms $programName $programCode
 
-        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
-        Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+        Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
+        Retract $::thisNode is providing root virtual programs $oldRootVirtualPrograms
         Step
     }
 
-    source "lib/process.tcl"
     source "./web.tcl"
     source $::entry
 }

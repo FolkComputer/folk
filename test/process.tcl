@@ -53,7 +53,7 @@ vwait ::wereinaprocess
 
 Assert when we are running {{} {
     On process {
-        Wish $::nodename receives statements like [list /x/ claims the main process exists]
+        Wish $::thisProcess receives statements like [list /x/ claims the main process exists]
         When the main process exists {
             Commit { Claim the subprocess heard that the main process exists }
         }
@@ -70,10 +70,11 @@ Retract when we are running /anything/
 Step
 
 Assert when we are running {{} {
+    set x done
     On process {
-        eval [python3 {
-            print("Claim Python is done")
-        }]
+        eval [python3 [subst {
+            print("Claim Python is $x")
+        }]]
     }
     When Python is done {
         set ::pythondone true

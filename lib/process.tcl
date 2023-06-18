@@ -1,20 +1,59 @@
-set ::processPrelude {
-    if {[info exists ::entry]} {
-      return; # don't run if we're in the main process
+namespace eval ::Zygote {
+    set cc [c create]
+    $cc include <unistd.h>
+    $cc proc ::Zygote::fork {} int { return fork(); }
+    # FIXME: waitpid
+    # FIXME: some kind of shared-memory log queue
+    $cc compile
+
+    # The zygote is a process that's forked off during Folk
+    # startup. It can fork itself to create subprocesses on demand.
+
+    # Fork Folk to create the zygote process (= set the current state
+    # of Folk as the startup state for all subprocesses that will be
+    # spawned later)
+    proc init {} {
+        variable reader
+        variable writer
+        lassign [chan pipe] reader writer
+        set pid [fork]
+        if {$pid == 0} {
+            # We're in the child (the zygote). We will block waiting
+            # for commands from the parent (the original/main thread).
+            close $writer
+            fconfigure $reader -buffering line
+            zygote
+
+        } else {
+            # We're still in the parent. The child (the zygote) is $pid.
+            close $reader
+            # We will send the zygote a message every time we want it to
+            # fork.
+            fconfigure $writer -buffering line
+        }
+    }
+    # Zygote's main loop.
+    proc zygote {} {
+        variable reader
+        set script ""
+        while {[gets $reader line] != -1} {
+            append script $line\n
+            if {[info complete $script]} {
+                set pid [fork]
+                if {$pid == 0} {
+                    eval $script
+                    exit 0
+                }
+                set script ""
+            }
+        }
+        exit 0
     }
 
-    source "main.tcl"
-    proc every {ms body} {
-        try $body
-        after $ms [list after idle [namespace code [info level 0]]]
+    proc spawn {code} {
+        variable writer
+        puts $writer $code
     }
-
-    Assert $::nodename wishes $::nodename shares all claims
-    Assert $::nodename wishes $::nodename shares statements like \
-        [list /someone/ wishes $::nodename receives statements like /pattern/]
-
-    source "lib/peer.tcl"
-    ::peer "localhost"
 }
 
 proc On-process {name body} {
@@ -23,42 +62,33 @@ proc On-process {name body} {
     set ::Processes::${name}::body $body
     set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     namespace eval ::Processes::$name {
-        variable tclfd [file tempfile tclfile tclfile.tcl]
-        set body [format {
-            Assert <process.tcl> claims <root> has program code {%s}
+        set processCode [list apply {{__name __body} {
+            set ::thisProcess $__name
+
+            Assert <lib/process.tcl> wishes $::thisProcess shares all claims
+            Assert <lib/process.tcl> wishes $::thisProcess shares statements like \
+                [list /someone/ wishes $ receives statements like /pattern/]
+
+            ::peer "localhost"
+
+            Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
+            Assert <lib/process.tcl> claims $::thisProcess has program [list {_} $__body]
             Step
             vwait forever
-        } $body]
-        puts $tclfd [join [list $::processPrelude $body] "\n"]; close $tclfd
+        }} $name $body]
 
-        # TODO: send it the serialized environment
-        variable stdout_reader; variable stdout_writer
-        lassign [chan pipe] stdout_reader stdout_writer
-
-        set pid [exec tclsh8.6 $tclfile >@ $stdout_writer 2>@ $stdout_writer &]
-
-        variable log [list]
-        proc handleReadable {} {
-            variable name
-            variable log
-            variable stdout_reader
-            if {[gets $stdout_reader line] >= 0} {
-                lappend log $line
-                puts "$name: $line **"
-                Retract process $name has standard output log /l/
-                Assert process $name has standard output log $log
-                Step
-            } elseif {[eof $stdout_reader]} { 
-              close $stdout_reader
+        Zygote::spawn [list apply {{processCode} {
+            # A supervisor that wraps the subprocess.
+            set pid [Zygote::fork]
+            if {$pid == 0} {
+                eval $processCode
+            } else {
+                # TODO: Supervise the subprocess.
+                # waitpid $pid
+                # how to report outcomes to Folk?
+                # does it have an inbox? do we assert into Folk and let it retract?
             }
-        }
-        # fconfigure $stdio -blocking 0 -buffering line
-        fconfigure $stdout_reader -blocking 0 -buffering line
-        fileevent $stdout_reader readable [namespace code handleReadable]
-
-        if {$this ne "<unknown>"} {
-            Assert $this is running process $name
-        }
+        }} $processCode]
 
         proc handleUnmatch {} {
             variable pid
@@ -72,10 +102,8 @@ proc On-process {name body} {
               } on error err {
                 break
               }
-              puts "waiting for unmatch kill to work"
             }
             Retract /someone/ is running process $name
-            Retract process $name has standard output log /something/
             namespace delete ::Processes::$name
         }
         uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
