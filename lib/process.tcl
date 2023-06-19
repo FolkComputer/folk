@@ -65,12 +65,13 @@ proc On-process {name body} {
         set processCode [list apply {{__name __body} {
             set ::thisProcess $__name
 
-            Assert <lib/process.tcl> wishes $::thisProcess shares all statements
+            Assert <lib/process.tcl> wishes $::thisProcess shares all wishes
+            Assert <lib/process.tcl> wishes $::thisProcess shares all claims
 
             ::peer "localhost"
 
             Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
-            Assert <lib/process.tcl> claims $::thisProcess has program [list {_} $__body]
+            Assert when $::thisProcess has pid /something/ [list {} $__body]
             Step
             vwait forever
         }} $name $body]
@@ -88,22 +89,24 @@ proc On-process {name body} {
             }
         }} $processCode]
 
-        proc handleUnmatch {} {
-            variable pid
-            variable name
-            variable stdout_reader
-            close $stdout_reader
-            exec kill -9 $pid 
-            while {1} {
-              try {
-                exec kill -0 $pid
-              } on error err {
-                break
-              }
-            }
-            Retract /someone/ is running process $name
-            namespace delete ::Processes::$name
+        When (non-capturing) $name has pid /pid/ {
+            On unmatch { exec kill -9 $pid }
         }
-        uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
+
+        # proc handleUnmatch {} {
+        #     variable pid
+        #     variable name
+        #     exec kill -9 $pid
+        #     while {1} {
+        #       try {
+        #         exec kill -0 $pid
+        #       } on error err {
+        #         break
+        #       }
+        #     }
+        #     Retract /someone/ is running process $name
+        #     namespace delete ::Processes::$name
+        # }
+        # uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
     }
 }

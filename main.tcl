@@ -185,8 +185,11 @@ proc Step {} {
             if {!$connected} { return }
 
             set shareStatements [clauseset create]
-            if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all statements]]] > 0} {
-                dict for {_ stmt} [Statements::all] {
+            set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
+            set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
+            dict for {_ stmt} [Statements::all] {
+                if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
+                    ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
                     clauseset add shareStatements [statement clause $stmt]
                 }
             }
