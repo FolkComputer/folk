@@ -46,8 +46,9 @@ proc ::peer {node} {
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"
                 after 2000 [namespace code setupSock]
-            } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
-                # We don't handle responses yet.
+            } elseif {$type eq "text"} {
+                eval $msg
+            } elseif {$type eq "ping" || $type eq "pong"} {
             } else {
                 error "Unknown WebSocket event: $type $msg"
             }
