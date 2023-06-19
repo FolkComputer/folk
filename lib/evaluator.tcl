@@ -692,16 +692,15 @@ namespace eval Statements { ;# singleton Statement store
 
             dict for {matchId _} [statement parentMatchIds $stmt] {
                 set parents [lmap edge [matchEdges $matchId] {expr {
-                    [dict get $edge type] == 1 ? "<[dict get $edge statement]>" : [continue]
+                    [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
                 }}]
-                lappend dot "<$matchId> \[label=\"<$matchId> <- $parents\"\];"
+                lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
                 lappend dot "<$matchId> -> <$id>;"
             }
 
             lappend dot "}"
 
             dict for {childMatchId _} [statement childMatchIds $stmt] {
-                set childMatchId [string map {: _} $childMatchId]
                 lappend dot "<$id> -> <$childMatchId>;"
             }
         }

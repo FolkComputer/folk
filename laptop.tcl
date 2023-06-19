@@ -61,6 +61,7 @@ Assert when /program/ has error /err/ with info /info/ {{program err info} {
 
 source "hosts.tcl"
 if {[info exists ::shareNode]} {
+    puts "Will try to share with: $::shareNode"
     # copy to Pi
     if {[catch {
         # TODO: forward entry point
@@ -69,7 +70,7 @@ if {[info exists ::shareNode]} {
         exec -ignorestderr ssh folk@$::shareNode -- sudo systemctl restart folk >@stdout &
     } err]} {
         puts "error syncing: $err"
-        puts "Proceeding without sharing to table."
+        puts "Proceeding without sharing."
 
     } else {
         source "lib/peer.tcl"
