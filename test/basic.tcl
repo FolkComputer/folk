@@ -1,9 +1,3 @@
-proc assert condition {
-   set s "{$condition}"
-   if {![uplevel 1 expr $s]} {
-       return -code error "assertion failed: $condition"
-   }
-}
 proc count condition {
     Statements::count $condition
 }

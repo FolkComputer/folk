@@ -1,10 +1,3 @@
-proc assert condition {
-   set s "{$condition}"
-   if {![uplevel 1 expr $s]} {
-       return -code error "assertion failed: $condition"
-   }
-}
-
 Assert programBall has program {{this} {
     Commit { Claim $this has a ball at x 100 y 100 }
 

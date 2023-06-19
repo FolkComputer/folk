@@ -1,10 +1,3 @@
-proc assert condition {
-   set s "{$condition}"
-   if {![uplevel 1 expr $s]} {
-       return -code error "assertion failed: $condition"
-   }
-}
-
 set cc [c create]
 $cc struct Name {
     char* first;
