@@ -76,7 +76,7 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
     set y [expr {$y + $offsetY}]
   }
 
-  puts "drawing $shape at $x $y"
+  # puts "drawing $shape at $x $y"
 
   set adjustedWidth [expr {$width * 0.25}]
   set x [expr { $x * 1.3}]
