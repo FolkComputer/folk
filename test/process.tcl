@@ -43,9 +43,9 @@ Assert when we are running {{} {
         When I am in a process {
             Commit { Claim we were in a process }
         }
-        When we were in a process {
-            set ::wereinaprocess true
-        }
+    }
+    When we were in a process {
+        set ::wereinaprocess true
     }
 }}
 Step
