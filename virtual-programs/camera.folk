@@ -7,33 +7,31 @@ namespace eval ::Camera {
 
 On process {
     source pi/Camera.tcl
-    # FIXME: do these in outer scope
+    source pi/AprilTags.tcl
     Camera::init 1280 720
+    AprilTags::init
+
     puts "Camera tid: [getTid]"
     
     while true {
-      set grayFrame [Camera::grayFrame]
-      Commit {
-        Claim the camera frame is $grayFrame;
-      }
-      Step
-    }
-}
-
-On process {
-    Wish $::nodename receives statements like [list /someone/ claims the camera frame is /frame/]
-
-    source pi/AprilTags.tcl
-    AprilTags::init
-
-    When the camera frame is /frame/ {
-        set aprilTime [time { set tags [AprilTags::detect $frame] }]
+        set cameraTime [time {
+            set grayFrame [Camera::grayFrame]
+        }]
+        set aprilTime [time {
+            set tags [AprilTags::detect $grayFrame]
+        }]
+        
         Commit {
+            Claim the camera frame is $grayFrame
+
+            Claim the camera time is $cameraTime
             Claim the AprilTag time is $aprilTime
+
             foreach tag $tags {
                 Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
                 Claim tag [dict get $tag id] has corners [dict get $tag corners]
             }
         }
+        Step
     }
 }

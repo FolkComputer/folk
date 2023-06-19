@@ -50,5 +50,5 @@ proc ::defineFolkImages {cc} {
             fprintf(stderr, "shmMount: failed"); exit(1);
         }
     }
-    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so] end]
+    $cc cflags -lrt
 }
