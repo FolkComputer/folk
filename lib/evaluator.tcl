@@ -672,7 +672,7 @@ namespace eval Statements { ;# singleton Statement store
             s->typePtr = &statement_t_ObjType;
             s->internalRep.otherValuePtr = &statements[i];
 
-            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("idx %d", i));
+            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("s%d:%d", i, statements[i].gen));
             Tcl_ListObjAppendElement(NULL, ret, s);
         }
         return ret;
@@ -680,9 +680,7 @@ namespace eval Statements { ;# singleton Statement store
     proc dot {} {
         set dot [list]
         dict for {id stmt} [all] {
-            set id [dict get $id idx]
-
-            lappend dot "subgraph cluster_$id {"
+            lappend dot "subgraph <cluster_$id> {"
             lappend dot "color=lightgray;"
 
             set label [statement clause $stmt]
@@ -690,23 +688,21 @@ namespace eval Statements { ;# singleton Statement store
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-            lappend dot "s$id \[label=\"s$id: $label\"\];"
+            lappend dot "<$id> \[label=\"$id: $label\"\];"
 
-            dict for {matchId_ _} [statement parentMatchIds $stmt] {
-                set matchId [dict get $matchId_ idx]
-                if {$matchId == -1} continue
-                set parents [lmap edge [matchEdges $matchId_] {expr {
-                    [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
+            dict for {matchId _} [statement parentMatchIds $stmt] {
+                set parents [lmap edge [matchEdges $matchId] {expr {
+                    [dict get $edge type] == 1 ? "<[dict get $edge statement]>" : [continue]
                 }}]
-                lappend dot "m$matchId \[label=\"m$matchId <- $parents\"\];"
-                lappend dot "m$matchId -> s$id;"
+                lappend dot "<$matchId> \[label=\"<$matchId> <- $parents\"\];"
+                lappend dot "<$matchId> -> <$id>;"
             }
 
             lappend dot "}"
 
-            dict for {childId _} [statement childMatchIds $stmt] {
-                set childId [dict get $childId idx]
-                lappend dot "s$id -> m$childId;"
+            dict for {childMatchId _} [statement childMatchIds $stmt] {
+                set childMatchId [string map {: _} $childMatchId]
+                lappend dot "<$id> -> <$childMatchId>;"
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
