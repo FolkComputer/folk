@@ -294,62 +294,6 @@ $cc proc remap {int x int x0 int x1 int y0 int y1} int {
   return y0 + (x - x0) * (y1 - y0) / (x1 - x0);
 }
 
-$cc proc cleanCorrespondense {uint16_t* corr uint16_t* cleanCorr} void [csubst {
-  uint32_t width = $Camera::WIDTH;
-  uint32_t height = $Camera::HEIGHT;
-
-  int startOfLake = -1;
-
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++) {
-      int i = y * width + x;
-      uint16_t v = corr[i];
-      if (startOfLake == -1) {
-        if (v == 0xFFFF) {
-          // we're in the beginning of our image
-          cleanCorr[i] = 0xFFFF; // keep the sentinel for now
-        } else {
-          startOfLake = i;
-          cleanCorr[i] = v;
-        }
-      } else {
-        // we do have a start of the lake
-        // find the next one
-        if (v == 0xFFFF) {
-          // write a sentinel just in case we never hit the end of a lake
-          cleanCorr[i] = 0xFFFF;
-        } else {
-          // write the valid data we found first
-          cleanCorr[i] = v;
-
-          for (int j = startOfLake+1; j < i; j++) {
-            float t = (float)(j - startOfLake) / (float)(i - startOfLake);
-            uint16_t startOfLakeValue = corr[startOfLake];
-            cleanCorr[j] = startOfLakeValue + t * (v - startOfLakeValue);
-          }
-
-          startOfLake = i;
-        }
-      }
-    }
-  }
-}]
-
-$cc proc cleanDenseCorrespondense {dense_t* dense} dense_t* [csubst {
-  uint32_t width = $Camera::WIDTH;
-  uint32_t height = $Camera::HEIGHT;
-
-  dense_t* cleanDense = malloc(sizeof(dense_t));
-  cleanDense->rowCorr = calloc(width*height, sizeof(uint16_t));
-  cleanDense->columnCorr = calloc(width*height, sizeof(uint16_t));
-
-  cleanCorrespondense(dense->rowCorr, cleanDense->rowCorr);
-  cleanCorrespondense(dense->columnCorr, cleanDense->columnCorr);
-
-  return cleanDense;
-}]
-
-
 $cc proc writeDenseCorrespondenseToDisk {dense_t* dense char* filename} void [csubst {
   FILE* out = fopen(filename, "w");
 
@@ -426,11 +370,8 @@ $cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* den
 
     char* filename = "/tmp/dense-$[clock format [clock seconds] -format "%H.%M.%S" ].png";
     writeDenseCorrespondenseToDisk(dense, filename);
-    dense_t* cleanDense = cleanDenseCorrespondense(dense);
-    filename = "/tmp/clean-dense-$[clock format [clock seconds] -format "%H.%M.%S" ].png";
-    writeDenseCorrespondenseToDisk(cleanDense, filename);
 
-    serializeDenseCorrespondence(cleanDense, "/home/folk/generated-clean-dense.dense");
+    serializeDenseCorrespondence(dense, "/home/folk/generated-dense.dense");
 
     // display dense correspondence directly. just for fun
     $[eachCameraPixel [subst -nocommands -nobackslashes {
