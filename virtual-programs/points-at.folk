@@ -20,23 +20,27 @@ When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
     set whisker_radians $radians
     set fac -1.0
     set whisker_size [expr {$width * $fac}]
+    set color green
 
     if {$direction eq "up"} {
         set whisker_radians [expr {$radians + $pi / 2}]
         set whisker_size [expr {$height * $fac}]
+        set color blue
     } 
     if {$direction eq "left"} {
         set whisker_radians [expr {$radians + $pi}]
+        set color red
     } 
     if {$direction eq "down"} {
         set whisker_radians [expr {$radians + $pi * 1.5}]
         set whisker_size [expr {$height * $fac}]
+        set color white
     } 
 
     set wx [expr {$cx + $whisker_size * [::tcl::mathfunc::cos [expr {-1 * $whisker_radians}]] }]
     set wy [expr {$cy + $whisker_size * [::tcl::mathfunc::sin [expr {-1 * $whisker_radians}]] }]
 
-    Display::stroke [list [list $cx $cy] [list $wx $wy] ] 2 green
+    Display::stroke [list [list $cx $cy] [list $wx $wy] ] 4 $color
 
     When /target/ has region /r2/ {
         if {$target != $rect && \
