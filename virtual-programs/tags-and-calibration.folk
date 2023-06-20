@@ -1,5 +1,3 @@
-Wish $this has filename "tags-and-calibration.folk"
-
 if {$::isLaptop} { return }
 
 package require math::linearalgebra
@@ -72,22 +70,25 @@ When (non-capturing) tag /tag/ is a tag {
      Claim $tag has program code $code
 }
 
-
 When (non-capturing) tag /tag/ has corners /corners/ {
-    set tagcorners [lmap p $corners {::cameraToProjector $p}]
-    # foreach tagcorner $tagcorners { Display::text fb {*}$tagcorner 10 "$tag" }
-    Display::fillQuad {*}$tagcorners white
+    set tagCorners [lmap p $corners {::cameraToProjector $p}]
+    # foreach tagCorner $tagCorners { Display::text fb {*}$tagCorner 1 $tagCorner }
+    # Display::fillQuad {*}$tagCorners white
 
-    set tagbottom [sub [lindex $tagcorners 1] [lindex $tagcorners 0]]
-    set tagright [sub [lindex $tagcorners 2] [lindex $tagcorners 1]]
+    set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
+    set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
 
     set offsets {{-4.7 -2.6} {1 -2.6} {1 0.8} {-4.7 0.8}}
-    set corners [add $tagcorners [matmul $offsets [list $tagbottom $tagright]]]
+    set scales [matmul $offsets [list $vecBottom $vecRight]]
+    set corners [add $tagCorners $scales]
+
     set edges [list]
     for {set i 0} {$i < [llength $corners]} {incr i} {
         if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
     }
     lappend edges [list [expr {[llength $corners] - 1}] 0]
-    set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$tagright]] 
+
+    set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$vecRight]] 
+
     Claim $tag has region $region
 }

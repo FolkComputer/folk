@@ -1,4 +1,3 @@
-Wish $this has filename "music.folk"
 if {$::isLaptop} { return }
 if {[catch {exec which sclang}]} { return }
 

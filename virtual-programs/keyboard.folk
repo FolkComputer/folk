@@ -1,4 +1,3 @@
-Wish $this has filename "keyboard.folk"
 return
 if {!$::isLaptop} { return }
 Wish $this is outlined skyblue

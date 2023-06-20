@@ -1,5 +1,3 @@
-Wish $this has filename "highlight.folk"
-
 When /someone/ wishes /thing/ is highlighted /color/ & /thing/ has region /region/ {
     # it's not really correct to just stick a side-effect in the
     # When handler like this. but we did it in Realtalk, and it

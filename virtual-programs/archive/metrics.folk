@@ -1,5 +1,3 @@
-Wish $this has filename "metrics.folk"
-
 When $::nodename has step count /c/ {
 	Wish $this is labelled [string trim "
 step count: $c

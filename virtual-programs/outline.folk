@@ -1,5 +1,3 @@
-Wish $this has filename "outline.folk"
-
 proc loopRegion {edges vertices weight color} {
 	foreach edge $edges {
 		set from [lindex $vertices [lindex $edge 0]]

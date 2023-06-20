@@ -1,5 +1,3 @@
-Wish $this has filename "regions.folk"
-
 namespace eval ::vec2 {
     namespace import ::tcl::mathop::+ ::tcl::mathop::- ::tcl::mathop::*
     proc add {a b} {
@@ -15,6 +13,10 @@ namespace eval ::vec2 {
         lassign $a ax ay
         lassign $b bx by
         expr {sqrt(pow($ax-$bx, 2) + pow($ay-$by, 2))}
+    }
+    proc normalize {a} {
+        set l2 [vec2 distance $a [list 0 0]]
+        vec2 scale [/ 1 $l2] $a
     }
     proc dot {a b} {
         expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
@@ -54,7 +56,32 @@ namespace eval ::region {
         }
         set minDist
     }
-    namespace export distance
+
+    proc contains {r1 p} {
+        lassign $r1 vertices edges
+        lassign $vertices a b c d
+
+        set ab [vec2 sub $b $a]
+        set ap [vec2 sub $p $a]
+        set bc [vec2 sub $c $b]
+        set bp [vec2 sub $p $b]
+        set dot_abap [vec2 dot $ab $ap]
+        set dot_bcbp [vec2 dot $bc $bp]
+
+        expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
+                0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
+    }
+
+   proc centroid {r1} {
+        # This only works for rectangular regions
+        lassign $r1 vertices edges
+        lassign $vertices a b c d
+
+        set vecsum [vec2 add [vec2 add [vec2 add $a $b] $c] $d]
+        vec2 scale 0.25 $vecsum
+    }
+
+    namespace export distance contains centroid
     namespace ensemble create
 }
 

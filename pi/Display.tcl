@@ -160,7 +160,7 @@ dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
 		for (int dy = 0; dy < scale; dy++) {
 		    for (int dx = 0; dx < scale; dx++) {
 
-			int sx = x0 + S * (scale * x + dx + N * font.char_width);
+            int sx = x0 + S * (scale * x + dx + N * scale * font.char_width);
 			int sy = y0 + S * (scale * y + dy);
 			if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
 
