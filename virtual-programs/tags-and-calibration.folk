@@ -20,7 +20,7 @@ $cc code {
   dense_t* dense;
 }
 $cc proc deserializeDenseCorrespondence {} void {
-  FILE* in = fopen("/home/folk/generated-dense.dense", "r");
+  FILE* in = fopen("/home/folk/generated-clean-dense.dense", "r");
   dense = calloc(sizeof(dense_t), 1);
   fread(&dense->width, sizeof(uint32_t), 1, in);
   fread(&dense->height, sizeof(uint32_t), 1, in);
