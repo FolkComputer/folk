@@ -408,12 +408,12 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Commit the ball position {
-  Claim the ball is at blahblah
+Commit ball position {
+  Claim $this has a ball at blahblah
 }
 ```
 
-and then future commits with that key, `the ball position`, will
+and then future commits with that key, `ball position`, will
 overwrite this statement but not override different commits with
 different keys
 
