@@ -438,20 +438,16 @@ namespace eval Display {
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
-    for {set i 0} {$i < 5} {incr i} {
-        # Display::fillQuad {0 0} {1000 0} {1000 1000} {0 1000} blue
-
-        fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
-        
-        drawText 309 400 0 1 "B"
-        drawText 318 400 0 1 "O"
-
-        drawCircle 100 100 500 $Display::red
-
-        Display::circle 300 420 400 5 blue
-        Display::text fb 300 420 PLACEHOLDER "Hello!" 0
-
-        puts [time Display::commit]
+    set ::frameNum 0
+    proc ::rect {size color} {
+        Display::fillQuad {100 100} [list 100 [expr {100+$size}]] [list [expr {100+$size}] [expr {100+$size}]] [list [expr {100+$size}] 100] white
     }
-    while true {}
+    proc ::render {} {
+        # ::rect 100 blue
+        ::rect [expr {100 + [incr ::frameNum] % 100}] blue
+        Display::commit
+        after 10 ::render
+    }
+    ::render
+    vwait forever
 }
