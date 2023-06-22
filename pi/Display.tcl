@@ -8,14 +8,23 @@ regexp {geometry \d+ \d+ \d+ \d+ (\d+)} $fbset -> Display::DEPTH
 
 rename [c create] dc
 
+dc cflags {*}[exec pkg-config --cflags --libs libdrm]
 dc code {
     #include <sys/stat.h>
     #include <fcntl.h>
+    #include <unistd.h>
     #include <sys/mman.h>
+    #include <sys/ioctl.h>
+    #include <errno.h>
     #include <stdint.h>
     #include <string.h>
     #include <stdlib.h>
     #include <math.h>
+
+    #include <libdrm/drm.h>
+    #include <libdrm/drm_mode.h>
+    #include <xf86drm.h>
+    #include <xf86drmMode.h>
 }
 
 if {$Display::DEPTH == 16} {
@@ -47,11 +56,121 @@ dc code {
 }
 dc code [source "vendor/font.tcl"]
 
-dc proc mmapFb {int fbw int fbh} pixel_t* {
-    int fb = open("/dev/fb0", O_RDWR);
-    fbwidth = fbw;
-    fbheight = fbh;
-    fbmem = mmap(NULL, fbwidth * fbheight * sizeof(pixel_t), PROT_WRITE, MAP_SHARED, fb, 0);
+dc proc mmapFb {char* card} pixel_t* {
+    // Open the DRM device:
+    int fd; {
+        fd = open(card, O_RDWR | O_CLOEXEC);
+        if (fd < 0) {
+            fprintf(stderr, "Display: cannot open '%s': %m\n", card);
+            exit(1);
+        }
+        uint64_t hasDumb;
+        if (drmGetCap(fd, DRM_CAP_DUMB_BUFFER, &hasDumb) < 0 || !hasDumb) {
+            fprintf(stderr, "Display: drm device '%s' does not support dumb buffers\n", card);
+            close(fd);
+            exit(1);
+        }
+    }
+
+    // Prepare all connectors and CRTCs:
+    {
+        drmModeRes *res;
+        drmModeConnector *conn = NULL;
+        unsigned int i;
+
+        res = drmModeGetResources(fd);
+        if (!res) {
+            fprintf(stderr, "Display: cannot retrieve DRM resources (%d): %m\n",
+                    errno);
+            exit(1);
+        }
+
+        // iterate all connectors
+	for (i = 0; i < res->count_connectors; ++i) {
+            /* get information for each connector */
+            drmModeConnector *c = drmModeGetConnector(fd, res->connectors[i]);
+            if (!c) {
+                fprintf(stderr, "Display: cannot retrieve DRM connector %u:%u (%d): %m\n",
+                        i, res->connectors[i], errno);
+                continue;
+            }
+            /* check if a monitor is connected */
+            if (c->connection != DRM_MODE_CONNECTED) {
+                fprintf(stderr, "Display: ignoring unused connector %u\n",
+                        c->connector_id);
+                continue;
+            }
+            /* check if there is at least one valid mode */
+            if (c->count_modes == 0) {
+		fprintf(stderr, "Display: no valid mode for connector %u\n",
+			c->connector_id);
+                continue;
+            }
+
+            // We have the connector we want -- stop
+            conn = c;
+            break;
+        }
+
+        if (conn == NULL) {
+            fprintf(stderr, "Display: no valid connector\n");
+            exit(1);
+        }
+
+        fbwidth = (int)conn->modes[0].hdisplay;
+        fbheight = (int)conn->modes[0].vdisplay;
+        printf("Display: using width %d and height %d\n", fbwidth, fbheight);
+
+        struct drm_mode_create_dumb dumb;
+        dumb.width = fbwidth;
+        dumb.height = fbheight;
+        dumb.bpp = 32;
+        int err = ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb);
+        if (err) {
+            fprintf(stderr, "Display: could not create dumb framebuffer (%d): %m\n", err);
+            exit(1);
+        }
+
+        uint32_t fbId;
+        err = drmModeAddFB(fd, dumb.width, dumb.height, 24, 32,
+                           dumb.pitch, dumb.handle, &fbId);
+        if (err) {
+            fprintf(stderr, "Display: could not add framebuffer to drm\n");
+            exit(1);
+        }
+
+        drmModeEncoder *enc = drmModeGetEncoder(fd, conn->encoder_id);
+        if (!enc) {
+            fprintf(stderr, "Display: could not get encoder\n");
+            exit(1);
+        }
+
+        drmModeCrtc *crtc = drmModeGetCrtc(fd, enc->crtc_id);
+        (void)crtc;
+	err = drmModeSetCrtc(fd, enc->crtc_id, fbId, 0, 0,
+                             &conn->connector_id, 1, &conn->modes[0]);
+        if (err) {
+            fprintf(stderr, "Display: drmModeSetCrtc failed\n");
+            exit(1);
+        }
+
+        struct drm_mode_map_dumb mreq = {0};
+        mreq.handle = dumb.handle;
+        err = drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &mreq);
+        if (err) {
+            fprintf(stderr, "Display: mode-mapping dumb framebuffer failed (%d): %m\n", err);
+            exit(1);
+        }
+
+        fbmem = mmap(0, dumb.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, mreq.offset);
+        if (fbmem == MAP_FAILED) {
+            fprintf(stderr, "Display: mmap failed (%d): %m\n", errno);
+            exit(1);
+        }
+
+        drmDropMaster(fd);
+    }
+
     // Multiply by 3 to create buffer area
     staging = calloc(fbwidth * fbheight * 3, sizeof(pixel_t)) + (fbwidth * fbheight * sizeof(pixel_t));
     return fbmem;
@@ -224,6 +343,7 @@ dc proc commitThenClearStaging {} void {
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
+c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libdrm.so] end]
 dc compile
 
 namespace eval Display {
@@ -242,7 +362,7 @@ namespace eval Display {
     # functions
     # ---------
     proc init {} {
-        set Display::fb [mmapFb $Display::WIDTH $Display::HEIGHT]
+        set Display::fb [mmapFb "/dev/dri/card0"]
     }
 
     proc vec2i {p} {
@@ -264,8 +384,8 @@ namespace eval Display {
     }
 
     proc fillQuad {p0 p1 p2 p3 color} {
-      fillTriangle $p1 $p2 $p3 color
-      fillTriangle $p0 $p1 $p3 color
+      fillTriangle $p1 $p2 $p3 $color
+      fillTriangle $p0 $p1 $p3 $color
     }
 
     proc stroke {points width color} {
@@ -319,10 +439,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     for {set i 0} {$i < 5} {incr i} {
+        # Display::fillQuad {0 0} {1000 0} {1000 1000} {0 1000} blue
+
         fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
         
-        drawText 309 400 "B" 0
-        drawText 318 400 "O" 0
+        drawText 309 400 0 1 "B"
+        drawText 318 400 0 1 "O"
 
         drawCircle 100 100 500 $Display::red
 
@@ -331,4 +453,5 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
         puts [time Display::commit]
     }
+    while true {}
 }
