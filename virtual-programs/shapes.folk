@@ -3,18 +3,6 @@ set sizeDict [dict create small 1 medium 4 large 10]
 proc isSizeWord {word} {
   expr {[lsearch [list small medium large] $word] >= 0}
 }
-proc polyline {points {strokeWeight 5} {color white} args} {
-  set i 0
-  set pointsLength [llength $points]
-  set PL_less_one [expr {$pointsLength - 1}]
-  while {$i < $pointsLength} {
-      if {$i eq $PL_less_one} { return }
-      set current [lindex $points $i]
-      incr i
-      set next [lindex $points $i]
-      Display::stroke [list $current $next] $strokeWeight $color
-  }
-}
 
 proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
   set start [list $x $y]
@@ -26,7 +14,7 @@ proc rectangle {x y w h {strokeWeight 5} {color "white"}} {
   lappend points [list [expr {$x + $w}] [expr {$y + $h}]]
   lappend points [list $x [expr {$y + $h}]]
   lappend points $start
-  polyline $points $strokeWeight $color
+  Display::stroke $points $strokeWeight $color
 }
 
 proc square {x y w {strokeWeight 5} {color "white"} args} {
@@ -51,7 +39,7 @@ proc regionToInnerRect {region} {
 # numPoints 2 => line
 # numPoints 3 => triangle
 # numPoints 4 => square
-proc shape {numPoints x y r {color white} args} {
+proc shape {numPoints x y r {color white} {filled false} args} {
   set start [list $x $y]
   set points [list $start]
   set i 0
@@ -62,7 +50,11 @@ proc shape {numPoints x y r {color white} args} {
     set y [expr {$y + $r * sin($angle)}]
     lappend points [list $x $y]
   }
-  polyline $points 5 $color
+  if {$filled} {
+    Display::fillPolygon $points $color
+  } else {
+    Display::stroke $points 5 $color
+  }
 }
 
 When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
@@ -75,8 +67,6 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
   if {$offsetY != 0} {
     set y [expr {$y + $offsetY}]
   }
-
-  puts "drawing $shape at $x $y"
 
   set adjustedWidth [expr {$width * 0.25}]
   set x [expr { $x * 1.3}]
