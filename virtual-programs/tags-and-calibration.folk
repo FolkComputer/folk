@@ -79,9 +79,15 @@ When (non-capturing) tag /tag/ has center /c/ size /size/ {
 When (non-capturing) tag /tag/ is a tag {
      puts "Added tag $tag"
 
-     set fp [open "$::env(HOME)/folk-printed-programs/$tag.folk" r]
-     set code [read $fp]
-     close $fp
+    set tempPath "$::env(HOME)/folk-printed-programs/$tag.folk.temp"
+
+    if {[file exists $tempPath]} {
+      set path [open "$::env(HOME)/folk-printed-programs/$tag.folk.temp" r]
+    } else {
+      set path [open "$::env(HOME)/folk-printed-programs/$tag.folk" r]
+    }
+     set code [read $path]
+     close $path
 
      # Wish $tag is outlined green
      Claim $tag has program code $code
