@@ -37,6 +37,10 @@ namespace eval Display {
         uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
     }
 
+    proc fillPolygon args {
+        uplevel [list Wish display runs [list Display::fillPolygon {*}$args]]
+    }
+
     variable displayTime none
     proc commit {} {
         set displayList [list]

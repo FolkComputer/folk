@@ -99,12 +99,12 @@ proc When {args} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }
-    lappend argNames {*}$varNamesWillBeBound
 
     if {$negate} {
         set negateBody [list if {[llength $__matches] == 0} $body]
         uplevel [list Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues]
     } else {
+        lappend argNames {*}$varNamesWillBeBound
         uplevel [list Say when {*}$pattern [list $argNames $body] with environment $argValues]
     }
 }

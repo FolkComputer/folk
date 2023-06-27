@@ -268,6 +268,26 @@ namespace eval Display {
       fillTriangle $p0 $p1 $p3 color
     }
 
+    proc fillPolygon {points color} {
+        set num_points [llength $points]
+        if {$num_points < 3} {
+            error "At least 3 points are required to form a polygon."
+        } elseif {$num_points == 3} {
+            eval fillTriangle $points $color
+        } elseif {$num_points == 4} {
+            eval fillQuad $points $color
+        } else {
+            # Get the first point in the list as the "base" point of the triangles
+            set p0 [lindex $points 0]
+
+            for {set i 1} {$i < $num_points - 1} {incr i} {
+                set p1 [lindex $points $i]
+                set p2 [lindex $points [expr {$i+1}]]
+                fillTriangle $p0 $p1 $p2 $color
+            }
+        }
+    }
+
     proc stroke {points width color} {
         for {set i 0} {$i < [llength $points]} {incr i} {
             set a [lindex $points $i]

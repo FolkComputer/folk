@@ -14,6 +14,10 @@ namespace eval ::vec2 {
         lassign $b bx by
         expr {sqrt(pow($ax-$bx, 2) + pow($ay-$by, 2))}
     }
+    proc normalize {a} {
+        set l2 [vec2 distance $a [list 0 0]]
+        vec2 scale [/ 1 $l2] $a
+    }
     proc dot {a b} {
         expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
     }
@@ -68,7 +72,16 @@ namespace eval ::region {
                 0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
     }
 
-    namespace export distance contains
+   proc centroid {r1} {
+        # This only works for rectangular regions
+        lassign $r1 vertices edges
+        lassign $vertices a b c d
+
+        set vecsum [vec2 add [vec2 add [vec2 add $a $b] $c] $d]
+        vec2 scale 0.25 $vecsum
+    }
+
+    namespace export distance contains centroid
     namespace ensemble create
 }
 

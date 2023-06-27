@@ -5,6 +5,7 @@
 #     Wish $this displays camera slice $slice
 # }
 
+if {$::isLaptop} { return }
 
 # Generic image class for sub-image manipulations
 namespace eval ::image {

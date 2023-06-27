@@ -25,6 +25,9 @@ repl:
 journal:
 	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
 
+ssh:
+	ssh folk@$(FOLK_SHARE_NODE)
+
 flamegraph:
 	sudo perf record -F 997 --tid=$(shell pgrep tclsh8.6) -g -- sleep 30
 	sudo perf script -f > out.perf
