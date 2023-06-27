@@ -1,5 +1,4 @@
 namespace eval ::vec2 {
-    namespace import ::tcl::mathop::+ ::tcl::mathop::- ::tcl::mathop::*
     proc add {a b} {
         list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
     }
@@ -21,8 +20,6 @@ namespace eval ::vec2 {
     proc dot {a b} {
         expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
     }
-    namespace import ::tcl::mathfunc::max ::tcl::mathfunc::min
-    namespace import ::tcl::mathop::/
     proc distanceToLineSegment {a v w} {
         set l2 [vec2 distance $v $w]
         if {$l2 == 0.0} {

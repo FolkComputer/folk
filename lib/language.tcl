@@ -63,3 +63,5 @@ proc assert condition {
     }
 }
 
+namespace import ::tcl::mathop::*
+namespace import ::tcl::mathfunc::*
