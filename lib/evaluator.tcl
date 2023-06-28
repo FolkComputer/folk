@@ -995,20 +995,6 @@ namespace eval Evaluator {
 
         statement_t* collect = get(collectId);
 
-        // First, delete the existing match child.
-        {
-            for (size_t i = 0; i < collect->n_edges; i++) {
-                edge_to_match_t* edge = statementEdgeAt(collect, i);
-                if (edge->type == CHILD) {
-                    match_handle_t childMatchId = edge->match;
-                    matchGet(childMatchId)->recollectOnDestruction = false;
-                    reactToMatchRemoval(interp, childMatchId);
-                    matchRemove(childMatchId);
-                    break;
-                }
-            }
-        }
-
         Tcl_Obj* clause = collect->clause;
         int clauseLength; Tcl_Obj** clauseWords;
         Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
@@ -1040,15 +1026,32 @@ namespace eval Evaluator {
             }
         }
 
+        // Create a new match for the new collection.
         match_handle_t matchId = addMatchImpl(parentsCount, parents);
         match_t* match = matchGet(matchId);
         match->recollectOnDestruction = true;
         match->recollectCollectId = collectId;
 
+        // Run the When body within this new match.
         env = Tcl_DuplicateObj(env);
         Tcl_ListObjAppendElement(NULL, env, matches);
         Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
         tryRunInSerializedEnvironment(interp, lambda, env);
+
+        // Finally, delete the old match child if any.
+        // (We do this last, _after_ adding the new match, because it helps with incrementality.)
+        {
+            for (size_t i = 0; i < collect->n_edges; i++) {
+                edge_to_match_t* edge = statementEdgeAt(collect, i);
+                if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
+                    match_handle_t childMatchId = edge->match;
+                    matchGet(childMatchId)->recollectOnDestruction = false;
+                    reactToMatchRemoval(interp, childMatchId);
+                    matchRemove(childMatchId);
+                    break;
+                }
+            }
+        }
     }
 
     $cc code {
