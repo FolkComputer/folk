@@ -90,23 +90,9 @@ proc On-process {name body} {
         }} $processCode]
 
         When (non-capturing) $name has pid /pid/ {
-            On unmatch { exec kill -9 $pid }
+            On unmatch {
+                exec kill -9 $pid
+            }
         }
-
-        # proc handleUnmatch {} {
-        #     variable pid
-        #     variable name
-        #     exec kill -9 $pid
-        #     while {1} {
-        #       try {
-        #         exec kill -0 $pid
-        #       } on error err {
-        #         break
-        #       }
-        #     }
-        #     Retract /someone/ is running process $name
-        #     namespace delete ::Processes::$name
-        # }
-        # uplevel 2 [list On unmatch ::Processes::${name}::handleUnmatch]
     }
 }
