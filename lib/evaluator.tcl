@@ -1024,6 +1024,7 @@ namespace eval Evaluator {
             for (int j = 0; j < results[i]->matchedStatementIdsCount; j++) {
                 parents[parentsCount++] = results[i]->matchedStatementIds[j];
             }
+            ckfree((char *)results[i]);
         }
 
         // Create a new match for the new collection.
