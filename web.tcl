@@ -156,6 +156,18 @@ proc handleWS {chan type msg} {
                 ::websocket::send $chan text $err
             } err2] { puts "$::thisProcess: $err2" }
         }
+    } elseif {$type eq "disconnect"} {
+        foreach peerNs [namespace children ::Peers] {
+            apply [list {disconnectedChan} {
+                variable chan
+                if {$chan eq $disconnectedChan} {
+                    variable prevReceivedStatements
+                    foreach stmt $prevReceivedStatements {
+                        Retract {*}$stmt
+                    }
+                }
+            } $peerNs] $chan
+        }
     } else {
         puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }

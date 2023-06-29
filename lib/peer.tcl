@@ -19,20 +19,21 @@ namespace eval clauseset {
 
 namespace eval ::Peers {}
 
-proc ::peer {node} {
+proc ::peer {process} {
     package require websocket
-    namespace eval ::Peers::$node {
+    namespace eval ::Peers::$process {
         variable connected false
         variable prevShareStatements [clauseset create]
+        variable prevReceivedStatements [clauseset create]
 
         proc log {s} {
-            variable node
-            puts "$::thisProcess -> $node: $s"
+            variable process
+            puts "$::thisProcess -> $process: $s"
         }
         proc setupSock {} {
-            variable node
-            log "Trying to connect to: ws://$node:4273/ws"
-            variable sock [::websocket::open "ws://$node:4273/ws" [namespace code handleWs]]
+            variable process
+            log "Trying to connect to: ws://$process:4273/ws"
+            variable sock [::websocket::open "ws://$process:4273/ws" [namespace code handleWs]]
         }
         proc handleWs {sock type msg} {
             if {$type eq "connect"} {
@@ -42,6 +43,7 @@ proc ::peer {node} {
                 log "Disconnected"
                 variable connected false
                 variable prevShareStatements [clauseset create]
+                variable prevReceivedStatements [clauseset create]
                 after 2000 [namespace code setupSock]
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"
@@ -56,28 +58,28 @@ proc ::peer {node} {
 
         proc run {msg} {
             variable sock
-            ::websocket::send $sock text $msg
+            ::websocket::send $sock text [list namespace eval ::Peers::$::thisProcess $msg]
         }
 
         proc init {n} {
-            variable node $n; setupSock
+            variable process $n; setupSock
             vwait ::Peers::${n}::connected
 
             # Establish a peering on their end, in the reverse
             # direction, so they can send stuff back to us.
-            run [format {
-                namespace eval {::Peers::%s} {
-                    variable connected true
-                    variable prevShareStatements [clauseset create]
-                    proc run {msg} {
-                        variable chan
-                        ::websocket::send $chan text $msg
-                    }
-
+            # It'll implicitly run in a ::Peers::X namespace on their end
+            # (because of how `run` is implemented above)
+            run {
+                variable chan [uplevel {set chan}]
+                variable connected true
+                variable prevShareStatements [clauseset create]
+                variable prevReceivedStatements [clauseset create]
+                proc run {msg} {
                     variable chan
-                } $chan
-            } $::thisProcess]
+                    ::websocket::send $chan text $msg
+                }
+            }
         }
         init
-    } $node
+    } $process
 }

@@ -209,9 +209,14 @@ proc Step {} {
             set shareAssertStatements [clauseset clauses [clauseset minus $shareStatements $prevShareStatements]]
             set shareRetractStatements [clauseset clauses [clauseset minus $prevShareStatements $shareStatements]]
             if {[llength $shareAssertStatements] > 0 || [llength $shareRetractStatements] > 0} {
-                run [list apply {{shareAssertStatements shareRetractStatements} {
-                    foreach stmt $shareAssertStatements { Assert {*}$stmt }
-                    foreach stmt $shareRetractStatements { Retract {*}$stmt }
+                run [list apply {{receivedAssertStatements receivedRetractStatements} {
+                    upvar [uplevel {namespace current}]::prevReceivedStatements prevReceivedStatements
+                    # TODO: Just track process provenance in the statements?
+                    set prevReceivedStatements [clauseset minus \
+                                                    [clauseset add $prevReceivedStatements $receivedAssertStatements] \
+                                                    $receivedRetractStatements]
+                    foreach stmt $receivedAssertStatements { Assert {*}$stmt }
+                    foreach stmt $receivedRetractStatements { Retract {*}$stmt }
                     Step
                 }} $shareAssertStatements $shareRetractStatements]
             }
