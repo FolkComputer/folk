@@ -3,17 +3,19 @@ lappend auto_path "./vendor"
 namespace eval clauseset {
     # only used for statement syndication
 
-    namespace export create add remove minus clauses
+    namespace export create add union difference clauses
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
         dict create {*}$kvs
     }
-    proc add {sv k} { upvar $sv s; dict set s $k true }
-    proc remove {sv k} { upvar $sv s; dict unset s $k }
-    proc minus {s t} {
+    proc add {sv stmt} { upvar $sv s; dict set s $stmt true }
+
+    proc union {s t} { dict merge $s $t }
+    proc difference {s t} {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
+
     proc clauses {s} { dict keys $s }
     namespace ensemble create
 }
