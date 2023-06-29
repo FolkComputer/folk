@@ -169,11 +169,12 @@ proc Commit {args} {
 set ::stepCount 0
 set ::stepTime "none"
 source "lib/peer.tcl"
-proc Step {} {
+proc StepImpl {} {
     incr ::stepCount
     Assert $::thisProcess has step count $::stepCount
     Retract $::thisProcess has step count [expr {$::stepCount - 1}]
-    set ::stepTime [time {Evaluator::Evaluate}]
+
+    Evaluator::Evaluate
 
     if {[namespace exists Display]} {
         Display::commit ;# TODO: this is weird, not right level
@@ -224,6 +225,7 @@ proc Step {} {
         } $peerNs] [namespace tail $peerNs]
     }
 }
+proc Step {} { set ::stepTime [time StepImpl] }
 
 source "lib/math.tcl"
 
