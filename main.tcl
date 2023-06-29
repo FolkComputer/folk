@@ -241,6 +241,53 @@ Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
 set ::thisNode "[info hostname]"
 set ::nodename $::thisNode ;# for backward compat
 
+namespace eval ::Heap {
+    # Folk has a shared heap among all processes on a given node
+    # (physical machine).
+
+    # Memory allocated from the Folk heap should be accessible, at
+    # exactly the same virtual address, from any Folk process.
+
+    proc init {} {
+        variable cc [c create]
+        $cc include <sys/mman.h>
+        $cc include <sys/stat.h>
+        $cc include <fcntl.h>
+        $cc include <unistd.h>
+        $cc include <stdlib.h>
+        $cc code {
+            size_t folkHeapSize = 100000000; // 100MB
+            uint8_t* folkHeapBase;
+            uint8_t* _Atomic folkHeapPointer;
+        }
+        # The memory mapping of the heap will be inherited by all
+        # subprocesses, since it's established before the creation of
+        # the zygote.
+        $cc proc folkHeapMount {} void {
+            int fd = shm_open("/folk-heap", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
+            ftruncate(fd, folkHeapSize);
+            folkHeapBase = (uint8_t*) mmap(0, folkHeapSize,
+                                           PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (folkHeapBase == NULL) {
+                fprintf(stderr, "heapMount: failed"); exit(1);
+            }
+            folkHeapPointer = folkHeapBase;
+        }
+        $cc proc folkHeapAlloc {size_t sz} void* {
+            if (folkHeapPointer + sz > folkHeapBase + folkHeapSize) {
+                fprintf(stderr, "heapAlloc: out of memory"); exit(1);
+            }
+            void* ptr = folkHeapPointer;
+            folkHeapPointer = folkHeapPointer + sz;
+            return (void*) ptr;
+        }
+        if {$::tcl_platform(os) eq "Linux"} { $cc cflags -lrt }
+        $cc compile
+        folkHeapMount
+    }
+}
+Heap::init
+
 if {[info exists ::entry]} {
     source "lib/process.tcl"
     Zygote::init

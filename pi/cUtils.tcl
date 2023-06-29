@@ -29,26 +29,3 @@ proc ::defineImageType {cc} {
         $robj = Tcl_ObjPrintf("width %u height %u components %d bytesPerRow %u data 0x%" PRIxPTR, $rvalue.width, $rvalue.height, $rvalue.components, $rvalue.bytesPerRow, (uintptr_t) $rvalue.data);
     }
 }
-
-proc ::defineFolkImages {cc} {
-    set cc [uplevel {namespace current}]::$cc
-    $cc include <sys/mman.h>
-    $cc include <sys/stat.h>
-    $cc include <fcntl.h>
-    $cc include <unistd.h>
-    $cc include <stdlib.h>
-    $cc code {
-        uint8_t* folkImagesBase = (uint8_t*) 0x280000000;
-        size_t folkImagesSize = 100000000; // 100MB
-    }
-    $cc proc folkImagesMount {} void {
-        int fd = shm_open("/folk-images", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
-        ftruncate(fd, folkImagesSize);
-        void* ptr = mmap(folkImagesBase, folkImagesSize,
-                         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0);
-        if (ptr == NULL || ptr != folkImagesBase) {
-            fprintf(stderr, "shmMount: failed"); exit(1);
-        }
-    }
-    $cc cflags -lrt
-}

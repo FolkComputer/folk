@@ -33,6 +33,8 @@ namespace eval Camera {
     }
 
     camc code {
+        uint8_t* folkImagesBase;
+
         void quit(const char* msg) {
             fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
             exit(1);
@@ -48,7 +50,6 @@ namespace eval Camera {
         }
     }
     defineImageType camc
-    defineFolkImages camc
 
     camc proc cameraOpen {char* device int width int height} camera_t* {
         printf("device [%s]\n", device);
@@ -226,7 +227,13 @@ namespace eval Camera {
         };
     }
 
+    camc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
     camc proc newImage {int width int height int components} image_t {
+        if (folkImagesBase == NULL) {
+            folkImagesBase = folkHeapAlloc(50000000); // 50MB
+        }
+
+        // FIXME: This is a hack.
         static int imageCount = 0;
         imageCount = (imageCount + 1) % 20;
 
@@ -256,8 +263,6 @@ namespace eval Camera {
         variable HEIGHT
         set WIDTH $width
         set HEIGHT $height
-
-        folkImagesMount
 
         try {
           while {1} {

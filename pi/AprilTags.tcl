@@ -12,10 +12,8 @@ namespace eval AprilTags {
         apriltag_family_t *tf;
     }
     defineImageType apc
-    defineFolkImages apc
 
     apc proc detectInit {} void {
-        folkImagesMount();
         td = apriltag_detector_create();
         tf = tagStandard52h13_create();
         apriltag_detector_add_family_bits(td, tf, 1);
