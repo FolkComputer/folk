@@ -3,13 +3,14 @@ lappend auto_path "./vendor"
 namespace eval clauseset {
     # only used for statement syndication
 
-    namespace export create add minus clauses
+    namespace export create add remove minus clauses
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
         dict create {*}$kvs
     }
     proc add {sv k} { upvar $sv s; dict set s $k true }
+    proc remove {sv k} { upvar $sv s; dict unset s $k }
     proc minus {s t} {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
@@ -39,6 +40,21 @@ proc ::peer {process} {
             if {$type eq "connect"} {
                 log "Connected"
                 variable connected true
+
+                # Establish a peering on their end, in the reverse
+                # direction, so they can send stuff back to us.
+                # It'll implicitly run in a ::Peers::X namespace on their end
+                # (because of how `run` is implemented above)
+                run {
+                    variable chan [uplevel {set chan}]
+                    variable connected true
+                    variable prevShareStatements [clauseset create]
+                    variable prevReceivedStatements [clauseset create]
+                    proc run {msg} {
+                        variable chan
+                        ::websocket::send $chan text $msg
+                    }
+                }
             } elseif {$type eq "disconnect"} {
                 log "Disconnected"
                 variable connected false
@@ -64,21 +80,6 @@ proc ::peer {process} {
         proc init {n} {
             variable process $n; setupSock
             vwait ::Peers::${n}::connected
-
-            # Establish a peering on their end, in the reverse
-            # direction, so they can send stuff back to us.
-            # It'll implicitly run in a ::Peers::X namespace on their end
-            # (because of how `run` is implemented above)
-            run {
-                variable chan [uplevel {set chan}]
-                variable connected true
-                variable prevShareStatements [clauseset create]
-                variable prevReceivedStatements [clauseset create]
-                proc run {msg} {
-                    variable chan
-                    ::websocket::send $chan text $msg
-                }
-            }
         }
         init
     } $process

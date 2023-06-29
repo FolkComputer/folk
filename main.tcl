@@ -212,9 +212,9 @@ proc Step {} {
                 run [list apply {{receivedAssertStatements receivedRetractStatements} {
                     upvar [uplevel {namespace current}]::prevReceivedStatements prevReceivedStatements
                     # TODO: Just track process provenance in the statements?
-                    set prevReceivedStatements [clauseset minus \
-                                                    [clauseset add $prevReceivedStatements $receivedAssertStatements] \
-                                                    $receivedRetractStatements]
+                    clauseset add prevReceivedStatements $receivedAssertStatements
+                    clauseset remove prevReceivedStatements $receivedRetractStatements
+
                     foreach stmt $receivedAssertStatements { Assert {*}$stmt }
                     foreach stmt $receivedRetractStatements { Retract {*}$stmt }
                     Step
