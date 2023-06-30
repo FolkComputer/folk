@@ -68,6 +68,7 @@ namespace eval c {
 
             variable argtypes {
                 int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
+                double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
                 bool { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 int32_t { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 char { expr {{
@@ -122,6 +123,7 @@ namespace eval c {
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 int32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                double { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
                 char { expr {{ $robj = Tcl_ObjPrintf("%c", $rvalue); }}}
                 bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
