@@ -1,14 +1,3 @@
-proc assert condition {
-    set s "{$condition}"
-    if {![uplevel 1 expr $s]} {
-        set errmsg "assertion failed: $condition"
-        if {[lindex $condition 1] eq "eq" && [string index [lindex $condition 0] 0] eq "$"} {
-            set errmsg "$errmsg\n[uplevel 1 [list set [string range [lindex $condition 0] 1 end]]] is not equal to [lindex $condition 2]"
-        }
-        return -code error $errmsg
-    }
-}
-
 Assert programOakland has program code {
     Claim Omar lives in "Oakland"
 }

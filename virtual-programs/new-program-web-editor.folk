@@ -113,9 +113,9 @@ Wish the web server handles route "/new" with handler {
 	    ws.close();
 	  }
 	  ws.onmessage = (msg) => {
-	    if (msg.data.startsWith("ERROR:")) {
+	    if (msg.data.startsWith("Error:")) {
 	      const errorEl = document.getElementById("error");
-	      if (msg.data == "ERROR: {}") {
+	      if (msg.data === "Error:") {
 		errorEl.style.backgroundColor = "";
 		errorEl.innerText = "";
 	      } else {
@@ -153,7 +153,10 @@ Wish the web server handles route "/new" with handler {
 	    if {$::isLaptop} { Step }
 	  `);
 	  setTimeout(() => {
-	    send(`list ERROR: [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]`);
+	    send(`
+set errors [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]
+join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
+`);
 	  }, 500);
 	}
 	let jobid;

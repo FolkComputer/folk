@@ -43,6 +43,9 @@ namespace eval c {
                 #include <inttypes.h>
                 #include <stdint.h>
                 #include <stdbool.h>
+
+                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
             }
             variable code [list]
             variable objtypes [list]
@@ -64,30 +67,37 @@ namespace eval c {
             }
 
             variable argtypes {
-                int { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                bool { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                int32_t { expr {{ int $argname; Tcl_GetIntFromObj(interp, $obj, &$argname); }}}
-                char { expr {{ char $argname = Tcl_GetString($obj)[0]; }}}
-                size_t { expr {{ size_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
-                intptr_t { expr {{ intptr_t $argname; Tcl_GetLongFromObj(interp, $obj, (long *)&$argname); }}}
-                uint16_t { expr {{ uint16_t $argname; Tcl_GetIntFromObj(interp, $obj, (int *)&$argname); }}}
-                uint32_t { expr {{ uint32_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname); }}}
-                uint64_t { expr {{ uint64_t $argname; sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname); }}}
+                int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
+                double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
+                bool { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
+                int32_t { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
+                char { expr {{
+                    char $argname;
+                    {
+                        int _len_$argname;
+                        char* _tmp_$argname = Tcl_GetStringFromObj($obj, &_len_$argname);
+                        __ENSURE(_len_$argname >= 1);
+                        $argname = _tmp_$argname[0];
+                    }
+                }}}
+                size_t { expr {{ size_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
+                intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
+                uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, (int *)&$argname)); }}}
+                uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname) == 1); }}}
+                uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname) == 1); }}}
                 char* { expr {{ char* $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ Tcl_Obj* $argname = $obj; }}}
                 default {
                     if {[string index $argtype end] == "*"} {
                         expr {{
                             $argtype $argname;
-                            if (sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) != 1) {
-                                return TCL_ERROR;
-                            }
+                            __ENSURE(sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) == 1);
                         }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
                         expr {{
                             int ${argname}_objc; Tcl_Obj** ${argname}_objv;
-                            Tcl_ListObjGetElements(interp, $obj, &${argname}_objc, &${argname}_objv);
+                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &${argname}_objc, &${argname}_objv));
                             $basetype $argname\[${argname}_objc\];
                             {
                                 for (int i = 0; i < ${argname}_objc; i++) {
@@ -113,6 +123,7 @@ namespace eval c {
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 int32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                double { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
                 char { expr {{ $robj = Tcl_ObjPrintf("%c", $rvalue); }}}
                 bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}

@@ -32,7 +32,10 @@ proc handlePage {path contentTypeVar} {
                 lappend l [subst {
                     <li>
                     <details>
-                    <summary>$id: [htmlEscape [statement short $stmt]]</summary>
+                    <summary style="[expr {
+                    [lsearch -exact [statement clause $stmt] error] != -1
+                    ? "color: red"
+                    : ""}]">$id: [htmlEscape [statement short $stmt]]</summary>
                     <pre>[htmlEscape [statement clause $stmt]]</pre>
                     </details>
                     </li>
@@ -101,6 +104,7 @@ proc handlePage {path contentTypeVar} {
 proc handleRead {chan addr port} {
     chan configure $chan -translation crlf
     gets $chan line; set firstline $line
+    # puts "Http: $chan $addr $port: $line"
     set headers [list]
     while {[gets $chan line] >= 0 && $line ne ""} {
         if {[regexp -expanded {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
@@ -136,6 +140,7 @@ proc handleRead {chan addr port} {
         }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
+        # puts "WS: $chan $addr $port"
         ::websocket::upgrade $chan
         # from now the handleWS will be called (not anymore handleRead).
     } else { puts "Closing: $chan $addr $port $headers"; close $chan }
@@ -143,15 +148,28 @@ proc handleRead {chan addr port} {
 
 proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
+        # puts "Event $type from chan $chan"
     } elseif {$type eq "text"} {
         if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
             if [catch {
-                puts stderr "$::nodename: Error on receipt: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error on receipt: $err\n$::errorInfo"
                 ::websocket::send $chan text $err
-            } err2] { puts "$::nodename: $err2" }
+            } err2] { puts "$::thisProcess: $err2" }
+        }
+    } elseif {$type eq "disconnect"} {
+        foreach peerNs [namespace children ::Peers] {
+            apply [list {disconnectedChan} {
+                variable chan
+                if {$chan eq $disconnectedChan} {
+                    variable prevReceivedStatements
+                    foreach stmt $prevReceivedStatements {
+                        Retract {*}$stmt
+                    }
+                }
+            } $peerNs] $chan
         }
     } else {
-        puts "$::nodename: Unhandled WS event $type $msg"
+        puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }
 }
 

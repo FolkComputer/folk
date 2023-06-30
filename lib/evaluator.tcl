@@ -6,8 +6,14 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
-    $cc struct statement_handle_t { int32_t idx; int32_t gen; }
-    $cc struct match_handle_t { int32_t idx; int32_t gen; }
+    $cc code {
+        typedef struct statement_handle_t { int32_t idx; int32_t gen; } statement_handle_t;
+        typedef struct match_handle_t { int32_t idx; int32_t gen; } match_handle_t;
+    }
+    $cc rtype statement_handle_t { $robj = Tcl_ObjPrintf("s%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype statement_handle_t { statement_handle_t $argname; sscanf(Tcl_GetString($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
+    $cc rtype match_handle_t { $robj = Tcl_ObjPrintf("m%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype match_handle_t { match_handle_t $argname; sscanf(Tcl_GetString($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
 
@@ -562,7 +568,7 @@ namespace eval Statements { ;# singleton Statement store
         for (int i = 0; i < resultsCount; i++) {
             Tcl_Obj* matchObj = environmentToTclDict(results[i]);
             statement_handle_t id = results[i]->matchedStatementIds[0];
-            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen));
+            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{s%d:%d}", id.idx, id.gen));
             Tcl_ListObjAppendElement(NULL, ret, matchObj);
             ckfree((char *)results[i]);
         }
@@ -666,7 +672,7 @@ namespace eval Statements { ;# singleton Statement store
             s->typePtr = &statement_t_ObjType;
             s->internalRep.otherValuePtr = &statements[i];
 
-            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("idx %d", i));
+            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("s%d:%d", i, statements[i].gen));
             Tcl_ListObjAppendElement(NULL, ret, s);
         }
         return ret;
@@ -674,9 +680,7 @@ namespace eval Statements { ;# singleton Statement store
     proc dot {} {
         set dot [list]
         dict for {id stmt} [all] {
-            set id [dict get $id idx]
-
-            lappend dot "subgraph cluster_$id {"
+            lappend dot "subgraph <cluster_$id> {"
             lappend dot "color=lightgray;"
 
             set label [statement clause $stmt]
@@ -684,23 +688,20 @@ namespace eval Statements { ;# singleton Statement store
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-            lappend dot "s$id \[label=\"s$id: $label\"\];"
+            lappend dot "<$id> \[label=\"$id: $label\"\];"
 
-            dict for {matchId_ _} [statement parentMatchIds $stmt] {
-                set matchId [dict get $matchId_ idx]
-                if {$matchId == -1} continue
-                set parents [lmap edge [matchEdges $matchId_] {expr {
-                    [dict get $edge type] == 1 ? "s[dict get $edge statement idx]" : [continue]
+            dict for {matchId _} [statement parentMatchIds $stmt] {
+                set parents [lmap edge [matchEdges $matchId] {expr {
+                    [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
                 }}]
-                lappend dot "m$matchId \[label=\"m$matchId <- $parents\"\];"
-                lappend dot "m$matchId -> s$id;"
+                lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
+                lappend dot "<$matchId> -> <$id>;"
             }
 
             lappend dot "}"
 
-            dict for {childId _} [statement childMatchIds $stmt] {
-                set childId [dict get $childId idx]
-                lappend dot "s$id -> m$childId;"
+            dict for {childMatchId _} [statement childMatchIds $stmt] {
+                lappend dot "<$id> -> <$childMatchId>;"
             }
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
@@ -826,7 +827,7 @@ namespace eval Evaluator {
                     Tcl_ListObjAppendElement(interp, env, result->bindings[i].value);
                 }
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
+                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, lambda, env);
             }
         }
@@ -994,20 +995,6 @@ namespace eval Evaluator {
 
         statement_t* collect = get(collectId);
 
-        // First, delete the existing match child.
-        {
-            for (size_t i = 0; i < collect->n_edges; i++) {
-                edge_to_match_t* edge = statementEdgeAt(collect, i);
-                if (edge->type == CHILD) {
-                    match_handle_t childMatchId = edge->match;
-                    matchGet(childMatchId)->recollectOnDestruction = false;
-                    reactToMatchRemoval(interp, childMatchId);
-                    matchRemove(childMatchId);
-                    break;
-                }
-            }
-        }
-
         Tcl_Obj* clause = collect->clause;
         int clauseLength; Tcl_Obj** clauseWords;
         Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
@@ -1037,17 +1024,35 @@ namespace eval Evaluator {
             for (int j = 0; j < results[i]->matchedStatementIdsCount; j++) {
                 parents[parentsCount++] = results[i]->matchedStatementIds[j];
             }
+            ckfree((char *)results[i]);
         }
 
+        // Create a new match for the new collection.
         match_handle_t matchId = addMatchImpl(parentsCount, parents);
         match_t* match = matchGet(matchId);
         match->recollectOnDestruction = true;
         match->recollectCollectId = collectId;
 
+        // Run the When body within this new match.
         env = Tcl_DuplicateObj(env);
         Tcl_ListObjAppendElement(NULL, env, matches);
-        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("idx %d gen %d", matchId.idx, matchId.gen), 0);
+        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
         tryRunInSerializedEnvironment(interp, lambda, env);
+
+        // Finally, delete the old match child if any.
+        // (We do this last, _after_ adding the new match, because it helps with incrementality.)
+        {
+            for (size_t i = 0; i < collect->n_edges; i++) {
+                edge_to_match_t* edge = statementEdgeAt(collect, i);
+                if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
+                    match_handle_t childMatchId = edge->match;
+                    matchGet(childMatchId)->recollectOnDestruction = false;
+                    reactToMatchRemoval(interp, childMatchId);
+                    matchRemove(childMatchId);
+                    break;
+                }
+            }
+        }
     }
 
     $cc code {

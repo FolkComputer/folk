@@ -194,17 +194,10 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
 
-## Setup notes
-
-- get a separate computer (Raspberry Pi 4, probably). don't use your laptop.
-- make as solid / permanent a mount as you can. you shouldn't be
-  scared of it falling and you shouldn't have to take it apart and put
-  it back together every time
-
 ## License
 
 We intend to release this repo as open-source under an MIT, GPLv3,
-Apache 2.0, or AGPLv3 license by June 2023 or earlier; by contributing
+Apache 2.0, or AGPLv3 license in 2023; by contributing
 code, you're also agreeing to license your code under whichever
 license we end up choosing.
 

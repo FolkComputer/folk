@@ -31,27 +31,17 @@ namespace eval Evaluator {
             }
             if {$this ne ""} {
                 Say $this has error $err with info $::errorInfo
-                puts stderr "$::nodename: Error in $this, match $::matchId: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error in $this, match $::matchId: $err\n$::errorInfo"
             } else {
                 Say $::matchId has error $err with info $::errorInfo
-                puts stderr "$::nodename: Error in match $::matchId: $err\n$::errorInfo"
+                puts stderr "$::thisProcess: Error in match $::matchId: $err\n$::errorInfo"
             }
         }
     }
 }
 set ::logsize -1 ;# Hack to keep metrics working
 
-proc fn {name argNames body} {
-    uplevel [list set ^$name [list $argNames $body]]
-}
-rename unknown _original_unknown
-proc unknown {name args} {
-    if {[uplevel [list info exists ^$name]]} {
-        apply [uplevel [list set ^$name]] {*}$args
-    } else {
-        uplevel [list _original_unknown $name {*}$args]
-    }
-}
+source "lib/language.tcl"
 
 # invoke at top level, add/remove independent 'axioms' for the system
 proc Assert {args} {
@@ -127,15 +117,22 @@ proc Every {event args} {
         uplevel [list When {*}$pattern "$body\nEvaluator::Unmatch $level"]
     }
 }
+
 proc On {event args} {
     if {$event eq "process"} {
         if {[llength $args] == 2} {
             lassign $args name body
         } elseif {[llength $args] == 1} {
-            set name "${::matchId}-process"
+            # Generate a unique name.
+            set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+            set subprocessId [uplevel {incr __subprocessId}]
+            set name "${this}-${::matchId}-${subprocessId}"
             set body [lindex $args 0]
         }
-        uplevel [list On-process $name $body]
+        # Serialize the lexical environment at the callsite so we can
+        # send that to the subprocess.
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        uplevel [list On-process $name [list apply [list $argNames $body] {*}$argValues]]
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
@@ -158,9 +155,8 @@ proc After {n unit body} {
 }
 set ::committed [dict create]
 proc Commit {args} {
-    upvar this this
     set body [lindex $args end]
-    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set key [list Commit [uplevel {expr {[info exists this] ? $this : "<unknown>"}}] {*}[lreplace $args end end]]
     lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
     set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
     Assert $key has program $lambda
@@ -170,40 +166,36 @@ proc Commit {args} {
     dict set ::committed $key $lambda
 }
 
-set ::nodename "[info hostname]-[pid]"
-
 set ::stepCount 0
 set ::stepTime "none"
 source "lib/peer.tcl"
-proc Step {} {
+proc StepImpl {} {
     incr ::stepCount
-    Assert $::nodename has step count $::stepCount
-    Retract $::nodename has step count [expr {$::stepCount - 1}]
-    set ::stepTime [time {Evaluator::Evaluate}]
+    Assert $::thisProcess has step count $::stepCount
+    Retract $::thisProcess has step count [expr {$::stepCount - 1}]
+
+    Evaluator::Evaluate
 
     if {[namespace exists Display]} {
         Display::commit ;# TODO: this is weird, not right level
     }
 
-    foreach peerNs [namespace children Peers] {
+    foreach peerNs [namespace children ::Peers] {
         apply [list {peer} {
             variable connected
             if {!$connected} { return }
 
             set shareStatements [clauseset create]
-            if {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all statements]]] > 0} {
-                dict for {_ stmt} [Statements::all] {
+            set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
+            set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
+            dict for {_ stmt} [Statements::all] {
+                if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
+                    ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
                     clauseset add shareStatements [statement clause $stmt]
-                }
-            } elseif {[llength [Statements::findMatches [list /someone/ wishes $::nodename shares all claims]]] > 0} {
-                dict for {_ stmt} [Statements::all] {
-                    if {[lindex [statement clause $stmt] 1] eq "claims"} {
-                        clauseset add shareStatements [statement clause $stmt]
-                    }
                 }
             }
 
-            set matches [Statements::findMatches [list /someone/ wishes $::nodename shares statements like /pattern/]]
+            set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
             lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
             foreach m $matches {
                 set pattern [dict get $m pattern]
@@ -215,12 +207,17 @@ proc Step {} {
             }
 
             variable prevShareStatements
-            set shareAssertStatements [clauseset clauses [clauseset minus $shareStatements $prevShareStatements]]
-            set shareRetractStatements [clauseset clauses [clauseset minus $prevShareStatements $shareStatements]]
+            set shareAssertStatements [clauseset difference $shareStatements $prevShareStatements]
+            set shareRetractStatements [clauseset difference $prevShareStatements $shareStatements]
             if {[llength $shareAssertStatements] > 0 || [llength $shareRetractStatements] > 0} {
-                run [list apply {{shareAssertStatements shareRetractStatements} {
-                    foreach stmt $shareAssertStatements { Assert {*}$stmt }
-                    foreach stmt $shareRetractStatements { Retract {*}$stmt }
+                run [list apply {{receivedAssertStatements receivedRetractStatements} {
+                    upvar [uplevel {namespace current}]::prevReceivedStatements prevReceivedStatements
+                    # TODO: Just track process provenance in the statements?
+                    set prevReceivedStatements [clauseset union $prevReceivedStatements $receivedAssertStatements]
+                    set prevReceivedStatements [clauseset difference $prevReceivedStatements $receivedRetractStatements]
+
+                    dict for {stmt _} $receivedAssertStatements { Assert {*}$stmt }
+                    dict for {stmt _} $receivedRetractStatements { Retract {*}$stmt }
                     Step
                 }} $shareAssertStatements $shareRetractStatements]
             }
@@ -228,6 +225,7 @@ proc Step {} {
         } $peerNs] [namespace tail $peerNs]
     }
 }
+proc Step {} { set ::stepTime [time StepImpl] }
 
 source "lib/math.tcl"
 
@@ -242,9 +240,66 @@ Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
 }}
 
+set ::thisNode "[info hostname]"
+set ::nodename $::thisNode ;# for backward compat
+
+namespace eval ::Heap {
+    # Folk has a shared heap among all processes on a given node
+    # (physical machine).
+
+    # Memory allocated from the Folk heap should be accessible, at
+    # exactly the same virtual address, from any Folk process.
+
+    proc init {} {
+        variable cc [c create]
+        $cc include <sys/mman.h>
+        $cc include <sys/stat.h>
+        $cc include <fcntl.h>
+        $cc include <unistd.h>
+        $cc include <stdlib.h>
+        $cc code {
+            size_t folkHeapSize = 100000000; // 100MB
+            uint8_t* folkHeapBase;
+            uint8_t* _Atomic folkHeapPointer;
+        }
+        # The memory mapping of the heap will be inherited by all
+        # subprocesses, since it's established before the creation of
+        # the zygote.
+        $cc proc folkHeapMount {} void {
+            int fd = shm_open("/folk-heap", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
+            ftruncate(fd, folkHeapSize);
+            folkHeapBase = (uint8_t*) mmap(0, folkHeapSize,
+                                           PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (folkHeapBase == NULL) {
+                fprintf(stderr, "heapMount: failed"); exit(1);
+            }
+            folkHeapPointer = folkHeapBase;
+        }
+        $cc proc folkHeapAlloc {size_t sz} void* {
+            if (folkHeapPointer + sz > folkHeapBase + folkHeapSize) {
+                fprintf(stderr, "heapAlloc: out of memory"); exit(1);
+            }
+            void* ptr = folkHeapPointer;
+            folkHeapPointer = folkHeapPointer + sz;
+            return (void*) ptr;
+        }
+        if {$::tcl_platform(os) eq "Linux"} {
+            $cc cflags -lrt
+            c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so | head -1] end]
+        }
+        $cc compile
+        folkHeapMount
+    }
+}
+Heap::init
+
 if {[info exists ::entry]} {
-    # This all only runs if we're in a primary Folk process; we don't
-    # want it to run in subprocesses (which also run main.tcl).
+    source "lib/process.tcl"
+    Zygote::init
+
+    # Everything below here only runs if we're in the primary Folk
+    # process.
+    set ::thisProcess $::thisNode
 
     proc ::loadVirtualPrograms {} {
         set ::rootVirtualPrograms [dict create]
@@ -258,7 +313,7 @@ if {[info exists ::entry]} {
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
             loadProgram $programFilename
         }
-        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
+        Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
 
         # So we can retract them all at once if some other node connects and
         # wants to impose its root virtual programs:
@@ -272,7 +327,7 @@ if {[info exists ::entry]} {
 
             # Are there foreign root virtual programs that should take priority over ours?
             foreach root $roots {
-                if {[dict get $root node] ne $::nodename} {
+                if {[dict get $root node] ne $::thisNode} {
                     set chosenRoot $root
                     break
                 }
@@ -318,12 +373,11 @@ if {[info exists ::entry]} {
         }
         dict set ::rootVirtualPrograms $programName $programCode
 
-        Assert $::nodename is providing root virtual programs $::rootVirtualPrograms
-        Retract $::nodename is providing root virtual programs $oldRootVirtualPrograms
+        Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
+        Retract $::thisNode is providing root virtual programs $oldRootVirtualPrograms
         Step
     }
 
-    source "lib/process.tcl"
     source "./web.tcl"
     source $::entry
 }
