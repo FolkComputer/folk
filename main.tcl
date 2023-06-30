@@ -285,7 +285,7 @@ namespace eval ::Heap {
         }
         if {$::tcl_platform(os) eq "Linux"} {
             $cc cflags -lrt
-            c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so] end]
+            c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so | head -1] end]
         }
         $cc compile
         folkHeapMount
