@@ -283,7 +283,10 @@ namespace eval ::Heap {
             folkHeapPointer = folkHeapPointer + sz;
             return (void*) ptr;
         }
-        if {$::tcl_platform(os) eq "Linux"} { $cc cflags -lrt }
+        if {$::tcl_platform(os) eq "Linux"} {
+            $cc cflags -lrt
+            c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so] end]
+        }
         $cc compile
         folkHeapMount
     }
