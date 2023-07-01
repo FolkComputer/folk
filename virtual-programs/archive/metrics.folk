@@ -1,11 +1,14 @@
-When $::nodename has step count /c/ {
-	Wish $this is labelled [string trim "
+When $::thisNode has step count /c/ & the camera time is /cameraTime/ & the AprilTag time is /aprilTime/ {
+  Wish $this is labelled [string trim "
+
+Metrics
+----
 step count: $c
 step time: $::stepTime
-camera time: [expr {[namespace exists ::Camera] ? [lindex $::Camera::statements 0 end] : {none}}]
+camera time: $cameraTime
+AprilTag time: $aprilTime
 display time: $::Display::displayTime
-statement count: [Statements::size]
-logsize: $::logsize
-	"]
+
+"]
 }
-Wish $this is outlined green
+Wish $this is outlined skyblue
