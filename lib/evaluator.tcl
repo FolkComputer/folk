@@ -826,6 +826,7 @@ namespace eval Evaluator {
                     /* printf("Appending binding: [%s]->[%s]\n", result->bindings[i].name, Tcl_GetString(result->bindings[i].value)); */
                     Tcl_ListObjAppendElement(interp, env, result->bindings[i].value);
                 }
+                ckfree((char*)result);
 
                 Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, lambda, env);
