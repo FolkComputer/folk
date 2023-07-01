@@ -134,18 +134,19 @@ namespace eval statement {
     namespace export clause parentMatchIds childMatchIds
     $cc proc clause {Tcl_Obj* stmtobj} Tcl_Obj* {
         assert(stmtobj->typePtr == &statement_t_ObjType);
-        return ((statement_t *)stmtobj->internalRep.otherValuePtr)->clause;
+        return ((statement_t *)stmtobj->internalRep.ptrAndLongRep.ptr)->clause;
     }
     $cc proc edges {Tcl_Interp* interp Tcl_Obj* stmtobj} Tcl_Obj* {
         assert(stmtobj->typePtr == &statement_t_ObjType);
-        statement_t* stmt = stmtobj->internalRep.otherValuePtr;
+        statement_t* stmt = stmtobj->internalRep.ptrAndLongRep.ptr;
         Tcl_Obj* ret = Tcl_NewListObj(stmt->n_edges, NULL);
         for (size_t i = 0; i < stmt->n_edges; i++) {
             edge_to_match_t* edge = statementEdgeAt(stmt, i);
             Tcl_Obj* edgeobj = Tcl_NewObj();
             edgeobj->typePtr = &edge_to_match_t_ObjType;
             edgeobj->bytes = NULL;
-            edgeobj->internalRep.otherValuePtr = edge;
+            edgeobj->internalRep.ptrAndLongRep.ptr = edge;
+            edgeobj->internalRep.ptrAndLongRep.value = 0;
             Tcl_ListObjAppendElement(interp, ret, edgeobj);
         }
         return ret;
@@ -242,7 +243,8 @@ namespace eval Statements { ;# singleton Statement store
             Tcl_Obj* edgeobj = Tcl_NewObj();
             edgeobj->typePtr = &edge_to_statement_t_ObjType;
             edgeobj->bytes = NULL;
-            edgeobj->internalRep.otherValuePtr = edge;
+            edgeobj->internalRep.ptrAndLongRep.ptr = edge;
+            edgeobj->internalRep.ptrAndLongRep.value = 0;
             Tcl_ListObjAppendElement(interp, ret, edgeobj);
         }
         return ret;
@@ -670,7 +672,8 @@ namespace eval Statements { ;# singleton Statement store
             Tcl_Obj* s = Tcl_NewObj();
             s->bytes = NULL;
             s->typePtr = &statement_t_ObjType;
-            s->internalRep.otherValuePtr = &statements[i];
+            s->internalRep.ptrAndLongRep.ptr = &statements[i];
+            s->internalRep.ptrAndLongRep.value = 0;
 
             Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("s%d:%d", i, statements[i].gen));
             Tcl_ListObjAppendElement(NULL, ret, s);

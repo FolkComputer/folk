@@ -228,15 +228,23 @@ namespace eval c {
 
                 variable objtypes
                 include <string.h>
+                # ptrAndLongRep.value = 1 means the data is owned by
+                # the Tcl_ObjType and should be freed by this
+                # code. value = 0 means the data is owned externally
+                # (by someone else like the statement store).
                 lappend objtypes [csubst {
                     void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
+                        if (objPtr->internalRep.ptrAndLongRep.value == 1) {
+                            ckfree((char*)objPtr->internalRep.ptrAndLongRep.ptr);
+                        }
                     }
                     void $[set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
-                        dupPtr->internalRep.otherValuePtr = ckalloc(sizeof($type));
-                        memcpy(dupPtr->internalRep.otherValuePtr, srcPtr->internalRep.otherValuePtr, sizeof($type));
+                        dupPtr->internalRep.ptrAndLongRep.ptr = ckalloc(sizeof($type));
+                        dupPtr->internalRep.ptrAndLongRep.value = 1;
+                        memcpy(dupPtr->internalRep.ptrAndLongRep.ptr, srcPtr->internalRep.ptrAndLongRep.ptr, sizeof($type));
                     }
                     void $[set type]_updateStringProc(Tcl_Obj *objPtr) {
-                        $[set type] *robj = objPtr->internalRep.otherValuePtr;
+                        $[set type] *robj = objPtr->internalRep.ptrAndLongRep.ptr;
 
                         const char *format = "$[join [lmap fieldname $fieldnames {
                             subst {$fieldname {%s}}
@@ -280,8 +288,9 @@ namespace eval c {
                     $robj = Tcl_NewObj();
                     $robj->bytes = NULL;
                     $robj->typePtr = &$[set rtype]_ObjType;
-                    $robj->internalRep.otherValuePtr = ckalloc(sizeof($[set rtype]));
-                    memcpy($robj->internalRep.otherValuePtr, &$rvalue, sizeof($[set rtype]));
+                    $robj->internalRep.ptrAndLongRep.ptr = ckalloc(sizeof($[set rtype]));
+                    $robj->internalRep.ptrAndLongRep.value = 1;
+                    memcpy($robj->internalRep.ptrAndLongRep.ptr, &$rvalue, sizeof($[set rtype]));
                 }
             }
 
