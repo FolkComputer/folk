@@ -399,7 +399,7 @@ namespace eval c {
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
             ::proc import {scc sname as dest} {
-                set scc [namespace qualifiers $scc]::[set $scc]
+                set scc [namespace origin [namespace qualifiers $scc]::[set $scc]]
                 set procinfo [dict get [set ${scc}::procs] $sname]
                 set rtype [dict get $procinfo rtype]
                 set arglist [dict get $procinfo arglist]
