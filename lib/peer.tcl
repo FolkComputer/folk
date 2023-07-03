@@ -3,7 +3,7 @@ lappend auto_path "./vendor"
 namespace eval clauseset {
     # only used for statement syndication
 
-    namespace export create add union difference clauses
+    namespace export create add union difference clauses size
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
@@ -16,6 +16,7 @@ namespace eval clauseset {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
 
+    proc size {s} { dict size $s }
     proc clauses {s} { dict keys $s }
     namespace ensemble create
 }
@@ -26,8 +27,6 @@ proc ::peer {process} {
     package require websocket
     namespace eval ::Peers::$process {
         variable connected false
-        variable prevShareStatements [clauseset create]
-        variable prevReceivedStatements [clauseset create]
 
         proc log {s} {
             variable process
@@ -50,8 +49,6 @@ proc ::peer {process} {
                 run {
                     variable chan [uplevel {set chan}]
                     variable connected true
-                    variable prevShareStatements [clauseset create]
-                    variable prevReceivedStatements [clauseset create]
                     proc run {msg} {
                         variable chan
                         ::websocket::send $chan text $msg
@@ -60,8 +57,6 @@ proc ::peer {process} {
             } elseif {$type eq "disconnect"} {
                 log "Disconnected"
                 variable connected false
-                variable prevShareStatements [clauseset create]
-                variable prevReceivedStatements [clauseset create]
                 after 2000 [namespace code setupSock]
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"

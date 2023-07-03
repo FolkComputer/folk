@@ -1152,6 +1152,9 @@ namespace eval Evaluator {
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
         LogWriteBack((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
+    $cc proc LogIsEmpty {} bool {
+        return evaluatorLogReadIndex == evaluatorLogWriteIndex;
+    }
 
     $cc compile
 }

@@ -417,7 +417,10 @@ that if it was useful.)
 ### Every time
 
 Experimental: `Every time` works almost like `When`, but it's used to
-handle 'events' without causing a reaction cascade.
+commit when an 'event' happens without causing a reaction cascade.
+
+**You can't make Claims or Wishes inside an `Every time` block. You
+can only Commit.**
 
 Example:
 

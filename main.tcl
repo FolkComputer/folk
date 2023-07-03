@@ -154,16 +154,15 @@ proc After {n unit body} {
     } else { error }
 }
 set ::committed [dict create]
+set ::toCommit [dict create]
 proc Commit {args} {
     set body [lindex $args end]
     set key [list Commit [uplevel {expr {[info exists this] ? $this : "<unknown>"}}] {*}[lreplace $args end end]]
     lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
     set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-    Assert $key has program $lambda
-    if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
-        Retract $key has program [dict get $::committed $key]
-    }
-    dict set ::committed $key $lambda
+    dict set ::toCommit $key $lambda
+
+    after idle Step
 }
 
 set ::stepCount 0
@@ -206,26 +205,30 @@ proc StepImpl {} {
                 }
             }
 
-            variable prevShareStatements
-            set shareAssertStatements [clauseset difference $shareStatements $prevShareStatements]
-            set shareRetractStatements [clauseset difference $prevShareStatements $shareStatements]
-            if {[llength $shareAssertStatements] > 0 || [llength $shareRetractStatements] > 0} {
-                run [list apply {{receivedAssertStatements receivedRetractStatements} {
-                    upvar [uplevel {namespace current}]::prevReceivedStatements prevReceivedStatements
-                    # TODO: Just track process provenance in the statements?
-                    set prevReceivedStatements [clauseset union $prevReceivedStatements $receivedAssertStatements]
-                    set prevReceivedStatements [clauseset difference $prevReceivedStatements $receivedRetractStatements]
-
-                    dict for {stmt _} $receivedAssertStatements { Assert {*}$stmt }
-                    dict for {stmt _} $receivedRetractStatements { Retract {*}$stmt }
-                    Step
-                }} $shareAssertStatements $shareRetractStatements]
+            if {[clauseset size $shareStatements] > 0} {
+                run [list apply {{process receivedStatements} {
+                    Commit $process statements {
+                        Claim $process is sharing statements $receivedStatements
+                    }
+                }} $::thisProcess [clauseset clauses $shareStatements]]
             }
-            set prevShareStatements $shareStatements
         } $peerNs] [namespace tail $peerNs]
     }
 }
-proc Step {} { set ::stepTime [time StepImpl] }
+proc Step {} {
+    dict for {key lambda} $::toCommit {
+        Assert $key has program $lambda
+        if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
+            Retract $key has program [dict get $::committed $key]
+        }
+        dict set ::committed $key $lambda
+    }
+    set ::toCommit [dict create]
+
+    if {![Evaluator::LogIsEmpty]} {
+        set ::stepTime [time StepImpl]
+    }
+}
 
 source "lib/math.tcl"
 
@@ -238,6 +241,10 @@ Assert when /this/ has program /__program/ {{this __program} {
 # For backward compat(?):
 Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
+}}
+
+Assert when /someone/ is sharing statements /statements/ {{statements} {
+    foreach stmt $statements { Say {*}$stmt }
 }}
 
 set ::thisNode "[info hostname]"
