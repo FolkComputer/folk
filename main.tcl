@@ -173,7 +173,17 @@ proc StepImpl {} {
     Assert $::thisProcess has step count $::stepCount
     Retract $::thisProcess has step count [expr {$::stepCount - 1}]
 
-    Evaluator::Evaluate
+    while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
+        dict for {key lambda} $::toCommit {
+            Assert $key has program $lambda
+            if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
+                Retract $key has program [dict get $::committed $key]
+            }
+            dict set ::committed $key $lambda
+        }
+        set ::toCommit [dict create]
+        Evaluator::Evaluate
+    }
 
     if {[namespace exists Display]} {
         Display::commit ;# TODO: this is weird, not right level
@@ -216,16 +226,7 @@ proc StepImpl {} {
     }
 }
 proc Step {} {
-    dict for {key lambda} $::toCommit {
-        Assert $key has program $lambda
-        if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
-            Retract $key has program [dict get $::committed $key]
-        }
-        dict set ::committed $key $lambda
-    }
-    set ::toCommit [dict create]
-
-    if {![Evaluator::LogIsEmpty]} {
+    if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
         set ::stepTime [time StepImpl]
     }
 }
