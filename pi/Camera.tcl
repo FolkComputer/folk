@@ -241,7 +241,7 @@ namespace eval Camera {
 
         // FIXME: This is a hack.
         static int imageCount = 0;
-        imageCount = (imageCount + 1) % 20;
+        imageCount = (imageCount + 1) % (50000000/(width*components*height));
 
         uint8_t* data = folkImagesBase + imageCount * (width*components*height);
         return (image_t) {
@@ -329,10 +329,10 @@ if {([info exists ::argv0] && $::argv0 eq [info script]) || \
 
     while true {
         set rgb [Camera::frame]
-        set gray [rgbToGray $rgb]
+        set gray [Camera::rgbToGray $rgb]
         # FIXME: hacky
         Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT "(uint8_t*) [dict get $gray data]" $Camera::WIDTH $Camera::HEIGHT
-        freeImage $gray
-        freeImage $rgb
+        Camera::freeImage $gray
+        Camera::freeImage $rgb
     }
 }
