@@ -11,6 +11,7 @@ $cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
+source "pi/AprilTags.tcl"
 
 Display::init
 # FIXME: adapt to camera spec
@@ -206,8 +207,9 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 columnCorr[i] = (columnCorr[i] << 1) | bit;
             }]
 
-            ckfree(codeImage);
-            ckfree(invertedCodeImage);
+            // TODO: these are allocated from the Folk heap now
+            // ckfree(codeImage);
+            // ckfree(invertedCodeImage);
         }
 
         // convert column correspondences out of Gray code
@@ -259,8 +261,9 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 rowCorr[i] = (rowCorr[i] << 1) | bit;
             }]
 
-            ckfree(codeImage);
-            ckfree(invertedCodeImage);
+            // TODO: these are allocated from the Folk heap now
+            // ckfree(codeImage);
+            // ckfree(invertedCodeImage);
         }
 
         // convert row correspondences out of Gray code
