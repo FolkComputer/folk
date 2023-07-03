@@ -227,7 +227,13 @@ namespace eval Camera {
         };
     }
 
-    camc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    if {[namespace exists ::Heap]} {
+        camc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    } else {
+        camc code {
+            #define folkHeapAlloc malloc
+        }
+    }
     camc proc newImage {int width int height int components} image_t {
         if (folkImagesBase == NULL) {
             folkImagesBase = folkHeapAlloc(50000000); // 50MB
