@@ -35,9 +35,9 @@ proc ::peer {process} {
         proc setupSock {} {
             variable process
             log "Trying to connect to: ws://$process:4273/ws"
-            variable sock [::websocket::open "ws://$process:4273/ws" [namespace code handleWs]]
+            variable chan [::websocket::open "ws://$process:4273/ws" [namespace code handleWs]]
         }
-        proc handleWs {sock type msg} {
+        proc handleWs {chan type msg} {
             if {$type eq "connect"} {
                 log "Connected"
                 variable connected true
@@ -57,6 +57,7 @@ proc ::peer {process} {
             } elseif {$type eq "disconnect"} {
                 log "Disconnected"
                 variable connected false
+                # TODO: Zero out statements?
                 after 2000 [namespace code setupSock]
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"
@@ -70,8 +71,8 @@ proc ::peer {process} {
         }
 
         proc run {msg} {
-            variable sock
-            ::websocket::send $sock text [list namespace eval ::Peers::$::thisProcess $msg]
+            variable chan
+            ::websocket::send $chan text [list namespace eval ::Peers::$::thisProcess $msg]
         }
 
         proc init {n} {

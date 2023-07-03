@@ -217,7 +217,8 @@ proc StepImpl {} {
 
             if {[clauseset size $shareStatements] > 0} {
                 run [list apply {{process receivedStatements} {
-                    Commit $process statements {
+                    upvar chan chan
+                    Commit $chan statements {
                         Claim $process is sharing statements $receivedStatements
                     }
                 }} $::thisProcess [clauseset clauses $shareStatements]]
