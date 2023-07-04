@@ -907,6 +907,7 @@ namespace eval Evaluator {
         uint64_t reactions[1000];
         int reactionCount = trieLookup(interp, reactions, 1000,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
+        Tcl_DecrRefCount(clauseWithReactingIdWildcard);
         // printf("React to %s: %d\n", Tcl_GetString(clauseWithReactingIdWildcard), reactionCount);
         for (int i = 0; i < reactionCount; i++) {
             reaction_t* reaction = (reaction_t*)(uintptr_t)reactions[i];
