@@ -604,8 +604,11 @@ namespace eval Statements { ;# singleton Statement store
         environment_t* resultsForFirstPattern[maxResultsCount];
         int resultsForFirstPatternCount = searchByPattern(substitutedFirstPattern,
                                                           maxResultsCount, resultsForFirstPattern);
-        resultsForFirstPatternCount += searchByPattern(claimizePattern(substitutedFirstPattern),
+        Tcl_Obj* claimizedSubstitutedFirstPattern = claimizePattern(substitutedFirstPattern);
+        resultsForFirstPatternCount += searchByPattern(claimizedSubstitutedFirstPattern,
                                                        maxResultsCount - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
+        Tcl_DecrRefCount(substitutedFirstPattern);
+        Tcl_DecrRefCount(claimizedSubstitutedFirstPattern);
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
             if (env != NULL) {
@@ -908,7 +911,6 @@ namespace eval Evaluator {
         int reactionCount = trieLookup(interp, reactions, 1000,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
         Tcl_DecrRefCount(clauseWithReactingIdWildcard);
-        // printf("React to %s: %d\n", Tcl_GetString(clauseWithReactingIdWildcard), reactionCount);
         for (int i = 0; i < reactionCount; i++) {
             reaction_t* reaction = (reaction_t*)(uintptr_t)reactions[i];
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
@@ -1017,6 +1019,9 @@ namespace eval Evaluator {
                              NULL,
                              1000, results,
                              &resultsCount);
+            for (int i = 0; i < subpatternsCount; i++) {
+                Tcl_DecrRefCount(subpatterns[i]);
+            }
         }
 
         Tcl_Obj* matches = Tcl_NewListObj(0, NULL);
