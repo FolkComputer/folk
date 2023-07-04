@@ -85,7 +85,7 @@ proc When {args} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[regexp {^/([^/ ]+)/$} $word -> varName]} {
+        } elseif {[set varName [trie scanVariable $word]] != "false"} {
             if {$varName in $statement::blanks} {
             } elseif {$varName in $statement::negations} {
                 # Rewrite this entire clause to be negated.
@@ -95,7 +95,7 @@ proc When {args} {
                 # (in joined clauses) to be bound $x.
                 lappend varNamesWillBeBound $varName
             }
-        } elseif {[string index $word 0] eq "\$"} {
+        } elseif {[trie startsWithDollarSign $word]} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }

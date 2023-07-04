@@ -60,6 +60,20 @@ namespace eval ctrie {
         if (outVarName) outVarName[i - 1] = '\0';
         return true;
     }
+    # These functions operate on the Tcl string representation of a
+    # value _without_ coercing the value into a pure string first, so
+    # they avoid shimmering / are more efficient than using Tcl
+    # builtin functions like `regexp` and `string index`.
+    $cc proc scanVariable_ {Tcl_Obj* wordobj} Tcl_Obj* {
+        char varName[100];
+        if (scanVariable(wordobj, varName, 100) == false) {
+            return Tcl_NewStringObj("false", -1);            
+        }
+        return Tcl_NewStringObj(varName, -1);
+    }
+    $cc proc startsWithDollarSign {Tcl_Obj* wordobj} bool {
+        return Tcl_GetString(wordobj)[0] == '$';
+    }
 
     $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv uint64_t value} void {
         if (wordc == 0) {
@@ -258,7 +272,9 @@ namespace eval ctrie {
     $cc compile
 
     rename remove_ remove
-    namespace export create add addWithVar remove removeWithVar lookup lookupTclObjs tclify dot
+    rename scanVariable scanVariableC
+    rename scanVariable_ scanVariable
+    namespace export *
     namespace ensemble create
 }
 
