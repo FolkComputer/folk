@@ -114,15 +114,18 @@ proc ::Music::finishSetup {} {
   exec jack_control dps nperiods 2
   exec jack_control dps period 64
 
+  catch {exec pkill ghci}
   catch {exec pkill sclang}
-  exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc &
+  after 500 {
+    exec -ignorestderr xvfb-run --auto-servernum sclang $musicDir/startup.sc &
 
-  set fifo $musicDir/tidal-input
-  exec rm -f $fifo
-  exec mkfifo $fifo
-  exec -ignorestderr sh -c "ghci < $fifo" &
-  set fifoId [open $fifo w]
-  ::exec cat $musicDir/BootTidal.hs > $fifo
+    set fifo $musicDir/tidal-input
+    exec rm -f $fifo
+    exec mkfifo $fifo
+    exec -ignorestderr sh -c "ghci < $fifo" &
+    set fifoId [open $fifo w]
+    ::exec cat $musicDir/BootTidal.hs > $fifo
+  }
 }
 
 proc ::Music::waitForDbus {} {
