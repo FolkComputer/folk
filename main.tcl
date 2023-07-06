@@ -158,9 +158,13 @@ set ::toCommit [dict create]
 proc Commit {args} {
     set body [lindex $args end]
     set key [list Commit [uplevel {expr {[info exists this] ? $this : "<unknown>"}}] {*}[lreplace $args end end]]
-    lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-    set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-    dict set ::toCommit $key $lambda
+    if {$body eq ""} {
+        dict set ::toCommit $key $body
+    } else {
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
+        dict set ::toCommit $key $lambda
+    }
 
     after idle Step
 }
@@ -175,11 +179,15 @@ proc StepImpl {} {
 
     while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
         dict for {key lambda} $::toCommit {
-            Assert $key has program $lambda
+            if {$lambda ne ""} {
+                Assert $key has program $lambda
+            }
             if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
                 Retract $key has program [dict get $::committed $key]
             }
-            dict set ::committed $key $lambda
+            if {$lambda ne ""} {
+                dict set ::committed $key $lambda
+            }
         }
         set ::toCommit [dict create]
         Evaluator::Evaluate

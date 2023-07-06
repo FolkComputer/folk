@@ -153,6 +153,14 @@ proc handleWS {chan type msg} {
         eval $msg
     } elseif {$type eq "disconnect"} {
         Commit $chan statements {}
+        foreach peerNs [namespace children ::Peers] {
+            apply [list {disconnectedChan} {
+                variable chan
+                if {$chan eq $disconnectedChan} {
+                    namespace delete [namespace current]
+                }
+            } $peerNs] $chan
+        }
     } else {
         puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }
