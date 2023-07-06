@@ -204,18 +204,18 @@ dc proc setupGpu {} void {
 
     commitThenClearStaging();
 }
-dc proc setupFb {int idx} void {
+dc proc setupFb {int idx} void [csubst {
     struct drm_mode_create_dumb dumb;
     dumb.width = fbwidth;
     dumb.height = fbheight;
-    dumb.bpp = 32;
+    dumb.bpp = $Display::DEPTH;
     int err = ioctl(gpuFd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb);
     if (err) {
         fprintf(stderr, "Display: could not create dumb framebuffer (%d): %m\n", err);
         exit(1);
     }
 
-    err = drmModeAddFB(gpuFd, dumb.width, dumb.height, 24, 32,
+    err = drmModeAddFB(gpuFd, dumb.width, dumb.height, $[expr {$Display::DEPTH == 32 ? 24 : $Display::DEPTH}], $Display::DEPTH,
                        dumb.pitch, dumb.handle, &fbs[idx].id);
     if (err) {
         fprintf(stderr, "Display: could not add framebuffer to drm\n");
@@ -235,7 +235,7 @@ dc proc setupFb {int idx} void {
         fprintf(stderr, "Display: mmap failed (%d): %m\n", errno);
         exit(1);
     }
-}
+}]
 # Hack to support old stuff that uses framebuffer directly and doesn't commit.
 dc proc getFbPointer {} pixel_t* {
     return fbs[currentFbIndex].mem;
