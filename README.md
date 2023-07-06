@@ -42,7 +42,7 @@ install).
 2. Set up OpenSSH server if needed, connect to network.
 4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
 5. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset`
+6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset libdrm-dev libdrm-tests`
 7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
