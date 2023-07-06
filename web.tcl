@@ -150,7 +150,12 @@ proc handleWS {chan type msg} {
     if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
         # puts "Event $type from chan $chan"
     } elseif {$type eq "text"} {
-        eval $msg
+        if {[catch {::websocket::send $chan text [eval $msg]} err] == 1} {
+            if [catch {
+                puts stderr "$::thisProcess: Error on receipt: $err\n$::errorInfo"
+                ::websocket::send $chan text $err
+            } err2] { puts "$::thisProcess: $err2" }
+        }
     } elseif {$type eq "disconnect"} {
         Commit $chan statements {}
         foreach peerNs [namespace children ::Peers] {
