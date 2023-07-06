@@ -362,7 +362,7 @@ namespace eval Display {
     # functions
     # ---------
     proc init {} {
-        set Display::fb [mmapFb "/dev/dri/card0"]
+        set Display::fb [mmapFb "/dev/dri/card1"]
     }
 
     proc vec2i {p} {
@@ -386,6 +386,26 @@ namespace eval Display {
     proc fillQuad {p0 p1 p2 p3 color} {
       fillTriangle $p1 $p2 $p3 $color
       fillTriangle $p0 $p1 $p3 $color
+    }
+
+    proc fillPolygon {points color} {
+        set num_points [llength $points]
+        if {$num_points < 3} {
+            error "At least 3 points are required to form a polygon."
+        } elseif {$num_points == 3} {
+            eval fillTriangle $points $color
+        } elseif {$num_points == 4} {
+            eval fillQuad $points $color
+        } else {
+            # Get the first point in the list as the "base" point of the triangles
+            set p0 [lindex $points 0]
+
+            for {set i 1} {$i < $num_points - 1} {incr i} {
+                set p1 [lindex $points $i]
+                set p2 [lindex $points [expr {$i+1}]]
+                fillTriangle $p0 $p1 $p2 $color
+            }
+        }
     }
 
     proc fillPolygon {points color} {
@@ -469,7 +489,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         drawCircle 100 100 500 $Display::red
 
         Display::circle 300 420 400 5 blue
-        Display::text fb 300 420 PLACEHOLDER "Hello!" 0
+        Display::text fb 300 420 1 "Hello!" 0
 
         puts [time Display::commit]
     }

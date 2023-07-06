@@ -11,6 +11,7 @@ $cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
 
 source "pi/Display.tcl"
 source "pi/Camera.tcl"
+source "pi/AprilTags.tcl"
 
 Display::init
 # FIXME: adapt to camera spec
@@ -85,7 +86,7 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
         usleep(100000);
 
-        Tcl_Eval(interp, "freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [rgbToGray $rgb]; freeImage $rgb; dict get $gray data");
+        Tcl_Eval(interp, "Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [Camera::rgbToGray $rgb]; Camera::freeImage $rgb; dict get $gray data");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "0x%p", &image);
         Tcl_ResetResult(interp);
@@ -206,8 +207,9 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 columnCorr[i] = (columnCorr[i] << 1) | bit;
             }]
 
-            ckfree(codeImage);
-            ckfree(invertedCodeImage);
+            // TODO: these are allocated from the Folk heap now
+            // ckfree(codeImage);
+            // ckfree(invertedCodeImage);
         }
 
         // convert column correspondences out of Gray code
@@ -259,8 +261,9 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
                 rowCorr[i] = (rowCorr[i] << 1) | bit;
             }]
 
-            ckfree(codeImage);
-            ckfree(invertedCodeImage);
+            // TODO: these are allocated from the Folk heap now
+            // ckfree(codeImage);
+            // ckfree(invertedCodeImage);
         }
 
         // convert row correspondences out of Gray code
@@ -330,7 +333,7 @@ AprilTags::init
 
 set grayFrame [Camera::grayFrame]
 set tags [AprilTags::detect $grayFrame]
-freeImage $grayFrame
+Camera::freeImage $grayFrame
 
 puts ""
 set keyCorrespondences [list]

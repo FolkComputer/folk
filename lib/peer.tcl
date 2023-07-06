@@ -3,62 +3,82 @@ lappend auto_path "./vendor"
 namespace eval clauseset {
     # only used for statement syndication
 
-    namespace export create add minus clauses
+    namespace export create add union difference clauses size
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
         dict create {*}$kvs
     }
-    proc add {sv k} { upvar $sv s; dict set s $k true }
-    proc minus {s t} {
+    proc add {sv stmt} { upvar $sv s; dict set s $stmt true }
+
+    proc union {s t} { dict merge $s $t }
+    proc difference {s t} {
         dict filter $s script {k v} {expr {![dict exists $t $k]}}
     }
+
+    proc size {s} { dict size $s }
     proc clauses {s} { dict keys $s }
     namespace ensemble create
 }
 
-namespace eval Peers {}
+namespace eval ::Peers {}
 
-proc ::peer {node} {
+proc ::peer {process} {
     package require websocket
-    namespace eval Peers::$node {
+    namespace eval ::Peers::$process {
         variable connected false
-        variable prevShareStatements [clauseset create]
 
         proc log {s} {
-            variable node
-            puts "$::nodename -> $node: $s"
+            variable process
+            puts "$::thisProcess -> $process: $s"
         }
         proc setupSock {} {
-            variable node
-            log "Trying to connect to: ws://$node:4273/ws"
-            variable sock [::websocket::open "ws://$node:4273/ws" [namespace code handleWs]]
+            variable process
+            log "Trying to connect to: ws://$process:4273/ws"
+            variable chan [::websocket::open "ws://$process:4273/ws" [namespace code handleWs]]
         }
-        proc handleWs {sock type msg} {
+        proc handleWs {chan type msg} {
             if {$type eq "connect"} {
                 log "Connected"
                 variable connected true
+
+                # Establish a peering on their end, in the reverse
+                # direction, so they can send stuff back to us.
+                # It'll implicitly run in a ::Peers::X namespace on their end
+                # (because of how `run` is implemented above)
+                run {
+                    variable chan [uplevel {set chan}]
+                    variable connected true
+                    proc run {msg} {
+                        variable chan
+                        ::websocket::send $chan text $msg
+                    }
+                }
             } elseif {$type eq "disconnect"} {
                 log "Disconnected"
                 variable connected false
-                variable prevShareStatements [clauseset create]
+                # TODO: Zero out statements?
                 after 2000 [namespace code setupSock]
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"
                 after 2000 [namespace code setupSock]
-            } elseif {$type eq "text" || $type eq "ping" || $type eq "pong"} {
-                # We don't handle responses yet.
+            } elseif {$type eq "text"} {
+                eval $msg
+            } elseif {$type eq "ping" || $type eq "pong"} {
             } else {
                 error "Unknown WebSocket event: $type $msg"
             }
         }
 
         proc run {msg} {
-            variable sock
-            ::websocket::send $sock text $msg
+            variable chan
+            ::websocket::send $chan text [list namespace eval ::Peers::$::thisProcess $msg]
         }
 
-        proc init {n} { variable node $n; setupSock }
+        proc init {n} {
+            variable process $n; setupSock
+            vwait ::Peers::${n}::connected
+        }
         init
-    } $node
+    } $process
 }

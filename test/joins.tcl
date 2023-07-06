@@ -1,10 +1,3 @@
-proc assert condition {
-   set s "{$condition}"
-   if {![uplevel 1 expr $s]} {
-       return -code error "assertion failed: $condition"
-   }
-}
-
 Assert Omar is a person
 Assert Omar lives in "New York"
 Assert Elmo is a person

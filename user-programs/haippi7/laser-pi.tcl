@@ -97,7 +97,7 @@ namespace eval Camera {
     } $WIDTH $HEIGHT [thread::id]]]
     puts "Camera thread id: $cameraThread"
 
-    Assert when $::nodename has step count /c/ {
+    Assert when $::thisProcess has step count /c/ {
         foreach stmt $Camera::statements {
             Say {*}$stmt
         }

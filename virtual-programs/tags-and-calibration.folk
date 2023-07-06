@@ -1,5 +1,10 @@
 if {$::isLaptop} { return }
 
+namespace eval ::Camera {
+    variable WIDTH 1280
+    variable HEIGHT 720
+}
+
 package require math::linearalgebra
 namespace import ::math::linearalgebra::add \
 	::math::linearalgebra::sub \

@@ -73,53 +73,6 @@ namespace eval Display {
     }
 }
 
-# Camera thread
-namespace eval Camera {
-    variable WIDTH 1280
-    variable HEIGHT 720
-    variable statements [list]
-
-    variable cameraThread [thread::create [format {
-        source pi/Camera.tcl
-        Camera::init %d %d
-        AprilTags::init
-        puts "Camera tid: [getTid]"
-
-        set grayFrames [list]
-        while true {
-            # Hack: we free old images. Really this should be done on
-            # the main thread when it's actually done with them.
-            if {[llength $grayFrames] > 10} {
-                freeImage [lindex $grayFrames 0]
-                set grayFrames [lreplace $grayFrames 0 0]
-            }
-            set cameraTime [time {
-                set grayFrame [Camera::grayFrame]
-                set tags [AprilTags::detect $grayFrame]
-                lappend grayFrames $grayFrame
-            }]
-            set statements [list]
-            lappend statements [list camera claims the camera time is $cameraTime]
-            lappend statements [list camera claims the camera frame is $grayFrame]
-            foreach tag $tags {
-                lappend statements [list camera claims tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]]
-                lappend statements [list camera claims tag [dict get $tag id] has corners [dict get $tag corners]]
-            }
-
-            # send this script back to the main Folk thread
-            # puts "\n\nCommands\n-----\n[join $commands \"\n\"]"
-            thread::send -async "%s" [list set Camera::statements $statements]
-        }
-    } $WIDTH $HEIGHT [thread::id]]]
-    puts "Camera thread id: $cameraThread"
-
-    Assert when $::nodename has step count /c/ {{c} {
-        foreach stmt $Camera::statements {
-            Say {*}$stmt
-        }
-    }}
-}
-
 try {
     set keyboardThread [thread::create [format {
         source "pi/Keyboard.tcl"
