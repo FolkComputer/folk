@@ -48,26 +48,41 @@ if {$Display::DEPTH == 16} {
 }
 
 dc code {
+    int gpuFd;
+    drmModeConnector* gpuConn;
+    drmModeEncoder* gpuEnc;
+    static void setupFb(int idx);
+    static void commitThenClearStaging();
+
     pixel_t* staging;
-    pixel_t* fbmem;
+
+    struct {
+        pixel_t* mem;
+        uint32_t id;
+    } fbs[2];
+    int currentFbIndex;
 
     int fbwidth;
     int fbheight;
 }
 dc code [source "vendor/font.tcl"]
 
-dc proc mmapFb {char* card} pixel_t* {
+dc proc setupGpu {char* card} void {
     // Open the DRM device:
-    int fd; {
-        fd = open(card, O_RDWR | O_CLOEXEC);
-        if (fd < 0) {
+    {
+        gpuFd = open(card, O_RDWR | O_CLOEXEC);
+        if (gpuFd < 0) {
             fprintf(stderr, "Display: cannot open '%s': %m\n", card);
             exit(1);
         }
+        if (drmSetMaster(gpuFd) != 0) {
+            fprintf(stderr, "Display: cannot become DRM master on '%s': %m\n", card);
+            exit(1);
+        }
         uint64_t hasDumb;
-        if (drmGetCap(fd, DRM_CAP_DUMB_BUFFER, &hasDumb) < 0 || !hasDumb) {
+        if (drmGetCap(gpuFd, DRM_CAP_DUMB_BUFFER, &hasDumb) < 0 || !hasDumb) {
             fprintf(stderr, "Display: drm device '%s' does not support dumb buffers\n", card);
-            close(fd);
+            close(gpuFd);
             exit(1);
         }
     }
@@ -75,10 +90,10 @@ dc proc mmapFb {char* card} pixel_t* {
     // Prepare all connectors and CRTCs:
     {
         drmModeRes *res;
-        drmModeConnector *conn = NULL;
+        gpuConn = NULL;
         unsigned int i;
 
-        res = drmModeGetResources(fd);
+        res = drmModeGetResources(gpuFd);
         if (!res) {
             fprintf(stderr, "Display: cannot retrieve DRM resources (%d): %m\n",
                     errno);
@@ -88,7 +103,7 @@ dc proc mmapFb {char* card} pixel_t* {
         // iterate all connectors
 	for (i = 0; i < res->count_connectors; ++i) {
             /* get information for each connector */
-            drmModeConnector *c = drmModeGetConnector(fd, res->connectors[i]);
+            drmModeConnector *c = drmModeGetConnector(gpuFd, res->connectors[i]);
             if (!c) {
                 fprintf(stderr, "Display: cannot retrieve DRM connector %u:%u (%d): %m\n",
                         i, res->connectors[i], errno);
@@ -108,72 +123,81 @@ dc proc mmapFb {char* card} pixel_t* {
             }
 
             // We have the connector we want -- stop
-            conn = c;
+            gpuConn = c;
             break;
         }
-
-        if (conn == NULL) {
+        if (gpuConn == NULL) {
             fprintf(stderr, "Display: no valid connector\n");
             exit(1);
         }
 
-        fbwidth = (int)conn->modes[0].hdisplay;
-        fbheight = (int)conn->modes[0].vdisplay;
+        fbwidth = (int)gpuConn->modes[0].hdisplay;
+        fbheight = (int)gpuConn->modes[0].vdisplay;
         printf("Display: using width %d and height %d\n", fbwidth, fbheight);
 
-        struct drm_mode_create_dumb dumb;
-        dumb.width = fbwidth;
-        dumb.height = fbheight;
-        dumb.bpp = 32;
-        int err = ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb);
-        if (err) {
-            fprintf(stderr, "Display: could not create dumb framebuffer (%d): %m\n", err);
-            exit(1);
-        }
-
-        uint32_t fbId;
-        err = drmModeAddFB(fd, dumb.width, dumb.height, 24, 32,
-                           dumb.pitch, dumb.handle, &fbId);
-        if (err) {
-            fprintf(stderr, "Display: could not add framebuffer to drm\n");
-            exit(1);
-        }
-
-        drmModeEncoder *enc = drmModeGetEncoder(fd, conn->encoder_id);
-        if (!enc) {
+        gpuEnc = drmModeGetEncoder(gpuFd, gpuConn->encoder_id);
+        if (!gpuEnc) {
             fprintf(stderr, "Display: could not get encoder\n");
             exit(1);
         }
-
-        drmModeCrtc *crtc = drmModeGetCrtc(fd, enc->crtc_id);
-        (void)crtc;
-	err = drmModeSetCrtc(fd, enc->crtc_id, fbId, 0, 0,
-                             &conn->connector_id, 1, &conn->modes[0]);
-        if (err) {
-            fprintf(stderr, "Display: drmModeSetCrtc failed\n");
-            exit(1);
-        }
-
-        struct drm_mode_map_dumb mreq = {0};
-        mreq.handle = dumb.handle;
-        err = drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &mreq);
-        if (err) {
-            fprintf(stderr, "Display: mode-mapping dumb framebuffer failed (%d): %m\n", err);
-            exit(1);
-        }
-
-        fbmem = mmap(0, dumb.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, mreq.offset);
-        if (fbmem == MAP_FAILED) {
-            fprintf(stderr, "Display: mmap failed (%d): %m\n", errno);
-            exit(1);
-        }
-
-        drmDropMaster(fd);
     }
 
-    // Multiply by 3 to create buffer area
-    staging = calloc(fbwidth * fbheight * 3, sizeof(pixel_t)) + (fbwidth * fbheight * sizeof(pixel_t));
-    return fbmem;
+    setupFb(0);
+    setupFb(1);
+
+    // Can't drop master if we're going to flip buffers at runtime.
+    // drmDropMaster(gpuFd);
+
+    commitThenClearStaging();
+}
+dc proc setupFb {int idx} void {
+    struct drm_mode_create_dumb dumb;
+    dumb.width = fbwidth;
+    dumb.height = fbheight;
+    dumb.bpp = 32;
+    int err = ioctl(gpuFd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb);
+    if (err) {
+        fprintf(stderr, "Display: could not create dumb framebuffer (%d): %m\n", err);
+        exit(1);
+    }
+
+    err = drmModeAddFB(gpuFd, dumb.width, dumb.height, 24, 32,
+                       dumb.pitch, dumb.handle, &fbs[idx].id);
+    if (err) {
+        fprintf(stderr, "Display: could not add framebuffer to drm\n");
+        exit(1);
+    }
+
+    struct drm_mode_map_dumb mreq = {0};
+    mreq.handle = dumb.handle;
+    err = drmIoctl(gpuFd, DRM_IOCTL_MODE_MAP_DUMB, &mreq);
+    if (err) {
+        fprintf(stderr, "Display: mode-mapping dumb framebuffer failed (%d): %m\n", err);
+        exit(1);
+    }
+
+    fbs[idx].mem = mmap(0, dumb.size, PROT_READ | PROT_WRITE, MAP_SHARED, gpuFd, mreq.offset);
+    if (fbs[idx].mem == MAP_FAILED) {
+        fprintf(stderr, "Display: mmap failed (%d): %m\n", errno);
+        exit(1);
+    }
+}
+# Hack to support old stuff that uses framebuffer directly and doesn't commit.
+dc proc getFbPointer {} pixel_t* {
+    return fbs[currentFbIndex].mem;
+}
+dc proc commitThenClearStaging {} void {
+    currentFbIndex = !currentFbIndex;
+    int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[currentFbIndex].id, 0, 0,
+                             &gpuConn->connector_id, 1, &gpuConn->modes[0]);
+    if (ret) {
+        fprintf(stderr, "Display: cannot flip CRTC to %d for connector %u (%d): %m\n",
+                currentFbIndex,
+                gpuConn->connector_id, errno);
+        exit(1);
+    }
+    staging = fbs[!currentFbIndex].mem;
+    memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
 dc code {
@@ -338,10 +362,6 @@ dc proc drawGrayImage {pixel_t* fbmem int fbwidth int fbheight uint8_t* im int w
           }
       }
 }
-dc proc commitThenClearStaging {} void {
-    memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
-    memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
-}
 
 c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libdrm.so] end]
 dc compile
@@ -355,6 +375,9 @@ namespace eval Display {
     source "pi/Colors.tcl"
 
     variable fb
+    trace add variable fb read {apply {args {
+        getFbPointer
+    }}}
 
     lappend auto_path "./vendor"
     package require math::linearalgebra
@@ -362,7 +385,7 @@ namespace eval Display {
     # functions
     # ---------
     proc init {} {
-        set Display::fb [mmapFb "/dev/dri/card1"]
+        setupGpu "/dev/dri/card1"
     }
 
     proc vec2i {p} {
