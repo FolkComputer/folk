@@ -56,7 +56,61 @@ dc code {
 }
 dc code [source "vendor/font.tcl"]
 
-dc proc mmapFb {char* card} pixel_t* {
+dc proc getFirstValidConnector {int fd} drmModeConnector* {
+    drmModeRes *resources = drmModeGetResources(fd);
+    if (!resources) {
+        fprintf(stderr, "Unable to get DRM resources\n");
+        return NULL;
+    }
+
+    // Iterate over all connectors
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(fd, resources->connectors[i]);
+        if (!connector) {
+            continue;
+        }
+
+        // Check if connector is connected and has at least one valid mode
+        if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
+            drmModeFreeResources(resources);
+            return connector;
+        }
+
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    return NULL;
+}
+
+dc proc mmapFb {} pixel_t* {
+    drmDevicePtr devices[64];
+    int numDevices = drmGetDevices2(0, devices, 64);
+    char* card = NULL;
+    if (numDevices < 0) {
+        fprintf(stderr, "Failed to get DRM devices: %d\n", numDevices);
+    }
+    for (int i = 0; i < numDevices; i++) {
+        if (devices[i]->available_nodes & (1 << DRM_NODE_PRIMARY)) {
+            int fd = open(devices[i]->nodes[DRM_NODE_PRIMARY], O_RDWR | O_CLOEXEC);
+            if (fd < 0) {
+                continue;
+            }
+
+            drmModeConnector* connector = getFirstValidConnector(fd);
+            if (connector) {
+                printf("Found valid connector on device %s\n", devices[i]->nodes[DRM_NODE_PRIMARY]);
+                card = devices[i]->nodes[DRM_NODE_PRIMARY];
+                drmModeFreeConnector(connector);
+                close(fd);
+                break;
+            }
+            close(fd);
+        }
+    }
+
+    drmFreeDevices(devices, numDevices);
+
     // Open the DRM device:
     int fd; {
         fd = open(card, O_RDWR | O_CLOEXEC);
@@ -362,7 +416,7 @@ namespace eval Display {
     # functions
     # ---------
     proc init {} {
-        set Display::fb [mmapFb "/dev/dri/card1"]
+        set Display::fb [mmapFb]
     }
 
     proc vec2i {p} {
@@ -478,13 +532,12 @@ namespace eval Display {
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
-    for {set i 0} {$i < 5} {incr i} {
+    for {set i 0} {$i < 10} {incr i} {
         # Display::fillQuad {0 0} {1000 0} {1000 1000} {0 1000} blue
 
         fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
         
-        drawText 309 400 0 1 "B"
-        drawText 318 400 0 1 "O"
+        drawText 309 400 0 1 $i
 
         drawCircle 100 100 500 $Display::red
 
