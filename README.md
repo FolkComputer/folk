@@ -164,7 +164,7 @@ turn it into lowercase).)
 
 Potentially useful for graphs: `graphviz`
 
-Potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
+Potentially useful:  `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
 Potentially useful: add `folk0` shortcut to your laptop `~/.ssh/config`:
@@ -178,11 +178,6 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
-
-### Changing camera settings
-
-Install `v4l-utils` and use `v4l2-ctl` to adjust exposure/autofocus
-settings for a webcam.
 
 ### HDMI No signal on Pi 4
 
@@ -202,6 +197,22 @@ code, you're also agreeing to license your code under whichever
 license we end up choosing.
 
 ## Troubleshooting
+
+### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
+
+#### Check that camera is plugged into a USB3 port
+
+#### Turn off autoexposure and autofocus
+
+for example, install `v4l-utils` and:
+
+```
+v4l2-ctl -c auto_exposure=1
+v4l2-ctl -c focus_automatic_continuous=0
+v4l2-ctl -c white_balance_automatic=0
+```
+
+### Tcl troubleshooting
 
 You can build Tcl with `TCL_MEM_DEBUG`. Download Tcl source code. (On
 Mac, _do not_ go to the macosx/ subdir; go to the unix/ subdir.) Do
