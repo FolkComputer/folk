@@ -6,7 +6,8 @@ When the collected matches for [list /someone/ claims /something/ region /id/ da
         lappend regionDataJsStrList "\[[string map {"{" "\[" "}" "\]" " " ", "} $m]\]"
     }
     set jsArrayString "\[[join $regionDataJsStrList ", "]\]"
-    Wish the web server handles route "/laser-regions-test" with handler [list Evaluator::tryRunInSerializedEnvironment {
+    Wish the web server handles route "/laser-regions-test" with handler [list apply {{jsArrayString} {
+        upvar ^html ^html
         html [string map [list REGION_DATA $jsArrayString] {
         <html><head></head>
         <body>
@@ -149,5 +150,5 @@ ws.onmessage = (msg) => {
         </body>
         </html>
         }]
-  } [Evaluator::serializeEnvironment]]
+  }} $jsArrayString]
 }
