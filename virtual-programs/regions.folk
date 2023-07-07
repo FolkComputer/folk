@@ -34,12 +34,16 @@ namespace eval ::vec2 {
 }
 
 namespace eval ::region {
-    proc new {vertices edges angle space} {
-        list region $vertices $edges $angle $space
-    }
-
     proc vertices {r} { lindex $r 0 }
     proc edges {r} { lindex $r 1 }
+    # Angle the region is rotated above the horizontal, in radians:
+    proc angle {r} {
+        expr {[llength $r] >= 3 ? [lindex $r 2] : 0}
+    }
+
+    proc mapVertices {varname r body} {
+        lreplace $r 0 0 [uplevel [list lmap $varname [vertices $r] $body]]
+    }
 
     proc edgeToLineSegment {r e} {
         list [lindex [vertices $r] [lindex $e 0]] [lindex [vertices $r] [lindex $e 1]]
@@ -68,6 +72,9 @@ namespace eval ::region {
         expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
                 0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
     }
+    proc intersects {r1 r2} {
+        # FIXME: implement
+    }
 
    proc centroid {r1} {
         # This only works for rectangular regions
@@ -78,7 +85,48 @@ namespace eval ::region {
         vec2 scale 0.25 $vecsum
     }
 
-    namespace export distance contains centroid
+    # Utilities that transform regions while preserving center
+    proc clip {r args} {
+        foreach {property value} $args {
+            if {$property eq "width"} {
+                
+            } elseif {$property eq "height"} {
+                
+            } else {
+                error "region clip: Invalid property $property"
+            }
+        }
+    }
+    proc move {r args} {
+        set angle [angle $r]
+        # FIXME: This one should work on any region -- just map over vertices.
+        foreach {direction distance} $args {
+            if {![regexp {([0-9]+)px} $distance -> distance]} {
+                error "region move: Invalid distance $distance"
+            }
+            set dx [if {$direction eq "left"} {- $distance} \
+                    elseif {$direction eq "right"} {+ $distance} \
+                    else {+ 0}]
+            set dy [if {$direction eq "up"} {- $distance} \
+                    elseif {$direction eq "down"} {+ $distance} \
+                    else {+ 0}]
+            if {$dx == 0 && $dy == 0} {
+                error "region move: Invalid direction $direction"
+            }
+
+            # Translate dx and dy into polar coordinates.
+            set theta [atan2 $dy $dx]
+            set mag [hypot $dy $dx]
+
+            # Rotate dx and dy into the global coordinate space.
+            set dv [list [expr {$mag*cos($theta)}] [expr {$mag*sin($theta)}]]
+
+            set r [mapVertices v $r {vec2 add $v $dv}]
+        }
+        set r
+    }
+
+    namespace export *
     namespace ensemble create
 }
 
