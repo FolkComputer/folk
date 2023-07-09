@@ -112,6 +112,10 @@ namespace eval ::region {
 
     proc scale {r args} {
         set theta [angle $r]
+        lassign [centroid $r] cx cy
+        if {[llength $args] == 1} {
+            set args [list width [lindex $args 0] height [lindex $args 0]]
+        }
         foreach {dim value} $args {
             if {![regexp {([0-9]+)(px|%)} $value -> value unit]} {
                 error "region scale: Invalid scale value $value"
@@ -136,7 +140,13 @@ namespace eval ::region {
 
             set sx [expr {$sxp*cos(-$theta) + $syp*sin(-$theta)}]
             set sy [expr {-$sxp*sin(-$theta) + $syp*cos(-$theta)}]
-            set r [mapVertices v $r {list [* $sx [lindex $v 0]] [* $sy [lindex $v 1]]}]
+            set r [mapVertices v $r {
+                lassign $v x y
+                set x [- $x $cx]; set y [- $y $cy]
+                set x [* $x $sx]; set y [* $y $sy]
+                set x [+ $x $cx]; set y [+ $y $cy]
+                list $x $y
+            }]
         }
         set r
     }
