@@ -111,20 +111,36 @@ namespace eval ::region {
     }
 
     proc scale {r args} {
-        foreach {property value} $args {
-            if {$property eq "width"} {
-                
-            } elseif {$property eq "height"} {
-                
-            } else {
-                error "region clip: Invalid property $property"
+        set theta [angle $r]
+        foreach {dim value} $args {
+            if {![regexp {([0-9]+)(px|%)} $value -> value unit]} {
+                error "region scale: Invalid scale value $value"
             }
 
-            # TODO: Support %
-            # TODO: Support scale-all
-            set r [mapVertices v $r {vec2 add $v $dv}]
+            set sxp 1; set syp 1
+            if {$dim eq "width"} {
+                if {$unit eq "px"} {
+                    set sxp [/ $value [width $r]]
+                } elseif {$unit eq "%"} {
+                    set sxp [* $value 0.01]
+                }
+            } elseif {$dim eq "height"} {
+                if {$unit eq "px"} {
+                    set syp [/ $value [height $r]]
+                } elseif {$unit eq "%"} {
+                    set syp [* $value 0.01]
+                }
+            } else {
+                error "region scale: Invalid dimension $dim"
+            }
+
+            set sx [expr {$sxp*cos(-$theta) + $syp*sin(-$theta)}]
+            set sy [expr {-$sxp*sin(-$theta) + $syp*cos(-$theta)}]
+            set r [mapVertices v $r {list [* $sx [lindex $v 0]] [* $sy [lindex $v 1]]}]
         }
+        set r
     }
+
     proc move {r args} {
         set angle [angle $r]
         # This one should work on any region -- just map over vertices.
