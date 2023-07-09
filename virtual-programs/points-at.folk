@@ -1,50 +1,28 @@
-set pi 3.1415926535897931
-
 When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
   Wish $rect points $direction
 }
 
 When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
-    lassign $region vertices edges
-    lassign $vertices a b c d
-
-    set cx [expr {([lindex $a 0] + [lindex $c 0])/2}]
-    set cy [expr {([lindex $a 1] + [lindex $c 1])/2}]
-
-    set width [vec2 distance $a $b]
-    set height [vec2 distance $a $d]
-
-    set radians [lindex $region 2]
-    if {$radians eq ""} {set radians 0}
-
-    set whisker_radians $radians
-    set fac -1.0
-    set whisker_size [expr {$width * $fac}]
-    set color green
-
     if {$direction eq "up"} {
-        set whisker_radians [expr {$radians + $pi / 2}]
-        set whisker_size [expr {$height * $fac}]
+        set whiskerRegion [region move [region scale $region width 0.01px] up 50%]
         set color blue
-    } 
-    if {$direction eq "left"} {
-        set whisker_radians [expr {$radians + $pi}]
+    } elseif {$direction eq "left"} {
+        set whiskerRegion [region move [region scale $region height 0.01px] left 50%]
         set color red
-    } 
-    if {$direction eq "down"} {
-        set whisker_radians [expr {$radians + $pi * 1.5}]
-        set whisker_size [expr {$height * $fac}]
+    } elseif {$direction eq "right"} {
+        set whiskerRegion [region move [region scale $region height 0.01px] right 50%]
+        set color green
+    } elseif {$direction eq "down"} {
+        set whiskerRegion [region move [region scale $region width 0.01px] down 50%]
         set color white
-    } 
-
-    set wx [expr {$cx + $whisker_size * [::tcl::mathfunc::cos [expr {-1 * $whisker_radians}]] }]
-    set wy [expr {$cy + $whisker_size * [::tcl::mathfunc::sin [expr {-1 * $whisker_radians}]] }]
-
-    Display::stroke [list [list $cx $cy] [list $wx $wy] ] 4 $color
+    }
+    set whisker [list $rect whisker $direction]
+    Claim $whisker has region $whiskerRegion
+    Wish $whisker is outlined $color
 
     When /target/ has region /r2/ {
-        if {$target != $rect && \
-                [region contains $r2 [list $wx $wy]]} {
+        if {$target != $rect && $target != $whisker && \
+                [region intersects $whiskerRegion $r2]} {
             Claim $rect points $direction at $target
         }
     }

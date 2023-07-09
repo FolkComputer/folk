@@ -98,7 +98,14 @@ namespace eval ::region {
                 0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
     }
     proc intersects {r1 r2} {
-        # FIXME: implement
+        # Either r1 should contain a vertex of r2 or r2 should contain a vertex of r1
+        foreach v1 [vertices $r1] {
+            if {[contains $r2 $v1]} { return true }
+        }
+        foreach v2 [vertices $r2] {
+            if {[contains $r1 $v2]} { return true }
+        }
+        expr false
     }
 
    proc centroid {r1} {
@@ -110,6 +117,8 @@ namespace eval ::region {
         vec2 scale 0.25 $vecsum
     }
 
+    # Scales about the center of the region, along the x and y axes of
+    # the space of the region (not the global x and y).
     proc scale {r args} {
         set theta [angle $r]
         lassign [centroid $r] cx cy
@@ -151,9 +160,10 @@ namespace eval ::region {
         set r
     }
 
+    # Moves the region left/right/up/down along the x and y axes of
+    # the space of the region (not the global x and y).
     proc move {r args} {
         set angle [angle $r]
-        # This one should work on any region -- just map over vertices.
         foreach {direction distance} $args {
             if {![regexp {([0-9]+)(px|%)} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
