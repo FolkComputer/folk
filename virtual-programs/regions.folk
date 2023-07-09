@@ -41,6 +41,31 @@ namespace eval ::region {
         expr {[llength $r] >= 3 ? [lindex $r 2] : 0}
     }
 
+    proc width {r} {
+        set minXp 100000
+        set maxXp -100000
+        set theta [angle $r]
+        foreach v [vertices $r] {
+            lassign $v x y
+            set xp [expr {$x*cos($theta) + $y*sin($theta)}]
+            if {$xp < $minXp} { set minXp $xp }
+            if {$xp > $maxXp} { set maxXp $xp }
+        }
+        expr { $maxXp - $minXp }
+    }
+    proc height {r} {
+        set minYp 100000
+        set maxYp -100000
+        set theta [angle $r]
+        foreach v [vertices $r] {
+            lassign $v x y
+            set yp [expr {-$x*sin($theta) + $y*cos($theta)}]
+            if {$yp < $minYp} { set minYp $yp }
+            if {$yp > $maxYp} { set maxYp $yp }
+        }
+        expr { $maxYp - $minYp }
+    }
+
     proc mapVertices {varname r body} {
         lreplace $r 0 0 [uplevel [list lmap $varname [vertices $r] $body]]
     }
@@ -85,8 +110,7 @@ namespace eval ::region {
         vec2 scale 0.25 $vecsum
     }
 
-    # Utilities that transform regions while preserving center
-    proc clip {r args} {
+    proc scale {r args} {
         foreach {property value} $args {
             if {$property eq "width"} {
                 
@@ -95,14 +119,26 @@ namespace eval ::region {
             } else {
                 error "region clip: Invalid property $property"
             }
+
+            # TODO: Support %
+            # TODO: Support scale-all
+            set r [mapVertices v $r {vec2 add $v $dv}]
         }
     }
     proc move {r args} {
         set angle [angle $r]
-        # FIXME: This one should work on any region -- just map over vertices.
+        # This one should work on any region -- just map over vertices.
         foreach {direction distance} $args {
-            if {![regexp {([0-9]+)px} $distance -> distance]} {
+            if {![regexp {([0-9]+)(px|%)} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
+            }
+            if {$unit eq "%"} {
+                # Convert to pixels
+                if {$direction eq "left" || $direction eq "right"} {
+                    set distance [expr {[width $r] * $distance * 0.01}]
+                } elseif {$direction eq "up" || $direction eq "down"} {
+                    set distance [expr {[height $r] * $distance * 0.01}]
+                }
             }
             set dx [if {$direction eq "left"} {- $distance} \
                     elseif {$direction eq "right"} {+ $distance} \
