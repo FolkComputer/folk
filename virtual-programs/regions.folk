@@ -15,8 +15,8 @@ namespace eval ::vec2 {
     }
     proc rotate {a theta} {
         lassign $a x y
-        list [expr {$x*cos($theta) - $y*sin($theta)}] \
-             [expr {$x*sin($theta) + $y*cos($theta)}]
+        list [expr {$x*cos($theta) + $y*sin($theta)}] \
+             [expr {-$x*sin($theta) + $y*cos($theta)}]
     }
     proc distance {a b} {
         lassign $a ax ay
@@ -130,12 +130,14 @@ namespace eval ::region {
     proc rotate {r angle} {
         set theta [angle $r]
         set c [centroid $r]
-        mapVertices v $r {
+        set r' [mapVertices v $r {
             set v [vec2 sub $v $c]
             set v [vec2 rotate $v $angle]
             set v [vec2 add $v $c]
             set v
-        }
+        }]
+        lset r' 2 [+ $theta $angle]
+        set r'
     }
 
     # Scales about the center of the region, along the x and y axes of
