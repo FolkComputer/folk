@@ -5,8 +5,18 @@ namespace eval ::vec2 {
     proc sub {a b} {
         list [- [lindex $a 0] [lindex $b 0]] [- [lindex $a 1] [lindex $b 1]]        
     }
-    proc scale {s a} {
-        list [* $s [lindex $a 0]] [* $s [lindex $a 1]]
+    proc scale {a args} {
+        if {[llength $args] == 1} {
+            set sx [lindex $args 0]; set sy [lindex $args 0]
+        } else {
+            lassign $args sx sy
+        }
+        list [* [lindex $a 0] $sx] [* [lindex $a 1] $sy]
+    }
+    proc rotate {a theta} {
+        lassign $a x y
+        list [expr {$x*cos($theta) - $y*sin($theta)}] \
+             [expr {$x*sin($theta) + $y*cos($theta)}]
     }
     proc distance {a b} {
         lassign $a ax ay
@@ -114,14 +124,14 @@ namespace eval ::region {
         lassign $vertices a b c d
 
         set vecsum [vec2 add [vec2 add [vec2 add $a $b] $c] $d]
-        vec2 scale 0.25 $vecsum
+        vec2 scale $vecsum 0.25
     }
 
     # Scales about the center of the region, along the x and y axes of
     # the space of the region (not the global x and y).
     proc scale {r args} {
         set theta [angle $r]
-        lassign [centroid $r] cx cy
+        set c [centroid $r]
         if {[llength $args] == 1} {
             set args [list width [lindex $args 0] height [lindex $args 0]]
         }
@@ -147,14 +157,13 @@ namespace eval ::region {
                 error "region scale: Invalid dimension $dim"
             }
 
-            set sx [expr {$sxp*cos(-$theta) + $syp*sin(-$theta)}]
-            set sy [expr {-$sxp*sin(-$theta) + $syp*cos(-$theta)}]
             set r [mapVertices v $r {
-                lassign $v x y
-                set x [- $x $cx]; set y [- $y $cy]
-                set x [* $x $sx]; set y [* $y $sy]
-                set x [+ $x $cx]; set y [+ $y $cy]
-                list $x $y
+                set v [vec2 sub $v $c]
+                set v [vec2 rotate $v [* -1 $theta]]
+                set v [vec2 scale $v $sxp $syp]
+                set v [vec2 rotate $v $theta]
+                set v [vec2 add $v $c]
+                set v
             }]
         }
         set r
