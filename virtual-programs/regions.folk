@@ -54,10 +54,8 @@ namespace eval ::region {
     proc width {r} {
         set minXp 100000
         set maxXp -100000
-        set theta [angle $r]
-        foreach v [vertices $r] {
-            lassign $v x y
-            set xp [expr {$x*cos($theta) + $y*sin($theta)}]
+        foreach v [vertices [rotate $r [* -1 [angle $r]]]] {
+            lassign $v xp yp
             if {$xp < $minXp} { set minXp $xp }
             if {$xp > $maxXp} { set maxXp $xp }
         }
@@ -66,10 +64,8 @@ namespace eval ::region {
     proc height {r} {
         set minYp 100000
         set maxYp -100000
-        set theta [angle $r]
-        foreach v [vertices $r] {
-            lassign $v x y
-            set yp [expr {-$x*sin($theta) + $y*cos($theta)}]
+        foreach v [vertices [rotate $r [* -1 [angle $r]]]] {
+            lassign $v xp yp
             if {$yp < $minYp} { set minYp $yp }
             if {$yp > $maxYp} { set maxYp $yp }
         }
@@ -170,6 +166,7 @@ namespace eval ::region {
                 error "region scale: Invalid dimension $dim"
             }
 
+            # TODO: Optimize
             set r [mapVertices v $r {
                 set v [vec2 sub $v $c]
                 set v [vec2 rotate $v [* -1 $theta]]
@@ -185,7 +182,8 @@ namespace eval ::region {
     # Moves the region left/right/up/down along the x and y axes of
     # the space of the region (not the global x and y).
     proc move {r args} {
-        set angle [angle $r]
+        set theta [angle $r]
+        set c [centroid $r]
         foreach {direction distance} $args {
             if {![regexp {([0-9]+)(px|%)} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
@@ -198,23 +196,16 @@ namespace eval ::region {
                     set distance [expr {[height $r] * $distance * 0.01}]
                 }
             }
-            set dx [if {$direction eq "left"} {- $distance} \
-                    elseif {$direction eq "right"} {+ $distance} \
-                    else {+ 0}]
-            set dy [if {$direction eq "up"} {- $distance} \
-                    elseif {$direction eq "down"} {+ $distance} \
-                    else {+ 0}]
-            if {$dx == 0 && $dy == 0} {
+            set dxp [if {$direction eq "left"} {- $distance} \
+                     elseif {$direction eq "right"} {+ $distance} \
+                         else {+ 0}]
+            set dyp [if {$direction eq "up"} {- $distance} \
+                     elseif {$direction eq "down"} {+ $distance} \
+                     else {+ 0}]
+            if {$dxp == 0 && $dyp == 0} {
                 error "region move: Invalid direction $direction"
             }
-
-            # Translate dx and dy into polar coordinates.
-            set theta [atan2 $dy $dx]
-            set mag [hypot $dy $dx]
-
-            # Rotate dx and dy into the global coordinate space.
-            set dv [list [expr {$mag*cos($theta)}] [expr {$mag*sin($theta)}]]
-
+            set dv [vec2 rotate [list $dxp $dyp] $theta]
             set r [mapVertices v $r {vec2 add $v $dv}]
         }
         set r
