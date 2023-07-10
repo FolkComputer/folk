@@ -1,3 +1,13 @@
+# TODO: Find a good C sha-smth instead of this. 
+proc hashString {str} {
+  set hash 0
+  foreach char [split $str ""] {
+    set ascii [scan $char %c]
+    set hash [expr {($hash * 31 + $ascii) & 0xffffffff}]
+  }
+  set hash
+}
+
 if {[info exists ::env(FOLK_SHARE_NODE)]} {
     set ::shareNode $::env(FOLK_SHARE_NODE)
 } else {
@@ -20,6 +30,8 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
             set ::shareNode "folk0.local"
         } elseif {[string match "_onefact.org*" $wifi]} {
             set ::shareNode "folk-onefact.local"
+        } elseif {[hashString $wifi] eq 4077950650 || [hashString $wifi] eq 862457117} {
+            set ::shareNode "folk-arc.local"
         } else {
             # there's no default.
         }
