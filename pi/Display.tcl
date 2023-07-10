@@ -313,7 +313,7 @@ namespace eval Display {
     }
 
     proc text {fb x y scale text radians} {
-	set upsidedown [expr {abs($radians) < 1.57}]
+	set upsidedown [expr {abs($radians) > 1.57}]
         drawText [expr {int($x)}] [expr {int($y)}] $upsidedown $scale $text
     }
 
