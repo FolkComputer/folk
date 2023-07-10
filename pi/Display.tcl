@@ -293,13 +293,15 @@ namespace eval Display {
             set a [lindex $points $i]
             set b [lindex $points [expr $i+1]]
             if {$b == ""} break
-	    if {$a eq $b} continue
 
             # if line is past edge of screen, clip it to the nearest
             # point along edge of screen
             clipLine a b $width
 
             set bMinusA [math::linearalgebra::sub $b $a]
+            if {[lindex $bMinusA 0] == 0.0 || [lindex $bMinusA 1] == 0.0} {
+                continue
+            }
             set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
             set nudge [math::linearalgebra::scale $width [math::linearalgebra::unitLengthVector $nudge]]
 
