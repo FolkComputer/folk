@@ -76,9 +76,6 @@ proc ::projectorToCamera {projectorPoint} {
 
 When (non-capturing) tag /tag/ has center /c/ size /size/ {
      Claim tag $tag is a tag
-
-     lassign [::cameraToProjector $c] px py
-     Claim $tag is a rectangle with x [expr $px-20] y [expr $py-10] width [expr $size*2] height [expr $size*2]
 }
 
 When (non-capturing) tag /tag/ is a tag {
@@ -116,7 +113,8 @@ When (non-capturing) tag /tag/ has corners /corners/ {
     }
     lappend edges [list [expr {[llength $corners] - 1}] 0]
 
-    set region [list $corners $edges [::tcl::mathfunc::atan2 {*}$vecRight]] 
+    set angle [atan2 [lindex $vecBottom 1] [lindex $vecBottom 0]]
+    set region [list $corners $edges $angle]
 
     Claim $tag has region $region
 }
