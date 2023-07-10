@@ -47,6 +47,13 @@ proc ltrim {list} {
         }
     ]
 }
+proc lenumerate {l} {
+    set ret [list]
+    for {set i 0} {$i < [llength $l]} {incr i} {
+        lappend ret $i [lindex $l $i]
+    }
+    set ret
+}
 
 proc python3 {args} {
     exec python3 << [undent [join $args " "]]
