@@ -1,5 +1,5 @@
 package require Thread
-proc errorproc {args} {puts "Thread error: $args"}
+proc errorproc {id errorInfo} {puts "Thread error in $id: $errorInfo"}
 thread::errorproc errorproc
 
 namespace eval Display {
