@@ -4,16 +4,16 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
 
 When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
     if {$direction eq "up"} {
-        set whiskerRegion [region move [region scale $region width 0.01px] up 50%]
+        set whiskerRegion [region move [region scale $region width 0.01px] up 51%]
         set color blue
     } elseif {$direction eq "left"} {
-        set whiskerRegion [region move [region scale $region height 0.01px] left 50%]
+        set whiskerRegion [region move [region scale $region height 0.01px] left 51%]
         set color red
     } elseif {$direction eq "right"} {
-        set whiskerRegion [region move [region scale $region height 0.01px] right 50%]
+        set whiskerRegion [region move [region scale $region height 0.01px] right 51%]
         set color green
     } elseif {$direction eq "down"} {
-        set whiskerRegion [region move [region scale $region width 0.01px] down 50%]
+        set whiskerRegion [region move [region scale $region width 0.01px] down 51%]
         set color white
     }
     set whisker [list $rect whisker $direction]
