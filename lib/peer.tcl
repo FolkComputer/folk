@@ -41,6 +41,7 @@ proc ::peer {process} {
             if {$type eq "connect"} {
                 log "Connected"
                 variable connected true
+                fconfigure $chan -blocking false
 
                 # Establish a peering on their end, in the reverse
                 # direction, so they can send stuff back to us.
@@ -48,6 +49,8 @@ proc ::peer {process} {
                 # (because of how `run` is implemented above)
                 run {
                     variable chan [uplevel {set chan}]
+                    fconfigure $chan -blocking false
+
                     variable connected true
                     proc run {msg} {
                         variable chan
