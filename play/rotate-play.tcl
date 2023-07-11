@@ -82,12 +82,16 @@ $cc proc shearX {image_t sprite int x0 int y0 int width int height double sx} vo
 $cc proc shearY {image_t sprite int x0 int y0 int width int height double sy} void {
     for (int y = y0 + height - 1; y >= y0; y--) {
         for (int x = x0; x < x0 + width; x++) {
-            int shear = sy * (x - x0); (void)shear;
+            int shear = sy * (x - x0); // May be negative.
             int from = y*sprite.bytesPerRow + x*sprite.components;
             int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
             sprite.data[to] = sprite.data[from];
             // Blot out the unsheared part
             if (shear > 0) sprite.data[from] = 0x11;
+            if (from >= sprite.bytesPerRow * sprite.height) { exit(1); }
+            if (to >= sprite.bytesPerRow * sprite.height) {
+                exit(2);
+            }
         }
     }
 }
@@ -123,17 +127,22 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
            alpha, textWidth, textWidth + (int)(alpha * textHeight),
            beta, textHeight, textHeight + (int)(beta * textWidth));
 
-    image_t temp = {
-        .width = textWidth + fabs(alpha)*textHeight*2,
-        .height = textHeight + fabs(beta)*textWidth,
-        .components = 1,
-        .bytesPerRow = textWidth + fabs(alpha)*textHeight*2,
-    };
-    temp.data = ckalloc(temp.bytesPerRow * temp.height);
-    memset(temp.data, 64, temp.bytesPerRow * temp.height);
+    image_t temp; {
+        temp.width = textWidth; 
+        temp.height = textHeight;
 
-    int textX = alpha > 0 ? 0 : fabs(alpha)*textHeight*2;
-    int textY = beta > 0 ? 0 : fabs(beta)*textWidth;
+        temp.width += fabs(alpha)*temp.height;
+        temp.height += fabs(beta)*temp.width;
+        temp.width += fabs(alpha)*temp.height;
+
+        temp.components = 1;
+        temp.bytesPerRow = temp.width * temp.components;
+        temp.data = ckalloc(temp.bytesPerRow * temp.height);
+        memset(temp.data, 64, temp.bytesPerRow * temp.height);
+    }
+
+    int textX = alpha > 0 ? 0 : temp.width - textWidth;
+    int textY = beta > 0 ? 0 : temp.height - textHeight;
     for (unsigned i = 0; i < len; i++) {
 	int letterOffset = text[i] * font.char_height * 2;
 
@@ -183,5 +192,5 @@ $cc compile
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
 init
-drawText 20 20 [degrees 80] 1 "hello"
+drawText 20 20 [degrees -56] 1 "hello"
 commit
