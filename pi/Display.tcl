@@ -429,8 +429,8 @@ namespace eval Display {
     source "pi/Colors.tcl"
 
     variable fb
-    trace add variable fb read {apply {args {
-        getFbPointer
+    trace add variable fb read {apply {{name _ op} {
+        set Display::fb [getFbPointer]
     }}}
 
     lappend auto_path "./vendor"

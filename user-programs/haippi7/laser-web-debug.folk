@@ -1,5 +1,6 @@
 When the collected matches for [list laser blob /t/ has center /c/ size /s/] are /matches/ {
-  Wish the web server handles route "/laser-web-debug" with handler [list Evaluator::tryRunInSerializedEnvironment {
+  Wish the web server handles route "/laser-web-debug" with handler [list apply {{matches} {
+    upvar ^html ^html
     set blobsHtml "<ol>"
     set blobsJson ""
     foreach match $matches {
@@ -73,5 +74,5 @@ Test1();
         </html>
 
     }]
-  } [Evaluator::serializeEnvironment]]
+  }} $matches]
 }
