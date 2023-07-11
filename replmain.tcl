@@ -28,7 +28,10 @@ proc repl {} {
         flush stdout
         gets stdin line        ;# read...
         if [eof stdin] break
-        ::websocket::send $::sock text $line
+        ::websocket::send $::sock text [list apply {{line} {
+            upvar chan chan
+            ::websocket::send $chan text [eval $line]
+        }} $line]
         vwait ::response
         puts $::response
     }

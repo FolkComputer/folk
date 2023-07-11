@@ -48,6 +48,7 @@ proc ::peer {process} {
                 # (because of how `run` is implemented above)
                 run {
                     variable chan [uplevel {set chan}]
+
                     variable connected true
                     proc run {msg} {
                         variable chan

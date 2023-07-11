@@ -100,7 +100,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
             setTimeout(() => {
               send(`
 set errors [Statements::findMatches [list program_id has error /err/ with info /errorInfo/]]
-join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
+::websocket::send $chan text [join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"]
 `);
             }, 500);
           }

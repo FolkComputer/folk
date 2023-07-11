@@ -155,7 +155,7 @@ Wish the web server handles route "/new" with handler {
 	  setTimeout(() => {
 	    send(`
 set errors [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]
-join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
+::websocket::send $chan text [join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"]
 `);
 	  }, 500);
 	}

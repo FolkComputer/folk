@@ -506,31 +506,31 @@ namespace eval Display {
     }
 
     proc stroke {points width color} {
-        for {set i 0} {$i < [llength $points]} {incr i} {
-            set a [lindex $points $i]
-            set b [lindex $points [expr $i+1]]
-            if {$b == ""} break
-	    if {$a eq $b} continue
+        for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
+            try {
+                set a [lindex $points $i]
+                set b [lindex $points [expr $i+1]]
 
-            # if line is past edge of screen, clip it to the nearest
-            # point along edge of screen
-            clipLine a b $width
+                # if line is past edge of screen, clip it to the nearest
+                # point along edge of screen
+                clipLine a b $width
 
-            set bMinusA [math::linearalgebra::sub $b $a]
-            set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
-            set nudge [math::linearalgebra::scale $width [math::linearalgebra::unitLengthVector $nudge]]
+                set bMinusA [math::linearalgebra::sub $b $a]
+                set nudge [list [lindex $bMinusA 1] [expr {[lindex $bMinusA 0]*-1}]]
+                set nudge [math::linearalgebra::scale $width [math::linearalgebra::unitLengthVector $nudge]]
 
-            set a0 [math::linearalgebra::add $a $nudge]
-            set a1 [math::linearalgebra::sub $a $nudge]
-            set b0 [math::linearalgebra::add $b $nudge]
-            set b1 [math::linearalgebra::sub $b $nudge]
-            fillTriangle $a0 $a1 $b1 [getColor $color]
-            fillTriangle $a0 $b0 $b1 [getColor $color]
+                set a0 [math::linearalgebra::add $a $nudge]
+                set a1 [math::linearalgebra::sub $a $nudge]
+                set b0 [math::linearalgebra::add $b $nudge]
+                set b1 [math::linearalgebra::sub $b $nudge]
+                fillTriangle $a0 $a1 $b1 [getColor $color]
+                fillTriangle $a0 $b0 $b1 [getColor $color]
+            } on error e {}
         }
     }
 
     proc text {fb x y scale text radians} {
-	set upsidedown [expr {abs($radians) < 1.57}]
+	set upsidedown [expr {abs($radians) > 1.57}]
         drawText [expr {int($x)}] [expr {int($y)}] $upsidedown $scale $text
     }
 
