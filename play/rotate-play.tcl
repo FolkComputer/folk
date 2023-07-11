@@ -80,9 +80,10 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
         .width = textWidth + textWidth * alpha,
         .height = textHeight + textHeight * beta,
         .components = 1,
-        .bytesPerRow = textWidth,
+        .bytesPerRow = textWidth + textWidth * alpha,
     };
     temp.data = ckalloc(temp.bytesPerRow * temp.height);
+    memset(temp.data, 0, temp.bytesPerRow * temp.height);
 
     for (unsigned i = 0; i < len; i++) {
 	int letterOffset = text[i] * font.char_height * 2;
