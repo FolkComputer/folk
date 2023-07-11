@@ -100,6 +100,16 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
 	    }
 	}
     }
+
+    
+    for (int x = 0; x < temp.width; x++) {
+        temp.data[x] = 0xFF;
+        temp.data[x + (temp.height - 1)*temp.bytesPerRow] = 0xFF;
+    }
+    for (int y = 0; y < temp.height; y++) {
+        temp.data[y*temp.bytesPerRow] = 0xFF;
+        temp.data[y*temp.bytesPerRow + temp.width - 1] = 0xFF;
+    }
     drawImage(x0, y0, temp, scale);
     ckfree(temp.data);
 }
