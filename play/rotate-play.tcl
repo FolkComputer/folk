@@ -62,7 +62,52 @@ $cc proc drawImage {int x0 int y0 image_t image int scale} void {
         }
     }
 }
+$cc proc shearX {image_t sprite int x0 int y0 int width int height double sx} void {
+    for (int y = y0; y < height; y++) {
+        int shear = sx * (y - y0); // May be negative.
+        memmove(&sprite.data[y*sprite.bytesPerRow + (x0 + shear)*sprite.components],
+                &sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
+                width * sprite.components);
 
+        // Blot out the unsheared part
+        if (shear > 0) {
+            memset(&sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
+                   0x11, shear*sprite.components);
+        } else if (shear < 0) {
+            memset(&sprite.data[y*sprite.bytesPerRow + (x0+width+shear)*sprite.components],
+                   0x11, -shear*sprite.components);
+        }
+    }
+}
+$cc proc shearY {image_t sprite int x0 int y0 int width int height double sy} void {
+    for (int y = y0 + height - 1; y >= y0; y--) {
+        for (int x = x0; x < x0 + width; x++) {
+            int shear = sy * (x - x0); (void)shear;
+            int from = y*sprite.bytesPerRow + x*sprite.components;
+            int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
+            sprite.data[to] = sprite.data[from];
+            // Blot out the unsheared part
+            if (shear > 0) sprite.data[from] = 0x11;
+        }
+    }
+}
+$cc proc rotate {image_t sprite int x0 int y0 int width int height double radians} void {
+    // In-place rotation. Sprite must be big enough to accommodate the
+    // rotation.
+    double alpha = -tan(radians/2);
+    double beta = sin(radians);
+    printf("alpha = %f; beta = %f\n", alpha, beta);
+
+    shearX(sprite, x0, y0, width, height, alpha);
+    if (alpha < 0) x0 += alpha*height;
+    width += fabs(alpha)*height;
+
+    shearY(sprite, x0, y0, width, height, beta);
+    if (beta < 0) y0 += beta*width;
+    height += fabs(beta)*width;
+
+    shearX(sprite, x0, y0, width, height, alpha);
+}
 $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
     // Draws 1 line of text (no linebreak handling).
     int len = strlen(text);
@@ -72,19 +117,23 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
     int textWidth = len * font.char_width;
     int textHeight = font.char_height;
 
-    float alpha = tanf(radians/2);
-    float beta = sin(radians);
-    printf("alpha = %f; beta = %f\n", alpha, beta);
+    double alpha = -tan(radians/2);
+    double beta = sin(radians);
+    printf("alpha = %f (%d -> %d); beta = %f (%d -> %d)\n",
+           alpha, textWidth, textWidth + (int)(alpha * textHeight),
+           beta, textHeight, textHeight + (int)(beta * textWidth));
 
     image_t temp = {
-        .width = textWidth + textWidth * alpha,
-        .height = textHeight + textHeight * beta,
+        .width = textWidth + fabs(alpha)*textHeight*2,
+        .height = textHeight + fabs(beta)*textWidth,
         .components = 1,
-        .bytesPerRow = textWidth + textWidth * alpha,
+        .bytesPerRow = textWidth + fabs(alpha)*textHeight*2,
     };
     temp.data = ckalloc(temp.bytesPerRow * temp.height);
-    memset(temp.data, 0, temp.bytesPerRow * temp.height);
+    memset(temp.data, 64, temp.bytesPerRow * temp.height);
 
+    int textX = alpha > 0 ? 0 : fabs(alpha)*textHeight*2;
+    int textY = beta > 0 ? 0 : fabs(beta)*textWidth;
     for (unsigned i = 0; i < len; i++) {
 	int letterOffset = text[i] * font.char_height * 2;
 
@@ -97,12 +146,13 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
 		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
 		if (!bit) continue;
 
-		temp.data[y*temp.width + (x+i*font.char_width)] = 0xFF;
+		temp.data[(textY+y)*temp.bytesPerRow + (textX+x+i*font.char_width)*temp.components] = 0xFF;
 	    }
 	}
     }
 
-    
+    rotate(temp, textX, textY, textWidth, textHeight, radians);
+
     for (int x = 0; x < temp.width; x++) {
         temp.data[x] = 0xFF;
         temp.data[x + (temp.height - 1)*temp.bytesPerRow] = 0xFF;
@@ -111,6 +161,7 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
         temp.data[y*temp.bytesPerRow] = 0xFF;
         temp.data[y*temp.bytesPerRow + temp.width - 1] = 0xFF;
     }
+
     drawImage(x0, y0, temp, scale);
     ckfree(temp.data);
 }
@@ -129,6 +180,8 @@ $cc proc commit {} void {
 
 $cc compile
 
+proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
+
 init
-drawText 20 20 0 1 "hello"
+drawText 20 20 [degrees 80] 1 "hello"
 commit
