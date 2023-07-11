@@ -80,17 +80,26 @@ $cc proc shearX {image_t sprite int x0 int y0 int width int height double sx} vo
     }
 }
 $cc proc shearY {image_t sprite int x0 int y0 int width int height double sy} void {
-    for (int y = y0 + height - 1; y >= y0; y--) {
-        for (int x = x0; x < x0 + width; x++) {
-            int shear = sy * (x - x0); // May be negative.
-            int from = y*sprite.bytesPerRow + x*sprite.components;
-            int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
-            sprite.data[to] = sprite.data[from];
-            // Blot out the unsheared part
-            if (shear > 0) sprite.data[from] = 0x11;
-            if (from >= sprite.bytesPerRow * sprite.height) { exit(1); }
-            if (to >= sprite.bytesPerRow * sprite.height) {
-                exit(2);
+    if (sy > 0) {
+        for (int y = y0 + height - 1; y >= y0; y--) {
+            for (int x = x0; x < x0 + width; x++) {
+                int shear = sy * (x - x0);
+                int from = y*sprite.bytesPerRow + x*sprite.components;
+                int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
+                sprite.data[to] = sprite.data[from];
+                // Blot out the unsheared part
+                if (from != to) { sprite.data[from] = 0x11; }
+            }
+        }
+    } else if (sy < 0) {
+        for (int y = y0; y < y0 + height; y++) {
+            for (int x = x0; x < x0 + width; x++) {
+                int shear = sy * (x - x0); // Is negative.
+                int from = y*sprite.bytesPerRow + x*sprite.components;
+                int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
+                sprite.data[to] = sprite.data[from];
+                // Blot out the unsheared part
+                if (from != to) { sprite.data[from] = 0x11; }
             }
         }
     }
@@ -192,5 +201,5 @@ $cc compile
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
 init
-drawText 20 20 [degrees -56] 1 "hello"
+drawText 20 20 [degrees -90] 1 "hello"
 commit
