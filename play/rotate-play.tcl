@@ -23,15 +23,12 @@ $cc proc init {} void {
     buffer = (uint32_t*) malloc(800 * 600 * 4);
 }
 
-$cc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
+$cc proc drawText {int x0 int y0 double radians int scale char* text} void {
     // Draws 1 line of text (no linebreak handling).
-    // TODO: upsidedown/radians is still funky
     int len = strlen(text);
-    int S = upsidedown ? -1 : 1;
 
     for (unsigned i = 0; i < len; i++) {
-	int N = upsidedown ? len-i-1 : i;
-	int letterOffset = text[N] * font.char_height * 2;
+	int letterOffset = text[i] * font.char_height * 2;
 
 	// Loop over the font bitmap
 	for (unsigned y = 0; y < font.char_height; y++) {
@@ -42,17 +39,7 @@ $cc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
 		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
 		if (!bit) continue;
 
-		// When bit is on, repeat to scale to font-size
-		for (int dy = 0; dy < scale; dy++) {
-		    for (int dx = 0; dx < scale; dx++) {
-
-            int sx = x0 + S * (scale * x + dx + N * scale * font.char_width);
-			int sy = y0 + S * (scale * y + dy);
-			if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
-
-			buffer[sy*fbwidth + sx] = 0xFFFF;
-		    }
-		}
+		buffer[(y0+y)*fbwidth + (x0+x+i*font.char_width)] = 0xFFFF;
 	    }
 	}
     }
