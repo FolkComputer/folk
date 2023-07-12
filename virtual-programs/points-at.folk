@@ -1,19 +1,27 @@
-When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
-  Wish $rect points $direction
+When when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ with environment /e/ {
+  Wish $rect points $direction with length $l
 }
 
-When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
+When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
+  Wish $rect points $direction with length 1
+}
+
+When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has region /region/ {
+
+    set scale [expr {$l * 100}]%
+    set shift 90%
+
     if {$direction eq "up"} {
-        set whiskerRegion [region move [region scale $region width 0.01px] up 51%]
+        set whiskerRegion [region move [region scale [region scale $region width 0.01px] height $scale] up $shift]
         set color blue
     } elseif {$direction eq "left"} {
-        set whiskerRegion [region move [region scale $region height 0.01px] left 51%]
+        set whiskerRegion [region move [region scale [region scale $region height 0.01px] width $scale] left $shift]
         set color red
     } elseif {$direction eq "right"} {
-        set whiskerRegion [region move [region scale $region height 0.01px] right 51%]
+        set whiskerRegion [region move [region scale [region scale $region height 0.01px] width $scale] right $shift]
         set color green
     } elseif {$direction eq "down"} {
-        set whiskerRegion [region move [region scale $region width 0.01px] down 51%]
+        set whiskerRegion [region move [region scale [region scale $region width 0.01px] height $scale] down $shift]
         set color white
     }
     set whisker [list $rect whisker $direction]
@@ -24,6 +32,7 @@ When /someone/ wishes /rect/ points /direction/ & /rect/ has region /region/ {
         if {$target != $rect && $target != $whisker && \
                 [region intersects $whiskerRegion $r2]} {
             Claim $rect points $direction at $target
+            Claim $rect points $direction with length $l at $target
         }
     }
 }
