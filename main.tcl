@@ -61,7 +61,7 @@ proc When {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
     if {[lindex $pattern 0] eq "(non-capturing)"} {
-        set argNames [list]; set argValues [list]
+        set argNames [list this]; set argValues [list [uplevel {set this}]]
         set pattern [lreplace $pattern 0 0]
     } else {
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues

@@ -117,7 +117,7 @@ When (non-capturing) tag /tag/ has center /c/ size /size/ {
 }
 
 When (non-capturing) tag /tag/ is a tag {
-     puts "Added tag $tag"
+    puts "Added tag $tag"
 
     set tempPath "$::env(HOME)/folk-printed-programs/$tag.folk.temp"
 
@@ -133,46 +133,116 @@ When (non-capturing) tag /tag/ is a tag {
      Claim $tag has program code $code
 }
 
-set ::positionBeliefs [dict create]
-set ::existenceBeliefs [dict create]
+set ::positionEstimateUpdateRate 0.16
+# this should almost certainly be the same as positionEstimateUpdateRate
+# set ::centerEstimateUpdateRate 0.16
+# set ::sizeEstimateUpdateRate 0.16
+# set ::velocityEstimateUpdateRate 0.16
 
-set ::cornerBeliefUpdateRate 0.16
+# When (non-capturing) $::thisNode has step count /c/ {
+#   set time [clock microseconds]
+#   When tag /tag/ has corners /corners/ at time /t/ for our calculation {
+#     if {[- $time $t] > 1000000} {
+#       Commit $tag center {}
+#       Commit $tag corners {}
+#     }
+#   }
+# }
+                       
+# When (non-capturing) tag /tag/ has center /center/ size /size/ at time /t/ {
+#   When /nobody/ claims tag $tag has center /center/ size /size/ at time /t/ for our calculation {
+#       Commit $tag center { Claim tag $tag has center $center size $size at time $t for our calculation }
+#   }
+#   Every time tag $tag has center /oldCenterEstimate/ size /oldSizeEstimate/ at time /t/ for our calculation {
+#     set newCenterEstimate [add \
+#       [scale [expr {1 - $::centerEstimateUpdateRate}] $oldCenterEstimate] \
+#       [scale $::centerEstimateUpdateRate $center]]
+#
+#     set newSizeEstimate [+ \
+#       [* [expr {1 - $::sizeEstimateUpdateRate}] $oldSizeEstimate] \
+#       [* $::sizeEstimateUpdateRate $size]]
+#
+#     Commit $tag center { Claim tag $tag has center $newCenterEstimate size $newSizeEstimate at time $t for our calculation }
+#   }
+# }
 
-When (non-capturing) $::thisNode has step count /c/ {
-  dict for {tag value} $::existenceBeliefs {
-    if {$value != 0} { 
-      Claim tag $tag is a tag
-      Claim tag $tag has corners [dict get $::positionBeliefs $tag]
-      dict incr ::existenceBeliefs $tag -1
+When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
+  When /nobody/ claims tag $tag has corners /corners/ at time /t/ for our calculation {
+      Commit $tag corners { Claim tag $tag has corners $corners at time $t for our calculation  }
+  }
+  Every time tag $tag has corners /oldCornersEstimate/ at time /t/ for our calculation { 
+    set newCornersEstimate [list]
+    foreach {i corner} [lenumerate $corners] { 
+      set oldCornerEstimate [lindex $oldCornersEstimate $i]
+      lappend newCornersEstimate [add \
+        [scale [expr {1 - $::positionEstimateUpdateRate}] $oldCornerEstimate] \
+        [scale $::positionEstimateUpdateRate $corner] \
+      ]
     }
+
+    Commit $tag corners { Claim tag $tag has corners $newCornersEstimate at time $t for our calculation }
   }
 }
 
-When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
-    dict set ::existenceBeliefs $tag 4
+# TODO: NO FOR OUR CALCULATION
+When (non-capturing) tag /tag/ has center /center/ size /size/ at time /t/ {
+  Claim tag $tag has center $center size $size
+}
 
-    if {![dict exists $::positionBeliefs $tag]} {
-      dict set ::positionBeliefs $tag $corners
-    } else { 
-      set previousCornerBeliefs [dict get $::positionBeliefs $tag]
-      set newCornerBeliefs [list]
+When (non-capturing) tag /tag/ has corners /corners/ at time /t/ for our calculation {
+  Claim tag $tag has corners $corners
+}
 
-      foreach {i corner} [lenumerate $corners] { 
-        set previousCornerBelief [lindex $previousCornerBeliefs $i]
-        lappend newCornerBeliefs [add \
-          [scale [expr {1 - $::cornerBeliefUpdateRate}] $previousCornerBelief] \
-          [scale $::cornerBeliefUpdateRate $corner] \
-        ]
-      }
 
-      dict set ::positionBeliefs $tag $newCornerBeliefs
-    }
-
-    set corners [dict get $::positionBeliefs $tag]
-    # Claim tag $tag has corners $corners
-  }
-
-  When (non-capturing) tag /tag/ has corners /corners/ {
+#
+# # Update tag center, size, and velocity Estimates
+# When (non-capturing) tag /tag/ has center /center/ size /size/ at time /t/ {
+#     if {![dict exists $::velocityEstimates $tag]} {
+#       dict set ::sizeEstimates $tag $size
+#       dict set ::centerEstimates $tag $center
+#       dict set ::velocityEstimates $tag {0 0}
+#     } else { 
+#       set previousSizeEstimate [dict get $::sizeEstimates $tag]
+#       set previousCenterEstimate [dict get $::centerEstimates $tag]
+#       set previousVelocityEstimate [dict get $::velocityEstimates $tag]
+#
+#       # do size 
+#
+#       set newSizeEstimate [add \
+#         [scale [expr {1 - $::sizeEstimateUpdateRate}] $previousSizeEstimate] \
+#         [scale $::sizeEstimateUpdateRate $size] \
+#       ]
+#
+#       dict set ::sizeEstimates $tag $newSizeEstimate
+#       dict set ::velocityEstimates $tag $newSizeEstimate
+#     }
+# }
+#
+#
+# # Update and interpolate tag corner position Estimates
+# When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
+#     dict set ::existenceEstimates $tag 4
+#
+#     if {![dict exists $::cornerEstimates $tag]} {
+#       dict set ::cornerEstimates $tag $corners
+#     } else { 
+#       set previousCornerEstimates [dict get $::cornerEstimates $tag]
+#       set newCornerEstimates [list]
+#
+#       foreach {i corner} [lenumerate $corners] { 
+#         set previousCornerEstimate [lindex $previousCornerEstimates $i]
+#         lappend newCornerEstimates [add \
+#           [scale [expr {1 - $::positionEstimateUpdateRate}] $previousCornerEstimate] \
+#           [scale $::positionEstimateUpdateRate $corner] \
+#         ]
+#       }
+#
+#       dict set ::cornerEstimates $tag $newCornerEstimates
+#     }
+#   }
+#
+# Create tag region
+When (non-capturing) tag /tag/ has corners /corners/ {
 
     set tagCorners [lmap p $corners {::cameraToProjector $p}]
     # foreach tagCorner $tagCorners { Display::text fb {*}$tagCorner 1 $tagCorner }
