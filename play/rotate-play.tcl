@@ -63,7 +63,7 @@ $cc proc drawImage {int x0 int y0 image_t image int scale} void {
     }
 }
 $cc proc shearX {image_t sprite int x0 int y0 int width int height double sx} void {
-    for (int y = y0; y < height; y++) {
+    for (int y = y0; y < y0 + height; y++) {
         int shear = sx * (y - y0); // May be negative.
         memmove(&sprite.data[y*sprite.bytesPerRow + (x0 + shear)*sprite.components],
                 &sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
@@ -109,7 +109,6 @@ $cc proc rotate {image_t sprite int x0 int y0 int width int height double radian
     // rotation.
     double alpha = -tan(radians/2);
     double beta = sin(radians);
-    printf("alpha = %f; beta = %f\n", alpha, beta);
 
     shearX(sprite, x0, y0, width, height, alpha);
     if (alpha < 0) x0 += alpha*height;
@@ -132,9 +131,6 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
 
     double alpha = -tan(radians/2);
     double beta = sin(radians);
-    printf("alpha = %f (%d -> %d); beta = %f (%d -> %d)\n",
-           alpha, textWidth, textWidth + (int)(alpha * textHeight),
-           beta, textHeight, textHeight + (int)(beta * textWidth));
 
     image_t temp; {
         temp.width = textWidth; 
@@ -201,5 +197,5 @@ $cc compile
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
 init
-drawText 20 20 [degrees -90] 1 "hello"
+drawText 20 20 [degrees 90] 1 "hello"
 commit
