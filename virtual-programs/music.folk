@@ -117,14 +117,14 @@ proc ::Music::finishSetup {} {
   catch {exec pkill ghci}
   catch {exec pkill sclang}
   after 500 {
-    exec -ignorestderr xvfb-run --auto-servernum sclang $::Music::musicDir/startup.sc &
+    ::Music::exec -ignorestderr xvfb-run --auto-servernum sclang $::Music::musicDir/startup.sc &
 
     set fifo $::Music::musicDir/tidal-input
     exec rm -f $fifo
     exec mkfifo $fifo
-    exec -ignorestderr sh -c "ghci < $fifo" &
+    ::Music::exec -ignorestderr sh -c "ghci < $fifo" &
     set fifoId [open $fifo w]
-    ::exec cat $::Music::musicDir/BootTidal.hs > $fifo
+    exec cat $::Music::musicDir/BootTidal.hs > $fifo
   }
 }
 
