@@ -35,7 +35,8 @@ proc handlePage {path contentTypeVar} {
                     <summary style="[expr {
                     [lsearch -exact [statement clause $stmt] error] != -1
                     ? "color: red"
-                    : ""}]">$id: [htmlEscape [statement short $stmt]]</summary>
+                    : ""}]">
+                    $id: [htmlEscape [statement short $stmt]]</summary>
                     <pre>[htmlEscape [statement clause $stmt]]</pre>
                     </details>
                     </li>
@@ -43,12 +44,17 @@ proc handlePage {path contentTypeVar} {
             }
             subst {
                 <html>
-                <ul>
-                <li><a href="/new">New program</a></li>   
-                <li><a href="/timings">Timings</a></li>
-                <li><a href="/statementClauseToId.pdf">statementClauseToId graph</a></li>
-                <li><a href="/statements.pdf">statements graph</a></li>
-                </ul>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Statements</title>
+                </head>
+                <nav>
+                <a href="/new"><button>New program</button></a>
+                <a href="/timings">Timings</a>
+                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                <a href="/statements.pdf">statements graph</a>
+                </nav>
+                <h1>Statements</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
             }
@@ -73,6 +79,16 @@ proc handlePage {path contentTypeVar} {
             }
             subst {
                 <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Timings</title>
+                </head>
+                <nav>
+                <a href="/new"><button>New program</button></a>
+                <a href="/">Statements</a>
+                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                <a href="/statements.pdf">statements graph</a>
+                </nav>
                 <h1>Timings</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
@@ -81,6 +97,10 @@ proc handlePage {path contentTypeVar} {
         "/favicon.ico" {
             set contentType "image/x-icon"
             readFile "assets/favicon.ico" contentType
+        }
+        "/style.css" {
+            set contentType "text/css"
+            readFile "assets/style.css" contentType
         }
         "/statementClauseToId.pdf" {
             readPdf [trie dot $Statements::statementClauseToId] contentType

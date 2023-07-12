@@ -1,0 +1,41 @@
+
+@media (prefers-color-scheme: dark){
+    body {color:#fff;background:#000}
+    a:link {color:#cdf}
+    a:hover, a:visited:hover {color:#def}
+    a:visited {color:#dcf}
+}
+nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-direction: row;
+    text-align: center;
+    font-weight: bold;
+}
+nav button {
+    background-color: green;
+    color: white;
+    border-radius: 0;
+    border-style: solid;
+}
+body{
+    margin:1em auto;
+    padding:0 .62em;
+    font:1em/1.62 sans-serif;
+}
+h1,h2,h3 {
+    line-height:1.2
+}
+pre {
+    font-family: monospace;
+    background-color: #eee;
+    padding: 5px;
+    overflow: auto;
+}
+
+@media print{
+    body{
+        max-width:none
+    }
+}
