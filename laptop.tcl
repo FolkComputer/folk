@@ -47,9 +47,8 @@ namespace eval Display {
         uplevel [list Wish display runs [list .display create line {*}[join $points] -fill $color -width $width]]
     }
 
-    proc text {fb x y fontSize text {radians 0}} {
-        # TODO: @cwervo - implement font rotation
-        uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica [expr {$fontSize * 12}]" -fill white -anchor nw -angle [expr {$radians/3.14159*180}]]]
+    proc text {fb x y scale text {radians 0}} {
+        uplevel [list Wish display runs [list .display create text $x $y -text $text -font "Helvetica [expr {$scale * 12}]" -fill white -anchor center -angle [expr {$radians/3.14159*180}]]]
     }
 
     variable displayTime

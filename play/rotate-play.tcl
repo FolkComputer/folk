@@ -121,13 +121,26 @@ $cc proc rotate {image_t sprite int x0 int y0 int width int height double radian
     shearX(sprite, x0, y0, width, height, alpha);
 }
 $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
-    // Draws 1 line of text (no linebreak handling).
+    // Draws text (breaking at linebreaks), with the center of the
+    // text at (x0, y0). Rotates by radians with the anchor at (x0,
+    // y0).
+
     int len = strlen(text);
 
     // First, render into an offscreen buffer.
 
-    int textWidth = len * font.char_width;
+    int textWidth = 0;
     int textHeight = font.char_height;
+    int lineWidth = 0;
+    for (unsigned i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+            lineWidth = 0;
+            textHeight += font.char_height;
+        } else {
+            lineWidth += font.char_width;
+            if (lineWidth > textWidth) { textWidth = lineWidth; }
+        }
+    }
 
     double alpha = -tan(radians/2);
     double beta = sin(radians);
@@ -148,21 +161,29 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
 
     int textX = alpha > 0 ? 0 : temp.width - textWidth;
     int textY = beta > 0 ? 0 : temp.height - textHeight;
+    int x = textX; int y = textY;
     for (unsigned i = 0; i < len; i++) {
-	int letterOffset = text[i] * font.char_height * 2;
+        if (text[i] == '\n') {
+            x = textX;
+            y += font.char_height;
+            continue;
+        }
+        int letterOffset = text[i] * font.char_height * 2;
 
-	// Loop over the font bitmap
-	for (unsigned y = 0; y < font.char_height; y++) {
-	    for (unsigned x = 0; x < font.char_width; x++) {
+        // Loop over the font bitmap
+        for (unsigned ypix = 0; ypix < font.char_height; ypix++) {
+            for (unsigned xpix = 0; xpix < font.char_width; xpix++) {
 
-		// Index into bitmap for pixel
-		int idx = letterOffset + (y * 2) + (x >= 8 ? 1 : 0);
-		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-		if (!bit) continue;
+                // Index into bitmap for pixel
+                int idx = letterOffset + (ypix * 2) + (xpix >= 8 ? 1 : 0);
+                int bit = (font.font_bitmap[idx] >> (7 - (xpix & 7))) & 0x01;
+                if (!bit) continue;
 
-		temp.data[(textY+y)*temp.bytesPerRow + (textX+x+i*font.char_width)*temp.components] = 0xFF;
-	    }
-	}
+                temp.data[(y+ypix)*temp.bytesPerRow +
+                          (x+xpix)*temp.components] = 0xFF;
+            }
+        }
+        x += font.char_width;
     }
 
     rotate(temp, textX, textY, textWidth, textHeight, radians);
@@ -197,5 +218,5 @@ $cc compile
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
 init
-drawText 20 20 [degrees 90] 1 "hello"
+drawText 20 20 0 1 "hello"
 commit
