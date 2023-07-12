@@ -74,8 +74,10 @@ install).
         # systemctl start folk
         # systemctl enable folk
 
-You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
-to `/etc/sudoers` as well.
+Add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to the bottom of
+`/etc/sudoers` on the tabletop. (This lets the `make` scripts from
+your laptop manage the Folk service by running `systemctl` without
+needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
 FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
