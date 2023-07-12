@@ -134,10 +134,23 @@ When (non-capturing) tag /tag/ is a tag {
 }
 
 set ::positionBeliefs [dict create]
+set ::existenceBeliefs [dict create]
 
 set ::cornerBeliefUpdateRate 0.16
 
+When (non-capturing) $::thisNode has step count /c/ {
+  dict for {tag value} $::existenceBeliefs {
+    if {$value != 0} { 
+      Claim tag $tag is a tag
+      Claim tag $tag has corners [dict get $::positionBeliefs $tag]
+      dict incr ::existenceBeliefs $tag -1
+    }
+  }
+}
+
 When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
+    dict set ::existenceBeliefs $tag 4
+
     if {![dict exists $::positionBeliefs $tag]} {
       dict set ::positionBeliefs $tag $corners
     } else { 
@@ -156,6 +169,10 @@ When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
     }
 
     set corners [dict get $::positionBeliefs $tag]
+    # Claim tag $tag has corners $corners
+  }
+
+  When (non-capturing) tag /tag/ has corners /corners/ {
 
     set tagCorners [lmap p $corners {::cameraToProjector $p}]
     # foreach tagCorner $tagCorners { Display::text fb {*}$tagCorner 1 $tagCorner }
