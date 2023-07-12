@@ -42,7 +42,7 @@ install).
 2. Set up OpenSSH server if needed, connect to network.
 4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
 5. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset`
+6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset libdrm-dev libdrm-tests pkg-config`
 7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
@@ -74,8 +74,10 @@ install).
         # systemctl start folk
         # systemctl enable folk
 
-You probably want to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl`
-to `/etc/sudoers` as well.
+Add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to the bottom of
+`/etc/sudoers` on the tabletop. (This lets the `make` scripts from
+your laptop manage the Folk service by running `systemctl` without
+needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
 FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
@@ -164,7 +166,7 @@ turn it into lowercase).)
 
 Potentially useful for graphs: `graphviz`
 
-Potentially useful: `v4l-utils`, `gdb`, `streamer`, `cec-utils`,
+Potentially useful:  `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
 Potentially useful: add `folk0` shortcut to your laptop `~/.ssh/config`:
@@ -178,11 +180,6 @@ Potentially useful: `journalctl -f -u folk` to see log of folk service
 
 For audio:
 https://askubuntu.com/questions/1349221/which-packages-should-be-installed-to-have-sound-output-working-on-minimal-ubunt
-
-### Changing camera settings
-
-Install `v4l-utils` and use `v4l2-ctl` to adjust exposure/autofocus
-settings for a webcam.
 
 ### HDMI No signal on Pi 4
 
@@ -203,61 +200,75 @@ license we end up choosing.
 
 ## Troubleshooting
 
+### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
+
+#### Check that camera is plugged into a USB3 port
+
+#### Turn off autoexposure and autofocus
+
+for example, install `v4l-utils` and:
+
+```
+v4l2-ctl -c auto_exposure=1
+v4l2-ctl -c focus_automatic_continuous=0
+v4l2-ctl -c white_balance_automatic=0
+```
+
+### Tcl troubleshooting
+
 You can build Tcl with `TCL_MEM_DEBUG`. Download Tcl source code. (On
 Mac, _do not_ go to the macosx/ subdir; go to the unix/ subdir.) Do
 `./configure --enable-symbols=all`, do `make`, `make install`
 
-## Vulkan
+<!-- ## Vulkan -->
 
-### Pi 4
+<!-- ### Pi 4 -->
 
-Basically follow
-https://forums.libretro.com/t/retroarch-raspberry-pi-4-vulkan-without-x-howto/31164/2 except:
+<!-- Basically follow -->
+<!-- https://forums.libretro.com/t/retroarch-raspberry-pi-4-vulkan-without-x-howto/31164/2 except: -->
 
-install `pkg-config` if it can't find `libdrm`
+<!-- `sudo ninja install` to install Mesa system-wide -->
 
-`sudo ninja install` to install Mesa system-wide
+<!-- Clone https://github.com/krh/vkcube and `mkdir build` and `meson ..` -->
+<!-- and `ninja` and `./vkcube -m khr -k 0:0:0`. -->
 
-Clone https://github.com/krh/vkcube and `mkdir build` and `meson ..`
-and `ninja` and `./vkcube -m khr -k 0:0:0`.
+<!-- ### Hades Canyon NUC -->
 
-### Hades Canyon NUC
+<!-- Also similar to above Pi 4 instructions. -->
 
-Also similar to above Pi 4 instructions.
+<!-- `sudo apt install libdrm-dev libdrm-tests` -->
 
-`sudo apt install libdrm-dev libdrm-tests`
+<!-- `modetest -M amdgpu` to list connectors and not try the Intel -->
+<!-- integrated graphics -->
 
-`modetest -M amdgpu` to list connectors and not try the Intel
-integrated graphics
+<!-- `modetest -M amdgpu -s 86:3840x2160` -->
 
-`modetest -M amdgpu -s 86:3840x2160`
+<!-- You need `glslang-tools` before running `meson` to build Mesa: -->
 
-You need `glslang-tools` before running `meson` to build Mesa:
+<!-- `sudo apt install glslang-dev glslang-tools spirv-tools -->
+<!-- python3-mako pkg-config libudev-dev clang llvm-dev bison flex` -->
 
-`sudo apt install glslang-dev glslang-tools spirv-tools
-python3-mako pkg-config libudev-dev clang llvm-dev bison flex`
+<!-- `sudo apt install libelf-dev` for some reason https://gitlab.freedesktop.org/mesa/mesa/-/issues/7456 -->
+<!--  make sure meson finds it below! `Run-time dependency libelf found: YES 0.186` it won't fail in configure phase -->
+<!--  if it doesn't -->
 
-`sudo apt install libelf-dev` for some reason https://gitlab.freedesktop.org/mesa/mesa/-/issues/7456
- make sure meson finds it below! `Run-time dependency libelf found: YES 0.186` it won't fail in configure phase
- if it doesn't
+<!-- Mesa `meson` configure options for the AMD GPU: -->
 
-Mesa `meson` configure options for the AMD GPU:
+<!-- `meson -Dglx=disabled -Dplatforms= -->
+<!-- -Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi -->
+<!-- -Dbuildtype=release ..` -->
 
-`meson -Dglx=disabled -Dplatforms=
--Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi
--Dbuildtype=release ..`
+<!-- `vulkaninfo` -->
 
-`vulkaninfo`
+<!-- `sudo chmod 666 /dev/dri/renderD129` -->
 
-`sudo chmod 666 /dev/dri/renderD129`
+<!-- ### Testing -->
 
-### Testing
+<!-- clone https://github.com/krh/vkcube -->
 
-clone https://github.com/krh/vkcube
+<!-- `mkdir build; cd build; meson .. && ninja` -->
 
-`mkdir build; cd build; meson .. && ninja`
-
-`./vkcube -m khr -k 0:0:0`
+<!-- `./vkcube -m khr -k 0:0:0` -->
 
 ## Language reference
 

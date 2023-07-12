@@ -25,7 +25,7 @@ namespace eval ::vec2 {
     }
     proc normalize {a} {
         set l2 [vec2 distance $a [list 0 0]]
-        vec2 scale [/ 1 $l2] $a
+        vec2 scale $a [/ 1 $l2]
     }
     proc dot {a b} {
         expr {[lindex $a 0]*[lindex $b 0] + [lindex $a 1]*[lindex $b 1]}
@@ -36,7 +36,7 @@ namespace eval ::vec2 {
             return [distance $a $v]
         }
         set t [max 0 [min 1 [/ [dot [sub $a $v] [sub $w $v]] $l2]]]
-        set proj [add $v [scale $t [sub $w $v]]]
+        set proj [add $v [scale [sub $w $v] $t]]
         vec2 distance $a $proj
     }
     namespace export *
