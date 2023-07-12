@@ -135,7 +135,7 @@ When (non-capturing) tag /tag/ is a tag {
 
 set ::positionBeliefs [dict create]
 
-set ::cornerBeliefUpdateRate 0.04
+set ::cornerBeliefUpdateRate 0.16
 
 When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
     if {![dict exists $::positionBeliefs $tag]} {
