@@ -96,11 +96,11 @@ try {
     puts stderr "Keyboard thread failed: $error"
 }
 
-proc every {ms body} {
+proc forever {body} {
     try $body
-    after $ms [list after idle [namespace code [info level 0]]]
+    after idle [namespace code [info level 0]]
 }
-every 32 { Step }
+forever { Step }
 
 loadVirtualPrograms
 Step
