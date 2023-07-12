@@ -77,11 +77,11 @@ $cc proc ::cameraToProjector {Tcl_Interp* interp Tcl_Obj* cameraPoint} Tcl_Obj* 
       exit(1);
     }
 
-    int cx, cy;
-    if (Tcl_GetIntFromObj(interp, cameraPointElements[0], &cx) != TCL_OK) {
+    double cx, cy;
+    if (Tcl_GetDoubleFromObj(interp, cameraPointElements[0], &cx) != TCL_OK) {
       exit(1);
     }
-    if (Tcl_GetIntFromObj(interp, cameraPointElements[1], &cy) != TCL_OK) {
+    if (Tcl_GetDoubleFromObj(interp, cameraPointElements[1], &cy) != TCL_OK) {
       exit(1);
     }
 
@@ -94,7 +94,7 @@ $cc proc ::cameraToProjector {Tcl_Interp* interp Tcl_Obj* cameraPoint} Tcl_Obj* 
     Hx = Hx / Hz;
     Hy = Hy / Hz;
 
-		Tcl_Obj* projectorPoint_v[] = {
+    Tcl_Obj* projectorPoint_v[] = {
       Tcl_NewDoubleObj(Hx),
       Tcl_NewDoubleObj(Hy),
     };
