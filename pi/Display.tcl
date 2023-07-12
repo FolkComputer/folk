@@ -255,11 +255,23 @@ dc proc commitThenClearStaging {} void {
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
+dc include <math.h>
 dc code {
     typedef struct Vec2i { int x; int y; } Vec2i;
     Vec2i Vec2i_add(Vec2i a, Vec2i b) { return (Vec2i) { a.x + b.x, a.y + b.y }; }
     Vec2i Vec2i_sub(Vec2i a, Vec2i b) { return (Vec2i) { a.x - b.x, a.y - b.y }; }
     Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
+    Vec2i Vec2i_rotate(Vec2i a, float theta) {
+        return (Vec2i) {
+            .x = a.x * cos(theta) + a.y * sin(theta),
+            .y = -a.x * sin(theta) + a.y * cos(theta)
+        };
+    }
+
+    #define MIN(a,b) (((a)<(b))?(a):(b))
+    #define MAX(a,b) (((a)>(b))?(a):(b))
+    int min4(int a, int b, int c, int d) { return MIN(MIN(a, b), MIN(c, d)); }
+    int max4(int a, int b, int c, int d) { return MAX(MAX(a, b), MAX(c, d)); }
 }
 dc argtype Vec2i {
     Vec2i $argname; sscanf(Tcl_GetString($obj), "%d %d", &$argname.x, &$argname.y);
@@ -445,8 +457,25 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
         temp.data[y*temp.bytesPerRow + temp.width - 1] = 0xFF;
     }
 
+    // Find corners of rotated rectangle
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radians);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radians);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-textWidth/2, textHeight/2}, radians);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {textWidth/2, textHeight/2}, radians);
+
     // Now blit the offscreen buffer to the screen.
-    drawImage(x0 - temp.width*scale/2, y0 - temp.height*scale/2, temp, scale);
+    image_t rotatedText = {
+        .width = max4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x) -
+                   min4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x),
+        .height = max4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y) -
+                    min4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y),
+        .components = 1,
+        .bytesPerRow = temp.bytesPerRow
+    };
+    int rotatedTextX0 = (temp.width - rotatedText.width) / 2;
+    int rotatedTextY0 = (temp.height - rotatedText.height) / 2;
+    rotatedText.data = &temp.data[rotatedTextY0*temp.bytesPerRow + rotatedTextX0*temp.components];
+    drawImage(x0 - rotatedText.width*scale/2, y0 - rotatedText.height*scale/2, rotatedText, scale);
     ckfree(temp.data);
 }
 
