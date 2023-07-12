@@ -14,6 +14,7 @@ On process {
     puts "Camera tid: [getTid]"
     
     while true {
+        set t [clock microseconds]
         set cameraTime [time {
             set grayFrame [Camera::grayFrame]
         }]
@@ -29,7 +30,7 @@ On process {
 
             foreach tag $tags {
                 Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
-                Claim tag [dict get $tag id] has corners [dict get $tag corners]
+                Claim tag [dict get $tag id] has corners [dict get $tag corners] at time $t
             }
         }
         Step

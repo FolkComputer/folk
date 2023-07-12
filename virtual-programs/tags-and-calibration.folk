@@ -133,7 +133,30 @@ When (non-capturing) tag /tag/ is a tag {
      Claim $tag has program code $code
 }
 
-When (non-capturing) tag /tag/ has corners /corners/ {
+set ::positionBeliefs [dict create]
+
+set ::cornerBeliefUpdateRate 0.04
+
+When (non-capturing) tag /tag/ has corners /corners/ at time /t/ {
+    if {![dict exists $::positionBeliefs $tag]} {
+      dict set ::positionBeliefs $tag $corners
+    } else { 
+      set previousCornerBeliefs [dict get $::positionBeliefs $tag]
+      set newCornerBeliefs [list]
+
+      foreach {i corner} [lenumerate $corners] { 
+        set previousCornerBelief [lindex $previousCornerBeliefs $i]
+        lappend newCornerBeliefs [add \
+          [scale [expr {1 - $::cornerBeliefUpdateRate}] $previousCornerBelief] \
+          [scale $::cornerBeliefUpdateRate $corner] \
+        ]
+      }
+
+      dict set ::positionBeliefs $tag $newCornerBeliefs
+    }
+
+    set corners [dict get $::positionBeliefs $tag]
+
     set tagCorners [lmap p $corners {::cameraToProjector $p}]
     # foreach tagCorner $tagCorners { Display::text fb {*}$tagCorner 1 $tagCorner }
     # Display::fillQuad {*}$tagCorners white
