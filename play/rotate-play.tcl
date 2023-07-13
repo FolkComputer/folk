@@ -1,7 +1,8 @@
 source "lib/c.tcl"
 source "pi/cUtils.tcl"
 
-set cc [c create]
+rename [c create] dc
+set cc dc
 $cc cflags -I/Users/osnr/aux/minifb/include /Users/osnr/aux/minifb/build/libminifb.a -framework Cocoa -framework Metal -framework MetalKit
 
 $cc include <stdlib.h>
@@ -62,70 +63,16 @@ $cc proc drawImage {int x0 int y0 image_t image int scale} void {
         }
     }
 }
-$cc proc shearX {image_t sprite int x0 int y0 int width int height double sx} void {
-    for (int y = y0; y < y0 + height; y++) {
-        int shear = sx * (y - y0); // May be negative.
-        memmove(&sprite.data[y*sprite.bytesPerRow + (x0 + shear)*sprite.components],
-                &sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
-                width * sprite.components);
-
-        // Blot out the unsheared part
-        if (shear > 0) {
-            memset(&sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
-                   0x11, shear*sprite.components);
-        } else if (shear < 0) {
-            memset(&sprite.data[y*sprite.bytesPerRow + (x0+width+shear)*sprite.components],
-                   0x11, -shear*sprite.components);
-        }
-    }
-}
-$cc proc shearY {image_t sprite int x0 int y0 int width int height double sy} void {
-    if (sy > 0) {
-        for (int y = y0 + height - 1; y >= y0; y--) {
-            for (int x = x0; x < x0 + width; x++) {
-                int shear = sy * (x - x0);
-                int from = y*sprite.bytesPerRow + x*sprite.components;
-                int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
-                sprite.data[to] = sprite.data[from];
-                // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x11; }
-            }
-        }
-    } else if (sy < 0) {
-        for (int y = y0; y < y0 + height; y++) {
-            for (int x = x0; x < x0 + width; x++) {
-                int shear = sy * (x - x0); // Is negative.
-                int from = y*sprite.bytesPerRow + x*sprite.components;
-                int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
-                sprite.data[to] = sprite.data[from];
-                // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x11; }
-            }
-        }
-    }
-}
-$cc proc rotate {image_t sprite int x0 int y0 int width int height double radians} void {
-    // In-place rotation. Sprite must be big enough to accommodate the
-    // rotation.
-    double alpha = -tan(radians/2);
-    double beta = sin(radians);
-
-    shearX(sprite, x0, y0, width, height, alpha);
-    if (alpha < 0) x0 += alpha*height;
-    width += fabs(alpha)*height;
-
-    shearY(sprite, x0, y0, width, height, beta);
-    if (beta < 0) y0 += beta*width;
-    height += fabs(beta)*width;
-
-    shearX(sprite, x0, y0, width, height, alpha);
-}
+source "pi/rotate.tcl"
 $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
     // Draws text (breaking at linebreaks), with the center of the
     // text at (x0, y0). Rotates by radians with the anchor at (x0,
     // y0).
 
     int len = strlen(text);
+    if (fabs(radians) > M_PI/2) {
+        printf("Bad\n");
+    }
 
     // First, render into an offscreen buffer.
 
@@ -142,8 +89,8 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
         }
     }
 
-    double alpha = -tan(radians/2);
-    double beta = sin(radians);
+    double alpha = -tan(-radians/2);
+    double beta = sin(-radians);
 
     image_t temp; {
         temp.width = textWidth; 
@@ -218,5 +165,5 @@ $cc compile
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
 init
-drawText 20 20 0 1 "hello"
+drawText 20 20 [degrees 133] 1 "hello"
 commit

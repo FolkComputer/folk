@@ -1,3 +1,10 @@
+# This file implements rotation in software using three shears.
+#
+# See:
+# - https://cohost.org/tomforsyth/post/891823-rotation-with-three
+# - https://www.ocf.berkeley.edu/~fricke/projects/israel/paeth/rotation_by_shearing.html
+# - http://www.leptonica.org/rotation.html
+
 dc proc shearX {image_t sprite int x0 int y0 int width int height double sx} void {
     for (int y = y0; y < y0 + height; y++) {
         int shear = sx * (y - y0); // May be negative.
@@ -40,9 +47,22 @@ dc proc shearY {image_t sprite int x0 int y0 int width int height double sy} voi
         }
     }
 }
+# dc proc rotate180 {image_t sprite int x0 int y0 int width int height} void {
+#     // In-place flip X and Y.
+#     for (int y = y0; y < y0 + height; y++) {
+#         for (int x = x0; x < x0 + width; x++) {
+#             int from = y*sprite.bytesPerRow + x*sprite.components;
+#             int to = *sprite.bytesPerRow + x*sprite.components;
+#         }
+#     }
+# }
 dc proc rotate {image_t sprite int x0 int y0 int width int height double radians} void {
     // In-place rotation counterclockwise from the horizontal. Sprite
-    // must be big enough to accommodate the rotation.
+    // must be big enough to accommodate all shears.
+
+    // FIXME: rotate180
+
+    // radians should be between -pi/2 and pi/2 for good results.
     double alpha = -tan(-radians/2);
     double beta = sin(-radians);
 
