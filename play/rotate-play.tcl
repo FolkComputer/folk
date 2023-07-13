@@ -25,6 +25,24 @@ $cc code {
     #define PIXEL_B(pixel) (((pixel) >> 0) | 0xFF)
     #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
 }
+
+dc code {
+    typedef struct Vec2i { int x; int y; } Vec2i;
+    Vec2i Vec2i_add(Vec2i a, Vec2i b) { return (Vec2i) { a.x + b.x, a.y + b.y }; }
+    Vec2i Vec2i_sub(Vec2i a, Vec2i b) { return (Vec2i) { a.x - b.x, a.y - b.y }; }
+    Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
+    Vec2i Vec2i_rotate(Vec2i a, float theta) {
+        return (Vec2i) {
+            .x = a.x * cos(theta) + a.y * sin(theta),
+            .y = -a.x * sin(theta) + a.y * cos(theta)
+        };
+    }
+
+    #define MIN(a,b) (((a)<(b))?(a):(b))
+    #define MAX(a,b) (((a)>(b))?(a):(b))
+    int min4(int a, int b, int c, int d) { return MIN(MIN(a, b), MIN(c, d)); }
+    int max4(int a, int b, int c, int d) { return MAX(MAX(a, b), MAX(c, d)); }
+}
 $cc proc init {} void {
     window = mfb_open_ex("my display", 800, 600, WF_RESIZABLE);
     if (!window) return;
@@ -125,14 +143,36 @@ $cc proc drawText {int x0 int y0 double radians int scale char* text} void {
         temp.data[y*temp.bytesPerRow + temp.width - 1] = 0xFF;
     }
 
-    drawImage(x0, y0, temp, scale);
+    
+    // Find corners of rotated rectangle
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radians);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radians);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-textWidth/2, textHeight/2}, radians);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {textWidth/2, textHeight/2}, radians);
+
+    // Now blit the offscreen buffer to the screen.
+    image_t rotatedText = {
+        .width = max4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x) -
+                   min4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x),
+        .height = max4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y) -
+                    min4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y),
+        .components = 1,
+        .bytesPerRow = temp.bytesPerRow
+    };
+    int rotatedTextX0 = (temp.width - rotatedText.width) / 2;
+    int rotatedTextY0 = (temp.height - rotatedText.height) / 2;
+    rotatedText.data = &temp.data[rotatedTextY0*temp.bytesPerRow + rotatedTextX0*temp.components];
+    drawImage(x0 - rotatedText.width*scale/2, y0 - rotatedText.height*scale/2, rotatedText, scale);
     ckfree(temp.data);
 }
 
-$cc proc commit {} void {
+$cc proc run {char* s} void {
+    int i = 0;
     do {
         int state;
         state = mfb_update_ex(window, staging, 800, 600);
+
+        drawText(300, 300, ((i++) % 360 - 180)*M_PI/180, 1, s);
 
         if (state < 0) {
             window = NULL;
@@ -145,6 +185,21 @@ $cc compile
 
 proc degrees {deg} { expr {$deg/180.0 * 3.14159} }
 
-init
-drawText 20 20 [degrees 99] 1 "hello"
-commit
+init 
+run {
+$cc proc run {char* s} void {
+    int i = 0;
+    do {
+        int state;
+        state = mfb_update_ex(window, staging, 800, 600);
+
+        drawText(20, 20, ((i++) % 360 - 180)*M_PI/180, 1, s);
+
+        if (state < 0) {
+            window = NULL;
+            break;
+        }
+    } while(mfb_wait_sync(window));
+}
+}
+
