@@ -402,25 +402,10 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
         }
     }
 
-    double alpha = -tan(-radians/2);
-    double beta = sin(-radians);
+    int textX; int textY;
+    image_t temp = rotateMakeImage(textWidth, textHeight, 1, radians,
+                                   &textX, &textY);
 
-    image_t temp; {
-        temp.width = textWidth; 
-        temp.height = textHeight;
-
-        temp.width += fabs(alpha)*temp.height;
-        temp.height += fabs(beta)*temp.width;
-        temp.width += fabs(alpha)*temp.height;
-
-        temp.components = 1;
-        temp.bytesPerRow = temp.width * temp.components;
-        temp.data = ckalloc(temp.bytesPerRow * temp.height);
-        memset(temp.data, 64, temp.bytesPerRow * temp.height);
-    }
-
-    int textX = alpha > 0 ? 0 : temp.width - textWidth;
-    int textY = beta > 0 ? 0 : temp.height - textHeight;
     int x = textX; int y = textY;
     for (unsigned i = 0; i < len; i++) {
         if (text[i] == '\n') {
