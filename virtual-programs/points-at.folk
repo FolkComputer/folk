@@ -12,16 +12,16 @@ When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has reg
     set shift 90%
 
     if {$direction eq "up"} {
-        set whiskerRegion [region move [region scale [region scale $region width 0.01px] height $scale] up $shift]
+        set whiskerRegion [region move [region scale $region width 0.01px height $scale] up $shift]
         set color blue
     } elseif {$direction eq "left"} {
-        set whiskerRegion [region move [region scale [region scale $region height 0.01px] width $scale] left $shift]
+        set whiskerRegion [region move [region scale $region height 0.01px width $scale] left $shift]
         set color red
     } elseif {$direction eq "right"} {
-        set whiskerRegion [region move [region scale [region scale $region height 0.01px] width $scale] right $shift]
+        set whiskerRegion [region move [region scale $region height 0.01px width $scale] right $shift]
         set color green
     } elseif {$direction eq "down"} {
-        set whiskerRegion [region move [region scale [region scale $region width 0.01px] height $scale] down $shift]
+        set whiskerRegion [region move [region scale $region width 0.01px height $scale] down $shift]
         set color white
     }
     set whisker [list $rect whisker $direction]

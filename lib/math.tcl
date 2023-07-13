@@ -185,7 +185,7 @@ namespace eval ::region {
         set theta [angle $r]
         set c [centroid $r]
         foreach {direction distance} $args {
-            if {![regexp {([0-9]+)(px|%)} $distance -> distance unit]} {
+            if {![regexp {([0-9\.]+)(px|%)} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
             }
             if {$unit eq "%"} {
