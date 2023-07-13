@@ -44,6 +44,16 @@ namespace eval ::vec2 {
 }
 
 namespace eval ::region {
+    # A region is an arbitrary oriented chunk of a plane. The
+    # archetypal region is the region of a program/page, which is the
+    # quadrilateral area of space that is covered by that page. A
+    # region is defined by a set of vertices and a set of edges among
+    # those vertices. (TODO: Allow areas to be filled/unfilled.)
+
+    proc create {vertices edges {angle 0}} {
+        list $vertices $edges $angle
+    }
+
     proc vertices {r} { lindex $r 0 }
     proc edges {r} { lindex $r 1 }
     # Angle the region is rotated above the horizontal, in radians:
