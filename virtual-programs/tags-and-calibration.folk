@@ -135,8 +135,6 @@ When (non-capturing) tag /tag/ is a tag {
 
 When (non-capturing) tag /tag/ has corners /corners/ {
     set tagCorners [lmap p $corners {::cameraToProjector $p}]
-    # foreach tagCorner $tagCorners { Display::text fb {*}$tagCorner 1 $tagCorner }
-    # Display::fillQuad {*}$tagCorners white
 
     set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
     set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]

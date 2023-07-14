@@ -1,3 +1,4 @@
+source "lib/language.tcl"
 source "lib/c.tcl"
 source "pi/cUtils.tcl"
 
@@ -254,11 +255,23 @@ dc proc commitThenClearStaging {} void {
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
+dc include <math.h>
 dc code {
     typedef struct Vec2i { int x; int y; } Vec2i;
     Vec2i Vec2i_add(Vec2i a, Vec2i b) { return (Vec2i) { a.x + b.x, a.y + b.y }; }
     Vec2i Vec2i_sub(Vec2i a, Vec2i b) { return (Vec2i) { a.x - b.x, a.y - b.y }; }
     Vec2i Vec2i_scale(Vec2i a, float s) { return (Vec2i) { a.x*s, a.y*s }; }
+    Vec2i Vec2i_rotate(Vec2i a, float theta) {
+        return (Vec2i) {
+            .x = a.x * cos(theta) + a.y * sin(theta),
+            .y = -a.x * sin(theta) + a.y * cos(theta)
+        };
+    }
+
+    #define MIN(a,b) (((a)<(b))?(a):(b))
+    #define MAX(a,b) (((a)>(b))?(a):(b))
+    int min4(int a, int b, int c, int d) { return MIN(MIN(a, b), MIN(c, d)); }
+    int max4(int a, int b, int c, int d) { return MAX(MAX(a, b), MAX(c, d)); }
 }
 dc argtype Vec2i {
     Vec2i $argname; sscanf(Tcl_GetString($obj), "%d %d", &$argname.x, &$argname.y);
@@ -334,42 +347,33 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
     }
 }
 
-dc proc drawText {int x0 int y0 int upsidedown int scale char* text} void {
-    // Draws 1 line of text (no linebreak handling).
-    // TODO: upsidedown/radians is still funky
-    int len = strlen(text);
-    int S = upsidedown ? -1 : 1;
+defineImageType dc
+dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone int scale} void {
+    if (image.components != 1) { exit(1); }
+    for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
 
-    for (unsigned i = 0; i < len; i++) {
-	int N = upsidedown ? len-i-1 : i;
-	int letterOffset = text[N] * font.char_height * 2;
+	    // Index into image to get color
+            int i = y*image.bytesPerRow + x*image.components;
+            uint8_t r; uint8_t g; uint8_t b;
+            if (image.data[i] == transparentTone) { continue; }
+            r = image.data[i]; g = image.data[i]; b = image.data[i];
 
-	// Loop over the font bitmap
-	for (unsigned y = 0; y < font.char_height; y++) {
-	    for (unsigned x = 0; x < font.char_width; x++) {
+	    // Write repeatedly to framebuffer to scale up image
+	    for (int dy = 0; dy < scale; dy++) {
+		for (int dx = 0; dx < scale; dx++) {
 
-		// Index into bitmap for pixel
-		int idx = letterOffset + (y * 2) + (x >= 8 ? 1 : 0);
-		int bit = (font.font_bitmap[idx] >> (7 - (x & 7))) & 0x01;
-		if (!bit) continue;
+		    int sx = x0 + scale * x + dx;
+		    int sy = y0 + scale * y + dy;
+		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
 
-		// When bit is on, repeat to scale to font-size
-		for (int dy = 0; dy < scale; dy++) {
-		    for (int dx = 0; dx < scale; dx++) {
+		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
 
-            int sx = x0 + S * (scale * x + dx + N * scale * font.char_width);
-			int sy = y0 + S * (scale * y + dy);
-			if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
-
-			staging[sy*fbwidth + sx] = 0xFFFF;
-		    }
 		}
 	    }
-	}
+        }
     }
 }
-
-defineImageType dc
 dc proc drawImage {int x0 int y0 image_t image int scale} void {
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
@@ -399,6 +403,91 @@ dc proc drawImage {int x0 int y0 image_t image int scale} void {
 	    }
         }
     }
+}
+
+source "pi/rotate.tcl"
+dc proc drawText {int x0 int y0 double radians int scale char* text} void {
+    // Draws text (breaking at linebreaks), with the center of the
+    // text at (x0, y0). Rotates counterclockwise up from the
+    // horizontal by radians, with the anchor at (x0, y0).
+
+    int len = strlen(text);
+
+    // First, render into an offscreen buffer.
+
+    int textWidth = 0;
+    int textHeight = font.char_height;
+    int lineWidth = 0;
+    for (unsigned i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+            lineWidth = 0;
+            textHeight += font.char_height;
+        } else {
+            lineWidth += font.char_width;
+            if (lineWidth > textWidth) { textWidth = lineWidth; }
+        }
+    }
+
+    int textX; int textY;
+    double radiansNormalized = fmod(radians, 2.0 * M_PI);
+
+    if (radiansNormalized > M_PI) {
+        radiansNormalized -= 2.0 * M_PI;
+    } else if (radiansNormalized < -M_PI) {
+        radiansNormalized += 2.0 * M_PI;
+    }
+    image_t temp = rotateMakeImage(textWidth, textHeight, 1, radiansNormalized,
+                                   &textX, &textY);
+
+    int x = textX; int y = textY;
+    for (unsigned i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+            x = textX;
+            y += font.char_height;
+            continue;
+        }
+        int letterOffset = text[i] * font.char_height * 2;
+
+        // Loop over the font bitmap
+        for (unsigned ypix = 0; ypix < font.char_height; ypix++) {
+            for (unsigned xpix = 0; xpix < font.char_width; xpix++) {
+
+                // Index into bitmap for pixel
+                int idx = letterOffset + (ypix * 2) + (xpix >= 8 ? 1 : 0);
+                int bit = (font.font_bitmap[idx] >> (7 - (xpix & 7))) & 0x01;
+                if (!bit) continue;
+
+                temp.data[(y+ypix)*temp.bytesPerRow +
+                          (x+xpix)*temp.components] = 0xFF;
+            }
+        }
+        x += font.char_width;
+    }
+
+    rotate(temp, textX, textY, textWidth, textHeight, radiansNormalized);
+
+    // Find corners of rotated rectangle
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radiansNormalized);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radiansNormalized);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-textWidth/2, textHeight/2}, radiansNormalized);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {textWidth/2, textHeight/2}, radiansNormalized);
+
+    // Now blit the offscreen buffer to the screen.
+    image_t rotatedText = {
+        .width = max4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x) -
+                   min4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x),
+        .height = max4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y) -
+                    min4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y),
+        .components = 1,
+        .bytesPerRow = temp.bytesPerRow
+    };
+    int rotatedTextX0 = (temp.width - rotatedText.width) / 2;
+    int rotatedTextY0 = (temp.height - rotatedText.height) / 2;
+    rotatedText.data = &temp.data[rotatedTextY0*temp.bytesPerRow + rotatedTextX0*temp.components];
+    drawImageTransparent(x0 - rotatedText.width*scale/2, y0 - rotatedText.height*scale/2,
+                         rotatedText, 0x00,
+                         scale);
+    ckfree(temp.data);
 }
 
 # for debugging
@@ -529,9 +618,8 @@ namespace eval Display {
         }
     }
 
-    proc text {fb x y scale text radians} {
-	set upsidedown [expr {abs($radians) > 1.57}]
-        drawText [expr {int($x)}] [expr {int($y)}] $upsidedown $scale $text
+    proc text {x y scale text radians} {
+        drawText [int $x] [int $y] $radians [int $scale] $text
     }
 
     proc circle {x y radius thickness color} {
@@ -560,12 +648,13 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
         fillTriangleImpl {400 400} {500 500} {400 600} $Display::blue
         
-        drawText 309 400 0 1 $i
+        drawText 309 400 45 1 "Hello"
+        drawText 318 400 50 1 "This text is on\nmultiple lines!"
 
         drawCircle 100 100 500 $Display::red
 
         Display::circle 300 420 400 5 blue
-        Display::text fb 300 420 1 "Hello!" 0
+        Display::text 300 420 1 "Hello!" 0
 
         puts [time Display::commit]
     }

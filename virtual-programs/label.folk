@@ -1,33 +1,20 @@
 When /thing/ has region /region/ {
-    set bbox [regionToBbox $region]
-    lassign [boxCentroid $bbox] x y
-    set width [boxWidth $bbox]
-    set height [boxHeight $bbox]
-
-
+    lassign [region centroid $region] x y
+    set width [region width $region]
+    set height [region height $region]
     set radians [region angle $region]
-    set upsidedown [expr {$radians > 1.57 || $radians < -1.57}]
-    if {$::isLaptop} {set upsidedown false}
 
     When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
-        set lines [split $text "\n"]
 
-        set lines [expr {$upsidedown ? [lreverse $lines] : $lines}]
         set scale 1
-        set fontSize [expr {18 * $scale}]
-
-        for {set lineNum 0} {$lineNum < [llength $lines]} {incr lineNum} {
-            set line [lindex  $lines $lineNum]
-            set ly [expr {$y + $lineNum * $fontSize}]
-            Display::text device $x $ly $scale $line $radians
-        }
+        Display::text $x $y $scale $text $radians
     }
 }
 
 fn text {coords text angle} {
-  Display::text Display::fb [lindex $coords 0] [lindex $coords 1] 2 $text $angle
+  Display::text [lindex $coords 0] [lindex $coords 1] 2 $text $angle
 }
 
 When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {
