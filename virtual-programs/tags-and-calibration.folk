@@ -152,7 +152,7 @@ When (non-capturing) tag /tag/ has corners /corners/ {
     lappend edges [list [expr {[llength $corners] - 1}] 0]
 
     set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
-    set region [list $corners $edges $angle]
+    set region [region create $corners $edges $angle]
 
     Claim $tag has region $region
 }

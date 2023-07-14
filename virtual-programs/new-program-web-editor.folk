@@ -139,7 +139,7 @@ Wish the web server handles route "/new" with handler {
 				   [list [expr {$x+$w}] [expr {$y+$h}]]]
 		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
 		Retract web claims $program has region /something/
-		Assert web claims $program has region [list $vertices $edges]
+		Assert web claims $program has region [region create $vertices $edges]
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	    if {$::isLaptop} { Step }
