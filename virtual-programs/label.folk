@@ -9,11 +9,7 @@ When /thing/ has region /region/ {
         if {$text eq ""} { return }
 
         set scale 1
-        if {[abs $radians] < 3.14/2} {
-          Display::text $x $y $scale $text $radians
-        } else {
-          Display::text $x $y $scale "BAD ANGLE" 0
-        }
+        Display::text $x $y $scale $text $radians
     }
 }
 

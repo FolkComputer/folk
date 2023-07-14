@@ -348,6 +348,32 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 }
 
 defineImageType dc
+dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone int scale} void {
+    if (image.components != 1) { exit(1); }
+    for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
+
+	    // Index into image to get color
+            int i = y*image.bytesPerRow + x*image.components;
+            uint8_t r; uint8_t g; uint8_t b;
+            if (image.data[i] == transparentTone) { continue; }
+            r = image.data[i]; g = image.data[i]; b = image.data[i];
+
+	    // Write repeatedly to framebuffer to scale up image
+	    for (int dy = 0; dy < scale; dy++) {
+		for (int dx = 0; dx < scale; dx++) {
+
+		    int sx = x0 + scale * x + dx;
+		    int sy = y0 + scale * y + dy;
+		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
+
+		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
+
+		}
+	    }
+        }
+    }
+}
 dc proc drawImage {int x0 int y0 image_t image int scale} void {
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
@@ -433,15 +459,6 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
 
     rotate(temp, textX, textY, textWidth, textHeight, radians);
 
-    for (int x = 0; x < temp.width; x++) {
-        temp.data[x] = 0xFF;
-        temp.data[x + (temp.height - 1)*temp.bytesPerRow] = 0xFF;
-    }
-    for (int y = 0; y < temp.height; y++) {
-        temp.data[y*temp.bytesPerRow] = 0xFF;
-        temp.data[y*temp.bytesPerRow + temp.width - 1] = 0xFF;
-    }
-
     // Find corners of rotated rectangle
     Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radians);
     Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radians);
@@ -460,7 +477,9 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
     int rotatedTextX0 = (temp.width - rotatedText.width) / 2;
     int rotatedTextY0 = (temp.height - rotatedText.height) / 2;
     rotatedText.data = &temp.data[rotatedTextY0*temp.bytesPerRow + rotatedTextX0*temp.components];
-    drawImage(x0 - rotatedText.width*scale/2, y0 - rotatedText.height*scale/2, rotatedText, scale);
+    drawImageTransparent(x0 - rotatedText.width*scale/2, y0 - rotatedText.height*scale/2,
+                         rotatedText, 0x00,
+                         scale);
     ckfree(temp.data);
 }
 

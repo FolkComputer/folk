@@ -15,10 +15,10 @@ dc proc shearX {image_t sprite int x0 int y0 int width int height double sx} voi
         // Blot out the unsheared part
         if (shear > 0) {
             memset(&sprite.data[y*sprite.bytesPerRow + x0*sprite.components],
-                   0x11, shear*sprite.components);
+                   0x00, shear*sprite.components);
         } else if (shear < 0) {
             memset(&sprite.data[y*sprite.bytesPerRow + (x0+width+shear)*sprite.components],
-                   0x11, -shear*sprite.components);
+                   0x00, -shear*sprite.components);
         }
     }
 }
@@ -32,7 +32,7 @@ dc proc shearY {image_t sprite int x0 int y0 int width int height double sy} voi
                 int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
                 sprite.data[to] = sprite.data[from];
                 // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x11; }
+                if (from != to) { sprite.data[from] = 0x00; }
             }
         }
     } else if (sy < 0) {
@@ -43,7 +43,7 @@ dc proc shearY {image_t sprite int x0 int y0 int width int height double sy} voi
                 int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
                 sprite.data[to] = sprite.data[from];
                 // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x11; }
+                if (from != to) { sprite.data[from] = 0x00; }
             }
         }
     }
@@ -84,7 +84,7 @@ dc proc rotateMakeImage {int width int height int components double radians
     ret.components = components;
     ret.bytesPerRow = ret.width * ret.components;
     ret.data = ckalloc(ret.bytesPerRow * ret.height);
-    memset(ret.data, 64, ret.bytesPerRow * ret.height);
+    memset(ret.data, 0x00, ret.bytesPerRow * ret.height);
 
     *x0 = alpha > 0 ? 0 : ret.width - width;
     *y0 = beta > 0 ? 0 : ret.height - height;
