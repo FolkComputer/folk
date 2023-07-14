@@ -208,21 +208,26 @@ proc StepImpl {} {
     }
 
     set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
-    # TODO: Reimplement per-peer receive statements
-    # lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
-    foreach m $matches {
-        set pattern [dict get $m pattern]
-        foreach match [Statements::findMatches $pattern] {
-            set id [lindex [dict get $match __matcheeIds] 0]
-            set clause [statement clause [Statements::get $id]]
-            clauseset add shareStatements $clause
+    proc ::addMatchesToShareStatements {shareStatementsVar matches} {
+        upvar $shareStatementsVar shareStatements
+        foreach m $matches {
+            set pattern [dict get $m pattern]
+            foreach match [Statements::findMatches $pattern] {
+                set id [lindex [dict get $match __matcheeIds] 0]
+                set clause [statement clause [Statements::get $id]]
+                clauseset add shareStatements $clause
+            }
         }
     }
+    ::addMatchesToShareStatements shareStatements $matches
 
     foreach peerNs [namespace children ::Peers] {
         apply [list {peer shareStatements} {
             variable connected
             if {!$connected} { return }
+
+            ::addMatchesToShareStatements shareStatements \
+                [Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
 
             if {[clauseset size $shareStatements] > 0} {
                 run [list apply {{process receivedStatements} {
