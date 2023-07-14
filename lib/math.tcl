@@ -1,3 +1,8 @@
+# math.tcl --
+#
+#     This file provides global math datatypes and utilities.
+#
+
 namespace eval ::vec2 {
     proc add {a b} {
         list [+ [lindex $a 0] [lindex $b 0]] [+ [lindex $a 1] [lindex $b 1]]
@@ -39,11 +44,25 @@ namespace eval ::vec2 {
         set proj [add $v [scale [sub $w $v] $t]]
         vec2 distance $a $proj
     }
+    proc midpoint {a b} {
+        lassign $a x1 y1; lassign $b x2 y2
+        list [/ [+ $x1 $x2] 2] [/ [+ $y1 $y2] 2]
+    }
     namespace export *
     namespace ensemble create
 }
 
 namespace eval ::region {
+    # A region is an arbitrary oriented chunk of a plane. The
+    # archetypal region is the region of a program/page, which is the
+    # quadrilateral area of space that is covered by that page. A
+    # region is defined by a set of vertices and a set of edges among
+    # those vertices. (TODO: Allow areas to be filled/unfilled.)
+
+    proc create {vertices edges {angle 0}} {
+        list $vertices $edges $angle
+    }
+
     proc vertices {r} { lindex $r 0 }
     proc edges {r} { lindex $r 1 }
     # Angle the region is rotated above the horizontal, in radians:
@@ -70,6 +89,55 @@ namespace eval ::region {
             if {$yp > $maxYp} { set maxYp $yp }
         }
         expr { $maxYp - $minYp }
+    }
+
+    proc top {r} {
+        # Returns the vec2 point at the top of the region.
+        set rp [rotate $r [- [angle $r]]]
+        # Reduce all edges to their midpoints
+        set edgeMidpoints [lmap e [edges $rp] {
+            lassign [edgeToLineSegment $rp $e] p1 p2
+            vec2 midpoint $p1 $p2
+        }]
+        # Which edge has the topmost midpoint y-coordinate?
+        set topEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] 0]
+        vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $topEdgeIndex]]
+    }
+    proc left {r} {
+        # Returns the vec2 point at the left of the region.
+        set rp [rotate $r [- [angle $r]]]
+        # Reduce all edges to their midpoints
+        set edgeMidpoints [lmap e [edges $rp] {
+            lassign [edgeToLineSegment $rp $e] p1 p2
+            vec2 midpoint $p1 $p2
+        }]
+        # Which edge has the leftmost midpoint y-coordinate?
+        set leftEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] 0]
+        vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $leftEdgeIndex]]
+    }
+    proc right {r} {
+        # Returns the vec2 point at the right of the region.
+        set rp [rotate $r [- [angle $r]]]
+        # Reduce all edges to their midpoints
+        set edgeMidpoints [lmap e [edges $rp] {
+            lassign [edgeToLineSegment $rp $e] p1 p2
+            vec2 midpoint $p1 $p2
+        }]
+        # Which edge has the rightmost midpoint y-coordinate?
+        set rightEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] end]
+        vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $rightEdgeIndex]]
+    }
+    proc bottom {r} {
+        # Returns the vec2 point at the bottom of the region.
+        set rp [rotate $r [- [angle $r]]]
+        # Reduce all edges to their midpoints
+        set edgeMidpoints [lmap e [edges $rp] {
+            lassign [edgeToLineSegment $rp $e] p1 p2
+            vec2 midpoint $p1 $p2
+        }]
+        # Which edge has the bottommost midpoint y-coordinate?
+        set bottomEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] end]
+        vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $bottomEdgeIndex]]
     }
 
     proc mapVertices {varname r body} {
@@ -139,13 +207,14 @@ namespace eval ::region {
     # Scales about the center of the region, along the x and y axes of
     # the space of the region (not the global x and y).
     proc scale {r args} {
-        set theta [angle $r]
-        set c [centroid $r]
         if {[llength $args] == 1} {
             set args [list width [lindex $args 0] height [lindex $args 0]]
         }
         foreach {dim value} $args {
-            if {![regexp {([0-9]+)(px|%)} $value -> value unit]} {
+            set theta [angle $r]
+            set c [centroid $r]
+
+            if {![regexp {([0-9\.]+)(px|%)?} $value -> value unit]} {
                 error "region scale: Invalid scale value $value"
             }
 
@@ -155,12 +224,16 @@ namespace eval ::region {
                     set sxp [/ $value [width $r]]
                 } elseif {$unit eq "%"} {
                     set sxp [* $value 0.01]
+                } elseif {$unit eq ""} {
+                    set sxp $value
                 }
             } elseif {$dim eq "height"} {
                 if {$unit eq "px"} {
                     set syp [/ $value [height $r]]
                 } elseif {$unit eq "%"} {
                     set syp [* $value 0.01]
+                } elseif {$unit eq ""} {
+                    set syp $value
                 }
             } else {
                 error "region scale: Invalid dimension $dim"
@@ -182,13 +255,17 @@ namespace eval ::region {
     # Moves the region left/right/up/down along the x and y axes of
     # the space of the region (not the global x and y).
     proc move {r args} {
-        set theta [angle $r]
-        set c [centroid $r]
         foreach {direction distance} $args {
-            if {![regexp {([0-9]+)(px|%)} $distance -> distance unit]} {
+            set theta [angle $r]
+
+            if {![regexp {([0-9\.]+)(px|%)?} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
             }
             if {$unit eq "%"} {
+                set distance [* distance 0.01]
+                set unit ""
+            }
+            if {$unit eq ""} {
                 # Convert to pixels
                 if {$direction eq "left" || $direction eq "right"} {
                     set distance [expr {[width $r] * $distance * 0.01}]
