@@ -1,4 +1,19 @@
+# evaluator.tcl --
+#
+#     Implements the statement and match datatypes, the singleton
+#     reactive/graph database of statements and matches, and the core
+#     log-reducing evaluator for Folk.
+#
+
 namespace eval statement {
+    # A statement contains a clause (a Tcl list which is the actual
+    # 'words'/terms that constitute the statement, like [list the time
+    # is 3:00]) and a resizable list of edges, which are handles of
+    # matches (which are the parents and children of the statement).
+
+    # A match contains a resizable list of edges, which are handles of
+    # statements (which are the parents and children of the match).
+
     variable cc [c create]
     namespace export $cc
 
@@ -6,6 +21,13 @@ namespace eval statement {
     $cc include <stdlib.h>
     $cc include <assert.h>
 
+    # Rather than being heap-allocated, statements and matches are
+    # allocated out of memory pools (later in this file) that have a
+    # generational indexing scheme.
+    #
+    # Therefore, instead of pointing to a statement or match with a
+    # raw pointer, you point to these objects with handles that
+    # consist of a slot index and a slot generation.
     $cc code {
         typedef struct statement_handle_t { int32_t idx; int32_t gen; } statement_handle_t;
         typedef struct match_handle_t { int32_t idx; int32_t gen; } match_handle_t;
@@ -63,6 +85,8 @@ namespace eval statement {
 
     $cc include <stdbool.h>
     $cc code {
+        // Creates a new statement struct (that the caller will
+        // probably want to put into the statement DB).
         statement_t statementCreate(Tcl_Obj* clause,
                                     size_t n_parents, match_handle_t parents[],
                                     size_t n_children, match_handle_t children[]) {
@@ -173,6 +197,15 @@ namespace eval statement {
 
     variable negations [list nobody nothing]
     variable blanks [list someone something anyone anything]
+
+    # Splits a pattern by & into subpatterns, like
+    #
+    # `/thing/ is red & /thing/ is cool` ->
+    #     `/thing/ is red`,
+    #     `/thing/ is cool`
+    #
+    # Each subpattern in the out array is a new heap-allocated Tcl_Obj
+    # and should be freed by the caller.
     $cc proc splitPattern {Tcl_Obj* pattern
                            int maxSubpatternsCount Tcl_Obj** outSubpatterns} int {
         int patternLength; Tcl_Obj** patternWords;
@@ -190,10 +223,22 @@ namespace eval statement {
         }
         return subpatternsCount;
     }
+
+    # Converts a pattern from base form like `the time is /t/` to
+    # claimized form, `/someone/ claims the time is /t/`. The returned
+    # pattern is a new heap-allocated Tcl_Obj and should be freed by
+    # the caller.
     $cc proc claimizePattern {Tcl_Obj* pattern} Tcl_Obj* {
+        static Tcl_Obj* someoneClaims[2] = {0};
+        if (someoneClaims[0] == NULL) {
+            someoneClaims[0] = Tcl_NewStringObj("/someone/", -1);
+            someoneClaims[1] = Tcl_NewStringObj("claims", -1);
+            Tcl_IncrRefCount(someoneClaims[0]);
+            Tcl_IncrRefCount(someoneClaims[1]);
+        }
+
         // the time is /t/ -> /someone/ claims the time is /t/
         Tcl_Obj* ret = Tcl_DuplicateObj(pattern);
-        Tcl_Obj* someoneClaims[] = {Tcl_NewStringObj("/someone/", -1), Tcl_NewStringObj("claims", -1)};
         Tcl_ListObjReplace(NULL, ret, 0, 0, 2, someoneClaims);
         return ret;
     }
@@ -773,7 +818,6 @@ namespace eval Evaluator {
         }
         void removeAllReactions(statement_handle_t reactingId) {
             if (reactionPatternsOfReactingId[reactingId.idx] == NULL) { return; }
-            // TODO: list walk
             int patternCount; Tcl_Obj** patterns;
             Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                    &patternCount, &patterns);
