@@ -429,7 +429,14 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
     }
 
     int textX; int textY;
-    image_t temp = rotateMakeImage(textWidth, textHeight, 1, radians,
+    double radiansNormalized = fmod(radians, 2.0 * M_PI);
+
+    if (radiansNormalized > M_PI) {
+        radiansNormalized -= 2.0 * M_PI;
+    } else if (radiansNormalized < -M_PI) {
+        radiansNormalized += 2.0 * M_PI;
+    }
+    image_t temp = rotateMakeImage(textWidth, textHeight, 1, radiansNormalized,
                                    &textX, &textY);
 
     int x = textX; int y = textY;
@@ -457,13 +464,13 @@ dc proc drawText {int x0 int y0 double radians int scale char* text} void {
         x += font.char_width;
     }
 
-    rotate(temp, textX, textY, textWidth, textHeight, radians);
+    rotate(temp, textX, textY, textWidth, textHeight, radiansNormalized);
 
     // Find corners of rotated rectangle
-    Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radians);
-    Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radians);
-    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-textWidth/2, textHeight/2}, radians);
-    Vec2i bottomRight = Vec2i_rotate((Vec2i) {textWidth/2, textHeight/2}, radians);
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-textWidth/2, -textHeight/2}, radiansNormalized);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {textWidth/2, -textHeight/2}, radiansNormalized);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-textWidth/2, textHeight/2}, radiansNormalized);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {textWidth/2, textHeight/2}, radiansNormalized);
 
     // Now blit the offscreen buffer to the screen.
     image_t rotatedText = {
