@@ -369,8 +369,8 @@ foreach tag $tags {
         [list $px $py1] \
         red
     set id [dict get $tag id]
-    Display::text fb $px $py 10 "$id" 0
-    Display::text fb $px1 $py1 10 "$id'" 0
+    Display::text $px $py 2 "$id" 0
+    Display::text $px1 $py1 2 "$id'" 0
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
@@ -392,4 +392,6 @@ puts $fd [subst {
 close $fd
 
 Display::commit
+
+exec sleep 10
 # exec sudo systemctl start folk &
