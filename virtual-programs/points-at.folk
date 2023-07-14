@@ -8,20 +8,27 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
 
 When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has region /region/ {
 
-    set scale [expr {$l * 100}]%
-    set shift 90%
+    set scale $l
 
     if {$direction eq "up"} {
-        set whiskerRegion [region move [region scale $region width 0.01px height $scale] up $shift]
+        set whiskerRegion [region scale $region width 0.01px height $scale]
+        set whiskerRegion [region move $whiskerRegion up \
+                               [vec2 distance [region bottom $whiskerRegion] [region top $region]]px]
         set color blue
     } elseif {$direction eq "left"} {
-        set whiskerRegion [region move [region scale $region height 0.01px width $scale] left $shift]
+        set whiskerRegion [region scale $region height 0.01px width $scale]
+        set whiskerRegion [region move $whiskerRegion left \
+                               [vec2 distance [region right $whiskerRegion] [region left $region]]px]
         set color red
     } elseif {$direction eq "right"} {
-        set whiskerRegion [region move [region scale $region height 0.01px width $scale] right $shift]
+        set whiskerRegion [region scale $region height 0.01px width $scale]
+        set whiskerRegion [region move $whiskerRegion right \
+                               [vec2 distance [region right $whiskerRegion] [region left $region]]px]
         set color green
     } elseif {$direction eq "down"} {
-        set whiskerRegion [region move [region scale $region width 0.01px height $scale] down $shift]
+        set whiskerRegion [region scale $region width 0.01px height $scale]
+        set whiskerRegion [region move $whiskerRegion down \
+                               [vec2 distance [region bottom $whiskerRegion] [region top $region]]px]
         set color white
     }
     set whisker [list $rect whisker $direction]
