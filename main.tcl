@@ -197,31 +197,32 @@ proc StepImpl {} {
         Display::commit ;# TODO: this is weird, not right level
     }
 
+    set shareStatements [clauseset create]
+    set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
+    set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
+    dict for {_ stmt} [Statements::all] {
+        if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
+            ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
+            clauseset add shareStatements [statement clause $stmt]
+        }
+    }
+
+    set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
+    # TODO: Reimplement per-peer receive statements
+    # lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
+    foreach m $matches {
+        set pattern [dict get $m pattern]
+        foreach match [Statements::findMatches $pattern] {
+            set id [lindex [dict get $match __matcheeIds] 0]
+            set clause [statement clause [Statements::get $id]]
+            clauseset add shareStatements $clause
+        }
+    }
+
     foreach peerNs [namespace children ::Peers] {
-        apply [list {peer} {
+        apply [list {peer shareStatements} {
             variable connected
             if {!$connected} { return }
-
-            set shareStatements [clauseset create]
-            set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
-            set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
-            dict for {_ stmt} [Statements::all] {
-                if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
-                    ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
-                    clauseset add shareStatements [statement clause $stmt]
-                }
-            }
-
-            set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
-            lappend matches {*}[Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
-            foreach m $matches {
-                set pattern [dict get $m pattern]
-                foreach match [Statements::findMatches $pattern] {
-                    set id [lindex [dict get $match __matcheeIds] 0]
-                    set clause [statement clause [Statements::get $id]]
-                    clauseset add shareStatements $clause
-                }
-            }
 
             if {[clauseset size $shareStatements] > 0} {
                 run [list apply {{process receivedStatements} {
@@ -231,7 +232,7 @@ proc StepImpl {} {
                     }
                 }} $::thisProcess [clauseset clauses $shareStatements]]
             }
-        } $peerNs] [namespace tail $peerNs]
+        } $peerNs] [namespace tail $peerNs] $shareStatements
     }
 }
 proc Step {} {
