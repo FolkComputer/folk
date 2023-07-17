@@ -399,7 +399,7 @@ namespace eval Statements { ;# singleton Statement store
                       bool* outIsNewStatement} void {
         // Is this clause already present among the existing statements?
         uint64_t ids[10];
-        int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
+        int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause, 0);
         statement_handle_t id;
         if (idslen == 1) {
             id = *(statement_handle_t *)&ids[0];
@@ -593,7 +593,7 @@ namespace eval Statements { ;# singleton Statement store
     $cc proc searchByPattern {Tcl_Obj* pattern
                               int maxResultsCount environment_t** outResults} int {
         uint64_t ids[maxResultsCount];
-        int idsCount = trieLookup(NULL, ids, maxResultsCount, statementClauseToId, pattern);
+        int idsCount = trieLookup(NULL, ids, maxResultsCount, statementClauseToId, pattern, 0);
 
         int resultsCount = 0;
         for (int i = 0; i < idsCount; i++) {
@@ -618,6 +618,24 @@ namespace eval Statements { ;# singleton Statement store
             Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{s%d:%d}", id.idx, id.gen));
             Tcl_ListObjAppendElement(NULL, ret, matchObj);
             ckfree((char *)results[i]);
+        }
+        return ret;
+    }
+
+    $cc proc findPrefixMatches {Tcl_Obj* pattern} Tcl_Obj* {
+        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+
+        int maxResultsCount = 1000;
+	int prefix = 1;
+        uint64_t ids[maxResultsCount];
+
+        int idsCount = trieLookup(NULL, ids, maxResultsCount, statementClauseToId, pattern, prefix);
+
+        for (int i = 0; i < idsCount; i++) {
+            statement_handle_t id = *(statement_handle_t *)&ids[i];
+	    Tcl_Obj* matchObj = Tcl_NewDictObj();
+            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("{idx %d gen %d}", id.idx, id.gen), get(id)->clause);
+            Tcl_ListObjAppendElement(NULL, ret, matchObj);
         }
         return ret;
     }
@@ -824,7 +842,7 @@ namespace eval Evaluator {
             for (int i = 0; i < patternCount; i++) {
                 reaction_t* reactions[1000];
                 int reactionsCount = trieLookup(NULL, (uint64_t*) reactions, 1000,
-                                                reactionsToStatementAddition, patterns[i]);
+                                                reactionsToStatementAddition, patterns[i], 0);
                 for (int j = 0; j < reactionsCount; j++) {
                     Tcl_DecrRefCount(reactions[j]->reactToPattern);
                     ckfree((char *)reactions[j]);
@@ -932,13 +950,13 @@ namespace eval Evaluator {
             // already-existing matching statements.
             uint64_t alreadyMatchingStatementIds[1000];
             int alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
-                                                              statementClauseToId, pattern);
+                                                              statementClauseToId, pattern, 0);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, pattern, alreadyMatchingStatementId);
             }
             alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
-                                                          statementClauseToId, claimizedPattern);
+                                                          statementClauseToId, claimizedPattern, 0);
             for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
                 statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, claimizedPattern, alreadyMatchingStatementId);
@@ -953,7 +971,7 @@ namespace eval Evaluator {
         }
         uint64_t reactions[1000];
         int reactionCount = trieLookup(interp, reactions, 1000,
-                                       reactionsToStatementAddition, clauseWithReactingIdWildcard);
+                                       reactionsToStatementAddition, clauseWithReactingIdWildcard, 0);
         Tcl_DecrRefCount(clauseWithReactingIdWildcard);
         for (int i = 0; i < reactionCount; i++) {
             reaction_t* reaction = (reaction_t*)(uintptr_t)reactions[i];

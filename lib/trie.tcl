@@ -169,14 +169,33 @@ namespace eval ctrie {
         remove_(interp, trie, clause);
     }
 
+    $cc proc matchSubtree {Tcl_Interp* interp
+                         uint64_t* results int* resultsidx size_t maxresults
+                         trie_t* trie} void {
+        if (trie->value != 0) {
+	    if (*resultsidx < maxresults) {
+	        results[(*resultsidx)++] = trie->value;
+	    }
+        }
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+
+            matchSubtree(interp, results, resultsidx, maxresults,
+                       trie->branches[j]);
+        }
+
+    }
+
     $cc proc lookupImpl {Tcl_Interp* interp
                          uint64_t* results int* resultsidx size_t maxresults
-                         trie_t* trie int wordc Tcl_Obj** wordv} void {
+                         trie_t* trie int wordc Tcl_Obj** wordv int prefixmatch} void {
         if (wordc == 0) {
             if (trie->value != 0) {
                 if (*resultsidx < maxresults) {
                     results[(*resultsidx)++] = trie->value;
                 }
+            } else if (prefixmatch == 1) {
+                matchSubtree(interp, results, resultsidx, maxresults, trie);
             }
             return;
         }
@@ -193,7 +212,7 @@ namespace eval ctrie {
                 // is the trie key a variable?
                 scanVariable(trie->branches[j]->key, NULL, 0)) {
                 lookupImpl(interp, results, resultsidx, maxresults,
-                           trie->branches[j], wordc - 1, wordv + 1);
+                           trie->branches[j], wordc - 1, wordv + 1, prefixmatch);
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
                 const char *wordString = Tcl_GetString(word);
@@ -201,26 +220,26 @@ namespace eval ctrie {
                     (wordString[0] == '?' && wordString[1] == '\0') ||
                     (strcmp(keyString, wordString) == 0)) {
                     lookupImpl(interp, results, resultsidx, maxresults,
-                               trie->branches[j], wordc - 1, wordv + 1);
+                               trie->branches[j], wordc - 1, wordv + 1, prefixmatch);
                 }
             }
         }
     }
     $cc proc lookup {Tcl_Interp* interp
                      uint64_t* results size_t maxresults
-                     trie_t* trie Tcl_Obj* pattern} int {
+                     trie_t* trie Tcl_Obj* pattern int prefix} int {
         int objc; Tcl_Obj** objv;
         if (Tcl_ListObjGetElements(interp, pattern, &objc, &objv) != TCL_OK) {
             exit(1);
         }
         int resultcount = 0;
         lookupImpl(interp, results, &resultcount, maxresults,
-                   trie, objc, objv);
+                   trie, objc, objv, prefix);
         return resultcount;
      }
     $cc proc lookupTclObjs {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
         uint64_t results[50];
-        int resultcount = lookup(interp, results, 50, trie, pattern);
+        int resultcount = lookup(interp, results, 50, trie, pattern, 0);
         if (resultcount >= 50) { exit(1); }
 
         Tcl_Obj* resultsobj = Tcl_NewListObj(resultcount, NULL);

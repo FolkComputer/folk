@@ -1,0 +1,18 @@
+
+When /debug/ is a debug tag {
+    Claim $debug has title "$debug. Show claims & wishes"
+    Wish $debug is outlined purple
+
+    When $debug points right at /tag/ & \
+       /tag/ has region /region/ {
+        set matches [list]
+        lappend matches {*}[Statements::findPrefixMatches [list $tag claims /someone/]]
+        lappend matches {*}[Statements::findPrefixMatches [list $tag wishes /someone/]]
+        set text [join [lmap match $matches {
+           # Truncate any long lines
+           set lines [split [dict values $match] "\n"]
+           join [lmap line $lines {string range $line 0 60}] "\n"
+        }] "\n"]
+        Wish $debug is labelled $text
+   }
+}
