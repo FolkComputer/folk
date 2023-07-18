@@ -1,18 +1,21 @@
+On process {
+    source pi/AprilTags.tcl
+    AprilTags::init
 
-source pi/AprilTags.tcl
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims the camera frame is /grayFrame/]
 
-AprilTags::init
+    When the camera frame is /grayFrame/ {
+        set aprilTime [time {
+            set tags [AprilTags::detect $grayFrame]
+        }]
+        Commit {
+            Claim the AprilTag time is $aprilTime
 
-When the camera frame is /grayFrame/ {
-    set aprilTime [time {
-        set tags [AprilTags::detect $grayFrame]
-    }]
-    Commit {
-        Claim the AprilTag time is $aprilTime
-
-        foreach tag $tags {
-            Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
-            Claim tag [dict get $tag id] has corners [dict get $tag corners]
+            foreach tag $tags {
+                Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+                Claim tag [dict get $tag id] has corners [dict get $tag corners]
+            }
         }
     }
 }
