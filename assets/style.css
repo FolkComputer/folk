@@ -1,9 +1,9 @@
-
 @media (prefers-color-scheme: dark){
     body {color:#fff;background:#000}
     a:link {color:#cdf}
     a:hover, a:visited:hover {color:#def}
     a:visited {color:#dcf}
+    pre { color: black; }
 }
 nav {
     display: flex;
