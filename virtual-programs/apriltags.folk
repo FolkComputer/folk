@@ -1,0 +1,18 @@
+
+source pi/AprilTags.tcl
+
+AprilTags::init
+
+When the camera frame is /grayFrame/ {
+    set aprilTime [time {
+        set tags [AprilTags::detect $grayFrame]
+    }]
+    Commit {
+        Claim the AprilTag time is $aprilTime
+
+        foreach tag $tags {
+            Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+            Claim tag [dict get $tag id] has corners [dict get $tag corners]
+        }
+    }
+}
