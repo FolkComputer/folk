@@ -1,3 +1,4 @@
+return
 
 source vendor/blobdetect/blobdetect.tcl
 
