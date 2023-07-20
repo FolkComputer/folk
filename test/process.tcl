@@ -7,7 +7,7 @@ Assert we are running
 Step
 
 Assert when we are running {{} {
-    On process {
+    On process Good {
         Claim things are good
     }
 
@@ -19,7 +19,7 @@ Step
 vwait ::good
 
 Assert when we are running {{} {
-    On process {
+    On process Counter {
         set n 0
         while true {
             incr n
@@ -38,7 +38,7 @@ Step
 vwait ::ok
 
 Assert when we are running {{} {
-    On process {
+    On process In-a-process {
         Claim I am in a process
         When I am in a process {
             Commit { Claim we were in a process }
@@ -52,7 +52,7 @@ Step
 vwait ::wereinaprocess
 
 Assert when we are running {{} {
-    On process {
+    On process Receiver {
         Wish $::thisProcess receives statements like [list /x/ claims the main process exists]
         When the main process exists {
             Commit { Claim the subprocess heard that the main process exists }
@@ -66,12 +66,12 @@ Assert when we are running {{} {
 Step
 vwait ::heard
 
-Retract when we are running /anything/
+Retract when we are running /anything/ with environment /e/
 Step
 
 Assert when we are running {{} {
     set x done
-    On process {
+    On process Python {
         eval [python3 [subst {
             print("Claim Python is $x")
         }]]
@@ -83,3 +83,30 @@ Assert when we are running {{} {
 Step
 
 vwait ::pythondone
+
+Retract when we are running /anything/ with environment /e/
+Step
+
+puts --------------------------
+
+Assert when we are running {{} {
+    # FIXME: Test bidirectional sharing/echoing
+    
+    On process "New counter" {
+        set n 0
+        forever {
+            incr n
+            Commit { Claim the counter is $n }
+        }
+    }
+    # On process {
+    #     puts Bye
+    # }
+
+    When the counter is /n/ {
+        exit 0
+    }
+}}
+Step
+
+vwait forever
