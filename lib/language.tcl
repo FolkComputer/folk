@@ -70,5 +70,14 @@ proc assert condition {
     }
 }
 
+# forever { ... } is sort of like while true { ... }, but it yields to
+# the event loop after each iteration.
+proc forever {body} {
+    while true {
+        uplevel $body
+        update
+    }
+}
+
 namespace import ::tcl::mathop::*
 namespace import ::tcl::mathfunc::*

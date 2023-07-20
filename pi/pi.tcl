@@ -96,10 +96,6 @@ try {
     puts stderr "Keyboard thread failed: $error"
 }
 
-proc forever {body} {
-    try $body
-    after idle [namespace code [info level 0]]
-}
 forever { Step }
 
 loadVirtualPrograms
