@@ -99,12 +99,12 @@ Assert when we are running {{} {
             Commit { Claim the counter is $n }
         }
     }
-    # On process {
-    #     puts Bye
-    # }
+    On process {
+        Wish $::thisProcess receives statements like [list /someone/ claims the counter is /n/]
+    }
 
     When the counter is /n/ {
-        exit 0
+        puts "Step $::stepCount : $n"
     }
 }}
 Step
