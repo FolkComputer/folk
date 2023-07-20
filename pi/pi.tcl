@@ -96,9 +96,5 @@ try {
     puts stderr "Keyboard thread failed: $error"
 }
 
-forever { Step }
-
 loadVirtualPrograms
-Step
-
-vwait forever
+forever { Step }
