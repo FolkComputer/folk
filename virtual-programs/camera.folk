@@ -11,16 +11,13 @@ On process {
 
     puts "Camera tid: [getTid]"
     
-    while true {
+    forever {
         set cameraTime [time {
             set grayFrame [Camera::grayFrame]
         }]
-        
         Commit {
-            Claim the camera frame is $grayFrame
-
             Claim the camera time is $cameraTime
+            Claim the camera frame is $grayFrame
         }
-        Step
     }
 }
