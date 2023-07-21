@@ -9,7 +9,8 @@ proc sanitizeURL {url} {
 
 When /thing/ wishes /page/ has data from /address/ {
   set sanitized [sanitizeURL $address]
-  set path "/home/folk/page-data/$sanitized"
+  set path "~/page-data/$sanitized"
+  set path [file normalize $path]
   if {[file exists $path]} {
     set fileId [open $path "r"]
     set data [read $fileId]
