@@ -1,0 +1,25 @@
+proc sanitizeURL {url} {
+    set url [string map {http:// "" https:// ""} $url]
+    set url [string map {/ _ ? "" * "" < "" > "" : "" | "" " " ""} $url]
+    if {[string length $url] > 255} {
+        set url [string range $url 0 254]
+    }
+    return $url
+}
+
+When /thing/ wishes /page/ has data from /address/ {
+  set sanitized [sanitizeURL $address]
+  set path "/home/folk/page-data/$sanitized"
+  if {[file exists $path]} {
+    set fileId [open $path "r"]
+    set data [read $fileId]
+    close $fileId
+    Claim $page has data $data loaded from $address
+  } else {
+    set data [exec -ignorestderr curl $address]
+    set fileId [open $path "w"]
+    puts $fileId $data
+    close $fileId
+    Claim $page has data $data loaded from $address
+  }
+}
