@@ -100,11 +100,17 @@ Assert when we are running {{} {
         }
     }
     On process {
-        Wish $::thisProcess receives statements like [list /someone/ claims the counter is /n/]
+        Wish $::thisProcess receives statements like \
+            [list /someone/ claims the counter is /n/]
     }
 
     When the counter is /n/ {
-        puts "Step $::stepCount : $n"
+        if {$::stepCount >= 100} {
+            puts "Step $::stepCount : $n"
+        }
+        if {$::stepCount >= 110} {
+            exit 0
+        }
     }
 }}
 Step
