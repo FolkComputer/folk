@@ -90,7 +90,8 @@ Step
 puts --------------------------
 
 Assert when we are running {{} {
-    # FIXME: Test bidirectional sharing/echoing
+    # TODO: Test bidirectional sharing/echoing. Right now, you need to
+    # check by hand that counters don't double up at any step.
     
     On process "New counter" {
         set n 0
@@ -109,10 +110,41 @@ Assert when we are running {{} {
             puts "Step $::stepCount : $n"
         }
         if {$::stepCount >= 110} {
-            exit 0
+            set ::stepdone true
         }
     }
 }}
 Step
 
-vwait forever
+vwait ::stepdone
+Retract when we are running /anything/ with environment /e/
+Step
+
+puts --------------------------
+
+Assert when we are running {{} {
+    When the stage is 0 {
+        On process {
+            Claim it is bad
+        }
+    }
+    When the stage is 1 {
+        On process {
+            Claim it is good
+        }
+    }
+
+    When it is /state/ {
+        if {$state eq "good"} {
+            set ::gotbothstates true
+        }
+    }
+}}
+Assert the stage is 0
+Step
+Assert the stage is 1
+Step
+
+vwait ::gotbothstates
+# This test only fails sometimes.
+assert {[llength [Statements::findMatches [list /someone/ claims it is /state/]]] == 1}

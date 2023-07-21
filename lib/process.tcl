@@ -89,6 +89,9 @@ proc On-process {name body} {
             }
         }} $processCode]
 
+        # This When will be part of the caller match, because it binds
+        # to the current global ::matchId (so it should unmatch if the
+        # caller unmatches, leading to the subprocess getting killed).
         When (non-capturing) $name has pid /pid/ {
             On unmatch {
                 exec kill -9 $pid
