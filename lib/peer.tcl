@@ -22,8 +22,9 @@ namespace eval clauseset {
 }
 
 namespace eval ::Peers {}
+set ::peersBlacklist [dict create]
 
-proc ::peer {process} {
+proc ::peer {process {dieOnDisconnect false}} {
     package require websocket
     namespace eval ::Peers::$process {
         variable connected false
@@ -45,9 +46,17 @@ proc ::peer {process} {
                 # Establish a peering on their end, in the reverse
                 # direction, so they can send stuff back to us.
                 # It'll implicitly run in a ::Peers::X namespace on their end
-                # (because of how `run` is implemented above)
+                # (because of how `run` is implemented below)
                 run {
+                    set name [namespace tail [namespace current]]
                     variable chan [uplevel {set chan}]
+
+                    # First, check if this side has us blacklisted.
+                    if {[dict exists $::peersBlacklist $name]} {
+                        puts stderr "Suppressing $name (blacklist $::peersBlacklist)"
+                        ::websocket::close $chan
+                        return
+                    }
 
                     variable connected true
                     proc run {msg} {
@@ -57,8 +66,14 @@ proc ::peer {process} {
                 }
             } elseif {$type eq "disconnect"} {
                 log "Disconnected"
+
+                variable dieOnDisconnect
+                if {$dieOnDisconnect} {
+                    puts stderr "Dying on disconnect: $::thisProcess"
+                    exit 0
+                }
+
                 variable connected false
-                # TODO: Zero out statements?
                 after 2000 [namespace code setupSock]
             } elseif {$type eq "error"} {
                 log "WebSocket error: $type $msg"
@@ -76,10 +91,11 @@ proc ::peer {process} {
             ::websocket::send $chan text [list namespace eval ::Peers::$::thisProcess $msg]
         }
 
-        proc init {n} {
+        proc init {n shouldDieOnDisconnect} {
             variable process $n; setupSock
+            variable dieOnDisconnect $shouldDieOnDisconnect
             vwait ::Peers::${n}::connected
         }
         init
-    } $process
+    } $process $dieOnDisconnect
 }

@@ -124,6 +124,8 @@ puts --------------------------
 
 Assert when we are running {{} {
     When the stage is 0 {
+        # We want to test that this process is properly disposed on
+        # unmatch of {the stage is 0}.
         On process {
             Claim it is bad
         }
@@ -142,9 +144,19 @@ Assert when we are running {{} {
 }}
 Assert the stage is 0
 Step
+Retract the stage is 0
+Step
 Assert the stage is 1
 Step
 
 vwait ::gotbothstates
-# This test only fails sometimes.
-assert {[llength [Statements::findMatches [list /someone/ claims it is /state/]]] == 1}
+after 500 {
+    # At this point, there should really be just 1 PID, because the
+    # stage-0 process should have been disposed.
+    puts [Statements::findMatches [list /someone/ claims /p/ has pid /pid/]]
+    # This test only fails sometimes.
+    assert {[llength [Statements::findMatches [list /someone/ claims it is /state/]]] == 1}
+
+    set ::donedone true
+}
+vwait ::donedone
