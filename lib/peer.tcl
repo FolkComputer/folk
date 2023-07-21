@@ -53,7 +53,6 @@ proc ::peer {process {dieOnDisconnect false}} {
 
                     # First, check if this side has us blacklisted.
                     if {[dict exists $::peersBlacklist $name]} {
-                        puts stderr "Suppressing $name (blacklist $::peersBlacklist)"
                         ::websocket::close $chan
                         return
                     }
@@ -68,10 +67,7 @@ proc ::peer {process {dieOnDisconnect false}} {
                 log "Disconnected"
 
                 variable dieOnDisconnect
-                if {$dieOnDisconnect} {
-                    puts stderr "Dying on disconnect: $::thisProcess"
-                    exit 0
-                }
+                if {$dieOnDisconnect} { exit 0 }
 
                 variable connected false
                 after 2000 [namespace code setupSock]
