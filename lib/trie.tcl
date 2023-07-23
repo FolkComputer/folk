@@ -1,21 +1,24 @@
-# This data structure has 2 differences from the average trie you
-# might have seen before.
+# trie.tcl --
 #
-# 1. Its nodes are _entire tokens_, not characters.
+#     Implements the statement trie datatype and operations. This data
+#     structure has 2 differences from the average trie you might have
+#     seen before.
 #
-#    someone -> wishes -> 30 -> is -> labelled -> Hello World
+#     1. Its nodes are _entire tokens_, not characters.
 #
-#    not
+#        someone -> wishes -> 30 -> is -> labelled -> Hello World
 #
-#    s -> o -> m -> e -> o -> n -> e -> SPACE -> w -> i -> ...
+#        not
 #
-#    In other words, its alphabet is dynamic -- the set of all tokens
-#    that programs are using in statements -- not 26 characters or
-#    whatever.
+#        s -> o -> m -> e -> o -> n -> e -> SPACE -> w -> i -> ...
 #
-# 2. Both search patterns and nodes can contain 'wildcards'.
+#        In other words, its alphabet is dynamic -- the set of all
+#        tokens that programs are using in statements -- not 26
+#        characters or whatever.
 #
-#    This bidirectional matching is useful for incremental update.
+#     2. Both search patterns and nodes can contain 'wildcards'.
+#
+#        This bidirectional matching is useful for incremental update.
 #
 
 namespace eval ctrie {
@@ -28,8 +31,10 @@ namespace eval ctrie {
         struct trie_t {
             Tcl_Obj* key;
 
-            // Can be NULL or a value.
-            // Only filled at leaves.
+            // We generally store a pointer (for example, to a
+            // reaction thunk) or a generational handle (for example,
+            // for a statement) in this 64-bit value slot. Only used
+            // in leaf nodes of the trie.
             uint64_t value;
 
             size_t nbranches;

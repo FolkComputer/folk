@@ -57,42 +57,51 @@ namespace eval ::Zygote {
 }
 
 proc On-process {name body} {
-    namespace eval ::Processes::$name {}
-    set ::Processes::${name}::name $name
-    set ::Processes::${name}::body $body
-    set ::Processes::${name}::this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
-    namespace eval ::Processes::$name {
-        set processCode [list apply {{__name __body} {
-            set ::thisProcess $__name
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set processCode [list apply {{__name __body} {
+        set ::thisProcess $__name
 
-            Assert <lib/process.tcl> wishes $::thisProcess shares all wishes
-            Assert <lib/process.tcl> wishes $::thisProcess shares all claims
+        Assert <lib/process.tcl> wishes $::thisProcess shares all wishes
+        Assert <lib/process.tcl> wishes $::thisProcess shares all claims
 
-            ::peer "localhost"
+        ::peer "localhost" true
 
-            Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
-            Assert when $::thisProcess has pid /something/ [list {} $__body]
-            Step
-            vwait forever
-        }} $name $body]
+        Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
+        Assert when $::thisProcess has pid /something/ [list {} $__body]
+        Step
+        vwait forever
+    }} $name $body]
 
-        Zygote::spawn [list apply {{processCode} {
-            # A supervisor that wraps the subprocess.
-            set pid [Zygote::fork]
-            if {$pid == 0} {
-                eval $processCode
-            } else {
-                # TODO: Supervise the subprocess.
-                # waitpid $pid
-                # how to report outcomes to Folk?
-                # does it have an inbox? do we assert into Folk and let it retract?
-            }
-        }} $processCode]
+    Zygote::spawn [list apply {{processCode} {
+        # A supervisor that wraps the subprocess.
+        set pid [Zygote::fork]
+        if {$pid == 0} {
+            eval $processCode
+        } else {
+            # TODO: Supervise the subprocess.
+            # waitpid $pid
+            # how to report outcomes to Folk?
+            # does it have an inbox? do we assert into Folk and let it retract?
+        }
+    }} $processCode]
 
-        When (non-capturing) $name has pid /pid/ {
+    # Wrap these in a new scope so they don't capture a bunch of
+    # random stuff from this outer scope.
+    apply {{this name} {
+        # This When and On unmatch will be part of the caller match,
+        # because they bind to the current global ::matchId (so this
+        # When should unmatch if the caller unmatches, leading to the
+        # subprocess getting killed).
+        When $name has pid /pid/ {
             On unmatch {
                 exec kill -9 $pid
             }
         }
-    }
+        On unmatch {
+            # Remember to suppress/kill the process if it shows up
+            # later after we're gone.
+            dict set ::peersBlacklist $name true
+            after 5000 [list dict unset ::peersBlacklist $name]
+        }
+    }} $this $name
 }

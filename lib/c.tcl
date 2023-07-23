@@ -45,7 +45,7 @@ namespace eval c {
                 #include <stdbool.h>
 
                 #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
             }
             variable code [list]
             variable objtypes [list]
@@ -260,6 +260,7 @@ namespace eval c {
                         snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+                        Tcl_SetResult(interp, "setFromAnyProc not implemented for $[set type]", NULL);
                         return TCL_ERROR;
                     }
                     Tcl_ObjType $[set type]_ObjType = (Tcl_ObjType) {

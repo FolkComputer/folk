@@ -223,20 +223,28 @@ proc StepImpl {} {
 
     foreach peerNs [namespace children ::Peers] {
         apply [list {peer shareStatements} {
+            variable prevShareStatements
+
             variable connected
             if {!$connected} { return }
 
             ::addMatchesToShareStatements shareStatements \
                 [Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
 
-            if {[clauseset size $shareStatements] > 0} {
+            if {![info exists prevShareStatements] ||
+                ([clauseset size $prevShareStatements] > 0 ||
+                 [clauseset size $shareStatements] > 0)} {
+
                 run [list apply {{process receivedStatements} {
                     upvar chan chan
                     Commit $chan statements {
                         Claim $process is sharing statements $receivedStatements
                     }
                 }} $::thisProcess [clauseset clauses $shareStatements]]
+
+                set prevShareStatements $shareStatements
             }
+
         } $peerNs] [namespace tail $peerNs] $shareStatements
     }
 }
