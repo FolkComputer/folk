@@ -32,6 +32,8 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
             set ::shareNode "folk-onefact.local"
         } elseif {[hashString $wifi] eq 4077950650 || [hashString $wifi] eq 862457117} {
             set ::shareNode "folk-arc.local"
+        } elseif {$wifi eq "The Windfish"} {
+            set ::shareNode "folk-dpip.local"
         } else {
             # there's no default.
         }
