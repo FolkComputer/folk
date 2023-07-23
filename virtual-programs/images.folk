@@ -93,12 +93,10 @@ When /someone/ wishes /p/ has camera slice & \
      the camera frame is /f/ & \
      /p/ has region /r/ {
 
-    # okay, need to get top & bottom
-    set top [region top $r]
-    lassign [lindex $r 0] a b c d
-
-    lassign [projectorToCamera $top] px0 py0
-    lassign [projectorToCamera $a] px1 py1
+    # Convert region in projector coordinates to camera
+    lassign [regionToBbox $r] minX minY maxX maxY
+    lassign [projectorToCamera [list $minX $minY]] px0 py0
+    lassign [projectorToCamera [list $maxX $maxY]] px1 py1
 
     # Clamp to image bounds
     set x [expr {int(max(min($px0, $px1), 0))}]
