@@ -7,7 +7,7 @@ proc sanitizeURL {url} {
     return $url
 }
 
-When /thing/ wishes /page/ has data from /address/ {
+When when /page/ has data /data/ from /address/ /lambda/ with environment /e/ {
   set sanitized [sanitizeURL $address]
   set path "~/page-data/$sanitized"
   set path [file normalize $path]
@@ -15,12 +15,12 @@ When /thing/ wishes /page/ has data from /address/ {
     set fileId [open $path "r"]
     set data [read $fileId]
     close $fileId
-    Claim $page has data $data loaded from $address
+    Claim $page has data $data from $address
   } else {
     set data [exec -ignorestderr curl $address]
     set fileId [open $path "w"]
     puts $fileId $data
     close $fileId
-    Claim $page has data $data loaded from $address
+    Claim $page has data $data from $address
   }
 }
