@@ -54,6 +54,15 @@ proc lenumerate {l} {
     }
     set ret
 }
+proc .. {from to} {
+    set out [list]
+    if {$from <= $to} {
+        for {set i $from} {$i <= $to} {incr i} {lappend out $i}
+    } else {
+        for {set i $from} {$i >= $to} {incr i -1} {lappend out $i}
+    }
+    return $out
+}
 
 proc python3 {args} {
     exec python3 << [undent [join $args " "]]

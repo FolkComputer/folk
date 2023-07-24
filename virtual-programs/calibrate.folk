@@ -1,0 +1,77 @@
+set cc [c create]
+$cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
+c loadlib $::env(HOME)/apriltag/libapriltag.so
+
+$cc code {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+}
+$cc proc init {} void { tf = tagStandard52h13_create(); }
+$cc proc tagWidth {} int { return tf->total_width; }
+$cc proc tagPixelsForId {int id} Tcl_Obj* {
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    Tcl_DString ret; Tcl_DStringInit(&ret);
+    char temp[1000];
+    Tcl_DStringAppend(&ret, temp,
+      snprintf(temp, 1000, "{width: %d, height: %d, buf: [\n",
+               image->width, image->height));
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            char el[100];
+            Tcl_DStringAppend(&ret, el, snprintf(el, 100, "%d,", pixel));
+        }
+    }
+    Tcl_DStringAppend(&ret, "\n]}", -1);
+    Tcl_Obj* s = Tcl_NewStringObj(ret.string, ret.length);
+    Tcl_DStringFree(&ret);
+    return s;
+}
+$cc compile
+init
+
+set GRID_COLS 8
+set GRID_ROWS 5
+set PIXELS_PER_TAG_PIXEL 5
+set CANV_WIDTH [expr {(1+$GRID_COLS*2)*[tagWidth]*$PIXELS_PER_TAG_PIXEL}]
+set CANV_HEIGHT [expr {(1+$GRID_ROWS*2)*[tagWidth]*$PIXELS_PER_TAG_PIXEL}]
+Wish the web server handles route {/calibrate$} with handler [list html [csubst {
+  <html>
+    <body style="margin: 0; padding: 10px">
+      <canvas id="canv" width="$CANV_WIDTH" height="$CANV_HEIGHT"></canvas>
+      <script>
+        const ctx = document.getElementById("canv").getContext('2d');
+        ctx.strokeRect(0, 0, $CANV_WIDTH, $CANV_HEIGHT);
+
+        function drawTagImage(image, x, y) {
+          console.log(image);
+          for (let row = 0; row < image.height; row++) {
+            for (let col = 0; col < image.width; col++) {
+              const pixel = image.buf[(row * image.width) + col];
+              if (typeof(pixel) === 'undefined') console.error('wtf');
+              ctx.fillStyle = `rgb(\${pixel},\${pixel},\${pixel})`;
+              ctx.fillRect(x + col*$PIXELS_PER_TAG_PIXEL,
+                           y + row*$PIXELS_PER_TAG_PIXEL,
+                           $PIXELS_PER_TAG_PIXEL,
+                           $PIXELS_PER_TAG_PIXEL);
+            }
+          }
+        }
+
+        const images = [];
+        $[join [lmap i [.. 0 [* $GRID_ROWS $GRID_COLS]] { csubst {
+          images.push($[tagPixelsForId $i]);
+        } }] "\n"]
+        for (let row = 0; row < $GRID_ROWS; row++) {
+          for (let col = 0; col < $GRID_COLS; col++) {
+            drawTagImage(images[row * $GRID_COLS + col],
+                         (1 + col*2)*$[tagWidth]*$PIXELS_PER_TAG_PIXEL,
+                         (1 + row*2)*$[tagWidth]*$PIXELS_PER_TAG_PIXEL);
+          }
+        }
+      </script>
+    </body>
+  </html>
+}]]
