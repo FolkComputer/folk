@@ -25,27 +25,27 @@ namespace eval Display {
     }
 
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
+        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $Display::LAYER]
     }
 
     proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $Display::LAYER]
     }
 
     proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args]]
+        uplevel [list Wish display runs [list Display::text {*}$args] on layer $Display::LAYER]
     }
 
     proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
+        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $Display::LAYER]
     }
 
     proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
+        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $Display::LAYER]
     }
 
     proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args]]
+        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $Display::LAYER]
     }
 
     variable displayTime none
