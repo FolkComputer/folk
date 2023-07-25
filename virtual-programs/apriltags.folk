@@ -1,9 +1,10 @@
 if {$::isLaptop} return
 
+set tagfamily "tagStandard52h13"
+
 # Plain detector. Runs on entire camera frame.
 set mainDetectorProcess [On process {
     source pi/AprilTags.tcl
-    AprilTags::init
 
     # TODO: Clean this up. We retract these so that we don't bounce
     # statements back to the main Folk process that it sends us.
@@ -18,9 +19,10 @@ set mainDetectorProcess [On process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims $::thisProcess has pid /pid/]
 
+    set detector [AprilTags new $tagfamily]
     When the camera frame is /grayFrame/ at /timestamp/ {
         set aprilTime [time {
-            set tags [AprilTags::detect $grayFrame]
+            set tags [$detector detect $grayFrame]
         }]
         Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
     }
@@ -30,7 +32,6 @@ set mainDetectorProcess [On process {
 # old camera frame.
 On process {
     source pi/AprilTags.tcl
-    AprilTags::init
 
     # TODO: Clean this up. We retract these so that we don't bounce
     # statements back to the main Folk process that it sends us.
@@ -65,6 +66,8 @@ On process {
 	}
     }
 
+    set detector [AprilTags new $tagfamily]
+
     When the camera frame is /grayFrame/ at /timestamp/ & \
          /process/ detects tags /prevTags/ at /something/ in time /something/ {
 
@@ -89,7 +92,7 @@ On process {
 
             set subimage [subimage $grayFrame $x $y [- $x1 $x] [- $y1 $y]]
             set aprilTime [+ $aprilTime [baretime {
-                foreach tag [AprilTags::detect $subimage] {
+                foreach tag [$detector detect $subimage] {
                     dict with tag {
                         set center [vec2 add $center [list $x $y]]
                         set corners [lmap corner $corners {vec2 add $corner [list $x $y]}]

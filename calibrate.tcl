@@ -18,6 +18,8 @@ Display::init
 # FIXME: adapt to camera spec
 # Camera::init 3840 2160
 Camera::init 1920 1080
+set tagfamily "tagStandard52h13"
+
 
 $cc code {
     #include <stdint.h>
@@ -330,10 +332,9 @@ set dense [findDenseCorrespondence $Display::fb]
 puts "dense: $dense"
 displayDenseCorrespondence $Display::fb $dense
 
-AprilTags::init
-
+set detector [AprilTags new $tagfamily]
 set grayFrame [Camera::grayFrame]
-set tags [AprilTags::detect $grayFrame]
+set tags [$detector detect $grayFrame]
 Camera::freeImage $grayFrame
 
 puts ""
