@@ -79,7 +79,11 @@ namespace eval Camera {
         format.fmt.pix.height = camera->height;
         format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
         format.fmt.pix.field = V4L2_FIELD_NONE;
-        if (xioctl(camera->fd, VIDIOC_S_FMT, &format) == -1) quit("VIDIOC_S_FMT");
+        int ret;
+        do {
+            ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
+        } while (ret == EBUSY);
+        if (ret == -1) quit("VIDIOC_S_FMT");
 
         struct v4l2_requestbuffers req;
         memset(&req, 0, sizeof req);
@@ -269,20 +273,6 @@ namespace eval Camera {
         variable HEIGHT
         set WIDTH $width
         set HEIGHT $height
-
-        try {
-          while {1} {
-            set pid [exec lsof -t "/dev/video0"]
-            if {$pid eq ""} break
-            exec kill -9 $pid 
-          }
-        } on error err { 
-          puts "got an error when trying to claim the video input as our own: ${err}"
-        }
-
-        # FIXME: This is bad. Something about the state of /dev/video0 makes the ioctl in cameraInit
-        # return "device busy" - sleeping helps...
-        exec sleep .5
 
         variable camera
         set camera [cameraOpen "/dev/video0" $WIDTH $HEIGHT]
