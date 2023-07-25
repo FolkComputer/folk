@@ -25,27 +25,27 @@ namespace eval Display {
     }
 
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
     }
 
     proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
     }
 
     proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::text {*}$args]]
     }
 
     proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
     }
 
     proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
     }
 
     proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillPolygon {*}$args]]
     }
 
     variable displayTime none
@@ -53,6 +53,9 @@ namespace eval Display {
         set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
             lappend displayList [list [dict get $match layer] [dict get $match command]]
+        }
+        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
+            lappend displayList [list 0 [dict get $match command]]
         }
 
         proc lcomp {a b} {
