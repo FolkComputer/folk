@@ -4,10 +4,10 @@ c loadlib $::env(HOME)/apriltag/libapriltag.so
 
 $cc code {
     #include <apriltag.h>
-    #include <tagStandard52h13.h>
+    #include <tag36h11.h>
     apriltag_family_t *tf = NULL;
 }
-$cc proc init {} void { tf = tagStandard52h13_create(); }
+$cc proc init {} void { tf = tag36h11_create(); }
 $cc proc tagWidth {} int { return tf->total_width; }
 $cc proc tagPixelsForId {int id} Tcl_Obj* {
     image_u8_t* image = apriltag_to_image(tf, id);
@@ -46,11 +46,11 @@ Wish the web server handles route {/calibrate$} with handler [list html [csubst 
         ctx.strokeRect(0, 0, $CANV_WIDTH, $CANV_HEIGHT);
 
         function drawTagImage(image, x, y) {
-          console.log(image);
+          // ctx.strokeStyle = 'red';
+          // ctx.strokeRect(x, y, image.width*$PIXELS_PER_TAG_PIXEL, image.height*$PIXELS_PER_TAG_PIXEL);
           for (let row = 0; row < image.height; row++) {
             for (let col = 0; col < image.width; col++) {
               const pixel = image.buf[(row * image.width) + col];
-              if (typeof(pixel) === 'undefined') console.error('wtf');
               ctx.fillStyle = `rgb(\${pixel},\${pixel},\${pixel})`;
               ctx.fillRect(x + col*$PIXELS_PER_TAG_PIXEL,
                            y + row*$PIXELS_PER_TAG_PIXEL,
