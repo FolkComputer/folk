@@ -2,7 +2,6 @@ if {$::isLaptop} return
 
 On process {
     source pi/AprilTags.tcl
-    AprilTags::init
 
     # TODO: Clean this up. We retract these so that we don't bounce
     # statements back to the main Folk process that it sends us.
@@ -21,9 +20,10 @@ On process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims $::thisProcess has pid /pid/]
 
+    set detector [AprilTags new tagStandard52h13]
     When the camera frame is /grayFrame/ {
         set aprilTime [time {
-            set tags [AprilTags::detect $grayFrame]
+            set tags [$detector detect $grayFrame]
         }]
         Commit {
             Claim the AprilTag time is $aprilTime
