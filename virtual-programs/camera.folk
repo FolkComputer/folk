@@ -1,13 +1,22 @@
 if {$::isLaptop} return
 
-namespace eval ::Camera {
-    variable WIDTH 1280
-    variable HEIGHT 720
+if {$::thisNode eq "folk-interact"} {
+    namespace eval ::Camera {
+        variable WIDTH 1920
+        variable HEIGHT 1080
+    }
+} else {
+    namespace eval ::Camera {
+        variable WIDTH 1280
+        variable HEIGHT 720
+    }
 }
+set width $::Camera::WIDTH
+set height $::Camera::HEIGHT
 
 On process {
     source pi/Camera.tcl
-    Camera::init 1280 720
+    Camera::init $width $height
 
     puts "Camera tid: [getTid]"
     
