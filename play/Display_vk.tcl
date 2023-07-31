@@ -88,17 +88,16 @@ namespace eval Display {
 
         VkSemaphore imageAvailableSemaphore;
         VkSemaphore renderFinishedSemaphore;
-        VkFence inFlightFence; 
+        VkFence inFlightFence;
     }
     dc proc init {} void [csubst {
-        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
         if ($macos) { glfwInit(); }
         else {
             void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
             if (vulkanLibrary == NULL) {
                 fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
             }
-            vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
+            // vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         }
 
         // Set up VkInstance instance:
