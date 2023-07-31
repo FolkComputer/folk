@@ -20,7 +20,7 @@ On process {
 
     puts "Camera tid: [getTid]"
     
-    forever {
+    while {True} {
         set cameraTime [time {
             set grayFrame [Camera::grayFrame]
         }]

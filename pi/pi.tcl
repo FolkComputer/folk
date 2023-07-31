@@ -96,5 +96,13 @@ try {
     puts stderr "Keyboard thread failed: $error"
 }
 
+proc forever_ {body} {
+    try $body
+    after idle [namespace code [info level 0]]
+}
+
+forever_ { Step }
+
 loadVirtualPrograms
-forever { Step }
+
+vwait forever_
