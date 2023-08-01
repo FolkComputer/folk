@@ -77,7 +77,6 @@ namespace eval Display {
         VkQueue computeQueue;
 
         VkRenderPass renderPass;
-        VkPipeline graphicsPipeline;
 
         VkSwapchainKHR swapchain;
         uint32_t swapchainImageCount;
@@ -91,13 +90,17 @@ namespace eval Display {
         VkFence inFlightFence;
     }
     dc proc init {} void [csubst {
-        if ($macos) { glfwInit(); }
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+        if ($macos) {
+            (void)vkGetInstanceProcAddr;
+            glfwInit();
+        }
         else {
             void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
             if (vulkanLibrary == NULL) {
                 fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
             }
-            // vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
+            vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         }
 
         // Set up VkInstance instance:
@@ -368,6 +371,110 @@ namespace eval Display {
             computeQueue = graphicsQueue;
         }
 
+        // Set up VkRenderPass renderPass:
+        {
+            VkAttachmentDescription colorAttachment = {0};
+            colorAttachment.format = swapchainImageFormat;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+            VkAttachmentReference colorAttachmentRef = {0};
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkSubpassDescription subpass = {0};
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &colorAttachmentRef;
+
+            VkRenderPassCreateInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = &colorAttachment;
+            renderPassInfo.subpassCount = 1;
+            renderPassInfo.pSubpasses = &subpass;
+
+            VkSubpassDependency dependency = {0};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+            
+            $[vkfn vkCreateRenderPass]
+            $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
+        }
+
+        // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
+        swapchainFramebuffers = ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
+        for (size_t i = 0; i < swapchainImageCount; i++) {
+            VkImageView attachments[] = { swapchainImageViews[i] };
+            
+            VkFramebufferCreateInfo framebufferInfo = {0};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = swapchainExtent.width;
+            framebufferInfo.height = swapchainExtent.height;
+            framebufferInfo.layers = 1;
+
+            $[vkfn vkCreateFramebuffer]
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
+        }
+
+        VkCommandPool commandPool; {
+            VkCommandPoolCreateInfo poolInfo = {0};
+            poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+            $[vkfn vkCreateCommandPool]
+            $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
+        }
+        // Set up VkCommandBuffer commandBuffer
+        {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool = commandPool;
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+
+            $[vkfn vkAllocateCommandBuffers]
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
+        }
+        
+        {
+            VkSemaphoreCreateInfo semaphoreInfo = {0};
+            semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+            $[vkfn vkCreateSemaphore]
+            $[vkfn vkCreateFence]
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
+        }
+    }]
+    dc argtype VkPipeline {
+        VkPipeline $argname; sscanf(Tcl_GetString($obj), "(VkPipeline) 0x%p", &$argname);
+    }
+    dc rtype VkPipeline {
+        $robj = Tcl_ObjPrintf("(VkPipeline) 0x%" PRIxPTR, (uintptr_t) $rvalue);
+    }
+    dc proc createPipeline {} VkPipeline [csubst {
         $[dc code [csubst {
             VkShaderModule createShaderModule(uint32_t* code, size_t codeSize) {
                 VkShaderModuleCreateInfo createInfo = {0};
@@ -500,132 +607,35 @@ namespace eval Display {
             $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
         }
 
-        VkAttachmentDescription colorAttachment = {0};
-        colorAttachment.format = swapchainImageFormat;
-        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        VkPipeline ret;
 
-        VkAttachmentReference colorAttachmentRef = {0};
-        colorAttachmentRef.attachment = 0;
-        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        VkGraphicsPipelineCreateInfo pipelineInfo = {0};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = NULL;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = NULL;
 
-        VkSubpassDescription subpass = {0};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorAttachmentRef;
+        pipelineInfo.layout = pipelineLayout;
 
-        // Set up VkRenderPass renderPass:
-        {
-            VkRenderPassCreateInfo renderPassInfo = {0};
-            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-            renderPassInfo.attachmentCount = 1;
-            renderPassInfo.pAttachments = &colorAttachment;
-            renderPassInfo.subpassCount = 1;
-            renderPassInfo.pSubpasses = &subpass;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
 
-            VkSubpassDependency dependency = {0};
-            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-            dependency.dstSubpass = 0;
-            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependency.srcAccessMask = 0;
-            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineInfo.basePipelineIndex = -1;
 
-            renderPassInfo.dependencyCount = 1;
-            renderPassInfo.pDependencies = &dependency;
-            
-            $[vkfn vkCreateRenderPass]
-            $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
-        }
-
-        // Set up VkPipeline graphicsPipeline:
-        {
-            VkGraphicsPipelineCreateInfo pipelineInfo = {0};
-            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-            pipelineInfo.stageCount = 2;
-            pipelineInfo.pStages = shaderStages;
-            pipelineInfo.pVertexInputState = &vertexInputInfo;
-            pipelineInfo.pInputAssemblyState = &inputAssembly;
-            pipelineInfo.pViewportState = &viewportState;
-            pipelineInfo.pRasterizationState = &rasterizer;
-            pipelineInfo.pMultisampleState = &multisampling;
-            pipelineInfo.pDepthStencilState = NULL;
-            pipelineInfo.pColorBlendState = &colorBlending;
-            pipelineInfo.pDynamicState = NULL;
-
-            pipelineInfo.layout = pipelineLayout;
-
-            pipelineInfo.renderPass = renderPass;
-            pipelineInfo.subpass = 0;
-
-            pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-            pipelineInfo.basePipelineIndex = -1;
-
-            $[vkfn vkCreateGraphicsPipelines]
-            $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &graphicsPipeline)}]
-        }
-
-        // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
-        swapchainFramebuffers = ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
-        for (size_t i = 0; i < swapchainImageCount; i++) {
-            VkImageView attachments[] = { swapchainImageViews[i] };
-            
-            VkFramebufferCreateInfo framebufferInfo = {0};
-            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebufferInfo.renderPass = renderPass;
-            framebufferInfo.attachmentCount = 1;
-            framebufferInfo.pAttachments = attachments;
-            framebufferInfo.width = swapchainExtent.width;
-            framebufferInfo.height = swapchainExtent.height;
-            framebufferInfo.layers = 1;
-
-            $[vkfn vkCreateFramebuffer]
-            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
-        }
-
-        VkCommandPool commandPool; {
-            VkCommandPoolCreateInfo poolInfo = {0};
-            poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-            poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-
-            $[vkfn vkCreateCommandPool]
-            $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
-        }
-        // Set up VkCommandBuffer commandBuffer
-        {
-            VkCommandBufferAllocateInfo allocInfo = {0};
-            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            allocInfo.commandPool = commandPool;
-            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            allocInfo.commandBufferCount = 1;
-
-            $[vkfn vkAllocateCommandBuffers]
-            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
-        }
-        
-        {
-            VkSemaphoreCreateInfo semaphoreInfo = {0};
-            semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-            VkFenceCreateInfo fenceInfo = {0};
-            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-            $[vkfn vkCreateSemaphore]
-            $[vkfn vkCreateFence]
-            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
-            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
-            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
-        }
+        $[vkfn vkCreateGraphicsPipelines]
+        $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &ret)}]
+        return ret;
     }]
 
-    dc code [csubst { void recordCommandBuffer(VkCommandBuffer commandBuffer, int imageIndex) {
+    dc code [csubst { void recordCommandBuffer(VkCommandBuffer commandBuffer, int imageIndex, VkPipeline pipeline) {
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = 0;
@@ -652,13 +662,13 @@ namespace eval Display {
 
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
     } }]
 
-    dc proc drawFrame {} void [csubst {
+    dc proc drawFrame {VkPipeline pipeline} void [csubst {
         $[vkfn vkWaitForFences]
         $[vkfn vkResetFences]
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -670,7 +680,7 @@ namespace eval Display {
 
         $[vkfn vkResetCommandBuffer]
         vkResetCommandBuffer(commandBuffer, 0);
-        recordCommandBuffer(commandBuffer, imageIndex);
+        recordCommandBuffer(commandBuffer, imageIndex, pipeline);
 
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
         {
@@ -714,12 +724,23 @@ namespace eval Display {
     }
 }
 
+# Make a display list.
+set displayList {
+    {rect 10 10 200 200}
+    {rect 210 210 500 500}
+}
+# https://vkguide.dev/docs/chapter-3/scene_management/
+
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     namespace eval Display { dc compile }
+
     Display::init
+    set pipeline [Display::createPipeline]
+
     while 1 {
         Display::poll
-        Display::drawFrame
+        Display::drawFrame $pipeline
     }
 }
 
