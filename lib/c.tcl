@@ -96,13 +96,13 @@ namespace eval c {
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
                         expr {{
-                            int ${argname}_objc; Tcl_Obj** ${argname}_objv;
-                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &${argname}_objc, &${argname}_objv));
-                            $basetype $argname\[${argname}_objc\];
+                            int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                            $basetype $argname[$[set argname]_objc];
                             {
-                                for (int i = 0; i < ${argname}_objc; i++) {
+                                for (int i = 0; i < $[set argname]_objc; i++) {
                                     $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
-                                    $argname\[i\] = ${argname}_i;
+                                    $argname[i] = $[set argname]_i;
                                 }
                             }
                         }}
@@ -180,7 +180,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
