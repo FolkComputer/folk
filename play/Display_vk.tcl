@@ -485,7 +485,7 @@ namespace eval Display {
         Tcl_ListObjGetElements(NULL, codeObj, &codeObjc, &codeObjv);
         uint32_t code[codeObjc];
         for (int i = 0; i < codeObjc; i++) {
-            code[i] = Tcl_GetIntFromObj(NULL, codeObjv[i], (int32_t *)&code[i]);
+            Tcl_GetIntFromObj(NULL, codeObjv[i], (int32_t *)&code[i]);
         }
 
         VkShaderModuleCreateInfo createInfo = {0};
@@ -711,6 +711,21 @@ set displayList {
 }
 # https://vkguide.dev/docs/chapter-3/scene_management/
 
+
+
+    puts [glslc -fshader-stage=frag {
+        #version 450
+
+        layout(location = 0) in vec3 fragColor;
+
+        layout(location = 0) out vec4 outColor;
+
+        void main() {
+            outColor = vec4(fragColor, 1.0);
+        }
+    }]
+
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     namespace eval Display { dc compile }
 
@@ -728,7 +743,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         }
     }]]
 
-    set pipeline1 [Display::createShaderModule [glslc -fshader-stage=vert {
+    set pipeline1 [Display::createPipeline [Display::createShaderModule [glslc -fshader-stage=vert {
         #version 450
 
         layout(location = 0) out vec3 fragColor;
@@ -745,8 +760,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
             gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
             fragColor = colors[gl_VertexIndex];
         }
-    }] $fragShaderModule]
-    set pipeline2 [Display::createShaderModule [glslc -fshader-stage=vert {
+    }]] $fragShaderModule]
+    set pipeline2 [Display::createPipeline [Display::createShaderModule [glslc -fshader-stage=vert {
         #version 450
 
         layout(location = 0) out vec3 fragColor;
@@ -763,7 +778,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
             gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
             fragColor = colors[gl_VertexIndex];
         }
-    }] $fragShaderModule]
+    }]] $fragShaderModule]
     set pipelines [list $pipeline1 $pipeline2]
 
     set i 0
