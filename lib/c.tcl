@@ -297,6 +297,7 @@ namespace eval c {
 
             ::proc "proc" {name args rtype body} {
                 set cname [string map {":" "_"} $name]
+                set body [uplevel [list csubst $body]]
 
                 # puts "$name $args $rtype $body"
                 set arglist [list]

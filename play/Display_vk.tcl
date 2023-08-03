@@ -84,6 +84,7 @@ namespace eval Display {
         VkExtent2D swapchainExtent;
 
         VkCommandBuffer commandBuffer;
+        uint32_t imageIndex;
 
         VkSemaphore imageAvailableSemaphore;
         VkSemaphore renderFinishedSemaphore;
@@ -615,7 +616,19 @@ namespace eval Display {
         return ret;
     }]
 
-    dc code [csubst { void recordCommandBuffer(VkCommandBuffer commandBuffer, int imageIndex, VkPipeline pipeline) {
+    dc proc drawingBegin {} void {
+        $[vkfn vkWaitForFences]
+        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+
+        $[vkfn vkResetFences]
+        vkResetFences(device, 1, &inFlightFence);
+
+        $[vkfn vkAcquireNextImageKHR]
+        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+        $[vkfn vkResetCommandBuffer]
+        vkResetCommandBuffer(commandBuffer, 0);
+
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = 0;
@@ -624,10 +637,6 @@ namespace eval Display {
         $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
         $[vkfn vkCmdBeginRenderPass]
-        $[vkfn vkCmdBindPipeline]
-        $[vkfn vkCmdDraw]
-        $[vkfn vkCmdEndRenderPass]
-        $[vkfn vkEndCommandBuffer]
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -642,25 +651,19 @@ namespace eval Display {
 
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
+    }
+    dc proc drawingBindPipeline {VkPipeline pipeline} void {
+        $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    }
+    dc proc drawingEnd {} void {
+        $[vkfn vkCmdDraw]
+        $[vkfn vkCmdEndRenderPass]
+        $[vkfn vkEndCommandBuffer]
+
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
-    } }]
-
-    dc proc drawFrame {VkPipeline pipeline} void [csubst {
-        $[vkfn vkWaitForFences]
-        $[vkfn vkResetFences]
-        vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-        vkResetFences(device, 1, &inFlightFence);
-
-        uint32_t imageIndex;
-        $[vkfn vkAcquireNextImageKHR]
-        vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-
-        $[vkfn vkResetCommandBuffer]
-        vkResetCommandBuffer(commandBuffer, 0);
-        recordCommandBuffer(commandBuffer, imageIndex, pipeline);
 
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
         {
@@ -697,7 +700,7 @@ namespace eval Display {
             $[vkfn vkQueuePresentKHR]
             vkQueuePresentKHR(presentQueue, &presentInfo);
         }
-    }]
+    }
 
     dc proc poll {} void {
         glfwPollEvents();
@@ -710,21 +713,6 @@ set displayList {
     {rect 210 210 500 500}
 }
 # https://vkguide.dev/docs/chapter-3/scene_management/
-
-
-
-    puts [glslc -fshader-stage=frag {
-        #version 450
-
-        layout(location = 0) in vec3 fragColor;
-
-        layout(location = 0) out vec4 outColor;
-
-        void main() {
-            outColor = vec4(fragColor, 1.0);
-        }
-    }]
-
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     namespace eval Display { dc compile }
@@ -766,9 +754,9 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
         layout(location = 0) out vec3 fragColor;
 
-        vec2 positions[3] = vec2[](vec2(0.0, -1),
+        vec2 positions[3] = vec2[](vec2(0.0, 1),
                                    vec2(0, 0),
-                                   vec2(-1, 0));
+                                   vec2(1, 0));
 
         vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
                                 vec3(0.0, 1.0, 0.0),
@@ -781,10 +769,13 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     }]] $fragShaderModule]
     set pipelines [list $pipeline1 $pipeline2]
 
-    set i 0
-    while 1 {
-        Display::poll
-        Display::drawFrame [lindex $pipelines [expr {[incr i] % 2}]]
-    }
+    Display::drawingBegin
+
+    Display::drawingBindPipeline $pipeline1
+    Display::drawingBindPipeline $pipeline2
+
+    Display::drawingEnd
+
+    while 1 { Display::poll }
 }
 
