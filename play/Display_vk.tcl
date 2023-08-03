@@ -35,7 +35,7 @@ proc glslc {args} {
     set cmdargs [lreplace $args end end]
     set glsl [lindex $args end]
     set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
-    exec glslc {*}$cmdargs -mfmt=c -o - $glslfile
+    split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
 namespace eval Display {
@@ -468,62 +468,42 @@ namespace eval Display {
             $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
         }
     }]
-    dc argtype VkPipeline {
-        VkPipeline $argname; sscanf(Tcl_GetString($obj), "(VkPipeline) 0x%p", &$argname);
-    }
-    dc rtype VkPipeline {
-        $robj = Tcl_ObjPrintf("(VkPipeline) 0x%" PRIxPTR, (uintptr_t) $rvalue);
-    }
-    dc proc createPipeline {} VkPipeline [csubst {
-        $[dc code [csubst {
-            VkShaderModule createShaderModule(uint32_t* code, size_t codeSize) {
-                VkShaderModuleCreateInfo createInfo = {0};
-                createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
-                createInfo.codeSize = codeSize;
-                createInfo.pCode = code;
-                $[vkfn vkCreateShaderModule]
 
-                VkShaderModule shaderModule;
-                $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
-                return shaderModule;
-            }
-        }]]
+    proc defineVulkanHandleType {cc type} {
+        set cc [uplevel {namespace current}]::$cc
+        $cc argtype $type [format {
+            %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%p", &$argname);
+        } $type $type]
+        $cc rtype $type [format {
+            $robj = Tcl_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
+        } $type]
+    }
 
+    defineVulkanHandleType dc VkShaderModule
+    dc proc createShaderModule {Tcl_Obj* codeObj} VkShaderModule [csubst {
+        int codeObjc; Tcl_Obj** codeObjv;
+        Tcl_ListObjGetElements(NULL, codeObj, &codeObjc, &codeObjv);
+        uint32_t code[codeObjc];
+        for (int i = 0; i < codeObjc; i++) {
+            code[i] = Tcl_GetIntFromObj(NULL, codeObjv[i], (int32_t *)&code[i]);
+        }
+
+        VkShaderModuleCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
+        createInfo.codeSize = codeObjc * sizeof(code[0]);
+        createInfo.pCode = code;
+        $[vkfn vkCreateShaderModule]
+
+        VkShaderModule shaderModule;
+        $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
+        return shaderModule;
+    }]
+
+    defineVulkanHandleType dc VkPipeline
+    dc proc createPipeline {VkShaderModule vertShaderModule
+                            VkShaderModule fragShaderModule} VkPipeline [csubst {
         // Now what?
         // Create graphics pipeline.
-        uint32_t vertShaderCode[] = $[glslc -fshader-stage=vert {
-            #version 450
-
-            layout(location = 0) out vec3 fragColor;
-
-            vec2 positions[3] = vec2[](vec2(0.0, -0.5),
-                                       vec2(0.5, 0.5),
-                                       vec2(-0.5, 0.5));
-
-            vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
-                                    vec3(0.0, 1.0, 0.0),
-                                    vec3(0.0, 0.0, 1.0));
-
-            void main() {
-                gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-                fragColor = colors[gl_VertexIndex];
-            }
-        }];
-        VkShaderModule vertShaderModule = createShaderModule(vertShaderCode, sizeof(vertShaderCode));
-
-        uint32_t fragShaderCode[] = $[glslc -fshader-stage=frag {
-            #version 450
-
-            layout(location = 0) in vec3 fragColor;
-
-            layout(location = 0) out vec4 outColor;
-
-            void main() {
-                outColor = vec4(fragColor, 1.0);
-            }
-        }];
-        VkShaderModule fragShaderModule = createShaderModule(fragShaderCode, sizeof(fragShaderCode));
-
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
             VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
             vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -731,16 +711,65 @@ set displayList {
 }
 # https://vkguide.dev/docs/chapter-3/scene_management/
 
-
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     namespace eval Display { dc compile }
 
     Display::init
-    set pipeline [Display::createPipeline]
 
+    set fragShaderModule [Display::createShaderModule [glslc -fshader-stage=frag {
+        #version 450
+
+        layout(location = 0) in vec3 fragColor;
+
+        layout(location = 0) out vec4 outColor;
+
+        void main() {
+            outColor = vec4(fragColor, 1.0);
+        }
+    }]]
+
+    set pipeline1 [Display::createShaderModule [glslc -fshader-stage=vert {
+        #version 450
+
+        layout(location = 0) out vec3 fragColor;
+
+        vec2 positions[3] = vec2[](vec2(0.0, -1),
+                                   vec2(0, 0),
+                                   vec2(-1, 0));
+
+        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
+                                vec3(0.0, 1.0, 0.0),
+                                vec3(0.0, 0.0, 1.0));
+
+        void main() {
+            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+            fragColor = colors[gl_VertexIndex];
+        }
+    }] $fragShaderModule]
+    set pipeline2 [Display::createShaderModule [glslc -fshader-stage=vert {
+        #version 450
+
+        layout(location = 0) out vec3 fragColor;
+
+        vec2 positions[3] = vec2[](vec2(0.0, -1),
+                                   vec2(0, 0),
+                                   vec2(-1, 0));
+
+        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
+                                vec3(0.0, 1.0, 0.0),
+                                vec3(0.0, 0.0, 1.0));
+
+        void main() {
+            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+            fragColor = colors[gl_VertexIndex];
+        }
+    }] $fragShaderModule]
+    set pipelines [list $pipeline1 $pipeline2]
+
+    set i 0
     while 1 {
         Display::poll
-        Display::drawFrame $pipeline
+        Display::drawFrame [lindex $pipelines [expr {[incr i] % 2}]]
     }
 }
 
