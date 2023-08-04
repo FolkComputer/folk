@@ -616,7 +616,7 @@ namespace eval Display {
         return ret;
     }]
 
-    dc proc drawingBegin {} void {
+    dc proc drawStart {} void {
         $[vkfn vkWaitForFences]
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -652,16 +652,17 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawingBindPipeline {VkPipeline pipeline} void {
+    dc proc draw {VkPipeline pipeline} void {
         $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    }
-    dc proc drawingEnd {} void {
+
         $[vkfn vkCmdDraw]
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    }
+    dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
         $[vkfn vkEndCommandBuffer]
 
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
@@ -769,12 +770,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     }]] $fragShaderModule]
     set pipelines [list $pipeline1 $pipeline2]
 
-    Display::drawingBegin
+    Display::drawStart
 
-    Display::drawingBindPipeline $pipeline1
-    Display::drawingBindPipeline $pipeline2
+    Display::draw $pipeline1
+    Display::draw $pipeline2
 
-    Display::drawingEnd
+    Display::drawEnd
 
     while 1 { Display::poll }
 }
