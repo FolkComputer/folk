@@ -530,7 +530,7 @@ namespace eval Display {
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
             inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-            inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
             inputAssembly.primitiveRestartEnable = VK_FALSE;
         }
 
@@ -657,7 +657,7 @@ namespace eval Display {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         $[vkfn vkCmdDraw]
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
     dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
@@ -720,6 +720,26 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     Display::init
 
+    set vertShaderModule [Display::createShaderModule [glslc -fshader-stage=vert {
+        #version 450
+
+        layout(location = 0) out vec3 fragColor;
+
+        vec2 positions[4] = vec2[](vec2(-1, -1),
+                                   vec2(1, -1),
+                                   vec2(-1, 1),
+                                   vec2(1, 1));
+
+        vec3 colors[4] = vec3[](vec3(1.0, 0.0, 0.0),
+                                vec3(0.0, 1.0, 0.0),
+                                vec3(0.0, 0.0, 1.0),
+                                vec3(1.0, 1.0, 1.0) );
+
+        void main() {
+            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+            fragColor = colors[gl_VertexIndex];
+        }
+    }]]
     set fragShaderModule [Display::createShaderModule [glslc -fshader-stage=frag {
         #version 450
 
@@ -732,48 +752,11 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         }
     }]]
 
-    set pipeline1 [Display::createPipeline [Display::createShaderModule [glslc -fshader-stage=vert {
-        #version 450
-
-        layout(location = 0) out vec3 fragColor;
-
-        vec2 positions[3] = vec2[](vec2(0.0, -1),
-                                   vec2(0, 0),
-                                   vec2(-1, 0));
-
-        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
-                                vec3(0.0, 1.0, 0.0),
-                                vec3(0.0, 0.0, 1.0));
-
-        void main() {
-            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-            fragColor = colors[gl_VertexIndex];
-        }
-    }]] $fragShaderModule]
-    set pipeline2 [Display::createPipeline [Display::createShaderModule [glslc -fshader-stage=vert {
-        #version 450
-
-        layout(location = 0) out vec3 fragColor;
-
-        vec2 positions[3] = vec2[](vec2(0.0, 1),
-                                   vec2(0, 0),
-                                   vec2(1, 0));
-
-        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),
-                                vec3(0.0, 1.0, 0.0),
-                                vec3(0.0, 0.0, 1.0));
-
-        void main() {
-            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-            fragColor = colors[gl_VertexIndex];
-        }
-    }]] $fragShaderModule]
-    set pipelines [list $pipeline1 $pipeline2]
+    set pipeline1 [Display::createPipeline $vertShaderModule $fragShaderModule]
 
     Display::drawStart
 
     Display::draw $pipeline1
-    Display::draw $pipeline2
 
     Display::drawEnd
 
