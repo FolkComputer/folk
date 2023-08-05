@@ -530,6 +530,9 @@ namespace eval Display {
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
             inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            // We're just going to draw a fullscreen quad (4 vertices
+            // -> first 3 vertices are top-left triangle, last 3
+            // vertices are bottom-right triangle).
             inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
             inputAssembly.primitiveRestartEnable = VK_FALSE;
         }
@@ -723,32 +726,30 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     set vertShaderModule [Display::createShaderModule [glslc -fshader-stage=vert {
         #version 450
 
-        layout(location = 0) out vec3 fragColor;
-
         vec2 positions[4] = vec2[](vec2(-1, -1),
                                    vec2(1, -1),
                                    vec2(-1, 1),
                                    vec2(1, 1));
 
-        vec3 colors[4] = vec3[](vec3(1.0, 0.0, 0.0),
-                                vec3(0.0, 1.0, 0.0),
-                                vec3(0.0, 0.0, 1.0),
-                                vec3(1.0, 1.0, 1.0) );
-
         void main() {
             gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-            fragColor = colors[gl_VertexIndex];
         }
     }]]
+    # We need to parameterize the fragment shader with circle loc/radius.
+    # We need to compile them on demand.
     set fragShaderModule [Display::createShaderModule [glslc -fshader-stage=frag {
         #version 450
 
-        layout(location = 0) in vec3 fragColor;
-
         layout(location = 0) out vec4 outColor;
 
+        float sdCircle( vec2 center, float radius, vec2 p )
+        {
+            return length(p - center) - radius;
+        }
+
         void main() {
-            outColor = vec4(fragColor, 1.0);
+            float d = sdCircle(vec2(300, 300), 40, gl_FragCoord.xy);
+            outColor = d < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
         }
     }]]
 
