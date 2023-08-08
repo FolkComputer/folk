@@ -5,6 +5,7 @@ thread::errorproc errorproc
 namespace eval Display {
     variable WIDTH
     variable HEIGHT
+    variable LAYER 0
     regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
 
     variable displayThread [thread::create {
@@ -17,38 +18,56 @@ namespace eval Display {
     }]
     puts "Display thread id: $displayThread"
 
+    proc drawOnTop {func args} {
+        set Display::LAYER 1
+        uplevel [list $func {*}$args]
+        set Display::LAYER 0
+    }
+
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
+        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $Display::LAYER]
     }
 
     proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $Display::LAYER]
     }
 
     proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args]]
+        uplevel [list Wish display runs [list Display::text {*}$args] on layer $Display::LAYER]
     }
 
     proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
+        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $Display::LAYER]
     }
 
     proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
+        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $Display::LAYER]
     }
 
     proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args]]
+        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $Display::LAYER]
     }
 
     variable displayTime none
     proc commit {} {
         set displayList [list]
+        foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
+            lappend displayList [list [dict get $match layer] [dict get $match command]]
+        }
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
-            lappend displayList [dict get $match command]
+            lappend displayList [list 0 [dict get $match command]]
         }
 
-        proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
+        proc lcomp {a b} {
+            set layerA [lindex $a 0]
+            set layerB [lindex $b 0]
+            if {$layerA == $layerB} {
+                expr {[lindex $a 1 0] == "Display::text"}
+            } else {
+                expr {$layerA - $layerB}
+            }
+        }
+
         incr ::displayCount
         thread::send -head -async $Display::displayThread [format {
             set newDisplayCount %d
@@ -68,7 +87,7 @@ namespace eval Display {
                 set Display::displayTime "$displayTime"
             }]
         } $::displayCount \
-          [join [lsort -command lcomp $displayList] "\n"] \
+          [join [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}] "\n"] \
           [thread::id]]
     }
 }
