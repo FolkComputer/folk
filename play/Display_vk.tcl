@@ -31,12 +31,6 @@ proc csubst {s} {
     join $result ""
 }
 
-proc glslc {args} {
-    set cmdargs [lreplace $args end end]
-    set glsl [lindex $args end]
-    set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
-    split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
-}
 
 namespace eval Display {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
@@ -655,12 +649,15 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc draw {VkPipeline pipeline} void {
+    dc proc drawImpl {VkPipeline pipeline} void {
         $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
+    }
+    proc draw {pipeline args} {
+        drawImpl $pipeline $args
     }
     dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
@@ -709,6 +706,54 @@ namespace eval Display {
     dc proc poll {} void {
         glfwPollEvents();
     }
+
+    proc pipeline {args body} {
+        variable vertShaderModule
+        if {![info exists vertShaderModule]} {
+            set vertShaderModule [createShaderModule [glslc -fshader-stage=vert {
+                #version 450
+
+                vec2 positions[4] = vec2[](vec2(-1, -1),
+                                           vec2(1, -1),
+                                           vec2(-1, 1),
+                                           vec2(1, 1));
+
+                void main() {
+                    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+                }
+            }]]
+        }
+        set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
+            #version 450
+
+            layout(binding = 0) uniform Args {
+                $[join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
+            } args;
+
+            layout(location = 0) out vec4 outColor;
+
+            void main() {$body}
+        }]]]
+        Display::createPipeline $vertShaderModule $fragShaderModule
+
+        # TODO: We need to compile a C struct with the args. (We need cglm?)
+        set cc [c create]
+        $cc struct Args {
+            $[join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
+        }
+        $cc proc drawImpl {} {
+            
+        }
+        drawImpl {*}$Args
+        # TODO: We 
+    }
+}
+
+proc glslc {args} {
+    set cmdargs [lreplace $args end end]
+    set glsl [lindex $args end]
+    set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
+    split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
 # Make a display list.
@@ -723,44 +768,16 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     Display::init
 
-    set vertShaderModule [Display::createShaderModule [glslc -fshader-stage=vert {
-        #version 450
-
-        vec2 positions[4] = vec2[](vec2(-1, -1),
-                                   vec2(1, -1),
-                                   vec2(-1, 1),
-                                   vec2(1, 1));
-
-        void main() {
-            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
-        }
-    }]]
-    # We need to parameterize the fragment shader with circle loc/radius.
-    # We need to compile them on demand.
-    set fragShaderModule [Display::createShaderModule [glslc -fshader-stage=frag {
-        #version 450
-
-        layout(location = 0) out vec4 outColor;
-
-        float sdCircle( vec2 center, float radius, vec2 p )
-        {
-            return length(p - center) - radius;
-        }
-
-        void main() {
-            float d = sdCircle(vec2(300, 300), 40, gl_FragCoord.xy);
-            outColor = d < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-        }
-    }]]
-
-    set pipeline1 [Display::createPipeline $vertShaderModule $fragShaderModule]
+    set circle [Display::pipeline {vec2 center float radius} {
+        float d = length(gl_FragCoord.xy - args.center) - args.radius;
+        outColor = d < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
     Display::drawStart
 
-    Display::draw $pipeline1
+    Display::draw $circle {100 200} 30
 
     Display::drawEnd
 
     while 1 { Display::poll }
 }
-
