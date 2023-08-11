@@ -70,6 +70,8 @@ proc assert condition {
     }
 }
 
+proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
+
 # forever { ... } is sort of like while true { ... }, but it yields to
 # the event loop after each iteration.
 proc forever {body} {
