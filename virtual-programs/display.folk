@@ -56,6 +56,8 @@ On process {
         [list /someone/ wishes display runs /command/ on layer /layer/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes display runs /command/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims the display time is /displayTime/]
 
     forever {
         set displayList [list]
@@ -79,5 +81,10 @@ On process {
         set displayCommands [join [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}] "\n"]
         append displayCommands "\ncommitThenClearStaging"
         set displayTime [time $displayCommands]
+        Commit { Claim the display time is $displayTime }
     }
+}
+# TODO: remove this compatibility hack
+When the display time is /displayTime/ {
+    set ::Display::displayTime $displayTime
 }
