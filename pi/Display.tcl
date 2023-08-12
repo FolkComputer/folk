@@ -1,5 +1,3 @@
-source "lib/language.tcl"
-source "lib/c.tcl"
 source "pi/cUtils.tcl"
 
 namespace eval Display {}

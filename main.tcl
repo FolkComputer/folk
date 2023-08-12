@@ -193,10 +193,6 @@ proc StepImpl {} {
         Evaluator::Evaluate
     }
 
-    if {[namespace exists Display]} {
-        Display::commit ;# TODO: this is weird, not right level
-    }
-
     set shareStatements [clauseset create]
     set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
     set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]

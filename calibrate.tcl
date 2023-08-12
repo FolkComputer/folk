@@ -1,3 +1,4 @@
+source "lib/language.tcl"
 source "lib/c.tcl"
 
 exec sudo systemctl stop folk
