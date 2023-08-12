@@ -128,10 +128,11 @@ dc proc setupGpu {} void {
             fprintf(stderr, "Display: cannot open '%s': %m\n", card);
             exit(1);
         }
-        if (drmSetMaster(gpuFd) != 0) {
+        while (drmSetMaster(gpuFd) != 0) {
             fprintf(stderr, "Display: cannot become DRM master on '%s': %m\n", card);
-            exit(1);
+            fprintf(stderr, "Display: waiting 1 s...\n"); sleep(1);
         }
+        fprintf(stderr, "Display: successfully became DRM master on '%s'\n", card);
         uint64_t hasDumb;
         if (drmGetCap(gpuFd, DRM_CAP_DUMB_BUFFER, &hasDumb) < 0 || !hasDumb) {
             fprintf(stderr, "Display: drm device '%s' does not support dumb buffers\n", card);

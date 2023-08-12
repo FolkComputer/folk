@@ -234,7 +234,7 @@ proc StepImpl {} {
                 run [list apply {{process receivedStatements} {
                     upvar chan chan
                     Commit $chan statements {
-                        Claim $process is sharing statements $receivedStatements
+                        Say $process is sharing statements $receivedStatements
                     }
                 }} $::thisProcess [clauseset clauses $shareStatements]]
 

@@ -9,29 +9,64 @@ On process {
     Retract /anyone/ wishes $::thisProcess shares all wishes
     Retract /anyone/ wishes $::thisProcess shares all claims
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/]
+        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
     Wish $::thisProcess shares statements like \
         [list /someone/ wishes /process/ receives statements like /pattern/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ claims tag /tag/ has center /center/ size /size/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims tag /tag/ has corners /corners/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims the AprilTag time is /aprilTime/]
+        [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims $::thisProcess has pid /pid/]
 
-    When the camera frame is /grayFrame/ {
+    When the camera frame is /grayFrame/ at /timestamp/ {
         set aprilTime [time {
             set tags [AprilTags::detect $grayFrame]
         }]
         Commit {
-            Claim the AprilTag time is $aprilTime
-
-            foreach tag $tags {
-                Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
-                Claim tag [dict get $tag id] has corners [dict get $tag corners]
-            }
+            Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
         }
     }
 }
+
+When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+    Claim the AprilTag time is $aprilTime
+    foreach tag $tags {
+        Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+        Claim tag [dict get $tag id] has corners [dict get $tag corners]
+    }
+}
+
+# On process {
+#     source pi/AprilTags.tcl
+#     AprilTags::init
+
+#     # TODO: Clean this up. We retract these so that we don't bounce
+#     # statements back to the main Folk process that it sends us.
+#     Retract /anyone/ wishes $::thisProcess shares all wishes
+#     Retract /anyone/ wishes $::thisProcess shares all claims
+#     Wish $::thisProcess receives statements like \
+#         [list /someone/ claims the camera frame is /grayFrame/]
+#     Wish $::thisProcess shares statements like \
+#         [list /someone/ wishes /process/ receives statements like /pattern/]
+#     Wish $::thisProcess shares statements like \
+#         [list /someone/ claims tag /tag/ has center /center/ size /size/]
+#     Wish $::thisProcess shares statements like \
+#         [list /someone/ claims tag /tag/ has corners /corners/]
+#     Wish $::thisProcess shares statements like \
+#         [list /someone/ claims the AprilTag time is /aprilTime/]
+#     Wish $::thisProcess shares statements like \
+#         [list /someone/ claims $::thisProcess has pid /pid/]
+
+#     When the camera frame is /grayFrame/ {
+#         set aprilTime [time {
+#             set tags [AprilTags::detect $grayFrame]
+#         }]
+#         Commit {
+#             Claim the AprilTag time is $aprilTime
+
+#             foreach tag $tags {
+#                 Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+#                 Claim tag [dict get $tag id] has corners [dict get $tag corners]
+#             }
+#         }
+#     }
+# }
