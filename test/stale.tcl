@@ -3,4 +3,4 @@ for {set i 0} {$i < 30000} {incr i} {
     Step
 }
 
-exec dot -Tpdf >stale.pdf <<[Statements::dot]
+assert {[llength [Statements::findMatches [list /someone/ claims the iteration count is /i/]]] == 1}
