@@ -80,8 +80,8 @@ On process {
         }
 
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
-        lappend displayCommands "commitThenClearStaging"
-        set displayTime [baretime [list foreach command $displayCommands { {*}$command }]]
+        set renderTime [baretime [list foreach command $displayCommands { {*}$command }]]
+        set commitTime [baretime commitThenClearStaging]
 
         set inLastSecond 0
         set now [clock milliseconds]
@@ -92,7 +92,7 @@ On process {
             }
         }
         set frames [lreplace $frames 0 end-$inLastSecond]
-        Commit { Claim the display time is "$displayTime us ($inLastSecond fps)" }
+        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($inLastSecond fps)" }
     }
 }
 # TODO: remove this compatibility hack
