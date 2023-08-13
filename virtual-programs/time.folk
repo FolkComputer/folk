@@ -1,0 +1,3 @@
+When $::thisProcess has step count /t/ {
+  Claim $::thisProcess has clock time [clock milliseconds]
+}
