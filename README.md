@@ -452,6 +452,26 @@ retrigger, and so on.
 in its body will run again unless the boop goes away and an entirely
 new boop appears.
 
+### Animation
+
+#### Getting time
+
+Get the global clock time with:
+
+```
+When the clock time is /t/ {
+  Wish $this is labelled $t
+}
+```
+
+Use it in an animation:
+
+```
+When the clock time is /t/ {
+  Wish $this draws a circle offset [list [expr {sin($t) * 50}] 0]
+}
+```
+
 ### You usually won't need these
 
 #### When when
