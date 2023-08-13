@@ -1,3 +1,8 @@
 When when the distance between /p1/ and /p2/ is /distanceVar/ /body/ with environment /e/ & /p1/ has region /r1/ & /p2/ has region /r2/ {
     Claim the distance between $p1 and $p2 is [region distance $r1 $r2]
 }
+
+When /someone/ wishes region /r/ is /verbed/ /x/ {
+  Claim $r has region $r
+  Wish $r is $verbed $x
+}
