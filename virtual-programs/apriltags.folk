@@ -35,38 +35,81 @@ When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
     }
 }
 
-# On process {
-#     source pi/AprilTags.tcl
-#     AprilTags::init
+On process {
+    source pi/AprilTags.tcl
+    AprilTags::init
 
-#     # TODO: Clean this up. We retract these so that we don't bounce
-#     # statements back to the main Folk process that it sends us.
-#     Retract /anyone/ wishes $::thisProcess shares all wishes
-#     Retract /anyone/ wishes $::thisProcess shares all claims
-#     Wish $::thisProcess receives statements like \
-#         [list /someone/ claims the camera frame is /grayFrame/]
-#     Wish $::thisProcess shares statements like \
-#         [list /someone/ wishes /process/ receives statements like /pattern/]
-#     Wish $::thisProcess shares statements like \
-#         [list /someone/ claims tag /tag/ has center /center/ size /size/]
-#     Wish $::thisProcess shares statements like \
-#         [list /someone/ claims tag /tag/ has corners /corners/]
-#     Wish $::thisProcess shares statements like \
-#         [list /someone/ claims the AprilTag time is /aprilTime/]
-#     Wish $::thisProcess shares statements like \
-#         [list /someone/ claims $::thisProcess has pid /pid/]
+    # TODO: Clean this up. We retract these so that we don't bounce
+    # statements back to the main Folk process that it sends us.
+    Retract /anyone/ wishes $::thisProcess shares all wishes
+    Retract /anyone/ wishes $::thisProcess shares all claims
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /process/ receives statements like /pattern/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims $::thisProcess has pid /pid/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims $::thisProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /something/ is labelled /text/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /something/ displays camera slice /slice/]
 
-#     When the camera frame is /grayFrame/ {
-#         set aprilTime [time {
-#             set tags [AprilTags::detect $grayFrame]
-#         }]
-#         Commit {
-#             Claim the AprilTag time is $aprilTime
+    proc subimage {im x y subwidth subheight} {
+	dict with im {
+	    set x [expr {int($x)}]
+	    set y [expr {int($y)}]
+	    set subdata [expr {$data + ($y*$width + $x) * $components}]
+	    dict create \
+		width [int $subwidth] \
+		height [int $subheight] \
+		components $components \
+		bytesPerRow $bytesPerRow \
+		data [format 0x%x $subdata]
+	}
+    }
 
-#             foreach tag $tags {
-#                 Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
-#                 Claim tag [dict get $tag id] has corners [dict get $tag corners]
-#             }
-#         }
-#     }
-# }
+    When the camera frame is /grayFrame/ at /timestamp/ & \
+         /process/ detects tags /prevTags/ at /something/ in time /something/ {
+
+        if {$process eq $::thisProcess} { return }
+
+        set tags [list]
+        set frameWidth [dict get $grayFrame width]
+        set frameHeight [dict get $grayFrame height]
+        set aprilTime 0
+        foreach prevTag $prevTags {
+            set size [dict get $prevTag size]
+            set corners [dict get $prevTag corners]
+            set x [min {*}[lmap corner $corners {lindex $corner 0}]]
+            set y [min {*}[lmap corner $corners {lindex $corner 1}]]
+            set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
+            set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
+            
+            set x [max [- $x $size] 0]
+            set y [max [- $y $size] 0]
+            set x1 [min [+ $x1 $size] $frameWidth]
+            set y1 [min [+ $y1 $size] $frameHeight]
+
+            set subimage [subimage $grayFrame $x $y [- $x1 $x] [- $y1 $y]]
+            Wish 6 displays camera slice $subimage
+            set aprilTime [+ $aprilTime [baretime {
+                lappend tags {*}[AprilTags::detect $subimage]
+            }]]
+        }
+
+        Wish 6 is labelled "[llength $prevTags] -> [llength $tags] ($aprilTime us)"
+
+        # Commit {
+        #     Claim the AprilTag time is $aprilTime
+
+        #     foreach tag $tags {
+        #         Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
+        #         Claim tag [dict get $tag id] has corners [dict get $tag corners]
+        #     }
+        # }
+    }
+}

@@ -22,7 +22,7 @@ namespace eval AprilTags {
 
     apc proc detect {image_t gray} Tcl_Obj* {
         assert(gray.components == 1);
-        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.width, .buf = gray.data };
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
     
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);
