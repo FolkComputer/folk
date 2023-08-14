@@ -170,7 +170,7 @@ proc Commit {args} {
 }
 
 set ::stepCount 0
-set ::stepTime "none"
+set ::stepTime -1
 source "lib/peer.tcl"
 proc StepImpl {} {
     incr ::stepCount
@@ -246,7 +246,7 @@ proc StepImpl {} {
 }
 proc Step {} {
     if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        set ::stepTime [time StepImpl]
+        set ::stepTime [baretime StepImpl]
     }
 }
 

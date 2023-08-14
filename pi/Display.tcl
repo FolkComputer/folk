@@ -251,6 +251,7 @@ dc proc commitThenClearStaging {} void {
         exit(1);
     }
     staging = fbs[!currentFbIndex].mem;
+    // This memset takes ~2ms on 1080p on a Pi 4.
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
