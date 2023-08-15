@@ -1,5 +1,10 @@
 if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting." }
 
+# TODO: Fix this hack.
+set thisPid [pid]
+foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid } }
+exec sleep 1
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     set ::isLaptop [expr {$tcl_platform(os) eq "Darwin" ||
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
@@ -343,7 +348,7 @@ namespace eval ::Mailbox {
             char from[100];
             char to[100];
 
-            bool received;
+            int mailLen;
             char mail[1000000];
         } mailbox_t;
 
@@ -358,10 +363,16 @@ namespace eval ::Mailbox {
     }
     $cc proc create {char* from char* to} void {
         if (find(from, to) != NULL) return;
+        fprintf(stderr, "Mailbox create %s -> %s\n", from, to);
         for (int i = 0; i < NMAILBOXES; i++) {
             if (!mailboxes[i].active) {
                 mailboxes[i].active = true;
-                pthread_mutex_init(&mailboxes[i].mutex, NULL);
+                
+                pthread_mutexattr_t mattr;
+                pthread_mutexattr_init(&mattr);
+                pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+                pthread_mutex_init(&mailboxes[i].mutex, &mattr);
+
                 snprintf(mailboxes[i].from, 100, "%s", from);
                 snprintf(mailboxes[i].to, 100, "%s", to);
                 mailboxes[i].mail[0] = '\0';
@@ -390,8 +401,7 @@ namespace eval ::Mailbox {
             exit(1);
         }
         pthread_mutex_lock(&mailbox->mutex); {
-            mailbox->received = false;
-            snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
+            mailbox->mailLen = snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
         } pthread_mutex_unlock(&mailbox->mutex);
     }
     $cc proc receive {char* from char* to} Tcl_Obj* {
@@ -399,8 +409,7 @@ namespace eval ::Mailbox {
         if (!mailbox) { return Tcl_NewStringObj("", -1); }
         Tcl_Obj* ret;
         pthread_mutex_lock(&mailbox->mutex); {
-            mailbox->received = true;
-            ret = Tcl_NewStringObj(mailbox->mail, -1);
+            ret = Tcl_NewStringObj(mailbox->mail, mailbox->mailLen);
         } pthread_mutex_unlock(&mailbox->mutex);
         return ret;
     }
@@ -409,10 +418,6 @@ namespace eval ::Mailbox {
 }
 
 if {[info exists ::entry]} {
-    # TODO: Fix this hack.
-    set thisPid [pid]
-    foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid }}
-
     source "lib/process.tcl"
     Zygote::init
 
