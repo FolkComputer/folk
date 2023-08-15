@@ -198,8 +198,7 @@ dc proc setupGpu {} void {
 
     setupFb(0);
     fbmem = fbs[0].mem;
-    setupFb(1);
-    staging = fbs[1].mem;
+    staging = ckalloc(fbwidth * fbheight * sizeof(pixel_t));
 
     int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[0].id, 0, 0,
                              &gpuConn->connector_id, 1, &gpuConn->modes[0]);
