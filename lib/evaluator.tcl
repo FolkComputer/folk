@@ -892,6 +892,7 @@ namespace eval Evaluator {
             }
         }
         static void LogWriteRecollect(statement_handle_t collectId);
+        static void LogWriteUnmatch(match_handle_t matchId);
         void reactToStatementAdditionThatMatchesCollect(Tcl_Interp* interp,
                                                         statement_handle_t collectId,
                                                         Tcl_Obj* collectPattern,
@@ -1017,8 +1018,7 @@ namespace eval Evaluator {
                 match_handle_t matchId = edge->match;
                 if (!matchExists(matchId)) continue; // if was removed earlier
 
-                reactToMatchRemoval(interp, matchId);
-                matchRemove(matchId);
+                LogWriteUnmatch(matchId);
             }
         }
     }
@@ -1110,8 +1110,7 @@ namespace eval Evaluator {
                 if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
                     match_handle_t childMatchId = edge->match;
                     matchGet(childMatchId)->recollectOnDestruction = false;
-                    reactToMatchRemoval(interp, childMatchId);
-                    matchRemove(childMatchId);
+                    LogWriteUnmatch(childMatchId);
                     break;
                 }
             }
@@ -1120,7 +1119,7 @@ namespace eval Evaluator {
 
     $cc code {
         typedef enum {
-            NONE, ASSERT, RETRACT, SAY, RECOLLECT
+            NONE, ASSERT, RETRACT, SAY, UNMATCH, RECOLLECT
         } log_entry_op_t;
         typedef struct log_entry_t {
             log_entry_op_t op;
@@ -1131,6 +1130,7 @@ namespace eval Evaluator {
                     match_handle_t parentMatchId;
                     Tcl_Obj* clause;
                 } say;
+                struct { match_handle_t matchId; } unmatch;
                 struct { statement_handle_t collectId; } recollect;
             };
         } log_entry_t;
@@ -1146,6 +1146,7 @@ namespace eval Evaluator {
             evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
 
             if (entry.op == ASSERT) {
+                /* printf("Assert (%s)\n", Tcl_GetString(entry.assert.clause)); */
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
@@ -1155,6 +1156,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
+                /* printf("Retract (%s)\n", Tcl_GetString(entry.retract.pattern)); */
                 environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
                                                    1000, results);
@@ -1167,6 +1169,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
+                /* printf("Say (%s)\n", Tcl_GetString(entry.say.clause)); */
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -1177,7 +1180,15 @@ namespace eval Evaluator {
                 }
                 Tcl_DecrRefCount(entry.say.clause);
 
+            } else if (entry.op == UNMATCH) {
+                /* printf("Unmatch (m%d:%d)\n", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen); */
+                if (matchExists(entry.unmatch.matchId)) {
+                    reactToMatchRemoval(interp, entry.unmatch.matchId);
+                    matchRemove(entry.unmatch.matchId);
+                }
+
             } else if (entry.op == RECOLLECT) {
+                /* printf("Recollect (s%d:%d)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen); */
                 if (exists(entry.recollect.collectId)) {
                     recollect(interp, entry.recollect.collectId);
                 }
@@ -1207,6 +1218,9 @@ namespace eval Evaluator {
     $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
         LogWriteFront((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
+    }
+    $cc proc LogWriteUnmatch {match_handle_t matchId} void {
+        LogWriteBack((log_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
     }
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
         LogWriteBack((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
