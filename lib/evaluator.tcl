@@ -757,6 +757,15 @@ namespace eval Statements { ;# singleton Statement store
         }
         return "digraph { rankdir=LR; [join $dot "\n"] }"
     }
+    proc saveDotToPdf {filename} {
+        exec dot -Tpdf >$filename <<[Statements::dot]
+    }
+
+    proc print {} {
+        dict for {id stmt} [Statements::all] {
+            puts [statement short $stmt]
+        }
+    }
 
     # these are kind of arbitrary/temporary bridge
     $cc proc matchRemoveFirstDestructor {match_handle_t matchId} void {
