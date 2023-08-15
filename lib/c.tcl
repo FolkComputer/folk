@@ -45,7 +45,7 @@ namespace eval c {
                 #include <stdbool.h>
 
                 #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
             }
             variable code [list]
             variable objtypes [list]
