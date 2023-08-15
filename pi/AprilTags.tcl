@@ -17,7 +17,7 @@ namespace eval AprilTags {
         td = apriltag_detector_create();
         tf = tagStandard52h13_create();
         apriltag_detector_add_family_bits(td, tf, 1);
-        td->nthreads = 2;
+        td->nthreads = 1;
     }
 
     apc proc detect {image_t gray} Tcl_Obj* {
