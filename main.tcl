@@ -133,6 +133,7 @@ proc On {event args} {
         # send that to the subprocess.
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
         uplevel [list On-process $name [list apply [list $argNames $body] {*}$argValues]]
+        set name ;# Return the name to the caller in case they want it.
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
