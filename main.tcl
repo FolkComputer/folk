@@ -409,6 +409,10 @@ namespace eval ::Mailbox {
 }
 
 if {[info exists ::entry]} {
+    # TODO: Fix this hack.
+    set thisPid [pid]
+    foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid }}
+
     source "lib/process.tcl"
     Zygote::init
 
