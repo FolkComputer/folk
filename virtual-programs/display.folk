@@ -60,7 +60,7 @@ On process {
         [list /someone/ claims the display time is /displayTime/]
 
     set ::frames [list]
-    forever {
+    while true {
         set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
             lappend displayList [list [dict get $match layer] [dict get $match command]]
@@ -93,7 +93,9 @@ On process {
             }
         }
         set frames [lreplace $frames 0 end-$framesInLastSecond]
-        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($framesInLastSecond fps)" }
+
+        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime) ($framesInLastSecond fps)" }
+        Step
     }
 }
 # TODO: remove this compatibility hack

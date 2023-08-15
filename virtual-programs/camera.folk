@@ -20,7 +20,7 @@ On process {
 
     puts "Camera tid: [getTid] booting at [clock milliseconds]"
 
-    forever {
+    while true {
         set cameraTime [time {
             set grayFrame [Camera::grayFrame]
         }]
@@ -28,6 +28,7 @@ On process {
             Claim the camera time is $cameraTime
             Claim the camera frame is $grayFrame at [clock milliseconds]
         }
+        Step
     }
 }
 

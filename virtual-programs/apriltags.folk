@@ -102,6 +102,7 @@ On process {
         # Wish 6 is labelled "[llength $prevTags] -> [llength $tags] ($aprilTime us)"
 
         Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
+        # Wish 6 is labelled "\n\nStep time $::stepTime\n[join [lmap s [dict values [Statements::all]] {statement short $s}] "\n"]"
     }
 }
 
