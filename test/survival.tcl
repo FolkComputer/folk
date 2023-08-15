@@ -1,23 +1,25 @@
 Assert when we are running {{} {
-    When the collected matches for [list tag /k/ is visible] are /matches/ {
+    When the collected matches for [list tag /k/ was seen by /x/ at /p/] are /matches/ {
+        set tagsSeen [dict create]
         foreach m $matches {
-            Claim a tag is visible
+            dict set tagsSeen [dict get $m k] true
         }
-        puts "Collecting: [llength $matches] matches"
+        dict for {k _} $tagsSeen { Claim tag $k is a tag }
     }
-    When a tag is visible {
-        On unmatch {
-            puts "Unmatching. Should not unmatch"
-        }
+    When tag /k/ is a tag {
+        puts "Saw tag $k"
+        On unmatch { error "Should never unmatch" }
     }
 }}
 Assert we are running
 Step
 
-Assert tag 1 is visible
+Commit Omar { Claim tag 1 was seen by Omar at home }
+Commit Mom { Claim tag 1 was seen by Mom at restaurant }
 Step
 
-Assert tag 2 is visible
-Assert tag 3 is visible
-Retract tag 1 is visible
+Commit Omar { Claim tag 1 was seen by Omar at work }
 Step
+
+# Statements::print
+

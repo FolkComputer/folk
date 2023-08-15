@@ -119,7 +119,8 @@ When (non-capturing) tag /tag/ has center /c/ size /size/ {
 }
 
 When (non-capturing) tag /tag/ is a tag {
-     puts "Added tag $tag"
+    puts "Added tag $tag"
+    On unmatch { puts "Removed tag $tag" }
 
     set tempPath "$::env(HOME)/folk-printed-programs/$tag.folk.temp"
 

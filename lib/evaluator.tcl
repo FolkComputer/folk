@@ -1141,6 +1141,7 @@ namespace eval Evaluator {
         int evaluatorLogWriteIndex = 0;
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
+        /* printf("Evaluate==========\n"); */
         while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
             log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
             evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
@@ -1223,7 +1224,7 @@ namespace eval Evaluator {
         LogWriteBack((log_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
     }
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
-        LogWriteBack((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
+        LogWriteFront((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
     $cc proc LogIsEmpty {} bool {
         return evaluatorLogReadIndex == evaluatorLogWriteIndex;
