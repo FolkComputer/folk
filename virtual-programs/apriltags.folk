@@ -105,17 +105,29 @@ On process {
     }
 }
 
-When the collected matches for [list /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/] are /matches/ {
-    # Find all tag IDs, then find the latest for each ID.
-    # Sort by timestamp, earliest first.
-    proc mcomp {a b} {> [dict get $a timestamp] [dict get $b timestamp]}
-    set matches [lsort -command mcomp $matches]
+# This cache is used to remember the last seen position of each tag,
+# so that if the incremental detector blinks out, we still use the
+# tag's last-found position from it, instead of the older position
+# from the full detector, so as you move a tag its position doesn't
+# glitch backward.
+set ::tagsCache [dict create]
+# TODO: Garbage-collect this cache.
 
+When the collected matches for [list /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/] are /matches/ {
     set tagsSeen [dict create]
     foreach match $matches {
-        set tags [dict get $match tags]
-        foreach tag $tags {
-            dict set tagsSeen [dict get $tag id] $tag
+        set timestamp [dict get $match timestamp]
+        foreach tag [dict get $match tags] {
+            set id [dict get $tag id]
+            dict set tag timestamp $timestamp
+
+            if {[dict exists $::tagsCache $id] &&
+                [dict get $::tagsCache $id timestamp] > $timestamp} {
+                set tag [dict get $::tagsCache $id]
+            } else {
+                dict set ::tagsCache $id $tag
+            }
+            dict set tagsSeen $id $tag
         }
     }
 
