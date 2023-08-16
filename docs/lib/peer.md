@@ -7,6 +7,15 @@ Creates a `peersBlacklist` dict.
 ## functions
 
 - `::peer {process {dieOnDisconnect false}}`: creates a namespace `::Peers::$process` with the following functions:
+  - `share {statements}`: share the statements `statements` to the given peer
+  - `recieve`: recieve from the given peer
+  - `init {n shouldDieOnDisconnect}`: set `process` to `n`, set dieOnDisconnect, and connect through `Mailbox`
+
+<!-- 
+OLD DOCS
+## functions
+
+- `::peer {process {dieOnDisconnect false}}`: creates a namespace `::Peers::$process` with the following functions:
 
   - `log {s}`: Log the process name and the string `s`
   - `setupSock`: try and setup the websocket connection
@@ -17,7 +26,9 @@ Creates a `peersBlacklist` dict.
     - type "text": evaluate `msg`
     - type "ping" or "pong": do nothing
   - `run {msg}`: send the message `msg` over the websocket channel, telling the remote instance to evaluate `msg`
-  - `init {n shouldDieOnDisconnect}`: set `process` to `n`, then setup the socket, set dieOnDisconnect value, and wait till `connected` becomes true
+  - `init {n shouldDieOnDisconnect}`: set `process` to `n`, then setup the socket, set dieOnDisconnect value, and wait till `connected` becomes true -->
+
+
 
 ---
 CC-BY-SA 2023 Arcade Wise
