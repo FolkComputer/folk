@@ -36,6 +36,8 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
             set ::shareNode "folk-dpip.local"
         } elseif {$wifi eq "interact residency"} {
             set ::shareNode "folk-interact.local"
+        } elseif {$wifi eq "Fios-gLwY5" } {
+            set ::shareNode "folk-charles.local"
         } else {
             # there's no default.
         }

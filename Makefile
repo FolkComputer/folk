@@ -38,8 +38,10 @@ flamegraph:
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
 
+# You can use the Web server to check the pid of display.folk,
+# apriltags.folk, camera.folk, etc.
 remote-flamegraph:
-	ssh -t folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk flamegraph
+	ssh -t folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk flamegraph $(if $(REMOTE_FLAMEGRAPH_TID),FLAMEGRAPH_TID=$(REMOTE_FLAMEGRAPH_TID),)
 	scp folk@$(FOLK_SHARE_NODE):~/folk/out.svg .
 	scp folk@$(FOLK_SHARE_NODE):~/folk/out.perf .
 
