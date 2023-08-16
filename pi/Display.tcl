@@ -380,12 +380,6 @@ dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone in
 }
 source "pi/rotate.tcl"
 dc proc drawImage {int x0 int y0 image_t image double radians int scale} void {
-    
-    drawImageTransparent(x0 - image.width*scale/2,
-                         y0 - image.height*scale/2,
-                         image, 0x00, scale);
-    return;
-
     double radiansNormalized = fmod(radians, 2.0 * M_PI);
     if (radiansNormalized > M_PI) {
         radiansNormalized -= 2.0 * M_PI;

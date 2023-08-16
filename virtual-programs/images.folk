@@ -191,7 +191,7 @@ When /someone/ wishes /p/ displays image /im/ {
         # Compute a scale for im that will fit in the region width/height
         # Draw im with scale and rotation
         set center [region centroid $r]
-        Wish display runs [list Display::image {*}$center $im 0 1]
+        Wish display runs [list Display::image {*}$center $im [region angle $r] 1]
     }
     On unmatch {
         # HACK: Leaves time for the display to finish trying to display this.
