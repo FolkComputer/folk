@@ -346,44 +346,22 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 
 defineImageType dc
 dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone int scale} void {
-    if (image.components != 1) { exit(1); }
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
 
-	    // Index into image to get color
-            int i = y*image.bytesPerRow + x*image.components;
+	    // index into image to get color
+            int i = y*image.bytesPerRow + x*image.components; (void)i;
             uint8_t r; uint8_t g; uint8_t b;
-            if (image.data[i] == transparentTone) { continue; }
-            r = image.data[i]; g = image.data[i]; b = image.data[i];
-
-	    // Write repeatedly to framebuffer to scale up image
-	    for (int dy = 0; dy < scale; dy++) {
-		for (int dx = 0; dx < scale; dx++) {
-
-		    int sx = x0 + scale * x + dx;
-		    int sy = y0 + scale * y + dy;
-		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
-
-		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
-
-		}
-	    }
-        }
-    }
-}
-dc proc drawImage {int x0 int y0 image_t image int scale} void {
-    for (int y = 0; y < image.height; y++) {
-        for (int x = 0; x < image.width; x++) {
-
-	    // Index into image to get color
-            int i = y*image.bytesPerRow + x*image.components;
-            uint8_t r; uint8_t g; uint8_t b;
-            if (image.components == 3) {
-                r = image.data[i]; g = image.data[i+1]; b = image.data[i+2];
-            } else if (image.components == 1) {
+            if (image.components == 1) {
+                if (image.data[i] == transparentTone) { continue; }
                 r = image.data[i]; g = image.data[i]; b = image.data[i];
-            } else {
-                exit(1);
+            } else if (image.components == 3) {
+                if (image.data[i] == transparentTone &&
+                    image.data[i + 1] == transparentTone &&
+                    image.data[i + 2] == transparentTone) {
+                    continue;
+                }
+                r = image.data[i]; g = image.data[i + 1]; b = image.data[i + 2];
             }
 
 	    // Write repeatedly to framebuffer to scale up image
@@ -395,14 +373,62 @@ dc proc drawImage {int x0 int y0 image_t image int scale} void {
 		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
 
 		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
-
 		}
 	    }
         }
     }
 }
-
 source "pi/rotate.tcl"
+dc proc drawImage {int x0 int y0 image_t image double radians int scale} void {
+    
+    drawImageTransparent(x0 - image.width*scale/2,
+                         y0 - image.height*scale/2,
+                         image, 0x00, scale);
+    return;
+
+    double radiansNormalized = fmod(radians, 2.0 * M_PI);
+    if (radiansNormalized > M_PI) {
+        radiansNormalized -= 2.0 * M_PI;
+    } else if (radiansNormalized < -M_PI) {
+        radiansNormalized += 2.0 * M_PI;
+    }
+    int imageX; int imageY;
+    image_t temp = rotateMakeImage(image.width, image.height, image.components,
+                                   radiansNormalized,
+                                   &imageX, &imageY);
+    // Draw the image into the temp image.
+    for (int y = 0; y < image.height; y++) {
+        memcpy(&temp.data[(y + imageY) * temp.bytesPerRow + imageX * image.components],
+               &image.data[y * image.bytesPerRow],
+               image.bytesPerRow);
+    }
+    rotate(temp, imageX, imageY, image.width, image.height, radiansNormalized);
+
+    // Find corners of rotated rectangle
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-(int)image.width/2, -(int)image.height/2}, radiansNormalized);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {image.width/2, -(int)image.height/2}, radiansNormalized);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-(int)image.width/2, image.height/2}, radiansNormalized);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {image.width/2, image.height/2}, radiansNormalized);
+
+    // Now blit the offscreen buffer to the screen.
+    image_t rotatedImage = {
+        .width = max4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x) -
+                   min4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x),
+        .height = max4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y) -
+                    min4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y),
+        .components = temp.components,
+        .bytesPerRow = temp.bytesPerRow
+    };
+    int rotatedImageX0 = (temp.width - rotatedImage.width) / 2;
+    int rotatedImageY0 = (temp.height - rotatedImage.height) / 2;
+    rotatedImage.data = &temp.data[rotatedImageY0*temp.bytesPerRow + rotatedImageX0*temp.components];
+
+    drawImageTransparent(x0 - rotatedImage.width*scale/2,
+                         y0 - rotatedImage.height*scale/2,
+                         rotatedImage, 0x00, scale);
+    ckfree(temp.data);
+}
+
 dc proc drawText {int x0 int y0 double radians int scale char* text} void {
     // Draws text (breaking at linebreaks), with the center of the
     // text at (x0, y0). Rotates counterclockwise up from the
@@ -625,8 +651,8 @@ namespace eval Display {
         }
     }
 
-    proc image {x y im {scale 1.0}} {
-        drawImage [expr {int($x)}] [expr {int($y)}] $im [expr {int($scale)}]
+    proc image {x y im {radians 0} {scale 1.0}} {
+        drawImage [expr {int($x)}] [expr {int($y)}] $im $radians [expr {int($scale)}]
     }
 
     # for debugging

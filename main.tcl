@@ -298,7 +298,7 @@ namespace eval ::Heap {
         $cc code {
             size_t folkHeapSize = 400000000; // 400MB
             uint8_t* folkHeapBase;
-            uint8_t* _Atomic folkHeapPointer;
+            uint8_t** _Atomic folkHeapPointer;
         }
         # The memory mapping of the heap will be inherited by all
         # subprocesses, since it's established before the creation of
@@ -313,14 +313,15 @@ namespace eval ::Heap {
             if (folkHeapBase == NULL || folkHeapBase == (void *) -1) {
                 fprintf(stderr, "folkHeapMount: mmap failed: '%s'\n", strerror(errno)); exit(1);
             }
-            folkHeapPointer = folkHeapBase;
+            folkHeapPointer = (uint8_t**) folkHeapBase;
+            *folkHeapPointer = folkHeapBase + sizeof(*folkHeapPointer);
         }
         $cc proc folkHeapAlloc {size_t sz} void* {
-            if (folkHeapPointer + sz > folkHeapBase + folkHeapSize) {
+            if (*folkHeapPointer + sz >= folkHeapBase + folkHeapSize) {
                 fprintf(stderr, "folkHeapAlloc: out of memory\n"); exit(1);
             }
-            void* ptr = folkHeapPointer;
-            folkHeapPointer = folkHeapPointer + sz;
+            void* ptr = *folkHeapPointer;
+            *folkHeapPointer += sz;
             return (void*) ptr;
         }
         if {$::tcl_platform(os) eq "Linux"} {
