@@ -1031,6 +1031,7 @@ namespace eval Evaluator {
                 if (unmatch->edges[j].type == PARENT) {
                     statement_handle_t unmatchWhenId = unmatch->edges[j].statement;
                     statement_t* unmatchWhen = get(unmatchWhenId);
+                    if (unmatchWhen == NULL) continue;
                     for (int k = 0; k < unmatchWhen->n_edges; k++) {
                         if (unmatchWhen->edges[k].type == PARENT) {
                             unmatchId = unmatchWhen->edges[k].match;
@@ -1135,7 +1136,7 @@ namespace eval Evaluator {
             };
         } log_entry_t;
 
-        log_entry_t evaluatorLog[1024] = {0};
+        log_entry_t evaluatorLog[4096] = {0};
         #define EVALUATOR_LOG_CAPACITY (sizeof(evaluatorLog)/sizeof(evaluatorLog[1]))
         int evaluatorLogReadIndex = EVALUATOR_LOG_CAPACITY - 1;
         int evaluatorLogWriteIndex = 0;
