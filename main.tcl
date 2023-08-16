@@ -1,5 +1,10 @@
 if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting." }
 
+# TODO: Fix this hack.
+set thisPid [pid]
+foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid } }
+exec sleep 1
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     set ::isLaptop [expr {$tcl_platform(os) eq "Darwin" ||
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
@@ -133,6 +138,7 @@ proc On {event args} {
         # send that to the subprocess.
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
         uplevel [list On-process $name [list apply [list $argNames $body] {*}$argValues]]
+        set name ;# Return the name to the caller in case they want it.
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
@@ -165,12 +171,10 @@ proc Commit {args} {
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
         dict set ::toCommit $key $lambda
     }
-
-    after idle Step
 }
 
 set ::stepCount 0
-set ::stepTime "none"
+set ::stepTime -1
 source "lib/peer.tcl"
 proc StepImpl {} {
     incr ::stepCount
@@ -193,6 +197,9 @@ proc StepImpl {} {
         Evaluator::Evaluate
     }
 
+    set ::peerTime [baretime {
+
+    # This takes 2 ms.
     set shareStatements [clauseset create]
     set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
     set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
@@ -224,29 +231,31 @@ proc StepImpl {} {
             variable connected
             if {!$connected} { return }
 
+            # Receive.
+            Commit $peer [list Say $peer is sharing statements [receive]]
+
+            # Share.
             ::addMatchesToShareStatements shareStatements \
                 [Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
-
             if {![info exists prevShareStatements] ||
                 ([clauseset size $prevShareStatements] > 0 ||
                  [clauseset size $shareStatements] > 0)} {
 
-                run [list apply {{process receivedStatements} {
-                    upvar chan chan
-                    Commit $chan statements {
-                        Say $process is sharing statements $receivedStatements
-                    }
-                }} $::thisProcess [clauseset clauses $shareStatements]]
+                share [clauseset clauses $shareStatements]
 
                 set prevShareStatements $shareStatements
             }
 
         } $peerNs] [namespace tail $peerNs] $shareStatements
     }
+
+    }]
 }
+
 proc Step {} {
     if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        set ::stepTime [time StepImpl]
+        set stepTime [baretime StepImpl]
+        set ::stepTime "$stepTime us (peer $::peerTime us)"
     }
 }
 
@@ -284,8 +293,10 @@ namespace eval ::Heap {
         $cc include <fcntl.h>
         $cc include <unistd.h>
         $cc include <stdlib.h>
+        $cc include <string.h>
+        $cc include <errno.h>
         $cc code {
-            size_t folkHeapSize = 100000000; // 100MB
+            size_t folkHeapSize = 400000000; // 400MB
             uint8_t* folkHeapBase;
             uint8_t* _Atomic folkHeapPointer;
         }
@@ -293,18 +304,20 @@ namespace eval ::Heap {
         # subprocesses, since it's established before the creation of
         # the zygote.
         $cc proc folkHeapMount {} void {
+            shm_unlink("/folk-heap");
             int fd = shm_open("/folk-heap", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
-            ftruncate(fd, folkHeapSize);
+            if (fd == -1) { fprintf(stderr, "folkHeapMount: shm_open failed\n"); exit(1); }
+            if (ftruncate(fd, folkHeapSize) == -1) { fprintf(stderr, "folkHeapMount: ftruncate failed\n"); exit(1); }
             folkHeapBase = (uint8_t*) mmap(0, folkHeapSize,
                                            PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-            if (folkHeapBase == NULL) {
-                fprintf(stderr, "heapMount: failed"); exit(1);
+            if (folkHeapBase == NULL || folkHeapBase == (void *) -1) {
+                fprintf(stderr, "folkHeapMount: mmap failed: '%s'\n", strerror(errno)); exit(1);
             }
             folkHeapPointer = folkHeapBase;
         }
         $cc proc folkHeapAlloc {size_t sz} void* {
             if (folkHeapPointer + sz > folkHeapBase + folkHeapSize) {
-                fprintf(stderr, "heapAlloc: out of memory"); exit(1);
+                fprintf(stderr, "folkHeapAlloc: out of memory\n"); exit(1);
             }
             void* ptr = folkHeapPointer;
             folkHeapPointer = folkHeapPointer + sz;
@@ -319,6 +332,90 @@ namespace eval ::Heap {
     }
 }
 Heap::init
+
+namespace eval ::Mailbox {
+    set cc [c create]
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include <pthread.h>
+    $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    $cc code {
+        typedef struct mailbox_t {
+            bool active;
+
+            pthread_mutex_t mutex;
+
+            char from[100];
+            char to[100];
+
+            int mailLen;
+            char mail[1000000];
+        } mailbox_t;
+
+        #define NMAILBOXES 100
+        mailbox_t* mailboxes;
+    }
+    $cc proc init {} void {
+        fprintf(stderr, "Before: mailboxes = %p\n", mailboxes);
+        mailboxes = folkHeapAlloc(sizeof(mailbox_t) * NMAILBOXES);
+        memset(mailboxes, 0, sizeof(mailbox_t) * NMAILBOXES);
+        fprintf(stderr, "After: mailboxes = %p\n", mailboxes);
+    }
+    $cc proc create {char* from char* to} void {
+        if (find(from, to) != NULL) return;
+        fprintf(stderr, "Mailbox create %s -> %s\n", from, to);
+        for (int i = 0; i < NMAILBOXES; i++) {
+            if (!mailboxes[i].active) {
+                mailboxes[i].active = true;
+                
+                pthread_mutexattr_t mattr;
+                pthread_mutexattr_init(&mattr);
+                pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+                pthread_mutex_init(&mailboxes[i].mutex, &mattr);
+
+                snprintf(mailboxes[i].from, 100, "%s", from);
+                snprintf(mailboxes[i].to, 100, "%s", to);
+                mailboxes[i].mail[0] = '\0';
+                return;
+            }
+        }
+        fprintf(stderr, "Out of available mailboxes.\n");
+        exit(1);
+    }
+    $cc code {
+        mailbox_t* find(char* from, char* to) {
+            for (int i = 0; i < NMAILBOXES; i++) {
+                if (mailboxes[i].active &&
+                    strcmp(mailboxes[i].from, from) == 0 &&
+                    strcmp(mailboxes[i].to, to) == 0) {
+                    return &mailboxes[i];
+                }
+            }
+            return NULL;
+        }
+    }
+    $cc proc share {char* from char* to char* statements} void {
+        mailbox_t* mailbox = find(from, to);
+        if (!mailbox) {
+            fprintf(stderr, "Could not find mailbox for '%s -> %s'.\n", from, to);
+            exit(1);
+        }
+        pthread_mutex_lock(&mailbox->mutex); {
+            mailbox->mailLen = snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
+        } pthread_mutex_unlock(&mailbox->mutex);
+    }
+    $cc proc receive {char* from char* to} Tcl_Obj* {
+        mailbox_t* mailbox = find(from, to);
+        if (!mailbox) { return Tcl_NewStringObj("", -1); }
+        Tcl_Obj* ret;
+        pthread_mutex_lock(&mailbox->mutex); {
+            ret = Tcl_NewStringObj(mailbox->mail, mailbox->mailLen);
+        } pthread_mutex_unlock(&mailbox->mutex);
+        return ret;
+    }
+    $cc compile
+    init
+}
 
 if {[info exists ::entry]} {
     source "lib/process.tcl"

@@ -54,12 +54,12 @@ dc code {
     static void commitThenClearStaging();
 
     pixel_t* staging;
+    pixel_t* fbmem;
 
     struct {
         pixel_t* mem;
         uint32_t id;
     } fbs[2];
-    int currentFbIndex;
 
     int fbwidth;
     int fbheight;
@@ -197,12 +197,18 @@ dc proc setupGpu {} void {
     }
 
     setupFb(0);
-    setupFb(1);
+    fbmem = fbs[0].mem;
+    staging = ckalloc(fbwidth * fbheight * sizeof(pixel_t));
 
-    // Can't drop master if we're going to flip buffers at runtime.
-    // drmDropMaster(gpuFd);
-
-    commitThenClearStaging();
+    int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[0].id, 0, 0,
+                             &gpuConn->connector_id, 1, &gpuConn->modes[0]);
+    if (ret) {
+        fprintf(stderr, "Display: cannot flip CRTC to %d for connector %u (%d): %m\n",
+                0, gpuConn->connector_id, errno);
+        exit(1);
+    }
+    
+    drmDropMaster(gpuFd);
 }
 dc proc setupFb {int idx} void [csubst {
     struct drm_mode_create_dumb dumb;
@@ -238,19 +244,11 @@ dc proc setupFb {int idx} void [csubst {
 }]
 # Hack to support old stuff that uses framebuffer directly and doesn't commit.
 dc proc getFbPointer {} pixel_t* {
-    return fbs[currentFbIndex].mem;
+    return fbmem;
 }
 dc proc commitThenClearStaging {} void {
-    currentFbIndex = !currentFbIndex;
-    int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[currentFbIndex].id, 0, 0,
-                             &gpuConn->connector_id, 1, &gpuConn->modes[0]);
-    if (ret) {
-        fprintf(stderr, "Display: cannot flip CRTC to %d for connector %u (%d): %m\n",
-                currentFbIndex,
-                gpuConn->connector_id, errno);
-        exit(1);
-    }
-    staging = fbs[!currentFbIndex].mem;
+    memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
+    // This memset takes ~2ms on 1080p on a Pi 4.
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 

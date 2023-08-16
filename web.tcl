@@ -68,9 +68,11 @@ proc handlePage {path contentTypeVar} {
             }
             set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
 
+            set totalFrameTime 0
             set l [list]
             foreach {body totalTime} $totalTimes {
                 set runs [dict get $Evaluator::runsMap $body]
+                set totalFrameTime [expr {$totalFrameTime + $totalTime/$::stepCount}]
                 lappend l [subst {
                     <li>
                     <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
@@ -89,7 +91,7 @@ proc handlePage {path contentTypeVar} {
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
-                <h1>Timings</h1>
+                <h1>Timings (sum per-frame time $totalFrameTime us)</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
             }
