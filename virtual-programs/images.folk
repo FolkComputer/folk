@@ -172,7 +172,7 @@ When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
   # set scale [expr {$Display::WIDTH / $Camera::WIDTH}]
   # Use 1x scale instead of $scale so the projected tag doesn't redetect.
   # TODO: Mask the tag out?
-  Wish display runs [list Display::image {*}$center $slice 0 1]
+    Wish display runs [list Display::image {*}$center $slice 0 1]
 }
 
 When /someone/ wishes /p/ displays image /im/ {

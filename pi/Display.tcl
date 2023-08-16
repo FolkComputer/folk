@@ -390,12 +390,14 @@ dc proc drawImage {int x0 int y0 image_t image double radians int scale} void {
     image_t temp = rotateMakeImage(image.width, image.height, image.components,
                                    radiansNormalized,
                                    &imageX, &imageY);
+
     // Draw the image into the temp image.
     for (int y = 0; y < image.height; y++) {
-        memcpy(&temp.data[(y + imageY) * temp.bytesPerRow + imageX * image.components],
+        memcpy(&temp.data[(y + imageY) * temp.bytesPerRow + imageX * temp.components],
                &image.data[y * image.bytesPerRow],
-               image.bytesPerRow);
+               image.width * image.components);
     }
+    
     rotate(temp, imageX, imageY, image.width, image.height, radiansNormalized);
 
     // Find corners of rotated rectangle
