@@ -139,6 +139,18 @@ namespace eval ::region {
         set bottomEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] end]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $bottomEdgeIndex]]
     }
+    proc bottomleft {r} {
+      lindex [vertices $r] 0
+    }
+    proc bottomright {r} {
+      lindex [vertices $r] 1
+    }
+    proc topright {r} {
+      lindex [vertices $r] 2
+    }
+    proc topleft {r} {
+      lindex [vertices $r] 3
+    }
 
     proc mapVertices {varname r body} {
         lreplace $r 0 0 [uplevel [list lmap $varname [vertices $r] $body]]
