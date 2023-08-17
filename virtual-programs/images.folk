@@ -136,6 +136,33 @@ namespace eval ::image {
     }
     $cc compile
 
+    variable imagesCache [dict create]
+    # Loads a URL or file path if passed. If passed a valid image_t,
+    # just returns that image_t.
+    proc load {im} {
+        variable imagesCache
+        if {[dict exists $imagesCache $im]} {
+            set im [dict get $imagesCache $im]
+        } else {
+            set impath $im
+            if {[string match "http*://*" $impath]} {
+                set im /tmp/[regsub -all {\W+} $impath "_"]
+                exec -ignorestderr curl -o$im $impath
+            }
+            if {[string match "*jpg" $im] ||
+                [string match "*jpeg" $im] ||
+                [string match "*png" $im]} {
+                # TODO: Support .png
+                set path [expr {[file pathtype $im] eq "relative" ?
+                                "$::env(HOME)/folk-images/$im" :
+                                $im}]
+                set im [image loadJpeg $path]
+                dict set imagesCache $impath $im
+            }
+        }
+        set im
+    }
+
     namespace export *
     namespace ensemble create
 }
@@ -175,27 +202,8 @@ When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
     Wish display runs [list Display::image {*}$center $slice 0 1]
 }
 
-set ::imagesCache [dict create]
 When /someone/ wishes /p/ displays image /im/ {
-    if {[dict exists $::imagesCache $im]} {
-        set im [dict get $::imagesCache $im]
-    } else {
-        set impath $im
-        if {[string match "http*://*" $impath]} {
-            set im /tmp/[regsub -all {\W+} $impath "_"]
-            exec -ignorestderr curl -o$im $impath
-        }
-        if {[string match "*jpg" $im] ||
-            [string match "*jpeg" $im] ||
-            [string match "*png" $im]} {
-            # TODO: Support .png
-            set path [expr {[file pathtype $im] eq "relative" ?
-                            "$::env(HOME)/folk-images/$im" :
-                            $im}]
-            set im [image loadJpeg $path]
-            dict set ::imagesCache $impath $im
-        }
-    }
+    set im [image load $im]
     When $p has region /r/ {
         # Compute a scale for im that will fit in the region width/height
         # Draw im with scale and rotation
