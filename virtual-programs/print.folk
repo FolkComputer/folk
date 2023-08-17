@@ -163,6 +163,10 @@ proc nextId {} {
         set id 0
     }
 
+    while {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+        incr id
+    }
+
     set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" w]
     puts $fp [expr {$id + 1}]
     close $fp
