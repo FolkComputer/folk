@@ -50,12 +50,30 @@ proc handlePage {path contentTypeVar} {
                 </head>
                 <nav>
                 <a href="/new"><button>New program</button></a>
+                <a href="/programs">Running programs</a>
                 <a href="/timings">Timings</a>
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
                 <h1>Statements</h1>
                 <ul>[join $l "\n"]</ul>
+                </html>
+            }
+        }
+        "/programs" {
+            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+            subst {
+                <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Running programs</title>
+                </head>
+                <body>
+                [join [lmap p $programs { dict with p {subst {
+                    <h2>$programName</h2>
+                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
+                }} }] "\n"]
+                </body>
                 </html>
             }
         }
