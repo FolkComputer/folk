@@ -2,7 +2,11 @@ if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting
 
 # TODO: Fix this hack.
 set thisPid [pid]
-foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid } }
+foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
+    if {$pid ne $thisPid} {
+        exec kill -9 $pid
+    }
+}
 exec sleep 1
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
