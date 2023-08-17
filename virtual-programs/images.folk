@@ -32,6 +32,7 @@ namespace eval ::image {
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
+    $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
 
     $cc code {
         #undef EXTERN
@@ -40,18 +41,30 @@ namespace eval ::image {
         #include <unistd.h>
 
         void 
-    jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
+    jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t width, uint32_t height, int quality)
     {
-      JSAMPARRAY image;
-      image = calloc(height, sizeof (JSAMPROW));
-      for (size_t i = 0; i < height; i++) {
-        image[i] = calloc(width * 3, sizeof (JSAMPLE));
-        for (size_t j = 0; j < width; j++) {
-          image[i][j * 3 + 0] = rgb[(i * width + j)];
-          image[i][j * 3 + 1] = rgb[(i * width + j)];
-          image[i][j * 3 + 2] = rgb[(i * width + j)];
+        JSAMPARRAY image;
+        if (components == 1) {
+            image = calloc(height, sizeof (JSAMPROW));
+            for (size_t i = 0; i < height; i++) {
+                image[i] = calloc(width * 3, sizeof (JSAMPLE));
+                for (size_t j = 0; j < width; j++) {
+                    image[i][j * 3 + 0] = data[(i * width + j)];
+                    image[i][j * 3 + 1] = data[(i * width + j)];
+                    image[i][j * 3 + 2] = data[(i * width + j)];
+                }
+            }
+        } else if (components == 3) {
+            image = calloc(height, sizeof (JSAMPROW));
+            for (size_t i = 0; i < height; i++) {
+                image[i] = calloc(width * 3, sizeof (JSAMPLE));
+                for (size_t j = 0; j < width; j++) {
+                    image[i][j * 3 + 0] = data[(i * width + j) * 3];
+                    image[i][j * 3 + 1] = data[(i * width + j) * 3 + 1];
+                    image[i][j * 3 + 2] = data[(i * width + j) * 3 + 2];
+                }
+            }
         }
-      }
 
       struct jpeg_compress_struct compress;
       struct jpeg_error_mgr error;
@@ -79,8 +92,47 @@ namespace eval ::image {
     }
     $cc proc saveAsJpeg {image_t im char* filename} void {
         FILE* out = fopen(filename, "w");
-        jpeg(out, im.data, im.width, im.height, 100);
+        jpeg(out, im.data, im.components, im.width, im.height, 100);
         fclose(out);
+    }
+    $cc proc loadJpeg {char* filename} image_t {
+        FILE* file = fopen(filename, "rb");
+        if (!file) {
+            fprintf(stderr, "Error opening file: %s\n", filename);
+            exit(1);
+        }
+        
+        struct jpeg_decompress_struct cinfo;
+        struct jpeg_error_mgr jerr;
+        
+        cinfo.err = jpeg_std_error(&jerr);
+        jpeg_create_decompress(&cinfo);
+        jpeg_stdio_src(&cinfo, file);
+        jpeg_read_header(&cinfo, TRUE);
+        jpeg_start_decompress(&cinfo);
+        
+        image_t ret;
+        ret.width = cinfo.output_width;
+        ret.height = cinfo.output_height;
+        ret.components = cinfo.output_components;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+        
+        JSAMPROW row_pointer[1];
+        while (cinfo.output_scanline < cinfo.output_height) {
+            row_pointer[0] = (JSAMPLE*)ret.data + cinfo.output_scanline * ret.bytesPerRow;
+            jpeg_read_scanlines(&cinfo, row_pointer, 1);
+        }
+        
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+        fclose(file);
+        
+        return ret;
+    }
+    $cc proc freeJpeg {image_t im} void {
+        // TODO: Free the JPEG.
+        // ckfree(im.data);
     }
     $cc compile
 
@@ -116,9 +168,47 @@ When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
 
 # Display a camera slice
 When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
-  set origin [lindex $r 0 0]
+  set center [region centroid $r]
   # set scale [expr {$Display::WIDTH / $Camera::WIDTH}]
   # Use 1x scale instead of $scale so the projected tag doesn't redetect.
   # TODO: Mask the tag out?
-  Wish display runs [list Display::image {*}$origin $slice 1]
+    Wish display runs [list Display::image {*}$center $slice 0 1]
+}
+
+set ::imagesCache [dict create]
+When /someone/ wishes /p/ displays image /im/ {
+    if {[dict exists $::imagesCache $im]} {
+        set im [dict get $::imagesCache $im]
+    } else {
+        set impath $im
+        if {[string match "http*://*" $impath]} {
+            set im /tmp/[regsub -all {\W+} $impath "_"]
+            exec -ignorestderr curl -o$im $impath
+        }
+        if {[string match "*jpg" $im] ||
+            [string match "*jpeg" $im] ||
+            [string match "*png" $im]} {
+            # TODO: Support .png
+            set path [expr {[file pathtype $im] eq "relative" ?
+                            "$::env(HOME)/folk-images/$im" :
+                            $im}]
+            set im [image loadJpeg $path]
+            dict set ::imagesCache $impath $im
+        }
+    }
+    When $p has region /r/ {
+        # Compute a scale for im that will fit in the region width/height
+        # Draw im with scale and rotation
+        set center [region centroid $r]
+        # set width [region width $r]
+        # set height [region height $r]
+        # set scale [expr {min($width / [image width $im],
+        #                      $height / [image height $im])}]
+        # Wish $p is labelled $im
+        Wish display runs [list Display::image {*}$center $im [region angle $r] 1]
+    }
+    # On unmatch {
+    #     # HACK: Leaves time for the display to finish trying to display this.
+    #     after 5000 [list image freeJpeg $im]
+    # }
 }

@@ -274,7 +274,7 @@ namespace eval ::region {
                 error "region move: Invalid distance $distance"
             }
             if {$unit eq "%"} {
-                set distance [* distance 0.01]
+                set distance [* $distance 0.01]
                 set unit ""
             }
             if {$unit eq ""} {
