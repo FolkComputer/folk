@@ -18,37 +18,38 @@ $cc include <pty.h>
 $cc include <fcntl.h>
 $cc include <string.h>
 $cc include <sys/time.h> ;# For gettimeofday()
+$cc include "tmt.h"
+
+$cc struct VTerminal {
+  TMT* tmt;
+  int pty_fd;
+
+  char* screen;
+  int curs_r;
+  int curs_c;
+};
 
 $cc code {
-  #include "tmt.h"
-
   #define SHELL "/bin/bash"
-
   #define ROWS 12
   #define COLS 43
-
-  typedef struct {
-    TMT *tmt;
-    pid_t pty_fd;
-
-    char screen[ROWS][COLS + 1];
-    int curs_r;
-    int curs_c;
-  } VTerminal;
-
-  VTerminal *vt = NULL;
-
   #define PTYBUF 4096
   char iobuf[PTYBUF];
 
+  char* char_at(VTerminal *vt, int r, int c) {
+    int i = r * (COLS + 1) + c;
+    return &vt->screen[i];
+  }
+
   void tmt_callback(tmt_msg_t m, TMT *tmt, const void *a, void *p) {
+      VTerminal *vt = (VTerminal*)p;
       const TMTSCREEN *s = tmt_screen(tmt);
 
       if (m == TMT_MSG_UPDATE) {
         for (size_t r = 0; r < s->nline; r++){
             if (s->lines[r]->dirty){
                 for (size_t c = 0; c < s->ncol; c++){
-                  vt->screen[r][c] = s->lines[r]->chars[c].c;
+                  *char_at(vt, r, c) = s->lines[r]->chars[c].c;
                 }
             }
         }
@@ -56,10 +57,10 @@ $cc code {
       }
   }
 
-  void updateCursor() {
+  void updateCursor(VTerminal *vt) {
     // Restore char under old cursor
     const TMTSCREEN *s = tmt_screen(vt->tmt);
-    vt->screen[vt->curs_r][vt->curs_c] = s->lines[vt->curs_r]->chars[vt->curs_c].c;
+    *char_at(vt, vt->curs_r, vt->curs_c) = s->lines[vt->curs_r]->chars[vt->curs_c].c;
 
     // Update new cursor
     const TMTPOINT *c = tmt_cursor(vt->tmt);
@@ -70,50 +71,51 @@ $cc code {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     if (tv.tv_sec % 2 == 0) {
-      vt->screen[vt->curs_r][vt->curs_c] = 0xDB; // block char: █
+      *char_at(vt, vt->curs_r, vt->curs_c) = 0xDB; // block char: █
     }
   }
 }
 
-$cc proc termCreate {} void {
-  if (vt != NULL) {
-    return;
-  }
-
-  vt = malloc(sizeof(VTerminal));
+$cc proc termCreate {} VTerminal* {
+  VTerminal *vt = malloc(sizeof(VTerminal));
   vt->curs_r = 0;
   vt->curs_c = 0;
 
-  for (int r = 0; r < ROWS - 1; r++) vt->screen[r][COLS] = '\n';
-  vt->screen[ROWS - 1][COLS] = '\0';
+  vt->screen = malloc(sizeof(char[ROWS][COLS + 1]));
+  for (int r = 0; r < ROWS - 1; r++) *char_at(vt, r, COLS) = '\n';
+  *char_at(vt, ROWS - 1, COLS) = '\0';
 
-  vt->tmt = tmt_open(ROWS, COLS, tmt_callback, NULL, NULL);
+  vt->tmt = tmt_open(ROWS, COLS, tmt_callback, vt, NULL);
 
   struct winsize ws = {.ws_row = ROWS, .ws_col = COLS};
   pid_t pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
   if (pid < 0){
-    return;
+    return NULL;
   } else if (pid == 0){
     setenv("TERM", "ansi", 1);
     execl(SHELL, SHELL, NULL);
-    return;
+    return NULL;
   }
 
   fcntl(vt->pty_fd, F_SETFL, O_NONBLOCK);
-  return;
+  return vt;
 }
 
-$cc proc termRead {} char* {
+$cc proc termDestory {VTerminal* vt} void {
+  // TODO...
+}
+
+$cc proc termRead {VTerminal* vt} char* {
   ssize_t r = read(vt->pty_fd, iobuf, PTYBUF);
   if (r > 0) {
     tmt_write(vt->tmt, iobuf, r);
   }
 
   updateCursor(vt);
-  return (char*)vt->screen;
+  return vt->screen;
 }
 
-$cc proc termWrite {char* key} void {
+$cc proc termWrite {VTerminal* vt char* key} void {
   write(vt->pty_fd, key, strlen(key));
 }
 
@@ -160,20 +162,20 @@ namespace eval Terminal {
     return [termCreate]
   }
 
-  proc destroy {} {
-    # TODO
+  proc destroy {term} {
+    termDestroy $term
   }
 
   # Writes a keyboard key to the terminal, handling control codes
-  proc write {key ctrlPressed} {
+  proc write {term key ctrlPressed} {
     set key [remap $key $ctrlPressed]
     if {[string length $key] > 0} {
-      termWrite $key
+      termWrite $term $key
     }
   }
 
   # Returns a newline separated string of terminal lines
-  proc read {} {
-    return [termRead]
+  proc read {term} {
+    return [termRead $term]
   }
 }
