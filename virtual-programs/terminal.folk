@@ -3,168 +3,24 @@
 # Claim $this is a terminal
 #
 
-set cc [c create]
-$cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
-
-# TODO: find the right libutil.so for the system
-c loadlib /lib/aarch64-linux-gnu/libutil.so
-$cc cflags -lutil
-
-$cc include <sys/types.h>
-$cc include <stdio.h>
-$cc include <stdlib.h>
-$cc include <unistd.h>
-$cc include <pty.h>
-$cc include <fcntl.h>
-$cc include <string.h>
-$cc include <sys/time.h> ;# For gettimeofday()
-
-$cc code {
-  #include "tmt.h"
-
-  #define SHELL "/bin/bash"
-
-  #define ROWS 12
-  #define COLS 43
-  char screen[ROWS][COLS + 1];
-  int curs_r = 0;
-  int curs_c = 0;
-
-
-  #define PTYBUF 4096
-  char iobuf[PTYBUF];
-
-  TMT *vt;
-  int pty_fd;
-
-  void callback(tmt_msg_t m, TMT *vt, const void *a, void *p) {
-      const TMTSCREEN *s = tmt_screen(vt);
-
-      if (m == TMT_MSG_UPDATE) {
-        for (size_t r = 0; r < s->nline; r++){
-            if (s->lines[r]->dirty){
-                for (size_t c = 0; c < s->ncol; c++){
-                  screen[r][c] = s->lines[r]->chars[c].c;
-                }
-            }
-        }
-        tmt_clean(vt);
-      }
-  }
-
-  void initScreen() {
-    for (int r = 0; r < ROWS - 1; r++) {
-      screen[r][COLS] = '\n';
-    }
-    screen[ROWS - 1][COLS] = '\0';
-  }
-
-  void updateCursor() {
-    // Restore char under old cursor
-    const TMTSCREEN *s = tmt_screen(vt);
-    screen[curs_r][curs_c] = s->lines[curs_r]->chars[curs_c].c;
-
-    // Update new cursor
-    const TMTPOINT *c = tmt_cursor(vt);
-    curs_r = c->r;
-    curs_c = c->c;
-
-    // Replace char with cursor every other second
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    if (tv.tv_sec % 2 == 0) {
-      screen[curs_r][curs_c] = 0xDB; // block char: █
-    }
-  }
-}
-
-$cc proc termInit {} bool {
-  if (vt != NULL) {
-    return false;
-  }
-
-  initScreen();
-  vt = tmt_open(ROWS, COLS, callback, NULL, NULL);
-
-  struct winsize ws = {.ws_row = ROWS, .ws_col = COLS};
-  pid_t pid = forkpty(&pty_fd, NULL, NULL, &ws);
-  if (pid < 0){
-    return false;
-  } else if (pid == 0){
-    setenv("TERM", "ansi", 1);
-    execl(SHELL, SHELL, NULL);
-    return true;
-  }
-
-  fcntl(pty_fd, F_SETFL, O_NONBLOCK);
-  return true;
-}
-
-$cc proc termRead {} char* {
-  ssize_t r = read(pty_fd, iobuf, PTYBUF);
-  if (r > 0) {
-    tmt_write(vt, iobuf, r);
-  }
-
-  updateCursor();
-  return (char*)screen;
-}
-
-$cc proc termWrite {char* key} void {
-  write(pty_fd, key, strlen(key));
-}
-
-$cc compile
-
-# Folk stuff...
-
-# From `man console_codes`
-set keymap [dict create \
-  ENTER     "\x0d" \
-  TAB       "\x09" \
-  BACKSPACE "\x08" \
-  DELETE    "\x7f" \
-  ESC       "\x1b" \
-  UP        "\x1b\[A" \
-  DOWN      "\x1b\[B" \
-  RIGHT     "\x1b\[C" \
-  LEFT      "\x1b\[D" \
-]
-
-proc remap {key modifiers} {
-  upvar keymap keymap
-  if {[string length $key] == 1} {
-    # Convert ctrl-A through ctrl-Z and others to terminal control characters
-    if {"ctrl" in $modifiers} {
-      set charCode [scan [string toupper $key] %c]
-      if {$charCode >= 64 && $charCode <= 95} {
-        set charCode [expr {$charCode - 64}]
-        return [format %c $charCode]
-      }
-    }
-    # All other single char keys can be passed through
-    return $key
-  }
-  if {[dict exists $keymap $key]} {
-    return [dict get $keymap $key]
-  }
-  return ""
-}
+source lib/terminal.tcl
 
 When /anyone/ claims /thing/ is a terminal {
-  termInit
+  Terminal::create
+
+  # When /nobody/ claims $thing has term /x/ {
+  #   Assert $thing has term $term
+  # }
 
   When /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
     if {$direction != "up"} {
-      set key [remap $key $modifiers]
-      if {[string length $key] > 0} {
-        termWrite $key
-      }
+      set ctrlPressed [expr {"ctrl" in $modifiers}]
+      Terminal::write $key $ctrlPressed
     }
   }
 
   When $thing has region /r/ & /node/ has step count /c/ {
     set display [region move $r up 180px]
-    Wish region $display is labelled [termRead]
+    Wish region $display is labelled [Terminal::read]
   }
 }
