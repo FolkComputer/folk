@@ -1,37 +1,5 @@
 source "lib/c.tcl"
 
-proc csubst {s} {
-    # much like subst, but you invoke a Tcl fn with $[whatever]
-    # instead of [whatever]
-    set result [list]
-    for {set i 0} {$i < [string length $s]} {incr i} {
-        set c [string index $s $i]
-        switch $c {
-            {$} {
-                set tail [string range $s $i+1 end]
-                if {[regexp {^(?:[A-Za-z0-9_]|::)+} $tail varname]} {
-                    lappend result [uplevel [list set $varname]]
-                    incr i [string length $varname]
-                } elseif {[string index $tail 0] eq "\["} {
-                    set bracketcount 0
-                    for {set j 0} {$j < [string length $tail]} {incr j} {
-                        set ch [string index $tail $j]
-                        if {$ch eq "\["} { incr bracketcount } \
-                        elseif {$ch eq "]"} { incr bracketcount -1 }
-                        if {$bracketcount == 0} { break }
-                    }
-                    set script [string range $tail 1 $j-1]
-                    lappend result [uplevel $script]
-                    incr i [expr {$j+1}]
-                }
-            }
-            default {lappend result $c}
-        }
-    }
-    join $result ""
-}
-
-
 namespace eval Display {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
 
@@ -496,7 +464,8 @@ namespace eval Display {
 
     defineVulkanHandleType dc VkPipeline
     dc proc createPipeline {VkShaderModule vertShaderModule
-                            VkShaderModule fragShaderModule} VkPipeline [csubst {
+                            VkShaderModule fragShaderModule
+                            int argsStructSize} VkPipeline [csubst {
         // Now what?
         // Create graphics pipeline.
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
@@ -723,6 +692,7 @@ namespace eval Display {
                 }
             }]]
         }
+
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
@@ -734,18 +704,24 @@ namespace eval Display {
 
             void main() {$body}
         }]]]
-        Display::createPipeline $vertShaderModule $fragShaderModule
 
         # TODO: We need to compile a C struct with the args. (We need cglm?)
         set cc [c create]
-        $cc struct Args {
-            $[join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
+        $cc include <cglm/cglm.h>
+        $cc argtype vec2 {
+            vec2 $argname;
+            int objc; Tcl_Obj** objv;
+            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &objc, &objv));
+            __ENSURE(objc == 2);
+            __ENSURE_OK(Tcl_GetDouble(interp, objv[0], &$argname[0]));
+            __ENSURE_OK(Tcl_GetDouble(interp, objv[1], &$argname[1]));
         }
-        $cc proc drawImpl {} {
-            
-        }
-        drawImpl {*}$Args
-        # TODO: We 
+        $cc rtype vec2 { $robj = Tcl_ObjPrintf("%f %f", $rvalue[0], $rvalue[1]); }
+        $cc struct Args [join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
+        $cc proc getArgsStructSize {} int { return sizeof(Args); }
+        $cc compile
+
+        Display::createPipeline $vertShaderModule $fragShaderModule [getArgsStructSize]
     }
 }
 
