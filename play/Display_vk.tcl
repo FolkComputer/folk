@@ -45,6 +45,8 @@ namespace eval Display {
         VkFramebuffer* swapchainFramebuffers;
         VkExtent2D swapchainExtent;
 
+        VkDescriptorPool descriptorPool;
+
         VkCommandBuffer commandBuffer;
         uint32_t imageIndex;
 
@@ -111,7 +113,6 @@ namespace eval Display {
 
             physicalDevice = physicalDevices[0];
         }
-
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
         computeQueueFamilyIndex = UINT32_MAX; {
@@ -442,6 +443,8 @@ namespace eval Display {
         } $type]
     }
 
+    # Shader compilation:
+
     defineVulkanHandleType dc VkShaderModule
     dc proc createShaderModule {Tcl_Obj* codeObj} VkShaderModule [csubst {
         int codeObjc; Tcl_Obj** codeObjv;
@@ -462,10 +465,81 @@ namespace eval Display {
         return shaderModule;
     }]
 
+    # Buffer allocation:
+
+    dc code [csubst {
+        uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+            VkPhysicalDeviceMemoryProperties memProperties;
+            $[vkfn vkGetPhysicalDeviceMemoryProperties]
+            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+            for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+                if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return i;
+                }
+            }
+
+            exit(1);
+        }
+
+        void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+                          VkBuffer* buffer, VkDeviceMemory* bufferMemory) {
+            VkBufferCreateInfo bufferInfo = {0};
+            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferInfo.size = size;
+            bufferInfo.usage = usage;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            $[vkfn vkCreateBuffer]
+            $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
+
+            VkMemoryRequirements memRequirements;
+            $[vkfn vkGetBufferMemoryRequirements]
+            vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+            VkMemoryAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memRequirements.size;
+            allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+            $[vkfn vkAllocateMemory]
+            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
+            $[vkfn vkBindBufferMemory]
+            vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+        }
+    }]
+    defineVulkanHandleType dc VkBuffer
+    defineVulkanHandleType dc VkDeviceMemory
+    dc typedef uint64_t VkDeviceSize
+    dc struct Buffer {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        void* addr;
+    }
+    dc proc createUniformBuffer {VkDeviceSize size} Buffer {
+        Buffer ret;
+        createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     &ret.buffer, &ret.memory);
+        $[vkfn vkMapMemory]
+        vkMapMemory(device, ret.memory, 0, size, 0, &ret.addr);
+        return ret;
+    }
+
+    # Pipeline creation:
+
     defineVulkanHandleType dc VkPipeline
+    defineVulkanHandleType dc VkPipelineLayout
+    defineVulkanHandleType dc VkDescriptorSet
+    dc struct Pipeline {
+        VkPipeline pipeline;
+        VkPipelineLayout pipelineLayout;
+        VkDescriptorSet argsDescriptorSet;
+        Buffer argsBuffer;
+    }
     dc proc createPipeline {VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
-                            int argsStructSize} VkPipeline [csubst {
+                            VkDeviceSize argsBufferSize} Pipeline [csubst {
         // Now what?
         // Create graphics pipeline.
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
@@ -547,39 +621,86 @@ namespace eval Display {
         colorBlending.attachmentCount = 1;
         colorBlending.pAttachments = &colorBlendAttachment;
 
+        VkDescriptorSetLayout descriptorSetLayout; {
+            VkDescriptorSetLayoutBinding argsLayoutBinding = {0};
+            argsLayoutBinding.binding = 0;
+            argsLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            argsLayoutBinding.descriptorCount = 1;
+            argsLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+            VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+            layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            layoutInfo.bindingCount = 1;
+            layoutInfo.pBindings = &argsLayoutBinding;
+            $[vkfn vkCreateDescriptorSetLayout]
+            $[vktry {vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &descriptorSetLayout)}]
+        }
+
         VkPipelineLayout pipelineLayout; {
             VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
             pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pipelineLayoutInfo.setLayoutCount = 1;
+            pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+            
             $[vkfn vkCreatePipelineLayout]
             $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
         }
 
-        VkPipeline ret;
+        VkPipeline pipeline; {
+            VkGraphicsPipelineCreateInfo pipelineInfo = {0};
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipelineInfo.stageCount = 2;
+            pipelineInfo.pStages = shaderStages;
+            pipelineInfo.pVertexInputState = &vertexInputInfo;
+            pipelineInfo.pInputAssemblyState = &inputAssembly;
+            pipelineInfo.pViewportState = &viewportState;
+            pipelineInfo.pRasterizationState = &rasterizer;
+            pipelineInfo.pMultisampleState = &multisampling;
+            pipelineInfo.pDepthStencilState = NULL;
+            pipelineInfo.pColorBlendState = &colorBlending;
+            pipelineInfo.pDynamicState = NULL;
 
-        VkGraphicsPipelineCreateInfo pipelineInfo = {0};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineInfo.stageCount = 2;
-        pipelineInfo.pStages = shaderStages;
-        pipelineInfo.pVertexInputState = &vertexInputInfo;
-        pipelineInfo.pInputAssemblyState = &inputAssembly;
-        pipelineInfo.pViewportState = &viewportState;
-        pipelineInfo.pRasterizationState = &rasterizer;
-        pipelineInfo.pMultisampleState = &multisampling;
-        pipelineInfo.pDepthStencilState = NULL;
-        pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.pDynamicState = NULL;
+            pipelineInfo.layout = pipelineLayout;
 
-        pipelineInfo.layout = pipelineLayout;
+            pipelineInfo.renderPass = renderPass;
+            pipelineInfo.subpass = 0;
 
-        pipelineInfo.renderPass = renderPass;
-        pipelineInfo.subpass = 0;
+            pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+            pipelineInfo.basePipelineIndex = -1;
 
-        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-        pipelineInfo.basePipelineIndex = -1;
+            $[vkfn vkCreateGraphicsPipelines]
+            $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
+        }
 
-        $[vkfn vkCreateGraphicsPipelines]
-        $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &ret)}]
-        return ret;
+        VkDescriptorPool descriptorPool; {
+            VkDescriptorPoolSize poolSize = {0};
+            poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            poolSize.descriptorCount = 1;
+            VkDescriptorPoolCreateInfo poolInfo = {0};
+            poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes = &poolSize;
+            poolInfo.maxSets = 1;
+            $[vkfn vkCreateDescriptorPool]
+            $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
+        }
+        VkDescriptorSet descriptorSet; {
+            VkDescriptorSetAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocInfo.descriptorPool = descriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &descriptorSetLayout;
+
+            $[vkfn vkAllocateDescriptorSets]
+            $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet)}]
+        }
+
+        return (Pipeline) {
+            .pipeline = pipeline,
+            .pipelineLayout = pipelineLayout,
+            .argsDescriptorSet = descriptorSet,
+            .argsBuffer = createUniformBuffer(argsBufferSize)
+        };
     }]
 
     dc proc drawStart {} void {
@@ -618,9 +739,15 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawImpl {VkPipeline pipeline} void {
+    dc proc drawImpl {Pipeline pipeline} void {
         $[vkfn vkCmdBindPipeline]
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+
+        $[vkfn vkCmdBindDescriptorSets]
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline.pipelineLayout,
+                                0, 1,
+                                &pipeline.argsDescriptorSet, 0, NULL);
 
         $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);

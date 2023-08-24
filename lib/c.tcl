@@ -130,6 +130,7 @@ namespace eval c {
                 bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint64_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 intptr_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
