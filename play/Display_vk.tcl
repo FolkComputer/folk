@@ -45,8 +45,6 @@ namespace eval Display {
         VkFramebuffer* swapchainFramebuffers;
         VkExtent2D swapchainExtent;
 
-        VkDescriptorPool descriptorPool;
-
         VkCommandBuffer commandBuffer;
         uint32_t imageIndex;
 
@@ -774,12 +772,17 @@ namespace eval Display {
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
     proc draw {pipeline args} {
+        set argNames [dict get $pipeline argNames]
         set argsStruct [dict create]
-        foreach argName [dict get $pipeline argNames] argValue $args {
+        if {[llength $args] == 0 && $argNames eq "_"} {
+            set args 0.0
+        }
+        foreach argName $argNames argValue $args {
             dict set argsStruct $argName $argValue
         }
+        set id [dict get $pipeline id]
         set addr [dict get $pipeline argsBuffer addr]
-        updateArgs $addr $argsStruct
+        updateArgs$id $addr $argsStruct
         drawImpl $pipeline
     }
     dc proc drawEnd {} void {
@@ -831,6 +834,7 @@ namespace eval Display {
     }
 
     proc pipeline {args body} {
+        variable pipelineId; incr pipelineId
         variable vertShaderModule
         if {![info exists vertShaderModule]} {
             set vertShaderModule [createShaderModule [glslc -fshader-stage=vert {
@@ -846,6 +850,8 @@ namespace eval Display {
                 }
             }]]
         }
+
+        if {[llength $args] == 0} { set args {float _} }
 
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
@@ -872,13 +878,14 @@ namespace eval Display {
         $cc rtype vec2 { $robj = Tcl_ObjPrintf("%f %f", $rvalue[0], $rvalue[1]); }
         $cc struct Args [join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
         $cc proc getArgsStructSize {} int { return sizeof(Args); }
-        $cc proc updateArgs {void* addr Args args} void {
+        $cc proc updateArgs$pipelineId {void* addr Args args} void {
             memcpy(addr, &args, sizeof(args));
         }
         $cc compile
 
         set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule [getArgsStructSize]]
         dict set pipeline argNames [lmap {argtype argname} $args {set argname}]
+        dict set pipeline id $pipelineId
         return $pipeline
     }
 }
@@ -890,13 +897,6 @@ proc glslc {args} {
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
-# Make a display list.
-set displayList {
-    {rect 10 10 200 200}
-    {rect 210 210 500 500}
-}
-# https://vkguide.dev/docs/chapter-3/scene_management/
-
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     namespace eval Display { dc compile }
 
@@ -907,10 +907,15 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         outColor = d < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
+    set redOnRight [Display::pipeline {} {
+        outColor = gl_FragCoord.x > 400 ? vec4(1.0, 0, 0, 0) : vec4(0, 0, 0, 0);
+    }]
+
     Display::drawStart
 
     Display::draw $circle {100 200} 30
-    # Display::draw $circle {300 300} 20
+    Display::draw $circle {300 300} 20
+    Display::draw $redOnRight
 
     Display::drawEnd
 
