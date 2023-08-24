@@ -69,7 +69,7 @@ namespace eval c {
             variable argtypes {
                 int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
-                float { expr {{ double _$argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); float $argname = (float)_$argname; }}}
+                float { expr {{ double _$argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &_$argname)); float $argname = (float)_$argname; }}}
                 bool { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 int32_t { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 char { expr {{
@@ -283,7 +283,7 @@ namespace eval c {
                         Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
                     }]
                     lappend argscripts [arg $fieldtype \${argname}_$fieldname obj_$fieldname]
-                    lappend argscripts [subst {\$argname.$fieldname = \${argname}_$fieldname;\}}]
+                    lappend argscripts [subst {memcpy(&\$argname.$fieldname, &\${argname}_$fieldname, sizeof(\$argname.$fieldname));\}}]
                 }
                 argtype $type [join $argscripts "\n"]
 

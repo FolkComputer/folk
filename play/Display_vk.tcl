@@ -695,11 +695,32 @@ namespace eval Display {
             $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet)}]
         }
 
+        Buffer argsBuffer = createUniformBuffer(argsBufferSize);
+
+        {
+            VkDescriptorBufferInfo bufferInfo = {0};
+            bufferInfo.buffer = argsBuffer.buffer;
+            bufferInfo.offset = 0;
+            bufferInfo.range = argsBufferSize;
+        
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = descriptorSet;
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pBufferInfo = &bufferInfo;
+
+            $[vkfn vkUpdateDescriptorSets]
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        }
+
         return (Pipeline) {
             .pipeline = pipeline,
             .pipelineLayout = pipelineLayout,
             .argsDescriptorSet = descriptorSet,
-            .argsBuffer = createUniformBuffer(argsBufferSize)
+            .argsBuffer = argsBuffer
         };
     }]
 
@@ -753,7 +774,13 @@ namespace eval Display {
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
     proc draw {pipeline args} {
-        drawImpl $pipeline $args
+        set argsStruct [dict create]
+        foreach argName [dict get $pipeline argNames] argValue $args {
+            dict set argsStruct $argName $argValue
+        }
+        set addr [dict get $pipeline argsBuffer addr]
+        updateArgs $addr $argsStruct
+        drawImpl $pipeline
     }
     dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
@@ -832,23 +859,27 @@ namespace eval Display {
             void main() {$body}
         }]]]
 
-        # TODO: We need to compile a C struct with the args. (We need cglm?)
         set cc [c create]
         $cc include <cglm/cglm.h>
         $cc argtype vec2 {
-            vec2 $argname;
             int objc; Tcl_Obj** objv;
             __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &objc, &objv));
             __ENSURE(objc == 2);
-            __ENSURE_OK(Tcl_GetDouble(interp, objv[0], &$argname[0]));
-            __ENSURE_OK(Tcl_GetDouble(interp, objv[1], &$argname[1]));
+            double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, objv[0], &x));
+            double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, objv[1], &y));
+            vec2 $argname = { (float)x, (float)y };
         }
         $cc rtype vec2 { $robj = Tcl_ObjPrintf("%f %f", $rvalue[0], $rvalue[1]); }
         $cc struct Args [join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
         $cc proc getArgsStructSize {} int { return sizeof(Args); }
+        $cc proc updateArgs {void* addr Args args} void {
+            memcpy(addr, &args, sizeof(args));
+        }
         $cc compile
 
-        Display::createPipeline $vertShaderModule $fragShaderModule [getArgsStructSize]
+        set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule [getArgsStructSize]]
+        dict set pipeline argNames [lmap {argtype argname} $args {set argname}]
+        return $pipeline
     }
 }
 
@@ -879,6 +910,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::drawStart
 
     Display::draw $circle {100 200} 30
+    # Display::draw $circle {300 300} 20
 
     Display::drawEnd
 
