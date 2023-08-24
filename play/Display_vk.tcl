@@ -463,77 +463,18 @@ namespace eval Display {
         return shaderModule;
     }]
 
-    # Buffer allocation:
-
-    dc code [csubst {
-        uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-            VkPhysicalDeviceMemoryProperties memProperties;
-            $[vkfn vkGetPhysicalDeviceMemoryProperties]
-            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
-
-            for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-                if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                    return i;
-                }
-            }
-
-            exit(1);
-        }
-
-        void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-                          VkBuffer* buffer, VkDeviceMemory* bufferMemory) {
-            VkBufferCreateInfo bufferInfo = {0};
-            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            bufferInfo.size = size;
-            bufferInfo.usage = usage;
-            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-            $[vkfn vkCreateBuffer]
-            $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
-
-            VkMemoryRequirements memRequirements;
-            $[vkfn vkGetBufferMemoryRequirements]
-            vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
-
-            VkMemoryAllocateInfo allocInfo = {0};
-            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocInfo.allocationSize = memRequirements.size;
-            allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-            $[vkfn vkAllocateMemory]
-            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
-            $[vkfn vkBindBufferMemory]
-            vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
-        }
-    }]
-    defineVulkanHandleType dc VkBuffer
-    defineVulkanHandleType dc VkDeviceMemory
-    dc typedef uint64_t VkDeviceSize
-    dc struct Buffer {
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-        void* addr;
-    }
-    dc proc createUniformBuffer {VkDeviceSize size} Buffer {
-        Buffer ret;
-        createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     &ret.buffer, &ret.memory);
-        $[vkfn vkMapMemory]
-        vkMapMemory(device, ret.memory, 0, size, 0, &ret.addr);
-        return ret;
-    }
-
     # Pipeline creation:
 
     defineVulkanHandleType dc VkPipeline
     defineVulkanHandleType dc VkPipelineLayout
     defineVulkanHandleType dc VkDescriptorSet
+    defineVulkanHandleType dc VkDescriptorSetLayout
+    dc typedef uint64_t VkDeviceSize
     dc struct Pipeline {
         VkPipeline pipeline;
         VkPipelineLayout pipelineLayout;
-        VkDescriptorSet argsDescriptorSet;
-        Buffer argsBuffer;
+        VkDescriptorSetLayout descriptorSetLayout;
+        VkDeviceSize argsBufferSize;
     }
     dc proc createPipeline {VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
@@ -676,40 +617,114 @@ namespace eval Display {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
-        VkDescriptorPool descriptorPool; {
+        return (Pipeline) {
+            .pipeline = pipeline,
+            .pipelineLayout = pipelineLayout,
+            .descriptorSetLayout = descriptorSetLayout,
+            .argsBufferSize = argsBufferSize
+        };
+    }]
+
+    # Buffer allocation:
+
+    dc code [csubst {
+        uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+            VkPhysicalDeviceMemoryProperties memProperties;
+            $[vkfn vkGetPhysicalDeviceMemoryProperties]
+            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+            for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+                if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return i;
+                }
+            }
+
+            exit(1);
+        }
+
+        void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+                          VkBuffer* buffer, VkDeviceMemory* bufferMemory) {
+            VkBufferCreateInfo bufferInfo = {0};
+            bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bufferInfo.size = size;
+            bufferInfo.usage = usage;
+            bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            $[vkfn vkCreateBuffer]
+            $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
+
+            VkMemoryRequirements memRequirements;
+            $[vkfn vkGetBufferMemoryRequirements]
+            vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+            VkMemoryAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memRequirements.size;
+            allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+            $[vkfn vkAllocateMemory]
+            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
+            $[vkfn vkBindBufferMemory]
+            vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+        }
+    }]
+
+    defineVulkanHandleType dc VkBuffer
+    defineVulkanHandleType dc VkDeviceMemory
+    defineVulkanHandleType dc VkDescriptorSet
+    dc struct BufferAndDescriptorSet {
+        VkBuffer buffer;
+        VkDeviceMemory memory;
+        void* addr;
+
+        VkDescriptorSet descriptorSet;
+    }
+    dc code {
+        VkDescriptorPool descriptorPool;
+    }
+    dc proc createUniformBufferAndDescriptorSet {Pipeline pipeline} BufferAndDescriptorSet {
+        BufferAndDescriptorSet ret;
+        createBuffer(pipeline.argsBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     &ret.buffer, &ret.memory);
+        $[vkfn vkMapMemory]
+        vkMapMemory(device, ret.memory, 0, pipeline.argsBufferSize, 0, &ret.addr);
+
+        if (!descriptorPool) {
             VkDescriptorPoolSize poolSize = {0};
             poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            poolSize.descriptorCount = 1;
+            poolSize.descriptorCount = 100;
+
             VkDescriptorPoolCreateInfo poolInfo = {0};
             poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
             poolInfo.poolSizeCount = 1;
             poolInfo.pPoolSizes = &poolSize;
-            poolInfo.maxSets = 1;
+            poolInfo.maxSets = 100;
             $[vkfn vkCreateDescriptorPool]
             $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
         }
-        VkDescriptorSet descriptorSet; {
+
+        // Set up ret.descriptorSet:
+        {
             VkDescriptorSetAllocateInfo allocInfo = {0};
             allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             allocInfo.descriptorPool = descriptorPool;
             allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts = &descriptorSetLayout;
+            allocInfo.pSetLayouts = &pipeline.descriptorSetLayout;
 
             $[vkfn vkAllocateDescriptorSets]
-            $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet)}]
+            $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &ret.descriptorSet)}]
         }
-
-        Buffer argsBuffer = createUniformBuffer(argsBufferSize);
-
+        // Write to ret.descriptorSet so it points at ret.buffer:
         {
             VkDescriptorBufferInfo bufferInfo = {0};
-            bufferInfo.buffer = argsBuffer.buffer;
+            bufferInfo.buffer = ret.buffer;
             bufferInfo.offset = 0;
-            bufferInfo.range = argsBufferSize;
+            bufferInfo.range = pipeline.argsBufferSize;
         
             VkWriteDescriptorSet descriptorWrite = {0};
             descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = descriptorSet;
+            descriptorWrite.dstSet = ret.descriptorSet;
             descriptorWrite.dstBinding = 0;
             descriptorWrite.dstArrayElement = 0;
             descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -720,13 +735,8 @@ namespace eval Display {
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
         }
 
-        return (Pipeline) {
-            .pipeline = pipeline,
-            .pipelineLayout = pipelineLayout,
-            .argsDescriptorSet = descriptorSet,
-            .argsBuffer = argsBuffer
-        };
-    }]
+        return ret;
+    }
 
     dc proc drawStart {} void {
         $[vkfn vkWaitForFences]
@@ -764,7 +774,7 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawImpl {Pipeline pipeline} void {
+    dc proc drawImpl {Pipeline pipeline BufferAndDescriptorSet buffer} void {
         $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
@@ -772,12 +782,35 @@ namespace eval Display {
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipeline.pipelineLayout,
                                 0, 1,
-                                &pipeline.argsDescriptorSet, 0, NULL);
+                                &buffer.descriptorSet, 0, NULL);
 
         $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
+    variable buffers [dict create]
     proc draw {pipeline args} {
+        # TODO: We need to find a free buffer+descriptor set, get its
+        # address, write to it, then draw.
+        # Are there no free buffer+descriptor sets? Then allocate one.
+        variable buffers
+        if {![dict exists $buffers $pipeline]} {
+            set buffersForPipeline [dict create]
+            for {set i 0} {$i < 5} {incr i} {
+                set buf [createUniformBufferAndDescriptorSet $pipeline]
+                dict set buffersForPipeline $buf false
+            }
+            dict set buffers $pipeline $buffersForPipeline
+        }
+        dict for {buf isInUse} [dict get $buffers $pipeline] {
+            if {!$isInUse} {
+                set buffer $buf
+                # Mark as in-use:
+                dict set buffers $pipeline $buffer true
+                break
+            }
+        }
+        if {![info exists buffer]} { error "No free buffers" }
+
         set argNames [dict get $pipeline argNames]
         set argsStruct [dict create]
         if {[llength $args] == 0 && $argNames eq "_"} {
@@ -787,9 +820,8 @@ namespace eval Display {
             dict set argsStruct $argName $argValue
         }
         set id [dict get $pipeline id]
-        set addr [dict get $pipeline argsBuffer addr]
-        updateArgs$id $addr $argsStruct
-        drawImpl $pipeline
+        updateArgs$id [dict get $buffer addr] $argsStruct
+        drawImpl $pipeline $buffer
     }
     dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
