@@ -74,7 +74,7 @@ $cc struct VTerminal {
   TMT* tmt;
   int pty_fd;
 
-  // Note the screen has 1 more column than the terminal, for newlines
+  // Note: screen has 1 more column than terminal for newlines at the end of each row
   char* screen;
   int curs_r;
   int curs_c;
