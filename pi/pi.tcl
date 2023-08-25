@@ -37,12 +37,16 @@ try {
             }
 
             set heldModifiers [dict keys [dict filter $modifiers value 1]]
-            if {[llength $heldModifiers] == 0} {set heldModifiers " "}
+            if {[llength $heldModifiers] == 0} {set heldModifiers none}
+
+            # You can't use some chars in an Assert without backslash-prefixing them
+            if {$key == "\[" || $key == "\{" || $key == "\\"} {
+              set key "\\$key"
+            }
 
             thread::send -async "%s" [subst {
-                # TODO: can't use open-square-bracket or backslash keys
                 Retract keyboard claims key /k/ is /t/ with modifiers /m/
-                Assert keyboard claims key "$key" is $keyState with modifiers "$heldModifiers"
+                Assert keyboard claims key "$key" is $keyState with modifiers $heldModifiers
             }]
         }
     } [thread::id]]]

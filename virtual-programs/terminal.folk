@@ -1,28 +1,29 @@
 # Terminal
 #
-# Claim $this is a terminal
+# Wish $this is a terminal
+# Claim $this has keyboard input
 #
 
 source lib/terminal.tcl
 
-When /anyone/ claims /thing/ is a terminal {
-  # First time init, so that we don't get a new instance each time the $thing is detected
-  When /nobody/ claims $thing has term /t/ {
-    Assert terminal claims $thing has term [Terminal::create]
+When /anyone/ wishes /thing/ is a terminal {
+  # Create a new terminal instance for this $thing only once
+  When /nobody/ claims $thing has terminal instance /term/ {
+    Assert terminal claims $thing has terminal instance [Terminal::create]
   }
 
-  When terminal claims $thing has term /term/ {
-    # TODO: all terminals share the same keyboard!
-    When /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
+  When terminal claims $thing has terminal instance /term/ {
+    When $thing has region /r/ & /node/ has step count /c/ {
+      set display [region move $r up 180px]
+      Wish region $display is labelled [Terminal::read $term]
+    }
+
+    When /anyone/ claims $thing has keyboard input & \
+      /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
       if {$direction != "up"} {
         set ctrlPressed [expr {"ctrl" in $modifiers}]
         Terminal::write $term $key $ctrlPressed
       }
-    }
-
-    When $thing has region /r/ & /node/ has step count /c/ {
-      set display [region move $r up 180px]
-      Wish region $display is labelled [Terminal::read $term]
     }
   }
 }

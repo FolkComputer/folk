@@ -19,10 +19,6 @@ proc keyFromCode {code {shift false}} {
 }
 
 # Keycodes from https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
-
-# In the future, probably could make use of KDB's libkeymap to support more than basic ANSI
-# See: http://kbd-project.org/
-
 keydef 0		{RESERVED}
 keydef 1		{ESC}
 keydef 2		{1} {!}

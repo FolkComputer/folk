@@ -1,6 +1,4 @@
 namespace eval Keyboard {
-    source "pi/KeyCodes.tcl"
-
     variable kb
 
     proc init {} {
@@ -33,8 +31,18 @@ namespace eval Keyboard {
         fconfigure $kb -translation binary
     }
 
-    # Returns a tuple of [keycode up/down/repeated]
+    # Event size depends on sizeof(long). Default to 32-bit longs
+    variable evtBytes 16
+    variable evtFormat iissi
+    if {[exec getconf LONG_BIT] == 64} {
+      set evtBytes 24
+      set evtFormat wwssi
+    }
+
     proc getKeyEvent {} {
+        variable evtBytes
+        variable evtFormat
+
         # See https://www.kernel.org/doc/Documentation/input/input.txt
         # https://www.kernel.org/doc/Documentation/input/event-codes.txt
         # https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
@@ -47,19 +55,10 @@ namespace eval Keyboard {
         # };
         #
         while 1 {
-            # TODO: is this CPU dependant? Originally was 16 bytes with 32-bit longs
-            # Could check [getconf LONG_BIT] for 32 or 64...
-            binary scan [read $Keyboard::kb 24] wwsss tvSec tvUsec type code value
+            binary scan [read $Keyboard::kb $evtBytes] $evtFormat tvSec tvUsec type code value
             if {$type == 0x01} {
                 return [list $code $value]
             }
         }
     }
 }
-
-# if {[info exists ::argv0] && $::argv0 eq [info script]} {
-#     Keyboard::init
-#     puts [Keyboard::getChar]
-#     puts [Keyboard::getChar]
-#     puts [Keyboard::getChar]
-# }
