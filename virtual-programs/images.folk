@@ -95,6 +95,32 @@ namespace eval ::image {
         jpeg(out, im.data, im.components, im.width, im.height, 100);
         fclose(out);
     }
+    # Given the four corners of a region in an image, warp it to a new image of a given width and height
+    $cc proc warp {image_t im uint32_t tl_x uint32_t tl_y uint32_t tr_x uint32_t tr_y uint32_t br_x uint32_t br_y uint32_t bl_x uint32_t bl_y uint32_t output_width uint32_t output_height} image_t {
+        image_t ret;
+        ret.width = output_width;
+        ret.height = output_height;
+        ret.components = im.components;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+
+        for (int y = 0; y < output_height; y++) {
+            for (int x = 0; x < output_width; x++) {
+                // calculate the position in the input image
+                float u = (float)x / (float)(output_width - 1);
+                float v = (float)y / (float)(output_height - 1);
+                int input_x = tl_x + u * (int)(tr_x - tl_x) + v * (int)(bl_x - tl_x);
+                int input_y = tl_y + u * (int)(tr_y - tl_y) + v * (int)(bl_y - tl_y);
+
+                if (input_x >= 0 && input_x < im.width && input_y >= 0 && input_y < im.height) {
+                    memcpy(&ret.data[y * ret.bytesPerRow + x * ret.components],
+                        &im.data[input_y * im.bytesPerRow + input_x * im.components],
+                        im.components);
+                }
+            }
+        }
+        return ret;
+    }
     $cc proc loadJpeg {char* filename} image_t {
         FILE* file = fopen(filename, "rb");
         if (!file) {
