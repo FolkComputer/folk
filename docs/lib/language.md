@@ -26,3 +26,7 @@
 ## Imports
 
 `language.tcl` brings all of `::tcl::mathop` and `::tcl::mathfunc` into the global namespace.
+
+---
+CC-BY-SA 2023 Arcade Wise
+(We can change the license if y'all want, I just wanted to avoid copyright issues)
