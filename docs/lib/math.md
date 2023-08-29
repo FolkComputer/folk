@@ -44,6 +44,10 @@ those vertices.
 - `left {r}`: return the vec2 point to the left of the region `r`
 - `right {r}`: return the vec2 point to the right of the region `r`
 - `bottom {r}`: return the vec2 point at the bottom of the region `r`
+- `bottomleft {r}`: return the vec2 point at the bottom left of the region `r`
+- `bottomright {r}`: return the vec2 point at the bottom right of the region `r`
+- `topleft {r}`: return the vec2 point at the top left of the region `r`
+- `topright {r}`: return the vec2 point at the top right of the region `r`
 - `mapVertices {varname r body}`: apply the body for each vector `varname` in region `r`
 - `distance {r1 r2}`: calculate the distance between regions `r1` and `r2`
 - `contains {r p}`: check if the region `r` contains the point `p`
