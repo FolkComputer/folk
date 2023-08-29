@@ -2,7 +2,11 @@ if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting
 
 # TODO: Fix this hack.
 set thisPid [pid]
-foreach pid [exec pgrep tclsh8.6] { if {$pid ne $thisPid} { exec kill -9 $pid } }
+foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
+    if {$pid ne $thisPid} {
+        exec kill -9 $pid
+    }
+}
 exec sleep 1
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
@@ -298,7 +302,7 @@ namespace eval ::Heap {
         $cc code {
             size_t folkHeapSize = 400000000; // 400MB
             uint8_t* folkHeapBase;
-            uint8_t* _Atomic folkHeapPointer;
+            uint8_t** _Atomic folkHeapPointer;
         }
         # The memory mapping of the heap will be inherited by all
         # subprocesses, since it's established before the creation of
@@ -313,14 +317,15 @@ namespace eval ::Heap {
             if (folkHeapBase == NULL || folkHeapBase == (void *) -1) {
                 fprintf(stderr, "folkHeapMount: mmap failed: '%s'\n", strerror(errno)); exit(1);
             }
-            folkHeapPointer = folkHeapBase;
+            folkHeapPointer = (uint8_t**) folkHeapBase;
+            *folkHeapPointer = folkHeapBase + sizeof(*folkHeapPointer);
         }
         $cc proc folkHeapAlloc {size_t sz} void* {
-            if (folkHeapPointer + sz > folkHeapBase + folkHeapSize) {
+            if (*folkHeapPointer + sz >= folkHeapBase + folkHeapSize) {
                 fprintf(stderr, "folkHeapAlloc: out of memory\n"); exit(1);
             }
-            void* ptr = folkHeapPointer;
-            folkHeapPointer = folkHeapPointer + sz;
+            void* ptr = *folkHeapPointer;
+            *folkHeapPointer += sz;
             return (void*) ptr;
         }
         if {$::tcl_platform(os) eq "Linux"} {

@@ -19,7 +19,7 @@ When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has reg
         set whiskerRegion [region scale $region height 0.01px width $scale]
         set whiskerRegion [region move $whiskerRegion left \
                                [vec2 distance [region right $whiskerRegion] [region left $region]]px]
-        set color red
+        set color gold
     } elseif {$direction eq "right"} {
         set whiskerRegion [region scale $region height 0.01px width $scale]
         set whiskerRegion [region move $whiskerRegion right \
