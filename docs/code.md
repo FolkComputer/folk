@@ -20,6 +20,13 @@
        other people wrote
 5. `lib`
     1. Tcl/Folk libraries that we wrote, as well as the C FFI and the C trie
+        - [`/lib/environment.tcl`](./lib/environment.md)
+        - [`/lib/language.tcl`](./lib/language.md)
+        - [`/lib/math.tcl`](./lib/math.md)
+        - [`/lib/peer.tcl`](./lib/peer.md)
+        - [`/lib/process.tcl`](./lib/process.md)
+        - [`/lib/trie.tcl`](./lib/trie.md)
+
 6. `virtual-programs`
     1. Our own high-level Folk programs
     2. They could be printed out... Perhaps, should be.
