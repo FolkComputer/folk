@@ -1,0 +1,29 @@
+# Terminal
+#
+# Wish $this is a terminal
+# Claim $this has keyboard input
+#
+
+source lib/terminal.tcl
+
+When /anyone/ wishes /thing/ is a terminal {
+  # Create a new terminal instance for this $thing only once
+  When /nobody/ claims $thing has terminal instance /term/ {
+    Assert terminal claims $thing has terminal instance [Terminal::create]
+  }
+
+  When terminal claims $thing has terminal instance /term/ {
+    When $thing has region /r/ & /node/ has step count /c/ {
+      set display [region move $r up 180px]
+      Wish region $display is labelled [Terminal::read $term]
+    }
+
+    When /anyone/ claims $thing has keyboard input & \
+      /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
+      if {$direction != "up"} {
+        set ctrlPressed [expr {"ctrl" in $modifiers}]
+        Terminal::write $term $key $ctrlPressed
+      }
+    }
+  }
+}
