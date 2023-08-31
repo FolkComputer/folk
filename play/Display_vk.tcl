@@ -941,18 +941,36 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     set circle [Display::pipeline {vec2 center float radius} {
-        float d = length(gl_FragCoord.xy - args.center) - args.radius;
-        outColor = d < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+        float dist = length(gl_FragCoord.xy - args.center) - args.radius;
+
+        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
+    set line [Display::pipeline {vec2 from vec2 to float thickness} {
+        vec2 from = args.from; vec2 to = args.to; float thickness = args.thickness;
+
+        float l = length(to - from);
+        vec2 d = (to - from) / l;
+        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+             q = mat2(d.x, -d.y, d.y, d.x) * q;
+             q = abs(q) - vec2(l, thickness)*0.5;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+
+        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+    }]
+
+    # FIXME: bounding box for scissors
+    # FIXME: sampler2d, text
+
     set redOnRight [Display::pipeline {} {
-        outColor = gl_FragCoord.x > 400 ? vec4(1.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
     Display::drawStart
 
     Display::draw $circle {100 200} 30
     Display::draw $circle {300 300} 20
+    Display::draw $line {0 0} {100 100} 10
     Display::draw $redOnRight
 
     Display::drawEnd
