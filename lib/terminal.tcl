@@ -58,7 +58,7 @@ namespace eval Terminal {
 set cc [c create]
 $cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
 
-c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libutil.so] end]
+c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libutil.so | head -1] end]
 $cc cflags -lutil
 
 $cc include <sys/types.h>
