@@ -203,57 +203,23 @@ proc StepImpl {} {
     }
 
     set ::peerTime [baretime {
-
-    # This takes 2 ms.
-    set shareStatements [clauseset create]
-    set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
-    set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
-    dict for {_ stmt} [Statements::all] {
-        if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
-            ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
-            clauseset add shareStatements [statement clause $stmt]
-        }
-    }
-
-    set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
-    proc ::addMatchesToShareStatements {shareStatementsVar matches} {
-        upvar $shareStatementsVar shareStatements
-        foreach m $matches {
-            set pattern [dict get $m pattern]
-            foreach match [Statements::findMatches $pattern] {
-                set id [lindex [dict get $match __matcheeIds] 0]
-                set clause [statement clause [Statements::get $id]]
-                clauseset add shareStatements $clause
+        # This takes 2 ms.
+        set shareStatements [clauseset create]
+        set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
+        set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
+        dict for {_ stmt} [Statements::all] {
+            if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
+                ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
+                clauseset add shareStatements [statement clause $stmt]
             }
         }
-    }
-    ::addMatchesToShareStatements shareStatements $matches
 
-    foreach peerNs [namespace children ::Peers] {
-        apply [list {peer shareStatements} {
-            variable prevShareStatements
+        set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
+        ::addMatchesToShareStatements shareStatements $matches
 
-            variable connected
-            if {!$connected} { return }
-
-            # Receive.
-            Commit $peer [list Say $peer is sharing statements [receive]]
-
-            # Share.
-            ::addMatchesToShareStatements shareStatements \
-                [Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
-            if {![info exists prevShareStatements] ||
-                ([clauseset size $prevShareStatements] > 0 ||
-                 [clauseset size $shareStatements] > 0)} {
-
-                share [clauseset clauses $shareStatements]
-
-                set prevShareStatements $shareStatements
-            }
-
-        } $peerNs] [namespace tail $peerNs] $shareStatements
-    }
-
+        foreach peerNs [namespace children ::Peers] {
+            ${peerNs}::exchange $shareStatements
+        }
     }]
 }
 
