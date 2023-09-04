@@ -259,8 +259,9 @@ proc StepImpl {} {
 
 proc Step {} {
     if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
+        set ::stepRunTime 0
         set stepTime [baretime StepImpl]
-        set ::stepTime "$stepTime us (peer $::peerTime us)"
+        set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us)"
     }
 }
 

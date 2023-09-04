@@ -19,20 +19,21 @@ proc runInSerializedEnvironment {lambda env} {
     if {![dict exists $::Evaluator::totalTimesMap $lambda]} {
         dict set ::Evaluator::totalTimesMap $lambda [dict create loadTime 0 runTime 0 unloadTime 0]
     }
-    set loadTime_ [time {}]
+    set loadTime_ [baretime {}]
 
     try {
-        set runTime_ [time {set ret [apply $lambda {*}$env]}]
+        set runTime_ [baretime {set ret [apply $lambda {*}$env]}]
+        set ::stepRunTime [+ $::stepRunTime $runTime_]
         set ret
 
     } finally {
-        set unloadTime_ [time {}]
+        set unloadTime_ [baretime {}]
         dict with ::Evaluator::totalTimesMap $lambda {
-            incr loadTime [string map {" microseconds per iteration" ""} $loadTime_]
+            incr loadTime $loadTime_
             if {[info exists runTime_]} {
-                incr runTime [string map {" microseconds per iteration" ""} $runTime_]
+                incr runTime $runTime_
             }
-            incr unloadTime [string map {" microseconds per iteration" ""} $unloadTime_]
+            incr unloadTime $unloadTime_
         }
     }
 }
