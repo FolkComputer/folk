@@ -1,3 +1,3 @@
-When keyboard claims key /key/ is /t/ with modifiers /m/ {
-	if {[string tolower $key] == "esc"} {exec sudo systemctl restart folk}
+When keyboard claims key ESC is down with modifiers alt {
+	exec sudo systemctl restart folk
 }
