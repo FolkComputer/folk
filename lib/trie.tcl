@@ -77,7 +77,7 @@ namespace eval ctrie {
         return Tcl_NewStringObj(varName, -1);
     }
     $cc proc startsWithDollarSign {Tcl_Obj* wordobj} bool {
-        return Tcl_GetString(wordobj)[0] == '$';
+        return Tcl_GetString(wordobj)[0] == '\$';
     }
 
     $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv uint64_t value} void {
