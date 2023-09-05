@@ -45,7 +45,7 @@ namespace eval c {
                 #include <stdbool.h>
 
                 #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
             }
             variable code [list]
             variable objtypes [list]
@@ -183,7 +183,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
