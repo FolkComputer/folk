@@ -781,6 +781,28 @@ namespace eval Evaluator {
     namespace import ::statement::$cc
 
     $cc code {
+        #include <stdarg.h>
+        char operationLog[10000][1000];
+        int operationLogIdx = 0;
+        void op(const char *format, ...) {
+            if (operationLogIdx >= 10000) return;
+
+            va_list args;
+            va_start(args, format);
+            vsnprintf(operationLog[operationLogIdx++], 1000, format, args);
+            va_end(args);
+        }
+    }
+    $cc proc getOperationLog {} Tcl_Obj* {
+        Tcl_Obj* entries[10000];
+        int i;
+        for (i = 0; i < 10000 && operationLog[i][0] != '\0'; i++) {
+            entries[i] = Tcl_NewStringObj(operationLog[i], -1);
+        }
+        return Tcl_NewListObj(i, entries);
+    }
+
+    $cc code {
         // Given a StatementPattern, tells you all the reactions to run
         // when a matching statement is added to / removed from the
         // database. StatementId is the ID of the statement that wanted to
@@ -1142,13 +1164,14 @@ namespace eval Evaluator {
         int evaluatorLogWriteIndex = 0;
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
-        /* printf("Evaluate==========\n"); */
+        op("Evaluate\n");
+
         while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
             log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
             evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
 
             if (entry.op == ASSERT) {
-                /* printf("Assert (%s)\n", Tcl_GetString(entry.assert.clause)); */
+                op("Assert (%s)\n", Tcl_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
@@ -1158,7 +1181,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
-                /* printf("Retract (%s)\n", Tcl_GetString(entry.retract.pattern)); */
+                op("Retract (%s)\n", Tcl_GetString(entry.retract.pattern));
                 environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
                                                    1000, results);
@@ -1171,7 +1194,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
-                /* printf("Say (%s)\n", Tcl_GetString(entry.say.clause)); */
+                op("Say (%s)\n", Tcl_GetString(entry.say.clause));
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -1183,16 +1206,19 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.say.clause);
 
             } else if (entry.op == UNMATCH) {
-                /* printf("Unmatch (m%d:%d)\n", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen); */
+                op("Unmatch (m%d:%d)\n", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen);
                 if (matchExists(entry.unmatch.matchId)) {
                     reactToMatchRemoval(interp, entry.unmatch.matchId);
                     matchRemove(entry.unmatch.matchId);
                 }
 
             } else if (entry.op == RECOLLECT) {
-                /* printf("Recollect (s%d:%d)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen); */
+
                 if (exists(entry.recollect.collectId)) {
+                    op("Recollect (s%d:%d) (%s)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Tcl_GetString(get(entry.recollect.collectId)->clause));
                     recollect(interp, entry.recollect.collectId);
+                } else {
+                    op("Recollect (s%d:%d) (DEAD)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen);
                 }
             }
         }
