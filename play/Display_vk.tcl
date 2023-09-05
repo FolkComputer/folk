@@ -706,17 +706,14 @@ namespace eval Display {
         VkImageView textureImageView;
         VkSampler textureSampler;
     }
-    # Stores and describes all inputs ('arguments') of a Pipeline. You
-    # need to allocate as many per pipeline as you might have
+    # Stores and describes all inputs of a Pipeline. You need to
+    # allocate as many PipelineInputSet per pipeline as you might have
     # invocations in flight of that pipeline.
-    dc struct ResourcesAndDescriptorSet {
+    dc struct PipelineInputSet {
         int nresources; // Should be equal to nbindings for the Pipeline.
         Resource* resources;
 
         VkDescriptorSet descriptorSet;
-    }
-    dc code {
-        VkDescriptorPool descriptorPool;
     }
     dc proc createResource {PipelineBinding binding} Resource {
         Resource ret;
@@ -733,15 +730,16 @@ namespace eval Display {
         } else { exit(90); }
         return ret;
     }
-    dc proc createResourcesAndDescriptorSet {Pipeline pipeline} ResourcesAndDescriptorSet {
-        ResourcesAndDescriptorSet ret;
+    dc proc createPipelineInputSet {Pipeline pipeline} PipelineInputSet {
+        PipelineInputSet ret;
         ret.nresources = pipeline.nbindings;
         ret.resources = ckalloc(sizeof(Resource) * ret.nresources);
         for (int i = 0; i < pipeline.nbindings; i++) {
             ret.resources[i] = createResource(pipeline.bindings[i]);
         }
 
-        if (!descriptorPool) {
+        static VkDescriptorPool descriptorPool = NULL;
+        if (descriptorPool == NULL) {
             // TODO: Generalize the way this works.
             VkDescriptorPoolSize poolSizes[2] = {0};
             poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -860,40 +858,27 @@ namespace eval Display {
         $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
-    variable buffers [dict create]
+    variable pipelineInputSetsCache [dict create]
     proc draw {pipeline args} {
-        # TODO: We need to find a free buffer+descriptor set, get its
-        # address, write to it, then draw.
-        # Are there no free buffer+descriptor sets? Then allocate one.
-        variable buffers
-        if {![dict exists $buffers $pipeline]} {
-            set buffersForPipeline [dict create]
+        variable pipelineInputSetsCache
+        if {![dict exists $pipelineInputSetsCache $pipeline]} {
             for {set i 0} {$i < 5} {incr i} {
-                set buf [createUniformBufferAndDescriptorSet $pipeline]
-                dict set buffersForPipeline $buf false
+                set inputSet [createPipelineInputSet $pipeline]
+                dict set pipelineInputSetsCache $pipeline $inputSet false
             }
-            dict set buffers $pipeline $buffersForPipeline
         }
-        dict for {buf isInUse} [dict get $buffers $pipeline] {
+        dict for {iSet isInUse} [dict get $pipelineInputSetsCache $pipeline] {
             if {!$isInUse} {
-                set buffer $buf
                 # Mark as in-use:
-                dict set buffers $pipeline $buffer true
+                set inputSet $iSet
+                dict set pipelineInputSetsCache $pipeline $inputSet true
                 break
             }
         }
-        if {![info exists buffer]} { error "No free buffers" }
+        if {![info exists inputSet]} { error "No available input set for pipeline" }
 
-        set argNames [dict get $pipeline argNames]
-        set argsStruct [dict create]
-        if {[llength $args] == 0 && $argNames eq "_"} {
-            set args 0.0
-        }
-        foreach argName $argNames argValue $args {
-            dict set argsStruct $argName $argValue
-        }
-        set id [dict get $pipeline id]
-        updateArgs$id [dict get $buffer addr] $argsStruct
+        # FIXME: update the inputSet acccording to args
+
         drawImpl $pipeline $buffer
     }
     dc proc drawEnd {} void {
