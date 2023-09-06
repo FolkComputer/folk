@@ -629,13 +629,15 @@ namespace eval Display {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
+        PipelineBinding* bindingsRetain = ckalloc(nbindings*sizeof(PipelineBinding));
+        memcpy(bindingsRetain, bindings, nbindings*sizeof(PipelineBinding));
         return (Pipeline) {
             .pipeline = pipeline,
             .pipelineLayout = pipelineLayout,
             .descriptorSetLayout = descriptorSetLayout,
 
             .nbindings = nbindings,
-            .bindings = bindings
+            .bindings = bindingsRetain
         };
     }]
 
@@ -845,7 +847,7 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawImpl {Pipeline pipeline ResourcesAndDescriptorSet inputs} void {
+    dc proc drawImpl {Pipeline pipeline PipelineInputSet inputSet} void {
         $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
@@ -853,7 +855,7 @@ namespace eval Display {
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipeline.pipelineLayout,
                                 0, 1,
-                                &inputs.descriptorSet, 0, NULL);
+                                &inputSet.descriptorSet, 0, NULL);
 
         $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
@@ -879,7 +881,7 @@ namespace eval Display {
 
         # FIXME: update the inputSet acccording to args
 
-        drawImpl $pipeline $buffer
+        drawImpl $pipeline $inputSet
     }
     dc proc drawEnd {} void {
         $[vkfn vkCmdEndRenderPass]
@@ -952,6 +954,7 @@ namespace eval Display {
 
         set uboFields [list]
         set bindings [list]
+        set argidx 0
         foreach {argtype argname} $args {
             # TODO: Build a mapping for draw time? if it's a UBO
             # field, then put it in the UBO struct (what offset, what
@@ -959,11 +962,14 @@ namespace eval Display {
             if {$argtype eq "sampler2d"} {
                 lappend bindings [dict create \
                                       name $argname \
+                                      argtype $argtype \
+                                      argidx $argidx \
                                       type $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER \
                                       size 0]
             } else {
-                lappend uboFields [list $argtype $argname]
+                lappend uboFields [list $argtype $argname $argidx]
             }
+            incr argidx
         }
         if {[llength $uboFields] > 0} {
             set size 0
@@ -1058,23 +1064,23 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
     }]
 
-    set image [Display::pipeline {sampler2d image} {
+    # set image [Display::pipeline {sampler2d image} {
         
-    }]
+    # }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2d, text
 
-    set redOnRight [Display::pipeline {} {
-        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    }]
+    # set redOnRight [Display::pipeline {} {
+    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    # }]
 
     Display::drawStart
 
     Display::draw $circle {100 200} 30
     Display::draw $circle {300 300} 20
     Display::draw $line {0 0} {100 100} 10
-    Display::draw $redOnRight
+    # Display::draw $redOnRight
 
     Display::drawEnd
 

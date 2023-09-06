@@ -5,7 +5,12 @@ proc csubst {s} {
     for {set i 0} {$i < [string length $s]} {incr i} {
         set c [string index $s $i]
         switch $c {
-            "\\" {incr i; lappend result [string index $s $i]}
+            "\\" {
+                incr i; set next [string index $s $i]
+                # TODO: This is a hack to deal with \n.
+                if {$next eq "n"} { lappend result "\\" }
+                lappend result $next
+            }
             {$} {
                 set tail [string range $s $i+1 end]
                 if {[regexp {^((?:[A-Za-z0-9_]|::)+)} $tail match-> varname] ||
