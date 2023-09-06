@@ -37,8 +37,12 @@ namespace eval Terminal {
     return ""
   }
 
-  proc create {} {
-    return [termCreate]
+  proc create {rows cols cmd} {
+    termCreate $rows $cols [list bash -c $cmd ""]
+  }
+
+  proc destroy {term} {
+    termDestroy $term
   }
 
   # Writes a keyboard key to the terminal, handling control codes
@@ -51,7 +55,7 @@ namespace eval Terminal {
 
   # Returns a newline separated string of terminal lines
   proc read {term} {
-    return [termRead $term]
+    termRead $term
   }
 }
 
@@ -68,28 +72,28 @@ $cc include <pty.h>
 $cc include <fcntl.h>
 $cc include <string.h>
 $cc include <sys/time.h>
+$cc include <signal.h>
 $cc include "tmt.h"
 
 $cc struct VTerminal {
   TMT* tmt;
   int pty_fd;
+  int pid;
 
-  // Note: screen has 1 more column than terminal for newlines at the end of each row
-  char* screen;
+  // Note: display has 1 more column than tmt screen to hold newlines between each line
+  char* display;
   int curs_r;
   int curs_c;
+  int ncols;
 };
 
 $cc code {
-  #define SHELL "/bin/bash"
-  #define ROWS 12
-  #define COLS 43
   #define PTYBUF 4096
   char iobuf[PTYBUF];
 
   char* charAt(VTerminal *vt, int r, int c) {
-    int i = r * (COLS + 1) + c;
-    return &vt->screen[i];
+    int i = r * (vt->ncols + 1) + c;
+    return &vt->display[i];
   }
 
   void tmtEvent(tmt_msg_t m, TMT *tmt, const void *a, void *p) {
@@ -127,31 +131,49 @@ $cc code {
   }
 }
 
-$cc proc termCreate {} VTerminal* {
+$cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
+  int i = 0;
+  while (true) {
+    // execvp requires cmd array to be terminated by null pointer
+    if (strlen(cmd[i]) == 0) { cmd[i] = NULL; break; }
+    i++;
+  }
+
   VTerminal *vt = malloc(sizeof(VTerminal));
   vt->curs_r = 0;
   vt->curs_c = 0;
+  vt->ncols = cols;
 
-  vt->screen = malloc(sizeof(char[ROWS][COLS + 1]));
-  for (int r = 0; r < ROWS - 1; r++) {
-    *charAt(vt, r, COLS) = '\n';
+  vt->display = malloc(sizeof(char[rows][cols + 1]));
+  for (int r = 0; r < rows - 1; r++) {
+    *charAt(vt, r, cols) = '\n';
   }
-  *charAt(vt, ROWS - 1, COLS) = '\0';
+  *charAt(vt, rows - 1, cols) = '\0';
 
-  vt->tmt = tmt_open(ROWS, COLS, tmtEvent, vt, NULL);
+  vt->tmt = tmt_open(rows, cols, tmtEvent, vt, NULL);
 
-  struct winsize ws = {.ws_row = ROWS, .ws_col = COLS};
+  struct winsize ws = {.ws_row = rows, .ws_col = cols};
   pid_t pid = forkpty(&vt->pty_fd, NULL, NULL, &ws);
   if (pid < 0){
     return NULL;
   } else if (pid == 0){
     setenv("TERM", "ansi", 1);
-    execl(SHELL, SHELL, NULL);
+    if (execvp(cmd[0], cmd) == -1) {
+      fprintf(stderr, "execvp(%s, ...) failed: %m\n", cmd[0]);
+    }
     return NULL;
   }
 
+  vt->pid = pid;
   fcntl(vt->pty_fd, F_SETFL, O_NONBLOCK);
   return vt;
+}
+
+$cc proc termDestroy {VTerminal* vt} void {
+  kill(vt->pid, SIGTERM);
+  close(vt->pty_fd);
+  free(vt->display);
+  free(vt);
 }
 
 $cc proc termRead {VTerminal* vt} char* {
@@ -161,7 +183,7 @@ $cc proc termRead {VTerminal* vt} char* {
   }
 
   blinkCursor(vt);
-  return vt->screen;
+  return vt->display;
 }
 
 $cc proc termWrite {VTerminal* vt char* key} void {
