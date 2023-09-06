@@ -69,11 +69,11 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
   On unmatch { ::unmatchTerminal $thing $cmd }
 
   When $::thisProcess has step count /c/ {
-    set lambda {
+    set body {
       Wish region $region is labelled [Terminal::read $term]
     }
-    When $thing has terminal region /region/ $lambda
-    When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $lambda
+    When $thing has terminal region /region/ $body
+    When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
   }
 
   When /anyone/ claims $thing has keyboard input \
