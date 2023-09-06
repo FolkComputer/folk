@@ -476,6 +476,14 @@ namespace eval Display {
         char name[100];
         PipelineBindingType type;
         VkDeviceSize size;
+
+        // If this binding directly maps to an argument in the
+        // pipeline definition (i.e., it is not a binding for a
+        // composite UBO of multiple arguments), then these are the
+        // name, type, and index of that argument:
+        char argname[100];
+        char argtype[100];
+        int argidx;
     }
     dc struct Pipeline {
         VkPipeline pipeline;
@@ -879,7 +887,22 @@ namespace eval Display {
         }
         if {![info exists inputSet]} { error "No available input set for pipeline" }
 
-        # FIXME: update the inputSet acccording to args
+        # TODO: Figure out packing rules for UBO struct.
+        set uboFmt [list]
+        set uboArgs [list]
+        foreach uboField [dict get $pipeline uboFields] {
+            # Write at offset to addr.
+            lassign $uboField argtype argname argidx
+            
+            if {$argtype eq "float"} { lappend uboFmt "f" } \
+                elseif {$argtype eq "vec2"} { lappend uboFmt "f2" }
+            lappend uboArgs [lindex $args $argidx]
+        }
+        set uboData [binary format [join $uboFmt ""] {*}$uboArgs]
+        foreach binding [dict get $pipeline bindings] {
+            memcpy [dict get $pipeline bindingaddr] $uboData
+            puts $binding
+        }
 
         drawImpl $pipeline $inputSet
     }
@@ -956,16 +979,15 @@ namespace eval Display {
         set bindings [list]
         set argidx 0
         foreach {argtype argname} $args {
-            # TODO: Build a mapping for draw time? if it's a UBO
-            # field, then put it in the UBO struct (what offset, what
-            # type). if it's a sampler, then what binding #.
             if {$argtype eq "sampler2d"} {
                 lappend bindings [dict create \
                                       name $argname \
-                                      argtype $argtype \
-                                      argidx $argidx \
                                       type $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER \
-                                      size 0]
+                                      size 0 \
+                                      \
+                                      argname $argname \
+                                      argtype $argtype \
+                                      argidx $argidx]
             } else {
                 lappend uboFields [list $argtype $argname $argidx]
             }
@@ -978,7 +1000,8 @@ namespace eval Display {
                 if {$fieldtype eq "float"} { set size [+ $size 4] } \
                     elseif {$fieldtype eq "vec2"} { set size [+ $size 8] }
             }
-            set binding [dict create name Args type $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER size $size]
+            set binding [dict create name Args type $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER size $size \
+                            argname "" argtype "" argidx -1]
             set bindings [list $binding {*}$bindings]
         }
 
@@ -994,7 +1017,7 @@ namespace eval Display {
                         }] "\n"]
                     } args;
                 } } else { subst {
-                    layout(binding = $i) uniform [dict get $binding argtype] [dict get $binding name];
+                    layout(binding = $i) uniform [dict get $binding argtype] [dict get $binding argname];
                 } }
             }] "\n"]
 
@@ -1007,28 +1030,7 @@ namespace eval Display {
         # so Display::draw can fill the args into UBO and samplers etc.
         set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule \
                           [llength $bindings] $bindings]
-
-        set cc [c create]
-        $cc include <cglm/cglm.h>
-        $cc argtype vec2 {
-            int objc; Tcl_Obj** objv;
-            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &objc, &objv));
-            __ENSURE(objc == 2);
-            double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, objv[0], &x));
-            double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, objv[1], &y));
-            vec2 $argname = { (float)x, (float)y };
-        }
-        $cc rtype vec2 { $robj = Tcl_ObjPrintf("%f %f", $rvalue[0], $rvalue[1]); }
-        $cc struct Args [join [lmap {argtype argname} $args {expr {"$argtype $argname;"}}] "\n"]
-        $cc proc getArgsStructSize {} int { return sizeof(Args); }
-        $cc proc updateArgs$pipelineId {void* addr Args args} void {
-            memcpy(addr, &args, sizeof(args));
-        }
-        $cc compile
-
-
-        dict set pipeline argNames [lmap {argtype argname} $args {set argname}]
-        dict set pipeline id $pipelineId
+        dict set pipeline uboFields $uboFields
         return $pipeline
     }
 }
