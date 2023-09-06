@@ -1149,6 +1149,8 @@ namespace eval Evaluator {
         } queue_op_t;
         typedef struct queue_entry_t {
             queue_op_t op;
+            int seq;
+
             union {
                 struct { Tcl_Obj* clause; } assert;
                 struct { Tcl_Obj* pattern; } retract;
@@ -1162,21 +1164,22 @@ namespace eval Evaluator {
         } queue_entry_t;
 
         pqueue_t* queue;
+        int seq;
 
         int queueEntryCompare(pqueue_pri_t next, pqueue_pri_t curr) {
             return next < curr;
         }
         pqueue_pri_t queueEntryGetPriority(void* a) {
-            switch (((queue_entry_t *)a)->op) {
+            queue_entry_t* entry = a;
+            switch (entry->op) {
                 case NONE: return 0;
 
                 case ASSERT:
-                case RETRACT: return 999;
+                case RETRACT: return 80000 - entry->seq;
+                case SAY: return 80000 + entry->seq;
 
-                case SAY: return 999;
-
-                case UNMATCH: return 1;
-                case RECOLLECT: return 0;
+                case UNMATCH: return 5000 - entry->seq;
+                case RECOLLECT: return 1000 - entry->seq;
             }
             return 0;
         }
@@ -1194,6 +1197,8 @@ namespace eval Evaluator {
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
         op("Evaluate");
+
+        seq = 0;
 
         queue_entry_t* entryPtr;
         while ((entryPtr = pqueue_pop(queue)) != NULL) {
@@ -1254,6 +1259,7 @@ namespace eval Evaluator {
         void queueInsert(queue_entry_t entry) {
             queue_entry_t* ptr = ckalloc(sizeof(entry));
             *ptr = entry;
+            ptr->seq = seq++;
             pqueue_insert(queue, ptr);
         }
     }
