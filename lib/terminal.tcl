@@ -38,7 +38,6 @@ namespace eval Terminal {
   }
 
   proc create {rows cols cmd} {
-    # End arguments with null string
     termCreate $rows $cols [list bash -c $cmd ""]
   }
 
@@ -133,6 +132,13 @@ $cc code {
 }
 
 $cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
+  int i = 0;
+  while (true) {
+    // execvp requires cmd array to be terminated by null pointer
+    if (strlen(cmd[i]) == 0) { cmd[i] = NULL; break; }
+    i++;
+  }
+
   VTerminal *vt = malloc(sizeof(VTerminal));
   vt->curs_r = 0;
   vt->curs_c = 0;
@@ -152,7 +158,9 @@ $cc proc termCreate {int rows int cols char* cmd[]} VTerminal* {
     return NULL;
   } else if (pid == 0){
     setenv("TERM", "ansi", 1);
-    execvp(cmd[0], cmd);
+    if (execvp(cmd[0], cmd) == -1) {
+      fprintf(stderr, "execvp(%s, ...) failed: %m\n", cmd[0]);
+    }
     return NULL;
   }
 
