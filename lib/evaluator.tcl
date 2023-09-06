@@ -789,6 +789,7 @@ namespace eval Evaluator {
 
             va_list args;
             va_start(args, format);
+            // vprintf(format, args); printf("\n");
             vsnprintf(operationLog[operationLogIdx++], 1000, format, args);
             va_end(args);
         }
@@ -1140,12 +1141,14 @@ namespace eval Evaluator {
         }
     }
 
+    $cc cflags -I./vendor/libpqueue vendor/libpqueue/pqueue.c
+    $cc include "pqueue.h"
     $cc code {
         typedef enum {
             NONE, ASSERT, RETRACT, SAY, UNMATCH, RECOLLECT
-        } log_entry_op_t;
-        typedef struct log_entry_t {
-            log_entry_op_t op;
+        } queue_op_t;
+        typedef struct queue_entry_t {
+            queue_op_t op;
             union {
                 struct { Tcl_Obj* clause; } assert;
                 struct { Tcl_Obj* pattern; } retract;
@@ -1156,22 +1159,47 @@ namespace eval Evaluator {
                 struct { match_handle_t matchId; } unmatch;
                 struct { statement_handle_t collectId; } recollect;
             };
-        } log_entry_t;
+        } queue_entry_t;
 
-        log_entry_t evaluatorLog[4096] = {0};
-        #define EVALUATOR_LOG_CAPACITY (sizeof(evaluatorLog)/sizeof(evaluatorLog[1]))
-        int evaluatorLogReadIndex = EVALUATOR_LOG_CAPACITY - 1;
-        int evaluatorLogWriteIndex = 0;
+        pqueue_t* queue;
+
+        int queueEntryCompare(pqueue_pri_t next, pqueue_pri_t curr) {
+            return next < curr;
+        }
+        pqueue_pri_t queueEntryGetPriority(void* a) {
+            switch (((queue_entry_t *)a)->op) {
+                case NONE: return 0;
+
+                case ASSERT:
+                case RETRACT: return 999;
+
+                case SAY: return 999;
+
+                case UNMATCH: return 1;
+                case RECOLLECT: return 0;
+            }
+            return 0;
+        }
+        void queueEntrySetPriority(void* a, pqueue_pri_t pri) {}
+        size_t queueEntryGetPosition(void* a) { return 0; }
+        void queueEntrySetPosition(void* a, size_t pos) {}
+    }
+    $cc proc init {} void {
+        queue = pqueue_init(16384,
+                            queueEntryCompare,
+                            queueEntryGetPriority,
+                            queueEntrySetPriority,
+                            queueEntryGetPosition,
+                            queueEntrySetPosition);
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
-        op("Evaluate\n");
+        op("Evaluate");
 
-        while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
-            log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
-            evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
-
+        queue_entry_t* entryPtr;
+        while ((entryPtr = pqueue_pop(queue)) != NULL) {
+            queue_entry_t entry = *entryPtr; ckfree(entryPtr);
             if (entry.op == ASSERT) {
-                op("Assert (%s)\n", Tcl_GetString(entry.assert.clause));
+                op("Assert (%s)", Tcl_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
@@ -1181,7 +1209,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
-                op("Retract (%s)\n", Tcl_GetString(entry.retract.pattern));
+                op("Retract (%s)", Tcl_GetString(entry.retract.pattern));
                 environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
                                                    1000, results);
@@ -1194,7 +1222,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
-                op("Say (%s)\n", Tcl_GetString(entry.say.clause));
+                op("Say (%s)", Tcl_GetString(entry.say.clause));
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -1206,58 +1234,54 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.say.clause);
 
             } else if (entry.op == UNMATCH) {
-                op("Unmatch (m%d:%d)\n", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen);
+                op("Unmatch (m%d:%d)", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen);
                 if (matchExists(entry.unmatch.matchId)) {
                     reactToMatchRemoval(interp, entry.unmatch.matchId);
                     matchRemove(entry.unmatch.matchId);
                 }
 
             } else if (entry.op == RECOLLECT) {
-
                 if (exists(entry.recollect.collectId)) {
-                    op("Recollect (s%d:%d) (%s)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Tcl_GetString(get(entry.recollect.collectId)->clause));
+                    op("Recollect (s%d:%d) (%s)", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Tcl_GetString(get(entry.recollect.collectId)->clause));
                     recollect(interp, entry.recollect.collectId);
                 } else {
-                    op("Recollect (s%d:%d) (DEAD)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen);
+                    op("Recollect (s%d:%d) (DEAD)", entry.recollect.collectId.idx, entry.recollect.collectId.gen);
                 }
             }
         }
     }
     $cc code {
-        void LogWriteFront(log_entry_t entry) {
-            if ((evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogWriteIndex) { exit(100); }
-            evaluatorLogReadIndex = (evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY;
-            evaluatorLog[evaluatorLogReadIndex] = entry;
-        }
-        void LogWriteBack(log_entry_t entry) {
-            if ((evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogReadIndex) { exit(100); }
-            evaluatorLog[evaluatorLogWriteIndex] = entry;
-            evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY;
+        void queueInsert(queue_entry_t entry) {
+            queue_entry_t* ptr = ckalloc(sizeof(entry));
+            *ptr = entry;
+            pqueue_insert(queue, ptr);
         }
     }
     $cc proc LogWriteAssert {Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWriteBack((log_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
+        queueInsert((queue_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
     }
     $cc proc LogWriteRetract {Tcl_Obj* pattern} void {
         Tcl_IncrRefCount(pattern);
-        LogWriteBack((log_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
+        queueInsert((queue_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
     }
     $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWriteFront((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
+        queueInsert((queue_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
     }
     $cc proc LogWriteUnmatch {match_handle_t matchId} void {
-        LogWriteBack((log_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
+        // TODO: These should probably precede a recollect.
+        queueInsert((queue_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
     }
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
-        LogWriteFront((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
+        queueInsert((queue_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
     $cc proc LogIsEmpty {} bool {
-        return evaluatorLogReadIndex == evaluatorLogWriteIndex;
+        return pqueue_peek(queue) == NULL;
     }
 
     $cc compile
+    init
 }
 
 namespace eval Statements {
