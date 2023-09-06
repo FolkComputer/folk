@@ -47,7 +47,7 @@ proc ::peer {process {dieOnDisconnect false}} {
 
         # TODO: Handle die on disconnect (?)
 
-        proc share {statements} {
+        proc send {statements} {
             variable process
             Mailbox::share $::thisProcess $process $statements
         }
@@ -56,15 +56,12 @@ proc ::peer {process {dieOnDisconnect false}} {
             Mailbox::receive $process $::thisProcess
         }
 
-        proc exchange {shareStatements} {
+        proc share {shareStatements} {
             variable process
             variable prevShareStatements
 
             variable connected
             if {!$connected} { return }
-
-            # Receive.
-            Commit $process [list Say $process is sharing statements [receive]]
 
             # Share.
             ::addMatchesToShareStatements shareStatements \
@@ -73,7 +70,7 @@ proc ::peer {process {dieOnDisconnect false}} {
                 ([clauseset size $prevShareStatements] > 0 ||
                  [clauseset size $shareStatements] > 0)} {
 
-                share [clauseset clauses $shareStatements]
+                send [clauseset clauses $shareStatements]
 
                 set prevShareStatements $shareStatements
             }

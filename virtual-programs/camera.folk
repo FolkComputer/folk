@@ -20,15 +20,12 @@ On process {
 
     puts "Camera tid: [getTid] booting at [clock milliseconds]"
 
-    while true {
-        set cameraTime [time {
-            set grayFrame [Camera::grayFrame]
-        }]
+    When $::thisProcess has step count /c/ {
+        set grayFrame [Camera::grayFrame]
         Commit {
-            Claim the camera time is $cameraTime
+            Claim the camera time is $::stepTime
             Claim the camera frame is $grayFrame at [clock milliseconds]
         }
-        Step
     }
 }
 
