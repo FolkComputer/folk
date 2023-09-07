@@ -471,10 +471,13 @@ namespace eval Display {
     defineVulkanHandleType dc VkDescriptorSet
     defineVulkanHandleType dc VkDescriptorSetLayout
     dc typedef uint64_t VkDeviceSize
-    dc typedef int PipelineBindingType
+    dc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
+    dc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
+    variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER 1
+    variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER 6
     dc struct PipelineBinding {
         char name[100];
-        PipelineBindingType type;
+        VkDescriptorType type;
         VkDeviceSize size;
 
         // If this binding directly maps to an argument in the
@@ -702,7 +705,7 @@ namespace eval Display {
     # A single input resource for a Pipeline. (Note that multiple
     # pipeline arguments get coalesced into 1 input resource, if
     # they're coalesced into a single uniform buffer.)
-    dc struct Resource {
+    dc struct PipelineInputResource {
         // For a uniform buffer:
         VkBuffer buffer;
         VkDeviceMemory memory;
@@ -716,17 +719,20 @@ namespace eval Display {
         VkImageView textureImageView;
         VkSampler textureSampler;
     }
+    dc proc pipelineInputResourceMemcpy {PipelineInputResource resource Tcl_Obj* data size_t n} void {
+        memcpy(resource.addr, Tcl_GetString(data), n);
+    }
     # Stores and describes all inputs of a Pipeline. You need to
     # allocate as many PipelineInputSet per pipeline as you might have
     # invocations in flight of that pipeline.
     dc struct PipelineInputSet {
         int nresources; // Should be equal to nbindings for the Pipeline.
-        Resource* resources;
+        PipelineInputResource* resources;
 
         VkDescriptorSet descriptorSet;
     }
-    dc proc createResource {PipelineBinding binding} Resource {
-        Resource ret;
+    dc proc createPipelineInputResource {PipelineBinding binding} PipelineInputResource {
+        PipelineInputResource ret;
         if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
             createBuffer(binding.size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -743,9 +749,9 @@ namespace eval Display {
     dc proc createPipelineInputSet {Pipeline pipeline} PipelineInputSet {
         PipelineInputSet ret;
         ret.nresources = pipeline.nbindings;
-        ret.resources = ckalloc(sizeof(Resource) * ret.nresources);
+        ret.resources = ckalloc(sizeof(PipelineInputResource) * ret.nresources);
         for (int i = 0; i < pipeline.nbindings; i++) {
-            ret.resources[i] = createResource(pipeline.bindings[i]);
+            ret.resources[i] = createPipelineInputResource(pipeline.bindings[i]);
         }
 
         static VkDescriptorPool descriptorPool = NULL;
@@ -779,7 +785,6 @@ namespace eval Display {
         }
         // Write to ret.descriptorSet so it points at all the resources:
         {
-            // FIXME: Fix this up.
             VkWriteDescriptorSet descriptorWrites[pipeline.nbindings];
             for (int i = 0; i < pipeline.nbindings; i++) {
                 VkWriteDescriptorSet* descriptorWrite = &descriptorWrites[i];
@@ -891,17 +896,24 @@ namespace eval Display {
         set uboFmt [list]
         set uboArgs [list]
         foreach uboField [dict get $pipeline uboFields] {
-            # Write at offset to addr.
             lassign $uboField argtype argname argidx
-            
+
             if {$argtype eq "float"} { lappend uboFmt "f" } \
                 elseif {$argtype eq "vec2"} { lappend uboFmt "f2" }
             lappend uboArgs [lindex $args $argidx]
         }
         set uboData [binary format [join $uboFmt ""] {*}$uboArgs]
-        foreach binding [dict get $pipeline bindings] {
-            memcpy [dict get $pipeline bindingaddr] $uboData
-            puts $binding
+
+        set nbindings [dict get $pipeline nbindings]
+        variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        for {set i 0} {$i < $nbindings} {incr i} {
+            set binding [Pipeline bindings $pipeline $i]
+            set resource [PipelineInputSet resources $inputSet $i]
+            if {[PipelineBinding type $binding] == $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} {
+                pipelineInputResourceMemcpy $resource $uboData [string length $uboData]
+            } else {
+                # Copy image?
+            }
         }
 
         drawImpl $pipeline $inputSet
@@ -972,8 +984,8 @@ namespace eval Display {
             }]]
         }
 
-        set VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER 1
-        set VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER 6
+        variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
 
         set uboFields [list]
         set bindings [list]
@@ -1080,8 +1092,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::drawStart
 
     Display::draw $circle {100 200} 30
-    Display::draw $circle {300 300} 20
-    Display::draw $line {0 0} {100 100} 10
+    # Display::draw $circle {300 300} 20
+    # Display::draw $line {0 0} {100 100} 10
     # Display::draw $redOnRight
 
     Display::drawEnd

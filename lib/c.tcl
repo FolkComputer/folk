@@ -191,7 +191,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -244,6 +244,7 @@ namespace eval c {
                 # code. value = 0 means the data is owned externally
                 # (by someone else like the statement store).
                 lappend objtypes [csubst {
+                    extern Tcl_ObjType $[set type]_ObjType;
                     void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
                         if (objPtr->internalRep.ptrAndLongRep.value == 1) {
                             ckfree((char*)objPtr->internalRep.ptrAndLongRep.ptr);
@@ -272,7 +273,21 @@ namespace eval c {
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
                         Tcl_SetResult(interp, "setFromAnyProc not implemented for $[set type]", NULL);
-                        return TCL_ERROR;
+
+                        $[set type] *robj = ckalloc(sizeof($[set type]));
+                        $[join [lmap {fieldtype fieldname} $fields {
+                            csubst {
+                                Tcl_Obj* obj_$fieldname;
+                                Tcl_DictObjGet(interp, objPtr, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
+                                $[arg $fieldtype robj_$fieldname obj_${fieldname}]
+                                memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
+                            }
+                        }] "\n"]
+
+                        objPtr->typePtr = &$[set type]_ObjType;
+                        objPtr->internalRep.ptrAndLongRep.ptr = robj;
+                        objPtr->internalRep.ptrAndLongRep.value = 1;
+                        return TCL_OK;
                     }
                     Tcl_ObjType $[set type]_ObjType = (Tcl_ObjType) {
                         .name = "$type",
