@@ -992,7 +992,7 @@ namespace eval Display {
         set bindings [list]
         set argidx 0
         foreach {argtype argname} $args {
-            if {$argtype eq "sampler2d"} {
+            if {$argtype eq "sampler2D"} {
                 lappend bindings [dict create \
                                       name $argname \
                                       type $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER \
@@ -1082,23 +1082,24 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
     }]
 
-    # set image [Display::pipeline {sampler2d image} {
+    set image [Display::pipeline {sampler2D image} {
         
-    # }]
+    }]
 
     # FIXME: bounding box for scissors
-    # FIXME: sampler2d, text
+    # FIXME: sampler2D, text
 
-    # set redOnRight [Display::pipeline {} {
-    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set redOnRight [Display::pipeline {} {
+        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
     Display::drawStart
 
-    Display::draw $circle {200 50} 30
-    Display::draw $circle {300 300} 20
-    Display::draw $line {0 0} {100 100} 10
+    # Display::draw $circle {200 50} 30
+    # Display::draw $circle {300 300} 20
+    # Display::draw $line {0 0} {100 100} 10
     # Display::draw $redOnRight
+    Display::draw $image 
 
     Display::drawEnd
 
