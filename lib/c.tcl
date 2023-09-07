@@ -48,9 +48,12 @@ namespace eval c {
                 #include <inttypes.h>
                 #include <stdint.h>
                 #include <stdbool.h>
+                #include <setjmp.h>
 
-                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
+                jmp_buf __onError;
+
+                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); longjmp(__onError, 0); }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { longjmp(__onError, 0); }
             }
             variable code [list]
             variable objtypes [list]
@@ -188,7 +191,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -301,6 +304,31 @@ namespace eval c {
                     $robj->internalRep.ptrAndLongRep.value = 1;
                     memcpy($robj->internalRep.ptrAndLongRep.ptr, &$rvalue, sizeof($[set rtype]));
                 }
+
+                set ns [uplevel {namespace current}]::$type
+                namespace eval $ns {}
+                foreach {fieldtype fieldname} $fields {
+                    apply [list {cc type fieldtype fieldname} {
+                        if {$fieldtype ne "Tcl_Obj*" &&
+                            [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                            # If fieldtype is a pointer or an array,
+                            # then make a getter that takes an index.
+                            $cc proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
+                            }
+                        } else {
+                            $cc proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
+                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                            }
+                        }
+                    } $ns] [namespace current] $type $fieldtype $fieldname
+                }
+                namespace eval $ns {
+                    namespace export *
+                    namespace ensemble create
+                }
             }
 
             ::proc "proc" {name args rtype body} {
@@ -351,6 +379,9 @@ namespace eval c {
                             Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
                             return TCL_ERROR;
                         }
+                        int r = setjmp(__onError);
+                        if (r != 0) { return TCL_ERROR; }
+
                         [join $loadargs "\n"]
                         $saverv
                     }
