@@ -1036,7 +1036,13 @@ namespace eval Display {
 
             layout(location = 0) out vec4 outColor;
 
-            void main() {$body}
+            void main() {
+                $[join [lmap field $uboFields {
+                    lassign $field fieldtype fieldname;
+                    expr {"$fieldtype $fieldname = args.$fieldname;"}
+                }] " "]
+                $body
+            }
         }]]]
 
         # pipeline needs to contain a specification of all args,
@@ -1061,13 +1067,11 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Display::init
 
     set circle [Display::pipeline {vec2 center float radius} {
-        float dist = length(gl_FragCoord.xy - args.center) - args.radius;
+        float dist = length(gl_FragCoord.xy - center) - radius;
         outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
     set line [Display::pipeline {vec2 from vec2 to float thickness} {
-        vec2 from = args.from; vec2 to = args.to; float thickness = args.thickness;
-
         float l = length(to - from);
         vec2 d = (to - from) / l;
         vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
