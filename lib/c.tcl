@@ -191,7 +191,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -313,12 +313,12 @@ namespace eval c {
                             [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
                             # If fieldtype is a pointer or an array,
                             # then make a getter that takes an index.
-                            $cc proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                            ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
                                 __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                 return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
                             }
                         } else {
-                            $cc proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
+                            ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
                                 __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                 return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
                             }
