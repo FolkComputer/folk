@@ -719,8 +719,9 @@ namespace eval Display {
         VkImageView textureImageView;
         VkSampler textureSampler;
     }
-    dc proc pipelineInputResourceMemcpy {PipelineInputResource resource Tcl_Obj* data size_t n} void {
-        memcpy(resource.addr, Tcl_GetString(data), n);
+    dc proc pipelineInputResourceMemcpy {PipelineInputResource resource Tcl_Obj* data} void {
+        int n; uint8_t* buf = Tcl_GetByteArrayFromObj(data, &n);
+        memcpy(resource.addr, buf, n);
     }
     # Stores and describes all inputs of a Pipeline. You need to
     # allocate as many PipelineInputSet per pipeline as you might have
@@ -910,7 +911,7 @@ namespace eval Display {
             set binding [Pipeline bindings $pipeline $i]
             set resource [PipelineInputSet resources $inputSet $i]
             if {[PipelineBinding type $binding] == $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} {
-                pipelineInputResourceMemcpy $resource $uboData [string length $uboData]
+                pipelineInputResourceMemcpy $resource $uboData
             } else {
                 # Copy image?
             }
@@ -1061,7 +1062,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     set circle [Display::pipeline {vec2 center float radius} {
         float dist = length(gl_FragCoord.xy - args.center) - args.radius;
-
         outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
@@ -1091,9 +1091,9 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     Display::drawStart
 
-    Display::draw $circle {100 200} 30
-    # Display::draw $circle {300 300} 20
-    # Display::draw $line {0 0} {100 100} 10
+    Display::draw $circle {200 50} 30
+    Display::draw $circle {300 300} 20
+    Display::draw $line {0 0} {100 100} 10
     # Display::draw $redOnRight
 
     Display::drawEnd
