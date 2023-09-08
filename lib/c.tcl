@@ -104,7 +104,9 @@ namespace eval c {
                         }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
-                        expr {{
+                        if {$basetype eq "char"} { expr {{
+                            char $argname[$arraylen]; memcpy($argname, Tcl_GetString($obj), $arraylen);
+                        }} } else { expr {{
                             int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
                             __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
                             $basetype $argname[$[set argname]_objc];
@@ -114,7 +116,7 @@ namespace eval c {
                                     $argname[i] = $[set argname]_i;
                                 }
                             }
-                        }}
+                        }} }
                     } else {
                         error "Unrecognized argtype $argtype"
                     }
@@ -147,7 +149,9 @@ namespace eval c {
                     if {[string index $rtype end] == "*"} {
                         expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
-                        expr {{
+                        if {$basetype eq "char"} { expr {{
+                            $robj = Tcl_ObjPrintf("%s", $rvalue);
+                        }} } else { expr {{
                             {
                                 Tcl_Obj* objv[$arraylen];
                                 for (int i = 0; i < $arraylen; i++) {
@@ -155,7 +159,7 @@ namespace eval c {
                                 }
                                 $robj = Tcl_NewListObj($arraylen, objv);
                             }
-                        }}
+                        }} }
                     } else {
                         error "Unrecognized rtype $rtype"
                     }
@@ -191,7 +195,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -272,8 +276,6 @@ namespace eval c {
                         snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
-                        Tcl_SetResult(interp, "setFromAnyProc not implemented for $[set type]", NULL);
-
                         $[set type] *robj = ckalloc(sizeof($[set type]));
                         $[join [lmap {fieldtype fieldname} $fields {
                             csubst {
@@ -326,11 +328,18 @@ namespace eval c {
                     apply [list {cc type fieldtype fieldname} {
                         if {$fieldtype ne "Tcl_Obj*" &&
                             [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
-                            # If fieldtype is a pointer or an array,
-                            # then make a getter that takes an index.
-                            ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
-                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
+                            if {$basefieldtype eq "char"} {
+                                ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                }
+                            } else {
+                                # If fieldtype is a pointer or an array,
+                                # then make a getter that takes an index.
+                                ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
+                                }
                             }
                         } else {
                             ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {

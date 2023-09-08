@@ -1,24 +1,21 @@
 source "lib/c.tcl"
 source "lib/language.tcl"
+source "pi/cUtils.tcl"
 
 namespace eval Display {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
 
     rename [c create] dc
-    dc include <vulkan/vulkan.h>
+    defineImageType dc
+    dc cflags -I./vendor
+    dc code {
+        #define VOLK_IMPLEMENTATION
+        #include "volk/volk.h"
+    }
     dc include <stdlib.h>
-    dc include <dlfcn.h>
     if {$macos} {
         dc include <GLFW/glfw3.h>
         dc cflags -lglfw
-
-        proc vkfn {fn {instance instance}} {
-            csubst {PFN_$fn $fn = (PFN_$fn) glfwGetInstanceProcAddress($instance, "$fn");}
-        }
-    } else {
-        proc vkfn {fn {instance instance}} {
-            csubst {PFN_$fn $fn = (PFN_$fn) vkGetInstanceProcAddr($instance, "$fn");}
-        }
     }
 
     proc vktry {call} { csubst {{
@@ -54,23 +51,13 @@ namespace eval Display {
         VkFence inFlightFence;
     }
     dc proc init {} void [csubst {
-        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+        $[vktry volkInitialize()]
         if ($macos) {
-            (void)vkGetInstanceProcAddr;
             glfwInit();
-        }
-        else {
-            void *vulkanLibrary = dlopen("libvulkan.so.1", RTLD_NOW);
-            if (vulkanLibrary == NULL) {
-                fprintf(stderr, "Failed to load libvulkan: %s\n", dlerror()); exit(1);
-            }
-            vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) dlsym(vulkanLibrary, "vkGetInstanceProcAddr");
         }
 
         // Set up VkInstance instance:
         {
-            $[vkfn vkCreateInstance NULL]
-
             VkInstanceCreateInfo createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
@@ -96,11 +83,10 @@ namespace eval Display {
 
             $[vktry {vkCreateInstance(&createInfo, NULL, &instance)}]
         }
+        volkLoadInstance(instance);
 
         // Set up VkPhysicalDevice physicalDevice
         {
-            $[vkfn vkEnumeratePhysicalDevices]
-
             uint32_t physicalDeviceCount = 0;
             vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, NULL);
             if (physicalDeviceCount == 0) {
@@ -115,8 +101,6 @@ namespace eval Display {
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
         computeQueueFamilyIndex = UINT32_MAX; {
-            $[vkfn vkGetPhysicalDeviceQueueFamilyProperties]
-
             uint32_t queueFamilyCount = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
             VkQueueFamilyProperties queueFamilies[queueFamilyCount];
@@ -165,12 +149,10 @@ namespace eval Display {
             createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
             createInfo.ppEnabledExtensionNames = deviceExtensions;
 
-            $[vkfn vkCreateDevice]
             $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
         }
 
         uint32_t propertyCount;
-        $[vkfn vkEnumerateInstanceLayerProperties]
         vkEnumerateInstanceLayerProperties(&propertyCount, NULL);
         VkLayerProperties layerProperties[propertyCount];
         vkEnumerateInstanceLayerProperties(&propertyCount, layerProperties);
@@ -179,7 +161,6 @@ namespace eval Display {
         VkSurfaceKHR surface;
         $[expr { $macos ? { GLFWwindow* window; } : {} }]
         if (!$macos) {
-            $[vkfn vkCreateDisplayPlaneSurfaceKHR]
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
             createInfo.displayMode = 0; // TODO: dynamically find out
@@ -204,7 +185,6 @@ namespace eval Display {
 
         uint32_t presentQueueFamilyIndex; {
             VkBool32 presentSupport = 0; 
-            $[vkfn vkGetPhysicalDeviceSurfaceSupportKHR]
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueFamilyIndex, surface, &presentSupport);
             if (!presentSupport) {
                 fprintf(stderr, "Vulkan graphics queue family doesn't support presenting to surface\n"); exit(1);
@@ -218,7 +198,6 @@ namespace eval Display {
         uint32_t imageCount;
         VkSurfaceFormatKHR surfaceFormat;
         VkPresentModeKHR presentMode; {
-            $[vkfn vkGetPhysicalDeviceSurfaceCapabilitiesKHR]
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
 
             if (capabilities.currentExtent.width != UINT32_MAX) {
@@ -236,7 +215,6 @@ namespace eval Display {
                 imageCount = capabilities.maxImageCount;
             }
 
-            $[vkfn vkGetPhysicalDeviceSurfaceFormatsKHR]
             uint32_t formatCount;
             vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
             VkSurfaceFormatKHR formats[formatCount];
@@ -249,7 +227,6 @@ namespace eval Display {
                 }
             }
 
-            $[vkfn vkGetPhysicalDeviceSurfacePresentModesKHR]
             uint32_t presentModeCount;
             vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
             VkPresentModeKHR presentModes[presentModeCount];
@@ -289,11 +266,9 @@ namespace eval Display {
             createInfo.clipped = VK_TRUE;
             createInfo.oldSwapchain = VK_NULL_HANDLE;
             
-            $[vkfn vkCreateSwapchainKHR]
             $[vktry {vkCreateSwapchainKHR(device, &createInfo, NULL, &swapchain)}]
         }
 
-        $[vkfn vkGetSwapchainImagesKHR]
         // Set up uint32_t swapchainImageCount:
         vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
         VkImage swapchainImages[swapchainImageCount];
@@ -306,7 +281,6 @@ namespace eval Display {
         }
 
         VkImageView swapchainImageViews[swapchainImageCount]; {
-            $[vkfn vkCreateImageView]
             for (size_t i = 0; i < swapchainImageCount; i++) {
                 VkImageViewCreateInfo createInfo = {0};
                 createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -328,7 +302,6 @@ namespace eval Display {
 
         // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
         {
-            $[vkfn vkGetDeviceQueue]
             vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
             presentQueue = graphicsQueue;
             computeQueue = graphicsQueue;
@@ -373,7 +346,6 @@ namespace eval Display {
             renderPassInfo.dependencyCount = 1;
             renderPassInfo.pDependencies = &dependency;
             
-            $[vkfn vkCreateRenderPass]
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
 
@@ -391,7 +363,6 @@ namespace eval Display {
             framebufferInfo.height = swapchainExtent.height;
             framebufferInfo.layers = 1;
 
-            $[vkfn vkCreateFramebuffer]
             $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
         }
 
@@ -401,7 +372,6 @@ namespace eval Display {
             poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
 
-            $[vkfn vkCreateCommandPool]
             $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
         }
         // Set up VkCommandBuffer commandBuffer
@@ -412,7 +382,6 @@ namespace eval Display {
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocInfo.commandBufferCount = 1;
 
-            $[vkfn vkAllocateCommandBuffers]
             $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
         }
         
@@ -424,8 +393,6 @@ namespace eval Display {
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-            $[vkfn vkCreateSemaphore]
-            $[vkfn vkCreateFence]
             $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
             $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
             $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
@@ -457,7 +424,6 @@ namespace eval Display {
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;                
         createInfo.codeSize = codeObjc * sizeof(code[0]);
         createInfo.pCode = code;
-        $[vkfn vkCreateShaderModule]
 
         VkShaderModule shaderModule;
         $[vktry {vkCreateShaderModule(device, &createInfo, NULL, &shaderModule)}]
@@ -488,6 +454,11 @@ namespace eval Display {
         char argtype[100];
         int argidx;
     }
+    dc struct PipelineUboField {
+        char argname[100];
+        char argtype[100];
+        int argidx;
+    }
     dc struct Pipeline {
         VkPipeline pipeline;
         VkPipelineLayout pipelineLayout;
@@ -495,10 +466,14 @@ namespace eval Display {
 
         int nbindings;
         PipelineBinding* bindings;
+
+        int nuboFields;
+        PipelineUboField* uboFields;
     }
     dc proc createPipeline {VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
-                            int nbindings PipelineBinding[] bindings} Pipeline [csubst {
+                            int nbindings PipelineBinding[] bindings
+                            int nuboFields PipelineUboField[] uboFields} Pipeline [csubst {
         // Now what?
         // Create graphics pipeline.
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
@@ -600,7 +575,6 @@ namespace eval Display {
             layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             layoutInfo.bindingCount = nbindings;
             layoutInfo.pBindings = argsLayoutBindings;
-            $[vkfn vkCreateDescriptorSetLayout]
             $[vktry {vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &descriptorSetLayout)}]
         }
 
@@ -610,7 +584,6 @@ namespace eval Display {
             pipelineLayoutInfo.setLayoutCount = 1;
             pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
             
-            $[vkfn vkCreatePipelineLayout]
             $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
         }
 
@@ -636,19 +609,23 @@ namespace eval Display {
             pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
             pipelineInfo.basePipelineIndex = -1;
 
-            $[vkfn vkCreateGraphicsPipelines]
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
         PipelineBinding* bindingsRetain = ckalloc(nbindings*sizeof(PipelineBinding));
         memcpy(bindingsRetain, bindings, nbindings*sizeof(PipelineBinding));
+        PipelineUboField* uboFieldsRetain = ckalloc(nuboFields*sizeof(PipelineUboField));
+        memcpy(uboFieldsRetain, uboFields, nuboFields*sizeof(PipelineUboField));
         return (Pipeline) {
             .pipeline = pipeline,
             .pipelineLayout = pipelineLayout,
             .descriptorSetLayout = descriptorSetLayout,
 
             .nbindings = nbindings,
-            .bindings = bindingsRetain
+            .bindings = bindingsRetain,
+
+            .nuboFields = nuboFields,
+            .uboFields = uboFieldsRetain
         };
     }]
 
@@ -657,7 +634,6 @@ namespace eval Display {
     dc code [csubst {
         uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
             VkPhysicalDeviceMemoryProperties memProperties;
-            $[vkfn vkGetPhysicalDeviceMemoryProperties]
             vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
 
             for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
@@ -677,11 +653,9 @@ namespace eval Display {
             bufferInfo.usage = usage;
             bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-            $[vkfn vkCreateBuffer]
             $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
 
             VkMemoryRequirements memRequirements;
-            $[vkfn vkGetBufferMemoryRequirements]
             vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
 
             VkMemoryAllocateInfo allocInfo = {0};
@@ -689,12 +663,86 @@ namespace eval Display {
             allocInfo.allocationSize = memRequirements.size;
             allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
 
-            $[vkfn vkAllocateMemory]
             $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
-            $[vkfn vkBindBufferMemory]
             vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
         }
     }]
+
+    # Image allocation:
+    dc code [csubst {
+        void createImage(uint32_t width, uint32_t height,
+                         VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+                         VkImage* image, VkDeviceMemory* imageMemory) {
+            VkImageCreateInfo imageInfo = {0};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.extent.width = width;
+            imageInfo.extent.height = height;
+            imageInfo.extent.depth = 1;
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.format = format;
+            imageInfo.tiling = tiling;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageInfo.usage = usage;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+            $[vktry {vkCreateImage(device, &imageInfo, NULL, image)}]
+
+            VkMemoryRequirements memRequirements;
+            vkGetImageMemoryRequirements(device, *image, &memRequirements);
+
+            VkMemoryAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memRequirements.size;
+            allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+            $[vktry {vkAllocateMemory(device, &allocInfo, NULL, imageMemory)}]
+
+            vkBindImageMemory(device, *image, *imageMemory, 0);
+        }
+        void transitionImageLayout(VkCommandBuffer commandBuffer,
+                                   VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+            VkImageMemoryBarrier barrier = {0};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = oldLayout;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+
+            VkPipelineStageFlags sourceStage;
+            VkPipelineStageFlags destinationStage;
+            if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+                sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+                sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            } else {
+                exit(91);
+            }
+            vkCmdPipelineBarrier(commandBuffer,
+                                 sourceStage, destinationStage,
+                                 0,
+                                 0, NULL,
+                                 0, NULL,
+                                 1, &barrier);
+        }
+    }]
+    
 
     defineVulkanHandleType dc VkBuffer
     defineVulkanHandleType dc VkDeviceMemory
@@ -719,9 +767,53 @@ namespace eval Display {
         VkImageView textureImageView;
         VkSampler textureSampler;
     }
-    dc proc pipelineInputResourceMemcpy {PipelineInputResource resource Tcl_Obj* data} void {
+    dc struct PipelineInputResourceParameters {
+        // For a uniform buffer: none
+
+        // For an image:
+        int width;
+        int height;
+    }
+    # Called before draw time.
+    dc proc pipelineInputResourceCopyUniformBufferData {PipelineInputResource resource Tcl_Obj* data} void {
         int n; uint8_t* buf = Tcl_GetByteArrayFromObj(data, &n);
         memcpy(resource.addr, buf, n);
+    }
+    # Called before draw time.
+    dc proc pipelineInputResourceCopyImage {PipelineInputResource resource image_t im} void {
+        size_t size = im.width * im.height * 4;
+
+        // Copy im to resource.stagingBuffer:
+        void* data;
+        vkMapMemory(device, resource.stagingBufferMemory, 0, size, 0, &data);
+        memcpy(data, im.data, size);
+        vkUnmapMemory(device, resource.stagingBufferMemory);
+
+        transitionImageLayout(commandBuffer,
+                              resource.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        // Copy ret.stagingBuffer to ret.textureImage:
+        {
+            VkBufferImageCopy region = {0};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+
+            region.imageOffset = (VkOffset3D) {0, 0, 0};
+            region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
+            vkCmdCopyBufferToImage(commandBuffer,
+                                   resource.stagingBuffer,
+                                   resource.textureImage,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   1,
+                                   &region);
+        }
+        transitionImageLayout(commandBuffer,
+                              resource.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     # Stores and describes all inputs of a Pipeline. You need to
     # allocate as many PipelineInputSet per pipeline as you might have
@@ -732,27 +824,71 @@ namespace eval Display {
 
         VkDescriptorSet descriptorSet;
     }
-    dc proc createPipelineInputResource {PipelineBinding binding} PipelineInputResource {
+    dc proc createPipelineInputResource {PipelineBinding binding PipelineInputResourceParameters parameters} PipelineInputResource {
         PipelineInputResource ret;
         if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
             createBuffer(binding.size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                          &ret.buffer, &ret.memory);
-            $[vkfn vkMapMemory]
             vkMapMemory(device, ret.memory, 0, binding.size, 0, &ret.addr);
 
         } else if (binding.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             memset(&ret, 0, sizeof(ret));
 
+            // FIXME: allocate all the stuff
+            size_t size = parameters.width * parameters.height * 4;
+            createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         &ret.stagingBuffer, &ret.stagingBufferMemory);
+            // The buffer will be used by draw to copy the image in.
+
+            createImage(parameters.width, parameters.height,
+                        VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                        &ret.textureImage, &ret.textureImageMemory);
+            // Set up ret.textureImageView:
+            {
+                VkImageViewCreateInfo viewInfo = {0};
+                viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                viewInfo.image = ret.textureImage;
+                viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+                viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                viewInfo.subresourceRange.baseMipLevel = 0;
+                viewInfo.subresourceRange.levelCount = 1;
+                viewInfo.subresourceRange.baseArrayLayer = 0;
+                viewInfo.subresourceRange.layerCount = 1;
+                $[vktry {vkCreateImageView(device, &viewInfo, NULL, &ret.textureImageView)}]
+            }
+            // Set up ret.textureSampler:
+            {
+                VkSamplerCreateInfo samplerInfo = {0};
+                samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+                samplerInfo.magFilter = VK_FILTER_LINEAR;
+                samplerInfo.minFilter = VK_FILTER_LINEAR;
+                samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                samplerInfo.anisotropyEnable = VK_FALSE; // TODO: do we want this?
+                samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+                samplerInfo.unnormalizedCoordinates = VK_FALSE;
+                samplerInfo.compareEnable = VK_FALSE;
+                samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+                samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+                samplerInfo.mipLodBias = 0.0f;
+                samplerInfo.minLod = 0.0f;
+                samplerInfo.maxLod = 0.0f;
+                $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &ret.textureSampler)}]
+            }
         } else { exit(90); }
         return ret;
     }
-    dc proc createPipelineInputSet {Pipeline pipeline} PipelineInputSet {
+    dc proc createPipelineInputSet {Pipeline pipeline PipelineInputResourceParameters[] parameters} PipelineInputSet {
         PipelineInputSet ret;
         ret.nresources = pipeline.nbindings;
         ret.resources = ckalloc(sizeof(PipelineInputResource) * ret.nresources);
         for (int i = 0; i < pipeline.nbindings; i++) {
-            ret.resources[i] = createPipelineInputResource(pipeline.bindings[i]);
+            ret.resources[i] = createPipelineInputResource(pipeline.bindings[i], parameters[i]);
         }
 
         static VkDescriptorPool descriptorPool = NULL;
@@ -769,7 +905,6 @@ namespace eval Display {
             poolInfo.poolSizeCount = 2;
             poolInfo.pPoolSizes = poolSizes;
             poolInfo.maxSets = 100;
-            $[vkfn vkCreateDescriptorPool]
             $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
         }
 
@@ -781,7 +916,6 @@ namespace eval Display {
             allocInfo.descriptorSetCount = 1;
             allocInfo.pSetLayouts = &pipeline.descriptorSetLayout;
 
-            $[vkfn vkAllocateDescriptorSets]
             $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &ret.descriptorSet)}]
         }
         // Write to ret.descriptorSet so it points at all the resources:
@@ -818,7 +952,6 @@ namespace eval Display {
                 }
             }
 
-            $[vkfn vkUpdateDescriptorSets]
             vkUpdateDescriptorSets(device, pipeline.nbindings, descriptorWrites, 0, NULL);
         }
 
@@ -826,26 +959,20 @@ namespace eval Display {
     }
 
     dc proc drawStart {} void {
-        $[vkfn vkWaitForFences]
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
-        $[vkfn vkResetFences]
         vkResetFences(device, 1, &inFlightFence);
 
-        $[vkfn vkAcquireNextImageKHR]
         vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
-        $[vkfn vkResetCommandBuffer]
         vkResetCommandBuffer(commandBuffer, 0);
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = 0;
+        beginInfo.flags = 0; // TODO: Should this be one-time?
         beginInfo.pInheritanceInfo = NULL;
-        $[vkfn vkBeginCommandBuffer]
         $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
-        $[vkfn vkCmdBeginRenderPass]
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -862,43 +989,63 @@ namespace eval Display {
         }
     }
     dc proc drawImpl {Pipeline pipeline PipelineInputSet inputSet} void {
-        $[vkfn vkCmdBindPipeline]
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
-        $[vkfn vkCmdBindDescriptorSets]
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipeline.pipelineLayout,
                                 0, 1,
                                 &inputSet.descriptorSet, 0, NULL);
 
-        $[vkfn vkCmdDraw]
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
     variable pipelineInputSetsCache [dict create]
-    proc draw {pipeline args} {
+    proc pipelineFindOrCreateUnusedInputSet {pipeline arglist} {
         variable pipelineInputSetsCache
-        if {![dict exists $pipelineInputSetsCache $pipeline]} {
-            for {set i 0} {$i < 5} {incr i} {
-                set inputSet [createPipelineInputSet $pipeline]
-                dict set pipelineInputSetsCache $pipeline $inputSet false
+        variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+        # Iterate over the pipeline bindings. Find any additional
+        # parameters for the input set.
+        set parameters [list]
+        for {set i 0} {$i < [Pipeline nbindings $pipeline]} {incr i} {
+            set binding [Pipeline bindings $pipeline $i]
+            set type [PipelineBinding type $binding]
+            if {$type == $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} {
+                set argidx [PipelineBinding argidx $binding]
+                set im [lindex $arglist $argidx]
+                lappend parameters [dict create width [image width $im] height [image height $im]]
+            } else {
+                # TODO: hack
+                lappend parameters [dict create width 0 height 0]
             }
         }
-        dict for {iSet isInUse} [dict get $pipelineInputSetsCache $pipeline] {
+        set key [list $pipeline $parameters]
+
+        if {![dict exists $pipelineInputSetsCache $key]} {
+            for {set i 0} {$i < 5} {incr i} {
+                set inputSet [createPipelineInputSet $pipeline $parameters]
+                dict set pipelineInputSetsCache $key $inputSet false
+            }
+        }
+        dict for {iSet isInUse} [dict get $pipelineInputSetsCache $key] {
             if {!$isInUse} {
                 # Mark as in-use:
                 set inputSet $iSet
-                dict set pipelineInputSetsCache $pipeline $inputSet true
+                dict set pipelineInputSetsCache $key $inputSet true
                 break
             }
         }
         if {![info exists inputSet]} { error "No available input set for pipeline" }
+        return $inputSet
+    }
+    proc draw {pipeline args} {
+        set inputSet [pipelineFindOrCreateUnusedInputSet $pipeline $args]
 
         # TODO: Figure out packing rules for UBO struct.
         set uboFmt [list]
         set uboArgs [list]
-        foreach uboField [dict get $pipeline uboFields] {
-            lassign $uboField argtype argname argidx
-
+        for {set i 0} {$i < [Pipeline nuboFields $pipeline]} {incr i} {
+            set uboField [Pipeline uboFields $pipeline $i]
+            set argtype [PipelineUboField argtype $uboField]
+            set argidx [PipelineUboField argidx $uboField]
             if {$argtype eq "float"} { lappend uboFmt "f" } \
                 elseif {$argtype eq "vec2"} { lappend uboFmt "f2" }
             lappend uboArgs [lindex $args $argidx]
@@ -910,19 +1057,18 @@ namespace eval Display {
         for {set i 0} {$i < $nbindings} {incr i} {
             set binding [Pipeline bindings $pipeline $i]
             set resource [PipelineInputSet resources $inputSet $i]
-            if {[PipelineBinding type $binding] == $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} {
-                pipelineInputResourceMemcpy $resource $uboData
-            } else {
-                # Copy image?
+            set type [PipelineBinding type $binding]
+            if {$type == $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} {
+                pipelineInputResourceCopyUniformBufferData $resource $uboData
+            } elseif {$type == $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} {
+                set im [lindex $args [PipelineBinding argidx $binding]]
+                pipelineInputResourceCopyImage $resource $im
             }
         }
 
         drawImpl $pipeline $inputSet
     }
     dc proc drawEnd {} void {
-        $[vkfn vkCmdEndRenderPass]
-        $[vkfn vkEndCommandBuffer]
-
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
@@ -943,7 +1089,6 @@ namespace eval Display {
             submitInfo.signalSemaphoreCount = 1;
             submitInfo.pSignalSemaphores = signalSemaphores;
 
-            $[vkfn vkQueueSubmit]
             $[vktry {vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence)}]
         }
         {
@@ -958,7 +1103,6 @@ namespace eval Display {
             presentInfo.pImageIndices = &imageIndex;
             presentInfo.pResults = NULL;
 
-            $[vkfn vkQueuePresentKHR]
             vkQueuePresentKHR(presentQueue, &presentInfo);
         }
     }
@@ -968,7 +1112,6 @@ namespace eval Display {
     }
 
     proc pipeline {args body} {
-        variable pipelineId; incr pipelineId
         variable vertShaderModule
         if {![info exists vertShaderModule]} {
             set vertShaderModule [createShaderModule [glslc -fshader-stage=vert {
@@ -1002,17 +1145,19 @@ namespace eval Display {
                                       argtype $argtype \
                                       argidx $argidx]
             } else {
-                lappend uboFields [list $argtype $argname $argidx]
+                lappend uboFields [dict create \
+                                       argtype $argtype \
+                                       argname $argname \
+                                       argidx $argidx]
             }
             incr argidx
         }
         if {[llength $uboFields] > 0} {
             set size 0
-            foreach field $uboFields {
-                lassign $field fieldtype fieldname
-                if {$fieldtype eq "float"} { set size [+ $size 4] } \
-                    elseif {$fieldtype eq "vec2"} { set size [+ $size 8] }
-            }
+            foreach field $uboFields { dict with field {
+                if {$argtype eq "float"} { set size [+ $size 4] } \
+                    elseif {$argtype eq "vec2"} { set size [+ $size 8] }
+            } }
             set binding [dict create name Args type $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER size $size \
                             argname "" argtype "" argidx -1]
             set bindings [list $binding {*}$bindings]
@@ -1025,8 +1170,9 @@ namespace eval Display {
                 if {[dict get $binding type] eq $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} { subst {
                     layout(binding = $i) uniform Args {
                         [join [lmap field $uboFields {
-                            lassign $field fieldtype fieldname;
-                            expr {"$fieldtype $fieldname;"}
+                            dict with field {
+                                expr {"$argtype $argname;"}
+                            }
                         }] "\n"]
                     } args;
                 } } else { subst {
@@ -1038,8 +1184,9 @@ namespace eval Display {
 
             void main() {
                 $[join [lmap field $uboFields {
-                    lassign $field fieldtype fieldname;
-                    expr {"$fieldtype $fieldname = args.$fieldname;"}
+                    dict with field {
+                        expr {"$argtype $argname = args.$argname;"}
+                    }
                 }] " "]
                 $body
             }
@@ -1048,8 +1195,8 @@ namespace eval Display {
         # pipeline needs to contain a specification of all args,
         # so Display::draw can fill the args into UBO and samplers etc.
         set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule \
-                          [llength $bindings] $bindings]
-        dict set pipeline uboFields $uboFields
+                          [llength $bindings] $bindings \
+                          [llength $uboFields] $uboFields]
         return $pipeline
     }
 }
@@ -1082,9 +1229,9 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
     }]
 
-    set image [Display::pipeline {sampler2D image} {
+    # set image [Display::pipeline {sampler2D image} {
         
-    }]
+    # }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
@@ -1095,11 +1242,11 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
     Display::drawStart
 
-    # Display::draw $circle {200 50} 30
-    # Display::draw $circle {300 300} 20
-    # Display::draw $line {0 0} {100 100} 10
-    # Display::draw $redOnRight
-    Display::draw $image 
+    Display::draw $circle {200 50} 30
+    Display::draw $circle {300 300} 20
+    Display::draw $line {0 0} {100 100} 10
+    Display::draw $redOnRight
+    # Display::draw $image 
 
     Display::drawEnd
 
