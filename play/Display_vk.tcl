@@ -1,6 +1,10 @@
-source "lib/c.tcl"
-source "lib/language.tcl"
+# FOLK_ENTRY=play/Display_vk.tcl tclsh8.6 main.tcl
+
 source "pi/cUtils.tcl"
+
+set ::isLaptop false
+proc When {args} {}
+source "virtual-programs/images.folk"
 
 namespace eval Display {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
@@ -1011,6 +1015,7 @@ namespace eval Display {
             if {$type == $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} {
                 set argidx [PipelineBinding argidx $binding]
                 set im [lindex $arglist $argidx]
+                puts "im is ($im)"
                 lappend parameters [dict create width [image width $im] height [image height $im]]
             } else {
                 # TODO: hack
@@ -1054,6 +1059,7 @@ namespace eval Display {
 
         set nbindings [dict get $pipeline nbindings]
         variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
         for {set i 0} {$i < $nbindings} {incr i} {
             set binding [Pipeline bindings $pipeline $i]
             set resource [PipelineInputSet resources $inputSet $i]
@@ -1208,45 +1214,46 @@ proc glslc {args} {
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
-if {[info exists ::argv0] && $::argv0 eq [info script]} {
+if {[info exists ::argv0] && $::argv0 eq [info script] || \
+        ([info exists ::entry] && $::entry == "play/Display_vk.tcl")} {
     namespace eval Display { dc compile }
 
     Display::init
 
-    set circle [Display::pipeline {vec2 center float radius} {
-        float dist = length(gl_FragCoord.xy - center) - radius;
-        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-    }]
-
-    set line [Display::pipeline {vec2 from vec2 to float thickness} {
-        float l = length(to - from);
-        vec2 d = (to - from) / l;
-        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-             q = mat2(d.x, -d.y, d.y, d.x) * q;
-             q = abs(q) - vec2(l, thickness)*0.5;
-        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-
-        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
-    }]
-
-    # set image [Display::pipeline {sampler2D image} {
-        
+    # set circle [Display::pipeline {vec2 center float radius} {
+    #     float dist = length(gl_FragCoord.xy - center) - radius;
+    #     outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     # }]
+
+    # set line [Display::pipeline {vec2 from vec2 to float thickness} {
+    #     float l = length(to - from);
+    #     vec2 d = (to - from) / l;
+    #     vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+    #          q = mat2(d.x, -d.y, d.y, d.x) * q;
+    #          q = abs(q) - vec2(l, thickness)*0.5;
+    #     float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+
+    #     outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+    # }]
+
+    set image [Display::pipeline {sampler2D image} {
+        outColor = vec4(1, 0, 0, 1);
+    }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set redOnRight [Display::pipeline {} {
-        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    }]
+    # set redOnRight [Display::pipeline {} {
+    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    # }]
 
     Display::drawStart
 
-    Display::draw $circle {200 50} 30
-    Display::draw $circle {300 300} 20
-    Display::draw $line {0 0} {100 100} 10
-    Display::draw $redOnRight
-    # Display::draw $image 
+    # Display::draw $circle {200 50} 30
+    # Display::draw $circle {300 300} 20
+    # Display::draw $line {0 0} {100 100} 10
+    # Display::draw $redOnRight
+    Display::draw $image [image loadJpeg "/Users/osnr/Downloads/u9.jpg"]
 
     Display::drawEnd
 
