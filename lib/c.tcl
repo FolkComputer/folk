@@ -325,29 +325,27 @@ namespace eval c {
                 set ns [uplevel {namespace current}]::$type
                 namespace eval $ns {}
                 foreach {fieldtype fieldname} $fields {
-                    apply [list {cc type fieldtype fieldname} {
-                        if {$fieldtype ne "Tcl_Obj*" &&
-                            [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
-                            if {$basefieldtype eq "char"} {
-                                ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
-                                }
-                            } else {
-                                # If fieldtype is a pointer or an array,
-                                # then make a getter that takes an index.
-                                ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
-                                }
-                            }
-                        } else {
-                            ${cc}::proc $fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
+                    if {$fieldtype ne "Tcl_Obj*" &&
+                        [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                        if {$basefieldtype eq "char"} {
+                            proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
                                 __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                 return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
                             }
+                        } else {
+                            # If fieldtype is a pointer or an array,
+                            # then make a getter that takes an index.
+                            proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
+                            }
                         }
-                    } $ns] [namespace current] $type $fieldtype $fieldname
+                    } else {
+                        proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
+                            __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                            return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                        }
+                    }
                 }
                 namespace eval $ns {
                     namespace export *
