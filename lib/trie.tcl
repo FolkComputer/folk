@@ -33,8 +33,8 @@ namespace eval ctrie {
 
             // We generally store a pointer (for example, to a
             // reaction thunk) or a generational handle (for example,
-            // for a statement) in this 64-bit value slot. Only used
-            // in leaf nodes of the trie.
+            // for a statement) in this 64-bit value slot.
+            bool hasValue;
             uint64_t value;
 
             size_t nbranches;
@@ -47,6 +47,7 @@ namespace eval ctrie {
         trie_t* ret = (trie_t *) ckalloc(size); memset(ret, 0, size);
         *ret = (trie_t) {
             .key = NULL,
+            .hasValue = false,
             .value = 0,
             .nbranches = 10
         };
@@ -83,6 +84,7 @@ namespace eval ctrie {
     $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv uint64_t value} void {
         if (wordc == 0) {
             (*trie)->value = value;
+            (*trie)->hasValue = true;
             return;
         }
 
@@ -116,6 +118,7 @@ namespace eval ctrie {
             branch->key = word;
             Tcl_IncrRefCount(branch->key);
             branch->value = 0;
+            branch->hasValue = false;
             branch->nbranches = 10;
 
             (*trie)->branches[j] = branch;
@@ -178,7 +181,7 @@ namespace eval ctrie {
                          uint64_t* results int* resultsidx size_t maxresults
                          trie_t* trie int wordc Tcl_Obj** wordv} void {
         if (wordc == 0) {
-            if (trie->value != 0) {
+            if (trie->hasValue) {
                 if (*resultsidx < maxresults) {
                     results[(*resultsidx)++] = trie->value;
                 }

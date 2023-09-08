@@ -24,73 +24,64 @@ namespace eval clauseset {
 namespace eval ::Peers {}
 set ::peersBlacklist [dict create]
 
+proc ::addMatchesToShareStatements {shareStatementsVar matches} {
+    upvar $shareStatementsVar shareStatements
+    foreach m $matches {
+        set pattern [dict get $m pattern]
+        foreach match [Statements::findMatches $pattern] {
+            set id [lindex [dict get $match __matcheeIds] 0]
+            set clause [statement clause [Statements::get $id]]
+            clauseset add shareStatements $clause
+        }
+    }
+}
+
 proc ::peer {process {dieOnDisconnect false}} {
-    package require websocket
     namespace eval ::Peers::$process {
-        variable connected false
+        variable connected true
 
         proc log {s} {
             variable process
             puts "$::thisProcess -> $process: $s"
         }
-        proc setupSock {} {
+
+        # TODO: Handle die on disconnect (?)
+
+        proc send {statements} {
             variable process
-            log "Trying to connect to: ws://$process:4273/ws"
-            variable chan [::websocket::open "ws://$process:4273/ws" [namespace code handleWs]]
+            Mailbox::share $::thisProcess $process $statements
         }
-        proc handleWs {chan type msg} {
-            if {$type eq "connect"} {
-                log "Connected"
-                variable connected true
+        proc receive {} {
+            variable process
+            Mailbox::receive $process $::thisProcess
+        }
 
-                # Establish a peering on their end, in the reverse
-                # direction, so they can send stuff back to us.
-                # It'll implicitly run in a ::Peers::X namespace on their end
-                # (because of how `run` is implemented below)
-                run {
-                    set name [namespace tail [namespace current]]
-                    variable chan [uplevel {set chan}]
+        proc share {shareStatements} {
+            variable process
+            variable prevShareStatements
 
-                    # First, check if this side has us blacklisted.
-                    if {[dict exists $::peersBlacklist $name]} {
-                        ::websocket::close $chan
-                        return
-                    }
+            variable connected
+            if {!$connected} { return }
 
-                    variable connected true
-                    proc run {msg} {
-                        variable chan
-                        ::websocket::send $chan text $msg
-                    }
-                }
-            } elseif {$type eq "disconnect"} {
-                log "Disconnected"
+            # Share.
+            ::addMatchesToShareStatements shareStatements \
+                [Statements::findMatches [list /someone/ wishes $process receives statements like /pattern/]]
+            if {![info exists prevShareStatements] ||
+                ([clauseset size $prevShareStatements] > 0 ||
+                 [clauseset size $shareStatements] > 0)} {
 
-                variable dieOnDisconnect
-                if {$dieOnDisconnect} { exit 0 }
+                send [clauseset clauses $shareStatements]
 
-                variable connected false
-                after 2000 [namespace code setupSock]
-            } elseif {$type eq "error"} {
-                log "WebSocket error: $type $msg"
-                after 2000 [namespace code setupSock]
-            } elseif {$type eq "text"} {
-                eval $msg
-            } elseif {$type eq "ping" || $type eq "pong"} {
-            } else {
-                error "Unknown WebSocket event: $type $msg"
+                set prevShareStatements $shareStatements
             }
         }
 
-        proc run {msg} {
-            variable chan
-            ::websocket::send $chan text [list namespace eval ::Peers::$::thisProcess $msg]
-        }
-
         proc init {n shouldDieOnDisconnect} {
-            variable process $n; setupSock
+            variable process $n
             variable dieOnDisconnect $shouldDieOnDisconnect
-            vwait ::Peers::${n}::connected
+
+            Mailbox::create $::thisProcess $process
+            Mailbox::create $process $::thisProcess
         }
         init
     } $process $dieOnDisconnect

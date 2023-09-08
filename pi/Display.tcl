@@ -1,5 +1,3 @@
-source "lib/language.tcl"
-source "lib/c.tcl"
 source "pi/cUtils.tcl"
 
 namespace eval Display {}
@@ -56,12 +54,12 @@ dc code {
     static void commitThenClearStaging();
 
     pixel_t* staging;
+    pixel_t* fbmem;
 
     struct {
         pixel_t* mem;
         uint32_t id;
     } fbs[2];
-    int currentFbIndex;
 
     int fbwidth;
     int fbheight;
@@ -130,10 +128,11 @@ dc proc setupGpu {} void {
             fprintf(stderr, "Display: cannot open '%s': %m\n", card);
             exit(1);
         }
-        if (drmSetMaster(gpuFd) != 0) {
+        while (drmSetMaster(gpuFd) != 0) {
             fprintf(stderr, "Display: cannot become DRM master on '%s': %m\n", card);
-            exit(1);
+            fprintf(stderr, "Display: waiting 1 s...\n"); sleep(1);
         }
+        fprintf(stderr, "Display: successfully became DRM master on '%s'\n", card);
         uint64_t hasDumb;
         if (drmGetCap(gpuFd, DRM_CAP_DUMB_BUFFER, &hasDumb) < 0 || !hasDumb) {
             fprintf(stderr, "Display: drm device '%s' does not support dumb buffers\n", card);
@@ -198,12 +197,18 @@ dc proc setupGpu {} void {
     }
 
     setupFb(0);
-    setupFb(1);
+    fbmem = fbs[0].mem;
+    staging = ckalloc(fbwidth * fbheight * sizeof(pixel_t));
 
-    // Can't drop master if we're going to flip buffers at runtime.
+    int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[0].id, 0, 0,
+                             &gpuConn->connector_id, 1, &gpuConn->modes[0]);
+    if (ret) {
+        fprintf(stderr, "Display: cannot flip CRTC to %d for connector %u (%d): %m\n",
+                0, gpuConn->connector_id, errno);
+        exit(1);
+    }
+    
     // drmDropMaster(gpuFd);
-
-    commitThenClearStaging();
 }
 dc proc setupFb {int idx} void [csubst {
     struct drm_mode_create_dumb dumb;
@@ -239,19 +244,11 @@ dc proc setupFb {int idx} void [csubst {
 }]
 # Hack to support old stuff that uses framebuffer directly and doesn't commit.
 dc proc getFbPointer {} pixel_t* {
-    return fbs[currentFbIndex].mem;
+    return fbmem;
 }
 dc proc commitThenClearStaging {} void {
-    currentFbIndex = !currentFbIndex;
-    int ret = drmModeSetCrtc(gpuFd, gpuEnc->crtc_id, fbs[currentFbIndex].id, 0, 0,
-                             &gpuConn->connector_id, 1, &gpuConn->modes[0]);
-    if (ret) {
-        fprintf(stderr, "Display: cannot flip CRTC to %d for connector %u (%d): %m\n",
-                currentFbIndex,
-                gpuConn->connector_id, errno);
-        exit(1);
-    }
-    staging = fbs[!currentFbIndex].mem;
+    memcpy(fbmem, staging, fbwidth * fbheight * sizeof(pixel_t));
+    // This memset takes ~2ms on 1080p on a Pi 4.
     memset(staging, 0, fbwidth * fbheight * sizeof(pixel_t));
 }
 
@@ -349,44 +346,22 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 
 defineImageType dc
 dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone int scale} void {
-    if (image.components != 1) { exit(1); }
     for (int y = 0; y < image.height; y++) {
         for (int x = 0; x < image.width; x++) {
 
-	    // Index into image to get color
-            int i = y*image.bytesPerRow + x*image.components;
+	    // index into image to get color
+            int i = y*image.bytesPerRow + x*image.components; (void)i;
             uint8_t r; uint8_t g; uint8_t b;
-            if (image.data[i] == transparentTone) { continue; }
-            r = image.data[i]; g = image.data[i]; b = image.data[i];
-
-	    // Write repeatedly to framebuffer to scale up image
-	    for (int dy = 0; dy < scale; dy++) {
-		for (int dx = 0; dx < scale; dx++) {
-
-		    int sx = x0 + scale * x + dx;
-		    int sy = y0 + scale * y + dy;
-		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
-
-		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
-
-		}
-	    }
-        }
-    }
-}
-dc proc drawImage {int x0 int y0 image_t image int scale} void {
-    for (int y = 0; y < image.height; y++) {
-        for (int x = 0; x < image.width; x++) {
-
-	    // Index into image to get color
-            int i = y*image.bytesPerRow + x*image.components;
-            uint8_t r; uint8_t g; uint8_t b;
-            if (image.components == 3) {
-                r = image.data[i]; g = image.data[i+1]; b = image.data[i+2];
-            } else if (image.components == 1) {
+            if (image.components == 1) {
+                if (image.data[i] == transparentTone) { continue; }
                 r = image.data[i]; g = image.data[i]; b = image.data[i];
-            } else {
-                exit(1);
+            } else if (image.components == 3) {
+                if (image.data[i] == transparentTone &&
+                    image.data[i + 1] == transparentTone &&
+                    image.data[i + 2] == transparentTone) {
+                    continue;
+                }
+                r = image.data[i]; g = image.data[i + 1]; b = image.data[i + 2];
             }
 
 	    // Write repeatedly to framebuffer to scale up image
@@ -398,14 +373,58 @@ dc proc drawImage {int x0 int y0 image_t image int scale} void {
 		    if (sx < 0 || fbwidth <= sx || sy < 0 || fbheight <= sy) continue;
 
 		    staging[sy*fbwidth + sx] = PIXEL(r, g, b);
-
 		}
 	    }
         }
     }
 }
-
 source "pi/rotate.tcl"
+dc proc drawImage {int x0 int y0 image_t image double radians int scale} void {
+    double radiansNormalized = fmod(radians, 2.0 * M_PI);
+    if (radiansNormalized > M_PI) {
+        radiansNormalized -= 2.0 * M_PI;
+    } else if (radiansNormalized < -M_PI) {
+        radiansNormalized += 2.0 * M_PI;
+    }
+    int imageX; int imageY;
+    image_t temp = rotateMakeImage(image.width, image.height, image.components,
+                                   radiansNormalized,
+                                   &imageX, &imageY);
+
+    // Draw the image into the temp image.
+    for (int y = 0; y < image.height; y++) {
+        memcpy(&temp.data[(y + imageY) * temp.bytesPerRow + imageX * temp.components],
+               &image.data[y * image.bytesPerRow],
+               image.width * image.components);
+    }
+    
+    rotate(temp, imageX, imageY, image.width, image.height, radiansNormalized);
+
+    // Find corners of rotated rectangle
+    Vec2i topLeft = Vec2i_rotate((Vec2i) {-(int)image.width/2, -(int)image.height/2}, radiansNormalized);
+    Vec2i topRight = Vec2i_rotate((Vec2i) {image.width/2, -(int)image.height/2}, radiansNormalized);
+    Vec2i bottomLeft = Vec2i_rotate((Vec2i) {-(int)image.width/2, image.height/2}, radiansNormalized);
+    Vec2i bottomRight = Vec2i_rotate((Vec2i) {image.width/2, image.height/2}, radiansNormalized);
+
+    // Now blit the offscreen buffer to the screen.
+    image_t rotatedImage = {
+        .width = max4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x) -
+                   min4(topLeft.x, topRight.x, bottomLeft.x, bottomRight.x),
+        .height = max4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y) -
+                    min4(topLeft.y, topRight.y, bottomLeft.y, bottomRight.y),
+        .components = temp.components,
+        .bytesPerRow = temp.bytesPerRow
+    };
+    int rotatedImageX0 = (temp.width - rotatedImage.width) / 2;
+    int rotatedImageY0 = (temp.height - rotatedImage.height) / 2;
+    rotatedImage.data = &temp.data[rotatedImageY0*temp.bytesPerRow + rotatedImageX0*temp.components];
+
+    drawImageTransparent(x0 - rotatedImage.width*scale/2,
+                         y0 - rotatedImage.height*scale/2,
+                         rotatedImage, 0x00, scale);
+    ckfree(temp.data);
+}
+
 dc proc drawText {int x0 int y0 double radians int scale char* text} void {
     // Draws text (breaking at linebreaks), with the center of the
     // text at (x0, y0). Rotates counterclockwise up from the
@@ -628,8 +647,8 @@ namespace eval Display {
         }
     }
 
-    proc image {x y im {scale 1.0}} {
-        drawImage [expr {int($x)}] [expr {int($y)}] $im [expr {int($scale)}]
+    proc image {x y im {radians 0} {scale 1.0}} {
+        drawImage [expr {int($x)}] [expr {int($y)}] $im $radians [expr {int($scale)}]
     }
 
     # for debugging

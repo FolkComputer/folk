@@ -1,129 +1,143 @@
 set KeyCodes [dict create]
-proc define {name code} {
-    upvar KeyCodes KeyCodes
-    dict set KeyCodes $code $name
+
+proc keydef {code val {shiftVal ""}} {
+  upvar KeyCodes KeyCodes
+  if {$shiftVal == ""} {
+    set shiftVal $val
+  }
+  dict set KeyCodes $code [list $val $shiftVal]
 }
 
-# from https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
-define KEY_RESERVED		0
-define KEY_ESC			1
-define KEY_1			2
-define KEY_2			3
-define KEY_3			4
-define KEY_4			5
-define KEY_5			6
-define KEY_6			7
-define KEY_7			8
-define KEY_8			9
-define KEY_9			10
-define KEY_0			11
-define KEY_MINUS		12
-define KEY_EQUAL		13
-define KEY_BACKSPACE		14
-define KEY_TAB			15
-define KEY_Q			16
-define KEY_W			17
-define KEY_E			18
-define KEY_R			19
-define KEY_T			20
-define KEY_Y			21
-define KEY_U			22
-define KEY_I			23
-define KEY_O			24
-define KEY_P			25
-define KEY_LEFTBRACE		26
-define KEY_RIGHTBRACE		27
-define KEY_ENTER		28
-define KEY_LEFTCTRL		29
-define KEY_A			30
-define KEY_S			31
-define KEY_D			32
-define KEY_F			33
-define KEY_G			34
-define KEY_H			35
-define KEY_J			36
-define KEY_K			37
-define KEY_L			38
-define KEY_SEMICOLON		39
-define KEY_APOSTROPHE		40
-define KEY_GRAVE		41
-define KEY_LEFTSHIFT		42
-define KEY_BACKSLASH		43
-define KEY_Z			44
-define KEY_X			45
-define KEY_C			46
-define KEY_V			47
-define KEY_B			48
-define KEY_N			49
-define KEY_M			50
-define KEY_COMMA		51
-define KEY_DOT			52
-define KEY_SLASH		53
-define KEY_RIGHTSHIFT		54
-define KEY_KPASTERISK		55
-define KEY_LEFTALT		56
-define KEY_SPACE		57
-define KEY_CAPSLOCK		58
-define KEY_F1			59
-define KEY_F2			60
-define KEY_F3			61
-define KEY_F4			62
-define KEY_F5			63
-define KEY_F6			64
-define KEY_F7			65
-define KEY_F8			66
-define KEY_F9			67
-define KEY_F10			68
-define KEY_NUMLOCK		69
-define KEY_SCROLLLOCK		70
-define KEY_KP7			71
-define KEY_KP8			72
-define KEY_KP9			73
-define KEY_KPMINUS		74
-define KEY_KP4			75
-define KEY_KP5			76
-define KEY_KP6			77
-define KEY_KPPLUS		78
-define KEY_KP1			79
-define KEY_KP2			80
-define KEY_KP3			81
-define KEY_KP0			82
-define KEY_KPDOT		83
+proc keyFromCode {code {shift false}} {
+  upvar KeyCodes KeyCodes
+  if {[dict exists $KeyCodes $code]} {
+    set vals [dict get $KeyCodes $code]
+    return [lindex $vals [expr {$shift ? 1 : 0}]]
+  }
+  puts "WARNING: unknown key code \"$code\""
+  return "?"
+}
 
-define KEY_ZENKAKUHANKAKU	85
-define KEY_102ND		86
-define KEY_F11			87
-define KEY_F12			88
-define KEY_RO			89
-define KEY_KATAKANA		90
-define KEY_HIRAGANA		91
-define KEY_HENKAN		92
-define KEY_KATAKANAHIRAGANA	93
-define KEY_MUHENKAN		94
-define KEY_KPJPCOMMA		95
-define KEY_KPENTER		96
-define KEY_RIGHTCTRL		97
-define KEY_KPSLASH		98
-define KEY_SYSRQ		99
-define KEY_RIGHTALT		100
-define KEY_LINEFEED		101
-define KEY_HOME		102
-define KEY_UP			103
-define KEY_PAGEUP		104
-define KEY_LEFT		105
-define KEY_RIGHT		106
-define KEY_END			107
-define KEY_DOWN		108
-define KEY_PAGEDOWN		109
-define KEY_INSERT		110
-define KEY_DELETE		111
-define KEY_MACRO		112
-define KEY_MUTE		113
-define KEY_VOLUMEDOWN		114
-define KEY_VOLUMEUP		115
-define KEY_POWER		116
-define KEY_KPEQUAL		117
-define KEY_KPPLUSMINUS		118
-define KEY_PAUSE		119
-define KEY_SCALE		120
+# Keycodes from https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
+keydef 0		{RESERVED}
+keydef 1		{ESC}
+keydef 2		{1} {!}
+keydef 3		{2} {@}
+keydef 4		{3} {#}
+keydef 5		{4} {$}
+keydef 6		{5} {%}
+keydef 7		{6} {^}
+keydef 8		{7} {&}
+keydef 9		{8} {*}
+keydef 10		{9} {(}
+keydef 11		{0} {)}
+keydef 12		{-} {_}
+keydef 13		{=} {+}
+keydef 14		{BACKSPACE}
+keydef 15		{TAB}
+keydef 16		{q} {Q}
+keydef 17		{w} {W}
+keydef 18		{e} {E}
+keydef 19		{r} {R}
+keydef 20		{t} {T}
+keydef 21		{y} {Y}
+keydef 22		{u} {U}
+keydef 23		{i} {I}
+keydef 24		{o} {O}
+keydef 25		{p} {P}
+keydef 26		{[} "\{"
+keydef 27		{]} "\}"
+keydef 28		{ENTER}
+keydef 29		{LEFTCTRL}
+keydef 30		{a} {A}
+keydef 31		{s} {S}
+keydef 32		{d} {D}
+keydef 33		{f} {F}
+keydef 34		{g} {G}
+keydef 35		{h} {H}
+keydef 36		{j} {J}
+keydef 37		{k} {K}
+keydef 38		{l} {L}
+keydef 39		{;} {:}
+keydef 40		{'} "\""
+keydef 41		{`} {~}
+keydef 42		{LEFTSHIFT}
+keydef 43		"\\" {|}
+keydef 44		{z} {Z}
+keydef 45		{x} {X}
+keydef 46		{c} {C}
+keydef 47		{v} {V}
+keydef 48		{b} {B}
+keydef 49		{n} {N}
+keydef 50		{m} {M}
+keydef 51		{,} {<}
+keydef 52		{.} {>}
+keydef 53		{/} {?}
+keydef 54		{RIGHTSHIFT}
+keydef 55		{KPASTERISK}
+keydef 56		{LEFTALT}
+keydef 57		{ } ;# SPACE
+keydef 58		{CAPSLOCK}
+keydef 59		{F1}
+keydef 60		{F2}
+keydef 61		{F3}
+keydef 62		{F4}
+keydef 63		{F5}
+keydef 64		{F6}
+keydef 65		{F7}
+keydef 66		{F8}
+keydef 67		{F9}
+keydef 68		{F10}
+keydef 69		{NUMLOCK}
+keydef 70		{SCROLLLOCK}
+keydef 71		{KP7}
+keydef 72		{KP8}
+keydef 73		{KP9}
+keydef 74		{KPMINUS}
+keydef 75		{KP4}
+keydef 76		{KP5}
+keydef 77		{KP6}
+keydef 78		{KPPLUS}
+keydef 79		{KP1}
+keydef 80		{KP2}
+keydef 81		{KP3}
+keydef 82		{KP0}
+keydef 83		{KPDOT}
+
+keydef 85		{ZENKAKUHANKAKU}
+keydef 86		{102ND}
+keydef 87		{F11}
+keydef 88		{F12}
+keydef 89		{RO}
+keydef 90		{KATAKANA}
+keydef 91		{HIRAGANA}
+keydef 92		{HENKAN}
+keydef 93		{KATAKANAHIRAGANA}
+keydef 94		{MUHENKAN}
+keydef 95		{KPJPCOMMA}
+keydef 96		{KPENTER}
+keydef 97		{RIGHTCTRL}
+keydef 98		{KPSLASH}
+keydef 99		{SYSRQ}
+keydef 100		{RIGHTALT}
+keydef 101		{LINEFEED}
+keydef 102		{HOME}
+keydef 103		{UP}
+keydef 104		{PAGEUP}
+keydef 105		{LEFT}
+keydef 106		{RIGHT}
+keydef 107		{END}
+keydef 108		{DOWN}
+keydef 109		{PAGEDOWN}
+keydef 110		{INSERT}
+keydef 111		{DELETE}
+keydef 112		{MACRO}
+keydef 113		{MUTE}
+keydef 114		{VOLUMEDOWN}
+keydef 115		{VOLUMEUP}
+keydef 116		{POWER}
+keydef 117		{KPEQUAL}
+keydef 118		{KPPLUSMINUS}
+keydef 119		{PAUSE}
+keydef 120		{SCALE}
 

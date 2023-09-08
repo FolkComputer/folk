@@ -1,5 +1,3 @@
-When the keyboard character log is /k/ {
-	foreach press $k {
-		if {$press eq "esc"} {exec sudo systemctl restart folk}
-	}
+When keyboard claims key ESC is down with modifiers alt {
+	exec sudo systemctl restart folk
 }

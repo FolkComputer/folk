@@ -17,12 +17,12 @@ namespace eval AprilTags {
         td = apriltag_detector_create();
         tf = tagStandard52h13_create();
         apriltag_detector_add_family_bits(td, tf, 1);
-        td->nthreads = 2;
+        td->nthreads = 1;
     }
 
     apc proc detect {image_t gray} Tcl_Obj* {
         assert(gray.components == 1);
-        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.width, .buf = gray.data };
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
     
         zarray_t *detections = apriltag_detector_detect(td, &im);
         int detectionCount = zarray_size(detections);

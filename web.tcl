@@ -14,10 +14,10 @@ proc readFile {filename contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
-proc readPdf {dotCmd contentTypeVar} {
+proc getDotAsPdf {dot contentTypeVar} {
     upvar $contentTypeVar contentType
     set contentType "application/pdf"
-    set fd [open |[list dot -Tpdf <<$dotCmd] r]
+    set fd [open |[list dot -Tpdf <<$dot] r]
     fconfigure $fd -encoding binary -translation binary
     set response [read $fd]; close $fd; return $response
 }
@@ -50,12 +50,30 @@ proc handlePage {path contentTypeVar} {
                 </head>
                 <nav>
                 <a href="/new"><button>New program</button></a>
+                <a href="/programs">Running programs</a>
                 <a href="/timings">Timings</a>
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
                 <h1>Statements</h1>
                 <ul>[join $l "\n"]</ul>
+                </html>
+            }
+        }
+        "/programs" {
+            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+            subst {
+                <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Running programs</title>
+                </head>
+                <body>
+                [join [lmap p $programs { dict with p {subst {
+                    <h2>$programName</h2>
+                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
+                }} }] "\n"]
+                </body>
                 </html>
             }
         }
@@ -68,9 +86,11 @@ proc handlePage {path contentTypeVar} {
             }
             set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
 
+            set totalFrameTime 0
             set l [list]
             foreach {body totalTime} $totalTimes {
                 set runs [dict get $Evaluator::runsMap $body]
+                set totalFrameTime [expr {$totalFrameTime + $totalTime/$::stepCount}]
                 lappend l [subst {
                     <li>
                     <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
@@ -89,7 +109,7 @@ proc handlePage {path contentTypeVar} {
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
-                <h1>Timings</h1>
+                <h1>Timings (sum per-frame time $totalFrameTime us)</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
             }
@@ -103,13 +123,10 @@ proc handlePage {path contentTypeVar} {
             readFile "assets/style.css" contentType
         }
         "/statementClauseToId.pdf" {
-            readPdf [trie dot $Statements::statementClauseToId] contentType
+            getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
         }
         "/statements.pdf" {
-            readPdf [Statements::dot] contentType
-        }
-        "/statementPatternToReactions.pdf" {
-            readPdf [trie dot $Evaluator::statementPatternToReactions] contentType
+            getDotAsPdf [Statements::dot] contentType
         }
         default {
             subst {

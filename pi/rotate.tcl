@@ -30,9 +30,9 @@ dc proc shearY {image_t sprite int x0 int y0 int width int height double sy} voi
                 int shear = sy * (x - x0);
                 int from = y*sprite.bytesPerRow + x*sprite.components;
                 int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
-                sprite.data[to] = sprite.data[from];
+                memmove(&sprite.data[to], &sprite.data[from], sprite.components);
                 // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x00; }
+                if (from != to) { memset(&sprite.data[from], 0x00, sprite.components); }
             }
         }
     } else if (sy < 0) {
@@ -41,9 +41,9 @@ dc proc shearY {image_t sprite int x0 int y0 int width int height double sy} voi
                 int shear = sy * (x - x0); // Is negative.
                 int from = y*sprite.bytesPerRow + x*sprite.components;
                 int to = (y + shear)*sprite.bytesPerRow + x*sprite.components;
-                sprite.data[to] = sprite.data[from];
+                memmove(&sprite.data[to], &sprite.data[from], sprite.components);
                 // Blot out the unsheared part
-                if (from != to) { sprite.data[from] = 0x00; }
+                if (from != to) { memset(&sprite.data[from], 0x00, sprite.components); }
             }
         }
     }
@@ -56,9 +56,9 @@ dc proc rotate180 {image_t sprite int x0 int y0 int width int height} void {
     int icenter = imin + (imax - imin)/2;
     for (int i = imin; i < icenter; i += sprite.components) {
         int j = imax - (i - imin);
-        uint8_t temp = sprite.data[i];
-        sprite.data[i] = sprite.data[j];
-        sprite.data[j] = temp;
+        uint8_t temp[sprite.components]; memcpy(temp, &sprite.data[i], sprite.components);
+        memmove(&sprite.data[i], &sprite.data[j], sprite.components);
+        memcpy(&sprite.data[j], temp, sprite.components);
     }
 }
 dc proc rotateMakeImage {int width int height int components double radians

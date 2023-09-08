@@ -58,19 +58,22 @@ namespace eval ::Zygote {
 
 proc On-process {name body} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
-    set processCode [list apply {{__name __body} {
+    set processCode [list apply {{__parentProcess __name __body} {
         set ::thisProcess $__name
 
         Assert <lib/process.tcl> wishes $::thisProcess shares all wishes
         Assert <lib/process.tcl> wishes $::thisProcess shares all claims
 
-        ::peer "localhost" true
+        ::peer $__parentProcess true
 
         Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
         Assert when $::thisProcess has pid /something/ [list {} $__body]
-        Step
-        vwait forever
-    }} $name $body]
+        while true {
+            Step
+        }
+    }} $::thisProcess $name $body]
+
+    ::peer $name false
 
     Zygote::spawn [list apply {{processCode} {
         # A supervisor that wraps the subprocess.

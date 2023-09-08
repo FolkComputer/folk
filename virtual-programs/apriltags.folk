@@ -1,5 +1,33 @@
 if {$::isLaptop} return
 
+# Plain detector. Runs on entire camera frame.
+set mainDetectorProcess [On process {
+    source pi/AprilTags.tcl
+    AprilTags::init
+
+    # TODO: Clean this up. We retract these so that we don't bounce
+    # statements back to the main Folk process that it sends us.
+    Retract /anyone/ wishes $::thisProcess shares all wishes
+    Retract /anyone/ wishes $::thisProcess shares all claims
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /process/ receives statements like /pattern/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims $::thisProcess has pid /pid/]
+
+    When the camera frame is /grayFrame/ at /timestamp/ {
+        set aprilTime [time {
+            set tags [AprilTags::detect $grayFrame]
+        }]
+        Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
+    }
+}]
+
+# Incremental detector. Looks at regions where there were tags in the
+# old camera frame.
 On process {
     source pi/AprilTags.tcl
     AprilTags::init
@@ -9,29 +37,104 @@ On process {
     Retract /anyone/ wishes $::thisProcess shares all wishes
     Retract /anyone/ wishes $::thisProcess shares all claims
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/]
+        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims $mainDetectorProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
         [list /someone/ wishes /process/ receives statements like /pattern/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ claims tag /tag/ has center /center/ size /size/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims tag /tag/ has corners /corners/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims the AprilTag time is /aprilTime/]
-    Wish $::thisProcess shares statements like \
         [list /someone/ claims $::thisProcess has pid /pid/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims $::thisProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /something/ is labelled /text/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /something/ displays camera slice /slice/]
 
-    When the camera frame is /grayFrame/ {
-        set aprilTime [time {
-            set tags [AprilTags::detect $grayFrame]
-        }]
-        Commit {
-            Claim the AprilTag time is $aprilTime
+    proc subimage {im x y subwidth subheight} {
+	dict with im {
+	    set x [expr {int($x)}]
+	    set y [expr {int($y)}]
+	    set subdata [expr {$data + ($y*$width + $x) * $components}]
+	    dict create \
+		width [int $subwidth] \
+		height [int $subheight] \
+		components $components \
+		bytesPerRow $bytesPerRow \
+		data [format 0x%x $subdata]
+	}
+    }
 
-            foreach tag $tags {
-                Claim tag [dict get $tag id] has center [dict get $tag center] size [dict get $tag size]
-                Claim tag [dict get $tag id] has corners [dict get $tag corners]
+    When the camera frame is /grayFrame/ at /timestamp/ & \
+         /process/ detects tags /prevTags/ at /something/ in time /something/ {
+
+        if {$process eq $::thisProcess} { return }
+
+        set tags [list]
+        set frameWidth [dict get $grayFrame width]
+        set frameHeight [dict get $grayFrame height]
+        set aprilTime 0
+        foreach prevTag $prevTags {
+            set size [dict get $prevTag size]
+            set corners [dict get $prevTag corners]
+            set x [min {*}[lmap corner $corners {lindex $corner 0}]]
+            set y [min {*}[lmap corner $corners {lindex $corner 1}]]
+            set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
+            set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
+            
+            set x [max [- $x $size] 0]
+            set y [max [- $y $size] 0]
+            set x1 [min [+ $x1 $size] $frameWidth]
+            set y1 [min [+ $y1 $size] $frameHeight]
+
+            set subimage [subimage $grayFrame $x $y [- $x1 $x] [- $y1 $y]]
+            set aprilTime [+ $aprilTime [baretime {
+                foreach tag [AprilTags::detect $subimage] {
+                    dict with tag {
+                        set center [vec2 add $center [list $x $y]]
+                        set corners [lmap corner $corners {vec2 add $corner [list $x $y]}]
+                    }
+                    lappend tags $tag
+                }
+            }]]
+        }
+
+        # Wish 6 is labelled "[llength $prevTags] -> [llength $tags] ($aprilTime us)"
+
+        Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
+        # Wish 6 is labelled "\n\nStep time $::stepTime\n[join [lmap s [dict values [Statements::all]] {statement short $s}] "\n"]"
+    }
+}
+
+# This cache is used to remember the last seen position of each tag,
+# so that if the incremental detector blinks out, we still use the
+# tag's last-found position from it, instead of the older position
+# from the full detector, so as you move a tag its position doesn't
+# glitch backward.
+set ::tagsCache [dict create]
+# TODO: Garbage-collect this cache.
+
+When the collected matches for [list /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/] are /matches/ {
+    set tagsSeen [dict create]
+    foreach match $matches {
+        set timestamp [dict get $match timestamp]
+        foreach tag [dict get $match tags] {
+            set id [dict get $tag id]
+            dict set tag timestamp $timestamp
+
+            if {[dict exists $::tagsCache $id] &&
+                [dict get $::tagsCache $id timestamp] > $timestamp} {
+                set tag [dict get $::tagsCache $id]
+            } else {
+                dict set ::tagsCache $id $tag
             }
+            dict set tagsSeen $id $tag
         }
     }
+
+    dict for {id tag} $tagsSeen {
+        Claim tag $id has center [dict get $tag center] size [dict get $tag size]
+        Claim tag $id has corners [dict get $tag corners]
+    }
+    Claim the AprilTag time is [lmap m $matches {dict get $m aprilTime}]
 }

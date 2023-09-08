@@ -18,15 +18,18 @@ On process {
     source pi/Camera.tcl
     Camera::init $width $height
 
-    puts "Camera tid: [getTid]"
-    
-    forever {
-        set cameraTime [time {
-            set grayFrame [Camera::grayFrame]
-        }]
+    puts "Camera tid: [getTid] booting at [clock milliseconds]"
+
+    When $::thisProcess has step count /c/ {
+        set grayFrame [Camera::grayFrame]
         Commit {
-            Claim the camera time is $cameraTime
-            Claim the camera frame is $grayFrame
+            Claim the camera time is $::stepTime
+            Claim the camera frame is $grayFrame at [clock milliseconds]
         }
     }
+}
+
+# For backward compatibility.
+When the camera frame is /grayFrame/ at /timestamp/ {
+    Claim the camera frame is $grayFrame
 }

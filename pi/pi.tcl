@@ -2,92 +2,46 @@ package require Thread
 proc errorproc {id errorInfo} {puts "Thread error in $id: $errorInfo"}
 thread::errorproc errorproc
 
-namespace eval Display {
-    variable WIDTH
-    variable HEIGHT
-    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
-
-    variable displayThread [thread::create {
-        source pi/Display.tcl
-        Display::init
-        puts "Display tid: [getTid]"
-
-        set ::displayCount 0
-        thread::wait
-    }]
-    puts "Display thread id: $displayThread"
-
-    proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color]]
-    }
-
-    proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color]]
-    }
-
-    proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args]]
-    }
-
-    proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args]]
-    }
-
-    proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args]]
-    }
-
-    proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args]]
-    }
-
-    variable displayTime none
-    proc commit {} {
-        set displayList [list]
-        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
-            lappend displayList [dict get $match command]
-        }
-
-        proc lcomp {a b} {expr {[lindex $a 0] == "Display::text"}}
-        incr ::displayCount
-        thread::send -head -async $Display::displayThread [format {
-            set newDisplayCount %d
-            if {$::displayCount > $newDisplayCount} {
-                # we've already displayed a newer frame
-                return
-            } else {
-                set ::displayCount $newDisplayCount
-            }
- 
-            # Draw the display list
-            set displayTime [time {
-                %s
-                commitThenClearStaging
-            }]
-            thread::send -async "%s" [subst {
-                set Display::displayTime "$displayTime"
-            }]
-        } $::displayCount \
-          [join [lsort -command lcomp $displayList] "\n"] \
-          [thread::id]]
-    }
-}
-
 try {
     set keyboardThread [thread::create [format {
         source "pi/Keyboard.tcl"
+        source "pi/KeyCodes.tcl"
         source "lib/c.tcl"
         source "pi/cUtils.tcl"
         Keyboard::init
         puts "Keyboard tid: [getTid]"
 
-        set chs [list]
-        while true {
-            lappend chs [Keyboard::getChar]
+        set keyStates [list up down repeat]
+        set modifiers [dict create \
+            shift 0 \
+            ctrl 0 \
+            alt 0 \
+        ]
 
+        while true {
+            lassign [Keyboard::getKeyEvent] keyCode eventType
+
+            set shift [dict get $modifiers shift]
+            set key [keyFromCode $keyCode $shift]
+            set keyState [lindex $keyStates $eventType]
+
+            set isDown [expr {$keyState != "up"}]
+            if {[string match *SHIFT $key]} {
+              dict set modifiers shift $isDown
+            }
+            if {[string match *CTRL $key]} {
+              dict set modifiers ctrl $isDown
+            }
+            if {[string match *ALT $key]} {
+              dict set modifiers alt $isDown
+            }
+
+            set heldModifiers [dict keys [dict filter $modifiers value 1]]
+
+            # Use `list` to escape special chars (brackets, quotes, whitespace)
             thread::send -async "%s" [subst {
-                Retract keyboard claims the keyboard character log is /something/
-                Assert keyboard claims the keyboard character log is "$chs"
+                Retract keyboard claims key /k/ is /t/ with modifiers /m/
+                Assert keyboard claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
             }]
         }
     } [thread::id]]]
