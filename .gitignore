@@ -4,3 +4,6 @@ statements.dot
 trie.pdf
 trie.dot
 virtual-programs/program-positions.tcl
+.vscode/settings.json
+.gitignore
+*.pyc
