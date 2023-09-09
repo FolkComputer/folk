@@ -1,39 +1,39 @@
 if {$::isLaptop} return
 
-namespace eval Display {
+namespace eval ::Display {
     variable WIDTH
     variable HEIGHT
     variable LAYER 0
     regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
 
     proc drawOnTop {func args} {
-        set Display::LAYER 1
+        set ::Display::LAYER 1
         uplevel [list $func {*}$args]
-        set Display::LAYER 0
+        set ::Display::LAYER 0
     }
 
     proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $::Display::LAYER]
     }
 
     proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $::Display::LAYER]
     }
 
     proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::text {*}$args] on layer $::Display::LAYER]
     }
 
     proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $::Display::LAYER]
     }
 
     proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $::Display::LAYER]
     }
 
     proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $Display::LAYER]
+        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $::Display::LAYER]
     }
 
     variable displayTime none
@@ -59,7 +59,6 @@ On process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
-    set ::frames [list]
     while true {
         set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
@@ -84,17 +83,7 @@ On process {
         set renderTime [baretime [list foreach command $displayCommands { {*}$command }]]
         set commitTime [baretime commitThenClearStaging]
 
-        set framesInLastSecond 0
-        set now [clock milliseconds]
-        lappend frames $now
-        foreach frame $frames {
-            if {$frame > $now - 1000} {
-                incr framesInLastSecond
-            }
-        }
-        set frames [lreplace $frames 0 end-$framesInLastSecond]
-
-        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime) ($framesInLastSecond fps)" }
+        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime)" }
         Step
     }
 }

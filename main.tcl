@@ -166,8 +166,9 @@ proc After {n unit body} {
 set ::committed [dict create]
 set ::toCommit [dict create]
 proc Commit {args} {
+    upvar this this
     set body [lindex $args end]
-    set key [list Commit [uplevel {expr {[info exists this] ? $this : "<unknown>"}}] {*}[lreplace $args end end]]
+    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
     if {$body eq ""} {
         dict set ::toCommit $key $body
     } else {
@@ -185,6 +186,12 @@ proc StepImpl {} {
     Assert $::thisProcess has step count $::stepCount
     Retract $::thisProcess has step count [expr {$::stepCount - 1}]
 
+    # Receive statements from all peers.
+    foreach peerNs [namespace children ::Peers] {
+        upvar ${peerNs}::process peer
+        Commit $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+    }
+
     while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
         dict for {key lambda} $::toCommit {
             if {$lambda ne ""} {
@@ -201,66 +208,44 @@ proc StepImpl {} {
         Evaluator::Evaluate
     }
 
+    # Share statements to all peers.
     set ::peerTime [baretime {
-
-    # This takes 2 ms.
-    set shareStatements [clauseset create]
-    set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
-    set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
-    dict for {_ stmt} [Statements::all] {
-        if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
-            ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
-            clauseset add shareStatements [statement clause $stmt]
-        }
-    }
-
-    set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
-    proc ::addMatchesToShareStatements {shareStatementsVar matches} {
-        upvar $shareStatementsVar shareStatements
-        foreach m $matches {
-            set pattern [dict get $m pattern]
-            foreach match [Statements::findMatches $pattern] {
-                set id [lindex [dict get $match __matcheeIds] 0]
-                set clause [statement clause [Statements::get $id]]
-                clauseset add shareStatements $clause
+        # This takes 2 ms.
+        set shareStatements [clauseset create]
+        set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
+        set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
+        dict for {_ stmt} [Statements::all] {
+            if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
+                ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
+                clauseset add shareStatements [statement clause $stmt]
             }
         }
-    }
-    ::addMatchesToShareStatements shareStatements $matches
 
-    foreach peerNs [namespace children ::Peers] {
-        apply [list {peer shareStatements} {
-            variable prevShareStatements
+        set matches [Statements::findMatches [list /someone/ wishes $::thisProcess shares statements like /pattern/]]
+        ::addMatchesToShareStatements shareStatements $matches
 
-            variable connected
-            if {!$connected} { return }
-
-            # Receive.
-            Commit $peer [list Say $peer is sharing statements [receive]]
-
-            # Share.
-            ::addMatchesToShareStatements shareStatements \
-                [Statements::findMatches [list /someone/ wishes $peer receives statements like /pattern/]]
-            if {![info exists prevShareStatements] ||
-                ([clauseset size $prevShareStatements] > 0 ||
-                 [clauseset size $shareStatements] > 0)} {
-
-                share [clauseset clauses $shareStatements]
-
-                set prevShareStatements $shareStatements
-            }
-
-        } $peerNs] [namespace tail $peerNs] $shareStatements
-    }
-
+        foreach peerNs [namespace children ::Peers] {
+            ${peerNs}::share $shareStatements
+        }
     }]
 }
 
+set ::frames [list]
 proc Step {} {
-    if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        set stepTime [baretime StepImpl]
-        set ::stepTime "$stepTime us (peer $::peerTime us)"
+    set ::stepRunTime 0
+    set stepTime [baretime StepImpl]
+    
+    set framesInLastSecond 0
+    set now [clock milliseconds]
+    lappend ::frames $now
+    foreach frame $::frames {
+        if {$frame > $now - 1000} {
+            incr framesInLastSecond
+        }
     }
+    set ::frames [lreplace $::frames 0 end-$framesInLastSecond]
+
+    set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us) ($framesInLastSecond fps)"
 }
 
 source "lib/math.tcl"

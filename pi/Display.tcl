@@ -208,7 +208,7 @@ dc proc setupGpu {} void {
         exit(1);
     }
     
-    drmDropMaster(gpuFd);
+    // drmDropMaster(gpuFd);
 }
 dc proc setupFb {int idx} void [csubst {
     struct drm_mode_create_dumb dumb;

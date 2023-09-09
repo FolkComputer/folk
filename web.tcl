@@ -14,10 +14,10 @@ proc readFile {filename contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
-proc readPdf {dotCmd contentTypeVar} {
+proc getDotAsPdf {dot contentTypeVar} {
     upvar $contentTypeVar contentType
     set contentType "application/pdf"
-    set fd [open |[list dot -Tpdf <<$dotCmd] r]
+    set fd [open |[list dot -Tpdf <<$dot] r]
     fconfigure $fd -encoding binary -translation binary
     set response [read $fd]; close $fd; return $response
 }
@@ -123,13 +123,10 @@ proc handlePage {path contentTypeVar} {
             readFile "assets/style.css" contentType
         }
         "/statementClauseToId.pdf" {
-            readPdf [trie dot $Statements::statementClauseToId] contentType
+            getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
         }
         "/statements.pdf" {
-            readPdf [Statements::dot] contentType
-        }
-        "/statementPatternToReactions.pdf" {
-            readPdf [trie dot $Evaluator::statementPatternToReactions] contentType
+            getDotAsPdf [Statements::dot] contentType
         }
         default {
             subst {
