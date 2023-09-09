@@ -445,39 +445,22 @@ namespace eval Display {
     dc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
     variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER 1
     variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER 6
-    dc struct PipelineBinding {
-        char name[100];
-        VkDescriptorType type;
-        VkDeviceSize size;
-
-        // If this binding directly maps to an argument in the
-        // pipeline definition (i.e., it is not a binding for a
-        // composite UBO of multiple arguments), then these are the
-        // name, type, and index of that argument:
+    dc struct PipelinePushConstant {
         char argname[100];
         char argtype[100];
-        int argidx;
-    }
-    dc struct PipelineUboField {
-        char argname[100];
-        char argtype[100];
-        int argidx;
     }
     dc struct Pipeline {
         VkPipeline pipeline;
         VkPipelineLayout pipelineLayout;
-        VkDescriptorSetLayout descriptorSetLayout;
 
-        int nbindings;
-        PipelineBinding* bindings;
-
-        int nuboFields;
-        PipelineUboField* uboFields;
+        int npushConstants;
+        PipelinePushConstant* pushConstants;
+        size_t pushConstantsSize;
     }
     dc proc createPipeline {VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
-                            int nbindings PipelineBinding[] bindings
-                            int nuboFields PipelineUboField[] uboFields} Pipeline [csubst {
+                            int npushConstants PipelinePushConstant[] pushConstants
+                            size_t pushConstantsSize} Pipeline [csubst {
         // Now what?
         // Create graphics pipeline.
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
@@ -565,29 +548,22 @@ namespace eval Display {
         colorBlending.attachmentCount = 1;
         colorBlending.pAttachments = &colorBlendAttachment;
 
-        VkDescriptorSetLayout descriptorSetLayout; {
-            VkDescriptorSetLayoutBinding argsLayoutBindings[nbindings];
-            for (int i = 0; i < nbindings; i++) {
-                memset(&argsLayoutBindings[i], 0, sizeof(argsLayoutBindings[i]));
-                argsLayoutBindings[i].binding = i;
-                argsLayoutBindings[i].descriptorType = bindings[i].type;
-                argsLayoutBindings[i].descriptorCount = 1;
-                argsLayoutBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-            }
-
-            VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
-            layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            layoutInfo.bindingCount = nbindings;
-            layoutInfo.pBindings = argsLayoutBindings;
-            $[vktry {vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &descriptorSetLayout)}]
-        }
-
         VkPipelineLayout pipelineLayout; {
             VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
             pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-            pipelineLayoutInfo.setLayoutCount = 1;
-            pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-            
+            pipelineLayoutInfo.setLayoutCount = 0;
+            pipelineLayoutInfo.pSetLayouts = NULL;
+
+            if (pushConstantsSize > 0) {
+                VkPushConstantRange pushConstantRange = {0};
+                pushConstantRange.offset = 0;
+                pushConstantRange.size = pushConstantsSize;
+                pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                
+                pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+                pipelineLayoutInfo.pushConstantRangeCount = 1;
+            }
+
             $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
         }
 
@@ -616,20 +592,15 @@ namespace eval Display {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
-        PipelineBinding* bindingsRetain = ckalloc(nbindings*sizeof(PipelineBinding));
-        memcpy(bindingsRetain, bindings, nbindings*sizeof(PipelineBinding));
-        PipelineUboField* uboFieldsRetain = ckalloc(nuboFields*sizeof(PipelineUboField));
-        memcpy(uboFieldsRetain, uboFields, nuboFields*sizeof(PipelineUboField));
+        PipelinePushConstant* pushConstantsRetain = ckalloc(npushConstants*sizeof(PipelinePushConstant));
+        memcpy(pushConstantsRetain, pushConstants, npushConstants*sizeof(PipelinePushConstant));
         return (Pipeline) {
             .pipeline = pipeline,
             .pipelineLayout = pipelineLayout,
-            .descriptorSetLayout = descriptorSetLayout,
 
-            .nbindings = nbindings,
-            .bindings = bindingsRetain,
-
-            .nuboFields = nuboFields,
-            .uboFields = uboFieldsRetain
+            .npushConstants = npushConstants,
+            .pushConstants = pushConstantsRetain,
+            .pushConstantsSize = pushConstantsSize
         };
     }]
 
@@ -746,221 +717,6 @@ namespace eval Display {
                                  1, &barrier);
         }
     }]
-    
-
-    defineVulkanHandleType dc VkBuffer
-    defineVulkanHandleType dc VkDeviceMemory
-    defineVulkanHandleType dc VkDescriptorSet
-    defineVulkanHandleType dc VkImage
-    defineVulkanHandleType dc VkImageView
-    defineVulkanHandleType dc VkSampler
-    # A single input resource for a Pipeline. (Note that multiple
-    # pipeline arguments get coalesced into 1 input resource, if
-    # they're coalesced into a single uniform buffer.)
-    dc struct PipelineInputResource {
-        // For a uniform buffer:
-        VkBuffer buffer;
-        VkDeviceMemory memory;
-        void* addr;
-
-        // For an image:
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        VkImage textureImage;
-        VkDeviceMemory textureImageMemory;
-        VkImageView textureImageView;
-        VkSampler textureSampler;
-    }
-    dc struct PipelineInputResourceParameters {
-        // For a uniform buffer: none
-
-        // For an image:
-        int width;
-        int height;
-    }
-    # Called before draw time.
-    dc proc pipelineInputResourceCopyUniformBufferData {PipelineInputResource resource Tcl_Obj* data} void {
-        int n; uint8_t* buf = Tcl_GetByteArrayFromObj(data, &n);
-        memcpy(resource.addr, buf, n);
-    }
-    # Called before draw time.
-    dc proc pipelineInputResourceCopyImage {PipelineInputResource resource image_t im} void {
-        size_t size = im.width * im.height * 4;
-
-        // Copy im to resource.stagingBuffer:
-        void* data;
-        vkMapMemory(device, resource.stagingBufferMemory, 0, size, 0, &data);
-        memcpy(data, im.data, size);
-        vkUnmapMemory(device, resource.stagingBufferMemory);
-
-        transitionImageLayout(commandBuffer,
-                              resource.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        // Copy ret.stagingBuffer to ret.textureImage:
-        {
-            VkBufferImageCopy region = {0};
-            region.bufferOffset = 0;
-            region.bufferRowLength = 0;
-            region.bufferImageHeight = 0;
-
-            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.imageSubresource.mipLevel = 0;
-            region.imageSubresource.baseArrayLayer = 0;
-            region.imageSubresource.layerCount = 1;
-
-            region.imageOffset = (VkOffset3D) {0, 0, 0};
-            region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
-            vkCmdCopyBufferToImage(commandBuffer,
-                                   resource.stagingBuffer,
-                                   resource.textureImage,
-                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                   1,
-                                   &region);
-        }
-        transitionImageLayout(commandBuffer,
-                              resource.textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    # Stores and describes all inputs of a Pipeline. You need to
-    # allocate as many PipelineInputSet per pipeline as you might have
-    # invocations in flight of that pipeline.
-    dc struct PipelineInputSet {
-        int nresources; // Should be equal to nbindings for the Pipeline.
-        PipelineInputResource* resources;
-
-        VkDescriptorSet descriptorSet;
-    }
-    dc proc createPipelineInputResource {PipelineBinding binding PipelineInputResourceParameters parameters} PipelineInputResource {
-        PipelineInputResource ret;
-        if (binding.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-            createBuffer(binding.size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                         &ret.buffer, &ret.memory);
-            vkMapMemory(device, ret.memory, 0, binding.size, 0, &ret.addr);
-
-        } else if (binding.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            memset(&ret, 0, sizeof(ret));
-
-            // FIXME: allocate all the stuff
-            size_t size = parameters.width * parameters.height * 4;
-            createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                         &ret.stagingBuffer, &ret.stagingBufferMemory);
-            // The buffer will be used by draw to copy the image in.
-
-            createImage(parameters.width, parameters.height,
-                        VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                        &ret.textureImage, &ret.textureImageMemory);
-            // Set up ret.textureImageView:
-            {
-                VkImageViewCreateInfo viewInfo = {0};
-                viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-                viewInfo.image = ret.textureImage;
-                viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-                viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
-                viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                viewInfo.subresourceRange.baseMipLevel = 0;
-                viewInfo.subresourceRange.levelCount = 1;
-                viewInfo.subresourceRange.baseArrayLayer = 0;
-                viewInfo.subresourceRange.layerCount = 1;
-                $[vktry {vkCreateImageView(device, &viewInfo, NULL, &ret.textureImageView)}]
-            }
-            // Set up ret.textureSampler:
-            {
-                VkSamplerCreateInfo samplerInfo = {0};
-                samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-                samplerInfo.magFilter = VK_FILTER_LINEAR;
-                samplerInfo.minFilter = VK_FILTER_LINEAR;
-                samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                samplerInfo.anisotropyEnable = VK_FALSE; // TODO: do we want this?
-                samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-                samplerInfo.unnormalizedCoordinates = VK_FALSE;
-                samplerInfo.compareEnable = VK_FALSE;
-                samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-                samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-                samplerInfo.mipLodBias = 0.0f;
-                samplerInfo.minLod = 0.0f;
-                samplerInfo.maxLod = 0.0f;
-                $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &ret.textureSampler)}]
-            }
-        } else { exit(90); }
-        return ret;
-    }
-    dc proc createPipelineInputSet {Pipeline pipeline PipelineInputResourceParameters[] parameters} PipelineInputSet {
-        PipelineInputSet ret;
-        ret.nresources = pipeline.nbindings;
-        ret.resources = ckalloc(sizeof(PipelineInputResource) * ret.nresources);
-        for (int i = 0; i < pipeline.nbindings; i++) {
-            ret.resources[i] = createPipelineInputResource(pipeline.bindings[i], parameters[i]);
-        }
-
-        static VkDescriptorPool descriptorPool = NULL;
-        if (descriptorPool == NULL) {
-            // TODO: Generalize the way this works.
-            VkDescriptorPoolSize poolSizes[2] = {0};
-            poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            poolSizes[0].descriptorCount = 100;
-            poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            poolSizes[1].descriptorCount = 100;
-
-            VkDescriptorPoolCreateInfo poolInfo = {0};
-            poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            poolInfo.poolSizeCount = 2;
-            poolInfo.pPoolSizes = poolSizes;
-            poolInfo.maxSets = 100;
-            $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
-        }
-
-        // Set up ret.descriptorSet:
-        {
-            VkDescriptorSetAllocateInfo allocInfo = {0};
-            allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            allocInfo.descriptorPool = descriptorPool;
-            allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts = &pipeline.descriptorSetLayout;
-
-            $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &ret.descriptorSet)}]
-        }
-        // Write to ret.descriptorSet so it points at all the resources:
-        {
-            VkWriteDescriptorSet descriptorWrites[pipeline.nbindings];
-            for (int i = 0; i < pipeline.nbindings; i++) {
-                VkWriteDescriptorSet* descriptorWrite = &descriptorWrites[i];
-                memset(descriptorWrite, 0, sizeof(*descriptorWrite));
-                descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrite->dstSet = ret.descriptorSet;
-                descriptorWrite->dstBinding = i;
-                descriptorWrite->dstArrayElement = 0;
-                descriptorWrite->descriptorType = pipeline.bindings[i].type;
-                descriptorWrite->descriptorCount = 1;
-
-                if (descriptorWrite->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-                    VkDescriptorBufferInfo* bufferInfo = alloca(sizeof(VkDescriptorBufferInfo));
-                    memset(bufferInfo, 0, sizeof(*bufferInfo));
-
-                    bufferInfo->buffer = ret.resources[i].buffer;
-                    bufferInfo->offset = 0;
-                    bufferInfo->range = pipeline.bindings[i].size;
-                    descriptorWrite->pBufferInfo = bufferInfo;
-                } else if (descriptorWrite->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                    VkDescriptorImageInfo* imageInfo = alloca(sizeof(VkDescriptorImageInfo));
-                    memset(imageInfo, 0, sizeof(*imageInfo));
-
-                    imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    imageInfo->imageView = ret.resources[i].textureImageView;
-                    imageInfo->sampler = ret.resources[i].textureSampler;
-                    descriptorWrite->pImageInfo = imageInfo;
-                } else {
-                    exit(90);
-                }
-            }
-
-            vkUpdateDescriptorSets(device, pipeline.nbindings, descriptorWrites, 0, NULL);
-        }
-
-        return ret;
-    }
 
     dc proc drawStart {} void {
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
@@ -992,87 +748,31 @@ namespace eval Display {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawImpl {Pipeline pipeline PipelineInputSet inputSet} void {
+    dc proc drawImpl {Pipeline pipeline Tcl_Obj* pushConstants} void {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline.pipelineLayout,
-                                0, 1,
-                                &inputSet.descriptorSet, 0, NULL);
+        if (pipeline.pushConstantsSize > 0) {
+            vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                               VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               pipeline.pushConstantsSize, Tcl_GetByteArrayFromObj(pushConstants, NULL));
+        }
 
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
-    variable pipelineInputSetsCache [dict create]
-    proc pipelineFindOrCreateUnusedInputSet {pipeline arglist} {
-        variable pipelineInputSetsCache
-        variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-        # Iterate over the pipeline bindings. Find any additional
-        # parameters for the input set.
-        set parameters [list]
-        for {set i 0} {$i < [Pipeline nbindings $pipeline]} {incr i} {
-            set binding [Pipeline bindings $pipeline $i]
-            set type [PipelineBinding type $binding]
-            if {$type == $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} {
-                set argidx [PipelineBinding argidx $binding]
-                set im [lindex $arglist $argidx]
-                puts "im is ($im)"
-                lappend parameters [dict create width [image width $im] height [image height $im]]
-            } else {
-                # TODO: hack
-                lappend parameters [dict create width 0 height 0]
-            }
-        }
-        set key [list $pipeline $parameters]
-
-        if {![dict exists $pipelineInputSetsCache $key]} {
-            for {set i 0} {$i < 5} {incr i} {
-                set inputSet [createPipelineInputSet $pipeline $parameters]
-                dict set pipelineInputSetsCache $key $inputSet false
-            }
-        }
-        dict for {iSet isInUse} [dict get $pipelineInputSetsCache $key] {
-            if {!$isInUse} {
-                # Mark as in-use:
-                set inputSet $iSet
-                dict set pipelineInputSetsCache $key $inputSet true
-                break
-            }
-        }
-        if {![info exists inputSet]} { error "No available input set for pipeline" }
-        return $inputSet
-    }
     proc draw {pipeline args} {
-        set inputSet [pipelineFindOrCreateUnusedInputSet $pipeline $args]
-
-        # TODO: Figure out packing rules for UBO struct.
-        set uboFmt [list]
-        set uboArgs [list]
-        for {set i 0} {$i < [Pipeline nuboFields $pipeline]} {incr i} {
-            set uboField [Pipeline uboFields $pipeline $i]
-            set argtype [PipelineUboField argtype $uboField]
-            set argidx [PipelineUboField argidx $uboField]
-            if {$argtype eq "float"} { lappend uboFmt "f" } \
-                elseif {$argtype eq "vec2"} { lappend uboFmt "f2" }
-            lappend uboArgs [lindex $args $argidx]
+        # TODO: Figure out packing rules for PUSHCONSTANTS struct.
+        set pushConstantsFmt [list]
+        set pushConstants [list]
+        for {set i 0} {$i < [Pipeline npushConstants $pipeline]} {incr i} {
+            set pushConstantField [Pipeline pushConstants $pipeline $i]
+            set argtype [PipelinePushConstant argtype $pushConstantField]
+            if {$argtype eq "float"} { lappend pushConstantsFmt "f" } \
+                elseif {$argtype eq "vec2"} { lappend pushConstantsFmt "f2" }
+            lappend pushConstants [lindex $args $i]
         }
-        set uboData [binary format [join $uboFmt ""] {*}$uboArgs]
+        set pushConstantsData [binary format [join $pushConstantsFmt ""] {*}$pushConstants]
 
-        set nbindings [dict get $pipeline nbindings]
-        variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
-        variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-        for {set i 0} {$i < $nbindings} {incr i} {
-            set binding [Pipeline bindings $pipeline $i]
-            set resource [PipelineInputSet resources $inputSet $i]
-            set type [PipelineBinding type $binding]
-            if {$type == $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} {
-                pipelineInputResourceCopyUniformBufferData $resource $uboData
-            } elseif {$type == $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER} {
-                set im [lindex $args [PipelineBinding argidx $binding]]
-                pipelineInputResourceCopyImage $resource $im
-            }
-        }
-
-        drawImpl $pipeline $inputSet
+        drawImpl $pipeline $pushConstantsData
     }
     dc proc drawEnd {} void {
         vkCmdEndRenderPass(commandBuffer);
@@ -1137,59 +837,31 @@ namespace eval Display {
         variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
 
-        set uboFields [list]
-        set bindings [list]
-        set argidx 0
+        set pushConstants [list]
+        set pushConstantsSize 0
         foreach {argtype argname} $args {
-            if {$argtype eq "sampler2D"} {
-                lappend bindings [dict create \
-                                      name $argname \
-                                      type $VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER \
-                                      size 0 \
-                                      \
-                                      argname $argname \
-                                      argtype $argtype \
-                                      argidx $argidx]
-            } else {
-                lappend uboFields [dict create \
-                                       argtype $argtype \
-                                       argname $argname \
-                                       argidx $argidx]
-            }
-            incr argidx
-        }
-        if {[llength $uboFields] > 0} {
-            set size 0
-            foreach field $uboFields { dict with field {
-                if {$argtype eq "float"} { set size [+ $size 4] } \
-                    elseif {$argtype eq "vec2"} { set size [+ $size 8] }
-            } }
-            set binding [dict create name Args type $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER size $size \
-                            argname "" argtype "" argidx -1]
-            set bindings [list $binding {*}$bindings]
+            lappend pushConstants [dict create argtype $argtype argname $argname]
+            if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
+                elseif {$argtype eq "vec2"} { set pushConstantsSize [+ $pushConstantsSize 8] }
         }
 
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            $[join [lmap {i binding} [lenumerate $bindings] {
-                if {[dict get $binding type] eq $VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER} { subst {
-                    layout(binding = $i) uniform Args {
-                        [join [lmap field $uboFields {
-                            dict with field {
-                                expr {"$argtype $argname;"}
-                            }
-                        }] "\n"]
-                    } args;
-                } } else { subst {
-                    layout(binding = $i) uniform [dict get $binding argtype] [dict get $binding argname];
-                } }
-            }] "\n"]
+            $[if {[llength $pushConstants] > 0} { subst {
+                layout(push_constant) uniform Args {
+                    [join [lmap field $pushConstants {
+                        dict with field {
+                            expr {"$argtype $argname;"}
+                        }
+                    }] "\n"]
+                } args;
+            } }]
 
             layout(location = 0) out vec4 outColor;
 
             void main() {
-                $[join [lmap field $uboFields {
+                $[join [lmap field $pushConstants {
                     dict with field {
                         expr {"$argtype $argname = args.$argname;"}
                     }
@@ -1201,8 +873,7 @@ namespace eval Display {
         # pipeline needs to contain a specification of all args,
         # so Display::draw can fill the args into UBO and samplers etc.
         set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule \
-                          [llength $bindings] $bindings \
-                          [llength $uboFields] $uboFields]
+                          [llength $pushConstants] $pushConstants $pushConstantsSize]
         return $pipeline
     }
 }
@@ -1220,40 +891,43 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
     Display::init
 
-    # set circle [Display::pipeline {vec2 center float radius} {
-    #     float dist = length(gl_FragCoord.xy - center) - radius;
-    #     outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
-
-    # set line [Display::pipeline {vec2 from vec2 to float thickness} {
-    #     float l = length(to - from);
-    #     vec2 d = (to - from) / l;
-    #     vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-    #          q = mat2(d.x, -d.y, d.y, d.x) * q;
-    #          q = abs(q) - vec2(l, thickness)*0.5;
-    #     float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-
-    #     outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
-    # }]
-
-    set image [Display::pipeline {sampler2D image} {
-        outColor = vec4(1, 0, 0, 1);
+    set circle [Display::pipeline {vec2 center float radius} {
+        float dist = length(gl_FragCoord.xy - center) - radius;
+        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
+
+    set line [Display::pipeline {vec2 from vec2 to float thickness} {
+        float l = length(to - from);
+        vec2 d = (to - from) / l;
+        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+             q = mat2(d.x, -d.y, d.y, d.x) * q;
+             q = abs(q) - vec2(l, thickness)*0.5;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+
+        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+    }]
+
+    # set image [Display::pipeline {sampler2D image} {
+    #     outColor = vec4(1, 0, 0, 1);
+    # }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    # set redOnRight [Display::pipeline {} {
-    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set redOnRight [Display::pipeline {} {
+        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
+
+    # set im [image loadJpeg "/Users/osnr/Downloads/u9.jpg"]
+    # set gim [Display::copyImageToGpu $im]
 
     Display::drawStart
 
-    # Display::draw $circle {200 50} 30
-    # Display::draw $circle {300 300} 20
-    # Display::draw $line {0 0} {100 100} 10
-    # Display::draw $redOnRight
-    Display::draw $image [image loadJpeg "/Users/osnr/Downloads/u9.jpg"]
+    Display::draw $circle {200 50} 30
+    Display::draw $circle {300 300} 20
+    Display::draw $line {0 0} {100 100} 10
+    Display::draw $redOnRight
+    # Display::draw $image $gim
 
     Display::drawEnd
 
