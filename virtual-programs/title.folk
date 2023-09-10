@@ -1,23 +1,27 @@
-# Title wish fulfillment
+# Title/footnote wish fulfillment
 # for wishes of the form:
-# "Wish $tag has title "This is a tag"
+# "Wish $tag has title "This is a tag"" or "Wish $tag has footnote "This is a footnote""
+
 
 When /thing/ has region /region/ {
-    lassign $region vertices edges angle
-    lassign $vertices a b c d
-
-    set width [::vec2 distance $c $d]
-
-    lassign [vec2 scale [vec2 add $c $d] 0.5] x y
-    set y [expr {$y + 16}]
-
     set radians [region angle $region]
+
+    set top [vec2 add [region top $region] [vec2 rotate [list 0 -12] $radians]]
+    set bot [vec2 add [region bottom $region] [vec2 rotate [list 0 16] $radians]]
 
     When the collected matches for [list /someone/ wishes $thing has title /text/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
+    
+        set scale 1
+        Display::text {*}$top $scale $text $radians
+    }
+
+    When the collected matches for [list /someone/ wishes $thing has footnote /text/] are /matches/ {
+        set text [join [lmap match $matches {dict get $match text}] "\n"]
+        if {$text eq ""} { return }
 
         set scale 1
-        Display::text $x $y $scale $text $radians
+        Display::text {*}$bot $scale $text $radians
     }
 }
