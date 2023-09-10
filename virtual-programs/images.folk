@@ -27,6 +27,8 @@ namespace eval ::image {
 
     set cc [c create]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libpng.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libpng] end]}]
+
     $cc cflags -ljpeg
     source "pi/cUtils.tcl"
     defineImageType $cc
@@ -37,6 +39,7 @@ namespace eval ::image {
     $cc code {
         #undef EXTERN
         #include <jpeglib.h>
+        #include <png.h>
         #include <stdint.h>
         #include <unistd.h>
 
@@ -121,6 +124,7 @@ namespace eval ::image {
         }
         return ret;
     }
+    
     $cc proc loadJpeg {char* filename} image_t {
         FILE* file = fopen(filename, "rb");
         if (!file) {
@@ -156,9 +160,62 @@ namespace eval ::image {
         
         return ret;
     }
+
+    $cc proc loadPng {char* filename} image_t {
+        FILE* file = fopen(filename, "rb");
+        if (!file) {
+            fprintf(stderr, "Error opening file: %s\n", filename);
+            exit(1);
+        }
+
+        png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if(!png) {
+            fprintf(stderr, "Error reading png from file: %s it's not a png\n", filename);
+            exit(1);
+        }
+
+        png_infop info = png_create_info_struct(png);
+        if(!info) {
+            fprintf(stderr, "Error reading png from file: %s no info?\n", filename);
+            exit(1);
+        }
+
+        if(setjmp(png_jmpbuf(png))) {
+            fprintf(stderr, "Error reading png from file: %s setjmp error?\n", filename);
+            exit(1);
+        }
+
+        png_init_io(png, file);
+        png_read_info(png, info);
+
+        image_t ret;
+        ret.width = png_get_image_width(png, info);
+        ret.height = png_get_image_height(png, info);
+        int bytes_per_pixel =  png_get_channels(png, info);
+        ret.components = png_get_channels(png, info);
+        ret.bytesPerRow = ret.width * bytes_per_pixel;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+
+        // Iterate over the rows and read the image data into the buffer.
+        for (int i = 0; i < ret.height; i++) {
+            png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
+            //memset(ret.data+(i * ret.bytesPerRow), 0xff, ret.bytesPerRow);
+        }
+
+        // Close the PNG file.
+        png_destroy_read_struct(&png, &info, NULL);
+
+        printf("Tried to laod a png\n");
+
+        return ret;
+    }
+
     $cc proc freeJpeg {image_t im} void {
         // TODO: Free the JPEG.
         // ckfree(im.data);
+    }
+    $cc proc freePng {image_t im} void {
+        // TODO: Free the PNG.
     }
     $cc compile
 
@@ -182,7 +239,7 @@ namespace eval ::image {
                 set path [expr {[file pathtype $im] eq "relative" ?
                                 "$::env(HOME)/folk-images/$im" :
                                 $im}]
-                set im [image loadJpeg $path]
+                set im [image loadPng $path]
                 dict set imagesCache $impath $im
             }
         }
