@@ -92,10 +92,40 @@ namespace eval ::image {
       free(image);
     }
 
+    void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t width, uint32_t height) {
+        png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        png_infop info_w = png_create_info_struct(png_w);
+
+        if (components == 3)
+            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        else
+            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+
+        png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
+        for (int i = 0; i < height; i++) {
+            row_pointers[i] = data + i * width * components;
+        }
+
+        png_init_io(png_w, dest);
+        png_set_rows(png_w, info_w, row_pointers);
+        png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
+
+        free(row_pointers);
+    }
+
     }
     $cc proc saveAsJpeg {image_t im char* filename} void {
         FILE* out = fopen(filename, "w");
         jpeg(out, im.data, im.components, im.width, im.height, 100);
+        fclose(out);
+    }
+    $cc proc saveAsPng {image_t im char* filename} void {
+        FILE* out = fopen(filename, "wb");
+        png(out, im.data, im.components, im.width, im.height);
         fclose(out);
     }
     # Given the four corners of a region in an image, warp it to a new image of a given width and height
@@ -124,7 +154,7 @@ namespace eval ::image {
         }
         return ret;
     }
-    
+
     $cc proc loadJpeg {char* filename} image_t {
         FILE* file = fopen(filename, "rb");
         if (!file) {
@@ -199,7 +229,6 @@ namespace eval ::image {
         // Iterate over the rows and read the image data into the buffer.
         for (int i = 0; i < ret.height; i++) {
             png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
-            //memset(ret.data+(i * ret.bytesPerRow), 0xff, ret.bytesPerRow);
         }
 
         // Close the PNG file.
@@ -235,11 +264,14 @@ namespace eval ::image {
             if {[string match "*jpg" $im] ||
                 [string match "*jpeg" $im] ||
                 [string match "*png" $im]} {
-                # TODO: Support .png
                 set path [expr {[file pathtype $im] eq "relative" ?
                                 "$::env(HOME)/folk-images/$im" :
                                 $im}]
-                set im [image loadPng $path]
+                if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
+                    set im [image loadJpeg $path]
+                } else {
+                    set im [image loadPng $path]
+                }
                 dict set imagesCache $impath $im
             }
         }
