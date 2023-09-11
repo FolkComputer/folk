@@ -160,6 +160,27 @@ namespace eval ::image {
         // TODO: Free the JPEG.
         // ckfree(im.data);
     }
+    $cc proc rechannel {image_t im int components} image_t {
+        if (im.components == components) return im;
+        if (components != 4 || im.components != 3) exit(2);
+
+        image_t ret = im;
+        ret.components = components;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+        
+        for(int i = 0; i < ret.width*ret.height; i++) {
+            int r = im.data[i*im.components+0],
+                g = im.data[i*im.components+1], 
+                b = im.data[i*im.components+2];
+
+            ret.data[i*ret.components+0] = r;
+            ret.data[i*ret.components+1] = g;
+            ret.data[i*ret.components+2] = b;
+            ret.data[i*ret.components+3] = 255;
+        }
+        return ret;
+    }
     $cc compile
 
     variable imagesCache [dict create]

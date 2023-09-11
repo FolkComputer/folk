@@ -994,6 +994,8 @@ namespace eval Display {
         }]
 
         dc proc copyImageToGpu {image_t im} int {
+            // Image must be RGBA.
+            if (im.components != 4) { exit(40); }
             size_t size = im.width * im.height * 4;
 
             VkBuffer stagingBuffer;
@@ -1133,19 +1135,19 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     #     outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
     # }]
 
+    
+    # set redOnRight [Display::pipeline {} {
+    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    # }]
+
     set image [Display::pipeline {sampler2D image} {
         outColor = texture(samplers[image], gl_FragCoord.xy / 360.0);
-//        outColor = vec4(gl_FragCoord.xy / 360.0, 0.0, 1.0);
     }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    # set redOnRight [Display::pipeline {} {
-    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
-
-    set im [image loadJpeg "/Users/osnr/Downloads/u9.jpg"]
+    set im [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]
     set gim [Display::GpuImageManager::copyImageToGpu $im]
     puts $gim
 
