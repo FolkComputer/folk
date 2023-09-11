@@ -387,6 +387,7 @@ namespace eval c {
                 }
 
                 variable procs
+                if {[dict exists $procs $name]} { error "Name collision: $name" }
                 dict set procs $name rtype $rtype
                 dict set procs $name arglist $arglist
                 dict set procs $name ns [uplevel {namespace current}]
