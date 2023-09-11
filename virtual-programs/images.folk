@@ -234,7 +234,21 @@ namespace eval ::image {
         // Close the PNG file.
         png_destroy_read_struct(&png, &info, NULL);
 
-        printf("Tried to laod a png\n");
+        if (ret.components == 4) {
+            // Transcode from RGBA to RGB (we don't support RGBA yet.)
+            for(int i=0; i < ret.width*ret.height; i++) {
+                int r = ret.data[i*4+0],
+                    g = ret.data[i*4+1], 
+                    b = ret.data[i*4+2], 
+                    a = ret.data[i*4+3];
+
+                ret.data[i*3+0] = r * a / 255;
+                ret.data[i*3+1] = g * a / 255;
+                ret.data[i*3+2] = b * a / 255;
+            }
+            ret.components = 3;
+            ret.bytesPerRow = ret.width * ret.components;
+        }
 
         return ret;
     }
