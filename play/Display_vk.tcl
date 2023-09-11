@@ -671,7 +671,9 @@ namespace eval Display {
             set pushConstantField [Pipeline pushConstants $pipeline $i]
             set argtype [PipelinePushConstant argtype $pushConstantField]
             if {$argtype eq "float"} { lappend pushConstantsFmt "f" } \
-                elseif {$argtype eq "vec2"} { lappend pushConstantsFmt "f2" }
+                elseif {$argtype eq "vec2"} { lappend pushConstantsFmt "f2" } \
+                elseif {$argtype eq "int"} { lappend pushConstantsFmt "i" } \
+                else { error "Unsupported draw argument type $argtype" }
             lappend pushConstants [lindex $args $i]
         }
         set pushConstantsData [binary format [join $pushConstantsFmt ""] {*}$pushConstants]
@@ -747,7 +749,7 @@ namespace eval Display {
             if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
                 elseif {$argtype eq "vec2"} { set pushConstantsSize [+ $pushConstantsSize 8] } \
                 elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
-                else { error "Invalid shader argument type $argtype" }
+                else { error "Unsupported shader argument type $argtype" }
         }
 
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
@@ -1140,16 +1142,15 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
     # }]
 
-    set image [Display::pipeline {sampler2D image} {
-        outColor = texture(samplers[image], gl_FragCoord.xy / 360.0);
+    set image [Display::pipeline {sampler2D image float scale} {
+        outColor = texture(samplers[image], gl_FragCoord.xy / scale);
     }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set im [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]
-    set gim [Display::GpuImageManager::copyImageToGpu $im]
-    puts $gim
+    set im [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
+    set im2 [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
 
     Display::drawStart
 
@@ -1157,7 +1158,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     # Display::draw $circle {300 300} 20
     # Display::draw $line {0 0} {100 100} 10
     # Display::draw $redOnRight
-    Display::draw $image $gim
+    Display::draw $image $im2 200.0
 
     Display::drawEnd
 
