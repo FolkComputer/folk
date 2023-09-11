@@ -1,6 +1,6 @@
 When /p/ has error /err/ with info /info/ {
     When the clock time is /t/ {
-        if {[expr [expr int($t)] % 2] == 1} {
+        if {[expr {(int($t * 5)) % 2}] == 1} {
             Wish $p is outlined white
         } else {
             Wish $p is outlined red
