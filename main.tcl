@@ -186,6 +186,12 @@ proc StepImpl {} {
     Assert $::thisProcess has step count $::stepCount
     Retract $::thisProcess has step count [expr {$::stepCount - 1}]
 
+    # Receive statements from all peers.
+    foreach peerNs [namespace children ::Peers] {
+        upvar ${peerNs}::process peer
+        Commit $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+    }
+
     while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
         dict for {key lambda} $::toCommit {
             if {$lambda ne ""} {
@@ -202,6 +208,7 @@ proc StepImpl {} {
         Evaluator::Evaluate
     }
 
+    # Share statements to all peers.
     set ::peerTime [baretime {
         # This takes 2 ms.
         set shareStatements [clauseset create]
@@ -218,17 +225,27 @@ proc StepImpl {} {
         ::addMatchesToShareStatements shareStatements $matches
 
         foreach peerNs [namespace children ::Peers] {
-            ${peerNs}::exchange $shareStatements
+            ${peerNs}::share $shareStatements
         }
     }]
 }
 
+set ::frames [list]
 proc Step {} {
-    if {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        set ::stepRunTime 0
-        set stepTime [baretime StepImpl]
-        set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us)"
+    set ::stepRunTime 0
+    set stepTime [baretime StepImpl]
+    
+    set framesInLastSecond 0
+    set now [clock milliseconds]
+    lappend ::frames $now
+    foreach frame $::frames {
+        if {$frame > $now - 1000} {
+            incr framesInLastSecond
+        }
     }
+    set ::frames [lreplace $::frames 0 end-$framesInLastSecond]
+
+    set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us) ($framesInLastSecond fps)"
 }
 
 source "lib/math.tcl"

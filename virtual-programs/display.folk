@@ -59,7 +59,6 @@ On process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
-    set ::frames [list]
     while true {
         set displayList [list]
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
@@ -84,17 +83,7 @@ On process {
         set renderTime [baretime [list foreach command $displayCommands { {*}$command }]]
         set commitTime [baretime commitThenClearStaging]
 
-        set framesInLastSecond 0
-        set now [clock milliseconds]
-        lappend frames $now
-        foreach frame $frames {
-            if {$frame > $now - 1000} {
-                incr framesInLastSecond
-            }
-        }
-        set frames [lreplace $frames 0 end-$framesInLastSecond]
-
-        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime) ($framesInLastSecond fps)" }
+        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime)" }
         Step
     }
 }

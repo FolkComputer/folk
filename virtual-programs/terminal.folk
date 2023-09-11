@@ -1,29 +1,86 @@
 # Terminal
 #
-# Wish $this is a terminal
-# Claim $this has keyboard input
+# Spawn terminals with any command (default "bash"):
+#   Wish $this is a terminal
+#   Wish $this is a terminal spawning "any command"
+#
+# Send keyboard events to the terminal:
+#   Claim $thing has keyboard input
+#
+# Optionally, draw the terminal on an arbitrary region:
+#   Claim $thing has terminal region $region
+#
+#
+# Example program: Tie it all together with a simple vim editor...
+#
+#   When $this points up at /target/ & /target/ has program /anything/ {
+#     Wish $this is a terminal spawning "vim ~/folk-printed-programs/$target.folk"
+#     When $this has region /r/ {
+#       Claim $this has terminal region [region move $r right 350px]
+#     }
+#     Claim $this has keyboard input
+#   }
+#
+#
+# Note: Terminals are killed after ::termExpireMs of being unmatched.
 #
 
 source lib/terminal.tcl
 
+set ::termExpireMs [expr {10*60*1000}] ;# 10 minutes
+set ::termInstances [dict create]
+set ::termTimeouts [dict create]
+
+proc ::matchTerminal {id cmd} {
+  set termKey "$id $cmd"
+  if {$termKey ni $::termInstances} {
+    dict set ::termInstances $termKey [Terminal::create 12 43 $cmd]
+  }
+  if {$termKey in $::termTimeouts} {
+    after cancel [dict get $::termTimeouts $termKey]
+    dict unset ::termTimeouts $termKey
+  }
+  dict get $::termInstances $termKey
+}
+
+proc ::unmatchTerminal {id cmd} {
+  set termKey "$id $cmd"
+  dict set ::termTimeouts $termKey [
+    after $::termExpireMs "::destroyTerminal [list $termKey]"
+  ]
+}
+
+proc ::destroyTerminal {termKey} {
+  Terminal::destroy [dict get $::termInstances $termKey]
+  dict unset ::termInstances $termKey
+  dict unset ::termTimeouts $termKey
+}
+
 When /anyone/ wishes /thing/ is a terminal {
-  # Create a new terminal instance for this $thing only once
-  When /nobody/ claims $thing has terminal instance /term/ {
-    Assert terminal claims $thing has terminal instance [Terminal::create]
+  Wish $thing is a terminal spawning bash
+}
+
+When /thing/ has terminal region /r/ & /r/ has keyboard input {
+  Claim $thing has keyboard input
+}
+
+When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
+  set term [::matchTerminal $thing $cmd]
+  On unmatch { ::unmatchTerminal $thing $cmd }
+
+  When $::thisProcess has step count /c/ {
+    set body {
+      Wish region $region is labelled [Terminal::read $term]
+    }
+    When $thing has terminal region /region/ $body
+    When /nobody/ claims $thing has terminal region /x/ & $thing has region /region/ $body
   }
 
-  When terminal claims $thing has terminal instance /term/ {
-    When $thing has region /r/ & /node/ has step count /c/ {
-      set display [region move $r up 180px]
-      Wish region $display is labelled [Terminal::read $term]
-    }
-
-    When /anyone/ claims $thing has keyboard input & \
-      /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
-      if {$direction != "up"} {
-        set ctrlPressed [expr {"ctrl" in $modifiers}]
-        Terminal::write $term $key $ctrlPressed
-      }
+  When /anyone/ claims $thing has keyboard input \
+    & /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
+    if {$direction != "up"} {
+      set ctrlPressed [expr {"ctrl" in $modifiers}]
+      Terminal::write $term $key $ctrlPressed
     }
   }
 }
