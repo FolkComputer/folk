@@ -18,6 +18,7 @@ namespace eval Display {
     }
     dc include <stdlib.h>
     if {$macos} {
+        dc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
         dc include <GLFW/glfw3.h>
         dc cflags -lglfw
     }
@@ -366,7 +367,7 @@ namespace eval Display {
         }
 
         // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
-        swapchainFramebuffers = ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
+        swapchainFramebuffers = (VkFramebuffer *) ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
         for (size_t i = 0; i < swapchainImageCount; i++) {
             VkImageView attachments[] = { swapchainImageViews[i] };
             
@@ -606,7 +607,7 @@ namespace eval Display {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
-        PipelinePushConstant* pushConstantsRetain = ckalloc(npushConstants*sizeof(PipelinePushConstant));
+        PipelinePushConstant* pushConstantsRetain = (PipelinePushConstant*) ckalloc(npushConstants*sizeof(PipelinePushConstant));
         memcpy(pushConstantsRetain, pushConstants, npushConstants*sizeof(PipelinePushConstant));
         return (Pipeline) {
             .pipeline = pipeline,
@@ -1121,26 +1122,26 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     Display::init
     Display::GpuImageManager::gpuImageManagerInit
 
-    # set circle [Display::pipeline {vec2 center float radius} {
-    #     float dist = length(gl_FragCoord.xy - center) - radius;
-    #     outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set circle [Display::pipeline {vec2 center float radius} {
+        float dist = length(gl_FragCoord.xy - center) - radius;
+        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
-    # set line [Display::pipeline {vec2 from vec2 to float thickness} {
-    #     float l = length(to - from);
-    #     vec2 d = (to - from) / l;
-    #     vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-    #          q = mat2(d.x, -d.y, d.y, d.x) * q;
-    #          q = abs(q) - vec2(l, thickness)*0.5;
-    #     float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+    set line [Display::pipeline {vec2 from vec2 to float thickness} {
+        float l = length(to - from);
+        vec2 d = (to - from) / l;
+        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+             q = mat2(d.x, -d.y, d.y, d.x) * q;
+             q = abs(q) - vec2(l, thickness)*0.5;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-    #     outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
-    # }]
+        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+    }]
 
     
-    # set redOnRight [Display::pipeline {} {
-    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set redOnRight [Display::pipeline {} {
+        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
     set image [Display::pipeline {sampler2D image float scale} {
         outColor = texture(samplers[image], gl_FragCoord.xy / scale);
@@ -1149,16 +1150,16 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set im [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
-    set im2 [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
+    # set im [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
+    # set im2 [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
 
     Display::drawStart
 
-    # Display::draw $circle {200 50} 30
-    # Display::draw $circle {300 300} 20
-    # Display::draw $line {0 0} {100 100} 10
-    # Display::draw $redOnRight
-    Display::draw $image $im2 200.0
+    Display::draw $circle {200 50} 30
+    Display::draw $circle {300 300} 20
+    Display::draw $line {0 0} {100 100} 10
+    Display::draw $redOnRight
+    # Display::draw $image $im2 200.0
 
     Display::drawEnd
 
