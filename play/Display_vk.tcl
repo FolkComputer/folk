@@ -724,7 +724,39 @@ namespace eval Gpu {
         glfwPollEvents();
     }
 
-    proc pipeline {args body} {
+    proc fn {args} {
+        if {[llength $args] == 3} {
+            lassign $args args rtype body
+            set fns [list]
+        } elseif {[llength $args] == 4} {
+            lassign $args args fns rtype body
+        } else {
+            error {Gpu::fn: should be used as [Gpu::fn args rtype body], or [Gpu::fn args fns rtype body]}
+        }
+        set fnDict [dict create]
+        foreach fnName $fns {
+            # TODO: Support fn being a list {fnName fn}.
+            dict set fnDict $fnName [uplevel [list set $fnName]]
+        }
+        return [list $args $fnDict $rtype $body]
+    }
+    proc pipeline {args} {
+        if {[llength $args] == 2} {
+            lassign $args args body
+            set fns [list]
+        } elseif {[llength $args] == 3} {
+            lassign $args args fns body
+        } else {
+            error {Gpu::pipeline: should be used as [Gpu::pipeline args body], or [Gpu::pipeline args fns body]}
+        }
+        set fnDict [dict create]
+        foreach fnName $fns {
+            # TODO: Support fn being a list {name fn}.
+            set fn [uplevel [list set $fnName]]
+            set fnDict [dict merge $fnDict [lindex $fn 1]]
+            dict set fnDict $fnName $fn
+        }
+
         variable vertShaderModule
         if {![info exists vertShaderModule]} {
             set vertShaderModule [createShaderModule [glslc -fshader-stage=vert {
@@ -770,7 +802,16 @@ namespace eval Gpu {
 
             layout(location = 0) out vec4 outColor;
 
-            void main() {
+            $[join [dict values [dict map {fnName fn} $fnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
+                    }
+                }
+            }] "\n"]]
+
+            vec4 frag() {
                 $[join [lmap field $pushConstants {
                     dict with field {
                         expr {"$argtype $argname = args.$argname;"}
@@ -778,6 +819,7 @@ namespace eval Gpu {
                 }] " "]
                 $body
             }
+            void main() { outColor = frag(); }
         }]]]
 
         # pipeline needs to contain a specification of push constants,
@@ -1124,7 +1166,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
     set circle [Gpu::pipeline {vec2 center float radius} {
         float dist = length(gl_FragCoord.xy - center) - radius;
-        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+        return dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
     set line [Gpu::pipeline {vec2 from vec2 to float thickness} {
@@ -1135,18 +1177,57 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
              q = abs(q) - vec2(l, thickness)*0.5;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+        return dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
     }]
 
     set redOnRight [Gpu::pipeline {} {
-        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+        return gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
-    set image [Gpu::pipeline {sampler2D image vec2 topLeft vec2 topRight vec2 bottomRight vec2 bottomLeft} {
-        // is it inside the quadrilateral (a, b, c, d)?
-        float u = length(smoothstep(topLeft, topRight, gl_FragCoord.xy));
-        float v = length(smoothstep(topRight, bottomRight, gl_FragCoord.xy));
-        outColor = texture(samplers[image], vec2(u, v));
+    set cross2d [Gpu::fn {vec2 a vec2 b} float {
+        return a.x*b.y - a.y*b.x;
+    }]
+    set invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d} {cross2d} vec2 {
+        vec2 res = vec2(-1.0);
+
+        vec2 e = b-a;
+        vec2 f = d-a;
+        vec2 g = a-b+c-d;
+        vec2 h = p-a;
+        
+        float k2 = cross2d( g, f );
+        float k1 = cross2d( e, f ) + cross2d( h, g );
+        float k0 = cross2d( h, e );
+        
+        // if edges are parallel, this is a linear equation
+        if( abs(k2)<0.001 )
+        {
+            res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
+        }
+        // otherwise, it's a quadratic
+	else
+        {
+            float w = k1*k1 - 4.0*k0*k2;
+            if( w<0.0 ) return vec2(-1.0);
+            w = sqrt( w );
+
+            float ik2 = 0.5/k2;
+            float v = (-k1 - w)*ik2;
+            float u = (h.x - f.x*v)/(e.x + g.x*v);
+            
+            if( u<0.0 || u>1.0 || v<0.0 || v>1.0 )
+            {
+                v = (-k1 + w)*ik2;
+                u = (h.x - f.x*v)/(e.x + g.x*v);
+            }
+            res = vec2( u, v );
+        }
+        return res;
+    }]
+    set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {invBilinear} {
+        float u = 0;
+        float v = 0;
+        return texture(samplers[image], vec2(u, v));
     }]
 
     # FIXME: bounding box for scissors
