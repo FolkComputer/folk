@@ -6,7 +6,7 @@ set ::isLaptop false
 proc When {args} {}
 source "virtual-programs/images.folk"
 
-namespace eval Display {
+namespace eval Gpu {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
 
     rename [c create] dc
@@ -748,7 +748,7 @@ namespace eval Display {
             lappend pushConstants [dict create argtype $argtype argname $argname]
             if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
                 elseif {$argtype eq "vec2"} { set pushConstantsSize [+ $pushConstantsSize 8] } \
-                elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
+                elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 8] } \
                 else { error "Unsupported shader argument type $argtype" }
         }
 
@@ -781,20 +781,20 @@ namespace eval Display {
 
         # pipeline needs to contain a specification of push constants,
         # so they can be filled in at draw time.
-        set pipeline [Display::createPipeline $vertShaderModule $fragShaderModule \
+        set pipeline [Gpu::createPipeline $vertShaderModule $fragShaderModule \
                           [llength $pushConstants] $pushConstants $pushConstantsSize]
         return $pipeline
     }
 
     namespace export dc
-    namespace eval GpuImageManager {
+    namespace eval ImageManager {
         namespace import [namespace parent]::*
 
         dc code {
             VkDescriptorSetLayout imageDescriptorSetLayout;
             VkDescriptorSet imageDescriptorSet;
         }
-        dc proc gpuImageManagerInit {} void {
+        dc proc imageManagerInit {} void {
             // Set up imageDescriptorSetLayout:
             {
                 VkDescriptorBindingFlags flags[1];
@@ -1116,51 +1116,56 @@ proc glslc {args} {
 
 if {[info exists ::argv0] && $::argv0 eq [info script] || \
         ([info exists ::entry] && $::entry == "play/Display_vk.tcl")} {
-    namespace eval Display { dc compile }
+    namespace eval Gpu { dc compile }
 
-    Display::init
-    Display::GpuImageManager::gpuImageManagerInit
+    Gpu::init
+    Gpu::ImageManager::imageManagerInit
 
-    # set circle [Display::pipeline {vec2 center float radius} {
-    #     float dist = length(gl_FragCoord.xy - center) - radius;
-    #     outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set circle [Gpu::pipeline {vec2 center float radius} {
+        float dist = length(gl_FragCoord.xy - center) - radius;
+        outColor = dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
-    # set line [Display::pipeline {vec2 from vec2 to float thickness} {
-    #     float l = length(to - from);
-    #     vec2 d = (to - from) / l;
-    #     vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-    #          q = mat2(d.x, -d.y, d.y, d.x) * q;
-    #          q = abs(q) - vec2(l, thickness)*0.5;
-    #     float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+    set line [Gpu::pipeline {vec2 from vec2 to float thickness} {
+        float l = length(to - from);
+        vec2 d = (to - from) / l;
+        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+             q = mat2(d.x, -d.y, d.y, d.x) * q;
+             q = abs(q) - vec2(l, thickness)*0.5;
+        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-    #     outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
-    # }]
+        outColor = dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
+    }]
 
-    
-    # set redOnRight [Display::pipeline {} {
-    #     outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    # }]
+    set redOnRight [Gpu::pipeline {} {
+        outColor = gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+    }]
 
-    set image [Display::pipeline {sampler2D image float scale} {
-        outColor = texture(samplers[image], gl_FragCoord.xy / scale);
+    set image [Gpu::pipeline {sampler2D image vec2 topLeft vec2 topRight vec2 bottomRight vec2 bottomLeft} {
+        // is it inside the quadrilateral (a, b, c, d)?
+        float u = length(smoothstep(topLeft, topRight, gl_FragCoord.xy));
+        float v = length(smoothstep(topRight, bottomRight, gl_FragCoord.xy));
+        outColor = texture(samplers[image], vec2(u, v));
     }]
 
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set im [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
-    set im2 [Display::GpuImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
+    set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
+    set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
 
-    Display::drawStart
+    Gpu::drawStart
+    # Gpu::draw $circle {200 50} 30
+    # Gpu::draw $circle {300 300} 20
+    # Gpu::draw $line {0 0} {100 100} 10
+    # Gpu::draw $redOnRight
+    Gpu::draw $image $im2 {0 0} {200 0} {200 200} {0 200}
+    Gpu::draw $line {0 0} {200 0} 10
+    Gpu::draw $line {200 0} {200 200} 10
+    Gpu::draw $line {200 200} {0 200} 10
+    Gpu::draw $line {0 200} {0 0} 10
 
-    # Display::draw $circle {200 50} 30
-    # Display::draw $circle {300 300} 20
-    # Display::draw $line {0 0} {100 100} 10
-    # Display::draw $redOnRight
-    Display::draw $image $im2 200.0
+    Gpu::drawEnd
 
-    Display::drawEnd
-
-    while 1 { Display::poll }
+    while 1 { Gpu::poll }
 }
