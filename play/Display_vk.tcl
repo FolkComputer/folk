@@ -649,7 +649,7 @@ namespace eval Gpu {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
     }
-    dc proc drawImpl {Pipeline pipeline Tcl_Obj* pushConstants} void {
+    dc proc drawImpl {Pipeline pipeline Tcl_Obj* pushConstantsObj} void {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
         // TODO: Don't rebind if already bound
@@ -657,9 +657,16 @@ namespace eval Gpu {
                                 pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
 
         if (pipeline.pushConstantsSize > 0) {
+            int pushConstantsDataSize;
+            uint8_t* pushConstantsData = Tcl_GetByteArrayFromObj(pushConstantsObj, &pushConstantsDataSize);
+            if (pushConstantsDataSize != pipeline.pushConstantsSize) {
+                fprintf(stderr, "drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+                        pipeline.pushConstantsSize, pushConstantsDataSize);
+                exit(101);
+            }
             vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
                                VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                               pipeline.pushConstantsSize, Tcl_GetByteArrayFromObj(pushConstants, NULL));
+                               pipeline.pushConstantsSize, pushConstantsData);
         }
 
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
@@ -674,6 +681,9 @@ namespace eval Gpu {
             if {$argtype eq "float"} { lappend pushConstantsFmt "f" } \
                 elseif {$argtype eq "vec2"} { lappend pushConstantsFmt "f2" } \
                 elseif {$argtype eq "int"} { lappend pushConstantsFmt "i" } \
+                elseif {[regexp {pad(\d+)} $argtype -> pad]} {
+                    lappend pushConstantsFmt "x$pad"
+                } \
                 else { error "Unsupported draw argument type $argtype" }
             lappend pushConstants [lindex $args $i]
         }
@@ -778,11 +788,19 @@ namespace eval Gpu {
         foreach {argtype argname} $args {
             if {$argtype eq "sampler2D"} { set argtype "int" }
 
-            lappend pushConstants [dict create argtype $argtype argname $argname]
             if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
-                elseif {$argtype eq "vec2"} { set pushConstantsSize [+ $pushConstantsSize 8] } \
-                elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 8] } \
+                elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
+                elseif {$argtype eq "vec2"} {
+                    set pad [expr {$pushConstantsSize % 8}]
+                    if {$pad != 0} {
+                        lappend pushConstants [dict create argtype "pad$pad" argname _]
+                        set pushConstantsSize [+ $pushConstantsSize $pad]
+                    }
+                    set pushConstantsSize [+ $pushConstantsSize 8]
+                } \
                 else { error "Unsupported shader argument type $argtype" }
+
+            lappend pushConstants [dict create argtype $argtype argname $argname]
         }
 
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
@@ -794,6 +812,7 @@ namespace eval Gpu {
                 layout(push_constant) uniform Args {
                     [join [lmap field $pushConstants {
                         dict with field {
+                            if {$argname eq "_"} continue
                             expr {"$argtype $argname;"}
                         }
                     }] "\n"]
@@ -814,6 +833,7 @@ namespace eval Gpu {
             vec4 frag() {
                 $[join [lmap field $pushConstants {
                     dict with field {
+                        if {$argname eq "_"} continue
                         expr {"$argtype $argname = args.$argname;"}
                     }
                 }] " "]
@@ -1153,7 +1173,6 @@ namespace eval Gpu {
 proc glslc {args} {
     set cmdargs [lreplace $args end end]
     set glsl [lindex $args end]
-    puts "GLSL ($glsl)"
     set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
@@ -1185,6 +1204,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         return gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
+    # Inverse bilinear interpolation, based on
+    # https://www.shadertoy.com/view/lsBSDm
     set cross2d [Gpu::fn {vec2 a vec2 b} float {
         return a.x*b.y - a.y*b.x;
     }]
@@ -1199,7 +1220,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         float k2 = cross2d( g, f );
         float k1 = cross2d( e, f ) + cross2d( h, g );
         float k0 = cross2d( h, e );
-        
+
         // if edges are parallel, this is a linear equation
         if( abs(k2)<0.001 )
         {
@@ -1228,7 +1249,10 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
-        return texture(samplers[image], uv);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(samplers[image], uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
     }]
 
     # FIXME: bounding box for scissors
