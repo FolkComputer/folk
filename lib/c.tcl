@@ -276,7 +276,7 @@ namespace eval c {
                         snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
-                        $[set type] *robj = ckalloc(sizeof($[set type]));
+                        $[set type] *robj = ($[set type] *)ckalloc(sizeof($[set type]));
                         $[join [lmap {fieldtype fieldname} $fields {
                             csubst {
                                 Tcl_Obj* obj_$fieldname;

@@ -18,6 +18,7 @@ namespace eval Gpu {
     }
     dc include <stdlib.h>
     if {$macos} {
+        dc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
         dc include <GLFW/glfw3.h>
         dc cflags -lglfw
     }
@@ -366,7 +367,7 @@ namespace eval Gpu {
         }
 
         // Set up VkFramebuffer swapchainFramebuffers[swapchainImageCount]:
-        swapchainFramebuffers = ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
+        swapchainFramebuffers = (VkFramebuffer *) ckalloc(sizeof(VkFramebuffer) * swapchainImageCount);
         for (size_t i = 0; i < swapchainImageCount; i++) {
             VkImageView attachments[] = { swapchainImageViews[i] };
             
@@ -606,7 +607,7 @@ namespace eval Gpu {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
-        PipelinePushConstant* pushConstantsRetain = ckalloc(npushConstants*sizeof(PipelinePushConstant));
+        PipelinePushConstant* pushConstantsRetain = (PipelinePushConstant*) ckalloc(npushConstants*sizeof(PipelinePushConstant));
         memcpy(pushConstantsRetain, pushConstants, npushConstants*sizeof(PipelinePushConstant));
         return (Pipeline) {
             .pipeline = pipeline,
@@ -1151,15 +1152,15 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
-    set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
+    # set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
+    # set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
 
     Gpu::drawStart
-    # Gpu::draw $circle {200 50} 30
-    # Gpu::draw $circle {300 300} 20
-    # Gpu::draw $line {0 0} {100 100} 10
-    # Gpu::draw $redOnRight
-    Gpu::draw $image $im2 {0 0} {200 0} {200 200} {0 200}
+    Gpu::draw $circle {200 50} 30
+    Gpu::draw $circle {300 300} 20
+    Gpu::draw $line {0 0} {100 100} 10
+    Gpu::draw $redOnRight
+    # Gpu::draw $image $im2 {0 0} {200 0} {200 200} {0 200}
     Gpu::draw $line {0 0} {200 0} 10
     Gpu::draw $line {200 0} {200 200} 10
     Gpu::draw $line {200 200} {0 200} 10

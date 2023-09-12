@@ -27,6 +27,9 @@ namespace eval ::image {
 
     set cc [c create]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    if {$tcl_platform(os) eq "Darwin"} {
+        $cc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    }
     $cc cflags -ljpeg
     source "pi/cUtils.tcl"
     defineImageType $cc
