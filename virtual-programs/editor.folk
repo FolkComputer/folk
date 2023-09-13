@@ -1,0 +1,196 @@
+# TODO: Make this not-hard-coded
+#       In fact, this shouldn't be "editor-1" at all but
+#       probably should be the MAC address or some Bluetooth
+#       thread ID?
+set id "editor-1"
+
+#####
+# To match to this I have another program in folk0 with:
+#   Claim $this is editor editor-1
+#####
+When /page/ is editor /n/ & /page/ has region /r/ {
+    Wish $page is outlined white
+    Claim $id has region [region move $r up 450px]
+}
+
+When $id has region /r/ {
+  Wish $id is outlined white
+}
+
+proc checkForModifier {key} {
+  set r ""
+  switch $key {
+    LEFTSHIFT { set r "shift" }
+    RIGHTSHIFT { set r "shift" }
+    LEFTCTRL { set r "control" }
+    RIGHTCTRL { set r "control" }
+  }
+  return $r
+}
+
+proc updateCursor {oldCursor updates} {
+  set newCursor $oldCursor
+  if {[dict exists $updates x]} {
+    lset newCursor 0 [expr {max(0, [dict get $updates x] + [lindex $oldCursor 0])}]
+  }
+  if {[dict exists $updates y]} {
+    lset newCursor 1 [expr {max(0, [dict get $updates y] + [lindex $oldCursor 1])}]
+  }
+  # TODO: Remove this before merging, it's just for debugging
+  puts "newCursor: $newCursor"
+  return $newCursor
+}
+
+# NOTE: Should this go into a common-functions file?
+proc x {vector} { lindex $vector 0 }
+proc y {vector} { lindex $vector 1 }
+
+Commit cursor { Claim cursor is [list 0 0]}
+
+proc insertCharacter {code newCharacter cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set x [expr {$x - 1}]
+  set line [lindex $lines $y]
+  set character [string cat [string index $line $x] $newCharacter]
+  set line [string replace $line $x $x $character]
+  lset lines $y $line
+  return [join $lines "\n"]
+}
+
+proc swapCharacter {code newCharacter cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set line [string replace $line $x $x $newCharacter]
+  lset lines $y $line
+  return [join $lines "\n"]
+}
+
+proc deleteCharacter {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  if {$x == 0 && $y > 0} {
+    set previousLine [lindex $lines [expr {$y - 1}]]
+    set thisLine [lindex $lines $y]
+    set mergedLine [string cat $previousLine $thisLine]
+    lset lines [expr {$y - 1}] $mergedLine
+    lreplace lines $y $y
+  } else {
+    set line [lindex $lines $y]
+    set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+    lset lines $y $line
+  }
+  return [join $lines "\n"]
+}
+
+proc insertNewline {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set beforeCursor [string range $line 0 [expr {$x - 1}]]
+  set afterCursor [string range $line $x end]
+  set newLines [list $beforeCursor $afterCursor]
+  lset lines $y [join $newLines "\n"]
+  return [join $lines "\n"]
+}
+
+proc insertCursor {code cursor count} {
+   if {$count % 2 == 0} {
+     return [swapCharacter $code " " $cursor]
+   } else {
+     return $code    
+   }
+}
+
+proc newRegion {program x y w h} {
+  set vertices [list [list [expr {$x+$w}] $y] \
+              [list $x $y] \
+              [list $x [expr {$y+$h}]] \
+              [list [expr {$x+$w}] [expr {$y+$h}]]]
+  set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+  Claim $program has region [region create $vertices $edges]
+}
+
+# NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
+#       but should probably be "Claim this has halo message editor" or something
+#       not as intrusive as outlining to start? Just a thought.
+set baseCode "Wish $id is outlined blue"
+Commit code { Claim $id has program code $baseCode }
+
+proc drawText {text cursor count region} {
+  set lineNumber 1
+  set showCursor [expr {$count % 2 == 0}]
+  set corner [lindex $region 0 1]
+  lassign $corner cornerX cornerY
+  foreach line [split $text "\n"] {
+     Display::text $cornerX $cornerY 5 $line 0
+  }
+}
+
+When $id has program code /code/ & /node/ has step count /count/ & cursor is /cursor/ & $id has region /r/ {
+  # NOTE: This is a useful debugging line as it flashes
+  #       the actual letter corresponding to the cursor
+  #       position. The current virtual cursor ()
+  drawText [insertCursor $code $cursor $count] $cursor $count $r
+  # drawText $code $cursor $count $r
+  # Wish $id has halo message "$count | $cursor"
+  When keyboard claims key /key/ is down with modifiers /modifier/ {
+    Wish $id has halo message "k: $key | m: $modifier"
+  }
+}
+
+# Must use `Every time` but it's incompatible with the keyboard claim or something, as written? Confer with Omar ...
+Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & cursor is /cursor/ & $id has program code /code/ {
+  Commit cursor {
+    switch $currentCharacter {
+      UP { Claim cursor is [updateCursor $cursor {y -1}] }
+      DOWN { Claim cursor is [updateCursor $cursor {y 1}] }
+      RIGHT { Claim cursor is [updateCursor $cursor {x 1}] }
+      LEFT { Claim cursor is [updateCursor $cursor {x -1}] }
+      BACKSPACE {
+        Claim cursor is [updateCursor $cursor {x -1}]
+        Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
+      }
+      SPACE {
+        Claim cursor is [updateCursor $cursor {x 1}]
+        Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
+      }
+      ENTER {
+        # Note: Still need to figure out the exact & text manipulation methods for all the
+        #      different cases of enter. This is just a simple one for now.
+        # Claim cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
+        Claim cursor is [updateCursor $cursor {x -1 y 1}]
+        # NOTE: Useful debugging print line, still figuring out the math.
+        #       Unforuntately this doesn't have consistent cursor spacing as the
+        #       X-coordinate increases.
+        puts "calc: [expr {-1 * [x $cursor]}]"
+        Commit code { Claim $id has program code [insertNewline $code $cursor] }
+      }
+      LEFTSHIFT -
+      RIGHTSHIFT -
+      LEFTCTRL -
+      RIGHTCTRL {
+        Claim cursor is $cursor
+      }
+      default {
+        puts "currentCharacter: $currentCharacter"
+        Claim cursor is [updateCursor $cursor {x 1}]
+        # Unneccessary b/c of properly handled stuff??
+        # if {$modifier == "shift"} {
+        #   set currentCharacter [string toupper $currentCharacter]
+        # }
+        if {$modifier == "ctrl" & $currentCharacter == "p"} {
+          Wish to print $code with job id [expr {rand()}]
+          return
+        }
+        if {$modifier == "ctrl" & $currentCharacter == "r"} {
+          Commit code { Claim $id has program code $baseCode }
+          Claim cursor is [list 0 0]
+          return
+        }
+        Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
+      }
+    }
+  }
+}
