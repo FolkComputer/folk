@@ -114,6 +114,7 @@ On process {
 set ::tagsCache [dict create]
 # TODO: Garbage-collect this cache.
 
+set ::aprilTime none
 When the collected matches for [list /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/] are /matches/ {
     set tagsSeen [dict create]
     foreach match $matches {
@@ -136,5 +137,6 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
         Claim tag $id has center [dict get $tag center] size [dict get $tag size]
         Claim tag $id has corners [dict get $tag corners]
     }
-    Claim the AprilTag time is [lmap m $matches {dict get $m aprilTime}]
+    set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
+    Claim the AprilTag time is $::aprilTime
 }

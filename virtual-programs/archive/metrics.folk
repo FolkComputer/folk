@@ -1,13 +1,13 @@
-When $::thisNode has step count /c/ & the camera time is /cameraTime/ & the AprilTag time is /aprilTime/ {
+When $::thisNode has step count /c/ {
   Wish $this is labelled [string trim "
 
 Metrics
 ----
 step count: $c
 step time: $::stepTime
-camera time: $cameraTime
-AprilTag time: $aprilTime
-display time: $::Display::displayTime
+camera time: $::cameraTime
+AprilTag time: $::aprilTime
+display time: $::displayTime
 
 "]
 }
