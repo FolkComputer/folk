@@ -29,6 +29,10 @@ On process {
     }
 }
 
+set ::cameraTime none
+When the camera time is /cameraTime/ {
+    set ::cameraTime $cameraTime
+}
 # For backward compatibility.
 When the camera frame is /grayFrame/ at /timestamp/ {
     Claim the camera frame is $grayFrame

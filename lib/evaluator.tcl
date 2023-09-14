@@ -1178,8 +1178,8 @@ namespace eval Evaluator {
                 case RETRACT: return 80000 - entry->seq;
                 case SAY: return 80000 + entry->seq;
 
-                case UNMATCH: return 5000 - entry->seq;
-                case RECOLLECT: return 1000 - entry->seq;
+                case UNMATCH: return 1000 - entry->seq;
+                case RECOLLECT: return 5000 - entry->seq;
             }
             return 0;
         }
