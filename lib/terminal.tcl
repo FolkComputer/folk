@@ -62,13 +62,19 @@ namespace eval Terminal {
 set cc [c create]
 $cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
 
-c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libutil.so | head -1] end]
+if {$::tcl_platform(os) ne "Darwin"} {
+    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libutil.so | head -1] end]
+}
 $cc cflags -lutil
 
 $cc include <sys/types.h>
 $cc include <stdlib.h>
 $cc include <unistd.h>
-$cc include <pty.h>
+if {$::tcl_platform(os) eq "Darwin"} {
+    $cc include <util.h>
+} else {
+    $cc include <pty.h>
+}
 $cc include <fcntl.h>
 $cc include <string.h>
 $cc include <sys/time.h>
