@@ -7,8 +7,8 @@ proc csubst {s} {
         switch $c {
             "\\" {
                 incr i; set next [string index $s $i]
-                # TODO: This is a hack to deal with \n.
-                if {$next eq "n"} { lappend result "\\" }
+                # TODO: This is a hack to deal with \n and \0.
+                if {$next eq "n" || $next eq "0"} { lappend result "\\" }
                 lappend result $next
             }
             {$} {
