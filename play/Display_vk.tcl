@@ -1266,17 +1266,25 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/u9.jpg"] 4]]
-    set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg "/Users/osnr/Downloads/793.jpg"] 4]]
+    if {$::thisNode eq "scoriae.local"} {
+        set impath "/Users/osnr/Downloads/u9.jpg"
+        set impath2 "/Users/osnr/Downloads/793.jpg"
+    } elseif {$::thisNode eq "folk0"} {
+        set impath "/home/folk/folk-images/html-energy-laptops.jpeg"
+        set impath2 "/home/folk/folk-images/megaman-sprites-5x2.jpg"
+    } else { error "Don't know what images to use." }
+    set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath] 4]]
+    set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath2] 4]]
 
     set t 0
     while 1 {
         Gpu::drawStart
 
-        # Gpu::draw $circle {200 50} 30
-        # Gpu::draw $circle {300 300} 20
-        # Gpu::draw $line {0 0} {100 100} 10
-        # Gpu::draw $redOnRight
+        Gpu::draw $circle {200 50} 30
+        Gpu::draw $circle {300 300} 20
+        Gpu::draw $line {0 0} {100 100} 10
+        Gpu::draw $redOnRight
+
         Gpu::draw $image $im2 {0 0} {200 0} {200 200} {0 200}
         Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
         Gpu::draw $line {0 0} {200 0} 10
