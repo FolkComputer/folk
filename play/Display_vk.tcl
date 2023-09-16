@@ -60,9 +60,7 @@ namespace eval Gpu {
     }
     dc proc init {} void [csubst {
         $[vktry volkInitialize()]
-        if ($macos) {
-            glfwInit();
-        }
+        $[if {$macos} { expr {"glfwInit();"} }]
 
         // Set up VkInstance instance:
         {
@@ -87,7 +85,9 @@ namespace eval Gpu {
             }} }];
             createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
             createInfo.ppEnabledExtensionNames = enabledExtensions;
-            createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            $[if {$macos} { expr {{
+                createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+            }} }]
             $[vktry {vkCreateInstance(&createInfo, NULL, &instance)}]
         }
         volkLoadInstance(instance);
@@ -176,8 +176,14 @@ namespace eval Gpu {
 
         // Get drawing surface.
         VkSurfaceKHR surface;
-        $[expr { $macos ? { GLFWwindow* window; } : {} }]
-        if (!$macos) {
+        $[expr { $macos ? {
+            GLFWwindow* window;
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
+            if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
+                fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
+            }
+        } : {
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
             createInfo.displayMode = 0; // TODO: dynamically find out
@@ -186,19 +192,7 @@ namespace eval Gpu {
             if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
-        } else {
-            /* uint32_t glfwExtensionCount = 0; */
-            /* const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount); */
-            /* for (int i = 0; i < glfwExtensionCount; i++) { */
-            /*     printf("require %d: %s\n", i, glfwExtensions[i]); */
-            /* } */
-            
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-            window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
-            if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
-                fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
-            }
-        }
+        } }]
 
         uint32_t presentQueueFamilyIndex; {
             VkBool32 presentSupport = 0; 
@@ -220,11 +214,13 @@ namespace eval Gpu {
             if (capabilities.currentExtent.width != UINT32_MAX) {
                 extent = capabilities.currentExtent;
             } else {
-                glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
-                if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
-                if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
-                if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
-                if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
+                $[expr { $macos ? {
+                    glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
+                    if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
+                    if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
+                    if (capabilities.minImageExtent.height > extent.height) { extent.height = capabilities.minImageExtent.height; }
+                    if (capabilities.maxImageExtent.height < extent.height) { extent.height = capabilities.maxImageExtent.height; }
+                } : {} }]
             }
 
             imageCount = capabilities.minImageCount + 1;
@@ -731,7 +727,7 @@ namespace eval Gpu {
     }
 
     dc proc poll {} void {
-        glfwPollEvents();
+        $[expr { $macos ? { glfwPollEvents(); } : {} }]
     }
 
     proc fn {args} {

@@ -4,7 +4,7 @@ if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting
 set thisPid [pid]
 foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
     if {$pid ne $thisPid} {
-        exec kill -9 $pid
+        try { exec kill -9 $pid } on error e { puts stderr $e }
     }
 }
 exec sleep 1
