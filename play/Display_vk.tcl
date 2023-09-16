@@ -68,7 +68,7 @@ namespace eval Gpu {
             createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
             const char* validationLayers[] = {
-                "VK_LAYER_KHRONOS_validation"
+               "VK_LAYER_KHRONOS_validation"
             };
             createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
             createInfo.ppEnabledLayerNames = validationLayers;
@@ -78,10 +78,12 @@ namespace eval Gpu {
                 VK_KHR_SURFACE_EXTENSION_NAME,
                 "VK_EXT_metal_surface",
                 "VK_KHR_get_physical_device_properties2"
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
             }} : {{
                 // 2 extensions for non-X11/Wayland display
                 VK_KHR_SURFACE_EXTENSION_NAME,
-                VK_KHR_DISPLAY_EXTENSION_NAME
+                VK_KHR_DISPLAY_EXTENSION_NAME,
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
             }} }];
             createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
             createInfo.ppEnabledExtensionNames = enabledExtensions;
@@ -183,16 +185,26 @@ namespace eval Gpu {
             if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
             }
-        } : {
+        } : [csubst {
+            // TODO: support multiple displays, pick best display mode
+
+            uint32_t displayCount = 1; VkDisplayPropertiesKHR displayProps;
+            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, &displayProps);
+
+            uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
+            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps.display, &modeCount, &modeProps);
+
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
-            createInfo.displayMode = 0; // TODO: dynamically find out
+            createInfo.displayMode = modeProps.displayMode;
             createInfo.planeIndex = 0;
+            createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+            createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
             createInfo.imageExtent = (VkExtent2D) { .width = 3840, .height = 2160 }; // TODO: find out
             if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
-        } }]
+        }] }]
 
         uint32_t presentQueueFamilyIndex; {
             VkBool32 presentSupport = 0; 
