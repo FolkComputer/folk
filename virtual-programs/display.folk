@@ -38,8 +38,25 @@ namespace eval ::Display {
 }
 
 On process {
-    source pi/Display.tcl
-    Display::init
+    source pi/Gpu.tcl
+    Gpu::init
+
+    namespace eval Display {
+        proc start {} {}
+
+        proc stroke {points width color} {
+
+        }
+        proc circle {x y radius thickness color} {}
+        proc text {x y scale text radians} {}
+        proc fillTriangle {args} {}
+        proc fillQuad {args} {}
+        proc fillPolygon {args} {}
+        proc image {x y im radians {scale 1.0}} {}
+
+        proc end {} {}
+    }
+
     puts "Display tid: [getTid]"
 
     # TODO: Clean this up. We retract these so that we don't bounce
@@ -77,11 +94,13 @@ On process {
         }
 
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
+        set renderTime [baretime {
+            Display::start
+            foreach command $displayCommands { {*}$command }
+            Display::end
+        }]
 
-        set renderTime [baretime [list foreach command $displayCommands { {*}$command }]]
-        set commitTime [baretime commitThenClearStaging]
-
-        Commit { Claim the display time is "render $renderTime us + commit $commitTime us ($::stepTime)" }
+        Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
         Step
     }
 }
