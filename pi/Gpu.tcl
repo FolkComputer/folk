@@ -5,6 +5,10 @@
 #     can draw images, shapes, etc from Display.)
 
 source "pi/cUtils.tcl"
+if {[info exists ::argv0] && $::argv0 eq [info script] || \
+        ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
+    proc When {args} {}
+}
 source "virtual-programs/images.folk"
 
 namespace eval ::Gpu {
@@ -78,7 +82,6 @@ namespace eval ::Gpu {
                 VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
                 VK_KHR_SURFACE_EXTENSION_NAME,
                 "VK_EXT_metal_surface",
-                "VK_KHR_get_physical_device_properties2"
                 VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
             }} : {{
                 // 2 extensions for non-X11/Wayland display
@@ -689,6 +692,8 @@ namespace eval ::Gpu {
             set argtype [PipelinePushConstant argtype $pushConstantField]
             if {$argtype eq "float"} { lappend pushConstantsFmt "f" } \
                 elseif {$argtype eq "vec2"} { lappend pushConstantsFmt "f2" } \
+                elseif {$argtype eq "vec3"} { lappend pushConstantsFmt "f3" } \
+                elseif {$argtype eq "vec4"} { lappend pushConstantsFmt "f4" } \
                 elseif {$argtype eq "int"} { lappend pushConstantsFmt "i" } \
                 elseif {[regexp {pad(\d+)} $argtype -> pad]} {
                     lappend pushConstantsFmt "x$pad"
@@ -794,19 +799,23 @@ namespace eval ::Gpu {
 
         set pushConstants [list]
         set pushConstantsSize 0
+        proc align {numBytes} {
+            upvar pushConstants pushConstants
+            upvar pushConstantsSize pushConstantsSize
+            set pad [expr {$pushConstantsSize % $numBytes}]
+            if {$pad != 0} {
+                lappend pushConstants [dict create argtype "pad$pad" argname _]
+                set pushConstantsSize [+ $pushConstantsSize $pad]
+            }
+        }
         foreach {argtype argname} $args {
             if {$argtype eq "sampler2D"} { set argtype "int" }
 
             if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
                 elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
-                elseif {$argtype eq "vec2"} {
-                    set pad [expr {$pushConstantsSize % 8}]
-                    if {$pad != 0} {
-                        lappend pushConstants [dict create argtype "pad$pad" argname _]
-                        set pushConstantsSize [+ $pushConstantsSize $pad]
-                    }
-                    set pushConstantsSize [+ $pushConstantsSize 8]
-                } \
+                elseif {$argtype eq "vec2"} { align 8; set pushConstantsSize [+ $pushConstantsSize 8] } \
+                elseif {$argtype eq "vec3"} { align 12; set pushConstantsSize [+ $pushConstantsSize 12] } \
+                elseif {$argtype eq "vec4"} { align 16; set pushConstantsSize [+ $pushConstantsSize 16] } \
                 else { error "Unsupported shader argument type $argtype" }
 
             lappend pushConstants [dict create argtype $argtype argname $argname]
@@ -1189,7 +1198,7 @@ proc glslc {args} {
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script] || \
-        ([info exists ::entry] && $::entry == "play/Display_vk.tcl")} {
+        ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
     Gpu::init
     Gpu::ImageManager::imageManagerInit
 
@@ -1255,6 +1264,57 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         }
         return res;
     }]
+
+    namespace eval font {
+        proc load {name} {
+            set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+            set glyphInfos [dict create]
+            foreach line [split $csv "\n"] {
+                set info [lassign [split $line ,] glyph]
+                lassign $info advance \
+                    planeLeft planeBottom planeRight planeTop \
+                    atlasLeft atlasBottom atlasRight atlasTop
+                dict set glyphInfos $glyph \
+                    [list $advance \
+                         [list $planeLeft $planeBottom $planeRight $planeTop] \
+                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+            }
+
+            set im [image load "[pwd]/vendor/fonts/$name.png"]
+            set gim [Gpu::ImageManager::copyImageToGpu [image rechannel $im 4]]
+
+            return [list $glyphInfos $im $gim]
+        }
+        proc glyphInfo {font char} { dict get [lindex $font 0] $char }
+        proc atlasImage {font} { lindex $font 1 }
+        proc gpuAtlasImage {font} { lindex $font 2 }
+
+        namespace export *
+        namespace ensemble create
+    }
+    set font [font load "PTSans-Regular"]
+    set glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+        vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
+        return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
+    }]
+    set median [Gpu::fn {float r float g float b} float {
+        return max(min(r, g), min(max(r, g), b));
+    }]
+    set glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
+                              vec4 atlasGlyphBounds
+                              vec2 a vec2 b vec2 c vec2 d} \
+                   {invBilinear glyphMsd median} {
+        vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
+        if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
+            return vec4(0, 0, 0, 0);
+        }
+
+        vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+        float sd = median(msd.r, msd.g, msd.b);
+        float screenPxDistance = 4.5*(sd - 0.5);
+        float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+        return mix(vec4(0, 0, 0, 1), vec4(1, 1, 1, 1), opacity);
+    }]
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
@@ -1267,7 +1327,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     # FIXME: bounding box for scissors
     # FIXME: sampler2D, text
 
-    if {$::thisNode eq "scoriae.local"} {
+    if {[string match "scoriae*" $::thisNode]} {
         set impath "/Users/osnr/Downloads/u9.jpg"
         set impath2 "/Users/osnr/Downloads/793.jpg"
     } elseif {$::thisNode eq "folk0"} {
@@ -1277,6 +1337,27 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath] 4]]
     set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath2] 4]]
 
+    proc text {x0 y0 scale text radians} {
+        upvar font font
+        upvar glyph glyph
+        set fontAtlas [font gpuAtlasImage $font]
+        set fontAtlasSize [list [::image width [font atlasImage $font]] \
+                               [::image height [font atlasImage $font]]]
+        set x $x0; set y $y0
+        for {set i 0} {$i < [string length $text]} {incr i} {
+            if {[string index $text $i] eq "\n"} {
+                set y [+ $y 100]; set x $x0; continue
+            }
+            try {
+                set glyphInfo [font glyphInfo $font [scan [string index $text $i] %c]]
+                Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                    [lindex $glyphInfo 2] \
+                    [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]
+                set x [+ $x 100]
+            } on error e { puts stderr $e }
+        }
+    }
+    
     set t 0
     while 1 {
         Gpu::drawStart
@@ -1292,6 +1373,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         Gpu::draw $line {200 0} {200 200} 10
         Gpu::draw $line {200 200} {0 200} 10
         Gpu::draw $line {0 200} {0 0} 10
+        text 0 0 1.0 "Hello there!" 0
 
         Gpu::drawEnd
 

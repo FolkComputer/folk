@@ -5,8 +5,6 @@
 #     Wish $this displays camera slice $slice
 # }
 
-if {$::isLaptop} { return }
-
 # Generic image class for sub-image manipulations
 namespace eval ::image {
     proc width {im} { dict get $im width }
@@ -32,7 +30,7 @@ namespace eval ::image {
         $cc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
     }
 
-    $cc cflags -ljpeg
+    $cc cflags -ljpeg -lpng
     source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>

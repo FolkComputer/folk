@@ -43,6 +43,98 @@ On process {
     Gpu::ImageManager::imageManagerInit
 
     namespace eval Display {
+        variable cross2d [Gpu::fn {vec2 a vec2 b} float {
+            return a.x*b.y - a.y*b.x;
+        }]
+        variable invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d} {cross2d} vec2 {
+            vec2 res = vec2(-1.0);
+
+            vec2 e = b-a;
+            vec2 f = d-a;
+            vec2 g = a-b+c-d;
+            vec2 h = p-a;
+            
+            float k2 = cross2d( g, f );
+            float k1 = cross2d( e, f ) + cross2d( h, g );
+            float k0 = cross2d( h, e );
+
+            // if edges are parallel, this is a linear equation
+            if( abs(k2)<0.001 )
+            {
+                res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
+            }
+            // otherwise, it's a quadratic
+            else
+            {
+                float w = k1*k1 - 4.0*k0*k2;
+                if( w<0.0 ) return vec2(-1.0);
+                w = sqrt( w );
+
+                float ik2 = 0.5/k2;
+                float v = (-k1 - w)*ik2;
+                float u = (h.x - f.x*v)/(e.x + g.x*v);
+                
+                if( u<0.0 || u>1.0 || v<0.0 || v>1.0 )
+                {
+                    v = (-k1 + w)*ik2;
+                    u = (h.x - f.x*v)/(e.x + g.x*v);
+                }
+                res = vec2( u, v );
+            }
+            return res;
+        }]
+
+        namespace eval font {
+            proc load {name} {
+                set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+                set glyphInfos [dict create]
+                foreach line [split $csv "\n"] {
+                set info [lassign [split $line ,] glyph]
+                lassign $info advance \
+                    planeLeft planeBottom planeRight planeTop \
+                    atlasLeft atlasBottom atlasRight atlasTop
+                dict set glyphInfos $glyph \
+                    [list $advance \
+                         [list $planeLeft $planeBottom $planeRight $planeTop] \
+                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+                }
+
+                set im [image load "[pwd]/vendor/fonts/$name.png"]
+                set gim [Gpu::ImageManager::copyImageToGpu [image rechannel $im 4]]
+
+                return [list $glyphInfos $im $gim]
+            }
+            proc glyphInfo {font char} { dict get [lindex $font 0] $char }
+            proc atlasImage {font} { lindex $font 1 }
+            proc gpuAtlasImage {font} { lindex $font 2 }
+
+            namespace export *
+            namespace ensemble create
+        }
+        variable font [font load "PTSans-Regular"]
+        variable glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+            vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
+            return texture(atlas,  vec2(atlasUv.x, 1.0-atlasUv.y));
+        }]
+        variable median [Gpu::fn {float r float g float b} float {
+            return max(min(r, g), min(max(r, g), b));
+        }]
+        variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
+                                       vec4 atlasGlyphBounds
+                                       vec2 a vec2 b vec2 c vec2 d} \
+                            {invBilinear glyphMsd median} {
+            vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
+            if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
+                return vec4(0, 0, 0, 0);
+            }
+
+            vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+            float sd = median(msd.r, msd.g, msd.b);
+            float screenPxDistance = 4.5*(sd - 0.5);
+            float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+            return mix(vec4(0, 0, 0, 1), vec4(1, 1, 1, 1), opacity);
+        }]
+
         variable line [Gpu::pipeline {vec2 from vec2 to float thickness} {
             float l = length(to - from);
             vec2 d = (to - from) / l;
@@ -65,7 +157,26 @@ On process {
             }
         }
         proc circle {x y radius thickness color} {}
-        proc text {x y scale text radians} {}
+        proc text {x0 y0 scale text radians} {
+            variable font
+            variable glyph
+            set fontAtlas [font gpuAtlasImage $font]
+            set fontAtlasSize [list [::image width [font atlasImage $font]] \
+                                   [::image height [font atlasImage $font]]]
+            set x $x0; set y $y0
+            for {set i 0} {$i < [string length $text]} {incr i} {
+                if {[string index $text $i] eq "\n"} {
+                    set y [+ $y 100]; set x $x0; continue
+                }
+                try {
+                    set glyphInfo [font glyphInfo $font [scan [string index $text $i] %c]]
+                    Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                        [lindex $glyphInfo 2] \
+                        [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]
+                    set x [+ $x 100]
+                } on error e { puts stderr $e }
+            }
+        }
         proc fillTriangle {args} {}
         proc fillQuad {args} {}
         proc fillPolygon {args} {}
