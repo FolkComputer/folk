@@ -1,10 +1,12 @@
-if {$::isLaptop} return
-
 namespace eval ::Display {
     variable WIDTH
     variable HEIGHT
     variable LAYER 0
-    regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+    if {$::isLaptop} {
+        set WIDTH 640; set HEIGHT 480
+    } else {
+        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+    }
 
     proc drawOnTop {func args} {
         set ::Display::LAYER 1
@@ -12,28 +14,14 @@ namespace eval ::Display {
         set ::Display::LAYER 0
     }
 
-    proc stroke {points width color} {
-        uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $::Display::LAYER]
-    }
-
-    proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $::Display::LAYER]
-    }
-
-    proc text args {
-        uplevel [list Wish display runs [list Display::text {*}$args] on layer $::Display::LAYER]
-    }
-
-    proc fillTriangle args {
-        uplevel [list Wish display runs [list Display::fillTriangle {*}$args] on layer $::Display::LAYER]
-    }
-
-    proc fillQuad args {
-        uplevel [list Wish display runs [list Display::fillQuad {*}$args] on layer $::Display::LAYER]
-    }
-
-    proc fillPolygon args {
-        uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $::Display::LAYER]
+    # Create proxy versions of drawing primitives for the main Folk
+    # process (that will forward those draw commands to the display
+    # subprocess).
+    foreach func {stroke circle text fillTriangle fillQuad fillPolygon} {
+        proc $func args {
+            set func [lindex [info level 0] 0]
+            uplevel [list Wish display runs [list $func {*}$args] on layer $::Display::LAYER]
+        }
     }
 }
 
@@ -163,17 +151,26 @@ On process {
             set fontAtlas [font gpuAtlasImage $font]
             set fontAtlasSize [list [::image width [font atlasImage $font]] \
                                    [::image height [font atlasImage $font]]]
+            set em [* $scale 40.0]
             set x $x0; set y $y0
             for {set i 0} {$i < [string length $text]} {incr i} {
-                if {[string index $text $i] eq "\n"} {
-                    set y [+ $y 100]; set x $x0; continue
+                set char [string index $text $i]
+                if {$char eq "\n"} {
+                    set y [+ $y $em]; set x $x0; continue
                 }
                 try {
-                    set glyphInfo [font glyphInfo $font [scan [string index $text $i] %c]]
-                    Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                        [lindex $glyphInfo 2] \
-                        [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]
-                    set x [+ $x 100]
+                    set glyphInfo [font glyphInfo $font [scan $char %c]]
+                    lassign $glyphInfo advance planeBounds atlasBounds
+                    if {$char ne " "} {
+                        lassign [lmap v $planeBounds {* $v $em}] left bottom right top
+                        Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                            $atlasBounds \
+                            [list [+ $x $left] [- $y $top]] \
+                            [list [+ $x $right] [- $y $top]] \
+                            [list [+ $x $right] [+ $y $bottom]] \
+                            [list [+ $x $left] [+ $y $bottom]]
+                    }
+                    set x [+ $x [* $advance $em]]
                 } on error e { puts stderr $e }
             }
         }
@@ -182,10 +179,10 @@ On process {
         proc fillPolygon {args} {}
         proc image {x y im radians {scale 1.0}} {}
 
-        proc end {} { Gpu::drawEnd }
+        proc end {} { Gpu::drawEnd; Gpu::poll }
     }
 
-    puts "Display tid: [getTid]"
+    puts "Display pid: [pid]"
 
     # TODO: Clean this up. We retract these so that we don't bounce
     # statements back to the main Folk process that it sends us.
@@ -224,6 +221,7 @@ On process {
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
         set renderTime [baretime {
             Display::start
+            Display::text 100 100 1.0 "Hello, world!" 0
             foreach command $displayCommands { {*}$command }
             Display::end
         }]
