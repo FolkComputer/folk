@@ -13,6 +13,12 @@ source "virtual-programs/images.folk"
 
 namespace eval ::Gpu {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
+    
+    if {$::isLaptop} {
+        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
+    } else {
+        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+    }
 
     rename [c create] dc
     defineImageType dc
@@ -690,11 +696,13 @@ namespace eval ::Gpu {
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
 
-    # Draw to the screen using pipeline `pipeline`, within the
-    # vertices of `quad`. Each arg in `args` should be a push-constant
-    # parameter of the pipeline's pixel (fragment) shader. Can only be
-    # called between `drawStart` and `drawEnd`.
+    # Draw to the screen using pipeline `pipeline`. Each arg in
+    # `args` should be a push-constant parameter of the pipeline's
+    # pixel (fragment) shader. Can only be called between `drawStart`
+    # and `drawEnd`.
     proc draw {pipeline args} {
+        variable WIDTH; variable HEIGHT
+        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
         set pushConstantsFmt [list]
         set pushConstants [list]
         for {set i 0; set argidx 0} {$i < [Pipeline npushConstants $pipeline]} {incr i} {
@@ -819,6 +827,7 @@ namespace eval ::Gpu {
                 set pushConstantsSize [+ $pushConstantsSize $pad]
             }
         }
+        set args [linsert $args 0 vec2 _resolution];
         foreach {argtype argname} $args {
             if {$argtype eq "sampler2D"} { set argtype "int" }
 
@@ -1304,7 +1313,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[4] = vec2[4](a, b, c, d);
-        vec2 v = (2.0*vertices[gl_VertexIndex] - 2*vec2(640, 480))/(2*vec2(640, 480));
+        vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
         return vec4(v, 0.0, 1.0);
     } {invBilinear} {
         vec2 p = gl_FragCoord.xy;
