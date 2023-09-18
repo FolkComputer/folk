@@ -514,7 +514,7 @@ namespace eval ::Gpu {
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
             inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-            // We're just going to draw a fullscreen quad (4 vertices
+            // We're just going to draw a quad (4 vertices
             // -> first 3 vertices are top-left triangle, last 3
             // vertices are bottom-right triangle).
             inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
@@ -686,7 +686,8 @@ namespace eval ::Gpu {
                                pipeline.pushConstantsSize, pushConstantsData);
         }
 
-        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
+        // 1 quad -> 2 triangles -> 6 vertices
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
 
     # Draw to the screen using pipeline `pipeline`, within the
@@ -1255,7 +1256,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     }]
 
     set redOnRight [Gpu::pipeline {} $fullScreenVert {
-        return gl_FragCoord.x > 400 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
+        return gl_FragCoord.x > 640 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
     # Inverse bilinear interpolation, based on
@@ -1301,7 +1302,11 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         return res;
     }]
 
-    set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} $fullScreenVert {invBilinear} {
+    set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
+        vec2 vertices[4] = vec2[4](a, b, c, d);
+        vec2 v = (2.0*vertices[gl_VertexIndex] - 2*vec2(640, 480))/(2*vec2(640, 480));
+        return vec4(v, 0.0, 1.0);
+    } {invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
@@ -1309,9 +1314,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         }
         return vec4(0.0, 0.0, 0.0, 0.0);
     }]
-
-    # FIXME: bounding box for scissors
-    # FIXME: sampler2D, text
 
     if {[string match "scoriae*" $::thisNode]} {
         set impath "/Users/osnr/Downloads/u9.jpg"
@@ -1332,12 +1334,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         Gpu::draw $line {0 0} {100 100} 10
         Gpu::draw $redOnRight
 
-        Gpu::draw $image $im2 {0 0} {200 0} {200 200} {0 200}
+        Gpu::draw $image $im2 {100 0} {200 0} {200 200} {100 200}
         Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
-        Gpu::draw $line {0 0} {200 0} 10
+        Gpu::draw $line {100 0} {200 0} 10
         Gpu::draw $line {200 0} {200 200} 10
-        Gpu::draw $line {200 200} {0 200} 10
-        Gpu::draw $line {0 200} {0 0} 10
+        Gpu::draw $line {200 200} {100 200} 10
+        Gpu::draw $line {100 200} {100 0} 10
 
         Gpu::drawEnd
 
