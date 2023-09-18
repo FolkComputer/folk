@@ -167,7 +167,7 @@ On process {
                                       [list [+ $x $right] [- $y $top]] \
                                       [list [+ $x $right] [- $y $bottom]] \
                                       [list [+ $x $left] [- $y $bottom]]]
-                        stroke $quad 10 red
+                        # stroke $quad 10 red
                         Gpu::draw $glyph $fontAtlas $fontAtlasSize \
                             $atlasBounds {*}$quad
                     }
@@ -223,7 +223,7 @@ On process {
         set renderTime [baretime {
             Display::start
             Display::text 100 100 1.0 "Hello, pworld!" 0
-            Display::stroke {{100 100} {400 100}} 4 red
+            # Display::stroke {{100 100} {400 100}} 4 red
             foreach command $displayCommands { {*}$command }
             Display::end
         }]
