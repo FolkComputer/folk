@@ -1265,56 +1265,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         return res;
     }]
 
-    namespace eval font {
-        proc load {name} {
-            set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
-            set glyphInfos [dict create]
-            foreach line [split $csv "\n"] {
-                set info [lassign [split $line ,] glyph]
-                lassign $info advance \
-                    planeLeft planeBottom planeRight planeTop \
-                    atlasLeft atlasBottom atlasRight atlasTop
-                dict set glyphInfos $glyph \
-                    [list $advance \
-                         [list $planeLeft $planeBottom $planeRight $planeTop] \
-                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
-            }
-
-            set im [image load "[pwd]/vendor/fonts/$name.png"]
-            set gim [Gpu::ImageManager::copyImageToGpu [image rechannel $im 4]]
-
-            return [list $glyphInfos $im $gim]
-        }
-        proc glyphInfo {font char} { dict get [lindex $font 0] $char }
-        proc atlasImage {font} { lindex $font 1 }
-        proc gpuAtlasImage {font} { lindex $font 2 }
-
-        namespace export *
-        namespace ensemble create
-    }
-    set font [font load "PTSans-Regular"]
-    set glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
-        vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
-        return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
-    }]
-    set median [Gpu::fn {float r float g float b} float {
-        return max(min(r, g), min(max(r, g), b));
-    }]
-    set glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
-                              vec4 atlasGlyphBounds
-                              vec2 a vec2 b vec2 c vec2 d} \
-                   {invBilinear glyphMsd median} {
-        vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
-        if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
-            return vec4(0, 0, 0, 0);
-        }
-
-        vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
-        float sd = median(msd.r, msd.g, msd.b);
-        float screenPxDistance = 4.5*(sd - 0.5);
-        float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-        return mix(vec4(0, 0, 0, 1), vec4(1, 1, 1, 1), opacity);
-    }]
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
@@ -1336,27 +1286,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     } else { error "Don't know what images to use." }
     set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath] 4]]
     set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath2] 4]]
-
-    proc text {x0 y0 scale text radians} {
-        upvar font font
-        upvar glyph glyph
-        set fontAtlas [font gpuAtlasImage $font]
-        set fontAtlasSize [list [::image width [font atlasImage $font]] \
-                               [::image height [font atlasImage $font]]]
-        set x $x0; set y $y0
-        for {set i 0} {$i < [string length $text]} {incr i} {
-            if {[string index $text $i] eq "\n"} {
-                set y [+ $y 100]; set x $x0; continue
-            }
-            try {
-                set glyphInfo [font glyphInfo $font [scan [string index $text $i] %c]]
-                Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                    [lindex $glyphInfo 2] \
-                    [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]
-                set x [+ $x 100]
-            } on error e { puts stderr $e }
-        }
-    }
     
     set t 0
     while 1 {
@@ -1373,7 +1302,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         Gpu::draw $line {200 0} {200 200} 10
         Gpu::draw $line {200 200} {0 200} 10
         Gpu::draw $line {0 200} {0 0} 10
-        text 0 0 1.0 "Hello there!" 0
 
         Gpu::drawEnd
 

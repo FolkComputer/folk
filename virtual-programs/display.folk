@@ -115,7 +115,6 @@ On process {
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
                 return vec4(0, 0, 0, 0);
             }
-
             vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
             float sd = median(msd.r, msd.g, msd.b);
             float screenPxDistance = 4.5*(sd - 0.5);
@@ -163,12 +162,14 @@ On process {
                     lassign $glyphInfo advance planeBounds atlasBounds
                     if {$char ne " "} {
                         lassign [lmap v $planeBounds {* $v $em}] left bottom right top
+                        set quad [list \
+                                      [list [+ $x $left] [- $y $top]] \
+                                      [list [+ $x $right] [- $y $top]] \
+                                      [list [+ $x $right] [- $y $bottom]] \
+                                      [list [+ $x $left] [- $y $bottom]]]
+                        stroke $quad 10 red
                         Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                            $atlasBounds \
-                            [list [+ $x $left] [- $y $top]] \
-                            [list [+ $x $right] [- $y $top]] \
-                            [list [+ $x $right] [+ $y $bottom]] \
-                            [list [+ $x $left] [+ $y $bottom]]
+                            $atlasBounds {*}$quad
                     }
                     set x [+ $x [* $advance $em]]
                 } on error e { puts stderr $e }
@@ -221,7 +222,8 @@ On process {
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
         set renderTime [baretime {
             Display::start
-            Display::text 100 100 1.0 "Hello, world!" 0
+            Display::text 100 100 1.0 "Hello, pworld!" 0
+            Display::stroke {{100 100} {400 100}} 4 red
             foreach command $displayCommands { {*}$command }
             Display::end
         }]
