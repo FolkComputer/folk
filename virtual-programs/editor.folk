@@ -9,12 +9,8 @@ set id "editor-1"
 #   Claim $this is editor editor-1
 #####
 When /page/ is editor /n/ & /page/ has region /r/ {
-    Wish $page is outlined white
+    Wish $page is outlined gray
     Claim $id has region [region move $r up 450px]
-}
-
-When $id has region /r/ {
-  Wish $id is outlined white
 }
 
 proc checkForModifier {key} {
@@ -37,7 +33,7 @@ proc updateCursor {oldCursor updates} {
     lset newCursor 1 [expr {max(0, [dict get $updates y] + [lindex $oldCursor 1])}]
   }
   # TODO: Remove this before merging, it's just for debugging
-  puts "newCursor: $newCursor"
+  # puts "newCursor: $newCursor"
   return $newCursor
 }
 
@@ -121,11 +117,16 @@ Commit code { Claim $id has program code $baseCode }
 proc drawText {text cursor count region} {
   set lineNumber 1
   set showCursor [expr {$count % 2 == 0}]
-  set corner [lindex $region 0 0]
+  set corner [region topleft $region]
   set angle [region angle $region]
   lassign $corner cornerX cornerY
   foreach line [split $text "\n"] {
-     Display::text $cornerX $cornerY 2 $line $angle
+     set lineCornerY [- $cornerY [* $lineNumber 50]]
+     # subtract $cornerX by half the length of the line to left-align it
+    set lineCornerX [- $cornerX [* [string length $line] 9]]
+     Display::text $lineCornerX $lineCornerY 2 $line $angle
+     Display::circle $cornerX $cornerY 50 5 gold
+     Display::circle $lineCornerX $lineCornerY 50 5 white
      set lineNumber [+ $lineNumber 1]
   }
 }
@@ -166,7 +167,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         # NOTE: Useful debugging print line, still figuring out the math.
         #       Unforuntately this doesn't have consistent cursor spacing as the
         #       X-coordinate increases.
-        puts "calc: [expr {-1 * [x $cursor]}]"
+        # puts "calc: [expr {-1 * [x $cursor]}]"
         Commit code { Claim $id has program code [insertNewline $code $cursor] }
       }
       LEFTSHIFT -
@@ -176,7 +177,6 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Claim cursor is $cursor
       }
       default {
-        puts "currentCharacter: $currentCharacter"
         Claim cursor is [updateCursor $cursor {x 1}]
         # Unneccessary b/c of properly handled stuff??
         # if {$modifier == "shift"} {
