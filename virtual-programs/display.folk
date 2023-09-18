@@ -168,7 +168,7 @@ On process {
                                       [list [+ $x $right] [- $y $bottom]] \
                                       [list [+ $x $left] [- $y $bottom]]]
                         # stroke $quad 10 red
-                        Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                        Gpu::draw $glyph $quad $fontAtlas $fontAtlasSize \
                             $atlasBounds {*}$quad
                     }
                     set x [+ $x [* $advance $em]]

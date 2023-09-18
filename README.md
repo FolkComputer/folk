@@ -229,8 +229,6 @@ created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
-See also our [WIP language style guide](docs/tcl.md).
-
 These are all implemented in `main.tcl`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
 
@@ -563,18 +561,10 @@ Use `fn` instead of `proc` to get a lexically captured command.
 Use `try` (and `on error`) in new code. Avoid using `catch`; it's
 older and easier to get wrong.
 
-#### Return
+#### apply
 
-In general, don't use `return` if it's the last statement in a code
-block. Just put the statement there whose value you want to return.
-
-Bad: `proc add {a b} { return [expr {$a + $b}] }`
-Good: `proc add {a b} { expr {$a + $b} }`
-
-Bad: `set x 3; return $x`
-Good: `set x 3; set x`
-
-You should use `return` only when you actually need to return _early_.
+Use `apply` instead of `subst` to construct lambdas/code blocks,
+except for one-liners (where you can use `list`)
 
 #### Tcl datatypes
 
