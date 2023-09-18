@@ -35,8 +35,6 @@ namespace eval ::Display {
     proc fillPolygon args {
         uplevel [list Wish display runs [list Display::fillPolygon {*}$args] on layer $::Display::LAYER]
     }
-
-    variable displayTime none
 }
 
 On process {
@@ -87,7 +85,10 @@ On process {
         Step
     }
 }
-# TODO: remove this compatibility hack
+
+set ::Display::displayTime none
+set ::displayTime none
 When the display time is /displayTime/ {
     set ::Display::displayTime $displayTime
+    set ::displayTime $displayTime
 }
