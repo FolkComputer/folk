@@ -109,8 +109,10 @@ On process {
         }]
         variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
                                        vec4 atlasGlyphBounds
-                                       vec2 a vec2 b vec2 c vec2 d} \
-                            {invBilinear glyphMsd median} {
+                                       vec2 a vec2 b vec2 c vec2 d} {
+            vec2 vertices[4] = vec2[4](vec2(-1, -1), vec2(1, -1), vec2(-1, 1), vec2(1, 1));
+            return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        } {invBilinear glyphMsd median} {
             vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
                 return vec4(0, 0, 0, 0);
@@ -123,6 +125,9 @@ On process {
         }]
 
         variable line [Gpu::pipeline {vec2 from vec2 to float thickness} {
+            vec2 vertices[4] = vec2[4](vec2(-1, -1), vec2(1, -1), vec2(-1, 1), vec2(1, 1));
+            return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        } {
             float l = length(to - from);
             vec2 d = (to - from) / l;
             vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
@@ -168,7 +173,7 @@ On process {
                                       [list [+ $x $right] [- $y $bottom]] \
                                       [list [+ $x $left] [- $y $bottom]]]
                         # stroke $quad 10 red
-                        Gpu::draw $glyph $quad $fontAtlas $fontAtlasSize \
+                        Gpu::draw $glyph $fontAtlas $fontAtlasSize \
                             $atlasBounds {*}$quad
                     }
                     set x [+ $x [* $advance $em]]
