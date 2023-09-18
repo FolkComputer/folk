@@ -115,16 +115,18 @@ proc newRegion {program x y w h} {
 # NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
-set baseCode "Wish $id is outlined blue"
+set baseCode "Wish $id is outlined blue\nWish $this is labelled hello"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
   set lineNumber 1
   set showCursor [expr {$count % 2 == 0}]
-  set corner [lindex $region 0 1]
+  set corner [lindex $region 0 0]
+  set angle [region angle $region]
   lassign $corner cornerX cornerY
   foreach line [split $text "\n"] {
-     Display::text $cornerX $cornerY 5 $line 0
+     Display::text $cornerX $cornerY 2 $line $angle
+     set lineNumber [+ $lineNumber 1]
   }
 }
 
@@ -160,7 +162,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         # Note: Still need to figure out the exact & text manipulation methods for all the
         #      different cases of enter. This is just a simple one for now.
         # Claim cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
-        Claim cursor is [updateCursor $cursor {x -1 y 1}]
+        Claim cursor is [updateCursor $cursor {x 0 y 1}]
         # NOTE: Useful debugging print line, still figuring out the math.
         #       Unforuntately this doesn't have consistent cursor spacing as the
         #       X-coordinate increases.
