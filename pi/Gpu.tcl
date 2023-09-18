@@ -662,11 +662,16 @@ namespace eval ::Gpu {
         }
     }
     dc proc drawImpl {Pipeline pipeline Tcl_Obj* pushConstantsObj} void {
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        static VkPipeline boundPipeline = VK_NULL_HANDLE;
+        if (boundPipeline != pipeline.pipeline) {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+        }
 
-        // TODO: Don't rebind if already bound
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
+        static VkDescriptorSet boundDescriptorSet = VK_NULL_HANDLE;
+        if (boundDescriptorSet != imageDescriptorSet) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
+        }
 
         if (pipeline.pushConstantsSize > 0) {
             int pushConstantsDataSize;
@@ -684,7 +689,6 @@ namespace eval ::Gpu {
         vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
     proc draw {pipeline args} {
-        # TODO: Figure out packing rules for PUSHCONSTANTS struct.
         set pushConstantsFmt [list]
         set pushConstants [list]
         for {set i 0} {$i < [Pipeline npushConstants $pipeline]} {incr i} {
