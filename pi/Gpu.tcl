@@ -520,9 +520,9 @@ namespace eval ::Gpu {
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
             inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-            // We're just going to draw a quad (4 vertices
-            // -> first 3 vertices are top-left triangle, last 3
-            // vertices are bottom-right triangle).
+            // We're just going to draw a quad (4 vertices -> first 3
+            // vertices are top-left triangle, last 3 vertices are
+            // bottom-right triangle).
             inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
             inputAssembly.primitiveRestartEnable = VK_FALSE;
         }
@@ -1312,7 +1312,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     }]
 
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
-        vec2 vertices[4] = vec2[4](a, b, c, d);
+        vec2 vertices[4] = vec2[4](a, b, d, c);
         vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
         return vec4(v, 0.0, 1.0);
     } {invBilinear} {

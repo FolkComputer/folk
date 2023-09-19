@@ -110,7 +110,7 @@ On process {
         variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
                                        vec4 atlasGlyphBounds
                                        vec2 a vec2 b vec2 c vec2 d} {
-            vec2 vertices[4] = vec2[4](a, b, c, d);
+            vec2 vertices[4] = vec2[4](a, b, d, c);
             vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
             return vec4(v, 0.0, 1.0);
         } {invBilinear glyphMsd median} {
@@ -122,7 +122,7 @@ On process {
             float sd = median(msd.r, msd.g, msd.b);
             float screenPxDistance = 4.5*(sd - 0.5);
             float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-            return mix(vec4(0, 0, 0, 1), vec4(1, 1, 1, 1), opacity);
+            return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
         }]
 
         variable line [Gpu::pipeline {vec2 from vec2 to float thickness} {
@@ -229,8 +229,6 @@ On process {
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
         set renderTime [baretime {
             Display::start
-            Display::text 100 100 1.0 "Hello, pworld!" 0
-            # Display::stroke {{100 100} {400 100}} 4 red
             foreach command $displayCommands { {*}$command }
             Display::end
         }]
