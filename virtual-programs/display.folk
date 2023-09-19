@@ -92,7 +92,8 @@ On process {
 
                 return [list $glyphInfos $im $gim]
             }
-            proc glyphInfo {font char} { dict get [lindex $font 0] $char }
+            proc hasGlyphInfo {font charCode} { dict exists [lindex $font 0] $charCode }
+            proc glyphInfo {font charCode} { dict get [lindex $font 0] $charCode }
             proc atlasImage {font} { lindex $font 1 }
             proc gpuAtlasImage {font} { lindex $font 2 }
 
@@ -154,37 +155,66 @@ On process {
             }
         }
         proc circle {x y radius thickness color} {}
-        proc text {x0 y0 scale text radians} {
-            variable font
-            variable glyph
-            set fontAtlas [font gpuAtlasImage $font]
-            set fontAtlasSize [list [::image width [font atlasImage $font]] \
-                                   [::image height [font atlasImage $font]]]
-            set em [* $scale 40.0]
+
+        proc textMetrics {text scale} {
+            set em [* $scale 30.0]
             set x $x0; set y $y0
             for {set i 0} {$i < [string length $text]} {incr i} {
                 set char [string index $text $i]
                 if {$char eq "\n"} {
                     set y [+ $y $em]; set x $x0; continue
                 }
-                try {
-                    set glyphInfo [font glyphInfo $font [scan $char %c]]
-                    lassign $glyphInfo advance planeBounds atlasBounds
-                    if {$char ne " "} {
-                        lassign [lmap v $planeBounds {* $v $em}] left bottom right top
-                        set quad [list \
-                                      [list [+ $x $left] [- $y $top]] \
-                                      [list [+ $x $right] [- $y $top]] \
-                                      [list [+ $x $right] [- $y $bottom]] \
-                                      [list [+ $x $left] [- $y $bottom]]]
-                        # stroke $quad 10 red
-                        Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                            $atlasBounds {*}$quad
-                    }
-                    set x [+ $x [* $advance $em]]
-                } on error e { puts stderr $e }
+                set charCode [scan $char %c]
+                if {[font hasGlyphInfo $font $charCode]} {
+                    set glyphInfo [font glyphInfo $font $charCode]
+                } else {
+                    set glyphInfo [font glyphInfo $font [scan ? %c]]
+                }
+                lassign $glyphInfo advance planeBounds atlasBounds
+                set x [+ $x [* $advance $em]]
+            }
+            return [list $x $y]
+        }
+        proc text {x0 y0 scale text radians} {
+            variable font
+            variable glyph
+            set fontAtlas [font gpuAtlasImage $font]
+            set fontAtlasSize [list [::image width [font atlasImage $font]] \
+                                   [::image height [font atlasImage $font]]]
+            set em [* $scale 30.0]
+            set x $x0; set y $y0
+            set lineNum 0
+            for {set i 0} {$i < [string length $text]} {incr i} {
+                set char [string index $text $i]
+                if {$char eq "\n"} {
+                    incr lineNum
+                    lassign [vec2 add [list $x0 $y0] \
+                                 [vec2 rotate [list 0 [* $lineNum $em]] $radians]] x y
+                    continue
+                }
+                set charCode [scan $char %c]
+                if {[font hasGlyphInfo $font $charCode]} {
+                    set glyphInfo [font glyphInfo $font $charCode]
+                } else {
+                    set glyphInfo [font glyphInfo $font [scan ? %c]]
+                }
+                lassign $glyphInfo advance planeBounds atlasBounds
+                if {$char ne " "} {
+                    lassign [lmap v $planeBounds {* $v $em}] left bottom right top
+                    set quad [list \
+                                  [vec2 add [list $x $y] [vec2 rotate [list $left [- $top]] $radians]] \
+                                  [vec2 add [list $x $y] [vec2 rotate [list $right [- $top]] $radians]] \
+                                  [vec2 add [list $x $y] [vec2 rotate [list $right [- $bottom]] $radians]] \
+                                  [vec2 add [list $x $y] [vec2 rotate [list $left [- $bottom]] $radians]]]
+                    # stroke $quad 10 red
+                    Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                        $atlasBounds {*}$quad
+                }
+                lassign [vec2 add [list $x $y] \
+                             [vec2 rotate [list [* $advance $em] 0] $radians]] x y
             }
         }
+
         proc fillTriangle {args} {}
         proc fillQuad {args} {}
         proc fillPolygon {args} {}
