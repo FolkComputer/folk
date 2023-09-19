@@ -111,8 +111,7 @@ On process {
                                        vec4 atlasGlyphBounds
                                        vec2 a vec2 b vec2 c vec2 d} {
             vec2 vertices[4] = vec2[4](a, b, d, c);
-            vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
-            return vec4(v, 0.0, 1.0);
+            return vertices[gl_VertexIndex];
         } {invBilinear glyphMsd median} {
             vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
@@ -126,9 +125,13 @@ On process {
         }]
 
         variable line [Gpu::pipeline {vec2 from vec2 to float thickness} {
-            vec2 vertices[4] = vec2[4](from - thickness, vec2(from.x - thickness, to.y + thickness), vec2(to.x + thickness, from.y - thickness), to + thickness);
-            vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
-            return vec4(v, 0.0, 1.0);
+            vec2 vertices[4] = vec2[4](
+                 min(from, to) - thickness,
+                 vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
+                 vec2(min(from.y, to.y) - thickness, max(from.y, to.y) + thickness),
+                 max(from, to) + thickness
+            );
+            return vertices[gl_VertexIndex];
         } {
             float l = length(to - from);
             vec2 d = (to - from) / l;

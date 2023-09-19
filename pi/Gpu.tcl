@@ -860,7 +860,7 @@ namespace eval ::Gpu {
 
             $pushConstantsCode
 
-            vec4 vert() {
+            vec2 vert() {
                 $[join [lmap field $pushConstants {
                     dict with field {
                         if {$argname eq "_"} continue
@@ -870,7 +870,10 @@ namespace eval ::Gpu {
                 $vertBody
             }
 
-            void main() { gl_Position = vert(); }
+            void main() {
+                vec2 v = (2.0*vert() - args._resolution)/args._resolution;
+                gl_Position = vec4(v, 0.0, 1.0);
+            }
         }]]]
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
