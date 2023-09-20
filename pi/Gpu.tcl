@@ -477,21 +477,16 @@ namespace eval ::Gpu {
     dc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
     variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER 1
     variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER 6
-    dc struct PipelinePushConstant {
-        char argname[100];
-        char argtype[100];
-    }
     dc struct Pipeline {
         VkPipeline pipeline;
         VkPipelineLayout pipelineLayout;
 
-        int npushConstants;
-        PipelinePushConstant* pushConstants;
+        int id;
         size_t pushConstantsSize;
     }
-    dc proc createPipeline {VkShaderModule vertShaderModule
+    dc proc createPipeline {int id
+                            VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
-                            int npushConstants PipelinePushConstant[] pushConstants
                             size_t pushConstantsSize} Pipeline [csubst {
         // Now what?
         // Create graphics pipeline.
@@ -630,14 +625,11 @@ namespace eval ::Gpu {
             $[vktry {vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline)}]
         }
 
-        PipelinePushConstant* pushConstantsRetain = (PipelinePushConstant*) ckalloc(npushConstants*sizeof(PipelinePushConstant));
-        memcpy(pushConstantsRetain, pushConstants, npushConstants*sizeof(PipelinePushConstant));
         return (Pipeline) {
             .pipeline = pipeline,
             .pipelineLayout = pipelineLayout,
 
-            .npushConstants = npushConstants,
-            .pushConstants = pushConstantsRetain,
+            .id = id,
             .pushConstantsSize = pushConstantsSize
         };
     }]
@@ -708,43 +700,14 @@ namespace eval ::Gpu {
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
 
-    # Draw to the screen using pipeline `pipeline`. Each arg in
-    # `args` should be a push-constant parameter of the pipeline's
-    # pixel (fragment) shader. Can only be called between `drawStart`
-    # and `drawEnd`.
+    # Draw to the screen using pipeline `pipeline`. Each arg in `args`
+    # should be a push-constant parameter of the pipeline. Can only be
+    # called between `drawStart` and `drawEnd`.
     proc draw {pipeline args} {
         variable WIDTH; variable HEIGHT
         set args [linsert $args 0 [list $WIDTH $HEIGHT]]
-        set pushConstantsFmt [list]
-        set pushConstants [list]
-        for {set i 0; set argidx 0} {$i < [Pipeline npushConstants $pipeline]} {incr i} {
-            set pushConstantField [Pipeline pushConstants $pipeline $i]
-            set argtype [PipelinePushConstant argtype $pushConstantField]
-            if {$argtype eq "float"} {
-                lappend pushConstantsFmt "f"
-                lappend pushConstants [lindex $args $argidx]; incr argidx
-            } elseif {$argtype eq "vec2"} {
-                lappend pushConstantsFmt "f2"
-                lappend pushConstants [lindex $args $argidx]; incr argidx
-            } elseif {$argtype eq "vec3"} {
-                lappend pushConstantsFmt "f3"
-                lappend pushConstants [lindex $args $argidx]; incr argidx
-            } elseif {$argtype eq "vec4"} {
-                lappend pushConstantsFmt "f4"
-                lappend pushConstants [lindex $args $argidx]; incr argidx
-            } elseif {$argtype eq "mat4x2"} {
-                lappend pushConstantsFmt "f2f2f2f2"
-                lappend pushConstants {*}[lindex $args $argidx]; incr argidx
-            } elseif {$argtype eq "int"} {
-                lappend pushConstantsFmt "i"
-                lappend pushConstants [lindex $args $argidx]; incr argidx
-            } elseif {[regexp {pad(\d+)} $argtype -> pad]} {
-                lappend pushConstantsFmt "x$pad"
-            } else { error "Unsupported draw argument type $argtype" }
-        }
-        set pushConstantsData [binary format [join $pushConstantsFmt ""] {*}$pushConstants]
 
-        drawImpl $pipeline $pushConstantsData
+        drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
     }
 
     dc proc drawEnd {} void {
@@ -811,6 +774,7 @@ namespace eval ::Gpu {
 
     # Construct a pixel-shader pipeline that can be used to draw to
     # the screen.
+    variable nextPipelineId 0
     proc pipeline {args} {
         if {[llength $args] == 3} {
             lassign $args args vertBody fragBody
@@ -829,30 +793,75 @@ namespace eval ::Gpu {
         }
 
         set pushConstants [list]
-        set pushConstantsSize 0
-        proc align {numBytes} {
-            upvar pushConstants pushConstants
-            upvar pushConstantsSize pushConstantsSize
-            set pad [expr {$pushConstantsSize % $numBytes}]
-            if {$pad != 0} {
-                lappend pushConstants [dict create argtype "pad$pad" argname _]
-                set pushConstantsSize [+ $pushConstantsSize $pad]
-            }
-        }
         set args [linsert $args 0 vec2 _resolution];
         foreach {argtype argname} $args {
             if {$argtype eq "sampler2D"} { set argtype "int" }
-
-            if {$argtype eq "float"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
-                elseif {$argtype eq "int"} { set pushConstantsSize [+ $pushConstantsSize 4] } \
-                elseif {$argtype eq "vec2"} { align 8; set pushConstantsSize [+ $pushConstantsSize 8] } \
-                elseif {$argtype eq "vec3"} { align 12; set pushConstantsSize [+ $pushConstantsSize 12] } \
-                elseif {$argtype eq "vec4"} { align 16; set pushConstantsSize [+ $pushConstantsSize 16] } \
-                elseif {$argtype eq "mat4x2"} { align 32; set pushConstantsSize [+ $pushConstantsSize 32] } \
-                else { error "Unsupported shader argument type $argtype" }
-
             lappend pushConstants [dict create argtype $argtype argname $argname]
         }
+
+        # Create a C subcompiler to create a fast routine to encode
+        # the push constants on each draw call.
+        set cc [c create]
+        $cc typedef int sampler2D
+        $cc struct vec2 { float x; float y; }
+        $cc struct vec3 { float x; float y; float z; }
+        $cc struct vec4 { float x; float y; float z; float w; }
+
+        $cc argtype vec2 {
+            vec2 $argname;
+            {
+                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                __ENSURE($[set argname]_objc == 2);
+                double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
+                double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
+                $argname = (vec2) { (float)x, (float)y };
+            }
+        }
+        $cc argtype vec3 {
+            vec3 $argname;
+            {
+                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                __ENSURE($[set argname]_objc == 3);
+                double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
+                double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
+                double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
+                $argname = (vec3) { (float)x, (float)y, (float)z };
+            }
+        }
+        $cc argtype vec4 {
+            vec4 $argname;
+            {
+                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                __ENSURE($[set argname]_objc == 4);
+                double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
+                double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
+                double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
+                double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $argname_objv[3], &w));
+                $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+            }
+        }
+        $cc code [csubst {
+            typedef struct Args {
+                $[join [lmap {argtype argname} $args {
+                    expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
+                }] "\n"]
+            } Args;
+        }]
+        $cc include <stddef.h>
+        $cc proc getArgsSize {} int { return sizeof(Args); }
+        variable nextPipelineId
+        set pipelineId $nextPipelineId
+        $cc proc encodeArgs$pipelineId $args Tcl_Obj* {
+            Args args = {$[join [lmap {argtype argname} $args { subst {.$argname = $argname} }] " ,"]};
+            return Tcl_NewByteArrayObj((uint8_t *)&args, sizeof(args));
+        }
+        $cc compile
+        incr nextPipelineId
+
+        set pushConstantsSize [getArgsSize]
 
         set pushConstantsCode [if {[llength $pushConstants] > 0} {
             subst {
@@ -919,8 +928,8 @@ namespace eval ::Gpu {
 
         # pipeline needs to contain a specification of push constants,
         # so they can be filled in at draw time.
-        set pipeline [Gpu::createPipeline $vertShaderModule $fragShaderModule \
-                          [llength $pushConstants] $pushConstants $pushConstantsSize]
+        set pipeline [Gpu::createPipeline $pipelineId $vertShaderModule $fragShaderModule \
+                          $pushConstantsSize]
         return $pipeline
     }
 
@@ -1365,7 +1374,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         Gpu::draw $line {100 200} {100 0} 10
 
         Gpu::drawEnd
-
         Gpu::poll
         incr t
     }
