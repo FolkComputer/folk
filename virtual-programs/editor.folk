@@ -32,8 +32,6 @@ proc updateCursor {oldCursor updates} {
   if {[dict exists $updates y]} {
     lset newCursor 1 [expr {max(0, [dict get $updates y] + [lindex $oldCursor 1])}]
   }
-  # TODO: Remove this before merging, it's just for debugging
-  # puts "newCursor: $newCursor"
   return $newCursor
 }
 
@@ -41,7 +39,8 @@ proc updateCursor {oldCursor updates} {
 proc x {vector} { lindex $vector 0 }
 proc y {vector} { lindex $vector 1 }
 
-Commit cursor { Claim cursor is [list 0 0]}
+# TODO: Scope to "When the editor is out" or something
+Commit cursor { Claim the cursor is [list 0 0]}
 
 proc insertCharacter {code newCharacter cursor} {
   set lines [split $code "\n"]
@@ -111,7 +110,7 @@ proc newRegion {program x y w h} {
 # NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
-set baseCode "Wish $id is outlined green\nWish $id is labelled hello"
+set baseCode "Wish \$this is outlined green\nClaim first name is Andres"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -140,7 +139,7 @@ proc drawCursor {cursorPosition region} {
   Display::stroke [list $cp $cursorTop] 2 gray
 }
 
-When $id has program code /code/ & the clock time is /t/ & cursor is /cursor/ & $id has region /r/ {
+When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
   # NOTE: This is a useful debugging line as it flashes
   #       the actual letter corresponding to the cursor
   #       position. The current virtual cursor ()
@@ -156,26 +155,26 @@ When $id has program code /code/ & the clock time is /t/ & cursor is /cursor/ & 
 }
 
 # Must use `Every time` but it's incompatible with the keyboard claim or something, as written? Confer with Omar ...
-Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & cursor is /cursor/ & $id has program code /code/ {
+Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & the cursor is /cursor/ & $id has program code /code/ {
   Commit cursor {
     switch $currentCharacter {
-      UP { Claim cursor is [updateCursor $cursor {y -1}] }
-      DOWN { Claim cursor is [updateCursor $cursor {y 1}] }
-      RIGHT { Claim cursor is [updateCursor $cursor {x 1}] }
-      LEFT { Claim cursor is [updateCursor $cursor {x -1}] }
+      UP { Claim the cursor is [updateCursor $cursor {y -1}] }
+      DOWN { Claim the cursor is [updateCursor $cursor {y 1}] }
+      RIGHT { Claim the cursor is [updateCursor $cursor {x 1}] }
+      LEFT { Claim the cursor is [updateCursor $cursor {x -1}] }
       BACKSPACE {
-        Claim cursor is [updateCursor $cursor {x -1}]
+        Claim the cursor is [updateCursor $cursor {x -1}]
         Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
       }
       SPACE {
-        Claim cursor is [updateCursor $cursor {x 1}]
+        Claim the cursor is [updateCursor $cursor {x 1}]
         Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
       }
       ENTER {
         # Note: Still need to figure out the exact & text manipulation methods for all the
         #      different cases of enter. This is just a simple one for now.
-        Claim cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
-        # Claim cursor is [updateCursor $cursor {x 0 y 1}]
+        Claim the cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
+        # Claim the cursor is [updateCursor $cursor {x 0 y 1}]
         # NOTE: Useful debugging print line, still figuring out the math.
         #       Unforuntately this doesn't have consistent cursor spacing as the
         #       X-coordinate increases.
@@ -186,10 +185,10 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       RIGHTSHIFT -
       LEFTCTRL -
       RIGHTCTRL {
-        Claim cursor is $cursor
+        Claim the cursor is $cursor
       }
       default {
-        Claim cursor is [updateCursor $cursor {x 1}]
+        Claim the cursor is [updateCursor $cursor {x 1}]
         # Unneccessary b/c of properly handled stuff??
         # if {$modifier == "shift"} {
         #   set currentCharacter [string toupper $currentCharacter]
@@ -200,7 +199,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         }
         if {$modifier == "ctrl" & $currentCharacter == "r"} {
           Commit code { Claim $id has program code $baseCode }
-          Claim cursor is [list 0 0]
+          Claim the cursor is [list 0 0]
           return
         }
         Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
