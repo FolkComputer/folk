@@ -671,12 +671,14 @@ namespace eval ::Gpu {
         static VkPipeline boundPipeline = VK_NULL_HANDLE;
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+            //            boundPipeline = pipeline.pipeline;
         }
 
         static VkDescriptorSet boundDescriptorSet = VK_NULL_HANDLE;
         if (boundDescriptorSet != imageDescriptorSet) {
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
+            //            boundDescriptorSet = imageDescriptorSet;
         }
 
         if (pipeline.pushConstantsSize > 0) {
@@ -1248,8 +1250,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     Gpu::ImageManager::imageManagerInit
 
     set fullScreenVert {
-        vec2 vertices[4] = vec2[4](vec2(-1, -1), vec2(1, -1), vec2(-1, 1), vec2(1, 1));
-        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
+        return vertices[gl_VertexIndex];
     }
     set circle [Gpu::pipeline {vec2 center float radius} $fullScreenVert {
         float dist = length(gl_FragCoord.xy - center) - radius;
@@ -1316,8 +1318,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[4] = vec2[4](a, b, d, c);
-        vec2 v = (2.0*vertices[gl_VertexIndex] - _resolution)/_resolution;
-        return vec4(v, 0.0, 1.0);
+        return vertices[gl_VertexIndex];
     } {invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
