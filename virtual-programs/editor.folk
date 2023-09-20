@@ -110,7 +110,8 @@ proc newRegion {program x y w h} {
 # NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
-set baseCode "Wish \$this is outlined green\nClaim first name is Andres"
+# set baseCode "Wish \$this is outlined green\nClaim first name is Andres"
+set baseCode "Claim\nWish \$this is outlined gold\nClaim this is a very looooooong line\n# Comment"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -149,18 +150,44 @@ When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor
   # drawCursor $cursor $r
 
   # DEBUG INFO
-  When keyboard claims key /key/ is down with modifiers /modifier/ {
-    Wish $id has halo message "k: $key | m: $modifier"
+  When the cursor is /cursor/ {
+    Wish $id has halo message "cursor: $cursor"
   }
+}
+
+proc getCurrentLineLength {lines cursor} {
+  set splitLines [split $lines "\n"]
+  set currentLine [lindex $splitLines [lindex $cursor 1]]
+  string length $currentLine
 }
 
 # Must use `Every time` but it's incompatible with the keyboard claim or something, as written? Confer with Omar ...
 Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & the cursor is /cursor/ & $id has program code /code/ {
   Commit cursor {
     switch $currentCharacter {
-      UP { Claim the cursor is [updateCursor $cursor {y -1}] }
-      DOWN { Claim the cursor is [updateCursor $cursor {y 1}] }
-      RIGHT { Claim the cursor is [updateCursor $cursor {x 1}] }
+      UP {
+        set updatedCursor [updateCursor $cursor {y -1}]
+        set currentLineLength  [getCurrentLineLength $code $updatedCursor]
+        if {[lindex $updatedCursor 0] > $currentLineLength} {
+          Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
+        } else {
+          Claim the cursor is $updatedCursor
+        }
+      }
+      DOWN {
+        set updatedCursor [updateCursor $cursor {y 1}]
+        set currentLineLength [getCurrentLineLength $code $updatedCursor]
+        if {[lindex $updatedCursor 0] > $currentLineLength} {
+          Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
+        } else {
+          Claim the cursor is $updatedCursor
+        }
+      }
+      RIGHT {
+        set currentLineLength [getCurrentLineLength $code $cursor]
+        # TODO: Check if the cursor is at the end of the line, if so cap it
+        Claim the cursor is [updateCursor $cursor {x 1}]
+      }
       LEFT { Claim the cursor is [updateCursor $cursor {x -1}] }
       BACKSPACE {
         Claim the cursor is [updateCursor $cursor {x -1}]
