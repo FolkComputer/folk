@@ -5,7 +5,7 @@
 set id "editor-1"
 
 #####
-# To match to this I have another program in folk0 with:
+# To match to this I have another program with:
 #   Claim $this is editor editor-1
 #####
 When /page/ is editor /n/ & /page/ has region /r/ {
@@ -162,8 +162,8 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       ENTER {
         # Note: Still need to figure out the exact & text manipulation methods for all the
         #      different cases of enter. This is just a simple one for now.
-        # Claim cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
-        Claim cursor is [updateCursor $cursor {x 0 y 1}]
+        Claim cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
+        # Claim cursor is [updateCursor $cursor {x 0 y 1}]
         # NOTE: Useful debugging print line, still figuring out the math.
         #       Unforuntately this doesn't have consistent cursor spacing as the
         #       X-coordinate increases.
@@ -195,4 +195,9 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       }
     }
   }
+}
+
+Claim $this has demo {
+  # Tape this program underneath the main keyboard of your system to try it out
+  Claim $this is editor editor-1
 }
