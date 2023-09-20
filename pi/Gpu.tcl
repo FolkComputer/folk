@@ -587,12 +587,17 @@ namespace eval ::Gpu {
             pipelineLayoutInfo.pSetLayouts = &imageDescriptorSetLayout;
             pipelineLayoutInfo.setLayoutCount = 1;
 
-            if (pushConstantsSize > 0) {
+            // We configure all pipelines with push constants size =
+            // 128 (the maximum), no matter what actual push constants
+            // they take; this is so that pipelines are all
+            // layout-compatible so we can reuse descriptor set
+            // between pipelines without needing to rebind it.
+            {
                 VkPushConstantRange pushConstantRange = {0};
                 pushConstantRange.offset = 0;
-                pushConstantRange.size = pushConstantsSize;
+                pushConstantRange.size = 128;
                 pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-                
+
                 pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
                 pipelineLayoutInfo.pushConstantRangeCount = 1;
             }
@@ -636,7 +641,11 @@ namespace eval ::Gpu {
             .pushConstantsSize = pushConstantsSize
         };
     }]
-
+    
+    dc code {
+        static VkPipeline boundPipeline;
+        static VkDescriptorSet boundDescriptorSet;
+    }
     dc proc drawStart {} void {
         vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
@@ -666,22 +675,23 @@ namespace eval ::Gpu {
 
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
+
+        boundPipeline = VK_NULL_HANDLE;
+        boundDescriptorSet = VK_NULL_HANDLE;
     }
     dc proc drawImpl {Pipeline pipeline Tcl_Obj* pushConstantsObj} void {
-        static VkPipeline boundPipeline = VK_NULL_HANDLE;
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
-            //            boundPipeline = pipeline.pipeline;
+            boundPipeline = pipeline.pipeline;
         }
 
-        static VkDescriptorSet boundDescriptorSet = VK_NULL_HANDLE;
         if (boundDescriptorSet != imageDescriptorSet) {
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
-            //            boundDescriptorSet = imageDescriptorSet;
+            boundDescriptorSet = imageDescriptorSet;
         }
 
-        if (pipeline.pushConstantsSize > 0) {
+        {
             int pushConstantsDataSize;
             uint8_t* pushConstantsData = Tcl_GetByteArrayFromObj(pushConstantsObj, &pushConstantsDataSize);
             if (pushConstantsDataSize != pipeline.pushConstantsSize) {
