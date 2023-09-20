@@ -59,8 +59,8 @@ namespace eval statement {
         int32_t gen;
         bool alive;
 
-        bool recollectOnDestruction;
-        statement_handle_t recollectCollectId;
+        bool isFromCollect;
+        statement_handle_t collectId;
 
         match_destructor_t destructors[8];
 
@@ -77,6 +77,7 @@ namespace eval statement {
         int32_t gen;
 
         Tcl_Obj* clause;
+        bool collectNeedsRecollect; // Dirty flag
 
         size_t capacity_edges;
         size_t n_edges; // This is an estimate.
@@ -267,7 +268,7 @@ namespace eval Statements { ;# singleton Statement store
         }
         matches[nextMatchIdx].capacity_edges = 16;
         matches[nextMatchIdx].edges = (edge_to_statement_t*)ckalloc(16 * sizeof(edge_to_statement_t));
-        matches[nextMatchIdx].recollectOnDestruction = false;
+        matches[nextMatchIdx].isFromCollect = false;
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
             .idx = nextMatchIdx,
@@ -303,9 +304,6 @@ namespace eval Statements { ;# singleton Statement store
                 match->destructors[i].body = NULL;
                 match->destructors[i].env = NULL;
             }
-        }
-        if (match->recollectOnDestruction) {
-            LogWriteRecollect(match->recollectCollectId);
         }
         match->alive = false;
         match->gen++;
@@ -920,6 +918,7 @@ namespace eval Evaluator {
                                                         statement_handle_t collectId,
                                                         Tcl_Obj* collectPattern,
                                                         statement_handle_t statementId) {
+            get(collectId)->collectNeedsRecollect = true;
             LogWriteRecollect(collectId);
         }
     }
@@ -950,6 +949,7 @@ namespace eval Evaluator {
                 addReaction(claimizePattern(subpattern), id, reactToStatementAdditionThatMatchesCollect);
             }
 
+            get(id)->collectNeedsRecollect = true;
             LogWriteRecollect(id);
 
         } else if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0) {
@@ -1041,7 +1041,21 @@ namespace eval Evaluator {
                 match_handle_t matchId = edge->match;
                 if (!matchExists(matchId)) continue; // if was removed earlier
 
-                LogWriteUnmatch(matchId);
+                // Test if this child-match is a Collect-match (and
+                // the statement being removed is _not_ its collector)
+                match_t* match = matchGet(matchId);
+                if (match->isFromCollect && !statementHandleIsEqual(match->collectId, id)) {
+                    // If so, then it should be marked as dirty and
+                    // recollected later, rather than it and its
+                    // transitive dependents immediately getting
+                    // yanked out.
+                    get(match->collectId)->collectNeedsRecollect = true;
+                    LogWriteRecollect(match->collectId);
+                } else {
+                    reactToMatchRemoval(interp, matchId);
+                    matchRemove(matchId);
+                    // LogWriteUnmatch(matchId);
+                }
             }
         }
     }
@@ -1078,6 +1092,8 @@ namespace eval Evaluator {
         // collecting has been added or removed.
 
         statement_t* collect = get(collectId);
+        if (!collect->collectNeedsRecollect) { return; }
+        collect->collectNeedsRecollect = false;
 
         Tcl_Obj* clause = collect->clause;
         int clauseLength; Tcl_Obj** clauseWords;
@@ -1117,8 +1133,8 @@ namespace eval Evaluator {
         // Create a new match for the new collection.
         match_handle_t matchId = addMatchImpl(parentsCount, parents);
         match_t* match = matchGet(matchId);
-        match->recollectOnDestruction = true;
-        match->recollectCollectId = collectId;
+        match->isFromCollect = true;
+        match->collectId = collectId;
 
         // Run the When body within this new match.
         env = Tcl_DuplicateObj(env);
@@ -1128,15 +1144,19 @@ namespace eval Evaluator {
 
         // Finally, delete the old match child if any.
         // (We do this last, _after_ adding the new match, because it helps with incrementality.)
-        {
-            for (size_t i = 0; i < collect->n_edges; i++) {
-                edge_to_match_t* edge = statementEdgeAt(collect, i);
-                if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
-                    match_handle_t childMatchId = edge->match;
-                    matchGet(childMatchId)->recollectOnDestruction = false;
-                    LogWriteUnmatch(childMatchId);
-                    break;
-                }
+        for (size_t i = 0; i < collect->n_edges; i++) {
+            edge_to_match_t* edge = statementEdgeAt(collect, i);
+            if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
+                match_handle_t childMatchId = edge->match;
+                // We don't want to fire a new recollect on
+                // destruction. (because we just fired one)
+                matchGet(childMatchId)->isFromCollect = false;
+
+                // This Unmatch has to be trampolined back up to
+                // the operation log so it happens after Saying
+                // any new statements.
+                LogWriteUnmatch(childMatchId);
+                break;
             }
         }
     }
