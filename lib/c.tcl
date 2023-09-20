@@ -229,7 +229,6 @@ namespace eval c {
                 regsub -all -line {/\*.*?\*/} $fields "" fields
                 regsub -all -line {//.*$} $fields "" fields
                 set fields [string map {";" ""} $fields]
-                # puts "FIELDS $fields"
 
                 set fieldnames [list]
                 for {set i 0} {$i < [llength $fields]} {incr i 2} {
@@ -300,19 +299,12 @@ namespace eval c {
                     };
                 }]
 
-                variable argtypes
-                set argscripts [list {$argtype $argname;}]
-                foreach {fieldtype fieldname} $fields {
-                    lappend argscripts [csubst {\{
-                        Tcl_Obj* obj_$fieldname;
-                        Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
-                    }]
-                    lappend argscripts [arg $fieldtype \${argname}_$fieldname obj_$fieldname]
-                    lappend argscripts [subst {memcpy(&\$argname.$fieldname, &\${argname}_$fieldname, sizeof(\$argname.$fieldname));\}}]
-                }
-                argtype $type [join $argscripts "\n"]
+                argtype $type [csubst {
+                    __ENSURE_OK(Tcl_ConvertToType(interp, \$obj, &$[set type]_ObjType));
+                    \$argtype \$argname;
+                    \$argname = *(($type *)\$obj->internalRep.ptrAndLongRep.ptr);
+                }]
 
-                variable rtypes
                 rtype $type {
                     $robj = Tcl_NewObj();
                     $robj->bytes = NULL;
@@ -322,6 +314,7 @@ namespace eval c {
                     memcpy($robj->internalRep.ptrAndLongRep.ptr, &$rvalue, sizeof($[set rtype]));
                 }
 
+                # Generate Tcl getter functions for each field:
                 set ns [uplevel {namespace current}]::$type
                 namespace eval $ns {}
                 foreach {fieldtype fieldname} $fields {
