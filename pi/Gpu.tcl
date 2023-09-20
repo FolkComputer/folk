@@ -839,7 +839,7 @@ namespace eval ::Gpu {
                 double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
                 double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
                 double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
-                double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $argname_objv[3], &w));
+                double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[3], &w));
                 $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
             }
         }
