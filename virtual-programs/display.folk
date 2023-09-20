@@ -26,6 +26,8 @@ namespace eval ::Display {
 }
 
 On process {
+    puts "Display pid: [pid]"
+
     source pi/Gpu.tcl
     Gpu::init
     Gpu::ImageManager::imageManagerInit
@@ -157,12 +159,13 @@ On process {
         proc circle {x y radius thickness color} {}
 
         proc textMetrics {text scale} {
+            variable font
             set em [* $scale 30.0]
-            set x $x0; set y $y0
+            set x 0; set y 0
             for {set i 0} {$i < [string length $text]} {incr i} {
                 set char [string index $text $i]
                 if {$char eq "\n"} {
-                    set y [+ $y $em]; set x $x0; continue
+                    set y [+ $y $em]; set x 0; continue
                 }
                 set charCode [scan $char %c]
                 if {[font hasGlyphInfo $font $charCode]} {
@@ -222,8 +225,6 @@ On process {
 
         proc end {} { Gpu::drawEnd; Gpu::poll }
     }
-
-    puts "Display pid: [pid]"
 
     # TODO: Clean this up. We retract these so that we don't bounce
     # statements back to the main Folk process that it sends us.
