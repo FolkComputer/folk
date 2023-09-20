@@ -1,0 +1,31 @@
+########
+# Could extend this to draw from camera with:
+#   Wish $this has thumbnail grid with 8 frames and 4 columns
+#   When $this has thumbnail grid /thumbnails/ {
+#     Wish $this draws $thumbnails; # Would need to query $thumnails for its frameCount and columns
+#   }
+#######
+
+# - path get prepended with ~/folk-images/
+When /anyone/ wishes /p/ draws sprite /path/ with /frameCount/ frames and /columns/ columns {
+  set im [image load $path]
+  set sheetwidth [image width $im]
+  set sheetHeight [image height $im]
+  set spriteWidth [/ $sheetwidth $columns]
+  set rows [/ $frameCount $columns]
+  set spriteHeight [/ $sheetHeight $rows]
+
+  When the clock time is /t/ & $p has region /r/ {
+      set frameNumber [expr {round ($t * 60 / $columns) % $frameCount}]
+      set x [* [% $frameNumber $columns] $spriteWidth]
+      set y [* [% $frameNumber $rows] $spriteHeight]
+
+      set subimage [image subimage $im $x $y $spriteWidth $spriteHeight]
+      set center [region centroid $r]
+      Wish display runs [list Display::image {*}$center $subimage 0 1]
+  }
+}
+
+Claim $this has demo {
+  Wish $this draws sprite $path with 8 frames and 4 columns
+}
