@@ -160,7 +160,6 @@ namespace eval ::region {
         list [lindex [vertices $r] [lindex $e 0]] [lindex [vertices $r] [lindex $e 1]]
     }
     proc distance {r1 r2} {
-	puts $r2
         set minDist 1e9
         foreach v1 [vertices $r1] e2 [edges $r2] {
             set dist [vec2 distanceToLineSegment $v1 {*}[edgeToLineSegment $r2 $e2]]
