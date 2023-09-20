@@ -22,7 +22,8 @@ When /anyone/ wishes /p/ draws sprite /path/ with /frameCount/ frames and /colum
 
       set subimage [image subimage $im $x $y $spriteWidth $spriteHeight]
       set center [region centroid $r]
-      Wish display runs [list Display::image {*}$center $subimage 0 1]
+      set angle [region angle $r]
+      Wish display runs [list Display::image {*}$center $subimage $angle 1]
   }
 }
 
