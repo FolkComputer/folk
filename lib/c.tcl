@@ -143,7 +143,7 @@ namespace eval c {
                 uint64_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 intptr_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
+                char* { expr {{ $robj = Tcl_NewStringObj($rvalue, -1); }} }
                 Tcl_Obj* { expr {{ $robj = $rvalue; }}}
                 default {
                     if {[string index $rtype end] == "*"} {
