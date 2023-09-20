@@ -86,7 +86,9 @@ On process {
     }
 }
 
+set ::Display::displayTime none
 set ::displayTime none
 When the display time is /displayTime/ {
+    set ::Display::displayTime $displayTime
     set ::displayTime $displayTime
 }

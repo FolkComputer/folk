@@ -138,4 +138,5 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
         Claim tag $id has corners [dict get $tag corners]
     }
     set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
+    Claim the AprilTag time is $::aprilTime
 }

@@ -72,8 +72,7 @@ namespace eval Camera {
         if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
         if (!(cap.capabilities & V4L2_CAP_STREAMING)) quit("no streaming");
 
-        struct v4l2_format format;
-        memset(&format, 0, sizeof format);
+        struct v4l2_format format = {0};
         format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         format.fmt.pix.width = camera->width;
         format.fmt.pix.height = camera->height;
@@ -85,14 +84,34 @@ namespace eval Camera {
         } while (ret == EBUSY);
         if (ret == -1) quit("VIDIOC_S_FMT");
 
-        struct v4l2_requestbuffers req;
-        memset(&req, 0, sizeof req);
+        struct v4l2_requestbuffers req = {0};
         req.count = 4;
         req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         req.memory = V4L2_MEMORY_MMAP;
         if (xioctl(camera->fd, VIDIOC_REQBUFS, &req) == -1) quit("VIDIOC_REQBUFS");
         camera->buffer_count = req.count;
         camera->buffers = calloc(req.count, sizeof (buffer_t));
+
+        struct v4l2_streamparm streamparm = {0};
+        streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        if (xioctl(camera->fd, VIDIOC_G_PARM, &streamparm) == -1) quit("VIDIOC_G_PARM");
+        if (streamparm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
+            int req_rate_numerator = 1;
+            int req_rate_denominator = 60;
+            streamparm.parm.capture.timeperframe.numerator = req_rate_numerator;
+            streamparm.parm.capture.timeperframe.denominator = req_rate_denominator;
+            if (xioctl(camera->fd, VIDIOC_S_PARM, &streamparm) == -1) { quit("VIDIOC_S_PARM"); }
+
+            if (streamparm.parm.capture.timeperframe.numerator != req_rate_denominator ||
+                streamparm.parm.capture.timeperframe.denominator != req_rate_numerator) {
+                fprintf(stderr,
+                        "the driver changed the time per frame from "
+                        "%d/%d to %d/%d\n",
+                        req_rate_denominator, req_rate_numerator,
+                        streamparm.parm.capture.timeperframe.numerator,
+                        streamparm.parm.capture.timeperframe.denominator);
+            }
+        }
 
         size_t buf_max = 0;
         for (size_t i = 0; i < camera->buffer_count; i++) {
