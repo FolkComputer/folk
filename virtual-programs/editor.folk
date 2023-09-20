@@ -111,7 +111,7 @@ proc newRegion {program x y w h} {
 # NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
-set baseCode "Wish $id is outlined blue\nWish $this is labelled hello"
+set baseCode "Wish $id is outlined green\nWish $id is labelled hello"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -122,22 +122,34 @@ proc drawText {text cursor count region} {
   lassign $corner cornerX cornerY
   foreach line [split $text "\n"] {
      set lineCornerY [- $cornerY [* $lineNumber 50]]
-     # subtract $cornerX by half the length of the line to left-align it
     set lineCornerX [- $cornerX [* [string length $line] 9]]
      Display::text $lineCornerX $lineCornerY 2 $line $angle
-     Display::circle $cornerX $cornerY 50 5 gold
-     Display::circle $lineCornerX $lineCornerY 50 5 white
      set lineNumber [+ $lineNumber 1]
   }
 }
 
-When $id has program code /code/ & /node/ has step count /count/ & cursor is /cursor/ & $id has region /r/ {
+proc drawCursor {cursorPosition region} {
+  # calculate relative to topLeft of region
+  set corner [region topleft $region]
+
+  set cpX [* 1 [lindex $corner 0]]
+  set cpY [* 1 [lindex $corner 1]]
+  set cp [list $cpX $cpY]
+  set cursorTop [list $cpX [expr {$cpY - 50}]]
+
+  Display::stroke [list $cp $cursorTop] 2 gray
+}
+
+When $id has program code /code/ & the clock time is /t/ & cursor is /cursor/ & $id has region /r/ {
   # NOTE: This is a useful debugging line as it flashes
   #       the actual letter corresponding to the cursor
   #       position. The current virtual cursor ()
-  drawText [insertCursor $code $cursor $count] $cursor $count $r
-  # drawText $code $cursor $count $r
-  # Wish $id has halo message "$count | $cursor"
+  set intTime [expr {int($t * 10)}]
+  drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
+  # Hide cursor, TODO: fix to calculate accurate position based on cursor position
+  # drawCursor $cursor $r
+
+  # DEBUG INFO
   When keyboard claims key /key/ is down with modifiers /modifier/ {
     Wish $id has halo message "k: $key | m: $modifier"
   }
