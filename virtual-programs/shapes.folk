@@ -1,23 +1,36 @@
 # numPoints 2 => line
 # numPoints 3 => triangle
 # numPoints 4 => square
-proc shape {numPoints x y r {color white} {filled false} args} {
-  set start [list $x $y]
-  set points [list $start]
-  set i 0
-  while {$i < $numPoints} {
-    incr i
-    set angle [expr {2 * 3.14159 * $i / $numPoints}]
-    set x [expr {$x + $r * cos($angle)}]
-    set y [expr {$y + $r * sin($angle)}]
-    lappend points [list $x $y]
+proc shape {numPoints c r {angle 0} {color white} {filled false} args} {
+  set p [list 0 0]
+  set center $p
+  set points [list $p]
+
+  set incr [expr {2 * 3.14159 / $numPoints}]
+  set a [expr {$incr + 3.14159}]
+  for {set i 0} {$i < $numPoints} {incr i} {
+    set p [vec2 add $p [vec2 scale [list [expr {cos($a)}] [expr {sin($a)}]] $r]]
+    lappend points $p
+    # Accumulate center
+    set center [vec2 add $center $p]
+    set a [expr {$a + $incr}]
   }
+  set center [vec2 scale $center [expr {1.0/$numPoints}]]
+
+  set points [lmap v $points {
+      set v [vec2 sub $v $center]
+      set v [vec2 rotate $v $angle]
+      set v [vec2 add $v $c]
+      set v
+  }]
+
   if {$filled} {
     Display::fillPolygon $points $color
   } else {
-    Display::stroke $points 5 $color
+    Display::stroke $points 1 $color
   }
 }
+
 
 When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
   lassign [region centroid $r] x y
@@ -32,35 +45,38 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
     set y [expr {$y + $offsetY}]
   }
 
+  set angle [region angle $r]
+  set p [list $x $y]
+
   # puts "drawing a $shape at $x $y with width $width and height $height"
   set radius 50
   switch -nocase $shape {
     triangle {
-      shape 3 $x $y $radius $color
+      shape 3 $p $radius $angle $color
     }
     square {
-      shape 4 $x $y $radius $color
+      shape 4 $p $radius $angle $color
     }
     pentagon {
-      shape 5 $x $y $radius $color
+      shape 5 $p $radius $angle $color
     }
     hexagon {
-      shape 6 $x $y $radius $color
+      shape 6 $p $radius $angle $color
     }
     septagon {
-      shape 7 $x $y $radius $color
+      shape 7 $p $radius $angle $color
     }
     octagon {
-      shape 8 $x $y $radius $color
+      shape 8 $p $radius $angle $color
     }
     nonagon {
-      shape 9 $x $y $radius $color
+      shape 9 $p $radius $angle $color
     }
     circle {
       Display::circle $x $y $radius 5 $color
     }
     default {
-      shape 2 $x $y $radius $color
+      shape 2 $p $radius $angle $color
     }
   }
 }
@@ -99,7 +115,7 @@ Claim $this has demo {
     lassign [region centroid $r] x y
     set fill [expr {round(sin($t) * 2) % 2 == 0 ? true : false}]
     set y [- $y 150]
-    shape 4 [- $x 100] $y 60 white $fill
+    shape 4 [list [- $x 100] $y] 0 60 white $fill
   }
 
   Wish $this is outlined white
