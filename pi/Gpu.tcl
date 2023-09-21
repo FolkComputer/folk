@@ -441,14 +441,14 @@ namespace eval ::Gpu {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
             %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%p", &$argname);
 #else
-            %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%lld", &$argname);
+            %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%llx", &$argname);
 #endif
         } $type $type $type $type]
         $cc rtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
             $robj = Tcl_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
 #else
-            $robj = Tcl_ObjPrintf("(%s) 0x%%lld", (uint64_t) $rvalue);
+            $robj = Tcl_ObjPrintf("(%s) 0x%%llx", (uint64_t) $rvalue);
 #endif
         } $type $type]
     }
@@ -780,8 +780,8 @@ namespace eval ::Gpu {
         return [list $args $fnDict $rtype $body]
     }
 
-    # Construct a pixel-shader pipeline that can be used to draw to
-    # the screen.
+    # Construct a shader pipeline that can be used to draw to the
+    # screen.
     variable nextPipelineId 0
     proc pipeline {args} {
         if {[llength $args] == 3} {
