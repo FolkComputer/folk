@@ -1049,8 +1049,10 @@ namespace eval Evaluator {
                     // recollected later, rather than it and its
                     // transitive dependents immediately getting
                     // yanked out.
-                    get(match->collectId)->collectNeedsRecollect = true;
-                    LogWriteRecollect(match->collectId);
+                    if (exists(match->collectId)) {
+                        get(match->collectId)->collectNeedsRecollect = true;
+                        LogWriteRecollect(match->collectId);
+                    }
                 } else {
                     reactToMatchRemoval(interp, matchId);
                     matchRemove(matchId);
