@@ -131,7 +131,7 @@ On process {
             vec2 vertices[4] = vec2[4](
                  min(from, to) - thickness,
                  vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
-                 vec2(min(from.y, to.y) - thickness, max(from.y, to.y) + thickness),
+                 vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
                  max(from, to) + thickness
             );
             return vertices[gl_VertexIndex];

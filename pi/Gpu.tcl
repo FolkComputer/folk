@@ -1277,7 +1277,15 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         return dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
     }]
 
-    set line [Gpu::pipeline {vec2 from vec2 to float thickness} $fullScreenVert {
+    set line [Gpu::pipeline {vec2 from vec2 to float thickness} {
+        vec2 vertices[4] = vec2[4](
+             min(from, to) - thickness,
+             vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
+             vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
+             max(from, to) + thickness
+        );
+        return vertices[gl_VertexIndex];
+    } {
         float l = length(to - from);
         vec2 d = (to - from) / l;
         vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
