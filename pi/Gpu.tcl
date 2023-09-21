@@ -438,11 +438,19 @@ namespace eval ::Gpu {
     proc defineVulkanHandleType {cc type} {
         set cc [uplevel {namespace current}]::$cc
         $cc argtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
             %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%p", &$argname);
-        } $type $type]
+#else
+            %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%lld", &$argname);
+#endif
+        } $type $type $type $type]
         $cc rtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
             $robj = Tcl_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
-        } $type]
+#else
+            $robj = Tcl_ObjPrintf("(%s) 0x%%lld", (uint64_t) $rvalue);
+#endif
+        } $type $type]
     }
 
     # Shader compilation:
