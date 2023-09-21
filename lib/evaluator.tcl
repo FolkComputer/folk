@@ -263,8 +263,12 @@ namespace eval Statements { ;# singleton Statement store
         return statementClauseToId;
     }
     $cc proc matchNew {} match_handle_t {
+        uint16_t origNextMatchIdx = nextMatchIdx;
         while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
+            if (nextMatchIdx == origNextMatchIdx) {
+                fprintf(stderr, "Ran out of space for new match\n"); exit(1);
+            }
         }
         matches[nextMatchIdx].capacity_edges = 16;
         matches[nextMatchIdx].edges = (edge_to_statement_t*)ckalloc(16 * sizeof(edge_to_statement_t));
