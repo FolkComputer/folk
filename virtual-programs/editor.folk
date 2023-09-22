@@ -128,16 +128,18 @@ proc drawText {text cursor count region} {
   }
 }
 
+# TODO: refactor this to not reply on absolute region position but instead to compose as 0, 0
+# and then translate and rotate according to the virtual region as the final step
 proc drawCursor {cursorPosition region} {
-  # calculate relative to topLeft of region
   set corner [region topleft $region]
-
-  set cpX [* 1 [lindex $corner 0]]
-  set cpY [* 1 [lindex $corner 1]]
-  set cp [list $cpX $cpY]
-  set cursorTop [list $cpX [expr {$cpY - 50}]]
-
-  Display::stroke [list $cp $cursorTop] 2 gray
+  lassign $corner cornerX cornerY
+  lassign $cursorPosition cursorX cursorY
+  set cursorX [int [- $cornerX [* $cursorX 20]]]
+  set cursorY [int [- [- $cornerY [* $cursorY 65]] 20]]
+  set cursorX2 $cursorX
+  set cursorY2 [- $cursorY 50]
+  puts " $cursorPosition =>  $cursorX $cursorY"
+  Display::stroke [list [list $cursorX $cursorY] [list $cursorX2 $cursorY2]] 3 white
 }
 
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
@@ -147,7 +149,7 @@ When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
   # Hide cursor, TODO: fix to calculate accurate position based on cursor position
-  # drawCursor $cursor $r
+  drawCursor $cursor $r
 
   # DEBUG INFO
   When the cursor is /cursor/ {
