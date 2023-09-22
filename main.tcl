@@ -346,10 +346,10 @@ namespace eval ::Mailbox {
         mailbox_t* mailboxes;
     }
     $cc proc init {} void {
-        fprintf(stderr, "Before: mailboxes = %p\n", mailboxes);
+        /* fprintf(stderr, "Before: mailboxes = %p\n", mailboxes); */
         mailboxes = folkHeapAlloc(sizeof(mailbox_t) * NMAILBOXES);
         memset(mailboxes, 0, sizeof(mailbox_t) * NMAILBOXES);
-        fprintf(stderr, "After: mailboxes = %p\n", mailboxes);
+        /* fprintf(stderr, "After: mailboxes = %p\n", mailboxes); */
     }
     $cc proc create {char* from char* to} void {
         if (find(from, to) != NULL) return;

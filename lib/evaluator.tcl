@@ -51,8 +51,8 @@ namespace eval statement {
         int32_t gen;
         bool alive;
 
-        bool recollectOnDestruction;
-        statement_handle_t recollectCollectId;
+        bool isFromCollect;
+        statement_handle_t collectId;
 
         match_destructor_t destructors[8];
 
@@ -69,6 +69,7 @@ namespace eval statement {
         int32_t gen;
 
         Tcl_Obj* clause;
+        bool collectNeedsRecollect; // Dirty flag
 
         size_t capacity_edges;
         size_t n_edges; // This is an estimate.
@@ -254,12 +255,16 @@ namespace eval Statements { ;# singleton Statement store
         return statementClauseToId;
     }
     $cc proc matchNew {} match_handle_t {
+        uint16_t origNextMatchIdx = nextMatchIdx;
         while (matches[nextMatchIdx].alive) {
             nextMatchIdx = (nextMatchIdx + 1) % (sizeof(matches)/sizeof(matches[0]));
+            if (nextMatchIdx == origNextMatchIdx) {
+                fprintf(stderr, "Ran out of space for new match\n"); exit(1);
+            }
         }
         matches[nextMatchIdx].capacity_edges = 16;
         matches[nextMatchIdx].edges = (edge_to_statement_t*)ckalloc(16 * sizeof(edge_to_statement_t));
-        matches[nextMatchIdx].recollectOnDestruction = false;
+        matches[nextMatchIdx].isFromCollect = false;
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
             .idx = nextMatchIdx,
@@ -295,9 +300,6 @@ namespace eval Statements { ;# singleton Statement store
                 match->destructors[i].body = NULL;
                 match->destructors[i].env = NULL;
             }
-        }
-        if (match->recollectOnDestruction) {
-            LogWriteRecollect(match->recollectCollectId);
         }
         match->alive = false;
         match->gen++;
@@ -773,6 +775,29 @@ namespace eval Evaluator {
     namespace import ::statement::$cc
 
     $cc code {
+        #include <stdarg.h>
+        char operationLog[10000][1000];
+        int operationLogIdx = 0;
+        void op(const char *format, ...) {
+            if (operationLogIdx >= 10000) return;
+
+            va_list args;
+            va_start(args, format);
+            // vprintf(format, args); printf("\n");
+            vsnprintf(operationLog[operationLogIdx++], 1000, format, args);
+            va_end(args);
+        }
+    }
+    $cc proc getOperationLog {} Tcl_Obj* {
+        Tcl_Obj* entries[10000];
+        int i;
+        for (i = 0; i < 10000 && operationLog[i][0] != '\0'; i++) {
+            entries[i] = Tcl_NewStringObj(operationLog[i], -1);
+        }
+        return Tcl_NewListObj(i, entries);
+    }
+
+    $cc code {
         // Given a StatementPattern, tells you all the reactions to run
         // when a matching statement is added to / removed from the
         // database. StatementId is the ID of the statement that wanted to
@@ -889,6 +914,7 @@ namespace eval Evaluator {
                                                         statement_handle_t collectId,
                                                         Tcl_Obj* collectPattern,
                                                         statement_handle_t statementId) {
+            get(collectId)->collectNeedsRecollect = true;
             LogWriteRecollect(collectId);
         }
     }
@@ -919,6 +945,7 @@ namespace eval Evaluator {
                 addReaction(claimizePattern(subpattern), id, reactToStatementAdditionThatMatchesCollect);
             }
 
+            get(id)->collectNeedsRecollect = true;
             LogWriteRecollect(id);
 
         } else if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0) {
@@ -1010,7 +1037,26 @@ namespace eval Evaluator {
                 match_handle_t matchId = edge->match;
                 if (!matchExists(matchId)) continue; // if was removed earlier
 
-                LogWriteUnmatch(matchId);
+                // Test if this child-match is a Collect-match (and
+                // the statement being removed is _not_ its collector)
+                match_t* match = matchGet(matchId);
+                if (match->isFromCollect && !statementHandleIsEqual(match->collectId, id)) {
+                    // If so, then it should be marked as dirty and
+                    // recollected later, rather than it and its
+                    // transitive dependents immediately getting
+                    // yanked out.
+                    if (exists(match->collectId)) {
+                        get(match->collectId)->collectNeedsRecollect = true;
+                        LogWriteRecollect(match->collectId);
+                    } else {
+                        reactToMatchRemoval(interp, matchId);
+                        matchRemove(matchId);
+                    }
+                } else {
+                    reactToMatchRemoval(interp, matchId);
+                    matchRemove(matchId);
+                    // LogWriteUnmatch(matchId);
+                }
             }
         }
     }
@@ -1047,6 +1093,8 @@ namespace eval Evaluator {
         // collecting has been added or removed.
 
         statement_t* collect = get(collectId);
+        if (!collect->collectNeedsRecollect) { return; }
+        collect->collectNeedsRecollect = false;
 
         Tcl_Obj* clause = collect->clause;
         int clauseLength; Tcl_Obj** clauseWords;
@@ -1086,8 +1134,8 @@ namespace eval Evaluator {
         // Create a new match for the new collection.
         match_handle_t matchId = addMatchImpl(parentsCount, parents);
         match_t* match = matchGet(matchId);
-        match->recollectOnDestruction = true;
-        match->recollectCollectId = collectId;
+        match->isFromCollect = true;
+        match->collectId = collectId;
 
         // Run the When body within this new match.
         env = Tcl_DuplicateObj(env);
@@ -1097,25 +1145,33 @@ namespace eval Evaluator {
 
         // Finally, delete the old match child if any.
         // (We do this last, _after_ adding the new match, because it helps with incrementality.)
-        {
-            for (size_t i = 0; i < collect->n_edges; i++) {
-                edge_to_match_t* edge = statementEdgeAt(collect, i);
-                if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
-                    match_handle_t childMatchId = edge->match;
-                    matchGet(childMatchId)->recollectOnDestruction = false;
-                    LogWriteUnmatch(childMatchId);
-                    break;
-                }
+        for (size_t i = 0; i < collect->n_edges; i++) {
+            edge_to_match_t* edge = statementEdgeAt(collect, i);
+            if (edge->type == CHILD && !matchHandleIsEqual(edge->match, matchId)) {
+                match_handle_t childMatchId = edge->match;
+                // We don't want to fire a new recollect on
+                // destruction. (because we just fired one)
+                matchGet(childMatchId)->isFromCollect = false;
+
+                // This Unmatch has to be trampolined back up to
+                // the operation log so it happens after Saying
+                // any new statements.
+                LogWriteUnmatch(childMatchId);
+                break;
             }
         }
     }
 
+    $cc cflags -I./vendor/libpqueue vendor/libpqueue/pqueue.c
+    $cc include "pqueue.h"
     $cc code {
         typedef enum {
             NONE, ASSERT, RETRACT, SAY, UNMATCH, RECOLLECT
-        } log_entry_op_t;
-        typedef struct log_entry_t {
-            log_entry_op_t op;
+        } queue_op_t;
+        typedef struct queue_entry_t {
+            queue_op_t op;
+            int seq;
+
             union {
                 struct { Tcl_Obj* clause; } assert;
                 struct { Tcl_Obj* pattern; } retract;
@@ -1126,21 +1182,50 @@ namespace eval Evaluator {
                 struct { match_handle_t matchId; } unmatch;
                 struct { statement_handle_t collectId; } recollect;
             };
-        } log_entry_t;
+        } queue_entry_t;
 
-        log_entry_t evaluatorLog[4096] = {0};
-        #define EVALUATOR_LOG_CAPACITY (sizeof(evaluatorLog)/sizeof(evaluatorLog[1]))
-        int evaluatorLogReadIndex = EVALUATOR_LOG_CAPACITY - 1;
-        int evaluatorLogWriteIndex = 0;
+        pqueue_t* queue;
+        int seq;
+
+        int queueEntryCompare(pqueue_pri_t next, pqueue_pri_t curr) {
+            return next < curr;
+        }
+        pqueue_pri_t queueEntryGetPriority(void* a) {
+            queue_entry_t* entry = a;
+            switch (entry->op) {
+                case NONE: return 0;
+
+                case ASSERT:
+                case RETRACT: return 80000 - entry->seq;
+                case SAY: return 80000 + entry->seq;
+
+                case UNMATCH: return 1000 - entry->seq;
+                case RECOLLECT: return 5000 - entry->seq;
+            }
+            return 0;
+        }
+        void queueEntrySetPriority(void* a, pqueue_pri_t pri) {}
+        size_t queueEntryGetPosition(void* a) { return 0; }
+        void queueEntrySetPosition(void* a, size_t pos) {}
+    }
+    $cc proc init {} void {
+        queue = pqueue_init(16384,
+                            queueEntryCompare,
+                            queueEntryGetPriority,
+                            queueEntrySetPriority,
+                            queueEntryGetPosition,
+                            queueEntrySetPosition);
     }
     $cc proc Evaluate {Tcl_Interp* interp} void {
-        /* printf("Evaluate==========\n"); */
-        while (evaluatorLogReadIndex != evaluatorLogWriteIndex) {
-            log_entry_t entry = evaluatorLog[evaluatorLogReadIndex];
-            evaluatorLogReadIndex = (evaluatorLogReadIndex + 1) % EVALUATOR_LOG_CAPACITY;
+        op("Evaluate");
 
+        seq = 0;
+
+        queue_entry_t* entryPtr;
+        while ((entryPtr = pqueue_pop(queue)) != NULL) {
+            queue_entry_t entry = *entryPtr; ckfree(entryPtr);
             if (entry.op == ASSERT) {
-                /* printf("Assert (%s)\n", Tcl_GetString(entry.assert.clause)); */
+                op("Assert (%s)", Tcl_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
@@ -1150,7 +1235,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
-                /* printf("Retract (%s)\n", Tcl_GetString(entry.retract.pattern)); */
+                op("Retract (%s)", Tcl_GetString(entry.retract.pattern));
                 environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
                                                    1000, results);
@@ -1163,7 +1248,7 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
-                /* printf("Say (%s)\n", Tcl_GetString(entry.say.clause)); */
+                op("Say (%s)", Tcl_GetString(entry.say.clause));
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -1175,55 +1260,55 @@ namespace eval Evaluator {
                 Tcl_DecrRefCount(entry.say.clause);
 
             } else if (entry.op == UNMATCH) {
-                /* printf("Unmatch (m%d:%d)\n", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen); */
+                op("Unmatch (m%d:%d)", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen);
                 if (matchExists(entry.unmatch.matchId)) {
                     reactToMatchRemoval(interp, entry.unmatch.matchId);
                     matchRemove(entry.unmatch.matchId);
                 }
 
             } else if (entry.op == RECOLLECT) {
-                /* printf("Recollect (s%d:%d)\n", entry.recollect.collectId.idx, entry.recollect.collectId.gen); */
                 if (exists(entry.recollect.collectId)) {
+                    op("Recollect (s%d:%d) (%s)", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Tcl_GetString(get(entry.recollect.collectId)->clause));
                     recollect(interp, entry.recollect.collectId);
+                } else {
+                    op("Recollect (s%d:%d) (DEAD)", entry.recollect.collectId.idx, entry.recollect.collectId.gen);
                 }
             }
         }
     }
     $cc code {
-        void LogWriteFront(log_entry_t entry) {
-            if ((evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogWriteIndex) { exit(100); }
-            evaluatorLogReadIndex = (evaluatorLogReadIndex - 1) % EVALUATOR_LOG_CAPACITY;
-            evaluatorLog[evaluatorLogReadIndex] = entry;
-        }
-        void LogWriteBack(log_entry_t entry) {
-            if ((evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY == evaluatorLogReadIndex) { exit(100); }
-            evaluatorLog[evaluatorLogWriteIndex] = entry;
-            evaluatorLogWriteIndex = (evaluatorLogWriteIndex + 1) % EVALUATOR_LOG_CAPACITY;
+        void queueInsert(queue_entry_t entry) {
+            queue_entry_t* ptr = ckalloc(sizeof(entry));
+            *ptr = entry;
+            ptr->seq = seq++;
+            pqueue_insert(queue, ptr);
         }
     }
     $cc proc LogWriteAssert {Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWriteBack((log_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
+        queueInsert((queue_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
     }
     $cc proc LogWriteRetract {Tcl_Obj* pattern} void {
         Tcl_IncrRefCount(pattern);
-        LogWriteBack((log_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
+        queueInsert((queue_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
     }
     $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
         Tcl_IncrRefCount(clause);
-        LogWriteFront((log_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
+        queueInsert((queue_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
     }
     $cc proc LogWriteUnmatch {match_handle_t matchId} void {
-        LogWriteBack((log_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
+        // TODO: These should probably precede a recollect.
+        queueInsert((queue_entry_t) { .op = UNMATCH, .unmatch = {.matchId=matchId} });
     }
     $cc proc LogWriteRecollect {statement_handle_t collectId} void {
-        LogWriteFront((log_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
+        queueInsert((queue_entry_t) { .op = RECOLLECT, .recollect = {.collectId=collectId} });
     }
     $cc proc LogIsEmpty {} bool {
-        return evaluatorLogReadIndex == evaluatorLogWriteIndex;
+        return pqueue_peek(queue) == NULL;
     }
 
     $cc compile
+    init
 }
 
 namespace eval Statements {

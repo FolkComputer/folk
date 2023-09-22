@@ -1,0 +1,13 @@
+Wish the web server handles route "/log$" with handler {
+  set log [Evaluator::getOperationLog]
+  set body [list "<ol>"]
+  foreach entry $log {
+    if {$entry eq "Evaluate"} {
+      lappend body {<li style="background-color: yellow;">Evaluate</li>}
+    } else {
+      lappend body "<li>[htmlEscape $entry]</li>"
+    }
+  }
+  lappend body "</ol>"
+  html [join $body ""]
+}
