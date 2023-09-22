@@ -910,7 +910,7 @@ namespace eval ::Gpu {
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            layout(set = 0, binding = 0) uniform sampler2D samplers[16];
+            layout(set = 0, binding = 0) uniform sampler2D samplers[$ImageManager::GPU_MAX_IMAGES];
 
             $pushConstantsCode
 
@@ -948,6 +948,26 @@ namespace eval ::Gpu {
     namespace eval ImageManager {
         namespace import [namespace parent]::*
 
+        variable GPU_MAX_IMAGES 16
+
+        # The technique used to manage images here is to have a
+        # single giant descriptor set for a giant GPU-side array of
+        # images, which all shaders can access. (That descriptor set
+        # _never_ has to be rebound; it stays bound through all draw
+        # calls, forever.)
+        # 
+        # Each image has to be 'copied to the GPU' before you do any
+        # draw calls that use it. Copying an image to the GPU gives
+        # you a GPU-side image handle, which is just an integer index
+        # into the GPU-side array. You can pass that image handle
+        # into draw calls as a parameter (push constant) when you
+        # want to draw/use the image.
+        #
+        # See:
+        # - http://kylehalladay.com/blog/tutorial/vulkan/2018/01/28/Textue-Arrays-Vulkan.html
+        # - https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
+        # - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
+        # - http://roar11.com/2019/06/vulkan-textures-unbound/
         dc code {
             VkDescriptorSetLayout imageDescriptorSetLayout;
             VkDescriptorSet imageDescriptorSet;
@@ -967,7 +987,7 @@ namespace eval ::Gpu {
                 memset(bindings, 0, sizeof(bindings));
                 bindings[0].binding = 0;
                 bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                bindings[0].descriptorCount = 16;
+                bindings[0].descriptorCount = $GPU_MAX_IMAGES;
                 bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
                 VkDescriptorSetLayoutCreateInfo createInfo = {0};
@@ -1242,6 +1262,7 @@ namespace eval ::Gpu {
 
             // Write this image+sampler to the imageDescriptorSet
             static int nextImageId = 0;
+            static bool didInitializeDescriptors = false;
             int imageId = nextImageId++;
             {
                 VkDescriptorImageInfo imageInfo = {0};
@@ -1249,15 +1270,37 @@ namespace eval ::Gpu {
                 imageInfo.imageView = textureImageView;
                 imageInfo.sampler = textureSampler;
 
-                VkWriteDescriptorSet descriptorWrite = {0};
-                descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrite.dstSet = imageDescriptorSet;
-                descriptorWrite.dstBinding = 0;
-                descriptorWrite.dstArrayElement = imageId;
-                descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptorWrite.descriptorCount = 1;
-                descriptorWrite.pImageInfo = &imageInfo;
-                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+                if (!didInitializeDescriptors) {
+                    // Hack: if we're not using the descriptor
+                    // indexing extension, we can't have a partially
+                    // bound descriptor set, so we need to fill all
+                    // the slots in the image array with
+                    // _something_. We just fill all slots wtih the
+                    // first image for now. See
+                    // http://roar11.com/2019/06/vulkan-textures-unbound/
+                    VkWriteDescriptorSet descriptorWrites[$GPU_MAX_IMAGES] = {0};
+                    for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
+                        descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                        descriptorWrites[i].dstSet = imageDescriptorSet;
+                        descriptorWrites[i].dstBinding = 0;
+                        descriptorWrites[i].dstArrayElement = i;
+                        descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                        descriptorWrites[i].descriptorCount = 1;
+                        descriptorWrites[i].pImageInfo = &imageInfo;
+                    }
+                    vkUpdateDescriptorSets(device, $GPU_MAX_IMAGES, descriptorWrites, 0, NULL);
+                    didInitializeDescriptors = true;
+                } else {
+                    VkWriteDescriptorSet descriptorWrite = {0};
+                    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    descriptorWrite.dstSet = imageDescriptorSet;
+                    descriptorWrite.dstBinding = 0;
+                    descriptorWrite.dstArrayElement = imageId;
+                    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    descriptorWrite.descriptorCount = 1;
+                    descriptorWrite.pImageInfo = &imageInfo;
+                    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+                }
             }
 
             return imageId;
