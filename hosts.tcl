@@ -20,7 +20,7 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 
         if {$wifi eq "cynosure"} {
             set ::shareNode "folk-omar.local"
-        } elseif {$wifi eq "Verizon_TWRHB4"} {
+        } elseif {$wifi eq "Verizon_TWRHB4" || $wifi eq "nyu"} {
             set ::shareNode "folk-cwervo.local"
         } elseif {$wifi eq "WONDERLAND"} {
             set ::shareNode "folk-haip.local"
