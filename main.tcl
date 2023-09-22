@@ -424,7 +424,9 @@ if {[info exists ::entry]} {
             close $fp
         }
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                                     {*}[glob virtual-programs/*/*.folk] \
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+            if {[string match "*/_archive/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
