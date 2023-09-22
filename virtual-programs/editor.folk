@@ -117,15 +117,7 @@ Commit code { Claim $id has program code $baseCode }
 proc drawText {text cursor count region} {
   set lineNumber 1
   set showCursor [expr {$count % 2 == 0}]
-  set corner [region topleft $region]
-  set angle [region angle $region]
-  lassign $corner cornerX cornerY
-  foreach line [split $text "\n"] {
-     set lineCornerY [- $cornerY [* $lineNumber 50]]
-    set lineCornerX [- $cornerX [* [string length $line] 9]]
-     Display::text $lineCornerX $lineCornerY 2 $line $angle
-     set lineNumber [+ $lineNumber 1]
-  }
+  Display::text {*}[region centroid $region] 2 $text [region angle $region]
 }
 
 # TODO: refactor this to not reply on absolute region position but instead to compose as 0, 0
