@@ -10,6 +10,12 @@ namespace eval ::vec2 {
     proc sub {a b} {
         list [- [lindex $a 0] [lindex $b 0]] [- [lindex $a 1] [lindex $b 1]]        
     }
+    proc mult {a b} {
+        list [* [lindex $a 0] [lindex $b 0]] [* [lindex $a 1] [lindex $b 1]]        
+    }
+    proc div {a b} {
+        list [/ [lindex $a 0] [lindex $b 0]] [/ [lindex $a 1] [lindex $b 1]]        
+    }
     proc scale {a args} {
         if {[llength $args] == 1} {
             set sx [lindex $args 0]; set sy [lindex $args 0]

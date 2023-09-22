@@ -175,13 +175,17 @@ proc drawCursor {cursorPosition lineShift region} {
 
   set cursorMultiplierX -20
   set cursorMultiplierY -30
+  set cursorMultiplier [list $cursorMultiplierX $cursorMultiplierY]
 
   set multipliedLineShift [list [* $cursorMultiplierX [lindex $lineShift 0]] [* $cursorMultiplierY [lindex $lineShift 1]]]
   set anchor [sub $anchor $multipliedLineShift]
 
   lassign $cursorPosition cursorX cursorY
+  # set cursorMultiplied [list [* $cursorMultiplierX $cursorX] [* $cursorMultiplierY $cursorY]]
+  set cursorMultiplied [vec2 mult $cursorMultiplier $cursorPosition]
+  # Offset by one?
+  set cursorMultiplied [add $cursorMultiplied $cursorMultiplier]
 
-  set cursorMultiplied [list [* $cursorMultiplierX $cursorX] [* $cursorMultiplierY $cursorY]]
   set anchor [add $anchor $cursorMultiplied]
 
   set anchor_up [add $anchor [list 0 $cursorMultiplierY]]
