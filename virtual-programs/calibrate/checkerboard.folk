@@ -36,9 +36,40 @@ $cc proc ::tagCanvasImageForId {int id} char* {
 }
 $cc compile
 
-Wish the web server handles route "/calibrate$" with handler { html [csubst {
+Wish the web server handles route "/calibrate$" with handler [list apply {{this} {
+  upvar ^html ^html
+  html [csubst {
     <html>
     <body>
+
+    <p>
+      Enter the side-length of a tag in millimeters:
+      <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Submit</button>
+    </p>
+    <script>
+      function uuidv4() {
+	  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+	    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+	  );
+      }
+      const self = uuidv4();
+
+    document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
+        // Report the side length to a statement in Folk.
+
+        const mm = document.getElementById("tag-side-length-mm").value;
+
+        window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+        ws.onopen = () => {
+          ws.send(`Retract \${self} claims \${self} has tag side length /anything/ mm`)
+          ws.send(`Assert \${self} claims \${self} has tag side length \${mm} mm`);
+        };
+        window.onbeforeunload = () => {
+          ws.send(`Retract \${self} claims \${self} has tag side length /anything/ mm`)
+        }
+      });
+    </script>
+
     <canvas id="tags-canvas" width="1280" height="720"></canvas>
 
     <script>
@@ -58,4 +89,10 @@ Wish the web server handles route "/calibrate$" with handler { html [csubst {
     </script>
     </body>
     </html>
-}] }
+  }]
+}} $this]
+
+When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+    # Does it contain many/all of the calibration tags?
+    
+}
