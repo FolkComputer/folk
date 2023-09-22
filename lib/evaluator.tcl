@@ -1056,6 +1056,9 @@ namespace eval Evaluator {
                     if (exists(match->collectId)) {
                         get(match->collectId)->collectNeedsRecollect = true;
                         LogWriteRecollect(match->collectId);
+                    } else {
+                        reactToMatchRemoval(interp, matchId);
+                        matchRemove(matchId);
                     }
                 } else {
                     reactToMatchRemoval(interp, matchId);
