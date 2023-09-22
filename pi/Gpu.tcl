@@ -155,12 +155,10 @@ namespace eval ::Gpu {
             const char *deviceExtensions[] = $[expr { $macos ? {{
                 VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                 "VK_KHR_portability_subset",
-                VK_KHR_MAINTENANCE3_EXTENSION_NAME,
-                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
             }} : {{
                 VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-                VK_KHR_MAINTENANCE3_EXTENSION_NAME,
-                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
             }} }];
 
             VkDeviceCreateInfo createInfo = {0};
@@ -172,11 +170,11 @@ namespace eval ::Gpu {
             createInfo.enabledExtensionCount = sizeof(deviceExtensions)/sizeof(deviceExtensions[0]);
             createInfo.ppEnabledExtensionNames = deviceExtensions;
 
-            VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0};
-            descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
-            descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
-            // TODO: Do we need more descriptor indexing features?
-            createInfo.pNext = &descriptorIndexingFeatures;
+            /* VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {0}; */
+            /* descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES; */
+            /* descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE; */
+            /* // TODO: Do we need more descriptor indexing features? */
+            /* createInfo.pNext = &descriptorIndexingFeatures; */
 
             $[vktry {vkCreateDevice(physicalDevice, &createInfo, NULL, &device)}]
         }
@@ -210,7 +208,7 @@ namespace eval ::Gpu {
             createInfo.planeIndex = 0;
             createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
             createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-            createInfo.imageExtent = (VkExtent2D) { .width = 3840, .height = 2160 }; // TODO: find out
+            createInfo.imageExtent = (VkExtent2D) { .width = $WIDTH, .height = $HEIGHT }; // TODO: find out
             if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
@@ -444,11 +442,16 @@ namespace eval ::Gpu {
             %s $argname; sscanf(Tcl_GetString($obj), "(%s) 0x%%llx", &$argname);
 #endif
         } $type $type $type $type]
+        # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
+        # so we do it by hand.
         $cc rtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
             $robj = Tcl_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
 #else
-            $robj = Tcl_ObjPrintf("(%s) 0x%%llx", (uint64_t) $rvalue);
+            {
+              char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
+              $robj = Tcl_NewStringObj(buf, -1);
+            }
 #endif
         } $type $type]
     }
@@ -952,13 +955,13 @@ namespace eval ::Gpu {
         dc proc imageManagerInit {} void {
             // Set up imageDescriptorSetLayout:
             {
-                VkDescriptorBindingFlags flags[1];
-                flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+                /* VkDescriptorBindingFlags flags[1]; */
+                /* flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT; */
 
-                VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {0};
-                bindingFlags.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-                bindingFlags.bindingCount = 1;
-                bindingFlags.pBindingFlags = flags;
+                /* VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {0}; */
+                /* bindingFlags.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO; */
+                /* bindingFlags.bindingCount = 1; */
+                /* bindingFlags.pBindingFlags = flags; */
 
                 VkDescriptorSetLayoutBinding bindings[1];
                 memset(bindings, 0, sizeof(bindings));
@@ -971,7 +974,7 @@ namespace eval ::Gpu {
                 createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
                 createInfo.bindingCount = 1;
                 createInfo.pBindings = bindings;
-                createInfo.pNext = &bindingFlags;
+                /* createInfo.pNext = &bindingFlags; */
 
                 vkCreateDescriptorSetLayout(device, &createInfo, NULL, &imageDescriptorSetLayout);
             }
@@ -1261,6 +1264,11 @@ namespace eval ::Gpu {
         }
     }
 
+    if {!$macos} {
+        # Needed on Raspberry Pi 4:
+        c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
+    }
+
     dc compile
 }
 
@@ -1366,7 +1374,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     if {[string match "scoriae*" $::thisNode]} {
         set impath "/Users/osnr/Downloads/u9.jpg"
         set impath2 "/Users/osnr/Downloads/793.jpg"
-    } elseif {$::thisNode eq "folk0"} {
+    } elseif {$::thisNode eq "folk0" || $thisNode eq "folk-omar"} {
         set impath "/home/folk/folk-images/html-energy-laptops.jpeg"
         set impath2 "/home/folk/folk-images/megaman-sprites-5x2.jpg"
     } else { error "Don't know what images to use." }
