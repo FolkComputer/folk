@@ -463,17 +463,18 @@ if {[info exists ::entry]} {
             set fd [open "|fswatch virtual-programs" r]
             fconfigure $fd -buffering line
             fileevent $fd readable [list apply {{fd} {
-                set changedFilename [file tail [gets $fd]]
+                regexp {virtual-programs\/.*$} [gets $fd] changedPath
+
+                set changedFilename [file tail $changedPath]
                 if {[string index $changedFilename 0] eq "." ||
                     [string index $changedFilename 0] eq "#" ||
                     [file extension $changedFilename] ne ".folk"} {
                     return
                 }
-                set changedProgramName "virtual-programs/$changedFilename"
-                puts "$changedProgramName updated, reloading."
 
-                set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-                EditVirtualProgram $changedProgramName $programCode
+                puts "$changedPath updated, reloading."
+                set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+                EditVirtualProgram $changedPath $programCode
             }} $fd]
         } on error err {
             puts stderr "Warning: could not invoke `fswatch` ($err)."
