@@ -7,5 +7,5 @@ When /p/ has error /err/ with info /info/ {
         }
     }
 
-    Wish $p has title $err
+    Wish $p is titled $err
 }
