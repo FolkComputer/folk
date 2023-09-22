@@ -1,0 +1,61 @@
+set cc [c create]
+$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+$cc code {
+    #include <apriltag.h>
+    #include <tagStandard52h13.h>
+    apriltag_family_t *tf = NULL;
+
+    #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
+}
+$cc proc ::tagCanvasImageForId {int id} char* {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+
+    char* ret = ckalloc(100000);
+    int i = 0;
+    emit("ctx.save()\n");
+    emit("ctx.scale(%f, %f);\n", (float)image->width, (float)image->height);
+    for (int row = 0; row < image->height; row++) {
+        for (int col = 0; col < image->width; col++) {
+            uint8_t pixel = image->buf[(row * image->stride) + col];
+            emit("ctx.fillStyle = 'rgb(%d, %d, %d)';", pixel, pixel, pixel);
+            emit("ctx.beginPath();");
+            emit("ctx.moveTo(%d, %d);", col, row); // bottom-left
+            emit("ctx.lineTo(%d, %d);", col + 1, row); // bottom-right
+            emit("ctx.lineTo(%d, %d);", col + 1, row + 1); // top-right
+            emit("ctx.lineTo(%d, %d);", col, row + 1); // top-left
+            emit("ctx.closePath(); ctx.fill();");
+        }
+        emit("\n");
+    }
+    emit("ctx.restore();\n");
+    ret[i++] = '\0';
+    image_u8_destroy(image);
+    return ret;
+}
+$cc compile
+
+Wish the web server handles route "/calibrate$" with handler { html [csubst {
+    <html>
+    <body>
+    <canvas id="tags-canvas" width="1280" height="720"></canvas>
+
+    <script>
+    const ctx = document.getElementById('tags-canvas').getContext('2d');
+    
+    $[apply {{} {
+        set images [list]
+        for {set row 0} {$row < 5} {incr row} {
+            for {set col 0} {$col < 5} {incr col} {
+                lappend images "ctx.save(); ctx.translate($col * 200, $row * 200);
+                                [::tagCanvasImageForId [+ 10000 [llength $images]]]
+                                ctx.restore();"
+            }
+        }
+        return [join $images "\n"]
+    }}]
+    </script>
+    </body>
+    </html>
+}] }
