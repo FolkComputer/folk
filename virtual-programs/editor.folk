@@ -111,7 +111,7 @@ proc newRegion {program x y w h} {
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
 # set baseCode "Wish \$this is outlined green\nClaim first name is Andres"
-set baseCode "Claim\nWish \$this is outlined gold\nClaim this is a very looooooong line\n# Comment"
+set baseCode "Claim\nWish \$this is outlined gold\n";#Claim this is a very looooooong line\n";## Comment\nset lorem 0\nset ipsum 0"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -120,18 +120,76 @@ proc drawText {text cursor count region} {
   Display::text {*}[region centroid $region] 2 $text [region angle $region]
 }
 
-# TODO: refactor this to not reply on absolute region position but instead to compose as 0, 0
-# and then translate and rotate according to the virtual region as the final step
-proc drawCursor {cursorPosition region} {
-  set corner [region topleft $region]
-  lassign $corner cornerX cornerY
+########
+# For reference, from folk/lib/math.tcl#L206:217
+#######
+# proc rotate {r angle} {
+#     set theta [angle $r]
+#     set c [centroid $r]
+#     set r' [mapVertices v $r {
+#         set v [vec2 sub $v $c]
+#         set v [vec2 rotate $v $angle]
+#         set v [vec2 add $v $c]
+#         set v
+#     }]
+#     lset r' 2 [+ $theta $angle]
+#     set r'
+# }
+#######################################
+#
+# In order to construct a cursor that's relative to the virtual keyboard you must
+# know three things:
+#   1. The center of the virtual region
+#   2. The angle of the virtual region
+#   3. The position of the cursor relative to the virtual region (this is rather involved because it requires calcualting from the center and then taking cursor units from that point)
+#
+#######################################
+
+proc rotateStroke {points center angle} {
+  lmap v $points {
+    set v [vec2 sub $v $center]
+    set v [vec2 rotate $v $angle]
+    set v [vec2 add $v $center]
+    set v
+  }
+}
+
+proc getLineShift {lines} {
+  set longestLineLength 0
+  foreach line [split $lines "\n"] {
+    set lineLength [string length $line]
+    if {$lineLength > $longestLineLength} {
+      set longestLineLength $lineLength
+    }
+  }
+  return [list [expr {$longestLineLength / 2}] [expr {[llength $lines] / 2}]]
+}
+
+proc drawCursor {cursorPosition lineShift region} {
+  set angle [region angle $region]
+  set anchor [region centroid $region]
+  # cursor position is relative to the center of the region:
+  #   x: shift it from center by half width of the longest line of text in the editor * the character width
+  #   y: shift it from center by half the number of lines in the editor * the character height
+  
+
+  set cursorMultiplierX -20
+  set cursorMultiplierY -30
+
+  set multipliedLineShift [list [* $cursorMultiplierX [lindex $lineShift 0]] [* $cursorMultiplierY [lindex $lineShift 1]]]
+  set anchor [sub $anchor $multipliedLineShift]
+
   lassign $cursorPosition cursorX cursorY
-  set cursorX [int [- $cornerX [* $cursorX 20]]]
-  set cursorY [int [- [- $cornerY [* $cursorY 65]] 20]]
-  set cursorX2 $cursorX
-  set cursorY2 [- $cursorY 50]
-  puts " $cursorPosition =>  $cursorX $cursorY"
-  Display::stroke [list [list $cursorX $cursorY] [list $cursorX2 $cursorY2]] 3 white
+
+  set cursorMultiplied [list [* $cursorMultiplierX $cursorX] [* $cursorMultiplierY $cursorY]]
+  set anchor [add $anchor $cursorMultiplied]
+
+  set anchor_up [add $anchor [list 0 $cursorMultiplierY]]
+  set anchor_right [sub $anchor [list $cursorMultiplierX 0]]
+  set anchor_right_up [add $anchor_right [list 0 $cursorMultiplierY]]
+
+  set cursorPoints [list $anchor_up $anchor $anchor_right $anchor_right_up $anchor_up]
+  Display::stroke [rotateStroke $cursorPoints $anchor $angle] 1 green
 }
 
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
@@ -140,8 +198,8 @@ When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor
   #       position. The current virtual cursor ()
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
-  # Hide cursor, TODO: fix to calculate accurate position based on cursor position
-  drawCursor $cursor $r
+  set lineShift [getLineShift $code]
+  drawCursor $cursor $lineShift $r
 
   # DEBUG INFO
   When the cursor is /cursor/ {
