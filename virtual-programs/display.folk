@@ -125,10 +125,10 @@ On process {
             float bottom = planeGlyphBounds[1] * em;
             float right = planeGlyphBounds[2] * em;
             float top = planeGlyphBounds[3] * em;
-            vec2 a = pos + rotate(vec2(left, -top), radians);
-            vec2 b = pos + rotate(vec2(right, -top), radians);
-            vec2 c = pos + rotate(vec2(right, -bottom), radians);
-            vec2 d = pos + rotate(vec2(left, -bottom), radians);
+            vec2 a = pos + rotate(vec2(left, -top), -radians);
+            vec2 b = pos + rotate(vec2(right, -top), -radians);
+            vec2 c = pos + rotate(vec2(right, -bottom), -radians);
+            vec2 d = pos + rotate(vec2(left, -bottom), -radians);
 
             vec2 vertices[4] = vec2[4](a, b, d, c);
             return vertices[gl_VertexIndex];
