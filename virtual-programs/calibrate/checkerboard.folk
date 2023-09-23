@@ -91,7 +91,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
         for {set row 0} {$row < $ROWS} {incr row} {
             for {set col 0} {$col < $COLS} {incr col} {
                 lappend images "ctx.save(); ctx.translate($col * 160, $row * 160);
-                                [::tagCanvasImageForId [+ 40000 [llength $images]]]
+                                [::tagCanvasImageForId [+ 48600 [llength $images]]]
                                 ctx.restore();"
             }
         }
@@ -103,12 +103,13 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
   }]
 }} $ROWS $COLS]
 
-fn isValidCheckerboardDetection {tags} {
+fn isValidCheckerboardDetection {detection} {
     upvar ROWS ROWS; upvar COLS COLS
     set tagsById [dict create]
     foreach tag $tags { dict set tagsById [dict get $tag id] $tag }
 
-    set expectedTagId 40000
+    # Does this detection contain many/all of the calibration tags?
+    set expectedTagId 48600
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
             if {![dict exists $tagsById $expectedTagId]} {
@@ -118,6 +119,18 @@ fn isValidCheckerboardDetection {tags} {
         }
     }
     return true
+
+    # TODO: Check that the checkerboard occupies a solid majority of
+    # the camera space.
+}
+
+fn calibrate {detections} {
+    # detections is an list of N lists of tags.
+    # compute N homographies.
+
+    # then find camera intrinsic estimates
+
+    # then nlopt for better intrinsics + distortion parameters
 }
 
 set ::checkerboardDetections [list]
@@ -136,17 +149,6 @@ When the checkerboard tag side length is /sideLength/ mm & \
 
     if {[llength $::checkerboardDetections] == 4} {
         puts "Detected 4 checkerboards"
-        # TODO: Do the thing
+        calibrate $::checkerboardDetections
     }
-
-    # Calibrate the camera. No projector.
-
-    # Does this detection contain many/all of the calibration tags?
-
-    # Optimize for the parameters.
-
-    # Do we take multiple shots?
-
-    # Where do we expect all the other tags to be, relative to?
-
 }
