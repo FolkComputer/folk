@@ -808,7 +808,7 @@ namespace eval ::Gpu {
                 continue
             }
             if {$argtype eq "sampler2D"} { set argtype "int" }
-            lappend pushConstants [dict create argtype $argtype argname $argname]
+            lappend pushConstants $argtype $argname
         }
         foreach {argtype argname} $fragArgs {
             if {$argtype eq "fn"} {
@@ -868,7 +868,7 @@ namespace eval ::Gpu {
         }
         $cc code [csubst {
             typedef struct Args {
-                $[join [lmap {argtype argname} $vertArgs {
+                $[join [lmap {argtype argname} $pushConstants {
                     expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
                 }] "\n"]
             } Args;
@@ -877,8 +877,8 @@ namespace eval ::Gpu {
         $cc proc getArgsSize {} int { return sizeof(Args); }
         variable nextPipelineId
         set pipelineId $nextPipelineId
-        $cc proc encodeArgs$pipelineId $vertArgs Tcl_Obj* {
-            Args args = {$[join [lmap {argtype argname} $vertArgs { subst {.$argname = $argname} }] " ,"]};
+        $cc proc encodeArgs$pipelineId $pushConstants Tcl_Obj* {
+            Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
             return Tcl_NewByteArrayObj((uint8_t *)&args, sizeof(args));
         }
         $cc compile
@@ -889,11 +889,9 @@ namespace eval ::Gpu {
         set pushConstantsCode [if {[llength $pushConstants] > 0} {
             subst {
                 layout(push_constant) uniform Args {
-                    [join [lmap field $pushConstants {
-                        dict with field {
-                            if {$argname eq "_"} continue
-                            expr {"$argtype $argname;"}
-                        }
+                    [join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        expr {"$argtype $argname;"}
                     }] "\n"]
                 } args;
             }
@@ -904,12 +902,19 @@ namespace eval ::Gpu {
 
             $pushConstantsCode
 
-            vec2 vert() {
-                $[join [lmap field $pushConstants {
-                    dict with field {
-                        if {$argname eq "_"} continue
-                        expr {"$argtype $argname = args.$argname;"}
+            $[join [dict values [dict map {fnName fn} $vertFnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
                     }
+                }
+            }]] "\n"]
+
+            vec2 vert() {
+                $[join [lmap {argtype argname} $pushConstants {
+                    if {$argname eq "_"} continue
+                    expr {"$argtype $argname = args.$argname;"}
                 }] " "]
                 $vertBody
             }
@@ -938,11 +943,9 @@ namespace eval ::Gpu {
             }]] "\n"]
 
             vec4 frag() {
-                $[join [lmap field $pushConstants {
-                    dict with field {
-                        if {$argname eq "_"} continue
-                        expr {"$argtype $argname = args.$argname;"}
-                    }
+                $[join [lmap {argtype argname} $pushConstants {
+                    if {$argname eq "_"} continue
+                    expr {"$argtype $argname = args.$argname;"}
                 }] " "]
                 $fragBody
             }

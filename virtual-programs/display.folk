@@ -33,6 +33,12 @@ On process {
     Gpu::ImageManager::imageManagerInit
 
     namespace eval Display {
+        variable rotate [Gpu::fn {vec2 v float a} vec2 {
+            float s = sin(a);
+            float c = cos(a);
+            mat2 m = mat2(c, s, -s, c);
+            return m * v;
+        }]
         variable cross2d [Gpu::fn {vec2 a vec2 b} float {
             return a.x*b.y - a.y*b.x;
         }]
@@ -112,10 +118,30 @@ On process {
         }]
         variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
                                        vec4 atlasGlyphBounds
-                                       vec2 a vec2 b vec2 c vec2 d} {
+                                       vec4 planeGlyphBounds
+                                       vec2 pos float radians float em
+                                       fn rotate} {
+            float left = planeGlyphBounds[0] * em;
+            float bottom = planeGlyphBounds[1] * em;
+            float right = planeGlyphBounds[2] * em;
+            float top = planeGlyphBounds[3] * em;
+            vec2 a = pos + rotate(vec2(left, -top), radians);
+            vec2 b = pos + rotate(vec2(right, -top), radians);
+            vec2 c = pos + rotate(vec2(right, -bottom), radians);
+            vec2 d = pos + rotate(vec2(left, -bottom), radians);
+
             vec2 vertices[4] = vec2[4](a, b, d, c);
             return vertices[gl_VertexIndex];
-        } {fn invBilinear fn glyphMsd fn median} {
+        } {fn rotate fn invBilinear fn glyphMsd fn median} {
+            float left = planeGlyphBounds[0] * em;
+            float bottom = planeGlyphBounds[1] * em;
+            float right = planeGlyphBounds[2] * em;
+            float top = planeGlyphBounds[3] * em;
+            vec2 a = pos + rotate(vec2(left, -top), radians);
+            vec2 b = pos + rotate(vec2(right, -top), radians);
+            vec2 c = pos + rotate(vec2(right, -bottom), radians);
+            vec2 d = pos + rotate(vec2(left, -bottom), radians);
+
             vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
                 return vec4(0, 0, 0, 0);
@@ -203,15 +229,15 @@ On process {
                 }
                 lassign $glyphInfo advance planeBounds atlasBounds
                 if {$char ne " "} {
-                    lassign [lmap v $planeBounds {* $v $em}] left bottom right top
-                    set quad [list \
-                                  [vec2 add [list $x $y] [vec2 rotate [list $left [- $top]] $radians]] \
-                                  [vec2 add [list $x $y] [vec2 rotate [list $right [- $top]] $radians]] \
-                                  [vec2 add [list $x $y] [vec2 rotate [list $right [- $bottom]] $radians]] \
-                                  [vec2 add [list $x $y] [vec2 rotate [list $left [- $bottom]] $radians]]]
+                    # lassign [lmap v $planeBounds {* $v $em}] left bottom right top
+                    # set quad [list \
+                    #               [vec2 add [list $x $y] [vec2 rotate [list $left [- $top]] $radians]] \
+                    #               [vec2 add [list $x $y] [vec2 rotate [list $right [- $top]] $radians]] \
+                    #               [vec2 add [list $x $y] [vec2 rotate [list $right [- $bottom]] $radians]] \
+                    #               [vec2 add [list $x $y] [vec2 rotate [list $left [- $bottom]] $radians]]]
                     # stroke $quad 10 red
                     Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                        $atlasBounds {*}$quad
+                        $atlasBounds $planeBounds [list $x $y] $radians $em 
                 }
                 lassign [vec2 add [list $x $y] \
                              [vec2 rotate [list [* $advance $em] 0] $radians]] x y
