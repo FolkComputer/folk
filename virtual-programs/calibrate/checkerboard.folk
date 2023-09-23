@@ -1,5 +1,6 @@
 set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+c loadlib $::env(HOME)/apriltag/libapriltag.so
 $cc code {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -61,11 +62,17 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{this}
 
         window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
         ws.onopen = () => {
-          ws.send(`Retract \${self} claims \${self} has tag side length /anything/ mm`)
-          ws.send(`Assert \${self} claims \${self} has tag side length \${mm} mm`);
+          ws.send(`
+            set ::checkerboardDetections [list]
+            Retract \${self} claims the checkerboard tag side length is /anything/ mm
+            Assert \${self} claims the checkerboard tag side length is \${mm} mm
+         `);
         };
         window.onbeforeunload = () => {
-          ws.send(`Retract \${self} claims \${self} has tag side length /anything/ mm`)
+          ws.send(`
+            set ::checkerboardDetections [list]
+            Retract \${self} claims the checkerboard tag side length is /anything/ mm
+          `);
         }
       });
     </script>
@@ -92,7 +99,18 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{this}
   }]
 }} $this]
 
-When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+set ::checkerboardDetections [list]
+When the checkerboard tag side length is /sideLength/ mm & \
+     /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
     # Does it contain many/all of the calibration tags?
-    
+    lassign [lindex $::checkerboardDetections end] _ lastTimestamp
+    if {$lastTimestamp eq "" || $timestamp - $lastTimestamp > 1000} {
+        puts "Capturing calibration checkerboard: $tags"
+    }
+
+    lappend ::checkerboardDetections [list $tags $timestamp]
+
+    if {[llength $::checkerboardDetections] == 4} {
+        puts "Detected 4 checkerboards"
+    }
 }
