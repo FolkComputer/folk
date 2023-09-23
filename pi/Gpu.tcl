@@ -788,26 +788,38 @@ namespace eval ::Gpu {
     variable nextPipelineId 0
     proc pipeline {args} {
         if {[llength $args] == 3} {
-            lassign $args args vertBody fragBody
-            set fns [list]
+            lassign $args vertArgs vertBody fragBody
+            set fragArgs [list]
         } elseif {[llength $args] == 4} {
-            lassign $args args vertBody fns fragBody
+            lassign $args vertArgs vertBody fragArgs fragBody
         } else {
-            error {Gpu::pipeline: should be used as [Gpu::pipeline args body], or [Gpu::pipeline args fns body]}
+            error {Gpu::pipeline: should be used as [Gpu::pipeline vertArgs vertBody fragBody], or [Gpu::pipeline vertArgs vertBody fragArgs fragBody]}
         }
-        set fnDict [dict create]
-        foreach fnName $fns {
-            # TODO: Support fn being a list {name fn}.
-            set fn [uplevel [list set $fnName]]
-            set fnDict [dict merge $fnDict [lindex $fn 1]]
-            dict set fnDict $fnName $fn
-        }
-
+        set vertFnDict [dict create]
+        set fragFnDict [dict create]
         set pushConstants [list]
-        set args [linsert $args 0 vec2 _resolution];
-        foreach {argtype argname} $args {
+        set vertArgs [linsert $vertArgs 0 vec2 _resolution]
+        foreach {argtype argname} $vertArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                set fn [uplevel [list set $argname]]
+                set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
+                dict set vertFnDict $argname $fn
+                continue
+            }
             if {$argtype eq "sampler2D"} { set argtype "int" }
             lappend pushConstants [dict create argtype $argtype argname $argname]
+        }
+        foreach {argtype argname} $fragArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                set fn [uplevel [list set $argname]]
+                set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
+                dict set fragFnDict $argname $fn
+                continue
+            } else {
+                error "Fragment arguments not supported"
+            }
         }
 
         # Create a C subcompiler to create a fast routine to encode
@@ -856,7 +868,7 @@ namespace eval ::Gpu {
         }
         $cc code [csubst {
             typedef struct Args {
-                $[join [lmap {argtype argname} $args {
+                $[join [lmap {argtype argname} $vertArgs {
                     expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
                 }] "\n"]
             } Args;
@@ -865,8 +877,8 @@ namespace eval ::Gpu {
         $cc proc getArgsSize {} int { return sizeof(Args); }
         variable nextPipelineId
         set pipelineId $nextPipelineId
-        $cc proc encodeArgs$pipelineId $args Tcl_Obj* {
-            Args args = {$[join [lmap {argtype argname} $args { subst {.$argname = $argname} }] " ,"]};
+        $cc proc encodeArgs$pipelineId $vertArgs Tcl_Obj* {
+            Args args = {$[join [lmap {argtype argname} $vertArgs { subst {.$argname = $argname} }] " ,"]};
             return Tcl_NewByteArrayObj((uint8_t *)&args, sizeof(args));
         }
         $cc compile
@@ -916,7 +928,7 @@ namespace eval ::Gpu {
 
             layout(location = 0) out vec4 outColor;
 
-            $[join [dict values [dict map {fnName fn} $fnDict {
+            $[join [dict values [dict map {fnName fn} $fragFnDict {
                 lassign $fn fnArgs _ fnRtype fnBody
                 subst {
                     $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
@@ -1405,7 +1417,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[4] = vec2[4](a, b, d, c);
         return vertices[gl_VertexIndex];
-    } {invBilinear} {
+    } {fn invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {

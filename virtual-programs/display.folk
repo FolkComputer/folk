@@ -115,7 +115,7 @@ On process {
                                        vec2 a vec2 b vec2 c vec2 d} {
             vec2 vertices[4] = vec2[4](a, b, d, c);
             return vertices[gl_VertexIndex];
-        } {invBilinear glyphMsd median} {
+        } {fn invBilinear fn glyphMsd fn median} {
             vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
                 return vec4(0, 0, 0, 0);
