@@ -37,7 +37,10 @@ $cc proc ::tagCanvasImageForId {int id} char* {
 }
 $cc compile
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{this} {
+set ROWS 4
+set COLS 6
+
+Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS} {
   upvar ^html ^html
   html [csubst {
     <html>
@@ -83,10 +86,11 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{this}
     const ctx = document.getElementById('tags-canvas').getContext('2d');
     
     $[apply {{} {
+        upvar ROWS ROWS; upvar COLS COLS
         set images [list]
-        for {set row 0} {$row < 5} {incr row} {
-            for {set col 0} {$col < 5} {incr col} {
-                lappend images "ctx.save(); ctx.translate($col * 200, $row * 200);
+        for {set row 0} {$row < $ROWS} {incr row} {
+            for {set col 0} {$col < $COLS} {incr col} {
+                lappend images "ctx.save(); ctx.translate($col * 160, $row * 160);
                                 [::tagCanvasImageForId [+ 10000 [llength $images]]]
                                 ctx.restore();"
             }
@@ -97,7 +101,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{this}
     </body>
     </html>
   }]
-}} $this]
+}} $ROWS $COLS]
 
 set ::checkerboardDetections [list]
 When the checkerboard tag side length is /sideLength/ mm & \
@@ -113,4 +117,15 @@ When the checkerboard tag side length is /sideLength/ mm & \
     if {[llength $::checkerboardDetections] == 4} {
         puts "Detected 4 checkerboards"
     }
+
+    # Calibrate the camera. No projector.
+
+    # Does this detection contain many/all of the calibration tags?
+
+    # Optimize for the parameters.
+
+    # Do we take multiple shots?
+
+    # Where do we expect all the other tags to be, relative to?
+
 }
