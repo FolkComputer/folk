@@ -91,7 +91,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
         for {set row 0} {$row < $ROWS} {incr row} {
             for {set col 0} {$col < $COLS} {incr col} {
                 lappend images "ctx.save(); ctx.translate($col * 160, $row * 160);
-                                [::tagCanvasImageForId [+ 10000 [llength $images]]]
+                                [::tagCanvasImageForId [+ 40000 [llength $images]]]
                                 ctx.restore();"
             }
         }
@@ -103,19 +103,40 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
   }]
 }} $ROWS $COLS]
 
+fn isValidCheckerboardDetection {tags} {
+    upvar ROWS ROWS; upvar COLS COLS
+    set tagsById [dict create]
+    foreach tag $tags { dict set tagsById [dict get $tag id] $tag }
+
+    set expectedTagId 40000
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            if {![dict exists $tagsById $expectedTagId]} {
+                return false
+            }
+            incr expectedTagId
+        }
+    }
+    return true
+}
+
 set ::checkerboardDetections [list]
 When the checkerboard tag side length is /sideLength/ mm & \
      /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
-    # Does it contain many/all of the calibration tags?
-    lassign [lindex $::checkerboardDetections end] _ lastTimestamp
-    if {$lastTimestamp eq "" || $timestamp - $lastTimestamp > 1000} {
-        puts "Capturing calibration checkerboard: $tags"
-    }
 
-    lappend ::checkerboardDetections [list $tags $timestamp]
+    if {[llength $::checkerboardDetections] >= 4} { return }
+
+    # Does it contain all of the calibration tags?
+    lassign [lindex $::checkerboardDetections end] _ lastTimestamp
+    if {($lastTimestamp eq "" || $timestamp - $lastTimestamp > 2000) &&
+        [isValidCheckerboardDetection $tags]} {
+        puts "Capturing calibration checkerboard: $tags"
+        lappend ::checkerboardDetections [list $tags $timestamp]
+    }
 
     if {[llength $::checkerboardDetections] == 4} {
         puts "Detected 4 checkerboards"
+        # TODO: Do the thing
     }
 
     # Calibrate the camera. No projector.
