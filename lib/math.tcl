@@ -274,7 +274,6 @@ namespace eval ::region {
                 error "region move: Invalid distance $distance"
             }
             if {$unit eq "%"} {
-                set distance [* $distance 0.01]
                 set unit ""
             }
             if {$unit eq ""} {
@@ -291,9 +290,6 @@ namespace eval ::region {
             set dyp [if {$direction eq "up"} {- $distance} \
                      elseif {$direction eq "down"} {+ $distance} \
                      else {+ 0}]
-            if {$dxp == 0 && $dyp == 0} {
-                error "region move: Invalid direction $direction"
-            }
             set dv [vec2 rotate [list $dxp $dyp] $theta]
             set r [mapVertices v $r {vec2 add $v $dv}]
         }
