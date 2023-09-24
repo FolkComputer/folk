@@ -222,6 +222,7 @@ namespace eval ::region {
         if {[llength $args] == 1} {
             set args [list width [lindex $args 0] height [lindex $args 0]]
         }
+        set sxp 1; set syp 1
         foreach {dim value} $args {
             set theta [angle $r]
             set c [centroid $r]
@@ -230,7 +231,6 @@ namespace eval ::region {
                 error "region scale: Invalid scale value $value"
             }
 
-            set sxp 1; set syp 1
             if {$dim eq "width"} {
                 if {$unit eq "px"} {
                     set sxp [/ $value [width $r]]
@@ -250,17 +250,17 @@ namespace eval ::region {
             } else {
                 error "region scale: Invalid dimension $dim"
             }
-
-            # TODO: Optimize
-            set r [mapVertices v $r {
-                set v [vec2 sub $v $c]
-                set v [vec2 rotate $v [* -1 $theta]]
-                set v [vec2 scale $v $sxp $syp]
-                set v [vec2 rotate $v $theta]
-                set v [vec2 add $v $c]
-                set v
-            }]
         }
+
+        # TODO: Optimize
+        set r [mapVertices v $r {
+            set v [vec2 sub $v $c]
+            set v [vec2 rotate $v [* -1 $theta]]
+            set v [vec2 scale $v $sxp $syp]
+            set v [vec2 rotate $v $theta]
+            set v [vec2 add $v $c]
+            set v
+        }]
         set r
     }
 
