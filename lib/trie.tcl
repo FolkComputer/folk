@@ -177,6 +177,21 @@ namespace eval ctrie {
         remove_(interp, trie, clause);
     }
 
+    $cc proc lookupAll {uint64_t* results int* resultsidx size_t maxresults
+                        trie_t* trie} void {
+        if (trie->hasValue) {
+            if (*resultsidx < maxresults) {
+                results[(*resultsidx)++] = trie->value;
+            }
+        }
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+            lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+        }
+    }
+
+    # Given a word sequence `wordc` & `wordv`, looks for all matches
+    # in the trie `trie`.
     $cc proc lookupImpl {Tcl_Interp* interp
                          uint64_t* results int* resultsidx size_t maxresults
                          trie_t* trie int wordc Tcl_Obj** wordv} void {
@@ -190,24 +205,45 @@ namespace eval ctrie {
         }
 
         Tcl_Obj* word = wordv[0];
-        if (scanVariable(word, NULL, 0)) { word = NULL; }
+        enum { WORD_TYPE_LITERAL, WORD_TYPE_VARIABLE, WORD_TYPE_REST_VARIABLE } wordType;
+        char wordVarName[100];
+        if (scanVariable(word, wordVarName, 100)) {
+            if (wordVarName[0] == '.' && wordVarName[1] == '.' && wordVarName[2] == '.') {
+                wordType = WORD_TYPE_REST_VARIABLE;
+            } else { wordType = WORD_TYPE_VARIABLE; }
+        } else { wordType = WORD_TYPE_LITERAL; }
 
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
             // Easy cases:
             if (trie->branches[j]->key == word || // Is there an exact pointer match?
-                word == NULL || // Is the current lookup word a variable?
-                // Is the current trie node a variable?
-                scanVariable(trie->branches[j]->key, NULL, 0)) {
+                wordType == WORD_TYPE_VARIABLE) { // Is the current lookup word a variable?
                 lookupImpl(interp, results, resultsidx, maxresults,
                            trie->branches[j], wordc - 1, wordv + 1);
+
+            } else if (wordType == WORD_TYPE_REST_VARIABLE) {
+                lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+                
             } else {
-                const char *keyString = Tcl_GetString(trie->branches[j]->key);
-                const char *wordString = Tcl_GetString(word);
-                if (strcmp(keyString, wordString) == 0) {
-                    lookupImpl(interp, results, resultsidx, maxresults,
-                               trie->branches[j], wordc - 1, wordv + 1);
+                char keyVarName[100];
+                // Is the trie node (we're currently walking) a variable?
+                if (scanVariable(trie->branches[j]->key, keyVarName, 100)) {
+                    // Is the trie node a rest variable?
+                    if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
+                        lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+
+                    } else { // Or is the trie node a normal variable?
+                        lookupImpl(interp, results, resultsidx, maxresults,
+                                   trie->branches[j], wordc - 1, wordv + 1);
+                    }
+                } else {
+                    const char *keyString = Tcl_GetString(trie->branches[j]->key);
+                    const char *wordString = Tcl_GetString(word);
+                    if (strcmp(keyString, wordString) == 0) {
+                        lookupImpl(interp, results, resultsidx, maxresults,
+                                   trie->branches[j], wordc - 1, wordv + 1);
+                    }
                 }
             }
         }
