@@ -1,7 +1,9 @@
 # 'Language' utilities that extend and customize base Tcl.
 
 proc fn {name argNames body} {
-    uplevel [list set ^$name [list $argNames $body]]
+    lassign [uplevel Evaluator::serializeEnvironment] envArgNames envArgValues
+    set argNames [linsert $argNames 0 {*}$envArgNames]
+    uplevel [list set ^$name [list apply [list $argNames $body] {*}$envArgValues]]
 }
 rename unknown _original_unknown
 # Trap resolution of commands so that they can call the lambda in
@@ -9,7 +11,7 @@ rename unknown _original_unknown
 proc unknown {name args} {
     set err [catch {set fnVar ^$name; upvar $fnVar fn}]
     if {$err == 0 && [info exists fn]} {
-        uplevel [list apply $fn {*}$args]
+        uplevel [list {*}$fn {*}$args]
     } else {
         uplevel [list _original_unknown $name {*}$args]
     }
