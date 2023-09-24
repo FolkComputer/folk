@@ -856,12 +856,13 @@ namespace eval Evaluator {
             Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                    &patternCount, &patterns);
             for (int i = 0; i < patternCount; i++) {
-                reaction_t* reactions[1000];
-                int reactionsCount = trieLookup(NULL, (uint64_t*) reactions, 1000,
+                uint64_t reactionPtrs[1000];
+                int reactionsCount = trieLookup(NULL, reactionPtrs, 1000,
                                                 reactionsToStatementAddition, patterns[i]);
                 for (int j = 0; j < reactionsCount; j++) {
-                    Tcl_DecrRefCount(reactions[j]->reactToPattern);
-                    ckfree((char *)reactions[j]);
+                    reaction_t* reaction = (reaction_t*)(uintptr_t) reactionPtrs[j];
+                    Tcl_DecrRefCount(reaction->reactToPattern);
+                    ckfree((char *)reaction);
                 }
                 trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
             }
