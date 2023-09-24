@@ -566,20 +566,29 @@ namespace eval Statements { ;# singleton Statement store
         int blen; Tcl_Obj** bwords;
         Tcl_ListObjGetElements(NULL, a, &alen, &awords);
         Tcl_ListObjGetElements(NULL, b, &blen, &bwords);
-        if (alen != blen) { return NULL; }
 
         environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
         memset(env, 0, sizeof(*env));
         for (int i = 0; i < alen; i++) {
             char aVarName[100] = {0}; char bVarName[100] = {0};
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
-                if (!isBlank(aVarName)) {
+                if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, aVarName, sizeof(binding->name));
+                    binding->value = Tcl_NewListObj(blen - i, &bwords[i]);
+
+                } else if (!isBlank(aVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, aVarName, sizeof(binding->name));
                     binding->value = bwords[i];
                 }
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
-                if (!isBlank(bVarName)) {
+                if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, bVarName, sizeof(binding->name));
+                    binding->value = Tcl_NewListObj(alen - i, &awords[i]);
+
+                } else if (!isBlank(bVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, bVarName, sizeof(binding->name));
                     binding->value = awords[i];
