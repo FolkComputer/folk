@@ -7,10 +7,10 @@ rename unknown _original_unknown
 # Trap resolution of commands so that they can call the lambda in
 # lexical scope created by `fn`.
 proc unknown {name args} {
-    try {
-        upvar ^$name ^$name
-        uplevel [list apply [set ^$name] {*}$args]
-    } on error e {
+    set err [catch {set fnVar ^$name; upvar $fnVar fn}]
+    if {$err == 0 && [info exists fn]} {
+        uplevel [list apply $fn {*}$args]
+    } else {
         uplevel [list _original_unknown $name {*}$args]
     }
 }
