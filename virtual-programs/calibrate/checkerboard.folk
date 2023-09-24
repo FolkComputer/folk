@@ -104,15 +104,11 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
 }} $ROWS $COLS]
 
 fn isValidCheckerboardDetection {detection} {
-    upvar ROWS ROWS; upvar COLS COLS
-    set tagsById [dict create]
-    foreach tag $tags { dict set tagsById [dict get $tag id] $tag }
-
     # Does this detection contain many/all of the calibration tags?
     set expectedTagId 48600
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
-            if {![dict exists $tagsById $expectedTagId]} {
+            if {![dict exists $detection $expectedTagId]} {
                 return false
             }
             incr expectedTagId
@@ -124,31 +120,84 @@ fn isValidCheckerboardDetection {detection} {
     # the camera space.
 }
 
-fn calibrate {detections} {
-    # detections is an list of N lists of tags.
-    # compute N homographies.
+package require math::linearalgebra
+namespace import ::math::linearalgebra::solvePGauss
 
-    # then find camera intrinsic estimates
+fn findHomography {sideLength detection} {
+    # x0 and y0 are camera points.
+    fn detectionTagCorner {row col corner} {
+        set id [expr {48600 + $row*$COLS + $col}]
+        return [lindex [dict get [dict get $detection $id] corners] $corner]
+    }
+
+    lassign [detectionTagCorner 0 0 3] x3 y3 ;# top-left
+    lassign [detectionTagCorner 0 [- $COLS 1] 2] x2 y2 ;# top-right
+    lassign [detectionTagCorner [- $ROWS 1] [- $COLS 1] 1] x1 y1 ;# bottom-right
+    lassign [detectionTagCorner [- $ROWS 1] 0 0] x0 y0 ;# bottom-left
+
+    # u0 and v0 are object points (in meters, where top-left corner of
+    # top-left AprilTag is 0, 0).
+    set u0 0; set v0 0
+    set u1 [* $COLS $sideLength 2]; set v1 0
+    set u2 [* $COLS $sideLength 2]; set v2 [* $ROWS $sideLength 2]
+    set u3 0; set v3 [* $ROWS $sideLength 2]
+
+    set A [subst {
+        {$x0 $y0 1 0   0   0 [expr -$x0*$u0] [expr -$y0*$u0]}
+        {$x1 $y1 1 0   0   0 [expr -$x1*$u1] [expr -$y1*$u1]}
+        {$x2 $y2 1 0   0   0 [expr -$x2*$u2] [expr -$y2*$u2]}
+        {$x3 $y3 1 0   0   0 [expr -$x3*$u3] [expr -$y3*$u3]}
+        {0   0   0 $x0 $y0 1 [expr -$x0*$v0] [expr -$y0*$v0]}
+        {0   0   0 $x1 $y1 1 [expr -$x1*$v1] [expr -$y1*$v1]}
+        {0   0   0 $x2 $y2 1 [expr -$x2*$v2] [expr -$y2*$v2]}
+        {0   0   0 $x3 $y3 1 [expr -$x3*$v3] [expr -$y3*$v3]}
+    }]
+    
+    set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
+
+    lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
+    set ::H [subst {
+        {$a0 $a1 $a2}
+        {$b0 $b1 $b2}
+        {$c0 $c1 1}
+    }]
+    return $::H
+}
+
+fn calibrate {sideLength detections} {
+    # detections is a list of N lists of tags.
+    # compute N homographies.
+    set Hs [lmap detection $detections {findHomography $sideLength $detection}]
+    puts "homographies ($Hs)"
+    
+    # Now use those to resolve the 3D projection.
+    # find camera intrinsic estimates
+    
 
     # then nlopt for better intrinsics + distortion parameters
+    
 }
 
 set ::checkerboardDetections [list]
+set ::checkerboardLastDetectionTimestamp 0
 When the checkerboard tag side length is /sideLength/ mm & \
      /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
 
     if {[llength $::checkerboardDetections] >= 4} { return }
 
+    set detection [dict create] ;# dict keyed by tag id for easy lookup
+    foreach tag $tags { dict set detection [dict get $tag id] $tag }
+
     # Does it contain all of the calibration tags?
-    lassign [lindex $::checkerboardDetections end] _ lastTimestamp
-    if {($lastTimestamp eq "" || $timestamp - $lastTimestamp > 2000) &&
-        [isValidCheckerboardDetection $tags]} {
-        puts "Capturing calibration checkerboard: $tags"
-        lappend ::checkerboardDetections [list $tags $timestamp]
+    if {($timestamp - $::checkerboardLastDetectionTimestamp > 2000) &&
+        [isValidCheckerboardDetection $detection]} {
+        puts "Capturing calibration checkerboard"
+        lappend ::checkerboardDetections $detection
+        set ::checkerboardLastDetectionTimestamp $timestamp
     }
 
     if {[llength $::checkerboardDetections] == 4} {
-        puts "Detected 4 checkerboards"
-        calibrate $::checkerboardDetections
+        puts "Detected 4 checkerboards. Calibrating."
+        calibrate $sideLength $::checkerboardDetections
     }
 }
