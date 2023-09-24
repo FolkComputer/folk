@@ -119,11 +119,11 @@ When (non-capturing) tag /tag/ has center /c/ size /size/ {
 }
 
 When (non-capturing) tag /tag/ is a tag {
-    puts "Added tag $tag"
-    On unmatch { puts "Removed tag $tag" }
-
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 48600} { return }
+
+    puts "Added tag $tag"
+    On unmatch { puts "Removed tag $tag" }
 
     set tempPath "$::env(HOME)/folk-printed-programs/$tag.folk.temp"
 
