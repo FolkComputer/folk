@@ -195,19 +195,17 @@ namespace eval ctrie {
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == word ||
-                // is the word a variable?
-                word == NULL ||
-                // is the trie key a variable?
+            // Easy cases:
+            if (trie->branches[j]->key == word || // Is there an exact pointer match?
+                word == NULL || // Is the current lookup word a variable?
+                // Is the current trie node a variable?
                 scanVariable(trie->branches[j]->key, NULL, 0)) {
                 lookupImpl(interp, results, resultsidx, maxresults,
                            trie->branches[j], wordc - 1, wordv + 1);
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
                 const char *wordString = Tcl_GetString(word);
-                if ((keyString[0] == '?' && keyString[1] == '\0') ||
-                    (wordString[0] == '?' && wordString[1] == '\0') ||
-                    (strcmp(keyString, wordString) == 0)) {
+                if (strcmp(keyString, wordString) == 0) {
                     lookupImpl(interp, results, resultsidx, maxresults,
                                trie->branches[j], wordc - 1, wordv + 1);
                 }
