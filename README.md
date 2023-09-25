@@ -21,8 +21,7 @@ make
 
 These are for a dedicated system, probably on a Raspberry Pi 4 or
 Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
-Server 22.04 Jammy LTS (selecting the 'minimal' option during
-install).
+Server 22.04 Jammy LTS.
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
