@@ -4,24 +4,9 @@
 #       thread ID?
 set id "editor-1"
 
-#####
-# To match to this I have another program with:
-#   Claim $this is editor editor-1
-#####
 When /page/ is editor /n/ & /page/ has region /r/ {
     Wish $page is outlined gray
     Claim $id has region [region move $r up 450px]
-}
-
-proc checkForModifier {key} {
-  set r ""
-  switch $key {
-    LEFTSHIFT { set r "shift" }
-    RIGHTSHIFT { set r "shift" }
-    LEFTCTRL { set r "control" }
-    RIGHTCTRL { set r "control" }
-  }
-  return $r
 }
 
 proc updateCursor {oldCursor updates} {
@@ -70,6 +55,9 @@ proc deleteCharacter {code cursor} {
     set thisLine [lindex $lines $y]
     set mergedLine [string cat $previousLine $thisLine]
     lset lines [expr {$y - 1}] $mergedLine
+    # TODO:
+    # - delete thisLine from the lines array
+    # - move cursor to end of previous line
     lreplace lines $y $y
   } else {
     set line [lindex $lines $y]
@@ -92,7 +80,7 @@ proc insertNewline {code cursor} {
 
 proc insertCursor {code cursor count} {
    if {$count % 2 == 0} {
-     return [swapCharacter $code " " $cursor]
+     return [swapCharacter $code "_" $cursor]
    } else {
      return $code    
    }
@@ -110,14 +98,15 @@ proc newRegion {program x y w h} {
 # NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
 #       but should probably be "Claim this has halo message editor" or something
 #       not as intrusive as outlining to start? Just a thought.
-# set baseCode "Wish \$this is outlined green\nClaim first name is Andres"
+# set baseCode "Wish \$this is outlined gold"
 set baseCode "Claim\nWish \$this is outlined gold\n";#Claim this is a very looooooong line\n";## Comment\nset lorem 0\nset ipsum 0"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
   set lineNumber 1
   set showCursor [expr {$count % 2 == 0}]
-  Display::text {*}[region centroid $region] 2 $text [region angle $region]
+  # TODO: Make the font size change relative to `Wish $this is small|medium|large editor 1` (by default should use small, e.g. fontSize 1)
+  Display::text {*}[region centroid $region] 1 $text [region angle $region]
 }
 
 ########
@@ -168,10 +157,18 @@ proc getLineShift {lines} {
 proc drawCursor {cursorPosition lineShift region} {
   set angle [region angle $region]
   set anchor [region centroid $region]
-  # cursor position is relative to the center of the region:
-  #   x: shift it from center by half width of the longest line of text in the editor * the character width
-  #   y: shift it from center by half the number of lines in the editor * the character height
-  
+  # Need to figure out the formula for getting from (0, 0) [centeroid of the region] to the cursor position
+  # - first translate the cursor position from the centroid to the top left of the text region
+  # - then rotate the stroke to match the angle of its parent region
+  set multipliedShift [vec2::mult [list 10 10] $lineShift]
+  set shiftedAnchor [add $anchor $multipliedShift]
+  set scaledCursor [vec2::mult [list -20 -10] $cursorPosition]
+
+  set finalCursor [add $shiftedAnchor $scaledCursor]
+
+  Display::circle {*}$shiftedAnchor 5 5 red
+  Display::circle {*}$finalCursor 5 5 green
+  puts "shiftedAnchor: $shiftedAnchor"
 
   set cursorMultiplierX -20
   set cursorMultiplierY -30
@@ -193,6 +190,7 @@ proc drawCursor {cursorPosition lineShift region} {
   set anchor_right_up [add $anchor_right [list 0 $cursorMultiplierY]]
 
   set cursorPoints [list $anchor_up $anchor $anchor_right $anchor_right_up $anchor_up]
+
   Display::stroke [rotateStroke $cursorPoints $anchor $angle] 1 green
 }
 
