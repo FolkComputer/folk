@@ -233,19 +233,19 @@ namespace eval ::region {
 
             if {$dim eq "width"} {
                 if {$unit eq "px"} {
-                    set sxp [/ $value [width $r]]
+                    set sxp [* $sxp [/ $value [width $r]]]
                 } elseif {$unit eq "%"} {
-                    set sxp [* $value 0.01]
+                    set sxp [* $sxp $value 0.01]
                 } elseif {$unit eq ""} {
-                    set sxp $value
+                    set sxp [* $sxp $value]
                 }
             } elseif {$dim eq "height"} {
                 if {$unit eq "px"} {
-                    set syp [/ $value [height $r]]
+                    set syp [* $syp [/ $value [height $r]]]
                 } elseif {$unit eq "%"} {
-                    set syp [* $value 0.01]
+                    set syp [* $syp [* $value 0.01]]
                 } elseif {$unit eq ""} {
-                    set syp $value
+                    set syp [* $syp $value]
                 }
             } else {
                 error "region scale: Invalid dimension $dim"
