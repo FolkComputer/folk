@@ -222,6 +222,7 @@ namespace eval ::region {
         if {[llength $args] == 1} {
             set args [list width [lindex $args 0] height [lindex $args 0]]
         }
+        set sxp 1; set syp 1
         foreach {dim value} $args {
             set theta [angle $r]
             set c [centroid $r]
@@ -230,37 +231,36 @@ namespace eval ::region {
                 error "region scale: Invalid scale value $value"
             }
 
-            set sxp 1; set syp 1
             if {$dim eq "width"} {
                 if {$unit eq "px"} {
-                    set sxp [/ $value [width $r]]
+                    set sxp [* $sxp [/ $value [width $r]]]
                 } elseif {$unit eq "%"} {
-                    set sxp [* $value 0.01]
+                    set sxp [* $sxp $value 0.01]
                 } elseif {$unit eq ""} {
-                    set sxp $value
+                    set sxp [* $sxp $value]
                 }
             } elseif {$dim eq "height"} {
                 if {$unit eq "px"} {
-                    set syp [/ $value [height $r]]
+                    set syp [* $syp [/ $value [height $r]]]
                 } elseif {$unit eq "%"} {
-                    set syp [* $value 0.01]
+                    set syp [* $syp [* $value 0.01]]
                 } elseif {$unit eq ""} {
-                    set syp $value
+                    set syp [* $syp $value]
                 }
             } else {
                 error "region scale: Invalid dimension $dim"
             }
-
-            # TODO: Optimize
-            set r [mapVertices v $r {
-                set v [vec2 sub $v $c]
-                set v [vec2 rotate $v [* -1 $theta]]
-                set v [vec2 scale $v $sxp $syp]
-                set v [vec2 rotate $v $theta]
-                set v [vec2 add $v $c]
-                set v
-            }]
         }
+
+        # TODO: Optimize
+        set r [mapVertices v $r {
+            set v [vec2 sub $v $c]
+            set v [vec2 rotate $v [* -1 $theta]]
+            set v [vec2 scale $v $sxp $syp]
+            set v [vec2 rotate $v $theta]
+            set v [vec2 add $v $c]
+            set v
+        }]
         set r
     }
 
@@ -273,6 +273,11 @@ namespace eval ::region {
             if {![regexp {([0-9\.]+)(px|%)?} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
             }
+            if {$direction ne "left" && $direction ne "right" &&
+                $direction ne "up" && $direction ne "down"} {
+                error "region move: Invalid direction $direction"
+            }
+
             if {$unit eq "%"} {
                 set distance [* $distance 0.01]
                 set unit ""
@@ -280,9 +285,9 @@ namespace eval ::region {
             if {$unit eq ""} {
                 # Convert to pixels
                 if {$direction eq "left" || $direction eq "right"} {
-                    set distance [expr {[width $r] * $distance * 0.01}]
+                    set distance [expr {[width $r] * $distance}]
                 } elseif {$direction eq "up" || $direction eq "down"} {
-                    set distance [expr {[height $r] * $distance * 0.01}]
+                    set distance [expr {[height $r] * $distance}]
                 }
             }
             set dxp [if {$direction eq "left"} {- $distance} \
@@ -291,9 +296,6 @@ namespace eval ::region {
             set dyp [if {$direction eq "up"} {- $distance} \
                      elseif {$direction eq "down"} {+ $distance} \
                      else {+ 0}]
-            if {$dxp == 0 && $dyp == 0} {
-                error "region move: Invalid direction $direction"
-            }
             set dv [vec2 rotate [list $dxp $dyp] $theta]
             set r [mapVertices v $r {vec2 add $v $dv}]
         }
