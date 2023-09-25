@@ -273,15 +273,21 @@ namespace eval ::region {
             if {![regexp {([0-9\.]+)(px|%)?} $distance -> distance unit]} {
                 error "region move: Invalid distance $distance"
             }
+            if {$direction ne "left" && $direction ne "right" &&
+                $direction ne "up" && $direction ne "down"} {
+                error "region move: Invalid direction $direction"
+            }
+
             if {$unit eq "%"} {
+                set distance [* $distance 0.01]
                 set unit ""
             }
             if {$unit eq ""} {
                 # Convert to pixels
                 if {$direction eq "left" || $direction eq "right"} {
-                    set distance [expr {[width $r] * $distance * 0.01}]
+                    set distance [expr {[width $r] * $distance}]
                 } elseif {$direction eq "up" || $direction eq "down"} {
-                    set distance [expr {[height $r] * $distance * 0.01}]
+                    set distance [expr {[height $r] * $distance}]
                 }
             }
             set dxp [if {$direction eq "left"} {- $distance} \
