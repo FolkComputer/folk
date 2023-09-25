@@ -136,8 +136,8 @@ fn findHomography {sideLength detection} {
     lassign [detectionTagCorner [- $ROWS 1] 0 0] x0 y0 ;# bottom-left
 
     # u0 and v0 are model points, from the known geometry of the
-    # checkerboard (in mm, where top-left corner of top-left AprilTag
-    # is 0, 0).
+    # checkerboard (in meters, where top-left corner of top-left
+    # AprilTag is 0, 0).
     set u0 0; set v0 0
     set u1 [* $COLS $sideLength 1.6]; set v1 0
     set u2 [* $COLS $sideLength 1.6]; set v2 [* $ROWS $sideLength 1.6]
@@ -157,31 +157,77 @@ fn findHomography {sideLength detection} {
     set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
 
     lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
-    set ::H [subst {
+    set H [subst {
         {$a0 $a1 $a2}
         {$b0 $b1 $b2}
         {$c0 $c1 1}
     }]
-    return $::H
+    return $H
+}
+
+fn processHomography {H} {
+    fn h {i j} { getelem $H [- $j 1] [- $i 1] }
+
+    fn v {i j} {
+        list \
+            [* [h $i 1] [h $j 1]] \
+            [+ [* [h $i 1] [h $j 2]] [* [h $i 2] [h $j 1]]] \
+            [* [h $i 2] [h $j 2]] \
+            [+ [* [h $i 3] [h $j 1]] [* [h $i 1] [h $j 3]]] \
+            [+ [* [h $i 3] [h $j 2]] [* [h $i 2] [h $j 3]]] \
+            [* [h $i 3] [h $j 3]]
+    }
+
+    set V [list \
+               [v 1 2] \
+               [sub [v 1 1] [v 2 2]]]
+    return $V
 }
 
 fn calibrate {sideLength detections} {
-    # detections is a list of N lists of tags.
-    # compute N homographies.
-    set Hs [lmap detection $detections {findHomography $sideLength $detection}]
-    puts "homographies ($Hs)"
-    
-    # Now use those to resolve the 3D projection.
-    # find camera intrinsic estimates
-    
+    # sideLength is inner side length of a tag, in meters.
+    # detections is a list of N dictionaries of detected tags.
 
-    # then nlopt for better intrinsics + distortion parameters
+    # The below calibration technique is from Zhang
+    # (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf):
+
+    # Compute N homographies (one homography for each detection):
+    set Hs [lmap detection $detections {
+        findHomography $sideLength $detection
+    }]
+
+    # Construct V:
+    set Vtop [list]; set Vbottom [list]
+    foreach H $Hs {
+        lassign [processHomography $H] Vtop_ Vbottom_
+        lappend Vtop $Vtop_
+        lappend Vbottom $Vbottom_
+    }
+    set V [list {*}$Vtop {*}$Vbottom]
+    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
+
+    # Solve Vb = 0:
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V'
+    set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
+
+    # Compute camera intrinsic matrix A:
+    lassign $b B11 B12 B22 B13 B23 B33
+    set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
+    set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
+    set alpha [expr {sqrt($lambda/$B11)}]
+    set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
+    set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
+    set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
+    foreach var {v0 lambda alpha beta gamma u0} {
+        puts "$var = [set $var]"
+    }
     
+    # then nlopt for better intrinsics + distortion parameters
 }
 
 set ::checkerboardDetections [list]
 set ::checkerboardLastDetectionTimestamp 0
-When the checkerboard tag side length is /sideLength/ mm & \
+When the checkerboard tag side length is /sideLengthMm/ mm & \
      /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
 
     if {[llength $::checkerboardDetections] >= 4} { return }
@@ -199,6 +245,7 @@ When the checkerboard tag side length is /sideLength/ mm & \
 
     if {[llength $::checkerboardDetections] == 4} {
         puts "Detected 4 checkerboards. Calibrating."
+        set sideLength [/ $sideLengthMm 1000] ;# in meters
         calibrate $sideLength $::checkerboardDetections
     }
 }
