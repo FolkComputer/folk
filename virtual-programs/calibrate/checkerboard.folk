@@ -124,7 +124,7 @@ package require math::linearalgebra
 namespace import ::math::linearalgebra::solvePGauss
 
 fn findHomography {sideLength detection} {
-    # x0 and y0 are camera points.
+    # x0 and y0 are camera points, from the camera image.
     fn detectionTagCorner {row col corner} {
         set id [expr {48600 + $row*$COLS + $col}]
         return [lindex [dict get [dict get $detection $id] corners] $corner]
@@ -135,12 +135,13 @@ fn findHomography {sideLength detection} {
     lassign [detectionTagCorner [- $ROWS 1] [- $COLS 1] 1] x1 y1 ;# bottom-right
     lassign [detectionTagCorner [- $ROWS 1] 0 0] x0 y0 ;# bottom-left
 
-    # u0 and v0 are object points (in meters, where top-left corner of
-    # top-left AprilTag is 0, 0).
+    # u0 and v0 are model points, from the known geometry of the
+    # checkerboard (in mm, where top-left corner of top-left AprilTag
+    # is 0, 0).
     set u0 0; set v0 0
-    set u1 [* $COLS $sideLength 2]; set v1 0
-    set u2 [* $COLS $sideLength 2]; set v2 [* $ROWS $sideLength 2]
-    set u3 0; set v3 [* $ROWS $sideLength 2]
+    set u1 [* $COLS $sideLength 1.6]; set v1 0
+    set u2 [* $COLS $sideLength 1.6]; set v2 [* $ROWS $sideLength 1.6]
+    set u3 0; set v3 [* $ROWS $sideLength 1.6]
 
     set A [subst {
         {$x0 $y0 1 0   0   0 [expr -$x0*$u0] [expr -$y0*$u0]}
