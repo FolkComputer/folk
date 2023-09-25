@@ -1232,7 +1232,7 @@ namespace eval Evaluator {
 
         queue_entry_t* entryPtr;
         while ((entryPtr = pqueue_pop(queue)) != NULL) {
-            queue_entry_t entry = *entryPtr; ckfree(entryPtr);
+            queue_entry_t entry = *entryPtr; ckfree((char*) entryPtr);
             if (entry.op == ASSERT) {
                 op("Assert (%s)", Tcl_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
@@ -1287,7 +1287,7 @@ namespace eval Evaluator {
     }
     $cc code {
         void queueInsert(queue_entry_t entry) {
-            queue_entry_t* ptr = ckalloc(sizeof(entry));
+            queue_entry_t* ptr = (queue_entry_t*)ckalloc(sizeof(entry));
             *ptr = entry;
             ptr->seq = seq++;
             pqueue_insert(queue, ptr);
