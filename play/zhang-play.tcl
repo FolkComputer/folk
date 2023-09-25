@@ -113,8 +113,8 @@ try {
     assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
 
     # Solve Vb = 0:
-    lassign [determineSVD [matmul [transpose $V] $V]] U S V
-    set b [lindex [transpose $V] [lindex [lsort -real -indices $S] 0]]
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V'
+    set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
 
     # Compute camera intrinsic matrix A:
     lassign $b B11 B12 B22 B13 B23 B33
