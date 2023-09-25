@@ -55,8 +55,8 @@ proc deleteCharacter {code cursor} {
     set thisLine [lindex $lines $y]
     set mergedLine [string cat $previousLine $thisLine]
     lset lines [expr {$y - 1}] $mergedLine
+    lset lines $y ""
     # TODO:
-    # - delete thisLine from the lines array
     # - move cursor to end of previous line
     lreplace lines $y $y
   } else {
@@ -95,11 +95,7 @@ proc newRegion {program x y w h} {
   Claim $program has region [region create $vertices $edges]
 }
 
-# NOTE: This is convenient for me debugging (gets triggered with Ctrl + R)
-#       but should probably be "Claim this has halo message editor" or something
-#       not as intrusive as outlining to start? Just a thought.
-# set baseCode "Wish \$this is outlined gold"
-set baseCode "Claim\nWish \$this is outlined gold\n";#Claim this is a very looooooong line\n";## Comment\nset lorem 0\nset ipsum 0"
+set baseCode "Claim\nWish \$this is outlined green"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -109,31 +105,13 @@ proc drawText {text cursor count region} {
   Display::text {*}[region centroid $region] 1 $text [region angle $region]
 }
 
-########
-# For reference, from folk/lib/math.tcl#L206:217
-#######
-# proc rotate {r angle} {
-#     set theta [angle $r]
-#     set c [centroid $r]
-#     set r' [mapVertices v $r {
-#         set v [vec2 sub $v $c]
-#         set v [vec2 rotate $v $angle]
-#         set v [vec2 add $v $c]
-#         set v
-#     }]
-#     lset r' 2 [+ $theta $angle]
-#     set r'
-# }
 #######################################
-#
 # In order to construct a cursor that's relative to the virtual keyboard you must
 # know three things:
 #   1. The center of the virtual region
 #   2. The angle of the virtual region
 #   3. The position of the cursor relative to the virtual region (this is rather involved because it requires calcualting from the center and then taking cursor units from that point)
-#
 #######################################
-
 proc rotateStroke {points center angle} {
   lmap v $points {
     set v [vec2 sub $v $center]
@@ -154,59 +132,46 @@ proc getLineShift {lines} {
   return [list [expr {$longestLineLength / 2}] [expr {[llength $lines] / 2}]]
 }
 
-proc drawCursor {cursorPosition lineShift region} {
-  set angle [region angle $region]
-  set anchor [region centroid $region]
-  # Need to figure out the formula for getting from (0, 0) [centeroid of the region] to the cursor position
-  # - first translate the cursor position from the centroid to the top left of the text region
-  # - then rotate the stroke to match the angle of its parent region
-  set multipliedShift [vec2::mult [list 10 10] $lineShift]
-  set shiftedAnchor [add $anchor $multipliedShift]
-  set scaledCursor [vec2::mult [list -20 -10] $cursorPosition]
+proc debug {position color} {
+  Display::circle {*}$position 5 2 $color
+}
 
+proc drawCursor {cursorPosition lineShift region} {
+  set cursorHeight 25
+  set anchor [region centroid $region]
+  set angle [region angle $region]
+
+  # Define constants
+  set shiftMultiplier [list 10 10]
+  # 9 is the width of a character, 20 is the height of a character
+  # These values could theortically be set from drawText in Display.tcl
+  set cursorScale [list 9 20]
+
+  # Calculate the shift for the anchor point
+  set lineShiftHalf [list [lindex $lineShift 0] 0]
+  set multipliedShift [vec2::mult $shiftMultiplier $lineShift]
+  set adjustedShift [sub $multipliedShift $lineShiftHalf]
+  set shiftedAnchor [sub $anchor $adjustedShift]
+
+  # Calculate the final cursor position
+  set scaledCursor [vec2::mult $cursorScale $cursorPosition]
   set finalCursor [add $shiftedAnchor $scaledCursor]
 
-  Display::circle {*}$shiftedAnchor 5 5 red
-  Display::circle {*}$finalCursor 5 5 green
-  puts "shiftedAnchor: $shiftedAnchor"
-
-  set cursorMultiplierX -20
-  set cursorMultiplierY -30
-  set cursorMultiplier [list $cursorMultiplierX $cursorMultiplierY]
-
-  set multipliedLineShift [list [* $cursorMultiplierX [lindex $lineShift 0]] [* $cursorMultiplierY [lindex $lineShift 1]]]
-  set anchor [sub $anchor $multipliedLineShift]
-
-  lassign $cursorPosition cursorX cursorY
-  # set cursorMultiplied [list [* $cursorMultiplierX $cursorX] [* $cursorMultiplierY $cursorY]]
-  set cursorMultiplied [vec2 mult $cursorMultiplier $cursorPosition]
-  # Offset by one?
-  set cursorMultiplied [add $cursorMultiplied $cursorMultiplier]
-
-  set anchor [add $anchor $cursorMultiplied]
-
-  set anchor_up [add $anchor [list 0 $cursorMultiplierY]]
-  set anchor_right [sub $anchor [list $cursorMultiplierX 0]]
-  set anchor_right_up [add $anchor_right [list 0 $cursorMultiplierY]]
-
-  set cursorPoints [list $anchor_up $anchor $anchor_right $anchor_right_up $anchor_up]
-
-  Display::stroke [rotateStroke $cursorPoints $anchor $angle] 1 green
+  # Rotate and display the cursor
+  set rotatedFinalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
+  # debug $rotatedFinalCursor white
+  Display::stroke [rotateStroke \
+      [list $finalCursor \
+      [add $finalCursor [list 0 $cursorHeight]] \
+    ] \
+    $anchor $angle] 2 green
 }
 
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
-  # NOTE: This is a useful debugging line as it flashes
-  #       the actual letter corresponding to the cursor
-  #       position. The current virtual cursor ()
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
   set lineShift [getLineShift $code]
   drawCursor $cursor $lineShift $r
-
-  # DEBUG INFO
-  When the cursor is /cursor/ {
-    Wish $id has halo message "cursor: $cursor"
-  }
 }
 
 proc getCurrentLineLength {lines cursor} {
@@ -215,7 +180,6 @@ proc getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
-# Must use `Every time` but it's incompatible with the keyboard claim or something, as written? Confer with Omar ...
 Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & the cursor is /cursor/ & $id has program code /code/ {
   Commit cursor {
     switch $currentCharacter {
@@ -244,7 +208,15 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       }
       LEFT { Claim the cursor is [updateCursor $cursor {x -1}] }
       BACKSPACE {
-        Claim the cursor is [updateCursor $cursor {x -1}]
+        # if cursor is at the beginning of the line, delete the newline
+        if {[x $cursor] == 0} {
+          set newCursor [updateCursor $cursor {y -1}]
+          set previousLineLength  [getCurrentLineLength $code $newCursor]
+          set newCursor [list [expr {$previousLineLength - 1}] [y $newCursor]]
+          Claim the cursor is $newCursor
+        } else {
+          Claim the cursor is [updateCursor $cursor {x -1}]
+        }
         Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
       }
       SPACE {
@@ -252,14 +224,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
       }
       ENTER {
-        # Note: Still need to figure out the exact & text manipulation methods for all the
-        #      different cases of enter. This is just a simple one for now.
         Claim the cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
-        # Claim the cursor is [updateCursor $cursor {x 0 y 1}]
-        # NOTE: Useful debugging print line, still figuring out the math.
-        #       Unforuntately this doesn't have consistent cursor spacing as the
-        #       X-coordinate increases.
-        # puts "calc: [expr {-1 * [x $cursor]}]"
         Commit code { Claim $id has program code [insertNewline $code $cursor] }
       }
       LEFTSHIFT -
@@ -270,10 +235,6 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       }
       default {
         Claim the cursor is [updateCursor $cursor {x 1}]
-        # Unneccessary b/c of properly handled stuff??
-        # if {$modifier == "shift"} {
-        #   set currentCharacter [string toupper $currentCharacter]
-        # }
         if {$modifier == "ctrl" & $currentCharacter == "p"} {
           Wish to print $code with job id [expr {rand()}]
           return
