@@ -54,7 +54,7 @@ fn processHomography {H} {
 # Draw detections:
 package require Tk
 canvas .canv -width 1280 -height 720 -background white
-set buttons [lmap {i detection} [lenumerate $detections] {
+set detectionButtons [lmap {i detection} [lenumerate $detections] {
     button .detection$i -text detection$i -command [list apply {{detection} {
         .canv delete all
         .canv create rectangle 4 4 [- 1280 2] [- 720 2] -outline blue
@@ -64,8 +64,23 @@ set buttons [lmap {i detection} [lenumerate $detections] {
         }
     }} $detection]
 }]
-puts $buttons
-pack .canv {*}$buttons -fill both -expand true
+set homButtons [lmap {i H} [lenumerate $Hs] {
+    button .h$i -text H$i -command [list apply {{detection H} {
+        .canv delete all
+        .canv create rectangle 4 4 [- 1280 2] [- 720 2] -outline red
+        dict for {id tag} $detection {
+            set corners [lmap corner [dict get $tag corners] {
+                set corner [list {*}$corner 1]
+                set corner [matmul $H $corner]
+                lassign $corner cx cy cz
+                list [/ $cx $cz] [/ $cy $cz]
+            }]
+            puts $corners
+            .canv create line {*}[join $corners] {*}[lindex $corners 0]
+        }
+    }} [lindex $detections $i] $H]
+}]
+pack .canv {*}$detectionButtons {*}$homButtons -fill both -expand true
 vwait forever
 
 # Construct V:
@@ -83,7 +98,6 @@ puts "||b|| = [norm $b]\n"
 lassign $b B11 B12 B22 B13 B23 B33
 set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
 set lambda [expr {$B33 - ($B12*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
-puts "lambda $lambda -- B11 $B11"
 set alpha [expr {sqrt($lambda/$B11)}]
 set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
 set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
