@@ -42,6 +42,8 @@ fn processHomography {H} {
             [+ [* [h $i 3] [h $j 2]] [* [h $i 2] [h $j 3]]] \
             [* [h $i 3] [h $j 3]]
     }
+    # TODO: How do I check v_{ij}?
+    
 
     set V [list \
                [v 1 2] \
@@ -54,12 +56,33 @@ package require Tk
 canvas .canv -width 1280 -height 720 -background white
 set detectionButtons [lmap {i detection} [lenumerate $detections] {
     button .detection$i -text detection$i -command [list apply {{detection} {
+        set ROWS 4
+        set COLS 6
+
         .canv delete all
         .canv create rectangle 4 4 [- 1280 2] [- 720 2] -outline blue
         dict for {id tag} $detection {
             set corners [dict get $tag corners]
             .canv create line {*}[join $corners] {*}[lindex $corners 0]
         }
+
+        fn drawDetectionTagCorner {row col corner label} {
+            fn detectionTagCorner {row col corner} {
+                set id [expr {48600 + $row*$COLS + $col}]
+                return [lindex [dict get [dict get $detection $id] corners] $corner]
+            }
+            .canv create oval \
+                {*}[detectionTagCorner $row $col $corner] \
+                {*}[add [detectionTagCorner $row $col $corner] {5 5}] \
+                -fill red
+            .canv create text [detectionTagCorner $row $col $corner] \
+                -text $label
+        }
+
+        drawDetectionTagCorner 0 0 3 TL
+        drawDetectionTagCorner 0 [- $COLS 1] 2 TR
+        drawDetectionTagCorner [- $ROWS 1] [- $COLS 1] 1 BR
+        drawDetectionTagCorner [- $ROWS 1] 0 0 BL
     }} $detection]
 }]
 set homButtons [lmap {i H} [lenumerate $Hs] {
@@ -73,32 +96,39 @@ set homButtons [lmap {i H} [lenumerate $Hs] {
                 lassign $corner cx cy cz
                 list [/ $cx $cz] [/ $cy $cz]
             }]
-            puts $corners
             .canv create line {*}[join $corners] {*}[lindex $corners 0]
         }
     }} [lindex $detections $i] $H]
 }]
 pack .canv {*}$detectionButtons {*}$homButtons -fill both -expand true
+
+try {
+    # Construct V:
+    set V [concat {*}[lmap H $Hs {processHomography $H}]]
+    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
+
+    # Solve Vb = 0:
+    lassign [::math::linearalgebra::eigenvectorsSVD [matmul [transpose $V] $V]] eigenvectors eigenvalues
+    set b [lindex $eigenvectors [lindex [lsort -real -indices $eigenvalues] 0]]
+    puts "V = $V\n"
+    puts "b = $b\n"
+    puts "Vb = [matmul $V $b]\n"
+    puts "||b|| = [norm $b]\n"
+
+    # Compute camera intrinsic matrix A:
+    lassign $b B11 B12 B22 B13 B23 B33
+    set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
+    set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
+    set alpha [expr {sqrt($lambda/$B11)}]
+    puts "beta^2: [expr {$lambda*$B11/($B11*$B22 - $B12*$B12)}]"
+    set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
+    set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
+    set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
+
+    puts "v0 = $v0"
+    puts "lambda = $lambda"
+} on error e {
+    puts stderr $::errorInfo
+}
+
 vwait forever
-
-# Construct V:
-set V [concat {*}[lmap H $Hs {processHomography $H}]]
-
-# Solve Vb = 0:
-lassign [::math::linearalgebra::eigenvectorsSVD [matmul [transpose $V] $V]] eigenvectors eigenvalues
-set b [lindex $eigenvectors [lindex [lsort -real -indices $eigenvalues] 0]]
-puts "V = $V\n"
-puts "b = $b\n"
-puts "Vb = [matmul $V $b]\n"
-puts "||b|| = [norm $b]\n"
-
-# Compute camera intrinsic matrix A:
-lassign $b B11 B12 B22 B13 B23 B33
-set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
-set lambda [expr {$B33 - ($B12*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
-set alpha [expr {sqrt($lambda/$B11)}]
-set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
-set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
-set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
-
-
