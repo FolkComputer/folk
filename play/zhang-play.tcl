@@ -29,13 +29,8 @@ source "lib/language.tcl"
 
 lappend auto_path "./vendor"
 package require math::linearalgebra
-namespace import ::math::linearalgebra::eigenvectorsSVD \
-    ::math::linearalgebra::sub \
-    ::math::linearalgebra::mkMatrix \
-    ::math::linearalgebra::getelem \
-    ::math::linearalgebra::matmul \
-    ::math::linearalgebra::transpose \
-    ::math::linearalgebra::shape
+rename ::scale scaleTk
+namespace import ::math::linearalgebra::*
 
 fn processHomography {H} {
     fn h {i j} { getelem $H [- $j 1] [- $i 1] }
@@ -56,13 +51,33 @@ fn processHomography {H} {
     return $V
 }
 
+# Draw detections:
+package require Tk
+canvas .canv -width 1280 -height 720 -background white
+set buttons [lmap {i detection} [lenumerate $detections] {
+    button .detection$i -text detection$i -command [list apply {{detection} {
+        .canv delete all
+        .canv create rectangle 4 4 [- 1280 2] [- 720 2] -outline blue
+        dict for {id tag} $detection {
+            set corners [dict get $tag corners]
+            .canv create line {*}[join $corners] {*}[lindex $corners 0]
+        }
+    }} $detection]
+}]
+puts $buttons
+pack .canv {*}$buttons -fill both -expand true
+vwait forever
+
+# Construct V:
 set V [concat {*}[lmap H $Hs {processHomography $H}]]
 
 # Solve Vb = 0:
 lassign [::math::linearalgebra::eigenvectorsSVD [matmul [transpose $V] $V]] eigenvectors eigenvalues
 set b [lindex $eigenvectors [lindex [lsort -real -indices $eigenvalues] 0]]
-puts $b
-puts "Vb = [matmul $V $b]"
+puts "V = $V\n"
+puts "b = $b\n"
+puts "Vb = [matmul $V $b]\n"
+puts "||b|| = [norm $b]\n"
 
 # Compute camera intrinsic matrix A:
 lassign $b B11 B12 B22 B13 B23 B33
@@ -73,3 +88,5 @@ set alpha [expr {sqrt($lambda/$B11)}]
 set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
 set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
 set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
+
+
