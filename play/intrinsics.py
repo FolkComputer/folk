@@ -53,9 +53,11 @@ def recover_intrinsics(homographies):
     V = np.zeros((2 * M, 6))
     V[:M] = v_01
     V[M:] = v_00 - v_11
+    print("V", V)
 
     # Use SVD to solve the homogeneous system Vb = 0
     b = svd_solve(V)
+    print("b", b)
 
     B0, B1, B2, B3, B4, B5 = b
 

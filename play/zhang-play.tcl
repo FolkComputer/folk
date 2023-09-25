@@ -43,7 +43,6 @@ fn processHomography {H} {
             [* [h $i 3] [h $j 3]]
     }
     # TODO: How do I check v_{ij}?
-    
 
     set V [list \
                [v 1 2] \
@@ -104,29 +103,31 @@ pack .canv {*}$detectionButtons {*}$homButtons -fill both -expand true
 
 try {
     # Construct V:
-    set V [concat {*}[lmap H $Hs {processHomography $H}]]
+    set Vtop [list]; set Vbottom [list]
+    foreach H $Hs {
+        lassign [processHomography $H] Vtop_ Vbottom_
+        lappend Vtop $Vtop_
+        lappend Vbottom $Vbottom_
+    }
+    set V [list {*}$Vtop {*}$Vbottom]
     assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
 
     # Solve Vb = 0:
-    lassign [::math::linearalgebra::eigenvectorsSVD [matmul [transpose $V] $V]] eigenvectors eigenvalues
-    set b [lindex $eigenvectors [lindex [lsort -real -indices $eigenvalues] 0]]
-    puts "V = $V\n"
-    puts "b = $b\n"
-    puts "Vb = [matmul $V $b]\n"
-    puts "||b|| = [norm $b]\n"
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V
+    set b [lindex [transpose $V] [lindex [lsort -real -indices $S] 0]]
 
     # Compute camera intrinsic matrix A:
     lassign $b B11 B12 B22 B13 B23 B33
     set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
     set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
     set alpha [expr {sqrt($lambda/$B11)}]
-    puts "beta^2: [expr {$lambda*$B11/($B11*$B22 - $B12*$B12)}]"
     set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
     set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
     set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
 
-    puts "v0 = $v0"
-    puts "lambda = $lambda"
+    foreach var {v0 lambda alpha beta gamma u0} {
+        puts "$var = [set $var]"
+    }
 } on error e {
     puts stderr $::errorInfo
 }
