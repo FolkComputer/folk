@@ -121,7 +121,7 @@ fn isValidCheckerboardDetection {detection} {
 }
 
 package require math::linearalgebra
-namespace import ::math::linearalgebra::solvePGauss
+namespace import ::math::linearalgebra::*
 
 fn findHomography {sideLength detection} {
     # x0 and y0 are camera points, from the camera image.
@@ -204,7 +204,7 @@ fn calibrate {sideLength detections} {
         lappend Vbottom $Vbottom_
     }
     set V [list {*}$Vtop {*}$Vbottom]
-    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
+    assert {[::math::linearalgebra::shape $V] eq [list [* 2 [llength $Hs]] 6]}
 
     # Solve Vb = 0:
     lassign [determineSVD [matmul [transpose $V] $V]] U S V'
@@ -245,7 +245,7 @@ When the checkerboard tag side length is /sideLengthMm/ mm & \
 
     if {[llength $::checkerboardDetections] == 4} {
         puts "Detected 4 checkerboards. Calibrating."
-        set sideLength [/ $sideLengthMm 1000] ;# in meters
+        set sideLength [/ $sideLengthMm 1000.0] ;# in meters
         calibrate $sideLength $::checkerboardDetections
     }
 }
