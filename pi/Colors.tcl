@@ -19,12 +19,7 @@ proc hexcolor color {
     set g [expr {($color >> 8) & 0xFF}]
     set r [expr {($color >> 16) & 0xFF}]
 
-    set fbColor "\[[dec2bin8 $b]\] \[[dec2bin8 $g]\] \[[dec2bin8 $r]\]"
-    if {$Display::DEPTH == 16} {
-        return [color [dec2bin5 $b] [dec2bin6 $g] [dec2bin5 $r]]
-    } elseif {$Display::DEPTH == 32} {
-        return [color [dec2bin8 $b] [dec2bin8 $g] [dec2bin8 $r]]
-    }
+    return [list [/ $r 255.0] [/ $g 255.0] [/ $b 255.0] 1.0]
 }
 
 variable aliceblue [hexcolor F0F8FF]
