@@ -16,8 +16,8 @@ namespace eval ::Display {
         uplevel [list Wish display runs [list Display::stroke $points $width $color] on layer $::Display::LAYER]
     }
 
-    proc circle {x y radius thickness color} {
-        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color] on layer $::Display::LAYER]
+    proc circle {x y radius thickness color {filled false}} {
+        uplevel [list Wish display runs [list Display::circle $x $y $radius $thickness $color $filled] on layer $::Display::LAYER]
     }
 
     proc text args {
