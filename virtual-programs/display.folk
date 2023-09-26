@@ -54,6 +54,8 @@ On process {
         [list /someone/ wishes display runs /command/ on layer /layer/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes display runs /command/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes display runs program /commands/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
@@ -64,6 +66,11 @@ On process {
         }
         foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
             lappend displayList [list 0 [dict get $match command]]
+        }
+        foreach match [Statements::findMatches {/someone/ wishes display runs program /commands/}] {
+            foreach command [dict get $match commands] {
+                lappend displayList [list 0 $command]
+            }
         }
 
         proc lcomp {a b} {
