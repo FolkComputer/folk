@@ -346,6 +346,9 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
 
 dc code {
 void scanline(int x1, int x2, int y, int color) {
+  if (x1 < 0) x1 = 0; if (x1 >= fbwidth) x1 = fbwidth-1;
+  if (x2 < 0) x2 = 0; if (x2 >= fbwidth) x2 = fbwidth-1;
+  if (y < 0) y = 0; if (y >= fbheight) y = fbheight-1;
   for (int j=x1; j<=x2; j++) {
       staging[y*fbwidth + j] = color;
   }
