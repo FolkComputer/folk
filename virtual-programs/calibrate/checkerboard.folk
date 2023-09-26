@@ -196,6 +196,9 @@ fn calibrate {sideLength detections} {
         findHomography $sideLength $detection
     }]
 
+    puts "Detections {$detections}"
+    puts "Hs {$Hs}"
+
     # Construct V:
     set Vtop [list]; set Vbottom [list]
     foreach H $Hs {
