@@ -301,7 +301,39 @@ On process {
             }
         }
 
-        proc image {x y im radians {scale 1.0}} {}
+        variable image [Gpu::pipeline {sampler2D image vec2 imageSize
+                                       vec2 pos float radians float scale} {
+            vec2 a = pos - imageSize/2;
+            vec2 b = pos + vec2(imageSize.x, -imageSize.y)/2;
+            vec2 c = pos + imageSize/2;
+            vec2 d = pos + vec2(-imageSize.x, imageSize.y)/2;
+            vec2 vertices[4] = vec2[4](a, b, d, c);
+            return vertices[gl_VertexIndex];
+        } {fn invBilinear} {
+            vec2 a = pos - imageSize/2;
+            vec2 b = pos + vec2(imageSize.x, -imageSize.y)/2;
+            vec2 c = pos + imageSize/2;
+            vec2 d = pos + vec2(-imageSize.x, imageSize.y)/2;
+            vec2 p = gl_FragCoord.xy;
+            vec2 uv = invBilinear(p, a, b, c, d);
+            if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+                return texture(samplers[image], uv);
+            }
+            return vec4(0.0, 0.0, 0.0, 0.0);
+        }]
+        variable imCache [dict create]
+        proc image {x y im radians {scale 1.0}} {
+            variable image
+            variable imCache
+            if {![dict exists $imCache $im]} {
+                set gim [Gpu::ImageManager::copyImageToGpu [::image rechannel $im 4]]
+                dict set imCache $im $gim
+            }
+            set gim [dict get $imCache $im]
+            puts $gim
+            Gpu::draw $image $gim [list [::image width $im] [::image height $im]] \
+                [list $x $y] $radians $scale
+        }
 
         proc end {} { Gpu::drawEnd; Gpu::poll }
     }

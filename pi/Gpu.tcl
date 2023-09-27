@@ -1242,7 +1242,11 @@ namespace eval ::Gpu {
             // Copy im to stagingBuffer:
             {
                 void* data; vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
-                memcpy(data, im.data, size);
+                for (int y = 0; y < im.height; y++) {
+                    memcpy(data + y*im.width*4,
+                           im.data + y*im.bytesPerRow,
+                           im.width*4);
+                }
                 vkUnmapMemory(device, stagingBufferMemory);
             }
             transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,

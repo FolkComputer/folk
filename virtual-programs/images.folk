@@ -262,6 +262,8 @@ namespace eval ::image {
         // TODO: Free the PNG.
     }
 
+    # Allocates(!) a copy of `im` with `components` channels. Up to
+    # the caller to free it.
     $cc proc rechannel {image_t im int components} image_t {
         if (im.components == components) return im;
         if (components != 4 || im.components != 3) exit(2);
@@ -270,16 +272,20 @@ namespace eval ::image {
         ret.components = components;
         ret.bytesPerRow = ret.width * ret.components;
         ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
-        
-        for(int i = 0; i < ret.width*ret.height; i++) {
-            int r = im.data[i*im.components+0],
-                g = im.data[i*im.components+1], 
-                b = im.data[i*im.components+2];
 
-            ret.data[i*ret.components+0] = r;
-            ret.data[i*ret.components+1] = g;
-            ret.data[i*ret.components+2] = b;
-            ret.data[i*ret.components+3] = 255;
+        for (int y = 0; y < im.height; y++) {
+            for (int x = 0; x < im.width; x++) {
+                int imidx = y*im.bytesPerRow + x*im.components;
+                int r = im.data[imidx+0],
+                    g = im.data[imidx+1], 
+                    b = im.data[imidx+2];
+
+                int ridx = y*ret.bytesPerRow + x*ret.components;
+                ret.data[ridx+0] = r;
+                ret.data[ridx+1] = g;
+                ret.data[ridx+2] = b;
+                ret.data[ridx+3] = 255;
+            }
         }
         return ret;
     }
