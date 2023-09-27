@@ -44,6 +44,7 @@ On process {
         variable cross2d [Gpu::fn {vec2 a vec2 b} float {
             return a.x*b.y - a.y*b.x;
         }]
+        # See https://www.shadertoy.com/view/lsBSDm
         variable invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d} {cross2d} vec2 {
             vec2 res = vec2(-1.0);
 
@@ -57,7 +58,8 @@ On process {
             float k0 = cross2d( h, e );
 
             // if edges are parallel, this is a linear equation
-            if( abs(k2)<0.001 )
+            k2 /= k0; k1 /= k0; k0 = 1.0;
+            if(  abs(k2)<0.001*abs(k0) )
             {
                 res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
             }
@@ -302,18 +304,19 @@ On process {
         }
 
         variable image [Gpu::pipeline {sampler2D image vec2 imageSize
-                                       vec2 pos float radians float scale} {
-            vec2 a = pos - imageSize/2;
-            vec2 b = pos + vec2(imageSize.x, -imageSize.y)/2;
-            vec2 c = pos + imageSize/2;
-            vec2 d = pos + vec2(-imageSize.x, imageSize.y)/2;
+                                       vec2 pos float radians float scale
+                                       fn rotate} {
+            vec2 a = pos + rotate(-imageSize/2, -radians);
+            vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+            vec2 c = pos + rotate(imageSize/2, -radians);
+            vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
             vec2 vertices[4] = vec2[4](a, b, d, c);
             return vertices[gl_VertexIndex];
-        } {fn invBilinear} {
-            vec2 a = pos - imageSize/2;
-            vec2 b = pos + vec2(imageSize.x, -imageSize.y)/2;
-            vec2 c = pos + imageSize/2;
-            vec2 d = pos + vec2(-imageSize.x, imageSize.y)/2;
+        } {fn invBilinear fn rotate} {
+            vec2 a = pos + rotate(-imageSize/2, -radians);
+            vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+            vec2 c = pos + rotate(imageSize/2, -radians);
+            vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
             vec2 p = gl_FragCoord.xy;
             vec2 uv = invBilinear(p, a, b, c, d);
             if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
@@ -323,6 +326,8 @@ On process {
         }]
         variable imCache [dict create]
         proc image {x y im radians {scale 1.0}} {
+            # TODO: Implement scale.
+            # TODO: Free images from cache.
             variable image
             variable imCache
             if {![dict exists $imCache $im]} {
@@ -330,7 +335,6 @@ On process {
                 dict set imCache $im $gim
             }
             set gim [dict get $imCache $im]
-            puts $gim
             Gpu::draw $image $gim [list [::image width $im] [::image height $im]] \
                 [list $x $y] $radians $scale
         }
