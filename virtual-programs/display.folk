@@ -266,7 +266,7 @@ On process {
         }
 
         variable fillTriangle [Gpu::pipeline {vec2 p0 vec2 p1 vec2 p2 vec4 color} {
-            vec2 vertices[4] = vec2[4](p0, p1, p2, p2);
+            vec2 vertices[4] = vec2[4](p0, p1, p2, p0);
             return vertices[gl_VertexIndex];
         } {
             return color;
