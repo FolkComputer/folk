@@ -21,8 +21,7 @@ make
 
 These are for a dedicated system, probably on a Raspberry Pi 4 or
 Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
-Server 22.04 Jammy LTS (selecting the 'minimal' option during
-install).
+Server 22.04 Jammy LTS.
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
@@ -141,16 +140,15 @@ not the PS for it to work, probably)
 1. Print 4 AprilTags (either print throwaway programs from Folk or
    manually print tagStandard52h13 tags yourself).
 
-1. On the tabletop, suspend the system with `sudo systemctl stop folk` and run
-   `tclsh8.6 pi/Camera.tcl` and position your camera to cover your
-   table.
+1. On the tabletop run `./folk.tcl setup camera` to preview the webcam view on the table. Position your camera to cover your table.
 
 1. Place the 4 AprilTags around your table. On the tabletop, run
-   `tclsh8.6 calibrate.tcl`. Wait.
+   `./folk.tcl calibrate`. Wait.
 
 1. You should see red triangles projected on each of your 4 tags. Then
    you're done! Run Folk! If not, rerun calibration until you do see a
    red triangle on each tag.
+1. When you've successfully calibrated start Folk back up with `./folk.tcl start`
 
 ### Bluetooth keyboards
 

@@ -212,12 +212,18 @@ proc StepImpl {} {
     set ::peerTime [baretime {
         # This takes 2 ms.
         set shareStatements [clauseset create]
-        set shareAllWishes [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0}]
-        set shareAllClaims [expr {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0}]
-        dict for {_ stmt} [Statements::all] {
-            if {($shareAllWishes && [lindex [statement clause $stmt] 1] eq "wishes") ||
-                ($shareAllClaims && [lindex [statement clause $stmt] 1] eq "claims")} {
-                clauseset add shareStatements [statement clause $stmt]
+        if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0} {
+            foreach match [Statements::findMatches [list /someone/ wishes /...anything/]] {
+                set id [lindex [dict get $match __matcheeIds] 0]
+                set clause [statement clause [Statements::get $id]]
+                clauseset add shareStatements $clause
+            }
+        }
+        if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0} {
+            foreach match [Statements::findMatches [list /someone/ claims /...anything/]] {
+                set id [lindex [dict get $match __matcheeIds] 0]
+                set clause [statement clause [Statements::get $id]]
+                clauseset add shareStatements $clause
             }
         }
 
