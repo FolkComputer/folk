@@ -478,7 +478,6 @@ namespace eval ::Gpu {
     }]
 
     # Pipeline creation:
-
     defineVulkanHandleType dc VkPipeline
     defineVulkanHandleType dc VkPipelineLayout
     defineVulkanHandleType dc VkDescriptorSet
@@ -486,8 +485,6 @@ namespace eval ::Gpu {
     dc typedef uint64_t VkDeviceSize
     dc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
     dc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
-    variable VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER 1
-    variable VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER 6
     dc struct Pipeline {
         VkPipeline pipeline;
         VkPipelineLayout pipelineLayout;
@@ -499,8 +496,6 @@ namespace eval ::Gpu {
                             VkShaderModule vertShaderModule
                             VkShaderModule fragShaderModule
                             size_t pushConstantsSize} Pipeline [csubst {
-        // Now what?
-        // Create graphics pipeline.
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
             VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
             vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -766,21 +761,22 @@ namespace eval ::Gpu {
 
     # Construct a reusable GLSL function that can be linked into and
     # called from a shader/pipeline.
-    proc fn {args} {
-        if {[llength $args] == 3} {
-            lassign $args args rtype body
-            set fns [list]
-        } elseif {[llength $args] == 4} {
-            lassign $args args fns rtype body
-        } else {
-            error {Gpu::fn: should be used as [Gpu::fn args rtype body], or [Gpu::fn args fns rtype body]}
+    proc fn {args rtype body} {
+        set fnArgs [list]
+        # We inline all dependent functions from the caller scope
+        # immediately here, since we don't know if those dependencies
+        # would be accessible/in scope at all when this function gets
+        # actually compiled into a shader.
+        set depFnDict [dict create]
+        foreach {argtype argname} $args {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {fnName fn}.
+                dict set depFnDict $argname [uplevel [list set $argname]]
+            } else {
+                lappend fnArgs $argtype $argname
+            }
         }
-        set fnDict [dict create]
-        foreach fnName $fns {
-            # TODO: Support fn being a list {fnName fn}.
-            dict set fnDict $fnName [uplevel [list set $fnName]]
-        }
-        return [list $args $fnDict $rtype $body]
+        return [list $fnArgs $depFnDict $rtype $body]
     }
 
     # Construct a shader pipeline that can be used to draw to the
@@ -807,7 +803,6 @@ namespace eval ::Gpu {
                 dict set vertFnDict $argname $fn
                 continue
             }
-            if {$argtype eq "sampler2D"} { set argtype "int" }
             lappend pushConstants $argtype $argname
         }
         foreach {argtype argname} $fragArgs {
@@ -891,7 +886,11 @@ namespace eval ::Gpu {
                 layout(push_constant) uniform Args {
                     [join [lmap {argtype argname} $pushConstants {
                         if {$argname eq "_"} continue
-                        expr {"$argtype $argname;"}
+                        if {$argtype eq "sampler2D"} {
+                            expr {"int $argname;"}
+                        } else {
+                            expr {"$argtype $argname;"}
+                        }
                     }] "\n"]
                 } args;
             }
@@ -914,6 +913,7 @@ namespace eval ::Gpu {
             vec2 vert() {
                 $[join [lmap {argtype argname} $pushConstants {
                     if {$argname eq "_"} continue
+                    if {$argtype eq "sampler2D"} continue
                     expr {"$argtype $argname = args.$argname;"}
                 }] " "]
                 $vertBody
@@ -924,10 +924,19 @@ namespace eval ::Gpu {
                 gl_Position = vec4(v, 0.0, 1.0);
             }
         }]]]
+        # We pass the descriptor set with all images (samplers) to all
+        # fragment shaders, so we never need to rebind it (at draw
+        # time, the shader may get an index into the array if it's
+        # meant to draw an image).
+        #
+        # Note that we use combined image + sampler, instead of 1
+        # global sampler and multiple textures/images, because that's
+        # the only way to allow each image to have its own dimensions
+        # (dimensions are a property bound to the sampler).
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            layout(set = 0, binding = 0) uniform sampler2D samplers[$ImageManager::GPU_MAX_IMAGES];
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$ImageManager::GPU_MAX_IMAGES];
 
             $pushConstantsCode
 
@@ -942,10 +951,18 @@ namespace eval ::Gpu {
                 }
             }]] "\n"]
 
+            $[join [lmap {argtype argname} $pushConstants {
+                if {$argtype eq "sampler2D"} {
+                    expr {"#define $argname _samplers\[args.$argname\]"}
+                }
+            }] "\n"]
+
             vec4 frag() {
                 $[join [lmap {argtype argname} $pushConstants {
                     if {$argname eq "_"} continue
-                    expr {"$argtype $argname = args.$argname;"}
+                    if {$argtype ne "sampler2D"} {
+                        expr {"$argtype $argname = args.$argname;"}
+                    }
                 }] " "]
                 $fragBody
             }
@@ -963,6 +980,10 @@ namespace eval ::Gpu {
     namespace eval ImageManager {
         namespace import [namespace parent]::*
 
+        # TODO: Support more than 16 concurrent images. This
+        # constraint is imposed by Vulkan by default (device
+        # maxPerStageDescriptorSamplers limit is 16). I think we can
+        # increase it by querying GPU settings somehow.
         variable GPU_MAX_IMAGES 16
 
         # The technique used to manage images here is to have a
@@ -1040,7 +1061,6 @@ namespace eval ::Gpu {
         }
 
         # Buffer allocation:
-
         dc code [csubst {
             uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
                 VkPhysicalDeviceMemoryProperties memProperties;
@@ -1383,7 +1403,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set cross2d [Gpu::fn {vec2 a vec2 b} float {
         return a.x*b.y - a.y*b.x;
     }]
-    set invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d} {cross2d} vec2 {
+    set invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d fn cross2d} vec2 {
         vec2 res = vec2(-1.0);
 
         vec2 e = b-a;
@@ -1428,7 +1448,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
-            return texture(samplers[image], uv);
+            return texture(image, uv);
         }
         return vec4(0.0, 0.0, 0.0, 0.0);
     }]

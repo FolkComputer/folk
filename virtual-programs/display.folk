@@ -45,7 +45,7 @@ On process {
             return a.x*b.y - a.y*b.x;
         }]
         # See https://www.shadertoy.com/view/lsBSDm
-        variable invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d} {cross2d} vec2 {
+        variable invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d fn cross2d} vec2 {
             vec2 res = vec2(-1.0);
 
             vec2 e = b-a;
@@ -115,7 +115,7 @@ On process {
         variable font [font load "PTSans-Regular"]
         variable glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
             vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
-            return texture(atlas,  vec2(atlasUv.x, 1.0-atlasUv.y));
+            return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
         }]
         variable median [Gpu::fn {float r float g float b} float {
             return max(min(r, g), min(max(r, g), b));
@@ -150,7 +150,7 @@ On process {
             if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
                 return vec4(0, 0, 0, 0);
             }
-            vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+            vec3 msd = glyphMsd(atlas, atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
             float sd = median(msd.r, msd.g, msd.b);
             float screenPxDistance = 4.5*(sd - 0.5);
             float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
@@ -320,7 +320,7 @@ On process {
             vec2 p = gl_FragCoord.xy;
             vec2 uv = invBilinear(p, a, b, c, d);
             if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
-                return texture(samplers[image], uv);
+                return texture(image, uv);
             }
             return vec4(0.0, 0.0, 0.0, 0.0);
         }]
