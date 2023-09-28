@@ -100,7 +100,7 @@ On process {
                 }
 
                 set im [image load "[pwd]/vendor/fonts/$name.png"]
-                set gim [Gpu::ImageManager::copyImageToGpu [image rechannel $im 4]]
+                set gim [Gpu::ImageManager::copyImageToGpu $im]
 
                 return [list $glyphInfos $im $gim]
             }
@@ -331,7 +331,7 @@ On process {
             variable image
             variable imCache
             if {![dict exists $imCache $im]} {
-                set gim [Gpu::ImageManager::copyImageToGpu [::image rechannel $im 4]]
+                set gim [Gpu::ImageManager::copyImageToGpu $im]
                 dict set imCache $im $gim
             }
             set gim [dict get $imCache $im]

@@ -1208,9 +1208,57 @@ namespace eval ::Gpu {
             }
         }]
 
-        dc proc copyImageToGpu {image_t im} int {
+        # Allocates(!) a copy of `im` with 4 channels, on the Tcl
+        # local heap. Up to the caller to free it.
+        dc proc copyImageToRgba {image_t im} image_t {
+            if (im.components == 4) return im;
+            if (im.components != 1 && im.components != 3) exit(2);
+
+            image_t ret = im;
+            ret.components = 4;
+            ret.bytesPerRow = ret.width * ret.components;
+            ret.data = ckalloc(ret.bytesPerRow * ret.height);
+
+            if (im.components == 3) {
+                for (int y = 0; y < im.height; y++) {
+                    for (int x = 0; x < im.width; x++) {
+                        int imidx = y*im.bytesPerRow + x*im.components;
+                        int r = im.data[imidx+0],
+                            g = im.data[imidx+1], 
+                            b = im.data[imidx+2];
+
+                        int ridx = y*ret.bytesPerRow + x*ret.components;
+                        ret.data[ridx+0] = r;
+                        ret.data[ridx+1] = g;
+                        ret.data[ridx+2] = b;
+                        ret.data[ridx+3] = 255;
+                    }
+                }
+            } else {
+                for (int y = 0; y < im.height; y++) {
+                    for (int x = 0; x < im.width; x++) {
+                        int imidx = y*im.bytesPerRow + x*im.components;
+                        int r = im.data[imidx],
+                            g = im.data[imidx], 
+                            b = im.data[imidx];
+
+                        int ridx = y*ret.bytesPerRow + x*ret.components;
+                        ret.data[ridx+0] = r;
+                        ret.data[ridx+1] = g;
+                        ret.data[ridx+2] = b;
+                        ret.data[ridx+3] = 255;
+                    }
+                }
+            }
+            return ret;
+        }
+
+        dc proc copyImageToGpu {image_t im0} int {
             // Image must be RGBA.
-            if (im.components != 4) { exit(40); }
+            image_t im;
+            if (im0.components != 4) { im = copyImageToRgba(im0); }
+            else { im = im0; }
+
             size_t size = im.width * im.height * 4;
 
             VkBuffer stagingBuffer;
@@ -1342,6 +1390,7 @@ namespace eval ::Gpu {
                 }
             }
 
+            if (im0.components != 4) { ckfree(im.data); }
             return imageId;
         }
     }
@@ -1460,8 +1509,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         set impath "/home/folk/folk-images/html-energy-laptops.jpeg"
         set impath2 "/home/folk/folk-images/megaman-sprites-5x2.jpg"
     } else { error "Don't know what images to use." }
-    set im [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath] 4]]
-    set im2 [Gpu::ImageManager::copyImageToGpu [image rechannel [image loadJpeg $impath2] 4]]
+    set im [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath]]
+    set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath2]]
     
     set t 0
     while 1 {
