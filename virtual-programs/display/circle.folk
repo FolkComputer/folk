@@ -1,0 +1,24 @@
+On process Display {
+    set circle [Gpu::pipeline {vec2 center float radius float thickness vec4 color int filled} {
+        float r = radius + thickness;
+        vec2 vertices[4] = vec2[4](
+                                   center - r,
+                                   vec2(center.x + r, center.y - r),
+                                   vec2(center.x - r, center.y + r),
+                                   center + r
+                                   );
+        return vertices[gl_VertexIndex];
+    } {
+        float dist = length(gl_FragCoord.xy - center) - radius;
+        if (filled == 1) {
+            return (dist < thickness) ? color : vec4(0, 0, 0, 0);
+        } else {
+            return (dist < thickness && dist > 0.0) ? color : vec4(0, 0, 0, 0);
+        }
+    }]
+
+    When /someone/ wishes the display draws a circle with /...options/ {
+        dict assign $options x y radius thickness color {filled "false"}
+        Gpu::draw $circle [list $x $y] $radius $thickness [getColor $color] [ne $filled "false"]
+    }
+}

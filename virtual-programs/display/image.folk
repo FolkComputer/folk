@@ -1,0 +1,40 @@
+On process Display {
+    Given the GPU inverse bilinear function is /invBilinear/
+    Given the GPU rotate function is /rotate/
+
+    variable image [Gpu::pipeline {sampler2D image vec2 imageSize
+                                   vec2 pos float radians float scale
+                                   fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn invBilinear fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(samplers[image], uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
+    }]
+    variable imCache [dict create]
+    When /someone/ wishes the display draws an image with /...options/ {
+        # TODO: Implement scale.
+        # TODO: Free images from cache.
+        variable image
+        variable imCache
+        if {![dict exists $imCache $im]} {
+            set gim [Gpu::ImageManager::copyImageToGpu [::image rechannel $im 4]]
+            dict set imCache $im $gim
+        }
+        set gim [dict get $imCache $im]
+        Gpu::draw $image $gim [list [::image width $im] [::image height $im]] \
+            [list $x $y] $radians $scale
+    }
+}

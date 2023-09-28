@@ -1,0 +1,111 @@
+On process Display {
+    Given the GPU rotate function is /rotate/
+    Given the GPU inverse bilinear function is /invBilinear/
+
+    namespace eval font {
+        proc load {name} {
+            set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+            set glyphInfos [dict create]
+            foreach line [split $csv "\n"] {
+            set info [lassign [split $line ,] glyph]
+            lassign $info advance \
+                planeLeft planeBottom planeRight planeTop \
+                atlasLeft atlasBottom atlasRight atlasTop
+            dict set glyphInfos $glyph \
+                [list $advance \
+                     [list $planeLeft $planeBottom $planeRight $planeTop] \
+                     [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+            }
+
+            set im [image load "[pwd]/vendor/fonts/$name.png"]
+            set gim [Gpu::ImageManager::copyImageToGpu [image rechannel $im 4]]
+
+            return [list $glyphInfos $im $gim]
+        }
+        proc hasGlyphInfo {font charCode} { dict exists [lindex $font 0] $charCode }
+        proc glyphInfo {font charCode} { dict get [lindex $font 0] $charCode }
+        proc atlasImage {font} { lindex $font 1 }
+        proc gpuAtlasImage {font} { lindex $font 2 }
+
+        namespace export *
+        namespace ensemble create
+    }
+    variable font [font load "PTSans-Regular"]
+    variable glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+        vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
+        return texture(atlas,  vec2(atlasUv.x, 1.0-atlasUv.y));
+    }]
+    variable median [Gpu::fn {float r float g float b} float {
+        return max(min(r, g), min(max(r, g), b));
+    }]
+    variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
+                                   vec4 atlasGlyphBounds
+                                   vec4 planeGlyphBounds
+                                   vec2 pos float radians float em
+                                   fn rotate} {
+        float left = planeGlyphBounds[0] * em;
+        float bottom = planeGlyphBounds[1] * em;
+        float right = planeGlyphBounds[2] * em;
+        float top = planeGlyphBounds[3] * em;
+        vec2 a = pos + rotate(vec2(left, -top), -radians);
+        vec2 b = pos + rotate(vec2(right, -top), -radians);
+        vec2 c = pos + rotate(vec2(right, -bottom), -radians);
+        vec2 d = pos + rotate(vec2(left, -bottom), -radians);
+
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn rotate fn invBilinear fn glyphMsd fn median} {
+        float left = planeGlyphBounds[0] * em;
+        float bottom = planeGlyphBounds[1] * em;
+        float right = planeGlyphBounds[2] * em;
+        float top = planeGlyphBounds[3] * em;
+        vec2 a = pos + rotate(vec2(left, -top), -radians);
+        vec2 b = pos + rotate(vec2(right, -top), -radians);
+        vec2 c = pos + rotate(vec2(right, -bottom), -radians);
+        vec2 d = pos + rotate(vec2(left, -bottom), -radians);
+
+        vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
+        if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
+            return vec4(0, 0, 0, 0);
+        }
+        vec3 msd = glyphMsd(samplers[atlas], atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+        float sd = median(msd.r, msd.g, msd.b);
+        float screenPxDistance = 4.5*(sd - 0.5);
+        float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+        return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
+    }]
+
+    proc text {x0 y0 scale text radians} {
+    When /someone/ wishes the display draws a text with /...options/ {
+        variable font
+        variable glyph
+        set fontAtlas [font gpuAtlasImage $font]
+        set fontAtlasSize [list [::image width [font atlasImage $font]] \
+                               [::image height [font atlasImage $font]]]
+        set em [* $scale 30.0]
+        set x $x0; set y $y0
+        set lineNum 0
+        for {set i 0} {$i < [string length $text]} {incr i} {
+            set char [string index $text $i]
+            if {$char eq "\n"} {
+                incr lineNum
+                lassign [vec2 add [list $x0 $y0] \
+                             [vec2 rotate [list 0 [* $lineNum $em]] $radians]] x y
+                continue
+            }
+            set charCode [scan $char %c]
+            if {[font hasGlyphInfo $font $charCode]} {
+                set glyphInfo [font glyphInfo $font $charCode]
+            } else {
+                set glyphInfo [font glyphInfo $font [scan ? %c]]
+            }
+            lassign $glyphInfo advance planeBounds atlasBounds
+            if {$char ne " "} {
+                Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                    $atlasBounds $planeBounds [list $x $y] $radians $em 
+            }
+            lassign [vec2 add [list $x $y] \
+                         [vec2 rotate [list [* $advance $em] 0] $radians]] x y
+        }
+    }
+}
