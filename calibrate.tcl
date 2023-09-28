@@ -333,9 +333,8 @@ $cc proc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_O
             }
         }
     }
-    printf("correspondenceCount: %d\n", correspondenceCount);
+    // printf("correspondenceCount: %d\n", correspondenceCount);
 
-    // Tcl_Incr
     return Tcl_NewListObj(correspondenceCount, correspondences);
 }]
 
@@ -344,7 +343,6 @@ $cc compile
 puts "camera: $Camera::camera"
 
 set dense [findDenseCorrespondence]
-puts "dense: $dense"
 displayDenseCorrespondence $dense
 
 set detector [AprilTags new $tagfamily]
@@ -352,20 +350,22 @@ set grayFrame [Camera::grayFrame]
 set tags [$detector detect $grayFrame]
 Camera::freeImage $grayFrame
 
+flush stdout
+
 Display::start
 
 puts ""
 set keyCorrespondences [list]
 foreach tag $tags {
     puts ""
-    puts "for tag $tag:"
+    puts "Checking tag $tag."
     
     # these are in camera space
     set cx [lindex [dict get $tag center] 0]
     set cy [lindex [dict get $tag center] 1]
 
     set keypoints [list [list $cx $cy] {*}[dict get $tag corners]]
-    puts "keypoints: $keypoints"
+    # puts "keypoints: $keypoints"
     set correspondences [list]
     foreach keypoint $keypoints {
         lassign $keypoint x y
@@ -376,12 +376,12 @@ foreach tag $tags {
     }
 
     if {[llength $correspondences] == 0} { continue }
-    puts "nearby: [llength $correspondences] correspondences: $correspondences"
-    puts ""
+    # puts "nearby: [llength $correspondences] correspondences: $correspondences"
+    # puts ""
 
     lassign [lindex $correspondences 0] _ _ px py
     lassign [lindex $correspondences end] _ _ px1 py1
-    puts "$px $py $px1 $py1"
+    # puts "$px $py $px1 $py1"
     Display::fillTriangle \
         [list $px $py] \
         [list $px1 $py1] \
@@ -394,10 +394,16 @@ foreach tag $tags {
     lappend keyCorrespondences [lindex $correspondences 0]
 }
 Display::end
-# lappend keyCorrespondences [lindex $correspondences end]
-set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
-puts "key correspondences: $keyCorrespondences"
+puts ""
+puts "Found [llength $keyCorrespondences] key correspondences: $keyCorrespondences"
+if {[llength $keyCorrespondences] >= 4} {
+    puts "Calibration succeeded!"
+} else {
+    puts "Calibration did not succeed. Not enough points found."
+}
+
+set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
 set fd [open "/home/folk/generated-calibration.tcl" w]
 puts $fd [subst {

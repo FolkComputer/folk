@@ -137,10 +137,32 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Print 4 AprilTags (either print throwaway programs from Folk or
+1. Print at least 4 AprilTags (either print throwaway programs from Folk or
    manually print tagStandard52h13 tags yourself).
 
-1. On the tabletop run `./folk.tcl setup camera` to preview the webcam view on the table. Position your camera to cover your table.
+1. Let's position the camera. Make sure Folk is running (ssh in, `cd
+   ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
+   http://whatever.local:4273 and make a new program and save it:
+   
+   ```
+   When the camera frame is /im/ {
+     Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
+       # set width [dict get $im width]
+       # set height [dict get $im height]
+       set filename "/tmp/web-image-frame.jpg"
+       image saveAsJpeg $im $filename
+       set fsize [file size $filename]
+       set fd [open $filename r]
+       fconfigure $fd -encoding binary -translation binary
+       set body [read $fd $fsize]
+       close $fd
+       dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+     }} $im]
+   }
+   ```
+
+   Go to http://whatever.local:4273/frame-image/ to see the camera's
+   current field of view. Reposition your camera to cover your table.
 
 1. Place the 4 AprilTags around your table. On the tabletop, run
    `./folk.tcl calibrate`. Wait.
@@ -148,7 +170,9 @@ not the PS for it to work, probably)
 1. You should see red triangles projected on each of your 4 tags. Then
    you're done! Run Folk! If not, rerun calibration until you do see a
    red triangle on each tag.
-1. When you've successfully calibrated start Folk back up with `./folk.tcl start`
+
+1. When you've successfully calibrated, start Folk back up with
+   `./folk.tcl start`.
 
 ### Bluetooth keyboards
 

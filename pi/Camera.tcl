@@ -279,7 +279,9 @@ namespace eval Camera {
         // free(image.data);
     }
 
-    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ?
+                     "/opt/homebrew/lib/libjpeg.dylib" :
+                     [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
     camc compile
 
     variable camera
@@ -323,25 +325,5 @@ namespace eval Camera {
         set image [newImage $WIDTH $HEIGHT 1]
         cameraDecompressGray $camera $image
         set image
-    }
-}
-
-if {([info exists ::argv0] && $::argv0 eq [info script]) || \
-        ([info exists ::entry] && $::entry == "pi/Camera.tcl")} {
-    source pi/Display.tcl
-    Display::init
-
-    # Camera::init 3840 2160
-    Camera::init 1280 720
-    # Camera::init 1920 1080
-    puts "camera: $Camera::camera"
-
-    while true {
-        set rgb [Camera::frame]
-        set gray [Camera::rgbToGray $rgb]
-        # FIXME: hacky
-        Display::grayImage $Display::fb $Display::WIDTH $Display::HEIGHT "(uint8_t*) [dict get $gray data]" $Camera::WIDTH $Camera::HEIGHT
-        Camera::freeImage $gray
-        Camera::freeImage $rgb
     }
 }
