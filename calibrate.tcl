@@ -2,6 +2,15 @@ source "lib/language.tcl"
 source "lib/c.tcl"
 
 exec sudo systemctl stop folk
+# TODO: Fix this hack.
+set thisPid [pid]
+foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
+    if {$pid ne $thisPid} {
+        try { exec kill -9 $pid } on error e { puts stderr $e }
+    }
+}
+exec sleep 1
+
 catch {
     exec v4l2-ctl --set-ctrl=focus_auto=0
     exec v4l2-ctl --set-ctrl=focus_absolute=0
@@ -106,16 +115,6 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
     }
 }
 
-proc eachDisplayPixel {body} {
-    return "
-        for (int y = 0; y < $Display::HEIGHT; y++) {
-            for (int x = 0; x < $Display::WIDTH; x++) {
-                pixel_t* it = &fb\[y * $Display::WIDTH + x\]; (void)it;
-                $body
-            }
-        }
-    "
-}
 proc eachCameraPixel {body} {
     return "
         for (int y = 0; y < $Camera::HEIGHT; y++) {
@@ -128,12 +127,6 @@ proc eachCameraPixel {body} {
 }
 
 $cc code {
-    #define BLACK PIXEL(0, 0, 0)
-    #define WHITE PIXEL(255, 255, 255)
-
-    uint16_t toGrayCode(uint16_t value) {
-        return value ^ (value >> 1);
-    }
     uint16_t fromGrayCode(uint16_t code) {
         uint16_t mask = code;
         while (mask) {
@@ -187,10 +180,10 @@ set ::rowGrayCode [Gpu::pipeline {int k int invert} {
     }
 }]
 
-# returns dense correspondence from camera space -> projector space
 $cc code {
     #define DRAW(...) do { Tcl_Eval(interp, "Gpu::drawStart"); Tcl_EvalObjEx(interp, Tcl_ObjPrintf(__VA_ARGS__), 0); Tcl_Eval(interp, "Gpu::drawEnd"); } while (0)
 }
+# returns dense correspondence from camera space -> projector space
 $cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
     // image the base scene in white
     DRAW("Gpu::draw {$clearScreen} {1 1 1 1}");
