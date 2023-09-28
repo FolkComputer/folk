@@ -214,9 +214,9 @@ On process {
             Gpu::draw $circle [list $x $y] $radius $thickness [getColor $color] [ne $filled "false"]
         }
 
-        proc textMetrics {text scale} {
+        proc textExtent {text scale} {
             variable font
-            set em [* $scale 30.0]
+            set em [* $scale 25.0]
             set x 0; set y 0
             for {set i 0} {$i < [string length $text]} {incr i} {
                 set char [string index $text $i]
@@ -240,8 +240,17 @@ On process {
             set fontAtlas [font gpuAtlasImage $font]
             set fontAtlasSize [list [::image width [font atlasImage $font]] \
                                    [::image height [font atlasImage $font]]]
-            set em [* $scale 30.0]
+
+            set extent [vec2 rotate [textExtent $text $scale] $radians]
+
+            set em [* $scale 25.0]
+
+            # TODO: Add text alignment/anchor options (right now, this
+            # setup centers the text).
+            set x0 [expr {$x0 - [lindex $extent 0]/2}]
+            set y0 [expr {$y0 - [lindex $extent 1]/2}]
             set x $x0; set y $y0
+
             set lineNum 0
             for {set i 0} {$i < [string length $text]} {incr i} {
                 set char [string index $text $i]
