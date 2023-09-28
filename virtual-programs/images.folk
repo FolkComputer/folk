@@ -35,7 +35,11 @@ namespace eval ::image {
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
-    $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    if {[namespace exists ::Heap]} {
+        $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    } else {
+        $cc code { #define folkHeapAlloc malloc }
+    }
 
     $cc code {
         #undef EXTERN

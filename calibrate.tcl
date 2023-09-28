@@ -7,42 +7,37 @@ catch {
     exec v4l2-ctl --set-ctrl=focus_absolute=0
 }
 
-set cc [c create]
-$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
-
-source "pi/Display.tcl"
 source "pi/Camera.tcl"
 source "pi/AprilTags.tcl"
 
-Display::init
+# FIXME: These are hacks/stubs so we can just load display.folk
+# without needing any other Folk stuff.
+set ::isLaptop false
+set ::thisProcess [pid]
+interp alias {} Step {} break
+proc Commit {args} {}
+proc When {args} {}
+proc Retract {args} {}
+proc Wish {args} {}
+proc On {_process arg} { eval $arg }
+namespace eval Statements { proc findMatches {args} { return [list] } }
+source "lib/math.tcl"
+source "virtual-programs/display.folk"
+
 # FIXME: adapt to camera spec
 # Camera::init 3840 2160
 Camera::init 1920 1080
 set tagfamily "tagStandard52h13"
 
 
+set cc [c create]
+$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+
 $cc code {
     #include <stdint.h>
     #include <unistd.h>
     #include <stdlib.h>
     #include <math.h>
-}
-
-if {$Display::DEPTH == 16} {
-    $cc code {
-        typedef uint16_t pixel_t;
-        #define PIXEL(r, g, b) \
-            (((((r) >> 3) & 0x1F) << 11) | \
-             ((((g) >> 2) & 0x3F) << 5) | \
-             (((b) >> 3) & 0x1F))
-    }
-} elseif {$Display::DEPTH == 32} {
-    $cc code {
-        typedef uint32_t pixel_t;
-        #define PIXEL(r, g, b) (((r) << 16) | ((g) << 8) | ((b) << 0))
-    }
-} else {
-    error "calibrate: Unusable depth $Display::DEPTH"
 }
 
 $cc code {
@@ -159,14 +154,50 @@ $cc code {
     } dense_t;
 }
 
+set ::clearScreen [Gpu::pipeline {vec4 color} {
+    vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
+    return vertices[gl_VertexIndex];
+} {
+    return color;
+}]
+
+set ::columnGrayCode [Gpu::pipeline {int k int invert} {
+    vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
+    return vertices[gl_VertexIndex];
+} {
+    int column = int(gl_FragCoord.x);
+    int code = column ^ (column >> 1);
+    if (invert == 1) {
+        return ((code >> k) & 1) == 1 ? vec4(0, 0, 0, 1) : vec4(1, 1, 1, 1);
+    } else {
+        return ((code >> k) & 1) == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+    }
+}]
+
+set ::rowGrayCode [Gpu::pipeline {int k int invert} {
+    vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
+    return vertices[gl_VertexIndex];
+} {
+    int row = int(gl_FragCoord.y);
+    int code = row ^ (row >> 1);
+    if (invert == 1) {
+        return ((code >> k) & 1) == 1 ? vec4(0, 0, 0, 1) : vec4(1, 1, 1, 1);
+    } else {
+        return ((code >> k) & 1) == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+    }
+}]
+
 # returns dense correspondence from camera space -> projector space
-$cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subst -nobackslashes {
+$cc code {
+    #define DRAW(...) do { Tcl_Eval(interp, "Gpu::drawStart"); Tcl_EvalObjEx(interp, Tcl_ObjPrintf(__VA_ARGS__), 0); Tcl_Eval(interp, "Gpu::drawEnd"); } while (0)
+}
+$cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
     // image the base scene in white
-    [eachDisplayPixel { *it = WHITE; }]
+    DRAW("Gpu::draw {$clearScreen} {1 1 1 1}");
     uint8_t* whiteImage = delayThenCameraCapture(interp, "whiteImage");
 
     // image the base scene in black
-    [eachDisplayPixel { *it = BLACK; }]
+    DRAW("Gpu::draw {$clearScreen} {0 0 0 1}");
     uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
 
     // find column correspondences:
@@ -178,20 +209,14 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
         columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
         for (int k = columnBits - 1; k >= 0; k--) {
-            [eachDisplayPixel {
-                int code = toGrayCode(x);
-                *it = ((code >> k) & 1) ? WHITE : BLACK;
-            }]
+            DRAW("Gpu::draw {$columnGrayCode} %d 0", k);
             uint8_t* codeImage = delayThenCameraCapture(interp, "columnCodeImage");
 
-            [eachDisplayPixel {
-                int code = toGrayCode(x);
-                *it = ((code >> k) & 1) ? BLACK : WHITE;
-            }]
+            DRAW("Gpu::draw {$columnGrayCode} %d 1", k);
             uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "columnInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
-            [eachCameraPixel {
+            $[eachCameraPixel {
                 if (columnCorr[i] == 0xFFFF) continue;
 
                 int bit;
@@ -216,7 +241,7 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
         }
 
         // convert column correspondences out of Gray code
-        [eachCameraPixel {
+        $[eachCameraPixel {
             if (columnCorr[i] != 0xFFFF) {
                 columnCorr[i] = fromGrayCode(columnCorr[i]);
             }
@@ -232,20 +257,14 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
         rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
         for (int k = rowBits - 1; k >= 0; k--) {
-            [eachDisplayPixel {
-                int code = toGrayCode(y);
-                *it = ((code >> k) & 1) ? WHITE : BLACK;
-            }]
+            DRAW("Gpu::draw {$rowGrayCode} %d 0", k);
             uint8_t* codeImage = delayThenCameraCapture(interp, "rowCodeImage");
 
-            [eachDisplayPixel {
-                int code = toGrayCode(y);
-                *it = ((code >> k) & 1) ? BLACK : WHITE;
-            }]
+            DRAW("Gpu::draw {$rowGrayCode} %d 1", k);
             uint8_t* invertedCodeImage = delayThenCameraCapture(interp, "rowInvertedCodeImage");
 
             // scan camera image, add to the correspondence for each pixel
-            [eachCameraPixel {
+            $[eachCameraPixel {
                 if (rowCorr[i] == 0xFFFF) continue;
                 
                 int bit;
@@ -270,7 +289,7 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
         }
 
         // convert row correspondences out of Gray code
-        [eachCameraPixel {
+        $[eachCameraPixel {
             if (rowCorr[i] != 0xFFFF) {
                 rowCorr[i] = fromGrayCode(rowCorr[i]);
             }
@@ -281,29 +300,32 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp pixel_t* fb} dense_t* [subs
     dense->columnCorr = columnCorr;
     dense->rowCorr = rowCorr;
     return dense;
-}]
+}
 
-$cc proc displayDenseCorrespondence {Tcl_Interp* interp pixel_t* fb dense_t* dense} void [subst -nobackslashes {
-    // image the base scene in black for reference
-    [eachDisplayPixel { *it = BLACK; }]
-    uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage");
+$cc proc displayDenseCorrespondence {Tcl_Interp* interp dense_t* dense} void {
+    // TODO: Bring this back. Temporarily disabling so I don't have to
+    // port it to GPU. (and we weren't really using it, anyway, afaict.)
 
-    // display dense correspondence directly. just for fun
-    [eachCameraPixel [subst -nocommands -nobackslashes {
-        if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ???
-            fb[(y * $Display::WIDTH) + x] = PIXEL(255, 255, 0);
-        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
-            uint8_t pix = blackImage[i];
-            fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix);
-        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = PIXEL(255, 0, 0); // red: row-only match
-        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = PIXEL(0, 0, 255); // blue: column-only match
-        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
-            fb[(y * $Display::WIDTH) + x] = PIXEL(0, 255, 0); // green: double match
-        }
-    }]]
-}]
+    /* // image the base scene in black for reference */
+    /* [eachDisplayPixel { *it = BLACK; }] */
+    /* uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage"); */
+
+    /* // display dense correspondence directly. just for fun */
+    /* [eachCameraPixel [subst -nocommands -nobackslashes { */
+    /*     if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ??? */
+    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(255, 255, 0); */
+    /*     } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) { */
+    /*         uint8_t pix = blackImage[i]; */
+    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix); */
+    /*     } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) { */
+    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(255, 0, 0); // red: row-only match */
+    /*     } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) { */
+    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(0, 0, 255); // blue: column-only match */
+    /*     } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) { */
+    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(0, 255, 0); // green: double match */
+    /*     } */
+    /* }]] */
+}
 
 $cc proc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj* [subst -nobackslashes -nocommands {
     // find correspondences inside the tag
@@ -328,14 +350,16 @@ $cc compile
 
 puts "camera: $Camera::camera"
 
-set dense [findDenseCorrespondence $Display::fb]
+set dense [findDenseCorrespondence]
 puts "dense: $dense"
-displayDenseCorrespondence $Display::fb $dense
+displayDenseCorrespondence $dense
 
 set detector [AprilTags new $tagfamily]
 set grayFrame [Camera::grayFrame]
 set tags [$detector detect $grayFrame]
 Camera::freeImage $grayFrame
+
+Display::start
 
 puts ""
 set keyCorrespondences [list]
@@ -376,6 +400,7 @@ foreach tag $tags {
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
+Display::end
 # lappend keyCorrespondences [lindex $correspondences end]
 set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
@@ -392,8 +417,6 @@ puts $fd [subst {
     }
 }]
 close $fd
-
-Display::commit
 
 exec sleep 10
 # exec sudo systemctl start folk &

@@ -33,6 +33,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
                                 [expr {double($dy)/$generatedCalibration::displayHeight*$Display::HEIGHT}]]
         }
     }
+    if {[llength $points] < 4} {
+        puts stderr "tags-and-calibration: Calibration isn't valid (not enough points). Stopping Folk."
+        exit 1
+    }
     for {set i 0} {$i < [llength $points]} {incr i} {
         lassign [lindex $points $i] x$i y$i u$i v$i
     }
