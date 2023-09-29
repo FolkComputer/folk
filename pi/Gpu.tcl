@@ -1351,6 +1351,10 @@ namespace eval ::Gpu {
             static int nextImageId = 0;
             static bool didInitializeDescriptors = false;
             int imageId = nextImageId++;
+            if (imageId >= $GPU_MAX_IMAGES) {
+                fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n");
+                exit(22);
+            }
             {
                 VkDescriptorImageInfo imageInfo = {0};
                 imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
