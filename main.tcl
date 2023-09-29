@@ -283,6 +283,8 @@ namespace eval ::Heap {
 
     proc init {} {
         variable cc [c create]
+        $cc cflags -I./vendor
+
         $cc include <sys/mman.h>
         $cc include <sys/stat.h>
         $cc include <fcntl.h>
@@ -290,16 +292,33 @@ namespace eval ::Heap {
         $cc include <stdlib.h>
         $cc include <string.h>
         $cc include <errno.h>
+
         $cc code {
             size_t folkHeapSize = 400000000; // 400MB
             uint8_t* folkHeapBase;
-            uint8_t** _Atomic folkHeapPointer;
+            uint8_t** _Atomic folkHeapBrk;
+
+            #define USE_DL_PREFIX 1
+            #define USE_MALLOC_LOCK 1
+            #define HAVE_MMAP 0
+            #define MORECORE folkSbrk
+            #define get_malloc_state() ((struct malloc_state *) (folkHeapBase + sizeof(*folkHeapBrk)))
+            void* folkSbrk(intptr_t increment) {
+                if (*folkHeapBrk + increment >= folkHeapBase + folkHeapSize) {
+                    fprintf(stderr, "folkSbrk: out of memory\n"); exit(1);
+                }
+                void* ptr = *folkHeapBrk; *folkHeapBrk += increment;
+                return ptr;
+            }
+            #include "dlmalloc/malloc.c"
         }
         # The memory mapping of the heap will be inherited by all
         # subprocesses, since it's established before the creation of
         # the zygote.
         $cc proc folkHeapMount {} void {
-            shm_unlink("/folk-heap");
+            (void) av_; // just to suppress unuse warning in malloc.c.
+
+            shm_unlink("/folk-heap"); // Try to delete the old heap if there is one.
             int fd = shm_open("/folk-heap", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
             if (fd == -1) { fprintf(stderr, "folkHeapMount: shm_open failed\n"); exit(1); }
             if (ftruncate(fd, folkHeapSize) == -1) { fprintf(stderr, "folkHeapMount: ftruncate failed\n"); exit(1); }
@@ -308,17 +327,15 @@ namespace eval ::Heap {
             if (folkHeapBase == NULL || folkHeapBase == (void *) -1) {
                 fprintf(stderr, "folkHeapMount: mmap failed: '%s'\n", strerror(errno)); exit(1);
             }
-            folkHeapPointer = (uint8_t**) folkHeapBase;
-            *folkHeapPointer = folkHeapBase + sizeof(*folkHeapPointer);
+            folkHeapBrk = (uint8_t**) folkHeapBase;
+            *folkHeapBrk = folkHeapBase + sizeof(*folkHeapBrk) + sizeof(struct malloc_state);
+
+            pthread_mutexattr_t att; pthread_mutexattr_init(&att);
+            pthread_mutexattr_setpshared(&att, PTHREAD_PROCESS_SHARED);
+            pthread_mutex_init(&mALLOC_MUTEx, &att);
         }
-        $cc proc folkHeapAlloc {size_t sz} void* {
-            if (*folkHeapPointer + sz >= folkHeapBase + folkHeapSize) {
-                fprintf(stderr, "folkHeapAlloc: out of memory\n"); exit(1);
-            }
-            void* ptr = *folkHeapPointer;
-            *folkHeapPointer += sz;
-            return (void*) ptr;
-        }
+        $cc proc folkHeapAlloc {size_t sz} void* { return dlmalloc(sz); }
+        $cc proc folkHeapFree {void* ptr} void { dlfree(ptr); }
         if {$::tcl_platform(os) eq "Linux"} {
             $cc cflags -lrt
             c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep librt.so | head -1] end]

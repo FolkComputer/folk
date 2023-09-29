@@ -33,8 +33,6 @@ namespace eval Camera {
     }
 
     camc code {
-        uint8_t* folkImagesBase;
-
         void quit(const char* msg) {
             fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
             exit(1);
@@ -252,21 +250,15 @@ namespace eval Camera {
 
     if {[namespace exists ::Heap]} {
         camc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+        camc import ::Heap::cc folkHeapFree as folkHeapFree
     } else {
         camc code {
             #define folkHeapAlloc malloc
+            #define folkHeapFree free
         }
     }
     camc proc newImage {int width int height int components} image_t {
-        if (folkImagesBase == NULL) {
-            folkImagesBase = folkHeapAlloc(50000000); // 50MB
-        }
-
-        // FIXME: This is a hack.
-        static int imageCount = 0;
-        imageCount = (imageCount + 1) % (50000000/(width*components*height));
-
-        uint8_t* data = folkImagesBase + imageCount * (width*components*height);
+        uint8_t* data = folkHeapAlloc(width*components*height);
         return (image_t) {
             .width = width,
             .height = height,
@@ -276,7 +268,7 @@ namespace eval Camera {
         };
     }
     camc proc freeImage {image_t image} void {
-        // free(image.data);
+        folkHeapFree(image.data);
     }
 
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ?
@@ -284,46 +276,14 @@ namespace eval Camera {
                      [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
     camc compile
 
-    variable camera
-
-    variable WIDTH
-    variable HEIGHT
-
-    proc init {width height} {
-        variable WIDTH
-        variable HEIGHT
-        set WIDTH $width
-        set HEIGHT $height
-
-        variable camera
-        set camera [cameraOpen "/dev/video0" $WIDTH $HEIGHT]
-        cameraInit $camera
-        cameraStart $camera
-        
-        # skip 5 frames for booting a cam
-        for {set i 0} {$i < 5} {incr i} {
-            cameraFrame $camera
-        }
-    }
-
-    proc frame {} {
-        variable camera
-        variable WIDTH; variable HEIGHT
-        if {![cameraFrame $camera]} {
-            error "Failed to capture from camera"
-        }
-        set image [newImage $WIDTH $HEIGHT 3]
-        cameraDecompressRgb $camera $image
-        set image
-    }
-    proc grayFrame {} {
-        variable camera
-        variable WIDTH; variable HEIGHT
-        if {![cameraFrame $camera]} {
-            error "Failed to capture from camera"
-        }
-        set image [newImage $WIDTH $HEIGHT 1]
-        cameraDecompressGray $camera $image
-        set image
-    }
+    # proc frame {} {
+    #     variable camera
+    #     variable WIDTH; variable HEIGHT
+    #     if {![cameraFrame $camera]} {
+    #         error "Failed to capture from camera"
+    #     }
+    #     set image [newImage $WIDTH $HEIGHT 3]
+    #     cameraDecompressRgb $camera $image
+    #     return $image
+    # }
 }

@@ -599,8 +599,8 @@ extern "C" {
 /* On Win32 memset and memcpy are already declared in windows.h */
 #else
 #if __STD_C
-void* memset(void*, int, size_t);
-void* memcpy(void*, const void*, size_t);
+/* void* memset(void*, int, size_t); */
+/* void* memcpy(void*, const void*, size_t); */
 #else
 Void_t* memset();
 Void_t* memcpy();
@@ -2455,7 +2455,9 @@ static struct malloc_state av_;  /* never directly referenced */
    Also, it is called in check* routines if DL_DEBUG is set.
 */
 
+#ifndef get_malloc_state
 #define get_malloc_state() (&(av_))
+#endif
 
 /*
   Initialize a malloc_state struct.
