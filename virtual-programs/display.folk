@@ -218,6 +218,7 @@ On process {
             variable font
             set em [* $scale 25.0]
             set x 0; set y 0
+            set width 0
             for {set i 0} {$i < [string length $text]} {incr i} {
                 set char [string index $text $i]
                 if {$char eq "\n"} {
@@ -231,8 +232,9 @@ On process {
                 }
                 lassign $glyphInfo advance planeBounds atlasBounds
                 set x [+ $x [* $advance $em]]
+                if {$x > $width} { set width $x }
             }
-            return [list $x $y]
+            return [list $width [+ $y $em]]
         }
         proc text {x0 y0 scale text radians} {
             variable font
