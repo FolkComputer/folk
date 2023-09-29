@@ -210,7 +210,6 @@ proc StepImpl {} {
 
     # Share statements to all peers.
     set ::peerTime [baretime {
-        # This takes 2 ms.
         set shareStatements [clauseset create]
         if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0} {
             foreach match [Statements::findMatches [list /someone/ wishes /...anything/]] {
