@@ -1253,7 +1253,37 @@ namespace eval ::Gpu {
             return ret;
         }
 
-        dc proc copyImageToGpu {image_t im0} int {
+        dc typedef int gpu_image_handle_t
+        dc code [csubst {
+            // Contains all GPU-side data structures associated with
+            // an image (that we will destroy when we evict that
+            // image).
+            typedef struct gpu_image_block {
+                bool alive;
+
+                // This handle is the descriptor index (the index of
+                // the image in the _samplers array).
+                gpu_image_handle_t handle;
+
+                VkImage textureImage;
+                VkDeviceMemory textureImageMemory;
+                VkImageView textureImageView;
+                VkSampler textureSampler; 
+            } gpu_image_block;
+            gpu_image_block gpuImages[$GPU_MAX_IMAGES];
+
+            gpu_image_handle_t allocateGpuImageHandle() {
+                for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
+                    if (!gpuImages[i].alive) { return i; }
+                }
+                fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
+            }
+        }]
+        dc proc copyImageToGpu {image_t im0} gpu_image_handle_t {
+            gpu_image_handle_t imageId = allocateGpuImageHandle();
+            gpu_image_block* block = &gpuImages[imageId];
+            block->alive = true;
+
             // Image must be RGBA.
             image_t im;
             if (im0.components != 4) { im = copyImageToRgba(im0); }
@@ -1267,17 +1297,16 @@ namespace eval ::Gpu {
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                          &stagingBuffer, &stagingBufferMemory);
 
-            VkImage textureImage;
-            VkDeviceMemory textureImageMemory;
             createImage(im.width, im.height,
                         VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                        &textureImage, &textureImageMemory);
+                        &block->textureImage, &block->textureImageMemory);
 
-            VkImageView textureImageView; {
+            // Set up block->textureImageView:
+            {
                 VkImageViewCreateInfo viewInfo = {0};
                 viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-                viewInfo.image = textureImage;
+                viewInfo.image = block->textureImage;
                 viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
                 viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
                 viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1285,9 +1314,10 @@ namespace eval ::Gpu {
                 viewInfo.subresourceRange.levelCount = 1;
                 viewInfo.subresourceRange.baseArrayLayer = 0;
                 viewInfo.subresourceRange.layerCount = 1;
-                $[vktry {vkCreateImageView(device, &viewInfo, NULL, &textureImageView)}]
+                $[vktry {vkCreateImageView(device, &viewInfo, NULL, &block->textureImageView)}]
             }
-            VkSampler textureSampler; {
+            // Set up block->textureSampler:
+            {
                 VkSamplerCreateInfo samplerInfo = {0};
                 samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
                 samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -1304,7 +1334,7 @@ namespace eval ::Gpu {
                 samplerInfo.mipLodBias = 0.0f;
                 samplerInfo.minLod = 0.0f;
                 samplerInfo.maxLod = 0.0f;
-                $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &textureSampler)}]
+                $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
             }
 
             // Copy im to stagingBuffer:
@@ -1317,10 +1347,12 @@ namespace eval ::Gpu {
                 }
                 vkUnmapMemory(device, stagingBufferMemory);
             }
-            transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            // Copy stagingBuffer to textureImage:
+            // Copy stagingBuffer to block->textureImage:
             {
+                transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                                      VK_IMAGE_LAYOUT_UNDEFINED,
+                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
                 VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
                 VkBufferImageCopy region = {0};
@@ -1337,29 +1369,28 @@ namespace eval ::Gpu {
                 region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
                 vkCmdCopyBufferToImage(commandBuffer,
                                        stagingBuffer,
-                                       textureImage,
+                                       block->textureImage,
                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                        1,
                                        &region);
 
                 endSingleTimeCommands(commandBuffer);
+
+                transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
-            transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            vkDestroyBuffer(device, stagingBuffer, NULL);
+            vkFreeMemory(device, stagingBufferMemory, NULL);
 
             // Write this image+sampler to the imageDescriptorSet
-            static int nextImageId = 0;
             static bool didInitializeDescriptors = false;
-            int imageId = nextImageId++;
-            if (imageId >= $GPU_MAX_IMAGES) {
-                fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n");
-                exit(22);
-            }
             {
                 VkDescriptorImageInfo imageInfo = {0};
                 imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                imageInfo.imageView = textureImageView;
-                imageInfo.sampler = textureSampler;
+                imageInfo.imageView = block->textureImageView;
+                imageInfo.sampler = block->textureSampler;
 
                 if (!didInitializeDescriptors) {
                     // Hack: if we're not using the descriptor
@@ -1396,6 +1427,16 @@ namespace eval ::Gpu {
 
             if (im0.components != 4) { ckfree(im.data); }
             return imageId;
+        }
+        dc proc freeGpuImage {gpu_image_handle_t gim} void {
+            gpu_image_block* block = &gpuImages[gim];
+            block->alive = false;
+
+            vkDeviceWaitIdle(device); // TODO: this is probably slow
+            vkDestroyImage(device, block->textureImage, NULL);
+            vkFreeMemory(device, block->textureImageMemory, NULL);
+            vkDestroySampler(device, block->textureSampler, NULL);
+            vkDestroyImageView(device, block->textureImageView, NULL);
         }
     }
 
@@ -1518,6 +1559,13 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     
     set t 0
     while 1 {
+        if {$t == 100} {
+            puts "Im2 is $im"
+            Gpu::ImageManager::freeGpuImage $im2
+            set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg "/Users/osnr/Downloads/IMG_5992.jpeg"]]
+            puts "New im2 is $im"
+        }
+
         Gpu::drawStart
 
         Gpu::draw $circle {200 50} 30
@@ -1527,6 +1575,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
         Gpu::draw $image $im2 {100 0} {200 0} {200 200} {100 200}
         Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
+
         Gpu::draw $line {100 0} {200 0} 10
         Gpu::draw $line {200 0} {200 200} 10
         Gpu::draw $line {200 200} {100 200} 10
