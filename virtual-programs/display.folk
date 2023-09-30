@@ -340,6 +340,18 @@ On process {
         proc checkImCacheAndCopyIfNeeded {imDrawSet} {
             variable imCache
             variable IMCACHE_MAX_IMAGES
+
+            dict for {im v} $imDrawSet {
+                if {![dict exists $imCache $im]} { continue }
+                # Check for staleness and remove from cache if so.
+                lassign [dict get $imCache $im] gim expectedVersion
+                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                if {$expectedVersion != $version} {
+                    Gpu::ImageManager::freeGpuImage $gim
+                    dict unset imCache $im
+                }
+            }
+
             set notInCache [dictset difference $imDrawSet $imCache]
             set notInDrawSet [dictset difference $imCache $imDrawSet]
 
