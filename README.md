@@ -37,19 +37,49 @@ Server 22.04 Jammy LTS.
    try running again omitting the groups that don't exist from the
    command.)
 
-3. `sudo apt update`
-2. Set up OpenSSH server if needed, connect to network.
-4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
-5. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset libdrm-dev libdrm-tests pkg-config`
-7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
-8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
+1. `sudo apt update`
+1. Set up OpenSSH server if needed, connect to network.
+1. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
+1. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+1. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev
+   fbset libdrm-dev libdrm-tests pkg-config`
+1. **Install Vulkan for graphics (without dragging in X or Wayland)**
+   (we use "VK_KHR_display", which lets us draw directly to monitors):
+     1. Clone `mesa`, which implements the Vulkan API on Linux: `git
+        clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
+        (TODO: Nvidia has a different process and doesn't use Mesa,
+        figure this out)
+     1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
+        compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
+        `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
+        depending on your hardware. Here are some examples:
+
+            # Raspberry Pi 4
+            $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
+
+            # AMD (radeonsi)
+            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
+
+            # Intel (i915)
+            $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
+
+     1. Run `sudo ninja install`; run `sudo chmod 666
+        /dev/dri/render*`; try `vulkaninfo` and see if it works. Try
+        `vkcube`.
+     1. Install validation layers: `sudo apt install
+        vulkan-validationlayers`
+     1. Install `glslc`:
+        <https://github.com/google/shaderc/blob/main/downloads.md>
+        (you need to build from source on ARM like Pi 4)
+     1. See [notes](https://folk.computer/notes/vulkan).
+1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
+1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
-9. Get AprilTags: `cd ~ && git clone
+1. Get AprilTags: `cd ~ && git clone
    https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
-10. Add the systemd service so it starts on boot and can be managed
+1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
    (as root) ([from
    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
