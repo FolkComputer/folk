@@ -74,6 +74,8 @@ namespace eval c {
                 }
             }
 
+            # Tcl->C conversion logic, when a value is passed from Tcl
+            # to a C function as an argument.
             variable argtypes {
                 int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
@@ -131,6 +133,8 @@ namespace eval c {
                 csubst [switch $argtype $argtypes]
             }
 
+            # C->Tcl conversion logic, when a value is returned from a
+            # C function to Tcl.
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 int32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
@@ -327,6 +331,10 @@ namespace eval c {
                                     return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
                                 }
                             } else {
+                                proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                }
                                 # If fieldtype is a pointer or an array,
                                 # then make a getter that takes an index.
                                 proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {

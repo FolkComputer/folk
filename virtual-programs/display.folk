@@ -336,19 +336,56 @@ On process {
             return vec4(0.0, 0.0, 0.0, 0.0);
         }]
         variable imCache [dict create]
-        proc checkImCacheAndCopyIfNeeded {im} {
+        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES 1]
+        proc checkImCacheAndCopyIfNeeded {imDrawSet} {
             variable imCache
-            if {![dict exists $imCache $im]} {
-                set gim [Gpu::ImageManager::copyImageToGpu $im]
-                dict set imCache $im $gim
+            variable IMCACHE_MAX_IMAGES
+            set notInCache [dictset difference $imDrawSet $imCache]
+            set notInDrawSet [dictset difference $imCache $imDrawSet]
+
+            set numImagesToCopy [dictset size $notInCache]
+            if {$numImagesToCopy > 0} {
+                if {[dictset size $imCache] + $numImagesToCopy > $IMCACHE_MAX_IMAGES} {
+                    set numImagesToEvict \
+                        [expr {[dictset size $imCache] + $numImagesToCopy - $IMCACHE_MAX_IMAGES}]
+
+                    # What can we safely evict?
+                    # - Anything that's stale
+                    # - Anything that's not in use
+                    set numImagesEvicted 0
+                    dict for {im v} $imCache {
+                        if {$numImagesEvicted == $numImagesToEvict} { break }
+
+                        lassign $v gim expectedVersion
+                        set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                        if {$expectedVersion != $version} {
+                            Gpu::ImageManager::freeGpuImage $gim
+                            dict unset imCache $im
+                            incr numImagesEvicted
+                            continue
+                        }
+                        if {![dict exists $imDrawSet $im]} {
+                            Gpu::ImageManager::freeGpuImage $gim
+                            dict unset imCache $im
+                            incr numImagesEvicted
+                        }
+                    }
+                }
+
+                dict for {im _} $notInCache {
+                    # TODO: This is unsafe (has a race condition) -- we're
+                    # not locking the image, so version and gim may diverge.
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    set gim [Gpu::ImageManager::copyImageToGpu $im]
+                    dict set imCache $im [list $gim $version]
+                }
             }
         }
         proc image {x y im radians {scale 1.0}} {
             # TODO: Implement scale.
-            # TODO: Free images from cache.
             variable image
             variable imCache
-            set gim [dict get $imCache $im]
+            lassign [dict get $imCache $im] gim
             Gpu::draw $image $gim [list [::image width $im] [::image height $im]] \
                 [list $x $y] $radians $scale
         }
@@ -391,12 +428,16 @@ On process {
         }
 
         set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
+
+        set imDrawSet [dictset create]
         foreach command $displayCommands {
             if {[lindex $command 0] eq "Display::image"} {
                 set im [lindex $command 3]
-                Display::checkImCacheAndCopyIfNeeded $im
+                dictset add imDrawSet $im
             }
         }
+        Display::checkImCacheAndCopyIfNeeded $imDrawSet
+
         set renderTime [baretime {
             Display::start
             foreach command $displayCommands { {*}$command }
