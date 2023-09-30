@@ -374,6 +374,20 @@ namespace eval ::Heap {
                 return n;
             }
         }
+        # On each allocation, the heap stores a random 64-bit
+        # 'version' for that allocation (which can then be remembered
+        # by the caller). You can query the heap with any address and
+        # it will try to give you the 'version' if there is an
+        # allocation containing that address. This is used to check
+        # for staleness of images that have been copied to the GPU
+        # (like camera slices). If the version mismatches the one we
+        # stored at previous copy-time, then we know we have to recopy
+        # that image to the GPU.
+        # 
+        # TODO: This implementation is pretty inefficient and unsafe
+        # (it walks a capped-256 array of all allocations) and we may
+        # want to replace it with an interval tree or something at
+        # some point.
         $cc proc folkHeapAlloc {size_t sz} void* {
             /* fprintf(stderr, "folkHeapAlloc %zu\n", sz); */
             pthread_mutex_lock(&folkHeapState->mutex);
