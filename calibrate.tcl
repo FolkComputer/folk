@@ -32,6 +32,8 @@ proc On {_process arg} { eval $arg }
 namespace eval Statements { proc findMatches {args} { return [list] } }
 source "lib/math.tcl"
 source "virtual-programs/display.folk"
+source "virtual-programs/images.folk"
+source "pi/cUtils.tcl"
 
 # FIXME: adapt to camera spec
 # Camera::init 3840 2160
@@ -40,7 +42,7 @@ set tagfamily "tagStandard52h13"
 
 
 set cc [c create]
-$cc cflags -L[lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]
+::defineImageType $cc
 
 $cc code {
     #include <stdint.h>
@@ -49,45 +51,9 @@ $cc code {
     #include <math.h>
 }
 
+$cc import ::image::cc saveAsJpeg as saveAsJpeg
 $cc code {
     #include <jpeglib.h>
-
-    void 
-jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
-{
-  JSAMPARRAY image;
-  image = calloc(height, sizeof (JSAMPROW));
-  for (size_t i = 0; i < height; i++) {
-    image[i] = calloc(width * 3, sizeof (JSAMPLE));
-    for (size_t j = 0; j < width; j++) {
-      image[i][j * 3 + 0] = rgb[(i * width + j)];
-      image[i][j * 3 + 1] = rgb[(i * width + j)];
-      image[i][j * 3 + 2] = rgb[(i * width + j)];
-    }
-  }
-  
-  struct jpeg_compress_struct compress;
-  struct jpeg_error_mgr error;
-  compress.err = jpeg_std_error(&error);
-  jpeg_create_compress(&compress);
-  jpeg_stdio_dest(&compress, dest);
-  
-  compress.image_width = width;
-  compress.image_height = height;
-  compress.input_components = 3;
-  compress.in_color_space = JCS_RGB;
-  jpeg_set_defaults(&compress);
-  jpeg_set_quality(&compress, quality, TRUE);
-  jpeg_start_compress(&compress, TRUE);
-  jpeg_write_scanlines(&compress, image, height);
-  jpeg_finish_compress(&compress);
-  jpeg_destroy_compress(&compress);
-
-  for (size_t i = 0; i < height; i++) {
-    free(image[i]);
-  }
-  free(image);
-}
 
     int captureNum = 0;
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
@@ -107,9 +73,8 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
         printf("capture result %d (%s): %p (%dx%d)\n", captureNum, description, image, width, height);
         // write capture to jpeg
         char filename[100]; snprintf(filename, 100, "capture%02d-%s.jpg", captureNum, description);
-        FILE* out = fopen(filename, "w");
-        jpeg(out, image, width, height, 100);
-        fclose(out);
+        image_t im = (image_t) { .data = image, .width = width, .height = height, .components = 1, .bytesPerRow = width };
+        saveAsJpeg(im, filename);
 
         return image;
     }
@@ -296,28 +261,31 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
 }
 
 $cc proc displayDenseCorrespondence {Tcl_Interp* interp dense_t* dense} void {
-    // TODO: Bring this back. Temporarily disabling so I don't have to
-    // port it to GPU. (and we weren't really using it, anyway, afaict.)
+    DRAW("Gpu::draw {$clearScreen} {0 0 0 1}");
+    uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
+    image_t im = (image_t) { .width = $Camera::WIDTH, .height = $Camera::HEIGHT,
+        .bytesPerRow = $Camera::WIDTH * 3, .components = 3,
+        .data = ckalloc($Camera::WIDTH * $Camera::HEIGHT * 3) };
 
-    /* // image the base scene in black for reference */
-    /* [eachDisplayPixel { *it = BLACK; }] */
-    /* uint8_t* blackImage = delayThenCameraCapture(interp, "displayBlackImage"); */
-
-    /* // display dense correspondence directly. just for fun */
-    /* [eachCameraPixel [subst -nocommands -nobackslashes { */
-    /*     if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ??? */
-    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(255, 255, 0); */
-    /*     } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) { */
-    /*         uint8_t pix = blackImage[i]; */
-    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(pix, pix, pix); */
-    /*     } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) { */
-    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(255, 0, 0); // red: row-only match */
-    /*     } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) { */
-    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(0, 0, 255); // blue: column-only match */
-    /*     } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) { */
-    /*         fb[(y * $Display::WIDTH) + x] = PIXEL(0, 255, 0); // green: double match */
-    /*     } */
-    /* }]] */
+    // render dense correspondence for debugging
+#define PIXEL(r, g, b) im.data[i*3] = r; im.data[i*3 + 1] = g; im.data[i*3 + 2] = b
+    $[eachCameraPixel [subst -nocommands -nobackslashes {
+        if (dense->columnCorr[i] == 0 && dense->rowCorr[i] == 0) { // ???
+            PIXEL(255, 255, 0);
+        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
+            uint8_t pix = blackImage[i];
+            PIXEL(pix, pix, pix);
+        } else if (dense->columnCorr[i] == 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+            PIXEL(255, 0, 0); // red: row-only match
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] == 0xFFFF) {
+            PIXEL(0, 0, 255); // blue: column-only match
+        } else if (dense->columnCorr[i] != 0xFFFF && dense->rowCorr[i] != 0xFFFF) {
+            PIXEL(0, 255, 0); // green: double match
+        }
+    }]]
+    
+    // write capture to jpeg
+    saveAsJpeg(im, "dense-correspondence.jpeg");
 }
 
 $cc proc findNearbyCorrespondences {dense_t* dense int cx int cy int size} Tcl_Obj* [subst -nobackslashes -nocommands {
