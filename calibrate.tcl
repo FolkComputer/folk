@@ -399,23 +399,24 @@ puts ""
 puts "Found [llength $keyCorrespondences] key correspondences: $keyCorrespondences"
 if {[llength $keyCorrespondences] >= 4} {
     puts "Calibration succeeded!"
+
+    set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
+
+    set fd [open "/home/folk/generated-calibration.tcl" w]
+    puts $fd [subst {
+        namespace eval generatedCalibration {
+            variable cameraWidth $Camera::WIDTH
+            variable cameraHeight $Camera::HEIGHT
+            variable displayWidth $Display::WIDTH
+            variable displayHeight $Display::HEIGHT
+            variable points {$keyCorrespondences}
+        }
+    }]
+    close $fd
+
 } else {
     puts "Calibration did not succeed. Not enough points found."
 }
-
-set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
-
-set fd [open "/home/folk/generated-calibration.tcl" w]
-puts $fd [subst {
-    namespace eval generatedCalibration {
-        variable cameraWidth $Camera::WIDTH
-        variable cameraHeight $Camera::HEIGHT
-        variable displayWidth $Display::WIDTH
-        variable displayHeight $Display::HEIGHT
-        variable points {$keyCorrespondences}
-    }
-}]
-close $fd
 
 exec sleep 10
 # exec sudo systemctl start folk &
