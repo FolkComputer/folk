@@ -20,8 +20,8 @@ make
 ## Linux tabletop installation
 
 These are for a dedicated system, probably on a Raspberry Pi 4 or
-Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
-Server 22.04 Jammy LTS.
+Beelink PC, probably running Raspberry Pi OS Lite 32-bit or [Ubuntu
+Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.iso).
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
@@ -39,12 +39,11 @@ Server 22.04 Jammy LTS.
 
 1. `sudo apt update`
 1. Set up OpenSSH server if needed, connect to network.
-1. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
+1. `sudo apt install avahi-daemon rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config`
 1. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-1. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev
-   fbset libdrm-dev libdrm-tests pkg-config`
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
+     1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
      1. Clone `mesa`, which implements the Vulkan API on Linux: `git
         clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
         (TODO: Nvidia has a different process and doesn't use Mesa,
@@ -52,26 +51,35 @@ Server 22.04 Jammy LTS.
      1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
         compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
         `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
-        depending on your hardware. Here are some examples:
+        depending on your GPU. Here are some examples:
 
             # Raspberry Pi 4
             $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
 
-            # AMD (radeonsi)
-            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
+            # AMD (radeonsi), including Beelink SER5
+            $ meson -Dglx=disabled -Dplatforms= -Ddri-drivers='' -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
 
             # Intel (i915)
             $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
 
      1. Run `sudo ninja install`; run `sudo chmod 666
-        /dev/dri/render*`; try `vulkaninfo` and see if it works. Try
-        `vkcube`.
-     1. Install validation layers: `sudo apt install
-        vulkan-validationlayers`
-     1. Install `glslc`:
-        <https://github.com/google/shaderc/blob/main/downloads.md>
-        (you need to build from source on ARM like Pi 4)
-     1. See [notes](https://folk.computer/notes/vulkan).
+        /dev/dri/render*`.
+     1. Try `vulkaninfo` and see if it works.
+     1. Install validation layers and glslc: `sudo apt install
+        vulkan-validationlayers glslc` (glslc may not be available if
+        you're not on Ubuntu 23.04; on ARM like Pi 4 you need to build
+        it from source; [binaries are
+        available](https://github.com/google/shaderc/blob/main/downloads.md)
+        otherwise)
+     1. Try `vkcube`:
+
+            git clone https://github.com/krh/vkcube
+            cd vkcube
+            mkdir build; cd build; meson .. && ninja
+            ./vkcube -m khr -k 0:0:0
+      
+     1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
+        notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
 1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
