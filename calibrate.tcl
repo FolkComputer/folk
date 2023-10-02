@@ -57,9 +57,9 @@ $cc code {
 
     int captureNum = 0;
     uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
-        usleep(100000);
+        usleep(500000);
 
-        Tcl_Eval(interp, "Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [Camera::rgbToGray $rgb]; Camera::freeImage $rgb; dict get $gray data");
+        Tcl_Eval(interp, "Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [Camera::rgbToGray $rgb]; Camera::freeImage $rgb; dict get $gray data");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
