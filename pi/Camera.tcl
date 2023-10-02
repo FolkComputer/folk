@@ -243,6 +243,7 @@ namespace eval Camera {
         }
         return (image_t) {
             .width = rgb.width, .height = rgb.height,
+            .components = 1,
             .bytesPerRow = rgb.width,
             .data = gray
         };
@@ -276,14 +277,37 @@ namespace eval Camera {
                      [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
     camc compile
 
-    # proc frame {} {
-    #     variable camera
-    #     variable WIDTH; variable HEIGHT
-    #     if {![cameraFrame $camera]} {
-    #         error "Failed to capture from camera"
-    #     }
-    #     set image [newImage $WIDTH $HEIGHT 3]
-    #     cameraDecompressRgb $camera $image
-    #     return $image
-    # }
+    variable camera
+    proc init {width height} {
+        variable camera
+        variable WIDTH; variable HEIGHT
+        set WIDTH $width; set HEIGHT $height
+        set camera [Camera::cameraOpen "/dev/video0" $width $height]
+        Camera::cameraInit $camera
+        Camera::cameraStart $camera
+        # skip 5 frames for booting a cam
+        for {set i 0} {$i < 5} {incr i} {
+            Camera::cameraFrame $camera
+        }
+    }
+    proc frame {} {
+        variable camera
+        variable WIDTH; variable HEIGHT
+        if {![cameraFrame $camera]} {
+            error "Failed to capture from camera"
+        }
+        set image [newImage $WIDTH $HEIGHT 3]
+        cameraDecompressRgb $camera $image
+        return $image
+    }
+    proc grayFrame {} {
+        variable camera
+        variable WIDTH; variable HEIGHT
+        if {![Camera::cameraFrame $camera]} {
+            error "Failed to capture from camera"
+        }
+        set image [Camera::newImage $WIDTH $HEIGHT 1]
+        Camera::cameraDecompressGray $camera $image
+        return $image
+    }
 }

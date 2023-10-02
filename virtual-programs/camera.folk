@@ -17,28 +17,13 @@ set height $::Camera::HEIGHT
 On process {
     source pi/Camera.tcl
 
-    set camera [Camera::cameraOpen "/dev/video0" $width $height]
-    Camera::cameraInit $camera
-    Camera::cameraStart $camera
-    # skip 5 frames for booting a cam
-    for {set i 0} {$i < 5} {incr i} {
-        Camera::cameraFrame $camera
-    }
+    Camera::init $width $height
 
     puts "Camera tid: [getTid] booted at [clock milliseconds]"
 
-    fn grayFrame {} {
-        if {![Camera::cameraFrame $camera]} {
-            error "Failed to capture from camera"
-        }
-        set image [Camera::newImage $width $height 1]
-        Camera::cameraDecompressGray $camera $image
-        return $image
-    }
-
     set ::oldFrames [list]
     When $::thisProcess has step count /c/ {
-        set frame [grayFrame]
+        set frame [Camera::grayFrame]
         Commit {
             Claim the camera time is $::stepTime
             Claim the camera frame is $frame at [clock milliseconds]

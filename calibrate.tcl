@@ -95,7 +95,7 @@ jpeg(FILE* dest, uint8_t* rgb, uint32_t width, uint32_t height, int quality)
 
         Tcl_Eval(interp, "Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [Camera::rgbToGray $rgb]; Camera::freeImage $rgb; dict get $gray data");
         uint8_t* image;
-        sscanf(Tcl_GetStringResult(interp), "0x%p", &image);
+        sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
 
         Tcl_Eval(interp, "set Camera::WIDTH");
