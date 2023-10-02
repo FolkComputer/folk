@@ -38,9 +38,10 @@ Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.i
    command.)
 
 1. `sudo apt update`
-1. Set up OpenSSH server if needed, connect to network.
-1. `sudo apt install avahi-daemon rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config`
-1. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+1. Set up OpenSSH server if needed; connect to network. To ssh into
+   `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
+   and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config`
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
      1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
@@ -59,7 +60,7 @@ Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.i
             # AMD (radeonsi), including Beelink SER5
             $ meson -Dglx=disabled -Dplatforms= -Ddri-drivers='' -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
 
-            # Intel (i915)
+            # Intel (i915), including Beelink S12 mini
             $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
 
      1. Run `sudo ninja install`; run `sudo chmod 666
@@ -111,10 +112,10 @@ Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.i
         # systemctl start folk
         # systemctl enable folk
 
-Add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to the bottom of
-`/etc/sudoers` on the tabletop. (This lets the `make` scripts from
-your laptop manage the Folk service by running `systemctl` without
-needing a password.)
+Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
+the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
+scripts from your laptop manage the Folk service by running
+`systemctl` without needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
 FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
@@ -229,10 +230,10 @@ Potentially useful for graphs: `graphviz`
 Potentially useful:  `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
-Potentially useful: add `folk0` shortcut to your laptop `~/.ssh/config`:
+Potentially useful: add `folk-WHATEVER` shortcut to your laptop `~/.ssh/config`:
 ```
-Host folk0
-     HostName folk0.local
+Host folk-WHATEVER
+     HostName folk-WHATEVER.local
      User folk
 ```
 
