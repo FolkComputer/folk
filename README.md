@@ -19,15 +19,19 @@ make
 
 ## Linux tabletop installation
 
-These are for a dedicated system, probably on a Raspberry Pi 4 or
-Beelink PC, probably running Raspberry Pi OS Lite 32-bit or [Ubuntu
-Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.iso).
+These are instructions for a dedicated system, probably on a Beelink
+mini-PC (or _maybe_ a Pi 4), probably running [Ubuntu Server 23.04
+Lunar Lobster](https://ubuntu.com/download/server#releases) (for a PC,
+get the amd64 version; for a Pi 4, use Raspberry Pi Imager and get the
+64-bit version [also see [this
+issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
+if on a Mac]).
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
-   On Pi, Raspberry Pi OS Lite => if no `folk`
+   If no `folk`
    user, then:
 
         sudo useradd -m folk; sudo passwd folk;
@@ -60,7 +64,7 @@ Server 23.04](https://releases.ubuntu.com/23.04/ubuntu-23.04-live-server-amd64.i
             # AMD (radeonsi), including Beelink SER5
             $ meson -Dglx=disabled -Dplatforms= -Ddri-drivers='' -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
 
-            # Intel (i915), including Beelink S12 mini
+            # Intel (i915), including Beelink Mini S12
             $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
 
      1. Run `sudo ninja install`; run `sudo chmod 666
