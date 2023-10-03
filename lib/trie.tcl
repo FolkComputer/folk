@@ -292,11 +292,9 @@ namespace eval ctrie {
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            // Easy cases:
             if (trie->branches[j]->key == word) { // Is there an exact pointer match?
-                lookupImpl(interp, results, resultsidx, maxresults,
+                lookupLiteralImpl(interp, results, resultsidx, maxresults,
                            trie->branches[j], wordc - 1, wordv + 1);
-
             } else {
                 const char *keyString = Tcl_GetString(trie->branches[j]->key);
                 const char *wordString = Tcl_GetString(word);
