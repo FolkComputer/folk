@@ -259,7 +259,7 @@ namespace eval ctrie {
         lookupImpl(interp, results, &resultcount, maxresults,
                    trie, objc, objv);
         return resultcount;
-     }
+    }
     $cc proc lookupTclObjs {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
         uint64_t results[50];
         int resultcount = lookup(interp, results, 50, trie, pattern);
@@ -270,6 +270,54 @@ namespace eval ctrie {
             Tcl_ListObjAppendElement(interp, resultsobj, Tcl_ObjPrintf("%d", (int)results[i]));
         }
         return resultsobj;
+    }
+
+    # Only looks for literal matches of `literal` in the trie
+    # (does not treat /variable/ as a variable). Used to check for an
+    # already-existing statement whenever a statement is inserted.
+    $cc proc lookupLiteralImpl {Tcl_Interp* interp
+                                uint64_t* results int* resultsidx size_t maxresults
+                                trie_t* trie int wordc Tcl_Obj** wordv} void {
+        if (wordc == 0) {
+            if (trie->hasValue) {
+                if (*resultsidx < maxresults) {
+                    results[(*resultsidx)++] = trie->value;
+                }
+            }
+            return;
+        }
+
+        Tcl_Obj* word = wordv[0];
+
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+
+            // Easy cases:
+            if (trie->branches[j]->key == word) { // Is there an exact pointer match?
+                lookupImpl(interp, results, resultsidx, maxresults,
+                           trie->branches[j], wordc - 1, wordv + 1);
+
+            } else {
+                const char *keyString = Tcl_GetString(trie->branches[j]->key);
+                const char *wordString = Tcl_GetString(word);
+                if (strcmp(keyString, wordString) == 0) {
+                    lookupLiteralImpl(interp, results, resultsidx, maxresults,
+                                      trie->branches[j], wordc - 1, wordv + 1);
+                }
+            }
+        }
+    }
+    $cc proc lookupLiteral {Tcl_Interp* interp
+                            uint64_t* results size_t maxresults
+                            trie_t* trie Tcl_Obj* literal} int {
+        int objc; Tcl_Obj** objv;
+        if (Tcl_ListObjGetElements(interp, literal, &objc, &objv) != TCL_OK) {
+            exit(1);
+        }
+        int resultcount = 0;
+        lookupLiteralImpl(interp, results, &resultcount, maxresults,
+                          trie, objc, objv);
+        return resultcount;
     }
 
     $cc proc tclify {trie_t* trie} Tcl_Obj* {
