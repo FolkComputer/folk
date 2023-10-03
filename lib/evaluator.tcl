@@ -575,7 +575,7 @@ namespace eval Statements { ;# singleton Statement store
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
                 if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                    memcpy(binding->name, aVarName, sizeof(binding->name));
+                    memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
                     binding->value = Tcl_NewListObj(blen - i, &bwords[i]);
 
                 } else if (!isBlank(aVarName)) {
@@ -586,7 +586,7 @@ namespace eval Statements { ;# singleton Statement store
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
                 if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                    memcpy(binding->name, bVarName, sizeof(binding->name));
+                    memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
                     binding->value = Tcl_NewListObj(alen - i, &awords[i]);
 
                 } else if (!isBlank(bVarName)) {
