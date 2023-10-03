@@ -815,14 +815,14 @@ namespace eval Evaluator {
     }
 
     $cc code {
-        // Given a StatementPattern, tells you all the reactions to run
-        // when a matching statement is added to / removed from the
-        // database. StatementId is the ID of the statement that wanted to
-        // react.
+        // Given a StatementPattern, tells you what reactions to run
+        // whenever a matching statement is added to the
+        // database. StatementId is the ID of the _reacting_
+        // statement.
         //
-        // For example, if you add `When the time is /t/`, it will register
-        // a reaction to the addition and removal of statements matching
-        // the pattern `the time is /t/`.
+        // For example, when you add `When the time is /t/`, we
+        // register a reaction here to the addition of statements
+        // matching the pattern `the time is /t/`.
         //
         // Trie<StatementPattern + StatementId, Reaction>
         trie_t* reactionsToStatementAddition;
