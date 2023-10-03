@@ -70,6 +70,10 @@ if on a Mac]).
      1. Run `sudo ninja install`; run `sudo chmod 666
         /dev/dri/render*`.
      1. Try `vulkaninfo` and see if it works.
+          1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
+             in the current config", add `dtoverlay=vc4-fkms-v3d` to
+             the bottom of `/boot/firmware/config.txt` or
+             `/boot/config.txt`, whichever exists (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
      1. Install validation layers and glslc: `sudo apt install
         vulkan-validationlayers glslc` (glslc may not be available if
         you're not on Ubuntu 23.04; on ARM like Pi 4 you need to build
@@ -97,24 +101,24 @@ if on a Mac]).
    (as root) ([from
    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
 
-        # cat >/etc/systemd/system/folk.service
-        [Unit]
-        Description=Folk service
-        After=network.target
-        StartLimitIntervalSec=0
+       # cat >/etc/systemd/system/folk.service
+       [Unit]
+       Description=Folk service
+       After=network.target
+       StartLimitIntervalSec=0
 
-        [Service]
-        Type=simple
-        Restart=always
-        RestartSec=1
-        User=folk
-        ExecStart=make -C /home/folk/folk
+       [Service]
+       Type=simple
+       Restart=always
+       RestartSec=1
+       User=folk
+       ExecStart=make -C /home/folk/folk
 
-        [Install]
-        WantedBy=multi-user.target
+       [Install]
+       WantedBy=multi-user.target
 
-        # systemctl start folk
-        # systemctl enable folk
+       # systemctl start folk
+       # systemctl enable folk
 
 Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
 the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
