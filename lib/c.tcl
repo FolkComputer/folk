@@ -142,6 +142,7 @@ namespace eval c {
                 float { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
                 char { expr {{ $robj = Tcl_ObjPrintf("%c", $rvalue); }}}
                 bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint8_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint64_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
