@@ -62,7 +62,7 @@ if on a Mac]).
             $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
 
             # AMD (radeonsi), including Beelink SER5
-            $ meson -Dglx=disabled -Dplatforms= -Ddri-drivers='' -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
+            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
 
             # Intel (i915), including Beelink Mini S12
             $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
