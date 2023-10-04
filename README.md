@@ -48,7 +48,7 @@ if on a Mac]).
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config`
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
-     1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
+     1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
      1. Clone `mesa`, which implements the Vulkan API on Linux: `git
         clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
         (TODO: Nvidia has a different process and doesn't use Mesa,
