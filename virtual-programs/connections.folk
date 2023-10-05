@@ -1,0 +1,56 @@
+# Connection wish fulfillment
+# for wishes of the form:
+# "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
+
+When /anyone/ wishes /source/ is connected to /sink/ & \
+  /source/ has region /source_region/ & \
+  /sink/ has region /sink_region/ {
+
+   if {$source == $sink} {return}
+
+   set source [region centroid $source_region]
+   set sink [region centroid $sink_region]
+
+   set direction [vec2 sub $sink $source]
+
+   set c [vec2 scale [vec2 add $source $sink] 0.5]
+   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}]
+
+   set color grey
+   Display::stroke [list $source $sink ] 2 $color
+   shape 3 $c 30 $angle $color true
+}
+
+set speed 75
+set spacing 50
+set maxsize 25
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ & \
+  /source/ has region /source_region/ & \
+  /sink/ has region /sink_region/ {
+
+   if {$source == $sink} {return}
+
+   set source [region centroid $source_region]
+   set sink [region centroid $sink_region]
+
+   set direction [vec2 normalize [vec2 sub $sink $source]]
+   set distance [vec2 distance $sink $source]
+   set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}] 
+
+   lassign [vec2 scale [vec2 add $source $sink] 0.5] cx cy
+
+   Display::stroke [list $source $sink ] 1 white
+   
+   
+   When the clock time is /t/ {
+     set offset [expr {round($t*$speed) % $spacing}]
+     set count [expr {round($distance / $spacing)}]
+
+     for {set p $offset} {$p < $distance} {incr p $spacing} {
+        set c [vec2 add $source [vec2 scale $direction $p]]
+        set s [expr {min($maxsize, 0.20*min($p, $distance - $p))}]
+        shape 3 $c $s $angle white true
+      }
+    }
+}

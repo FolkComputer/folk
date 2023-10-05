@@ -344,6 +344,48 @@ dc proc drawCircle {int x0 int y0 int radius int color} void {
     }
 }
 
+dc code {
+void scanline(int x1, int x2, int y, int color) {
+  if (x1 < 0) x1 = 0; if (x1 >= fbwidth) x1 = fbwidth-1;
+  if (x2 < 0) x2 = 0; if (x2 >= fbwidth) x2 = fbwidth-1;
+  if (y < 0) y = 0; if (y >= fbheight) y = fbheight-1;
+  for (int j=x1; j<=x2; j++) {
+      staging[y*fbwidth + j] = color;
+  }
+}
+}
+
+dc proc drawFilledCircle {int x0 int y0 int radius int color} void {
+    int f = 1 - radius;
+    int ddF_x = 0;
+    int ddF_y = -2 * radius;
+    int x = 0;
+    int y = radius;
+
+    plot(x0, y0 + radius);
+    plot(x0, y0 - radius);
+    plot(x0 + radius, y0);
+    plot(x0 - radius, y0);
+
+    while(x < y)
+    {
+        if(f >= 0)
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x + 1; 
+        scanline(x0 - x, x0 + x, y0 + y, color);
+        scanline(x0 - x, x0 + x, y0 - y, color);
+        scanline(x0 - y, x0 + y, y0 + x, color);
+        scanline(x0 - y, x0 + y, y0 - x, color);
+    }
+    scanline(x0 - radius, x0 + radius, y0, color);
+}
+
 defineImageType dc
 dc proc drawImageTransparent {int x0 int y0 image_t image int transparentTone int scale} void {
     for (int y = 0; y < image.height; y++) {
@@ -641,10 +683,14 @@ namespace eval Display {
         drawText [int $x] [int $y] $radians [int $scale] $text
     }
 
-    proc circle {x y radius thickness color} {
-        for {set i 0} {$i < $thickness} {incr i} {
+    proc circle {x y radius thickness color {filled false}} {
+        if {$filled} {
+            drawFilledCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius)}] [getColor $color]
+        } else {
+          for {set i 0} {$i < $thickness} {incr i} {
             drawCircle [expr {int($x)}] [expr {int($y)}] [expr {int($radius+$i)}] [getColor $color]
-        }
+          }
+	}
     }
 
     proc image {x y im {radians 0} {scale 1.0}} {
