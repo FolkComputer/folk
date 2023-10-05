@@ -80,28 +80,23 @@ $cc code [csubst {
     }
     int numberOfFramesToStabilize;
     void determineNumberOfFramesToStabilize(Tcl_Interp* interp, int startBrightness, int endBrightness) {
-        int lastSeenBrightnesses[5] = {0};
-        bool brightnessHasConverged(int brightness) {
-            int error = 0;
-            for (int i = 0; i < 5; i++) {
-                error += abs(lastSeenBrightnesses[i] - brightness);
-            }
-            return error < 10;
-        }
+        /* fprintf(stderr, "start: %d -> end: %d\n", startBrightness, endBrightness); */
+        bool closer(int this, int that, int x) { return abs(this - x) < abs(that - x); }
+        int lastSeenBrightnesses[5] = {startBrightness, startBrightness, startBrightness, startBrightness, startBrightness};
         int numberOfFrames = 0;
         int brightness;
         do {
             numberOfFrames++;
             brightness = captureAndGetBrightness(interp, NULL);
-            fprintf(stderr, "brightness: %d\n", brightness);
+            /* fprintf(stderr, "brightness: %d\n", brightness); */
 
             for (int i = 0; i < 4; i++) {
                 lastSeenBrightnesses[i] = lastSeenBrightnesses[i + 1];
             }
             lastSeenBrightnesses[4] = brightness;
 
-        } while (abs(brightness - startBrightness) < abs(brightness - endBrightness) &&
-                 !brightnessHasConverged(lastSeenBrightnesses[4]));
+        } while (closer(startBrightness, endBrightness, lastSeenBrightnesses[4]) ||
+                 closer(startBrightness, endBrightness, lastSeenBrightnesses[3]));
 
         numberOfFramesToStabilize = numberOfFrames;
     }
@@ -204,8 +199,9 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
     int whiteBrightness = captureAndGetBrightness(interp, &whiteImage);
     fprintf(stderr, "white: %d\n", whiteBrightness);
 
-    // go back to black, then figure out how long it takes to appear on cam.
+    // go back to black, then figure out how long the black takes to appear on cam.
     DRAW("Gpu::draw {$clearScreen} {0 0 0 1}");
+    DRAW("Gpu::draw {$clearScreen} {0 0 0 1}"); // TODO: why do I have to draw twice??
     determineNumberOfFramesToStabilize(interp, whiteBrightness, blackBrightness);
     fprintf(stderr, "number of frames to stabilize: %d\n", numberOfFramesToStabilize);
 
