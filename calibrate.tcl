@@ -11,27 +11,20 @@ foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
 }
 exec sleep 1
 
-catch {
-    exec v4l2-ctl --set-ctrl=focus_auto=0
-    exec v4l2-ctl --set-ctrl=focus_absolute=0
-}
+catch { exec v4l2-ctl --set-ctrl=focus_auto=0 }
+catch { exec v4l2-ctl --set-ctrl=focus_absolute=0 }
+catch { exec v4l2-ctl -c white_balance_automatic=0 }
+catch { exec v4l2-ctl -c auto_exposure=1 }
+
+# FIXME: These are hacks/stubs so we can just load images.folk
+# without needing any other Folk stuff.
+proc When {args} {}
+set ::isLaptop false
 
 source "pi/Camera.tcl"
 source "pi/AprilTags.tcl"
+source "pi/Gpu.tcl"
 
-# FIXME: These are hacks/stubs so we can just load display.folk
-# without needing any other Folk stuff.
-set ::isLaptop false
-set ::thisProcess [pid]
-interp alias {} Step {} break
-proc Commit {args} {}
-proc When {args} {}
-proc Retract {args} {}
-proc Wish {args} {}
-proc On {_process arg} { eval $arg }
-namespace eval Statements { proc findMatches {args} { return [list] } }
-source "lib/math.tcl"
-source "virtual-programs/display.folk"
 source "virtual-programs/images.folk"
 source "pi/cUtils.tcl"
 
@@ -40,6 +33,8 @@ source "pi/cUtils.tcl"
 Camera::init 1920 1080
 set tagfamily "tagStandard52h13"
 
+Gpu::init
+Gpu::ImageManager::imageManagerInit
 
 set cc [c create]
 ::defineImageType $cc
@@ -52,13 +47,70 @@ $cc code {
 }
 
 $cc import ::image::cc saveAsJpeg as saveAsJpeg
-$cc code {
+
+proc eachCameraPixel {body} {
+    return "
+        for (int y = 0; y < $Camera::HEIGHT; y++) {
+            for (int x = 0; x < $Camera::WIDTH; x++) {
+                int i = (y * $Camera::WIDTH) + x; (void)i;
+                $body
+            }
+        }
+    "
+}
+
+$cc code [csubst {
     #include <jpeglib.h>
 
-    int captureNum = 0;
-    uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
+    #define CAMERA_WIDTH $Camera::WIDTH
+    #define CAMERA_HEIGHT $Camera::HEIGHT
 
-        Tcl_Eval(interp, "Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; Camera::freeImage [Camera::frame]; set rgb [Camera::frame]; set gray [Camera::rgbToGray $rgb]; Camera::freeImage $rgb; dict get $gray data");
+    int captureNum = 0;
+
+    int captureAndGetBrightness(Tcl_Interp* interp, uint8_t** outImage) {
+        Tcl_Eval(interp, "set rgb [Camera::frame]; set gray [Camera::rgbToGray \$rgb]; Camera::freeImage \$rgb; dict get \$gray data");
+        if (outImage == NULL) outImage = alloca(sizeof(uint8_t*));
+        sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", outImage);
+        Tcl_ResetResult(interp);
+
+        double brightness = 0;
+        $[eachCameraPixel { brightness += (*outImage)[i]; }]
+        brightness /= $Camera::WIDTH * $Camera::HEIGHT;
+        return (int)brightness;
+    }
+    int numberOfFramesToStabilize;
+    void determineNumberOfFramesToStabilize(Tcl_Interp* interp, int startBrightness, int endBrightness) {
+        int lastSeenBrightnesses[5] = {0};
+        bool brightnessHasConverged(int brightness) {
+            int error = 0;
+            for (int i = 0; i < 5; i++) {
+                error += abs(lastSeenBrightnesses[i] - brightness);
+            }
+            return error < 10;
+        }
+        int numberOfFrames = 0;
+        int brightness;
+        do {
+            numberOfFrames++;
+            brightness = captureAndGetBrightness(interp, NULL);
+            fprintf(stderr, "brightness: %d\n", brightness);
+
+            for (int i = 0; i < 4; i++) {
+                lastSeenBrightnesses[i] = lastSeenBrightnesses[i + 1];
+            }
+            lastSeenBrightnesses[4] = brightness;
+
+        } while (abs(brightness - startBrightness) < abs(brightness - endBrightness) &&
+                 !brightnessHasConverged(lastSeenBrightnesses[4]));
+
+        numberOfFramesToStabilize = numberOfFrames;
+    }
+
+    uint8_t* delayThenCameraCapture(Tcl_Interp* interp, const char* description) {
+        for (int i = 0; i < numberOfFramesToStabilize; i++) {
+            Tcl_Eval(interp, "Camera::freeImage [Camera::frame]");
+        }
+        Tcl_Eval(interp, "set rgb [Camera::frame]; set gray [Camera::rgbToGray \$rgb]; Camera::freeImage \$rgb; dict get \$gray data");
         uint8_t* image;
         sscanf(Tcl_GetStringResult(interp), "(uint8_t*) 0x%p", &image);
         Tcl_ResetResult(interp);
@@ -77,18 +129,7 @@ $cc code {
 
         return image;
     }
-}
-
-proc eachCameraPixel {body} {
-    return "
-        for (int y = 0; y < $Camera::HEIGHT; y++) {
-            for (int x = 0; x < $Camera::WIDTH; x++) {
-                int i = (y * $Camera::WIDTH) + x; (void)i;
-                $body
-            }
-        }
-    "
-}
+}]
 
 $cc code {
     uint16_t fromGrayCode(uint16_t code) {
@@ -145,23 +186,34 @@ set ::rowGrayCode [Gpu::pipeline {int k int invert} {
 }]
 
 $cc code {
-    #define DRAW(...) do { Tcl_Eval(interp, "Gpu::drawStart"); Tcl_EvalObjEx(interp, Tcl_ObjPrintf(__VA_ARGS__), 0); Tcl_Eval(interp, "Gpu::drawEnd"); } while (0)
+    #define DRAW(...) do { Tcl_Eval(interp, "Gpu::drawStart"); __ENSURE_OK(Tcl_EvalObjEx(interp, Tcl_ObjPrintf(__VA_ARGS__), 0)); Tcl_Eval(interp, "Gpu::drawEnd"); } while (0)
 }
 # returns dense correspondence from camera space -> projector space
 $cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
-    // image the base scene in white
-    DRAW("Gpu::draw {$clearScreen} {1 1 1 1}");
-    uint8_t* whiteImage = delayThenCameraCapture(interp, "whiteImage");
-
     // image the base scene in black
     DRAW("Gpu::draw {$clearScreen} {0 0 0 1}");
-    uint8_t* blackImage = delayThenCameraCapture(interp, "blackImage");
+    uint8_t* blackImage;
+    for (int i = 0; i < 8; i++) captureAndGetBrightness(interp, &blackImage);
+    int blackBrightness = captureAndGetBrightness(interp, &blackImage);
+    fprintf(stderr, "black: %d\n", blackBrightness);
+
+    // image the base scene in white
+    DRAW("Gpu::draw {$clearScreen} {1 1 1 1}");
+    uint8_t* whiteImage;
+    for (int i = 0; i < 8; i++) captureAndGetBrightness(interp, &whiteImage);
+    int whiteBrightness = captureAndGetBrightness(interp, &whiteImage);
+    fprintf(stderr, "white: %d\n", whiteBrightness);
+
+    // go back to black, then figure out how long it takes to appear on cam.
+    DRAW("Gpu::draw {$clearScreen} {0 0 0 1}");
+    determineNumberOfFramesToStabilize(interp, whiteBrightness, blackBrightness);
+    fprintf(stderr, "number of frames to stabilize: %d\n", numberOfFramesToStabilize);
 
     // find column correspondences:
     uint16_t* columnCorr;
     {
         // how many bits do we need in the Gray code?
-        int columnBits = ceil(log2f($Display::WIDTH));
+        int columnBits = ceil(log2f($Gpu::WIDTH));
 
         columnCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
@@ -209,7 +261,7 @@ $cc proc findDenseCorrespondence {Tcl_Interp* interp} dense_t* {
     uint16_t* rowCorr;
     {
         // how many bits do we need in the Gray code?
-        int rowBits = ceil(log2f($Display::WIDTH));
+        int rowBits = ceil(log2f($Gpu::WIDTH));
 
         rowCorr = calloc($Camera::WIDTH * $Camera::HEIGHT, sizeof(uint16_t));
 
@@ -319,7 +371,15 @@ Camera::freeImage $grayFrame
 
 flush stdout
 
-Display::start
+
+set fillTriangle [Gpu::pipeline {vec2 p0 vec2 p1 vec2 p2 vec4 color} {
+    vec2 vertices[4] = vec2[4](p0, p1, p2, p0);
+    return vertices[gl_VertexIndex];
+} {
+    return color;
+}]
+
+Gpu::drawStart
 
 puts ""
 set keyCorrespondences [list]
@@ -349,18 +409,18 @@ foreach tag $tags {
     lassign [lindex $correspondences 0] _ _ px py
     lassign [lindex $correspondences end] _ _ px1 py1
     # puts "$px $py $px1 $py1"
-    Display::fillTriangle \
+    Gpu::draw $fillTriangle \
         [list $px $py] \
         [list $px1 $py1] \
         [list $px $py1] \
-        red
-    set id [dict get $tag id]
-    Display::text $px $py 2 "$id" 0
-    Display::text $px1 $py1 2 "$id'" 0
+        {1 0 0 1}
+    # set id [dict get $tag id]
+    # Gpu::text $px $py 2 "$id" 0
+    # Gpu::text $px1 $py1 2 "$id'" 0
     
     lappend keyCorrespondences [lindex $correspondences 0]
 }
-Display::end
+Gpu::drawEnd
 
 puts ""
 puts "Found [llength $keyCorrespondences] key correspondences: $keyCorrespondences"
@@ -374,8 +434,8 @@ if {[llength $keyCorrespondences] >= 4} {
         namespace eval generatedCalibration {
             variable cameraWidth $Camera::WIDTH
             variable cameraHeight $Camera::HEIGHT
-            variable displayWidth $Display::WIDTH
-            variable displayHeight $Display::HEIGHT
+            variable displayWidth $Gpu::WIDTH
+            variable displayHeight $Gpu::HEIGHT
             variable points {$keyCorrespondences}
         }
     }]

@@ -45,7 +45,7 @@ if on a Mac]).
 1. Set up OpenSSH server if needed; connect to network. To ssh into
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config`
+1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config v4l-utils`
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
      1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
