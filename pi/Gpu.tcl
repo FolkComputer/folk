@@ -13,6 +13,15 @@ source "virtual-programs/images.folk"
 
 namespace eval ::Gpu {
     set macos [expr {$tcl_platform(os) eq "Darwin"}]
+
+    if {!$macos} {
+        foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
+            if {![file readable $renderFile]} {
+                puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
+Try doing `sudo chmod 666 $renderFile`."
+            }
+        }
+    }
     
     if {$::isLaptop} {
         set WIDTH [* 640 2]; set HEIGHT [* 480 2]
