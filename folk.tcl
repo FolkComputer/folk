@@ -15,18 +15,10 @@ proc manage_folk {action} {
     }
 }
 
-# Function to calibrate folk
 proc calibrate_folk {} {
     exec tclsh8.6 ~/folk/calibrate.tcl
 }
 
-# Function to setup camera for folk
-proc setup_camera_folk {} {
-    exec sudo systemctl stop folk
-    exec tclsh8.6 ~/folk/pi/Camera.tcl
-}
-
-# Main Program
 if {$argc == 0} {
     puts "Usage: folk <command>"
     puts $availableActions
@@ -43,13 +35,6 @@ switch -- $command {
     }
     "calibrate" {
         calibrate_folk
-    }
-    "setup" {
-        if {[lindex $argv 1] eq "camera"} {
-            setup_camera_folk
-        } else {
-            puts "Invalid setup option. Did you mean 'setup camera'?"
-        }
     }
     default {
         puts $availableActions

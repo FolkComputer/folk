@@ -1,40 +1,44 @@
-
 # Example program, i.e the public API
 #
 # When $this has camera slice /slice/ {
 #     Wish $this displays camera slice $slice
 # }
 
-if {$::isLaptop} { return }
-
 # Generic image class for sub-image manipulations
 namespace eval ::image {
     proc width {im} { dict get $im width }
     proc height {im} { dict get $im height }
     proc subimage {im x y subwidth subheight} {
-	dict with im {
-	    set x [expr {int($x)}]
-	    set y [expr {int($y)}]
-	    set subdata [expr {$data + ($y*$width + $x) * $components}]
-	    dict create \
-		width $subwidth \
-		height $subheight \
-		components $components \
-		bytesPerRow $bytesPerRow \
-		data [format 0x%x $subdata]
-	}
+        dict with im {
+            set x [expr {int($x)}]
+            set y [expr {int($y)}]
+            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            dict create \
+                width $subwidth \
+                height $subheight \
+                components $components \
+                bytesPerRow $bytesPerRow \
+                data [format "(uint8_t*) 0x%x" $subdata]
+        }
     }
 
     set cc [c create]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libpng.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libpng] end]}]
+    if {$tcl_platform(os) eq "Darwin"} {
+        $cc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    }
 
-    $cc cflags -ljpeg
+    $cc cflags -ljpeg -lpng
     source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
-    $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    if {[namespace exists ::Heap]} {
+        $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    } else {
+        $cc code { #define folkHeapAlloc malloc }
+    }
 
     $cc code {
         #undef EXTERN
@@ -67,7 +71,7 @@ namespace eval ::image {
                     image[i][j * 3 + 2] = data[(i * width + j) * 3 + 2];
                 }
             }
-        }
+        } else { exit(1); }
 
       struct jpeg_compress_struct compress;
       struct jpeg_error_mgr error;
@@ -260,6 +264,7 @@ namespace eval ::image {
     $cc proc freePng {image_t im} void {
         // TODO: Free the PNG.
     }
+
     $cc compile
 
     variable imagesCache [dict create]

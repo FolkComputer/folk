@@ -4,7 +4,7 @@ if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting
 set thisPid [pid]
 foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
     if {$pid ne $thisPid} {
-        exec kill -9 $pid
+        try { exec kill -9 $pid } on error e { puts stderr $e }
     }
 }
 exec sleep 1
@@ -210,20 +210,19 @@ proc StepImpl {} {
 
     # Share statements to all peers.
     set ::peerTime [baretime {
-        # This takes 2 ms.
-        set shareStatements [clauseset create]
+        set shareStatements [dictset create]
         if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all wishes]]] > 0} {
             foreach match [Statements::findMatches [list /someone/ wishes /...anything/]] {
                 set id [lindex [dict get $match __matcheeIds] 0]
                 set clause [statement clause [Statements::get $id]]
-                clauseset add shareStatements $clause
+                dictset add shareStatements $clause
             }
         }
         if {[llength [Statements::findMatches [list /someone/ wishes $::thisProcess shares all claims]]] > 0} {
             foreach match [Statements::findMatches [list /someone/ claims /...anything/]] {
                 set id [lindex [dict get $match __matcheeIds] 0]
                 set clause [statement clause [Statements::get $id]]
-                clauseset add shareStatements $clause
+                dictset add shareStatements $clause
             }
         }
 
@@ -277,12 +276,22 @@ set ::nodename $::thisNode ;# for backward compat
 namespace eval ::Heap {
     # Folk has a shared heap among all processes on a given node
     # (physical machine).
-
+    #
     # Memory allocated from the Folk heap should be accessible, at
     # exactly the same virtual address, from any Folk process.
-
+    #
+    # This allocator is meant to be used as 1. a base allocator for
+    # higher-level interprocess data structures (including the
+    # mailboxes below) and 2. an allocator for large, immutable,
+    # persistent objects (images -- think images). You probably
+    # shouldn't be calling it in a tight loop or making small
+    # allocations from it. It stores a lot of metadata per
+    # allocation. I would expect at most tens of allocations from here
+    # in play at any given time, and most/all of those over 1MB.
     proc init {} {
         variable cc [c create]
+        $cc cflags -I./vendor
+
         $cc include <sys/mman.h>
         $cc include <sys/stat.h>
         $cc include <fcntl.h>
@@ -290,16 +299,52 @@ namespace eval ::Heap {
         $cc include <stdlib.h>
         $cc include <string.h>
         $cc include <errno.h>
+        $cc include <pthread.h>
+
         $cc code {
             size_t folkHeapSize = 400000000; // 400MB
             uint8_t* folkHeapBase;
-            uint8_t** _Atomic folkHeapPointer;
+
+            typedef struct folk_heap_allocation_entry_t {
+                void* base;
+                size_t sz;
+                uint64_t version;
+            } folk_heap_allocation_entry_t;
+            typedef struct folk_heap_state_t {
+                pthread_mutex_t mutex;
+
+                uint8_t* brk;
+
+                uint64_t rndState;
+                folk_heap_allocation_entry_t allocations[256];
+
+                char mallocState[0];
+            } folk_heap_state_t;
+            // This state must be carved out of the heap itself -- it
+            // cannot be standard C global or static -- so that all
+            // subprocesses share it when allocating and deallocating.
+            folk_heap_state_t* folkHeapState;
+
+            #define USE_DL_PREFIX 1
+            #define HAVE_MMAP 0
+            #define MORECORE folkSbrk
+            #define get_malloc_state() ((struct malloc_state*) folkHeapState->mallocState)
+            void* folkSbrk(intptr_t increment) {
+                if (folkHeapState->brk + increment >= folkHeapBase + folkHeapSize) {
+                    fprintf(stderr, "folkSbrk: out of memory\n"); exit(1);
+                }
+                void* ptr = folkHeapState->brk; folkHeapState->brk += increment;
+                return ptr;
+            }
+            #include "dlmalloc/malloc.c"
         }
         # The memory mapping of the heap will be inherited by all
         # subprocesses, since it's established before the creation of
         # the zygote.
         $cc proc folkHeapMount {} void {
-            shm_unlink("/folk-heap");
+            (void) av_; // just to suppress unuse warning in malloc.c.
+
+            shm_unlink("/folk-heap"); // Try to delete the old heap if there is one.
             int fd = shm_open("/folk-heap", O_RDWR | O_CREAT, S_IROTH | S_IWOTH | S_IRUSR | S_IWUSR);
             if (fd == -1) { fprintf(stderr, "folkHeapMount: shm_open failed\n"); exit(1); }
             if (ftruncate(fd, folkHeapSize) == -1) { fprintf(stderr, "folkHeapMount: ftruncate failed\n"); exit(1); }
@@ -308,16 +353,100 @@ namespace eval ::Heap {
             if (folkHeapBase == NULL || folkHeapBase == (void *) -1) {
                 fprintf(stderr, "folkHeapMount: mmap failed: '%s'\n", strerror(errno)); exit(1);
             }
-            folkHeapPointer = (uint8_t**) folkHeapBase;
-            *folkHeapPointer = folkHeapBase + sizeof(*folkHeapPointer);
+            folkHeapState = (folk_heap_state_t*) folkHeapBase;
+            memset(folkHeapState, 0, sizeof(*folkHeapState));
+            folkHeapState->brk = folkHeapBase + sizeof(*folkHeapState) + sizeof(struct malloc_state);
+
+            pthread_mutexattr_t att; pthread_mutexattr_init(&att);
+            pthread_mutexattr_setpshared(&att, PTHREAD_PROCESS_SHARED);
+            pthread_mutex_init(&folkHeapState->mutex, &att);
         }
-        $cc proc folkHeapAlloc {size_t sz} void* {
-            if (*folkHeapPointer + sz >= folkHeapBase + folkHeapSize) {
-                fprintf(stderr, "folkHeapAlloc: out of memory\n"); exit(1);
+        $cc code {
+            uint64_t rnd64(uint64_t n) {
+                const uint64_t z = 0x9FB21C651E98DF25;
+
+                n ^= ((n << 49) | (n >> 15)) ^ ((n << 24) | (n >> 40));
+                n *= z;
+                n ^= n >> 35;
+                n *= z;
+                n ^= n >> 28;
+
+                return n;
             }
-            void* ptr = *folkHeapPointer;
-            *folkHeapPointer += sz;
-            return (void*) ptr;
+        }
+        # On each allocation, the heap stores a random 64-bit
+        # 'version' for that allocation (which can then be remembered
+        # by the caller). You can query the heap with any address and
+        # it will try to give you the 'version' if there is an
+        # allocation containing that address. This is used to check
+        # for staleness of images that have been copied to the GPU
+        # (like camera slices). If the version mismatches the one we
+        # stored at previous copy-time, then we know we have to recopy
+        # that image to the GPU.
+        # 
+        # TODO: This implementation is pretty inefficient and unsafe
+        # (it walks a capped-256 array of all allocations) and we may
+        # want to replace it with an interval tree or something at
+        # some point.
+        $cc proc folkHeapAlloc {size_t sz} void* {
+            /* fprintf(stderr, "folkHeapAlloc %zu\n", sz); */
+            pthread_mutex_lock(&folkHeapState->mutex);
+
+            uint64_t version = rnd64(folkHeapState->rndState++);
+            void* ptr = dlmalloc(sz);
+            for (int i = 0;
+                 i < sizeof(folkHeapState->allocations)/sizeof(folkHeapState->allocations[0]);
+                 i++) {
+                if (folkHeapState->allocations[i].base == 0) {
+                    folkHeapState->allocations[i].base = ptr;
+                    folkHeapState->allocations[i].sz = sz;
+                    folkHeapState->allocations[i].version = version;
+
+                    pthread_mutex_unlock(&folkHeapState->mutex);
+                    return ptr;
+                }
+            }
+            pthread_mutex_unlock(&folkHeapState->mutex);
+            fprintf(stderr, "folkHeapAlloc: Ran out of allocation slots\n"); exit(1);
+        }
+        $cc proc folkHeapFree {void* ptr} void {
+            /* fprintf(stderr, "folkHeapFree %p\n", ptr); */
+            pthread_mutex_lock(&folkHeapState->mutex);
+
+            for (int i = 0;
+                 i < sizeof(folkHeapState->allocations)/sizeof(folkHeapState->allocations[0]);
+                 i++) {
+                if (folkHeapState->allocations[i].base <= ptr &&
+                    ptr < folkHeapState->allocations[i].base + folkHeapState->allocations[i].sz) {
+                    folkHeapState->allocations[i].base = 0;
+                    folkHeapState->allocations[i].sz = 0;
+                    folkHeapState->allocations[i].version = 0;
+                    dlfree(ptr);
+
+                    pthread_mutex_unlock(&folkHeapState->mutex);
+                    return;
+                }
+            }
+
+            pthread_mutex_unlock(&folkHeapState->mutex);
+            fprintf(stderr, "folkHeapFree: Tried to free invalid Folk heap pointer\n");
+        }
+        $cc proc folkHeapGetVersion {void* ptr} uint64_t {
+            pthread_mutex_lock(&folkHeapState->mutex);
+
+            for (int i = 0;
+                 i < sizeof(folkHeapState->allocations)/sizeof(folkHeapState->allocations[0]);
+                 i++) {
+                if (folkHeapState->allocations[i].base <= ptr &&
+                    ptr < folkHeapState->allocations[i].base + folkHeapState->allocations[i].sz) {
+                    uint64_t version = folkHeapState->allocations[i].version;
+                    pthread_mutex_unlock(&folkHeapState->mutex);
+                    return version;
+                }
+            }
+
+            pthread_mutex_unlock(&folkHeapState->mutex);
+            return 0;
         }
         if {$::tcl_platform(os) eq "Linux"} {
             $cc cflags -lrt
@@ -463,26 +592,26 @@ if {[info exists ::entry]} {
         }}
 
         # Watch for virtual-programs/ changes.
-        try {
-            set fd [open "|fswatch virtual-programs" r]
-            fconfigure $fd -buffering line
-            fileevent $fd readable [list apply {{fd} {
-                set changedFilename [file tail [gets $fd]]
-                if {[string index $changedFilename 0] eq "." ||
-                    [string index $changedFilename 0] eq "#" ||
-                    [file extension $changedFilename] ne ".folk"} {
-                    return
-                }
-                set changedProgramName "virtual-programs/$changedFilename"
-                puts "$changedProgramName updated, reloading."
+        # try {
+        #     set fd [open "|fswatch virtual-programs" r]
+        #     fconfigure $fd -buffering line
+        #     fileevent $fd readable [list apply {{fd} {
+        #         set changedFilename [file tail [gets $fd]]
+        #         if {[string index $changedFilename 0] eq "." ||
+        #             [string index $changedFilename 0] eq "#" ||
+        #             [file extension $changedFilename] ne ".folk"} {
+        #             return
+        #         }
+        #         set changedProgramName "virtual-programs/$changedFilename"
+        #         puts "$changedProgramName updated, reloading."
 
-                set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-                EditVirtualProgram $changedProgramName $programCode
-            }} $fd]
-        } on error err {
-            puts stderr "Warning: could not invoke `fswatch` ($err)."
-            puts stderr "Will not watch virtual-programs for changes."
-        }
+        #         set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
+        #         EditVirtualProgram $changedProgramName $programCode
+        #     }} $fd]
+        # } on error err {
+        #     puts stderr "Warning: could not invoke `fswatch` ($err)."
+        #     puts stderr "Will not watch virtual-programs for changes."
+        # }
     }
     proc ::EditVirtualProgram {programName programCode} {
         set oldRootVirtualPrograms $::rootVirtualPrograms

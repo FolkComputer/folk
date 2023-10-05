@@ -1,17 +1,39 @@
 # 'Language' utilities that extend and customize base Tcl.
 
 proc fn {name argNames body} {
-    uplevel [list set ^$name [list $argNames $body]]
+    lassign [uplevel Evaluator::serializeEnvironment] envArgNames envArgValues
+    set argNames [linsert $argNames 0 {*}$envArgNames]
+    uplevel [list set ^$name [list apply [list $argNames $body] {*}$envArgValues]]
 }
 rename unknown _original_unknown
 # Trap resolution of commands so that they can call the lambda in
 # lexical scope created by `fn`.
 proc unknown {name args} {
-    if {[uplevel [list info exists ^$name]]} {
-        apply [uplevel [list set ^$name]] {*}$args
+    set err [catch {set fnVar ^$name; upvar $fnVar fn}]
+    if {$err == 0 && [info exists fn]} {
+        uplevel [list {*}$fn {*}$args]
     } else {
         uplevel [list _original_unknown $name {*}$args]
     }
+}
+
+namespace eval dictset {
+    namespace export create add union difference entries size
+    proc create {args} {
+        set kvs [list]
+        foreach k $args { lappend kvs $k true }
+        dict create {*}$kvs
+    }
+    proc add {sv entry} { upvar $sv s; dict set s $entry true }
+
+    proc union {s t} { dict merge $s $t }
+    proc difference {s t} {
+        dict filter $s script {k v} {expr {![dict exists $t $k]}}
+    }
+
+    proc size {s} { dict size $s }
+    proc entries {s} { dict keys $s }
+    namespace ensemble create
 }
 
 # Trim indentation in multiline quoted text.
@@ -85,3 +107,4 @@ proc forever {body} {
 
 namespace import ::tcl::mathop::*
 namespace import ::tcl::mathfunc::*
+

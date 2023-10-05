@@ -43,17 +43,9 @@ namespace eval statement {
         edge_type_t type;
         statement_handle_t statement;
     }
-    $cc code {
-        typedef struct match_destructor_t {
-            Tcl_Obj* body;
-            Tcl_Obj* env;
-        } match_destructor_t;
-    }
-    $cc rtype match_destructor_t {
-        $robj = Tcl_ObjPrintf("DESTRUCTOR");
-    }
-    $cc argtype match_destructor_t {
-        match_destructor_t $argname;
+    $cc struct match_destructor_t {
+        Tcl_Obj* body;
+        Tcl_Obj* env;
     }
     $cc struct match_t {
         int32_t gen;

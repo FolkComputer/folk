@@ -5,7 +5,12 @@ proc csubst {s} {
     for {set i 0} {$i < [string length $s]} {incr i} {
         set c [string index $s $i]
         switch $c {
-            "\\" {incr i; lappend result [string index $s $i]}
+            "\\" {
+                incr i; set next [string index $s $i]
+                # TODO: This is a hack to deal with \n and \0.
+                if {$next eq "n" || $next eq "0"} { lappend result "\\" }
+                lappend result $next
+            }
             {$} {
                 set tail [string range $s $i+1 end]
                 if {[regexp {^((?:[A-Za-z0-9_]|::)+)} $tail match-> varname] ||
@@ -43,9 +48,12 @@ namespace eval c {
                 #include <inttypes.h>
                 #include <stdint.h>
                 #include <stdbool.h>
+                #include <setjmp.h>
 
-                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); return TCL_ERROR; }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { return TCL_ERROR; }
+                jmp_buf __onError;
+
+                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); longjmp(__onError, 0); }
+                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { longjmp(__onError, 0); }
             }
             variable code [list]
             variable objtypes [list]
@@ -66,9 +74,12 @@ namespace eval c {
                 }
             }
 
+            # Tcl->C conversion logic, when a value is passed from Tcl
+            # to a C function as an argument.
             variable argtypes {
                 int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
+                float { expr {{ double _$argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &_$argname)); float $argname = (float)_$argname; }}}
                 bool { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 int32_t { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
                 char { expr {{
@@ -95,17 +106,19 @@ namespace eval c {
                         }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
-                        expr {{
-                            int ${argname}_objc; Tcl_Obj** ${argname}_objv;
-                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &${argname}_objc, &${argname}_objv));
-                            $basetype $argname\[${argname}_objc\];
+                        if {$basetype eq "char"} { expr {{
+                            char $argname[$arraylen]; memcpy($argname, Tcl_GetString($obj), $arraylen);
+                        }} } else { expr {{
+                            int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                            $basetype $argname[$[set argname]_objc];
                             {
-                                for (int i = 0; i < ${argname}_objc; i++) {
+                                for (int i = 0; i < $[set argname]_objc; i++) {
                                     $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
-                                    $argname\[i\] = ${argname}_i;
+                                    $argname[i] = $[set argname]_i;
                                 }
                             }
-                        }}
+                        }} }
                     } else {
                         error "Unrecognized argtype $argtype"
                     }
@@ -120,23 +133,30 @@ namespace eval c {
                 csubst [switch $argtype $argtypes]
             }
 
+            # C->Tcl conversion logic, when a value is returned from a
+            # C function to Tcl.
             variable rtypes {
                 int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 int32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 double { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
+                float { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
                 char { expr {{ $robj = Tcl_ObjPrintf("%c", $rvalue); }}}
                 bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint8_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
                 uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
+                uint64_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
                 intptr_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                char* { expr {{ $robj = Tcl_ObjPrintf("%s", $rvalue); }} }
+                char* { expr {{ $robj = Tcl_NewStringObj($rvalue, -1); }} }
                 Tcl_Obj* { expr {{ $robj = $rvalue; }}}
                 default {
                     if {[string index $rtype end] == "*"} {
                         expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
                     } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
-                        expr {{
+                        if {$basetype eq "char"} { expr {{
+                            $robj = Tcl_ObjPrintf("%s", $rvalue);
+                        }} } else { expr {{
                             {
                                 Tcl_Obj* objv[$arraylen];
                                 for (int i = 0; i < $arraylen; i++) {
@@ -144,7 +164,7 @@ namespace eval c {
                                 }
                                 $robj = Tcl_NewListObj($arraylen, objv);
                             }
-                        }}
+                        }} }
                     } else {
                         error "Unrecognized rtype $rtype"
                     }
@@ -214,7 +234,6 @@ namespace eval c {
                 regsub -all -line {/\*.*?\*/} $fields "" fields
                 regsub -all -line {//.*$} $fields "" fields
                 set fields [string map {";" ""} $fields]
-                # puts "FIELDS $fields"
 
                 set fieldnames [list]
                 for {set i 0} {$i < [llength $fields]} {incr i 2} {
@@ -233,6 +252,7 @@ namespace eval c {
                 # code. value = 0 means the data is owned externally
                 # (by someone else like the statement store).
                 lappend objtypes [csubst {
+                    extern Tcl_ObjType $[set type]_ObjType;
                     void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
                         if (objPtr->internalRep.ptrAndLongRep.value == 1) {
                             ckfree((char*)objPtr->internalRep.ptrAndLongRep.ptr);
@@ -260,8 +280,20 @@ namespace eval c {
                         snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
-                        Tcl_SetResult(interp, "setFromAnyProc not implemented for $[set type]", NULL);
-                        return TCL_ERROR;
+                        $[set type] *robj = ($[set type] *)ckalloc(sizeof($[set type]));
+                        $[join [lmap {fieldtype fieldname} $fields {
+                            csubst {
+                                Tcl_Obj* obj_$fieldname;
+                                Tcl_DictObjGet(interp, objPtr, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
+                                $[arg $fieldtype robj_$fieldname obj_${fieldname}]
+                                memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
+                            }
+                        }] "\n"]
+
+                        objPtr->typePtr = &$[set type]_ObjType;
+                        objPtr->internalRep.ptrAndLongRep.ptr = robj;
+                        objPtr->internalRep.ptrAndLongRep.value = 1;
+                        return TCL_OK;
                     }
                     Tcl_ObjType $[set type]_ObjType = (Tcl_ObjType) {
                         .name = "$type",
@@ -272,19 +304,12 @@ namespace eval c {
                     };
                 }]
 
-                variable argtypes
-                set argscripts [list {$argtype $argname;}]
-                foreach {fieldtype fieldname} $fields {
-                    lappend argscripts [csubst {\{
-                        Tcl_Obj* obj_$fieldname;
-                        Tcl_DictObjGet(interp, \$obj, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
-                    }]
-                    lappend argscripts [arg $fieldtype \${argname}_$fieldname obj_$fieldname]
-                    lappend argscripts [subst {\$argname.$fieldname = \${argname}_$fieldname;\}}]
-                }
-                argtype $type [join $argscripts "\n"]
+                argtype $type [csubst {
+                    __ENSURE_OK(Tcl_ConvertToType(interp, \$obj, &$[set type]_ObjType));
+                    \$argtype \$argname;
+                    \$argname = *(($type *)\$obj->internalRep.ptrAndLongRep.ptr);
+                }]
 
-                variable rtypes
                 rtype $type {
                     $robj = Tcl_NewObj();
                     $robj->bytes = NULL;
@@ -293,10 +318,50 @@ namespace eval c {
                     $robj->internalRep.ptrAndLongRep.value = 1;
                     memcpy($robj->internalRep.ptrAndLongRep.ptr, &$rvalue, sizeof($[set rtype]));
                 }
+
+                # Generate Tcl getter functions for each field:
+                set ns [uplevel {namespace current}]::$type
+                namespace eval $ns {}
+                foreach {fieldtype fieldname} $fields {
+                    try {
+                        if {$fieldtype ne "Tcl_Obj*" &&
+                            [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                            if {$basefieldtype eq "char"} {
+                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                }
+                            } else {
+                                proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                }
+                                # If fieldtype is a pointer or an array,
+                                # then make a getter that takes an index.
+                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
+                                }
+                            }
+                        } else {
+                            proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
+                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                            }
+                        }
+                    } on error e {
+                        puts stderr "Warning: Unable to generate getter for `$type $fieldname`: $e"
+                    }
+                }
+                namespace eval $ns {
+                    namespace export *
+                    namespace ensemble create
+                }
             }
 
             ::proc "proc" {name args rtype body} {
                 set cname [string map {":" "_"} $name]
+                set body [uplevel [list csubst $body]]
 
                 # puts "$name $args $rtype $body"
                 set arglist [list]
@@ -328,6 +393,7 @@ namespace eval c {
                 }
 
                 variable procs
+                if {[dict exists $procs $name]} { error "Name collision: $name" }
                 dict set procs $name rtype $rtype
                 dict set procs $name arglist $arglist
                 dict set procs $name ns [uplevel {namespace current}]
@@ -342,6 +408,9 @@ namespace eval c {
                             Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
                             return TCL_ERROR;
                         }
+                        int r = setjmp(__onError);
+                        if (r != 0) { return TCL_ERROR; }
+
                         [join $loadargs "\n"]
                         $saverv
                     }

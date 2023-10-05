@@ -1,26 +1,5 @@
 lappend auto_path "./vendor"
 
-namespace eval clauseset {
-    # only used for statement syndication
-
-    namespace export create add union difference clauses size
-    proc create {args} {
-        set kvs [list]
-        foreach k $args { lappend kvs $k true }
-        dict create {*}$kvs
-    }
-    proc add {sv stmt} { upvar $sv s; dict set s $stmt true }
-
-    proc union {s t} { dict merge $s $t }
-    proc difference {s t} {
-        dict filter $s script {k v} {expr {![dict exists $t $k]}}
-    }
-
-    proc size {s} { dict size $s }
-    proc clauses {s} { dict keys $s }
-    namespace ensemble create
-}
-
 namespace eval ::Peers {}
 set ::peersBlacklist [dict create]
 
@@ -31,7 +10,7 @@ proc ::addMatchesToShareStatements {shareStatementsVar matches} {
         foreach match [Statements::findMatches $pattern] {
             set id [lindex [dict get $match __matcheeIds] 0]
             set clause [statement clause [Statements::get $id]]
-            clauseset add shareStatements $clause
+            dictset add shareStatements $clause
         }
     }
 }
@@ -67,10 +46,10 @@ proc ::peer {process {dieOnDisconnect false}} {
             ::addMatchesToShareStatements shareStatements \
                 [Statements::findMatches [list /someone/ wishes $process receives statements like /pattern/]]
             if {![info exists prevShareStatements] ||
-                ([clauseset size $prevShareStatements] > 0 ||
-                 [clauseset size $shareStatements] > 0)} {
+                ([dictset size $prevShareStatements] > 0 ||
+                 [dictset size $shareStatements] > 0)} {
 
-                send [clauseset clauses $shareStatements]
+                send [dictset entries $shareStatements]
 
                 set prevShareStatements $shareStatements
             }
