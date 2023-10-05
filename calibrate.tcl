@@ -441,5 +441,7 @@ if {[llength $keyCorrespondences] >= 4} {
     puts "Calibration did not succeed. Not enough points found."
 }
 
+catch { exec v4l2-ctl -c auto_exposure=3 }
+
 exec sleep 10
 # exec sudo systemctl start folk &
