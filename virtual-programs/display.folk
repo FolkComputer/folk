@@ -25,459 +25,102 @@ namespace eval ::Display {
     }
 }
 
-On process {
+
+namespace eval Colors { source "pi/Colors.tcl" }
+proc ::getColor {color} {
+    if {[info exists Colors::$color]} { return [set Colors::$color] } \
+        else { return $Colors::white }
+}
+
+Start process "display" {
     puts "Display pid: [pid]"
 
     source pi/Gpu.tcl
     Gpu::init
     Gpu::ImageManager::imageManagerInit
 
-    namespace eval Display {
-        namespace eval Colors { source "pi/Colors.tcl" }
+    # TODO: Share these functions through the database somehow,
+    # instead of keeping them in globals.
 
-        variable rotate [Gpu::fn {vec2 v float a} vec2 {
-            float s = sin(a);
-            float c = cos(a);
-            mat2 m = mat2(c, s, -s, c);
-            return m * v;
-        }]
-        variable cross2d [Gpu::fn {vec2 a vec2 b} float {
-            return a.x*b.y - a.y*b.x;
-        }]
-        # See https://www.shadertoy.com/view/lsBSDm
-        variable invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d fn cross2d} vec2 {
-            vec2 res = vec2(-1.0);
+    set ::rotate [Gpu::fn {vec2 v float a} vec2 {
+        float s = sin(a);
+        float c = cos(a);
+        mat2 m = mat2(c, s, -s, c);
+        return m * v;
+    }]
+    set ::cross2d [Gpu::fn {vec2 a vec2 b} float {
+        return a.x*b.y - a.y*b.x;
+    }]
+    # See https://www.shadertoy.com/view/lsBSDm
+    set ::invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d fn ::cross2d} vec2 {
+        vec2 res = vec2(-1.0);
 
-            vec2 e = b-a;
-            vec2 f = d-a;
-            vec2 g = a-b+c-d;
-            vec2 h = p-a;
-            
-            float k2 = cross2d( g, f );
-            float k1 = cross2d( e, f ) + cross2d( h, g );
-            float k0 = cross2d( h, e );
+        vec2 e = b-a;
+        vec2 f = d-a;
+        vec2 g = a-b+c-d;
+        vec2 h = p-a;
 
-            // if edges are parallel, this is a linear equation
-            k2 /= k0; k1 /= k0; k0 = 1.0;
-            if(  abs(k2)<0.001*abs(k0) )
+        float k2 = cross2d( g, f );
+        float k1 = cross2d( e, f ) + cross2d( h, g );
+        float k0 = cross2d( h, e );
+
+        // if edges are parallel, this is a linear equation
+        k2 /= k0; k1 /= k0; k0 = 1.0;
+        if(  abs(k2)<0.001*abs(k0) )
+        {
+            res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
+        }
+        // otherwise, it's a quadratic
+        else
+        {
+            float w = k1*k1 - 4.0*k0*k2;
+            if( w<0.0 ) return vec2(-1.0);
+            w = sqrt( w );
+
+            float ik2 = 0.5/k2;
+            float v = (-k1 - w)*ik2;
+            float u = (h.x - f.x*v)/(e.x + g.x*v);
+
+            if( u<0.0 || u>1.0 || v<0.0 || v>1.0 )
             {
-                res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
+                v = (-k1 + w)*ik2;
+                u = (h.x - f.x*v)/(e.x + g.x*v);
             }
-            // otherwise, it's a quadratic
-            else
-            {
-                float w = k1*k1 - 4.0*k0*k2;
-                if( w<0.0 ) return vec2(-1.0);
-                w = sqrt( w );
-
-                float ik2 = 0.5/k2;
-                float v = (-k1 - w)*ik2;
-                float u = (h.x - f.x*v)/(e.x + g.x*v);
-                
-                if( u<0.0 || u>1.0 || v<0.0 || v>1.0 )
-                {
-                    v = (-k1 + w)*ik2;
-                    u = (h.x - f.x*v)/(e.x + g.x*v);
-                }
-                res = vec2( u, v );
-            }
-            return res;
-        }]
-
-        namespace eval font {
-            proc load {name} {
-                set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
-                set glyphInfos [dict create]
-                foreach line [split $csv "\n"] {
-                set info [lassign [split $line ,] glyph]
-                lassign $info advance \
-                    planeLeft planeBottom planeRight planeTop \
-                    atlasLeft atlasBottom atlasRight atlasTop
-                dict set glyphInfos $glyph \
-                    [list $advance \
-                         [list $planeLeft $planeBottom $planeRight $planeTop] \
-                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
-                }
-
-                set im [image load "[pwd]/vendor/fonts/$name.png"]
-                set gim [Gpu::ImageManager::copyImageToGpu $im]
-
-                return [list $glyphInfos $im $gim]
-            }
-            proc hasGlyphInfo {font charCode} { dict exists [lindex $font 0] $charCode }
-            proc glyphInfo {font charCode} { dict get [lindex $font 0] $charCode }
-            proc atlasImage {font} { lindex $font 1 }
-            proc gpuAtlasImage {font} { lindex $font 2 }
-
-            namespace export *
-            namespace ensemble create
+            res = vec2( u, v );
         }
-        variable glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
-            vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
-            return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
-        }]
-        variable median [Gpu::fn {float r float g float b} float {
-            return max(min(r, g), min(max(r, g), b));
-        }]
-        variable glyph [Gpu::pipeline {sampler2D atlas vec2 atlasSize
-                                       vec4 atlasGlyphBounds
-                                       vec4 planeGlyphBounds
-                                       vec2 pos float radians float em
-                                       fn rotate} {
-            float left = planeGlyphBounds[0] * em;
-            float bottom = planeGlyphBounds[1] * em;
-            float right = planeGlyphBounds[2] * em;
-            float top = planeGlyphBounds[3] * em;
-            vec2 a = pos + rotate(vec2(left, -top), -radians);
-            vec2 b = pos + rotate(vec2(right, -top), -radians);
-            vec2 c = pos + rotate(vec2(right, -bottom), -radians);
-            vec2 d = pos + rotate(vec2(left, -bottom), -radians);
+        return res;
+    }]
 
-            vec2 vertices[4] = vec2[4](a, b, d, c);
-            return vertices[gl_VertexIndex];
-        } {fn rotate fn invBilinear fn glyphMsd fn median} {
-            float left = planeGlyphBounds[0] * em;
-            float bottom = planeGlyphBounds[1] * em;
-            float right = planeGlyphBounds[2] * em;
-            float top = planeGlyphBounds[3] * em;
-            vec2 a = pos + rotate(vec2(left, -top), -radians);
-            vec2 b = pos + rotate(vec2(right, -top), -radians);
-            vec2 c = pos + rotate(vec2(right, -bottom), -radians);
-            vec2 d = pos + rotate(vec2(left, -bottom), -radians);
-
-            vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
-            if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
-                return vec4(0, 0, 0, 0);
-            }
-            vec3 msd = glyphMsd(atlas, atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
-            float sd = median(msd.r, msd.g, msd.b);
-            float screenPxDistance = 4.5*(sd - 0.5);
-            float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-            return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
-        }]
-
-        proc start {} { Gpu::drawStart }
-
-        proc getColor {color} {
-            if {[info exists Colors::$color]} { return [set Colors::$color] } \
-                else { return $Colors::white }
-        }
-
-        variable line [Gpu::pipeline {vec2 from vec2 to float thickness vec4 color} {
-            vec2 vertices[4] = vec2[4](
-                 min(from, to) - thickness,
-                 vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
-                 vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
-                 max(from, to) + thickness
-            );
-            return vertices[gl_VertexIndex];
-        } {
-            float l = length(to - from);
-            vec2 d = (to - from) / l;
-            vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-            q = mat2(d.x, -d.y, d.y, d.x) * q;
-            q = abs(q) - vec2(l, thickness)*0.5;
-            float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-
-            return dist < 0.0 ? color : vec4(0, 0, 0, 0);
-        }]
-        proc stroke {points width color} {
-            variable line
-            for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
-                set from [lindex $points $i]
-                set to [lindex $points [expr $i+1]]
-                Gpu::draw $line $from $to $width [getColor $color]
-            }
-        }
-
-        # TODO: Fix bool support.
-        variable circle [Gpu::pipeline {vec2 center float radius float thickness vec4 color int filled} {
-            float r = radius + thickness;
-            vec2 vertices[4] = vec2[4](
-                 center - r,
-                 vec2(center.x + r, center.y - r),
-                 vec2(center.x - r, center.y + r),
-                 center + r
-            );
-            return vertices[gl_VertexIndex];
-        } {
-            float dist = length(gl_FragCoord.xy - center) - radius;
-            if (filled == 1) {
-                return (dist < thickness) ? color : vec4(0, 0, 0, 0);
-            } else {
-                return (dist < thickness && dist > 0.0) ? color : vec4(0, 0, 0, 0);
-            }
-        }]
-        proc circle {x y radius thickness color {filled false}} {
-            variable circle
-            Gpu::draw $circle [list $x $y] $radius $thickness [getColor $color] [ne $filled "false"]
-        }
-
-        set ::FontCache [dict create]
-
-        # load all fonts into the fontCache
-        foreach fontPath [list {*}[glob {*}vendor/fonts/*.png]] {
-            set fontName ""
-            regexp {vendor/fonts/(.*).png} $fontPath whole_match fontName
-            if {!($fontName eq "")} {
-                puts "Loaded $fontName into font cache"
-                set fontdata [font load $fontName]
-                dict set ::FontCache $fontName $fontdata
-            }
-        }
-
-        proc textExtent {text scale {font "PTSans-Regular"}} {
-            if {!([dict exists $::FontCache $font])} {
-                throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
-                return
-            }
-            set font [dict get $::FontCache $font]
-
-            set em [* $scale 25.0]
-            set x 0; set y 0
-            set width 0
-            for {set i 0} {$i < [string length $text]} {incr i} {
-                set char [string index $text $i]
-                if {$char eq "\n"} {
-                    set y [+ $y $em]; set x 0; continue
-                }
-                set charCode [scan $char %c]
-                if {[font hasGlyphInfo $font $charCode]} {
-                    set glyphInfo [font glyphInfo $font $charCode]
-                } else {
-                    set glyphInfo [font glyphInfo $font [scan ? %c]]
-                }
-                lassign $glyphInfo advance planeBounds atlasBounds
-                set x [+ $x [* $advance $em]]
-                if {$x > $width} { set width $x }
-            }
-            return [list $width [+ $y $em]]
-        }
-        proc text {x0 y0 scale text radians {font "PTSans-Regular"}} {
-            if {!([dict exists $::FontCache $font])} {
-                throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
-                return
-            }
-            set font [dict get $::FontCache $font]
-        
-
-            variable glyph
-            set fontAtlas [font gpuAtlasImage $font]
-            set fontAtlasSize [list [::image width [font atlasImage $font]] \
-                                   [::image height [font atlasImage $font]]]
-
-            set extent [vec2 rotate [textExtent $text $scale] $radians]
-
-            set em [* $scale 25.0]
-
-            # TODO: Add text alignment/anchor options (right now, this
-            # setup centers the text).
-            set x0 [expr {$x0 - [lindex $extent 0]/2}]
-            set y0 [expr {$y0 - [lindex $extent 1]/2}]
-            set x $x0; set y $y0
-
-            set lineNum 0
-            for {set i 0} {$i < [string length $text]} {incr i} {
-                set char [string index $text $i]
-                if {$char eq "\n"} {
-                    incr lineNum
-                    lassign [vec2 add [list $x0 $y0] \
-                                 [vec2 rotate [list 0 [* $lineNum $em]] $radians]] x y
-                    continue
-                }
-                set charCode [scan $char %c]
-                if {[font hasGlyphInfo $font $charCode]} {
-                    set glyphInfo [font glyphInfo $font $charCode]
-                } else {
-                    set glyphInfo [font glyphInfo $font [scan ? %c]]
-                }
-                lassign $glyphInfo advance planeBounds atlasBounds
-                if {$char ne " "} {
-                    Gpu::draw $glyph $fontAtlas $fontAtlasSize \
-                        $atlasBounds $planeBounds [list $x $y] $radians $em 
-                }
-                lassign [vec2 add [list $x $y] \
-                             [vec2 rotate [list [* $advance $em] 0] $radians]] x y
-            }
-        }
-
-        variable fillTriangle [Gpu::pipeline {vec2 p0 vec2 p1 vec2 p2 vec4 color} {
-            vec2 vertices[4] = vec2[4](p0, p1, p2, p0);
-            return vertices[gl_VertexIndex];
-        } {
-            return color;
-        }]
-        proc fillTriangle {p0 p1 p2 color} {
-            variable fillTriangle
-            Gpu::draw $fillTriangle $p0 $p1 $p2 [getColor $color]
-        }
-        
-        proc fillQuad {p0 p1 p2 p3 color} {
-            fillTriangle $p1 $p2 $p3 $color
-            fillTriangle $p0 $p1 $p3 $color
-        }
-
-        proc fillPolygon {points color} {
-            set num_points [llength $points]
-            if {$num_points < 3} {
-                error "At least 3 points are required to form a polygon."
-            } elseif {$num_points == 3} {
-                eval fillTriangle $points $color
-            } elseif {$num_points == 4} {
-                eval fillQuad $points $color
-            } else {
-                # Get the first point in the list as the "base" point of the triangles
-                set p0 [lindex $points 0]
-
-                for {set i 1} {$i < $num_points - 1} {incr i} {
-                    set p1 [lindex $points $i]
-                    set p2 [lindex $points [expr {$i+1}]]
-                    fillTriangle $p0 $p1 $p2 $color
-                }
-            }
-        }
-
-        variable image [Gpu::pipeline {sampler2D image vec2 imageSize
-                                       vec2 pos float radians float scale
-                                       fn rotate} {
-            vec2 a = pos + rotate(-imageSize/2, -radians);
-            vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
-            vec2 c = pos + rotate(imageSize/2, -radians);
-            vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
-            vec2 vertices[4] = vec2[4](a, b, d, c);
-            return vertices[gl_VertexIndex];
-        } {fn invBilinear fn rotate} {
-            vec2 a = pos + rotate(-imageSize/2, -radians);
-            vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
-            vec2 c = pos + rotate(imageSize/2, -radians);
-            vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
-            vec2 p = gl_FragCoord.xy;
-            vec2 uv = invBilinear(p, a, b, c, d);
-            if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
-                return texture(image, uv);
-            }
-            return vec4(0.0, 0.0, 0.0, 0.0);
-        }]
-        variable imCache [dict create]
-        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES [dict size $::FontCache]]
-        proc checkImCacheAndCopyIfNeeded {imDrawSet} {
-            variable imCache
-            variable IMCACHE_MAX_IMAGES
-
-            dict for {im v} $imDrawSet {
-                if {![dict exists $imCache $im]} { continue }
-                # Check for staleness and remove from cache if so.
-                lassign [dict get $imCache $im] gim expectedVersion
-                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
-                if {$expectedVersion != $version} {
-                    Gpu::ImageManager::freeGpuImage $gim
-                    dict unset imCache $im
-                }
-            }
-
-            set notInCache [dictset difference $imDrawSet $imCache]
-            set notInDrawSet [dictset difference $imCache $imDrawSet]
-
-            set numImagesToCopy [dictset size $notInCache]
-            if {$numImagesToCopy > 0} {
-                if {[dictset size $imCache] + $numImagesToCopy > $IMCACHE_MAX_IMAGES} {
-                    set numImagesToEvict \
-                        [expr {[dictset size $imCache] + $numImagesToCopy - $IMCACHE_MAX_IMAGES}]
-
-                    # What can we safely evict?
-                    # - Anything that's stale
-                    # - Anything that's not in use
-                    set numImagesEvicted 0
-                    dict for {im v} $imCache {
-                        if {$numImagesEvicted == $numImagesToEvict} { break }
-
-                        lassign $v gim expectedVersion
-                        set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
-                        if {$expectedVersion != $version} {
-                            Gpu::ImageManager::freeGpuImage $gim
-                            dict unset imCache $im
-                            incr numImagesEvicted
-                            continue
-                        }
-                        if {![dict exists $imDrawSet $im]} {
-                            Gpu::ImageManager::freeGpuImage $gim
-                            dict unset imCache $im
-                            incr numImagesEvicted
-                        }
-                    }
-                }
-
-                dict for {im _} $notInCache {
-                    # TODO: This is unsafe (has a race condition) -- we're
-                    # not locking the image, so version and gim may diverge.
-                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
-                    set gim [Gpu::ImageManager::copyImageToGpu $im]
-                    dict set imCache $im [list $gim $version]
-                }
-            }
-        }
-        proc image {x y im radians {scale 1.0}} {
-            # TODO: Implement scale.
-            variable image
-            variable imCache
-            lassign [dict get $imCache $im] gim
-            Gpu::draw $image $gim [list [::image width $im] [::image height $im]] \
-                [list $x $y] $radians $scale
-        }
-
-        proc end {} { Gpu::drawEnd; Gpu::poll }
+    namespace eval Colors { source "pi/Colors.tcl" }
+    proc ::getColor {color} {
+        if {[info exists Colors::$color]} { return [set Colors::$color] } \
+            else { return $Colors::white }
     }
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ wishes display runs /command/ on layer /layer/]
+        [list /someone/ wishes the GPU compiles pipeline /name/ /source/]
     Wish $::thisProcess receives statements like \
-        [list /someone/ wishes display runs /command/]
-    Wish $::thisProcess receives statements like \
-        [list /someone/ wishes display runs program /program/]
+        [list /someone/ wishes the GPU draws pipeline /name/ with arguments /args/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
+    set ::pipelines [dict create]
+    When /someone/ wishes the GPU compiles pipeline /name/ /source/ {
+        dict set ::pipelines $name [Gpu::pipeline {*}$source]
+    }
+
     while true {
-        set displayList [list]
-        foreach match [Statements::findMatches {/someone/ wishes display runs /command/ on layer /layer/}] {
-            lappend displayList [list [dict get $match layer] [dict get $match command]]
-        }
-        foreach match [Statements::findMatches {/someone/ wishes display runs /command/}] {
-            lappend displayList [list 0 [dict get $match command]]
-        }
-
-        proc lcomp {a b} {
-            set layerA [lindex $a 0]
-            set layerB [lindex $b 0]
-            if {$layerA == $layerB} {
-                expr {[lindex $a 1 0] == "Display::text"}
-            } else {
-                expr {$layerA - $layerB}
-            }
-        }
-
-        set displayCommands [lmap sublist [lsort -command lcomp $displayList] {lindex $sublist 1}]
-
-        set imDrawSet [dictset create]
-        foreach command $displayCommands {
-            if {[lindex $command 0] eq "Display::image"} {
-                set im [lindex $command 3]
-                dictset add imDrawSet $im
-            }
-        }
-        Display::checkImCacheAndCopyIfNeeded $imDrawSet
+        Step
 
         set renderTime [baretime {
-            Display::start
-            foreach command $displayCommands {
-                try { {*}$command } \
-                    on error e { puts stderr $::errorInfo }
+            Gpu::drawStart
+            foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
+                Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]
             }
-            Display::end
+            Gpu::drawEnd
         }]
 
         Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
-        Step
     }
 }
 

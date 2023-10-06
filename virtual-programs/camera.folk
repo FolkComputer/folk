@@ -14,7 +14,7 @@ if {$::thisNode eq "folk-interact"} {
 set width $::Camera::WIDTH
 set height $::Camera::HEIGHT
 
-On process {
+Start process "camera" {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the camera /...anything/]
 

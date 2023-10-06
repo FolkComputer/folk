@@ -1,0 +1,99 @@
+On process "display" {
+    set invBilinear $::invBilinear
+    set rotate $::rotate
+    set image [Gpu::pipeline {sampler2D image vec2 imageSize
+                              vec2 pos float radians float scale
+                              fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn invBilinear fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(image, uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
+    }]
+
+    set ::ImCache [dict create]
+    variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES 1]
+    proc checkImCacheAndCopyIfNeeded {imDrawSet} {
+        variable ::ImCache
+        variable IMCACHE_MAX_IMAGES
+
+        dict for {im v} $imDrawSet {
+            if {![dict exists $::ImCache $im]} { continue }
+            # Check for staleness and remove from cache if so.
+            lassign [dict get $::ImCache $im] gim expectedVersion
+            set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+            if {$expectedVersion != $version} {
+                Gpu::ImageManager::freeGpuImage $gim
+                dict unset ::ImCache $im
+            }
+        }
+
+        set notInCache [dictset difference $imDrawSet $::ImCache]
+        set notInDrawSet [dictset difference $::ImCache $imDrawSet]
+
+        set numImagesToCopy [dictset size $notInCache]
+        if {$numImagesToCopy > 0} {
+            if {[dictset size $::ImCache] + $numImagesToCopy > $IMCACHE_MAX_IMAGES} {
+                set numImagesToEvict \
+                    [expr {[dictset size $::ImCache] + $numImagesToCopy - $IMCACHE_MAX_IMAGES}]
+
+                # What can we safely evict?
+                # - Anything that's stale
+                # - Anything that's not in use
+                set numImagesEvicted 0
+                dict for {im v} $::ImCache {
+                    if {$numImagesEvicted == $numImagesToEvict} { break }
+
+                    lassign $v gim expectedVersion
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    if {$expectedVersion != $version} {
+                        Gpu::ImageManager::freeGpuImage $gim
+                        dict unset ::ImCache $im
+                        incr numImagesEvicted
+                        continue
+                    }
+                    if {![dict exists $imDrawSet $im]} {
+                        Gpu::ImageManager::freeGpuImage $gim
+                        dict unset ::ImCache $im
+                        incr numImagesEvicted
+                    }
+                }
+            }
+
+            dict for {im _} $notInCache {
+                # TODO: This is unsafe (has a race condition) -- we're
+                # not locking the image, so version and gim may diverge.
+                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                set gim [Gpu::ImageManager::copyImageToGpu $im]
+                dict set ::ImCache $im [list $gim $version]
+            }
+        }
+    }
+
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes to draw an image with /...options/]
+    When /someone/ wishes to draw an image with /...options/ {
+        set x [dict get $options x]
+        set y [dict get $options y]
+        set im [dict get $options image]
+        set radians [dict get $options radians]
+        set scale [dict getdef $options scale 1.0]
+
+        lassign [dict get $::ImCache $im] gim
+
+        Wish the GPU draws pipeline "image" with arguments \
+            [list $x $y $im $radians $scale]
+    }
+}

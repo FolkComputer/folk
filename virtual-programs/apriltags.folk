@@ -3,7 +3,7 @@ if {$::isLaptop} return
 set tagfamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.
-set mainDetectorProcess [On process {
+set mainDetectorProcess [Start process {
     source pi/AprilTags.tcl
 
     Wish $::thisProcess receives statements like \
@@ -22,7 +22,7 @@ set mainDetectorProcess [On process {
 
 # Incremental detector. Looks at regions where there were tags in the
 # old camera frame.
-On process {
+Start process {
     source pi/AprilTags.tcl
 
     Wish $::thisProcess receives statements like \

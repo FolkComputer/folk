@@ -56,14 +56,14 @@ namespace eval ::Zygote {
     }
 }
 
-proc On-process {name body} {
+proc Start-process {name body} {
     if {[namespace exists ::Peers::$name]} {
-        uplevel [list Wish program code $body runs on $name]
+        error "Process $name already exists"
         return
     }
 
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
-    set processCode [list apply {{__parentProcess __name} {
+    set processCode [list apply {{__parentProcess __name __body} {
         set ::thisProcess $__name
 
         ::peer $__parentProcess true
@@ -76,13 +76,16 @@ proc On-process {name body} {
             [list /someone/ wishes $::thisProcess receives statements like /pattern/]
 
         Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
-        Assert when /someone/ wishes program code /__code/ runs on $::thisProcess {{__code} {
-            eval $__code
-        }}
-        while true {
-            Step
-        }
-    }} $::thisProcess $name]
+        # Run __body one Step before running any other program code.
+        Assert when $::thisProcess has pid /something/ [list {__body} {
+            When /someone/ wishes program code /__code/ runs on $::thisProcess {
+                eval $__code
+            }
+            eval $__body
+        }] with environment [list $__body]
+
+        while true { Step }
+    }} $::thisProcess $name $body]
 
     ::peer $name false
 
@@ -118,5 +121,4 @@ proc On-process {name body} {
             after 5000 [list dict unset ::peersBlacklist $name]
         }
     }} $this $name
-    uplevel [list Wish program code $body runs on $name]
 }

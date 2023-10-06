@@ -827,7 +827,7 @@ Try doing `sudo chmod 666 $renderFile`."
         foreach {argtype argname} $args {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {fnName fn}.
-                dict set depFnDict $argname [uplevel [list set $argname]]
+                dict set depFnDict [string map {: ""} $argname] [uplevel [list set $argname]]
             } else {
                 lappend fnArgs $argtype $argname
             }
