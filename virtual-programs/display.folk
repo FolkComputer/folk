@@ -112,7 +112,6 @@ On process {
             namespace export *
             namespace ensemble create
         }
-        variable font [font load "PTSans-Regular"]
         variable glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
             vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
             return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
@@ -214,8 +213,26 @@ On process {
             Gpu::draw $circle [list $x $y] $radius $thickness [getColor $color] [ne $filled "false"]
         }
 
-        proc textExtent {text scale} {
-            variable font
+        set ::FontCache [dict create]
+
+        # load all fonts into the fontCache
+        foreach fontPath [list {*}[glob {*}vendor/fonts/*.png]] {
+            set fontName ""
+            regexp {vendor/fonts/(.*).png} $fontPath whole_match fontName
+            if {!($fontName eq "")} {
+                puts "Loaded $fontName into font cache"
+                set fontdata [font load $fontName]
+                dict set ::FontCache $fontName $fontdata
+            }
+        }
+
+        proc textExtent {text scale {font "PTSans-Regular"}} {
+            if {!([dict exists $::FontCache $font])} {
+                throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
+                return
+            }
+            set font [dict get $::FontCache $font]
+
             set em [* $scale 25.0]
             set x 0; set y 0
             set width 0
@@ -236,8 +253,14 @@ On process {
             }
             return [list $width [+ $y $em]]
         }
-        proc text {x0 y0 scale text radians} {
-            variable font
+        proc text {x0 y0 scale text radians {font "PTSans-Regular"}} {
+            if {!([dict exists $::FontCache $font])} {
+                throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
+                return
+            }
+            set font [dict get $::FontCache $font]
+        
+
             variable glyph
             set fontAtlas [font gpuAtlasImage $font]
             set fontAtlasSize [list [::image width [font atlasImage $font]] \
@@ -336,7 +359,7 @@ On process {
             return vec4(0.0, 0.0, 0.0, 0.0);
         }]
         variable imCache [dict create]
-        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES 1]
+        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES [dict size $::FontCache]]
         proc checkImCacheAndCopyIfNeeded {imDrawSet} {
             variable imCache
             variable IMCACHE_MAX_IMAGES
@@ -452,7 +475,10 @@ On process {
 
         set renderTime [baretime {
             Display::start
-            foreach command $displayCommands { {*}$command }
+            foreach command $displayCommands {
+                try { {*}$command } \
+                    on error e { puts stderr $::errorInfo }
+            }
             Display::end
         }]
 
