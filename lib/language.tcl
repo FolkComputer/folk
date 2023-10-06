@@ -77,34 +77,15 @@ proc lenumerate {l} {
     set ret
 }
 
-
-proc extend {cmd subcmd subspec body} {
-    namespace eval [uplevel 1 [list namespace which $cmd]] [string map [
-        list %subcmd [list $subcmd] %subspec [list $subspec] %body [list $body]] {
-        if {[namespace which [namespace tail [namespace current]]] ne "[
-            string trimright [namespace current] :]::[
-            namespace tail [namespace current]]"} {
-
-            ::rename [::namespace current] [::namespace current]::[
-                ::namespace tail [::namespace current]]
-            ::namespace export *
-            ::namespace ensemble create -unknown [list ::apply [list {ns subc args} {
-                ::return [::list ${ns}::[::namespace tail $ns] $subc]
-            } [namespace current]]]
-        }
-        # puts [list creating %subcmd in [namespace current]]
-        ::proc %subcmd %subspec %body
-    }]
-}
 # Create `dict getdef` / `dict getwithdefault`
 # Backported from https://core.tcl-lang.org/tips/doc/trunk/tip/342.md
-foreach subcmd {getdef getwithdefault} { extend dict $subcmd {D args} {
+proc dict_getdef {D args} {
     if {[dict exists $D {*}[lrange $args 0 end-1]]} then {
         dict get $D {*}[lrange $args 0 end-1]
     } else {
         lindex $args end
     }
-} }
+}
 
 proc python3 {args} {
     exec python3 << [undent [join $args " "]]

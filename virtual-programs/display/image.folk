@@ -89,7 +89,7 @@ On process "display" {
         set y [dict get $options y]
         set im [dict get $options image]
         set radians [dict get $options radians]
-        set scale [dict getdef $options scale 1.0]
+        set scale [dict_getdef $options scale 1.0]
 
         lassign [dict get $::ImCache $im] gim
 

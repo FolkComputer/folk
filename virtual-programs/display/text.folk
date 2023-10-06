@@ -104,7 +104,7 @@ On process "display" {
     When /someone/ wishes to draw text with /...options/ {
         set x0 [dict get $options x]
         set y0 [dict get $options y]
-        set scale [dict getdef $options scale 1.0]
+        set scale [dict_getdef $options scale 1.0]
         set text [dict get $options text]
         set radians [dict get $options radians]
 
