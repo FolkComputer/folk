@@ -15,6 +15,9 @@ set width $::Camera::WIDTH
 set height $::Camera::HEIGHT
 
 On process {
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims the camera /...anything/]
+
     source pi/Camera.tcl
 
     Camera::init $width $height

@@ -405,18 +405,12 @@ On process {
         proc end {} { Gpu::drawEnd; Gpu::poll }
     }
 
-    # TODO: Clean this up. We retract these so that we don't bounce
-    # statements back to the main Folk process that it sends us.
-    Retract /anyone/ wishes $::thisProcess shares all wishes
-    Retract /anyone/ wishes $::thisProcess shares all claims
-    Wish $::thisProcess shares statements like \
-        [list /someone/ wishes /process/ receives statements like /pattern/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims $::thisProcess has pid /pid/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes display runs /command/ on layer /layer/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes display runs /command/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes display runs program /program/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
