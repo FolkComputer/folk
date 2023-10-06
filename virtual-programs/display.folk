@@ -110,13 +110,15 @@ Start process "display" {
     }
 
     while true {
+        set ::displayList [list]
         Step
+        foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
+            lappend ::displayList [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
+        }
 
         set renderTime [baretime {
             Gpu::drawStart
-            foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
-                Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]
-            }
+            foreach displayCommand $::displayList { {*}$displayCommand }
             Gpu::drawEnd
         }]
 

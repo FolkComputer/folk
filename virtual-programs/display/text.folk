@@ -38,12 +38,12 @@ On process "display" {
     set median [Gpu::fn {float r float g float b} float {
         return max(min(r, g), min(max(r, g), b));
     }]
-    dict set ::pipelines "glyph" [Gpu::pipeline \
-                                      {sampler2D atlas vec2 atlasSize
-                                       vec4 atlasGlyphBounds
-                                       vec4 planeGlyphBounds
-                                       vec2 pos float radians float em
-                                       fn rotate} {
+    set glyph [Gpu::pipeline \
+                   {sampler2D atlas vec2 atlasSize
+                       vec4 atlasGlyphBounds
+                       vec4 planeGlyphBounds
+                       vec2 pos float radians float em
+                       fn rotate} {
          float left = planeGlyphBounds[0] * em;
          float bottom = planeGlyphBounds[1] * em;
          float right = planeGlyphBounds[2] * em;
@@ -139,8 +139,8 @@ On process "display" {
             }
             lassign $glyphInfo advance planeBounds atlasBounds
             if {$char ne " "} {
-                Wish the GPU draws pipeline "glyph" with arguments \
-                    [list $fontAtlas $fontAtlasSize \
+                lappend ::displayList \
+                    [list Gpu::draw $glyph $fontAtlas $fontAtlasSize \
                          $atlasBounds $planeBounds [list $x $y] $radians $em]
             }
             lassign [vec2 add [list $x $y] \
