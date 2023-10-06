@@ -253,7 +253,7 @@ On process {
             }
             return [list $width [+ $y $em]]
         }
-        proc text {x0 y0 scale text radians {font ""}} {
+        proc text {x0 y0 scale text radians {font "PTSans-Regular"}} {
             if {!([dict exists $::FontCache $font])} {
                 throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
                 return
