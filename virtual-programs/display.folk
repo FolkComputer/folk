@@ -359,7 +359,7 @@ On process {
             return vec4(0.0, 0.0, 0.0, 0.0);
         }]
         variable imCache [dict create]
-        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES 1]
+        variable IMCACHE_MAX_IMAGES [- $Gpu::ImageManager::GPU_MAX_IMAGES [dict size $::FontCache]]
         proc checkImCacheAndCopyIfNeeded {imDrawSet} {
             variable imCache
             variable IMCACHE_MAX_IMAGES
