@@ -366,6 +366,7 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc import ::ctrie::cc create as trieCreate
     $cc import ::ctrie::cc lookup as trieLookup
+    $cc import ::ctrie::cc lookupLiteral as trieLookupLiteral
     $cc import ::ctrie::cc add as trieAdd
     $cc import ::ctrie::cc remove_ as trieRemove
     $cc import ::ctrie::cc scanVariable as scanVariable
@@ -393,7 +394,7 @@ namespace eval Statements { ;# singleton Statement store
                       bool* outIsNewStatement} void {
         // Is this clause already present among the existing statements?
         uint64_t ids[10];
-        int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
+        int idslen = trieLookupLiteral(interp, ids, 10, statementClauseToId, clause);
         statement_handle_t id;
         if (idslen == 1) {
             id = *(statement_handle_t *)&ids[0];
@@ -566,7 +567,7 @@ namespace eval Statements { ;# singleton Statement store
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
                 if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                    memcpy(binding->name, aVarName, sizeof(binding->name));
+                    memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
                     binding->value = Tcl_NewListObj(blen - i, &bwords[i]);
 
                 } else if (!isBlank(aVarName)) {
@@ -577,7 +578,7 @@ namespace eval Statements { ;# singleton Statement store
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
                 if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
-                    memcpy(binding->name, bVarName, sizeof(binding->name));
+                    memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
                     binding->value = Tcl_NewListObj(alen - i, &awords[i]);
 
                 } else if (!isBlank(bVarName)) {
@@ -588,6 +589,7 @@ namespace eval Statements { ;# singleton Statement store
             } else if (!(awords[i] == bwords[i] ||
                          strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
                 ckfree((char *)env);
+                fprintf(stderr, "unification wrt (%s) (%s) failed\n", Tcl_GetString(a), Tcl_GetString(b));
                 return NULL;
             }
         }
@@ -858,8 +860,8 @@ namespace eval Evaluator {
                                    &patternCount, &patterns);
             for (int i = 0; i < patternCount; i++) {
                 uint64_t reactionPtrs[1000];
-                int reactionsCount = trieLookup(NULL, reactionPtrs, 1000,
-                                                reactionsToStatementAddition, patterns[i]);
+                int reactionsCount = trieLookupLiteral(NULL, reactionPtrs, 1000,
+                                                       reactionsToStatementAddition, patterns[i]);
                 for (int j = 0; j < reactionsCount; j++) {
                     reaction_t* reaction = (reaction_t*)(uintptr_t) reactionPtrs[j];
                     Tcl_DecrRefCount(reaction->reactToPattern);

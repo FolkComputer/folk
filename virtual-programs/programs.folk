@@ -1,0 +1,22 @@
+
+
+When (non-capturing) /type/ /obj/ has a program {
+    puts "Added $type $obj"
+    On unmatch { puts "Removed $type $obj" }
+
+    try {
+    set tempPath "$::env(HOME)/folk-printed-programs/$obj.folk.temp"
+
+    if {[file exists $tempPath]} {
+      set path [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
+    } else {
+      set path [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
+    }
+     set code [read $path]
+     close $path
+
+     Claim $obj has program code $code
+     } on error error {
+      puts stderr "No code for $type $obj"
+     }
+}
