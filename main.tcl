@@ -102,6 +102,9 @@ proc When {args} {
             } else {
                 # Rewrite subsequent instances of this variable name /x/
                 # (in joined clauses) to be bound $x.
+                if {[string range $varName 0 2] eq "..."} {
+                    set varName [string range $varName 3 end]
+                }
                 lappend varNamesWillBeBound $varName
             }
         } elseif {[trie startsWithDollarSign $word]} {
