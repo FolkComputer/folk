@@ -475,7 +475,10 @@ On process {
 
         set renderTime [baretime {
             Display::start
-            foreach command $displayCommands { {*}$command }
+            foreach command $displayCommands {
+                try { {*}$command } \
+                    on error e { puts stderr $::errorInfo }
+            }
             Display::end
         }]
 
