@@ -1,3 +1,6 @@
+source "lib/language.tcl"
+source "lib/c.tcl"
+
 set cc [c create]
 $cc struct Name {
     char* first;

@@ -5,7 +5,7 @@ proc fn {name argNames body} {
     set argNames [linsert $argNames 0 {*}$envArgNames]
     uplevel [list set ^$name [list apply [list $argNames $body] {*}$envArgValues]]
 }
-rename unknown _original_unknown
+
 # Trap resolution of commands so that they can call the lambda in
 # lexical scope created by `fn`.
 proc unknown {name args} {
@@ -13,7 +13,7 @@ proc unknown {name args} {
     if {$err == 0 && [info exists fn]} {
         uplevel [list {*}$fn {*}$args]
     } else {
-        uplevel [list _original_unknown $name {*}$args]
+        error "Unknown command: $name"
     }
 }
 

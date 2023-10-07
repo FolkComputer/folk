@@ -1,4 +1,6 @@
-if {$tcl_version eq 8.5} { error "Don't use Tcl 8.5 / macOS system Tcl. Quitting." }
+try {
+    info version
+} on error e { "Not running in Jim Tcl" }
 
 # TODO: Fix this hack.
 set thisPid [pid]
