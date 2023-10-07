@@ -1,3 +1,7 @@
+source "lib/language.tcl"
+source "lib/c.tcl"
+source "lib/trie.tcl"
+
 set t [trie create]
 trie add t {Omar is a person} 1
 trie add t {Generic is a /y/} 2
