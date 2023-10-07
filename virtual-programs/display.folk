@@ -23,6 +23,8 @@ namespace eval ::Display {
             uplevel [list Wish display runs [list $func {*}$args] on layer $::Display::LAYER]
         }
     }
+
+    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
 }
 
 On process {
