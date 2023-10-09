@@ -39,14 +39,15 @@ class create AprilTags {
                 zarray_get(detections, i, &det);
 
                 int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
-                detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d",
+		double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
+                detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
                                                  det->id,
                                                  det->c[0], det->c[1],
                                                  det->p[0][0], det->p[0][1],
                                                  det->p[1][0], det->p[1][1],
                                                  det->p[2][0], det->p[2][1],
                                                  det->p[3][0], det->p[3][1],
-                                                 size);
+                                                 size, angle);
             }
             
 

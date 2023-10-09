@@ -53,17 +53,17 @@ On process {
         [list /someone/ wishes /something/ displays camera slice /slice/]
 
     proc subimage {im x y subwidth subheight} {
-	dict with im {
-	    set x [expr {int($x)}]
-	    set y [expr {int($y)}]
-	    set subdata [expr {$data + ($y*$width + $x) * $components}]
-	    dict create \
-		width [int $subwidth] \
-		height [int $subheight] \
-		components $components \
-		bytesPerRow $bytesPerRow \
-		data [format 0x%x $subdata]
-	}
+        dict with im {
+            set x [expr {int($x)}]
+            set y [expr {int($y)}]
+            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            dict create \
+                width [int $subwidth] \
+                height [int $subheight] \
+                components $components \
+                bytesPerRow $bytesPerRow \
+                data [format "(uint8_t*) 0x%x" $subdata]
+        }
     }
 
     set detector [AprilTags new $tagfamily]
@@ -123,6 +123,9 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
     foreach match $matches {
         set timestamp [dict get $match timestamp]
         foreach tag [dict get $match tags] {
+            # Setting aside this tag space (48600 to 48713) for calibration.
+            if {$tag >= 48600} { continue }
+
             set id [dict get $tag id]
             dict set tag timestamp $timestamp
 

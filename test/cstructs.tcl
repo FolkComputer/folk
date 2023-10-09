@@ -14,10 +14,15 @@ $cc proc omar {} Person {
     };
     return ret;
 }
+$cc proc plural {int npersons Person[] persons} void {}
 $cc compile
 
 puts [omar]
 assert {[dict get [omar] name last] eq "Rizwan"}
+
+plural 2 [list \
+              [dict create name [dict create first Omar last Rizwan] state NJ] \
+              [dict create name [dict create first Californian last Resident] state CA]]
 
 set cc [c create]
 $cc proc plusone {int a} int {

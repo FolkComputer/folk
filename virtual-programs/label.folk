@@ -4,13 +4,18 @@ When /thing/ has region /region/ {
     # set height [region height $region]
     set radians [region angle $region]
 
-    When the collected matches for [list /someone/ wishes $thing is labelled /text/] are /matches/ {
+    When the collected matches for [list /someone/ wishes $thing is labelled /text/ with font /font/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
 
         set scale 1
-        Display::text $x $y $scale $text $radians
+        Display::text $x $y $scale $text $radians [dict get $match font]
     }
+}
+
+When /someone/ wishes /thing/ is labelled /text/ {
+  # Set the default font
+  Wish $thing is labelled $text with font "PTSans-Regular"
 }
 
 fn text {coords text angle} {

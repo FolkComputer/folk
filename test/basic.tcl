@@ -51,3 +51,21 @@ Step
 
 assert {$::outlinecolors eq "BlueThing blue GreenThing green"}
 assert {$::outlinecolors eq $::joinoutlinecolors}
+
+Assert "New York" is a city
+Assert "New York" is where the studio is
+Assert "New York" is where Omar lives
+set ::properties [list]
+Assert when the program is running {{} {
+    When "New York" is /...property/ {
+        lappend ::properties $property
+    }
+}}
+Assert the program is running
+Step
+# TODO: this would ideally sort
+assert {$::properties eq {{a city} {where the studio is} {where Omar lives} {a place where Omar lives}}}
+
+Retract the program is running
+Step
+

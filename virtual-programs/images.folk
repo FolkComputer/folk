@@ -1,40 +1,44 @@
-
 # Example program, i.e the public API
 #
 # When $this has camera slice /slice/ {
 #     Wish $this displays camera slice $slice
 # }
 
-if {$::isLaptop} { return }
-
 # Generic image class for sub-image manipulations
 namespace eval ::image {
     proc width {im} { dict get $im width }
     proc height {im} { dict get $im height }
     proc subimage {im x y subwidth subheight} {
-	dict with im {
-	    set x [expr {int($x)}]
-	    set y [expr {int($y)}]
-	    set subdata [expr {$data + ($y*$width + $x) * $components}]
-	    dict create \
-		width $subwidth \
-		height $subheight \
-		components $components \
-		bytesPerRow $bytesPerRow \
-		data [format 0x%x $subdata]
-	}
+        dict with im {
+            set x [expr {int($x)}]
+            set y [expr {int($y)}]
+            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            dict create \
+                width $subwidth \
+                height $subheight \
+                components $components \
+                bytesPerRow $bytesPerRow \
+                data [format "(uint8_t*) 0x%x" $subdata]
+        }
     }
 
     set cc [c create]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libpng.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libpng] end]}]
+    if {$tcl_platform(os) eq "Darwin"} {
+        $cc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    }
 
-    $cc cflags -ljpeg
+    $cc cflags -ljpeg -lpng
     source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
-    $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    if {[namespace exists ::Heap]} {
+        $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    } else {
+        $cc code { #define folkHeapAlloc malloc }
+    }
 
     $cc code {
         #undef EXTERN
@@ -44,7 +48,7 @@ namespace eval ::image {
         #include <unistd.h>
 
         void 
-    jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t width, uint32_t height, int quality)
+    jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height, int quality)
     {
         JSAMPARRAY image;
         if (components == 1) {
@@ -52,9 +56,9 @@ namespace eval ::image {
             for (size_t i = 0; i < height; i++) {
                 image[i] = calloc(width * 3, sizeof (JSAMPLE));
                 for (size_t j = 0; j < width; j++) {
-                    image[i][j * 3 + 0] = data[(i * width + j)];
-                    image[i][j * 3 + 1] = data[(i * width + j)];
-                    image[i][j * 3 + 2] = data[(i * width + j)];
+                    image[i][j * 3 + 0] = data[(i*bytesPerRow + j)];
+                    image[i][j * 3 + 1] = data[(i*bytesPerRow + j)];
+                    image[i][j * 3 + 2] = data[(i*bytesPerRow + j)];
                 }
             }
         } else if (components == 3) {
@@ -62,12 +66,12 @@ namespace eval ::image {
             for (size_t i = 0; i < height; i++) {
                 image[i] = calloc(width * 3, sizeof (JSAMPLE));
                 for (size_t j = 0; j < width; j++) {
-                    image[i][j * 3 + 0] = data[(i * width + j) * 3];
-                    image[i][j * 3 + 1] = data[(i * width + j) * 3 + 1];
-                    image[i][j * 3 + 2] = data[(i * width + j) * 3 + 2];
+                    image[i][j * 3 + 0] = data[i*bytesPerRow + j*3];
+                    image[i][j * 3 + 1] = data[i*bytesPerRow + j*3 + 1];
+                    image[i][j * 3 + 2] = data[i*bytesPerRow + j*3 + 2];
                 }
             }
-        }
+        } else { exit(1); }
 
       struct jpeg_compress_struct compress;
       struct jpeg_error_mgr error;
@@ -92,7 +96,7 @@ namespace eval ::image {
       free(image);
     }
 
-    void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t width, uint32_t height) {
+    void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height) {
         png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
         png_infop info_w = png_create_info_struct(png_w);
 
@@ -100,14 +104,15 @@ namespace eval ::image {
             png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
                 PNG_FILTER_TYPE_DEFAULT);
-        else
+        else if (components == 1)
             png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
                 PNG_FILTER_TYPE_DEFAULT);
+        else exit(1);
 
         png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
         for (int i = 0; i < height; i++) {
-            row_pointers[i] = data + i * width * components;
+            row_pointers[i] = data + i * bytesPerRow;
         }
 
         png_init_io(png_w, dest);
@@ -120,12 +125,12 @@ namespace eval ::image {
     }
     $cc proc saveAsJpeg {image_t im char* filename} void {
         FILE* out = fopen(filename, "w");
-        jpeg(out, im.data, im.components, im.width, im.height, 100);
+        jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
         fclose(out);
     }
     $cc proc saveAsPng {image_t im char* filename} void {
         FILE* out = fopen(filename, "wb");
-        png(out, im.data, im.components, im.width, im.height);
+        png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
         fclose(out);
     }
     # Given the four corners of a region in an image, warp it to a new image of a given width and height
@@ -260,6 +265,7 @@ namespace eval ::image {
     $cc proc freePng {image_t im} void {
         // TODO: Free the PNG.
     }
+
     $cc compile
 
     variable imagesCache [dict create]

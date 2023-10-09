@@ -16,15 +16,22 @@ set height $::Camera::HEIGHT
 
 On process {
     source pi/Camera.tcl
+
     Camera::init $width $height
 
-    puts "Camera tid: [getTid] booting at [clock milliseconds]"
+    puts "Camera tid: [getTid] booted at [clock milliseconds]"
 
+    set ::oldFrames [list]
     When $::thisProcess has step count /c/ {
-        set grayFrame [Camera::grayFrame]
+        set frame [Camera::grayFrame]
         Commit {
             Claim the camera time is $::stepTime
-            Claim the camera frame is $grayFrame at [clock milliseconds]
+            Claim the camera frame is $frame at [clock milliseconds]
+        }
+        lappend ::oldFrames $frame
+        if {[llength $::oldFrames] >= 10} {
+            set ::oldFrames [lassign $::oldFrames oldestFrame]
+            Camera::freeImage $oldestFrame
         }
     }
 }

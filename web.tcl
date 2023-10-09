@@ -22,8 +22,7 @@ proc getDotAsPdf {dot contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
-# TODO: Catch errors & return 501
-proc handlePage {path contentTypeVar} {
+proc handlePage {path httpStatusVar contentTypeVar} {
     upvar $contentTypeVar contentType
     switch -exact -- $path {
         "/" {
@@ -129,9 +128,11 @@ proc handlePage {path contentTypeVar} {
             getDotAsPdf [Statements::dot] contentType
         }
         default {
+            upvar $httpStatusVar httpStatus
+            set httpStatus "HTTP/1.1 404 Not Found"
             subst {
                 <html>
-                <b>$path</b>
+                <b>$path</b> Not found.
                 </html>
             }
         }
@@ -152,28 +153,44 @@ proc handleRead {chan addr port} {
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
-        foreach match $matches {
-            set route [dict get $match route]
-            set handler [dict get $match handler]
-            if {[regexp -all $route $path whole_match]} {
-                set ^html {apply {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}}}
-                set ^json {apply {{body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}}}
-                set response [apply [list {path ^html ^json} $handler] $path ${^html} ${^json}]
+        try {
+            foreach match $matches {
+                set route [dict get $match route]
+                set handler [dict get $match handler]
+                if {[regexp -all $route $path whole_match]} {
+                    fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}
+                    fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}
+                    set response [apply [list {path ^html ^json} $handler] $path ${^html} ${^json}]
+                }
             }
-        }
-        if {$response eq ""} {
-            set contentType "text/html; charset=utf-8"
-            set body [handlePage $path contentType]
-            set response [dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: $contentType\n\n" body $body]
-        }
-        if {![dict exists $response statusAndHeaders]} {
-            puts -nonewline $chan "HTTP/1.1 500 Internal Server Error\nConnection: close"
-        } else {
-            puts -nonewline $chan [dict get $response statusAndHeaders]
-            if {[dict exists $response body]} {
-                chan configure $chan -encoding binary -translation binary
-                puts -nonewline $chan [dict get $response body]
+            if {$response eq ""} {
+                set httpStatus "HTTP/1.1 200 OK"
+                set contentType "text/html; charset=utf-8"
+                set body [handlePage $path httpStatus contentType]
+                set response [dict create statusAndHeaders "$httpStatus\nConnection: close\nContent-Type: $contentType\n\n" body $body]
             }
+            if {![dict exists $response statusAndHeaders]} {
+                error "Response not generated"
+            }
+        } on error e {
+            set contentType "text-html; charset=utf-8"
+            set body [subst {
+                <html>
+                <head>
+                <title>folk: 500 Internal Server Error</title>
+                </head>
+                <body>
+                <pre>[htmlEscape $e]:
+[htmlEscape $::errorInfo]</pre>
+                </body>
+                </html>
+            }]
+            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+        }
+        puts -nonewline $chan [dict get $response statusAndHeaders]
+        if {[dict exists $response body]} {
+            chan configure $chan -encoding binary -translation binary
+            puts -nonewline $chan [dict get $response body]
         }
         close $chan
     } elseif {[::websocket::test $::serverSock $chan "/ws" $headers]} {
