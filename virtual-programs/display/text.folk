@@ -38,7 +38,8 @@ On process "display" {
     set median [Gpu::fn {float r float g float b} float {
         return max(min(r, g), min(max(r, g), b));
     }]
-    set glyph [Gpu::pipeline \
+    # TODO: Do this with a wish, instead of hard-coding the global dict.
+    dict set ::pipelines "glyph" [Gpu::pipeline \
                    {sampler2D atlas vec2 atlasSize
                        vec4 atlasGlyphBounds
                        vec4 planeGlyphBounds
@@ -74,7 +75,7 @@ On process "display" {
         float screenPxDistance = 4.5*(sd - 0.5);
         float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
         return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
-    }]    
+    }]
 
     fn textExtent {text scale} {
         set em [* $scale 25.0]
@@ -139,8 +140,8 @@ On process "display" {
             }
             lassign $glyphInfo advance planeBounds atlasBounds
             if {$char ne " "} {
-                lappend ::displayList \
-                    [list Gpu::draw $glyph $fontAtlas $fontAtlasSize \
+                Wish the GPU draws pipeline "glyph" with arguments \
+                    [list $fontAtlas $fontAtlasSize \
                          $atlasBounds $planeBounds [list $x $y] $radians $em]
             }
             lassign [vec2 add [list $x $y] \
