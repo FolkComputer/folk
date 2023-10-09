@@ -190,7 +190,7 @@ On process {
             }
         }
 
-        variable arc [Gpu::pipeline {vec2 center float start float arclen float radius float thickness vec4 color int filled} {
+        variable arc [Gpu::pipeline {vec2 center float start float arclen float radius float thickness vec4 color} {
             float r = radius + thickness;
             vec2 vertices[4] = vec2[4](
                  center - r,
@@ -217,9 +217,9 @@ On process {
 
         }]
 
-        proc arc {x y start arclen radius thickness color {filled false}} {
+        proc arc {x y start arclen radius thickness color} {
             variable arc
-            Gpu::draw $arc [list $x $y] $start $arclen $radius $thickness [getColor $color] [ne $filled "false"]
+            Gpu::draw $arc [list $x $y] $start $arclen $radius $thickness [getColor $color]
         }
 
         # TODO: Fix bool support.
