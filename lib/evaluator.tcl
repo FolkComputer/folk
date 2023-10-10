@@ -43,17 +43,9 @@ namespace eval statement {
         edge_type_t type;
         statement_handle_t statement;
     }
-    $cc code {
-        typedef struct match_destructor_t {
-            Tcl_Obj* body;
-            Tcl_Obj* env;
-        } match_destructor_t;
-    }
-    $cc rtype match_destructor_t {
-        $robj = Tcl_ObjPrintf("DESTRUCTOR");
-    }
-    $cc argtype match_destructor_t {
-        match_destructor_t $argname;
+    $cc struct match_destructor_t {
+        Tcl_Obj* body;
+        Tcl_Obj* env;
     }
     $cc struct match_t {
         int32_t gen;
@@ -374,6 +366,7 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc import ::ctrie::cc create as trieCreate
     $cc import ::ctrie::cc lookup as trieLookup
+    $cc import ::ctrie::cc lookupLiteral as trieLookupLiteral
     $cc import ::ctrie::cc add as trieAdd
     $cc import ::ctrie::cc remove_ as trieRemove
     $cc import ::ctrie::cc scanVariable as scanVariable
@@ -401,7 +394,7 @@ namespace eval Statements { ;# singleton Statement store
                       bool* outIsNewStatement} void {
         // Is this clause already present among the existing statements?
         uint64_t ids[10];
-        int idslen = trieLookup(interp, ids, 10, statementClauseToId, clause);
+        int idslen = trieLookupLiteral(interp, ids, 10, statementClauseToId, clause);
         statement_handle_t id;
         if (idslen == 1) {
             id = *(statement_handle_t *)&ids[0];
@@ -566,20 +559,29 @@ namespace eval Statements { ;# singleton Statement store
         int blen; Tcl_Obj** bwords;
         Tcl_ListObjGetElements(NULL, a, &alen, &awords);
         Tcl_ListObjGetElements(NULL, b, &blen, &bwords);
-        if (alen != blen) { return NULL; }
 
         environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
         memset(env, 0, sizeof(*env));
         for (int i = 0; i < alen; i++) {
             char aVarName[100] = {0}; char bVarName[100] = {0};
             if (scanVariable(awords[i], aVarName, sizeof(aVarName))) {
-                if (!isBlank(aVarName)) {
+                if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
+                    binding->value = Tcl_NewListObj(blen - i, &bwords[i]);
+
+                } else if (!isBlank(aVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, aVarName, sizeof(binding->name));
                     binding->value = bwords[i];
                 }
             } else if (scanVariable(bwords[i], bVarName, sizeof(bVarName))) {
-                if (!isBlank(bVarName)) {
+                if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
+                    environment_binding_t* binding = &env->bindings[env->bindingsCount++];
+                    memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
+                    binding->value = Tcl_NewListObj(alen - i, &awords[i]);
+
+                } else if (!isBlank(bVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, bVarName, sizeof(binding->name));
                     binding->value = awords[i];
@@ -587,6 +589,7 @@ namespace eval Statements { ;# singleton Statement store
             } else if (!(awords[i] == bwords[i] ||
                          strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
                 ckfree((char *)env);
+                fprintf(stderr, "unification wrt (%s) (%s) failed\n", Tcl_GetString(a), Tcl_GetString(b));
                 return NULL;
             }
         }
@@ -856,12 +859,13 @@ namespace eval Evaluator {
             Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                    &patternCount, &patterns);
             for (int i = 0; i < patternCount; i++) {
-                reaction_t* reactions[1000];
-                int reactionsCount = trieLookup(NULL, (uint64_t*) reactions, 1000,
-                                                reactionsToStatementAddition, patterns[i]);
+                uint64_t reactionPtrs[1000];
+                int reactionsCount = trieLookupLiteral(NULL, reactionPtrs, 1000,
+                                                       reactionsToStatementAddition, patterns[i]);
                 for (int j = 0; j < reactionsCount; j++) {
-                    Tcl_DecrRefCount(reactions[j]->reactToPattern);
-                    ckfree((char *)reactions[j]);
+                    reaction_t* reaction = (reaction_t*)(uintptr_t) reactionPtrs[j];
+                    Tcl_DecrRefCount(reaction->reactToPattern);
+                    ckfree((char *)reaction);
                 }
                 trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
             }
@@ -1231,7 +1235,7 @@ namespace eval Evaluator {
 
         queue_entry_t* entryPtr;
         while ((entryPtr = pqueue_pop(queue)) != NULL) {
-            queue_entry_t entry = *entryPtr; ckfree(entryPtr);
+            queue_entry_t entry = *entryPtr; ckfree((char*) entryPtr);
             if (entry.op == ASSERT) {
                 op("Assert (%s)", Tcl_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
@@ -1286,7 +1290,7 @@ namespace eval Evaluator {
     }
     $cc code {
         void queueInsert(queue_entry_t entry) {
-            queue_entry_t* ptr = ckalloc(sizeof(entry));
+            queue_entry_t* ptr = (queue_entry_t*)ckalloc(sizeof(entry));
             *ptr = entry;
             ptr->seq = seq++;
             pqueue_insert(queue, ptr);

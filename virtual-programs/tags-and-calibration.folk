@@ -33,6 +33,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
                                 [expr {double($dy)/$generatedCalibration::displayHeight*$Display::HEIGHT}]]
         }
     }
+    if {[llength $points] < 4} {
+        puts stderr "tags-and-calibration: Calibration isn't valid (not enough points). Stopping Folk."
+        exit 1
+    }
     for {set i 0} {$i < [llength $points]} {incr i} {
         lassign [lindex $points $i] x$i y$i u$i v$i
     }
@@ -114,28 +118,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
     }
 }
 
-When (non-capturing) tag /tag/ has center /c/ size /size/ {
-     Claim tag $tag is a tag
-}
-
-When (non-capturing) tag /tag/ is a tag {
-    puts "Added tag $tag"
-    On unmatch { puts "Removed tag $tag" }
-
-    set tempPath "$::env(HOME)/folk-printed-programs/$tag.folk.temp"
-
-    if {[file exists $tempPath]} {
-      set path [open "$::env(HOME)/folk-printed-programs/$tag.folk.temp" r]
-    } else {
-      set path [open "$::env(HOME)/folk-printed-programs/$tag.folk" r]
-    }
-     set code [read $path]
-     close $path
-
-     # Wish $tag is outlined green
-     Claim $tag has program code $code
-}
-
 When (non-capturing) tag /tag/ has corners /corners/ {
     set tagCorners [lmap p $corners {::cameraToProjector $p}]
 
@@ -156,4 +138,5 @@ When (non-capturing) tag /tag/ has corners /corners/ {
     set region [region create $corners $edges $angle]
 
     Claim $tag has region $region
+    Claim tag $tag has a program
 }

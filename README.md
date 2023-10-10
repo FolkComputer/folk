@@ -19,16 +19,19 @@ make
 
 ## Linux tabletop installation
 
-These are for a dedicated system, probably on a Raspberry Pi 4 or
-Intel NUC, probably running Raspberry Pi OS Lite 32-bit or Ubuntu
-Server 22.04 Jammy LTS (selecting the 'minimal' option during
-install).
+These are instructions for a dedicated system, probably on a Beelink
+mini-PC (or _maybe_ a Pi 4), probably running [Ubuntu Server 23.04
+Lunar Lobster](https://ubuntu.com/download/server#releases) (for a PC,
+get the amd64 version; for a Pi 4, use Raspberry Pi Imager and get the
+64-bit version [also see [this
+issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
+if on a Mac]).
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
-   On Pi, Raspberry Pi OS Lite => if no `folk`
+   If no `folk`
    user, then:
 
         sudo useradd -m folk; sudo passwd folk;
@@ -38,46 +41,89 @@ install).
    try running again omitting the groups that don't exist from the
    command.)
 
-3. `sudo apt update`
-2. Set up OpenSSH server if needed, connect to network.
-4. `sudo apt install avahi-daemon` if needed (for mDNS so hostname can be autodiscovered)
-5. On your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-6. `sudo apt install make rsync tcl-thread tcl8.6-dev git libjpeg-dev fbset libdrm-dev libdrm-tests pkg-config`
-7. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
-8. `sudo nano /etc/udev/rules.d/99-input.rules`. add
+1. `sudo apt update`
+1. Set up OpenSSH server if needed; connect to network. To ssh into
+   `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
+   and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config v4l-utils`
+1. **Install Vulkan for graphics (without dragging in X or Wayland)**
+   (we use "VK_KHR_display", which lets us draw directly to monitors):
+     1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
+     1. Clone `mesa`, which implements the Vulkan API on Linux: `git
+        clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
+        (TODO: Nvidia has a different process and doesn't use Mesa,
+        figure this out)
+     1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
+        compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
+        `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
+        depending on your GPU. Here are some examples:
+
+            # Raspberry Pi 4
+            $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
+
+            # AMD (radeonsi), including Beelink SER5
+            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
+
+            # Intel (i915), including Beelink Mini S12
+            $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
+
+     1. Run `sudo ninja install`; run `sudo chmod 666
+        /dev/dri/render*`.
+     1. Try `vulkaninfo` and see if it works.
+          1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
+             in the current config", add `dtoverlay=vc4-fkms-v3d` to
+             the bottom of `/boot/firmware/config.txt` or
+             `/boot/config.txt`, whichever exists (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
+     1. Install validation layers and glslc: `sudo apt install
+        vulkan-validationlayers glslc` (glslc may not be available if
+        you're not on Ubuntu 23.04; on ARM like Pi 4 you need to build
+        it from source; [binaries are
+        available](https://github.com/google/shaderc/blob/main/downloads.md)
+        otherwise)
+     1. Try `vkcube`:
+
+            git clone https://github.com/krh/vkcube
+            cd vkcube
+            mkdir build; cd build; meson .. && ninja
+            ./vkcube -m khr -k 0:0:0
+      
+     1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
+        notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
+1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
+1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
-9. Get AprilTags: `cd ~ && git clone
+1. Get AprilTags: `cd ~ && git clone
    https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
-10. Add the systemd service so it starts on boot and can be managed
+1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
    (as root) ([from
    here](https://medium.com/@benmorel/creating-a-linux-service-with-systemd-611b5c8b91d6)):
 
-        # cat >/etc/systemd/system/folk.service
-        [Unit]
-        Description=Folk service
-        After=network.target
-        StartLimitIntervalSec=0
+       # cat >/etc/systemd/system/folk.service
+       [Unit]
+       Description=Folk service
+       After=network.target
+       StartLimitIntervalSec=0
 
-        [Service]
-        Type=simple
-        Restart=always
-        RestartSec=1
-        User=folk
-        ExecStart=make -C /home/folk/folk
+       [Service]
+       Type=simple
+       Restart=always
+       RestartSec=1
+       User=folk
+       ExecStart=make -C /home/folk/folk
 
-        [Install]
-        WantedBy=multi-user.target
+       [Install]
+       WantedBy=multi-user.target
 
-        # systemctl start folk
-        # systemctl enable folk
+       # systemctl start folk
+       # systemctl enable folk
 
-Add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to the bottom of
-`/etc/sudoers` on the tabletop. (This lets the `make` scripts from
-your laptop manage the Folk service by running `systemctl` without
-needing a password.)
+Use `visudo` to add `folk ALL=(ALL) NOPASSWD: /usr/bin/systemctl` to
+the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
+scripts from your laptop manage the Folk service by running
+`systemctl` without needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
 FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
@@ -138,19 +184,42 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Print 4 AprilTags (either print throwaway programs from Folk or
+1. Print at least 4 AprilTags (either print throwaway programs from Folk or
    manually print tagStandard52h13 tags yourself).
 
-1. On the tabletop, suspend the system with `sudo systemctl stop folk` and run
-   `tclsh8.6 pi/Camera.tcl` and position your camera to cover your
-   table.
+1. Let's position the camera. Make sure Folk is running (ssh in, `cd
+   ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
+   http://whatever.local:4273 and make a new program and save it:
+   
+   ```
+   When the camera frame is /im/ {
+     Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
+       # set width [dict get $im width]
+       # set height [dict get $im height]
+       set filename "/tmp/web-image-frame.jpg"
+       image saveAsJpeg $im $filename
+       set fsize [file size $filename]
+       set fd [open $filename r]
+       fconfigure $fd -encoding binary -translation binary
+       set body [read $fd $fsize]
+       close $fd
+       dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+     }} $im]
+   }
+   ```
+
+   Go to http://whatever.local:4273/frame-image/ to see the camera's
+   current field of view. Reposition your camera to cover your table.
 
 1. Place the 4 AprilTags around your table. On the tabletop, run
-   `tclsh8.6 calibrate.tcl`. Wait.
+   `./folk.tcl calibrate`. Wait.
 
 1. You should see red triangles projected on each of your 4 tags. Then
    you're done! Run Folk! If not, rerun calibration until you do see a
    red triangle on each tag.
+
+1. When you've successfully calibrated, start Folk back up with
+   `./folk.tcl start`.
 
 ### Bluetooth keyboards
 
@@ -169,10 +238,10 @@ Potentially useful for graphs: `graphviz`
 Potentially useful:  `gdb`, `streamer`, `cec-utils`,
 `file`, `strace`
 
-Potentially useful: add `folk0` shortcut to your laptop `~/.ssh/config`:
+Potentially useful: add `folk-WHATEVER` shortcut to your laptop `~/.ssh/config`:
 ```
-Host folk0
-     HostName folk0.local
+Host folk-WHATEVER
+     HostName folk-WHATEVER.local
      User folk
 ```
 
@@ -220,56 +289,6 @@ You can build Tcl with `TCL_MEM_DEBUG`. Download Tcl source code. (On
 Mac, _do not_ go to the macosx/ subdir; go to the unix/ subdir.) Do
 `./configure --enable-symbols=all`, do `make`, `make install`
 
-<!-- ## Vulkan -->
-
-<!-- ### Pi 4 -->
-
-<!-- Basically follow -->
-<!-- https://forums.libretro.com/t/retroarch-raspberry-pi-4-vulkan-without-x-howto/31164/2 except: -->
-
-<!-- `sudo ninja install` to install Mesa system-wide -->
-
-<!-- Clone https://github.com/krh/vkcube and `mkdir build` and `meson ..` -->
-<!-- and `ninja` and `./vkcube -m khr -k 0:0:0`. -->
-
-<!-- ### Hades Canyon NUC -->
-
-<!-- Also similar to above Pi 4 instructions. -->
-
-<!-- `sudo apt install libdrm-dev libdrm-tests` -->
-
-<!-- `modetest -M amdgpu` to list connectors and not try the Intel -->
-<!-- integrated graphics -->
-
-<!-- `modetest -M amdgpu -s 86:3840x2160` -->
-
-<!-- You need `glslang-tools` before running `meson` to build Mesa: -->
-
-<!-- `sudo apt install glslang-dev glslang-tools spirv-tools -->
-<!-- python3-mako pkg-config libudev-dev clang llvm-dev bison flex` -->
-
-<!-- `sudo apt install libelf-dev` for some reason https://gitlab.freedesktop.org/mesa/mesa/-/issues/7456 -->
-<!--  make sure meson finds it below! `Run-time dependency libelf found: YES 0.186` it won't fail in configure phase -->
-<!--  if it doesn't -->
-
-<!-- Mesa `meson` configure options for the AMD GPU: -->
-
-<!-- `meson -Dglx=disabled -Dplatforms= -->
-<!-- -Dvulkan-drivers=amd -Ddri-drivers='' -Dgallium-drivers=radeonsi -->
-<!-- -Dbuildtype=release ..` -->
-
-<!-- `vulkaninfo` -->
-
-<!-- `sudo chmod 666 /dev/dri/renderD129` -->
-
-<!-- ### Testing -->
-
-<!-- clone https://github.com/krh/vkcube -->
-
-<!-- `mkdir build; cd build; meson .. && ninja` -->
-
-<!-- `./vkcube -m khr -k 0:0:0` -->
-
 ## Language reference
 
 Folk is built around Tcl. We don't add any additional syntax or
@@ -278,8 +297,6 @@ like `When` and `Wish` are really just plain Tcl functions that we've
 created. Therefore, it will eventually be useful for you to know
 [basic](http://antirez.com/articoli/tclmisunderstood.html) [Tcl
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
-
-See also our [WIP language style guide](docs/tcl.md).
 
 These are all implemented in `main.tcl`. For most things, you'll
 probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
@@ -613,18 +630,10 @@ Use `fn` instead of `proc` to get a lexically captured command.
 Use `try` (and `on error`) in new code. Avoid using `catch`; it's
 older and easier to get wrong.
 
-#### Return
+#### apply
 
-In general, don't use `return` if it's the last statement in a code
-block. Just put the statement there whose value you want to return.
-
-Bad: `proc add {a b} { return [expr {$a + $b}] }`
-Good: `proc add {a b} { expr {$a + $b} }`
-
-Bad: `set x 3; return $x`
-Good: `set x 3; set x`
-
-You should use `return` only when you actually need to return _early_.
+Use `apply` instead of `subst` to construct lambdas/code blocks,
+except for one-liners (where you can use `list`)
 
 #### Tcl datatypes
 

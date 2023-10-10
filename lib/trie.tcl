@@ -78,7 +78,7 @@ namespace eval ctrie {
         return Tcl_NewStringObj(varName, -1);
     }
     $cc proc startsWithDollarSign {Tcl_Obj* wordobj} bool {
-        return Tcl_GetString(wordobj)[0] == '$';
+        return Tcl_GetString(wordobj)[0] == '\$';
     }
 
     $cc proc addImpl {trie_t** trie int wordc Tcl_Obj** wordv uint64_t value} void {
@@ -177,6 +177,21 @@ namespace eval ctrie {
         remove_(interp, trie, clause);
     }
 
+    $cc proc lookupAll {uint64_t* results int* resultsidx size_t maxresults
+                        trie_t* trie} void {
+        if (trie->hasValue) {
+            if (*resultsidx < maxresults) {
+                results[(*resultsidx)++] = trie->value;
+            }
+        }
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+            lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+        }
+    }
+
+    # Given a word sequence `wordc` & `wordv`, looks for all matches
+    # in the trie `trie`.
     $cc proc lookupImpl {Tcl_Interp* interp
                          uint64_t* results int* resultsidx size_t maxresults
                          trie_t* trie int wordc Tcl_Obj** wordv} void {
@@ -190,26 +205,45 @@ namespace eval ctrie {
         }
 
         Tcl_Obj* word = wordv[0];
-        if (scanVariable(word, NULL, 0)) { word = NULL; }
+        enum { WORD_TYPE_LITERAL, WORD_TYPE_VARIABLE, WORD_TYPE_REST_VARIABLE } wordType;
+        char wordVarName[100];
+        if (scanVariable(word, wordVarName, 100)) {
+            if (wordVarName[0] == '.' && wordVarName[1] == '.' && wordVarName[2] == '.') {
+                wordType = WORD_TYPE_REST_VARIABLE;
+            } else { wordType = WORD_TYPE_VARIABLE; }
+        } else { wordType = WORD_TYPE_LITERAL; }
 
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
 
-            if (trie->branches[j]->key == word ||
-                // is the word a variable?
-                word == NULL ||
-                // is the trie key a variable?
-                scanVariable(trie->branches[j]->key, NULL, 0)) {
+            // Easy cases:
+            if (trie->branches[j]->key == word || // Is there an exact pointer match?
+                wordType == WORD_TYPE_VARIABLE) { // Is the current lookup word a variable?
                 lookupImpl(interp, results, resultsidx, maxresults,
                            trie->branches[j], wordc - 1, wordv + 1);
+
+            } else if (wordType == WORD_TYPE_REST_VARIABLE) {
+                lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+                
             } else {
-                const char *keyString = Tcl_GetString(trie->branches[j]->key);
-                const char *wordString = Tcl_GetString(word);
-                if ((keyString[0] == '?' && keyString[1] == '\0') ||
-                    (wordString[0] == '?' && wordString[1] == '\0') ||
-                    (strcmp(keyString, wordString) == 0)) {
-                    lookupImpl(interp, results, resultsidx, maxresults,
-                               trie->branches[j], wordc - 1, wordv + 1);
+                char keyVarName[100];
+                // Is the trie node (we're currently walking) a variable?
+                if (scanVariable(trie->branches[j]->key, keyVarName, 100)) {
+                    // Is the trie node a rest variable?
+                    if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
+                        lookupAll(results, resultsidx, maxresults, trie->branches[j]);
+
+                    } else { // Or is the trie node a normal variable?
+                        lookupImpl(interp, results, resultsidx, maxresults,
+                                   trie->branches[j], wordc - 1, wordv + 1);
+                    }
+                } else {
+                    const char *keyString = Tcl_GetString(trie->branches[j]->key);
+                    const char *wordString = Tcl_GetString(word);
+                    if (strcmp(keyString, wordString) == 0) {
+                        lookupImpl(interp, results, resultsidx, maxresults,
+                                   trie->branches[j], wordc - 1, wordv + 1);
+                    }
                 }
             }
         }
@@ -225,7 +259,7 @@ namespace eval ctrie {
         lookupImpl(interp, results, &resultcount, maxresults,
                    trie, objc, objv);
         return resultcount;
-     }
+    }
     $cc proc lookupTclObjs {Tcl_Interp* interp trie_t* trie Tcl_Obj* pattern} Tcl_Obj* {
         uint64_t results[50];
         int resultcount = lookup(interp, results, 50, trie, pattern);
@@ -238,13 +272,60 @@ namespace eval ctrie {
         return resultsobj;
     }
 
+    # Only looks for literal matches of `literal` in the trie
+    # (does not treat /variable/ as a variable). Used to check for an
+    # already-existing statement whenever a statement is inserted.
+    $cc proc lookupLiteralImpl {Tcl_Interp* interp
+                                uint64_t* results int* resultsidx size_t maxresults
+                                trie_t* trie int wordc Tcl_Obj** wordv} void {
+        if (wordc == 0) {
+            if (trie->hasValue) {
+                if (*resultsidx < maxresults) {
+                    results[(*resultsidx)++] = trie->value;
+                }
+            }
+            return;
+        }
+
+        Tcl_Obj* word = wordv[0];
+
+        for (int j = 0; j < trie->nbranches; j++) {
+            if (trie->branches[j] == NULL) { break; }
+
+            if (trie->branches[j]->key == word) { // Is there an exact pointer match?
+                lookupLiteralImpl(interp, results, resultsidx, maxresults,
+                           trie->branches[j], wordc - 1, wordv + 1);
+            } else {
+                const char *keyString = Tcl_GetString(trie->branches[j]->key);
+                const char *wordString = Tcl_GetString(word);
+                if (strcmp(keyString, wordString) == 0) {
+                    lookupLiteralImpl(interp, results, resultsidx, maxresults,
+                                      trie->branches[j], wordc - 1, wordv + 1);
+                }
+            }
+        }
+    }
+    $cc proc lookupLiteral {Tcl_Interp* interp
+                            uint64_t* results size_t maxresults
+                            trie_t* trie Tcl_Obj* literal} int {
+        int objc; Tcl_Obj** objv;
+        if (Tcl_ListObjGetElements(interp, literal, &objc, &objv) != TCL_OK) {
+            exit(1);
+        }
+        int resultcount = 0;
+        lookupLiteralImpl(interp, results, &resultcount, maxresults,
+                          trie, objc, objv);
+        return resultcount;
+    }
+
     $cc proc tclify {trie_t* trie} Tcl_Obj* {
-        int objc = 2 + trie->nbranches;
+        int objc = 3 + trie->nbranches;
         Tcl_Obj* objv[objc];
-        objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
-        objv[1] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
+        objv[0] = Tcl_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
+        objv[1] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
+        objv[2] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
         for (int i = 0; i < trie->nbranches; i++) {
-            objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
+            objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
         }
         return Tcl_NewListObj(objc, objv);
     }
@@ -258,23 +339,22 @@ namespace eval ctrie {
             set word [join [lmap line [split $word "\n"] {
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
-            string map {"\"" "\\\""} $word
+            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
         }
-        proc subdot {path subtrie} {
-            set branches [lassign $subtrie key id]
-            set pathkey [idify $key]
-            set newpath [list {*}$path $pathkey]
+        proc subdot {subtrie} {
+            set branches [lassign $subtrie ptr key id]
 
             set dot [list]
-            lappend dot "[join $newpath "_"] \[label=\"[labelify $key]\"\];"
-            lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
+            lappend dot "$ptr \[label=\"[labelify $key]\"\];"
             foreach branch $branches {
-                if {$branch == {}} continue
-                lappend dot [subdot $newpath $branch]
+                if {$branch eq {}} continue
+                set branchptr [lindex $branch 0]
+                lappend dot "$ptr -> $branchptr;"
+                lappend dot [subdot $branch]
             }
             return [join $dot "\n"]
         }
-        return "digraph { rankdir=LR; [subdot {} [tclify $trie]] }"
+        return "digraph { rankdir=LR; [subdot [tclify $trie]] }"
     }
 
     $cc compile
