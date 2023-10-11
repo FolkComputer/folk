@@ -10,50 +10,55 @@ proc findHomography {sideLength detection} {
     set ROWS 4
     set COLS 6
 
-    # x0 and y0 are camera points, from the camera image.
+    # Camera points, from the camera image.
     fn detectionTagCorner {row col corner} {
         set id [expr {48600 + $row*$COLS + $col}]
         return [lindex [dict get [dict get $detection $id] corners] $corner]
     }
+    set points [list]
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            lappend points [detectionTagCorner $row $col 0]
+            lappend points [detectionTagCorner $row $col 1]
+            lappend points [detectionTagCorner $row $col 2]
+            lappend points [detectionTagCorner $row $col 3]
+        }
+    }
 
-    lassign [detectionTagCorner 0 0 3] x0 y0 ;# top-left
-    lassign [detectionTagCorner 0 [- $COLS 1] 2] x1 y1 ;# top-right
-    lassign [detectionTagCorner [- $ROWS 1] [- $COLS 1] 1] x2 y2 ;# bottom-right    
-    lassign [detectionTagCorner [- $ROWS 1] 0 0] x3 y3 ;# bottom-left
+    # Model points, from the known geometry of the checkerboard (in
+    # meters, where top-left corner of top-left AprilTag is 0, 0).
+    set model [list]
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            lappend model [list [* $col $sideLength 2] \
+                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-left
 
-    lassign [detectionTagCorner 0 [expr {$COLS/2 - 1}] 3] x4 y4 ;# top-center (tl corner)
-    lassign [detectionTagCorner [- $ROWS 1] [expr {$COLS/2 - 1}] 0] x5 y5 ;# bottom-center (bl corner)
+            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
+                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-right
 
-    # u0 and v0 are model points, from the known geometry of the
-    # checkerboard (in meters, where top-left corner of top-left
-    # AprilTag is 0, 0).
-    set u0 0; set v0 0
-    set u1 [* $COLS $sideLength 2]; set v1 0
-    set u2 [* $COLS $sideLength 2]; set v2 [* $ROWS $sideLength 2]
-    set u3 0; set v3 [* $ROWS $sideLength 2]
+            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
+                               [* $row $sideLength 2]] ;# top-right
 
-    set u4 [expr {($COLS/2) * $sideLength * 2}]; set v4 0
-    set u5 [expr {($COLS/2) * $sideLength * 2}]; set v5 [* $ROWS $sideLength 2]
+            lappend model [list [* $col $sideLength 2] [* $row $sideLength 2]] ;# top-left
+        }
+    }
 
-    puts "Image: $x0 $y0 $x1 $y1 $x2 $y2 $x3 $y3 $x4 $y4 $x5 $y5"
-    puts "Model: $u0 $v0 $u1 $v1 $u2 $v2 $u3 $v3 $u4 $v4 $u5 $v5"
-
-    set A [subst {
-        {$x0 $y0 1 0   0   0 [expr -$x0*$u0] [expr -$y0*$u0]}
-        {$x1 $y1 1 0   0   0 [expr -$x1*$u1] [expr -$y1*$u1]}
-        {$x2 $y2 1 0   0   0 [expr -$x2*$u2] [expr -$y2*$u2]}
-        {$x3 $y3 1 0   0   0 [expr -$x3*$u3] [expr -$y3*$u3]}
-        {0   0   0 $x0 $y0 1 [expr -$x0*$v0] [expr -$y0*$v0]}
-        {0   0   0 $x1 $y1 1 [expr -$x1*$v1] [expr -$y1*$v1]}
-        {0   0   0 $x2 $y2 1 [expr -$x2*$v2] [expr -$y2*$v2]}
-        {0   0   0 $x3 $y3 1 [expr -$x3*$v3] [expr -$y3*$v3]}
-    }]
-        # {$x4 $y4 1 0   0   0 [expr -$x4*$u4] [expr -$y4*$u4]}
-        # {$x5 $y5 1 0   0   0 [expr -$x5*$u5] [expr -$y5*$u5]}
-        # {0   0   0 $x4 $y4 1 [expr -$x4*$v4] [expr -$y4*$v4]}
-        # {0   0   0 $x5 $y5 1 [expr -$x5*$v5] [expr -$y5*$v5]}
-    
-    set b [list $u0 $u1 $u2 $u3 $v0 $v1 $v2 $v3]
+    set Atop [list]
+    set Abottom [list]
+    set btop [list]
+    set bbottom [list]
+    foreach imagePoint $points modelPoint $model {
+        lassign $imagePoint x y
+        lassign $modelPoint u v
+        lappend Atop [list $x $y 1 0 0 0 [expr {-$x*$u}] [expr {-$y*$u}]]
+        lappend Abottom [list 0 0 0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
+        lappend btop $u
+        lappend bbottom $v
+    }
+    set A [list {*}$Atop {*}$Abottom]
+    set b [list {*}$btop {*}$bbottom]
+    puts "A = [shape $A]"
+    puts "b = [shape $b]"
 
     lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
     set H [subst {
@@ -160,9 +165,10 @@ proc loadDetections {name detections} {
 
         # Compute camera intrinsic matrix A:
         lassign $b B11 B12 B22 B13 B23 B33
-        puts $b
         set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
         set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
+        puts "lambda = $lambda"
+        puts "B11 = $B11"
         set alpha [expr {sqrt($lambda/$B11)}]
         set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
         set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
