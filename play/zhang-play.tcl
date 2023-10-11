@@ -91,11 +91,12 @@ proc processHomography {H} {
 # Draw detections:
 package require Tk
 
-proc loadDetections {name detections} {
+proc loadDetections {name sideLength detections} {
     toplevel .$name
+    puts "loadDetections $name"
 
     set Hs [lmap detection $detections {
-        findHomography [/ 12 1.0] $detection
+        findHomography $sideLength $detection
     }]
     set Hs' {
         {
@@ -158,8 +159,7 @@ proc loadDetections {name detections} {
                     set corner [list {*}$corner 1]
                     set corner [matmul $H $corner]
                     lassign $corner cx cy cz
-                    list [* [/ $cx $cz] 1] [* [/ $cy $cz] 1]
-                    puts "[* [/ $cx $cz] 1] [* [/ $cy $cz] 1]"
+                    list [* [/ $cx $cz] 1000] [* [/ $cy $cz] 1000]
                 }]
                 .$name.canv create line {*}[join $corners] {*}[lindex $corners 0]
             }
@@ -167,6 +167,7 @@ proc loadDetections {name detections} {
     }]
     pack .$name.canv {*}$detectionButtons {*}$homButtons -fill both -expand true
 
+    # Try to solve for the camera intrinsics:
     try {
         # Construct V:
         set Vtop [list]; set Vbottom [list]
@@ -206,7 +207,7 @@ foreach path [glob "$::env(HOME)/aux/folk-calibrate-detections/*.tcl"] {
 
     lappend loadButtons [button .load-$name -text $name -command [list apply {{path name} {
         source $path
-        loadDetections $name $detections
+        loadDetections $name $sideLength $detections
     }} $path $name]]
 }
 pack {*}$loadButtons -fill both -expand true
