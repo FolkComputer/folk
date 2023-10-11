@@ -50,22 +50,21 @@ proc findHomography {sideLength detection} {
     foreach imagePoint $points modelPoint $model {
         lassign $imagePoint x y
         lassign $modelPoint u v
-        lappend Atop [list $x $y 1 0 0 0 [expr {-$x*$u}] [expr {-$y*$u}]]
-        lappend Abottom [list 0 0 0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
+        lappend Atop    [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
+        lappend Abottom [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
         lappend btop $u
         lappend bbottom $v
     }
     set A [list {*}$Atop {*}$Abottom]
     set b [list {*}$btop {*}$bbottom]
-    puts "A = [shape $A]"
-    puts "b = [shape $b]"
 
-    lassign [solvePGauss $A $b] a0 a1 a2 b0 b1 b2 c0 c1
+    lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2 c0 c1
     set H [subst {
         {$a0 $a1 $a2}
         {$b0 $b1 $b2}
         {$c0 $c1 1}
     }]
+    puts "H:\n[show $H]"
     return $H
 }
 
@@ -96,8 +95,27 @@ proc loadDetections {name detections} {
     toplevel .$name
 
     set Hs [lmap detection $detections {
-        findHomography [/ 12 1000.0] $detection
+        findHomography [/ 12 1.0] $detection
     }]
+    set Hs' {
+        {
+            {-6.12376214e+01  2.51224928e+03  7.06880459e+02}
+            {-1.27997550e+03 -3.52652107e+02  5.34330501e+02}
+            {1.35055146e+00  8.41027178e-01  1.00000000e+00}
+        } {
+            {-5.68840037e+01  1.72681747e+03  5.38110740e+02}
+            {-1.71358380e+03 -3.21315989e+02  3.93736922e+02}
+            {2.70972298e-01 -1.70467299e-01  1.00000000e+00}
+        } {
+            {-4.69485817e+02  2.62924837e+03  4.49978347e+02}
+            {-2.01425505e+03  1.48026602e+02  4.74710935e+02}
+            {-5.16972709e-02  1.42189580e+00  1.00000000e+00}
+        } {
+            {-1.11730862e+03  1.73279606e+03  4.80027971e+02}
+            {-1.79238204e+03 -3.35970800e+02  3.04904898e+02}
+            {-1.41738072e+00  2.71286865e-01  1.00000000e+00}
+        }
+    }
 
     canvas .$name.canv -width 1280 -height 720 -background white
     set detectionButtons [lmap {i detection} [lenumerate $detections] {
@@ -140,7 +158,8 @@ proc loadDetections {name detections} {
                     set corner [list {*}$corner 1]
                     set corner [matmul $H $corner]
                     lassign $corner cx cy cz
-                    list [* [/ $cx $cz] 1000] [* [/ $cy $cz] 1000]
+                    list [* [/ $cx $cz] 1] [* [/ $cy $cz] 1]
+                    puts "[* [/ $cx $cz] 1] [* [/ $cy $cz] 1]"
                 }]
                 .$name.canv create line {*}[join $corners] {*}[lindex $corners 0]
             }
@@ -162,13 +181,12 @@ proc loadDetections {name detections} {
         # Solve Vb = 0:
         lassign [determineSVD [matmul [transpose $V] $V]] U S V'
         set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
+        puts "b = $b"
 
         # Compute camera intrinsic matrix A:
         lassign $b B11 B12 B22 B13 B23 B33
         set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
         set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
-        puts "lambda = $lambda"
-        puts "B11 = $B11"
         set alpha [expr {sqrt($lambda/$B11)}]
         set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
         set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
