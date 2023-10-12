@@ -48,8 +48,8 @@ proc findHomography {sideLength detection} {
     set btop [list]
     set bbottom [list]
     foreach imagePoint $points modelPoint $model {
-        lassign $imagePoint x y
-        lassign $modelPoint u v
+        lassign $imagePoint u v
+        lassign $modelPoint x y
         lappend Atop    [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
         lappend Abottom [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
         lappend btop $u
@@ -64,7 +64,7 @@ proc findHomography {sideLength detection} {
         {$b0 $b1 $b2}
         {$c0 $c1 1}
     }]
-    puts "H:\n[show $H]"
+
     return $H
 }
 
@@ -98,25 +98,27 @@ proc loadDetections {name sideLength detections} {
     set Hs [lmap detection $detections {
         findHomography $sideLength $detection
     }]
-    set Hs' {
-        {
-            {-6.12376214e+01  2.51224928e+03  7.06880459e+02}
-            {-1.27997550e+03 -3.52652107e+02  5.34330501e+02}
-            {1.35055146e+00  8.41027178e-01  1.00000000e+00}
-        } {
-            {-5.68840037e+01  1.72681747e+03  5.38110740e+02}
-            {-1.71358380e+03 -3.21315989e+02  3.93736922e+02}
-            {2.70972298e-01 -1.70467299e-01  1.00000000e+00}
-        } {
-            {-4.69485817e+02  2.62924837e+03  4.49978347e+02}
-            {-2.01425505e+03  1.48026602e+02  4.74710935e+02}
-            {-5.16972709e-02  1.42189580e+00  1.00000000e+00}
-        } {
-            {-1.11730862e+03  1.73279606e+03  4.80027971e+02}
-            {-1.79238204e+03 -3.35970800e+02  3.04904898e+02}
-            {-1.41738072e+00  2.71286865e-01  1.00000000e+00}
-        }
-    }
+    # puts $Hs
+    puts "Hom0 * (0.0, 0.012) = [matmul [lindex $Hs 0] [list 0.0 0.12 1]]"
+    # set Hs {
+    #     {
+    #         {-6.12376214e+01  2.51224928e+03  7.06880459e+02}
+    #         {-1.27997550e+03 -3.52652107e+02  5.34330501e+02}
+    #         {1.35055146e+00  8.41027178e-01  1.00000000e+00}
+    #     } {
+    #         {-5.68840037e+01  1.72681747e+03  5.38110740e+02}
+    #         {-1.71358380e+03 -3.21315989e+02  3.93736922e+02}
+    #         {2.70972298e-01 -1.70467299e-01  1.00000000e+00}
+    #     } {
+    #         {-4.69485817e+02  2.62924837e+03  4.49978347e+02}
+    #         {-2.01425505e+03  1.48026602e+02  4.74710935e+02}
+    #         {-5.16972709e-02  1.42189580e+00  1.00000000e+00}
+    #     } {
+    #         {-1.11730862e+03  1.73279606e+03  4.80027971e+02}
+    #         {-1.79238204e+03 -3.35970800e+02  3.04904898e+02}
+    #         {-1.41738072e+00  2.71286865e-01  1.00000000e+00}
+    #     }
+    # }
 
     canvas .$name.canv -width 1280 -height 720 -background white
     set detectionButtons [lmap {i detection} [lenumerate $detections] {
@@ -150,20 +152,38 @@ proc loadDetections {name sideLength detections} {
             drawDetectionTagCorner [- $ROWS 1] 0 0 BL
         }} $name $detection]
     }]
+
     set homButtons [lmap {i H} [lenumerate $Hs] {
-        button .$name.h$i -text H$i -command [list apply {{name detection H} {
+        button .$name.h$i -text H$i -command [list apply {{name sideLength detection H} {
             .$name.canv delete all
             .$name.canv create rectangle 4 4 [- 1280 2] [- 720 2] -outline red
-            dict for {id tag} $detection {
-                set corners [lmap corner [dict get $tag corners] {
-                    set corner [list {*}$corner 1]
-                    set corner [matmul $H $corner]
-                    lassign $corner cx cy cz
-                    list [* [/ $cx $cz] 1000] [* [/ $cy $cz] 1000]
-                }]
-                .$name.canv create line {*}[join $corners] {*}[lindex $corners 0]
+            # Model points, from the known geometry of the checkerboard (in
+            # meters, where top-left corner of top-left AprilTag is 0, 0).
+            set ROWS 4
+            set COLS 6
+            for {set row 0} {$row < $ROWS} {incr row} {
+                for {set col 0} {$col < $COLS} {incr col} {
+                    set corners [list]
+                    lappend corners [list [* $col $sideLength 2] \
+                                       [+ [* $row $sideLength 2] $sideLength]] ;# bottom-left
+
+                    lappend corners [list [+ [* $col $sideLength 2] $sideLength] \
+                                       [+ [* $row $sideLength 2] $sideLength]] ;# bottom-right
+
+                    lappend corners [list [+ [* $col $sideLength 2] $sideLength] \
+                                       [* $row $sideLength 2]] ;# top-right
+
+                    lappend corners [list [* $col $sideLength 2] [* $row $sideLength 2]] ;# top-left
+
+                    set corners [lmap corner $corners {matmul $H [list {*}$corner 1]}]
+                    set corners [lmap corner $corners {
+                        lassign $corner cx cy cz
+                        list [/ $cx $cz] [/ $cy $cz]
+                    }]
+                    .$name.canv create line {*}[join $corners] {*}[lindex $corners 0]
+                }
             }
-        }} $name [lindex $detections $i] $H]
+        }} $name $sideLength [lindex $detections $i] $H]
     }]
     pack .$name.canv {*}$detectionButtons {*}$homButtons -fill both -expand true
 
@@ -193,9 +213,10 @@ proc loadDetections {name sideLength detections} {
         set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
         set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
 
-        foreach var {v0 lambda alpha beta gamma u0} {
-            puts "$var = [set $var]"
-        }
+        puts "   Focal Length: \[ $alpha $beta ]"
+        puts "Principal Point: \[ $u0 $v0 ]"
+        puts "           Skew: \[ $gamma ] "
+
     } on error e {
         puts stderr $::errorInfo
     }
