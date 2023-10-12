@@ -348,7 +348,7 @@ When /someone/ wishes /p/ displays image /im/ {
         # set scale [expr {min($width / [image width $im],
         #                      $height / [image height $im])}]
         # Wish $p is labelled $im
-        Wish display runs [list Display::image {*}$center $im [region angle $r] 1]
+        Wish to draw an image with center $center image $im radians [region angle $r]
     }
     # On unmatch {
     #     # HACK: Leaves time for the display to finish trying to display this.

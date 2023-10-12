@@ -28,6 +28,7 @@ On process "display" {
         namespace ensemble create
     }
     set font [font load "PTSans-Regular"]
+    Claim the GPU has loaded 1 fonts
 
     set rotate $::rotate
     set invBilinear $::invBilinear
