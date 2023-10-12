@@ -20,7 +20,7 @@ namespace eval ::Display {
     foreach func {stroke circle text fillTriangle fillQuad fillPolygon} {
         proc $func args {
             set func [lindex [info level 0] 0]
-            uplevel [list Wish display runs [list $func {*}$args] on layer $::Display::LAYER]
+            error "$func has been removed; use GPU shaders"
         }
     }
 }
