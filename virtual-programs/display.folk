@@ -101,6 +101,8 @@ Start process "display" {
         [list /someone/ wishes the GPU compiles pipeline /name/ /source/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU draws pipeline /name/ with arguments /args/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes the GPU draws pipeline /name/ with instances /args/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
@@ -114,6 +116,12 @@ Start process "display" {
         Step
         foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
             lappend ::displayList [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
+        }
+        foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with instances /instances/}] {
+            set pipeline [dict get $::pipelines [dict get $match name]]
+            foreach instance [dict get $match instances] {
+                lappend ::displayList [list Gpu::draw $pipeline {*}$instance]
+            }
         }
 
         set renderTime [baretime {
