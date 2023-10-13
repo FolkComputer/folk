@@ -131,7 +131,6 @@ Start process "display" {
                 dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
             }
         }
-        # TODO: Sort by layer
 
         set renderTime [baretime {
             Gpu::drawStart
