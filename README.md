@@ -4,19 +4,6 @@
 
 <http://folk.computer/pilot/>
 
-## Mac installation
-
-to run on (Mac) laptop:
-```
-$ brew install tcl-tk
-$ ln -s "$(brew --prefix)/Cellar/tcl-tk/8.6*/bin/tclsh" "$(brew --prefix)/bin/tclsh8.6"
-```
-
-then:
-```
-make
-```
-
 ## Linux tabletop installation
 
 These are instructions for a dedicated system, probably on a Beelink
@@ -127,7 +114,7 @@ scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
-FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
+sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
 tabletop and run it there as well as running it on your laptop.
 
 ### How to control tabletop Folk from your laptop
