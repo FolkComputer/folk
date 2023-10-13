@@ -1488,6 +1488,25 @@ Try doing `sudo chmod 666 $renderFile`."
             gpu_image_block* block = &gpuImages[gim];
             block->alive = false;
 
+            // HACK: Use GPU image 0 as a placeholder so it doesn't
+            // fault if it tries to access this freed image.
+            {
+                VkDescriptorImageInfo imageInfo = {0};
+                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                imageInfo.imageView = gpuImages[0].textureImageView;
+                imageInfo.sampler = gpuImages[0].textureSampler;
+
+                VkWriteDescriptorSet descriptorWrite = {0};
+                descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrite.dstSet = imageDescriptorSet;
+                descriptorWrite.dstBinding = 0;
+                descriptorWrite.dstArrayElement = gim;
+                descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrite.descriptorCount = 1;
+                descriptorWrite.pImageInfo = &imageInfo;
+                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+            }
+
             vkDeviceWaitIdle(device); // TODO: this is probably slow
             vkDestroyImage(device, block->textureImage, NULL);
             vkFreeMemory(device, block->textureImageMemory, NULL);
