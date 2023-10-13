@@ -95,10 +95,17 @@ Start process "display" {
         [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ has error /err/ with info /errorInfo/]
 
     set ::pipelines [dict create]
-    When /someone/ wishes the GPU compiles pipeline /name/ /source/ {
-        dict set ::pipelines $name [Gpu::pipeline {*}$source]
+    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+        try {
+            dict set ::pipelines $name [Gpu::pipeline {*}$source]
+        } on error e {
+            puts stderr $::errorInfo
+            Say $wisher has error $e with info $::errorInfo
+        }
     }
 
     while true {
@@ -130,7 +137,10 @@ Start process "display" {
             Gpu::drawStart
             foreach layer [lsort -real [dict keys $::displayList]] {
                 set layerDisplayList [dict get $::displayList $layer]
-                foreach displayCommand $layerDisplayList { {*}$displayCommand }
+                foreach displayCommand $layerDisplayList {
+                    try { {*}$displayCommand } \
+                        on error e { puts stderr $::errorInfo }
+                }
             }
             Gpu::drawEnd
         }]
