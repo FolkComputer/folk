@@ -27,8 +27,18 @@ On process "display" {
         namespace export *
         namespace ensemble create
     }
-    set font [font load "PTSans-Regular"]
-    Claim the GPU has loaded 1 fonts
+    set ::FontCache [dict create]
+    # load all fonts into the fontCache
+    foreach fontPath [list {*}[glob vendor/fonts/*.png]] {
+        set fontName ""
+        regexp {vendor/fonts/(.*).png} $fontPath -> fontName
+        if {!($fontName eq "")} {
+            puts "Loaded $fontName into font cache"
+            set fontdata [font load $fontName]
+            dict set ::FontCache $fontName $fontdata
+        }
+    }
+    Claim the GPU has loaded [dict size $::FontCache] fonts
 
     set rotate $::rotate
     set invBilinear $::invBilinear
@@ -78,7 +88,7 @@ On process "display" {
         return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
     }]
 
-    fn textExtent {text scale} {
+    fn textExtent {text scale font} {
         set em [* $scale 25.0]
         set x 0; set y 0
         set width 0
@@ -111,14 +121,20 @@ On process "display" {
             set y0 [dict get $options y]
         }
         set scale [dict_getdef $options scale 1.0]
+        set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
         set radians [dict get $options radians]
+
+        if {!([dict exists $::FontCache $font])} {
+            throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
+        }
+        set font [dict get $::FontCache $font]
 
         set fontAtlas [font gpuAtlasImage $font]
         set fontAtlasSize [list [::image width [font atlasImage $font]] \
                                [::image height [font atlasImage $font]]]
 
-        set extent [vec2 rotate [textExtent $text $scale] $radians]
+        set extent [vec2 rotate [textExtent $text $scale $font] $radians]
 
         set em [* $scale 25.0]
 
