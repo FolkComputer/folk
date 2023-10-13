@@ -9,7 +9,7 @@
 to run on (Mac) laptop:
 ```
 $ brew install tcl-tk
-$ ln -s /usr/local/Cellar/tcl-tk/8.6*/bin/tclsh /usr/local/bin/tclsh8.6
+$ ln -s "$(brew --prefix)/Cellar/tcl-tk/8.6*/bin/tclsh" "$(brew --prefix)/bin/tclsh8.6"
 ```
 
 then:
@@ -45,7 +45,10 @@ if on a Mac]).
 1. Set up OpenSSH server if needed; connect to network. To ssh into
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
-1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config v4l-utils`
+1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
+   git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config
+   v4l-utils`
+1. `sudo adduser folk video` & `sudo adduser folk render` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
      1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
@@ -67,8 +70,7 @@ if on a Mac]).
             # Intel (i915), including Beelink Mini S12
             $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
 
-     1. Run `sudo ninja install`; run `sudo chmod 666
-        /dev/dri/render*`.
+     1. Run `sudo ninja install`.
      1. Try `vulkaninfo` and see if it works.
           1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
              in the current config", add `dtoverlay=vc4-fkms-v3d` to
@@ -89,7 +91,6 @@ if on a Mac]).
       
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
-1. `sudo adduser folk video` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. Get AprilTags: `cd ~ && git clone
