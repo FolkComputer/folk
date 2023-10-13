@@ -17,6 +17,8 @@ namespace eval ::Display {
             error "$func has been removed; use GPU wishes/shaders"
         }
     }
+
+    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
 }
 
 

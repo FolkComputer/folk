@@ -319,12 +319,13 @@ namespace eval ctrie {
     }
 
     $cc proc tclify {trie_t* trie} Tcl_Obj* {
-        int objc = 2 + trie->nbranches;
+        int objc = 3 + trie->nbranches;
         Tcl_Obj* objv[objc];
-        objv[0] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
-        objv[1] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
+        objv[0] = Tcl_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
+        objv[1] = trie->key ? trie->key : Tcl_ObjPrintf("ROOT");
+        objv[2] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
         for (int i = 0; i < trie->nbranches; i++) {
-            objv[2+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
+            objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
         }
         return Tcl_NewListObj(objc, objv);
     }
@@ -338,23 +339,22 @@ namespace eval ctrie {
             set word [join [lmap line [split $word "\n"] {
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
-            string map {"\"" "\\\""} $word
+            string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
         }
-        proc subdot {path subtrie} {
-            set branches [lassign $subtrie key id]
-            set pathkey [idify $key]
-            set newpath [list {*}$path $pathkey]
+        proc subdot {subtrie} {
+            set branches [lassign $subtrie ptr key id]
 
             set dot [list]
-            lappend dot "[join $newpath "_"] \[label=\"[labelify $key]\"\];"
-            lappend dot "\"[join $path "_"]\" -> \"[join $newpath "_"]\";"
+            lappend dot "$ptr \[label=\"[labelify $key]\"\];"
             foreach branch $branches {
-                if {$branch == {}} continue
-                lappend dot [subdot $newpath $branch]
+                if {$branch eq {}} continue
+                set branchptr [lindex $branch 0]
+                lappend dot "$ptr -> $branchptr;"
+                lappend dot [subdot $branch]
             }
             return [join $dot "\n"]
         }
-        return "digraph { rankdir=LR; [subdot {} [tclify $trie]] }"
+        return "digraph { rankdir=LR; [subdot [tclify $trie]] }"
     }
 
     $cc compile
