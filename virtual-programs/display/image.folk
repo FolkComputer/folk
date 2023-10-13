@@ -73,12 +73,14 @@ On process "display" {
                         lappend numEvicted $im
                     }
                 }
+                foreach im $numEvicted { dict unset cache $im }
                 # Evict old.
                 dict for {im v} $cache {
                     if {$numToEvict - [llength $numEvicted] == 0} {
                         break
                     }
-                    Gpu::ImageManager::freeGpuImage $im
+                    lassign $v gim
+                    Gpu::ImageManager::freeGpuImage $gim
                     lappend numEvicted $im
                 }
                 foreach im $numEvicted { dict unset cache $im }

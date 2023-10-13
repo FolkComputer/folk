@@ -1311,15 +1311,11 @@ Try doing `sudo chmod 666 $renderFile`."
 
         dc typedef int gpu_image_handle_t
         dc code [csubst {
-            // Contains all GPU-side data structures associated with
+            // Points to all GPU-side data structures associated with
             // an image (that we will destroy when we evict that
             // image).
             typedef struct gpu_image_block {
                 bool alive;
-
-                // This handle is the descriptor index (the index of
-                // the image in the _samplers array).
-                gpu_image_handle_t handle;
 
                 VkImage textureImage;
                 VkDeviceMemory textureImageMemory;
@@ -1488,6 +1484,8 @@ Try doing `sudo chmod 666 $renderFile`."
             gpu_image_block* block = &gpuImages[gim];
             block->alive = false;
 
+            vkDeviceWaitIdle(device); // TODO: this is probably slow
+
             // HACK: Use GPU image 0 as a placeholder so it doesn't
             // fault if it tries to access this freed image.
             {
@@ -1507,7 +1505,6 @@ Try doing `sudo chmod 666 $renderFile`."
                 vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
             }
 
-            vkDeviceWaitIdle(device); // TODO: this is probably slow
             vkDestroyImage(device, block->textureImage, NULL);
             vkFreeMemory(device, block->textureImageMemory, NULL);
             vkDestroySampler(device, block->textureSampler, NULL);
@@ -1635,10 +1632,10 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set t 0
     while 1 {
         if {$t == 100} {
-            puts "Im2 is $im"
+            puts "Im2 is $im2"
             Gpu::ImageManager::freeGpuImage $im2
             set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg "/Users/osnr/Downloads/IMG_5992.jpeg"]]
-            puts "New im2 is $im"
+            puts "New im2 is $im2"
         }
 
         Gpu::drawStart
