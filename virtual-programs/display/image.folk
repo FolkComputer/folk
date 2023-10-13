@@ -25,60 +25,63 @@ On process "display" {
     }]
 
     When the GPU has loaded /nfonts/ fonts {
-        puts LOADING
         namespace eval ::ImageCache {
-            # Backing store: stores triples of (GPU image handle, heap slot version, refcount).
+            # Backing store: stores pairs of (GPU image handle, heap slot version).
             variable cache [dict create]
             variable CACHE_MAX_SIZE [- $Gpu::ImageManager::GPU_MAX_IMAGES [uplevel {set nfonts}]]
 
-            proc getOrInsertAndIncr {im} {
+            proc getOrInsert {im} {
                 variable cache
                 variable CACHE_MAX_SIZE
                 if {[dict exists $cache $im]} {
-                    lassign [dict get $cache $im] gim cachedVersion refcount
+                    lassign [dict get $cache $im] gim cachedVersion
                     set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
                     if {$version == $cachedVersion} {
-                        dict set cache $im [list $gim $cachedVersion [+ $refcount 1]]
+                        # Bump this image to end of cache since it's
+                        # most-recently-accessed.
+                        dict unset cache $im
+                        dict set cache $im [list $gim $cachedVersion]
                         return $gim
                     } else {
+                        # This image is stale. Don't retain it.
                         remove $im
                     }
                 }
                 if {[dict size $cache] >= $CACHE_MAX_SIZE} {
                     evict
                 }
+                if {[dict size $cache] >= $CACHE_MAX_SIZE} {
+                    puts stderr "image: Warning: Out of slots in GPU image cache."
+                }
                 set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
                 set gim [Gpu::ImageManager::copyImageToGpu $im]
-                dict set cache $im [list $gim $version 1]
+                dict set cache $im [list $gim $version]
                 return $gim
-            }
-
-            proc decr {im} {
-                variable cache
-                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
-                lassign [dict get $cache $im] gim cachedVersion refcount
-                incr refcount -1
-                if {$refcount == 0} {
-                    remove $im
-                } else {
-                    dict set cache $im [list $gim $version $refcount]
-                }
             }
 
             proc evict {} {
                 variable cache
+                variable CACHE_MAX_SIZE
+                set numToEvict [expr {$CACHE_MAX_SIZE - [dict size $cache]}]
+                set numEvicted [list]
                 # Evict stale.
                 dict for {im v} $cache {
                     lassign $v gim expectedVersion
                     set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
                     if {$expectedVersion != $version} {
                         Gpu::ImageManager::freeGpuImage $gim
-                        dict unset cache $im
+                        lappend numEvicted $im
                     }
                 }
-                if {[dict size $cache] >= $CACHE_MAX_SIZE} {
-                    error "image: Unable to evict enough from image cache."
+                # Evict old.
+                dict for {im v} $cache {
+                    if {$numToEvict - [llength $numEvicted] == 0} {
+                        break
+                    }
+                    Gpu::ImageManager::freeGpuImage $im
+                    lappend numEvicted $im
                 }
+                foreach im $numEvicted { dict unset cache $im }
             }
 
             proc remove {im} {
@@ -104,8 +107,7 @@ On process "display" {
         set radians [dict get $options radians]
         set scale [dict_getdef $options scale 1.0]
 
-        set gim [ImageCache::getOrInsertAndIncr $im]
-        On unmatch { ImageCache::decr $im }
+        set gim [ImageCache::getOrInsert $im]
 
         Wish the GPU draws pipeline "image" with arguments \
             [list $gim [list [image_t width $im] [image_t height $im]] \
