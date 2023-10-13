@@ -62,7 +62,7 @@ On process "display" {
             proc evict {} {
                 variable cache
                 variable CACHE_MAX_SIZE
-                set numToEvict [expr {$CACHE_MAX_SIZE - [dict size $cache]}]
+                set numToEvict [expr {([dict size $cache] + 1) - $CACHE_MAX_SIZE}]
                 set numEvicted [list]
                 # Evict stale.
                 dict for {im v} $cache {
@@ -76,7 +76,7 @@ On process "display" {
                 foreach im $numEvicted { dict unset cache $im }
                 # Evict old.
                 dict for {im v} $cache {
-                    if {$numToEvict - [llength $numEvicted] == 0} {
+                    if {$numToEvict - [llength $numEvicted] <= 0} {
                         break
                     }
                     lassign $v gim
