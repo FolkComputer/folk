@@ -8,19 +8,13 @@ namespace eval ::Display {
         regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
     }
 
-    proc drawOnTop {func args} {
-        set ::Display::LAYER 1
-        uplevel [list $func {*}$args]
-        set ::Display::LAYER 0
-    }
-
     # Create proxy versions of drawing primitives for the main Folk
     # process (that will forward those draw commands to the display
     # subprocess).
-    foreach func {stroke circle text fillTriangle fillQuad fillPolygon} {
+    foreach func {stroke circle text fillTriangle fillQuad fillPolygon image} {
         proc $func args {
             set func [lindex [info level 0] 0]
-            error "$func has been removed; use GPU shaders"
+            error "$func has been removed; use GPU wishes/shaders"
         }
     }
 }
@@ -98,11 +92,7 @@ Start process "display" {
     }
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ wishes the GPU compiles pipeline /name/ /source/]
-    Wish $::thisProcess receives statements like \
-        [list /someone/ wishes the GPU draws pipeline /name/ with arguments /args/]
-    Wish $::thisProcess receives statements like \
-        [list /someone/ wishes the GPU draws pipeline /name/ with instances /args/]
+        [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
 
@@ -112,21 +102,36 @@ Start process "display" {
     }
 
     while true {
-        set ::displayList [list]
+        set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
         Step
         foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
-            lappend ::displayList [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
+            dict lappend ::displayList 0 [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
+        }
+        foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with arguments /args/ layer /layer/}] {
+            dict lappend ::displayList [dict get $match layer] \
+                [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
         }
         foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with instances /instances/}] {
             set pipeline [dict get $::pipelines [dict get $match name]]
             foreach instance [dict get $match instances] {
-                lappend ::displayList [list Gpu::draw $pipeline {*}$instance]
+                dict lappend ::displayList 0 [list Gpu::draw $pipeline {*}$instance]
             }
         }
+        foreach match [Statements::findMatches {/someone/ wishes the GPU draws pipeline /name/ with instances /instances/ layer /layer/}] {
+            set layer [dict get $match layer]
+            set pipeline [dict get $::pipelines [dict get $match name]]
+            foreach instance [dict get $match instances] {
+                dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
+            }
+        }
+        # TODO: Sort by layer
 
         set renderTime [baretime {
             Gpu::drawStart
-            foreach displayCommand $::displayList { {*}$displayCommand }
+            foreach layer [lsort -real [dict keys $::displayList]] {
+                set layerDisplayList [dict get $::displayList $layer]
+                foreach displayCommand $layerDisplayList { {*}$displayCommand }
+            }
             Gpu::drawEnd
         }]
 

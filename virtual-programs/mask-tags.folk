@@ -12,5 +12,5 @@ When tag /something/ has corners /corners/ {
     set p1 [lindex $corners 1]
     set p2 [lindex $corners 2]
     set p3 [lindex $corners 3]
-    Wish to draw a quad with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black
+    Wish to draw a quad with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black layer 1
 }
