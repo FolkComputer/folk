@@ -24,10 +24,11 @@ When /someone/ wishes to draw a stroke with /...options/ {
     set width [dict get $options width]
     set color [getColor [dict get $options color]]
 
+    set instances [list]
     for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
         set from [lindex $points $i]
         set to [lindex $points [expr $i+1]]
-        Wish the GPU draws pipeline "line" with arguments \
-            [list $from $to $width $color]
+        lappend instances [list $from $to $width $color]
     }
+    Wish the GPU draws pipeline "line" with instances $instances
 }
