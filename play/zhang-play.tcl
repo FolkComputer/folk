@@ -43,20 +43,15 @@ proc findHomography {sideLength detection} {
         }
     }
 
-    set Atop [list]
-    set Abottom [list]
-    set btop [list]
-    set bbottom [list]
+    set A [list]
+    set b [list]
     foreach imagePoint $points modelPoint $model {
         lassign $imagePoint u v
         lassign $modelPoint x y
-        lappend Atop    [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
-        lappend Abottom [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
-        lappend btop $u
-        lappend bbottom $v
+        lappend A [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
+        lappend A [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
+        lappend b $u $v
     }
-    set A [list {*}$Atop {*}$Abottom]
-    set b [list {*}$btop {*}$bbottom]
 
     lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2 c0 c1
     set H [subst {
@@ -98,27 +93,6 @@ proc loadDetections {name sideLength detections} {
     set Hs [lmap detection $detections {
         findHomography $sideLength $detection
     }]
-    # puts $Hs
-    puts "Hom0 * (0.0, 0.012) = [matmul [lindex $Hs 0] [list 0.0 0.12 1]]"
-    # set Hs {
-    #     {
-    #         {-6.12376214e+01  2.51224928e+03  7.06880459e+02}
-    #         {-1.27997550e+03 -3.52652107e+02  5.34330501e+02}
-    #         {1.35055146e+00  8.41027178e-01  1.00000000e+00}
-    #     } {
-    #         {-5.68840037e+01  1.72681747e+03  5.38110740e+02}
-    #         {-1.71358380e+03 -3.21315989e+02  3.93736922e+02}
-    #         {2.70972298e-01 -1.70467299e-01  1.00000000e+00}
-    #     } {
-    #         {-4.69485817e+02  2.62924837e+03  4.49978347e+02}
-    #         {-2.01425505e+03  1.48026602e+02  4.74710935e+02}
-    #         {-5.16972709e-02  1.42189580e+00  1.00000000e+00}
-    #     } {
-    #         {-1.11730862e+03  1.73279606e+03  4.80027971e+02}
-    #         {-1.79238204e+03 -3.35970800e+02  3.04904898e+02}
-    #         {-1.41738072e+00  2.71286865e-01  1.00000000e+00}
-    #     }
-    # }
 
     canvas .$name.canv -width 1280 -height 720 -background white
     set detectionButtons [lmap {i detection} [lenumerate $detections] {
@@ -202,7 +176,6 @@ proc loadDetections {name sideLength detections} {
         # Solve Vb = 0:
         lassign [determineSVD [matmul [transpose $V] $V]] U S V'
         set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
-        puts "b = $b"
 
         # Compute camera intrinsic matrix A:
         lassign $b B11 B12 B22 B13 B23 B33
