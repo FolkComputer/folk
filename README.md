@@ -6,13 +6,15 @@
 
 ## Linux tabletop installation
 
-These are instructions for a dedicated system, probably on a Beelink
-mini-PC (or _maybe_ a Pi 4), probably running [Ubuntu Server 23.04
-Lunar Lobster](https://ubuntu.com/download/server#releases) (for a PC,
-get the amd64 version; for a Pi 4, use Raspberry Pi Imager and get the
-64-bit version [also see [this
+You'll need to set up a dedicated PC to run Folk and connect to
+webcam+projector+printer+etc. We tend to recommend a Beelink mini-PC
+(or _maybe_ a Pi 4), where you set up [Ubuntu **Server** 23.04 Lunar
+Lobster](https://ubuntu.com/download/server#releases).
+
+(for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
+and get the 64-bit version [also see [this
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
-if on a Mac]).
+if flashing from a Mac])
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
