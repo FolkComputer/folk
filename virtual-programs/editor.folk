@@ -102,7 +102,7 @@ proc drawText {text cursor count region} {
   set lineNumber 1
   set showCursor [expr {$count % 2 == 0}]
   # TODO: Make the font size change relative to `Wish $this is small|medium|large editor 1` (by default should use small, e.g. fontSize 1)
-  Display::text {*}[region centroid $region] 1 $text [region angle $region] CourierPrimeCode
+  Display::text {*}[region centroid $region] 1 $text [region angle $region] NeomatrixCode
 }
 
 #######################################
