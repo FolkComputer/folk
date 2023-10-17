@@ -234,16 +234,15 @@ proc loadDetections {name sideLength detections} {
             # Reorthogonalize R:
             lassign [determineSVD $R] U S V
             set R [matmul $U [transpose $V]]
-            puts "Tcl: reorthoR [show $R]"
+
             # Reconstitute full extrinsics:
-            puts [show [transpose [list {*}$R $t]]]
-            return [show [transpose [list {*}$R $t]]]
+            return [show [transpose [list {*}[transpose $R] $t]]]
         }
 
         foreach H $Hs {
             puts hello
             recoverExtrinsicsPython $H $K
-            recoverExtrinsics $H $K
+            puts [recoverExtrinsics $H $K]
         }
         
     } on error e {
