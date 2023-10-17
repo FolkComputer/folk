@@ -177,7 +177,7 @@ proc loadDetections {name sideLength detections} {
         lassign [determineSVD [matmul [transpose $V] $V]] U S V'
         set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
 
-        # Compute camera intrinsic matrix A:
+        # Compute unrefined camera intrinsics:
         lassign $b B11 B12 B22 B13 B23 B33
         set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
         set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
@@ -186,10 +186,63 @@ proc loadDetections {name sideLength detections} {
         set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
         set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
 
+        puts "Unrefined Camera Intrinsics:"
+        puts "=============================="
         puts "   Focal Length: \[ $alpha $beta ]"
         puts "Principal Point: \[ $u0 $v0 ]"
         puts "           Skew: \[ $gamma ] "
+        puts ""
 
+        # Unrefined camera intrinsic matrix:
+        set K [subst {
+            {$alpha $gamma $u0}
+            {     0  $beta $v0}
+            {     0      0   1}
+        }]
+
+        # Converts a 2D matrix to a Python array literal.
+        proc pythonize {A} {
+            string cat {np.array([} [join [lmap row $A {string cat {[} [join $row {, }] {]}}] ", "] {])}
+        }
+        proc recoverExtrinsicsPython {H K} {
+            puts [python3 [subst {
+                import sys
+                sys.path.append('/Users/osnr/aux/CameraCalibration')
+
+                import numpy as np
+                from extrinsics import recover_extrinsics
+                print(recover_extrinsics([pythonize $H], [pythonize $K]))
+            }]]
+        }
+        # TODO: Compute extrinsics for each of the images (needed so
+        # we can do the reprojection during nonlinear refinement)
+        proc recoverExtrinsics {H K} {
+            set h0 [getcol $H 0]
+            set h1 [getcol $H 1]
+            set h2 [getcol $H 2]
+
+            set Kinv [solvePGauss $K [mkIdentity 3]]
+            set lambda_ [/ 1.0 [norm [matmul $Kinv $h0]]]
+
+            set r0 [scale $lambda_ [matmul $Kinv $h0]]
+            set r1 [scale $lambda_ [matmul $Kinv $h0]]
+            set r2 [crossproduct $r0 $r1]
+            set t [scale $lambda_ [matmul $Kinv $h2]]
+
+            set R [transpose [list $r0 $r1 $r2]]
+            # Reorthogonalize R:
+            lassign [determineSVD $R] U S Vt
+            set R [matmul $U $Vt]
+            # Reconstitute full extrinsics:
+            puts [show [transpose [list {*}$R $t]]]
+        }
+
+        foreach H $Hs {
+            puts hello
+            recoverExtrinsicsPython $H $K
+            recoverExtrinsics $H $K
+        }
+        
     } on error e {
         puts stderr $::errorInfo
     }
