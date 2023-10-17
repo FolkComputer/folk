@@ -211,7 +211,7 @@ proc loadDetections {name sideLength detections} {
 
                 import numpy as np
                 from extrinsics import recover_extrinsics
-                recover_extrinsics([pythonize $H], [pythonize $K])
+                print(recover_extrinsics([pythonize $H], [pythonize $K]))
             }]]
             puts ""
         }
@@ -226,16 +226,17 @@ proc loadDetections {name sideLength detections} {
             set lambda_ [/ 1.0 [norm [matmul $Kinv $h0]]]
 
             set r0 [scale $lambda_ [matmul $Kinv $h0]]
-            set r1 [scale $lambda_ [matmul $Kinv $h0]]
+            set r1 [scale $lambda_ [matmul $Kinv $h1]]
             set r2 [crossproduct $r0 $r1]
             set t [scale $lambda_ [matmul $Kinv $h2]]
 
             set R [transpose [list $r0 $r1 $r2]]
-            puts "Tcl R [show $R]"
             # Reorthogonalize R:
-            lassign [determineSVD $R] U S Vt
-            set R [matmul $U $Vt]
+            lassign [determineSVD $R] U S V
+            set R [matmul $U [transpose $V]]
+            puts "Tcl: reorthoR [show $R]"
             # Reconstitute full extrinsics:
+            puts [show [transpose [list {*}$R $t]]]
             return [show [transpose [list {*}$R $t]]]
         }
 
