@@ -211,8 +211,9 @@ proc loadDetections {name sideLength detections} {
 
                 import numpy as np
                 from extrinsics import recover_extrinsics
-                print(recover_extrinsics([pythonize $H], [pythonize $K]))
+                recover_extrinsics([pythonize $H], [pythonize $K])
             }]]
+            puts ""
         }
         # TODO: Compute extrinsics for each of the images (needed so
         # we can do the reprojection during nonlinear refinement)
@@ -230,11 +231,12 @@ proc loadDetections {name sideLength detections} {
             set t [scale $lambda_ [matmul $Kinv $h2]]
 
             set R [transpose [list $r0 $r1 $r2]]
+            puts "Tcl R [show $R]"
             # Reorthogonalize R:
             lassign [determineSVD $R] U S Vt
             set R [matmul $U $Vt]
             # Reconstitute full extrinsics:
-            puts [show [transpose [list {*}$R $t]]]
+            return [show [transpose [list {*}$R $t]]]
         }
 
         foreach H $Hs {
