@@ -242,7 +242,7 @@ proc loadDetections {name sideLength detections} {
         }
 
         # A is a 3x3 matrix, the intrinsics guess.
-        # r0s, r1s, ts are lists of the r0, r1, t 3x1 vectors, the extrinsics guesses.
+        # r0s, r1s, ts are lists of NUM_IMAGES r0, r1, t 3x1 vectors, the extrinsics guesses.
         proc reprojectionError {A r0s r1s ts} {
             upvar modelPoints modelPoints
             upvar imagePointsForDetection imagePointsForDetection
@@ -262,6 +262,34 @@ proc loadDetections {name sideLength detections} {
             return $err
         }
         puts [reprojectionError $A $r0s $r1s $ts]
+
+        proc pythonize {A} {
+            string cat {Matrix([} [join [lmap row $A {string cat {[} [join $row {, }] {]}}] ", "] {])}
+        }
+        proc reprojectionErrorPython {A r0s r1s ts} {
+            python3 [subst {
+                import sys
+                sys.path.append('/Users/osnr/Code/folk/play')
+
+                symplay = __import__("sym-play")
+                print(symplay.reprojectionError([pythonize $A], [pythonize $r0s], [pythonize $r1s], [pythonize $ts]))
+            }]
+        }
+        puts [reprojectionErrorPython $A $r0s $r1s $ts]
+
+        # proc ravel {A r0s r1s ts} {
+            
+        # }
+        # proc unravel {p} {
+            
+        # }
+        # proc reprojectionErrorOfParameters {p} {
+        #     reprojectionError {*}[unravel $p]
+        # }
+        
+
+        # set p0 [ravel $A $r0s $r1s $ts]
+        # optimize reprojectionErrorOfParameters $p0
 
     } on error e {
         puts stderr $::errorInfo
