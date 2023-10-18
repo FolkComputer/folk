@@ -6,6 +6,7 @@ package require math::linearalgebra
 rename ::scale scaleTk
 namespace import ::math::linearalgebra::*
 
+# Computes a 3x3 homography H from model to image.
 proc findHomography {modelPoints imagePoints} {
     set ROWS 4
     set COLS 6
@@ -210,18 +211,18 @@ proc loadDetections {name sideLength detections} {
 
         # Compute extrinsics for each of the images (needed so we can
         # do the reprojection during nonlinear refinement)
-        proc recoverExtrinsics {H K} {
+        proc recoverExtrinsics {H A} {
             set h0 [getcol $H 0]
             set h1 [getcol $H 1]
             set h2 [getcol $H 2]
 
-            set Kinv [solvePGauss $K [mkIdentity 3]]
-            set lambda_ [/ 1.0 [norm [matmul $Kinv $h0]]]
+            set Ainv [solvePGauss $A [mkIdentity 3]]
+            set lambda_ [/ 1.0 [norm [matmul $Ainv $h0]]]
 
-            set r0 [scale $lambda_ [matmul $Kinv $h0]]
-            set r1 [scale $lambda_ [matmul $Kinv $h1]]
+            set r0 [scale $lambda_ [matmul $Ainv $h0]]
+            set r1 [scale $lambda_ [matmul $Ainv $h1]]
             set r2 [crossproduct $r0 $r1]
-            set t [scale $lambda_ [matmul $Kinv $h2]]
+            set t [scale $lambda_ [matmul $Ainv $h2]]
 
             set R [transpose [list $r0 $r1 $r2]]
             # Reorthogonalize R:
@@ -229,16 +230,35 @@ proc loadDetections {name sideLength detections} {
             set R [matmul $U [transpose $V]]
 
             # Reconstitute full extrinsics:
-            return [show [transpose [list {*}[transpose $R] $t]]]
+            return [transpose [list {*}[transpose $R] $t]]
         }
-        foreach H $Hs {
-            puts [recoverExtrinsics $H $K]
-        }
+        set Rs [lmap H $Hs {recoverExtrinsics $H $A}]
 
-        proc reprojectionError {} {
+        # A is the intrinsics guess.
+        # Rs is the extrinsics guesses.
+        proc reprojectionError {A Rs} {
+            upvar modelPoints modelPoints
+            upvar imagePointsForDetection imagePointsForDetection
 
+            set err 0
+            foreach imagePoints $imagePointsForDetection R $Rs {
+                set r0 [getcol $R 0]
+                set r1 [getcol $R 1]
+                set t [getcol $R 3]
+                foreach modelPoint $modelPoints imagePoint $imagePoints {
+                    # Reproject the model point to a reprojected image point.
+                    set H [matmul $A [transpose [list $r0 $r1 $t]]]
+                    lassign [matmul $H [list {*}$modelPoint 1]] rpx rpy rpz
+                    set reprojectedImagePoint [list [/ $rpx $rpz] [/ $rpy $rpz]]
+
+                    set localErr [norm [sub $imagePoint $reprojectedImagePoint]]
+                    set err [+ $err $localErr]
+                }
+            }
+            return $err
         }
-        
+        puts [reprojectionError $A $Rs]
+
     } on error e {
         puts stderr $::errorInfo
     }
