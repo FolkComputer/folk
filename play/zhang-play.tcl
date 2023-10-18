@@ -6,46 +6,13 @@ package require math::linearalgebra
 rename ::scale scaleTk
 namespace import ::math::linearalgebra::*
 
-proc findHomography {sideLength detection} {
+proc findHomography {modelPoints imagePoints} {
     set ROWS 4
     set COLS 6
 
-    # Camera points, from the camera image.
-    fn detectionTagCorner {row col corner} {
-        set id [expr {48600 + $row*$COLS + $col}]
-        return [lindex [dict get [dict get $detection $id] corners] $corner]
-    }
-    set points [list]
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            lappend points [detectionTagCorner $row $col 0]
-            lappend points [detectionTagCorner $row $col 1]
-            lappend points [detectionTagCorner $row $col 2]
-            lappend points [detectionTagCorner $row $col 3]
-        }
-    }
-
-    # Model points, from the known geometry of the checkerboard (in
-    # meters, where top-left corner of top-left AprilTag is 0, 0).
-    set model [list]
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            lappend model [list [* $col $sideLength 2] \
-                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-left
-
-            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
-                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-right
-
-            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
-                               [* $row $sideLength 2]] ;# top-right
-
-            lappend model [list [* $col $sideLength 2] [* $row $sideLength 2]] ;# top-left
-        }
-    }
-
     set A [list]
     set b [list]
-    foreach imagePoint $points modelPoint $model {
+    foreach imagePoint $imagePoints modelPoint $modelPoints {
         lassign $imagePoint u v
         lassign $modelPoint x y
         lappend A [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
@@ -87,11 +54,56 @@ proc processHomography {H} {
 package require Tk
 
 proc loadDetections {name sideLength detections} {
+    set ROWS 4
+    set COLS 6
+
     toplevel .$name
     puts "loadDetections $name"
 
-    set Hs [lmap detection $detections {
-        findHomography $sideLength $detection
+    # Model points, from the known geometry of the checkerboard (in
+    # meters, where top-left corner of top-left AprilTag is 0, 0).
+    set modelPoints [list]
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            lappend modelPoints \
+                [list [* $col $sideLength 2] \
+                     [+ [* $row $sideLength 2] $sideLength]] ;# bottom-left
+            
+            lappend modelPoints \
+                [list [+ [* $col $sideLength 2] $sideLength] \
+                     [+ [* $row $sideLength 2] $sideLength]] ;# bottom-right
+
+            lappend modelPoints \
+                [list [+ [* $col $sideLength 2] $sideLength] \
+                     [* $row $sideLength 2]] ;# top-right
+
+            lappend modelPoints \
+                [list [* $col $sideLength 2] [* $row $sideLength 2]] ;# top-left
+        }
+    }
+
+    set imagePointsForDetection [list]
+    proc detectionTagCorner {detection row col corner} {
+        upvar COLS COLS
+        set id [expr {48600 + $row*$COLS + $col}]
+        return [lindex [dict get [dict get $detection $id] corners] $corner]
+    }
+    foreach detection $detections {
+        # Camera points, from the camera image.
+        set imagePoints [list]
+        for {set row 0} {$row < $ROWS} {incr row} {
+            for {set col 0} {$col < $COLS} {incr col} {
+                lappend imagePoints [detectionTagCorner $detection $row $col 0]
+                lappend imagePoints [detectionTagCorner $detection $row $col 1]
+                lappend imagePoints [detectionTagCorner $detection $row $col 2]
+                lappend imagePoints [detectionTagCorner $detection $row $col 3]
+            }
+        }
+        lappend imagePointsForDetection $imagePoints
+    }
+
+    set Hs [lmap imagePoints $imagePointsForDetection {
+        findHomography $modelPoints $imagePoints
     }]
 
     canvas .$name.canv -width 1280 -height 720 -background white
@@ -108,15 +120,11 @@ proc loadDetections {name sideLength detections} {
             }
 
             fn drawDetectionTagCorner {row col corner label} {
-                fn detectionTagCorner {row col corner} {
-                    set id [expr {48600 + $row*$COLS + $col}]
-                    return [lindex [dict get [dict get $detection $id] corners] $corner]
-                }
                 .$name.canv create oval \
-                    {*}[detectionTagCorner $row $col $corner] \
-                    {*}[add [detectionTagCorner $row $col $corner] {5 5}] \
+                    {*}[detectionTagCorner $detection $row $col $corner] \
+                    {*}[add [detectionTagCorner $detection $row $col $corner] {5 5}] \
                     -fill red
-                .$name.canv create text [detectionTagCorner $row $col $corner] \
+                .$name.canv create text [detectionTagCorner $detection $row $col $corner] \
                     -text $label
             }
 
@@ -194,29 +202,14 @@ proc loadDetections {name sideLength detections} {
         puts ""
 
         # Unrefined camera intrinsic matrix:
-        set K [subst {
+        set A [subst {
             {$alpha $gamma $u0}
             {     0  $beta $v0}
             {     0      0   1}
         }]
 
-        # Converts a 2D matrix to a Python array literal.
-        proc pythonize {A} {
-            string cat {np.array([} [join [lmap row $A {string cat {[} [join $row {, }] {]}}] ", "] {])}
-        }
-        proc recoverExtrinsicsPython {H K} {
-            puts [python3 [subst {
-                import sys
-                sys.path.append('/Users/osnr/aux/CameraCalibration')
-
-                import numpy as np
-                from extrinsics import recover_extrinsics
-                print(recover_extrinsics([pythonize $H], [pythonize $K]))
-            }]]
-            puts ""
-        }
-        # TODO: Compute extrinsics for each of the images (needed so
-        # we can do the reprojection during nonlinear refinement)
+        # Compute extrinsics for each of the images (needed so we can
+        # do the reprojection during nonlinear refinement)
         proc recoverExtrinsics {H K} {
             set h0 [getcol $H 0]
             set h1 [getcol $H 1]
@@ -238,11 +231,12 @@ proc loadDetections {name sideLength detections} {
             # Reconstitute full extrinsics:
             return [show [transpose [list {*}[transpose $R] $t]]]
         }
-
         foreach H $Hs {
-            puts hello
-            recoverExtrinsicsPython $H $K
             puts [recoverExtrinsics $H $K]
+        }
+
+        proc reprojectionError {} {
+
         }
         
     } on error e {
