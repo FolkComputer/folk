@@ -80,7 +80,7 @@ proc insertNewline {code cursor} {
 
 proc insertCursor {code cursor count} {
    if {$count % 2 == 0} {
-     return [swapCharacter $code "X" $cursor]
+     return [swapCharacter $code "_" $cursor]
    } else {
      return $code    
    }
@@ -212,8 +212,9 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         if {[x $cursor] == 0} {
           set newCursor [updateCursor $cursor {y -1}]
           set previousLineLength  [getCurrentLineLength $code $newCursor]
-          set newCursor [list [expr {$previousLineLength - 1}] [y $newCursor]]
+          set newCursor [list $previousLineLength [y $newCursor]]
           Claim the cursor is $newCursor
+          # Delete the old line???
         } else {
           Claim the cursor is [updateCursor $cursor {x -1}]
         }
@@ -224,7 +225,9 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
       }
       ENTER {
-        Claim the cursor is [updateCursor $cursor {x [expr {-1 * [x $cursor]}] y 1}]
+        # GOAL: Move cursor to beginning of next line
+        set updatedCursor [updateCursor $cursor {y 1}]
+        Claim the cursor is [list 0 [lindex $updatedCursor 1]]
         Commit code { Claim $id has program code [insertNewline $code $cursor] }
       }
       LEFTSHIFT -
