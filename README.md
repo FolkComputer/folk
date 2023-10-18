@@ -4,28 +4,17 @@
 
 <http://folk.computer/pilot/>
 
-## Mac installation
-
-to run on (Mac) laptop:
-```
-$ brew install tcl-tk
-$ ln -s "$(brew --prefix)/Cellar/tcl-tk/8.6*/bin/tclsh" "$(brew --prefix)/bin/tclsh8.6"
-```
-
-then:
-```
-make
-```
-
 ## Linux tabletop installation
 
-These are instructions for a dedicated system, probably on a Beelink
-mini-PC (or _maybe_ a Pi 4), probably running [Ubuntu Server 23.04
-Lunar Lobster](https://ubuntu.com/download/server#releases) (for a PC,
-get the amd64 version; for a Pi 4, use Raspberry Pi Imager and get the
-64-bit version [also see [this
+You'll need to set up a dedicated PC to run Folk and connect to
+webcam+projector+printer+etc. We tend to recommend a Beelink mini-PC
+(or _maybe_ a Pi 4), where you set up [Ubuntu **Server** 23.04 Lunar
+Lobster](https://ubuntu.com/download/server#releases).
+
+(for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
+and get the 64-bit version [also see [this
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
-if on a Mac]).
+if flashing from a Mac])
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
@@ -127,7 +116,7 @@ scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
 Then, _on your laptop_, clone this repo and run `make
-FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
+sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
 tabletop and run it there as well as running it on your laptop.
 
 ### How to control tabletop Folk from your laptop
@@ -448,8 +437,8 @@ that if it was useful.)
 Experimental: `Every time` works almost like `When`, but it's used to
 commit when an 'event' happens without causing a reaction cascade.
 
-**You can't make Claims or Wishes inside an `Every time` block. You
-can only Commit.**
+**You can't make Claims, Whens, or Wishes inside an `Every time`
+block. You can only Commit.**
 
 Example:
 

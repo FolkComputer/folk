@@ -139,4 +139,5 @@ When (non-capturing) tag /tag/ has corners /corners/ {
 
     Claim $tag has region $region
     Claim tag $tag has a program
+    Claim tag $tag is a tag
 }
