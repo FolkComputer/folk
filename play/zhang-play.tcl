@@ -234,17 +234,21 @@ proc loadDetections {name sideLength detections} {
         }
         set Rs [lmap H $Hs {recoverExtrinsics $H $A}]
 
-        # A is the intrinsics guess.
-        # Rs is the extrinsics guesses.
-        proc reprojectionError {A Rs} {
+        set r0s [list]; set r1s [list]; set ts [list]
+        foreach R $Rs {
+            lappend r0s [getcol $R 0]
+            lappend r1s [getcol $R 1]
+            lappend ts [getcol $R 3]
+        }
+
+        # A is a 3x3 matrix, the intrinsics guess.
+        # r0s, r1s, ts are lists of the r0, r1, t 3x1 vectors, the extrinsics guesses.
+        proc reprojectionError {A r0s r1s ts} {
             upvar modelPoints modelPoints
             upvar imagePointsForDetection imagePointsForDetection
 
             set err 0
-            foreach imagePoints $imagePointsForDetection R $Rs {
-                set r0 [getcol $R 0]
-                set r1 [getcol $R 1]
-                set t [getcol $R 3]
+            foreach imagePoints $imagePointsForDetection r0 $r0s r1 $r1s t $ts {
                 foreach modelPoint $modelPoints imagePoint $imagePoints {
                     # Reproject the model point to a reprojected image point.
                     set H [matmul $A [transpose [list $r0 $r1 $t]]]
@@ -257,7 +261,7 @@ proc loadDetections {name sideLength detections} {
             }
             return $err
         }
-        puts [reprojectionError $A $Rs]
+        puts [reprojectionError $A $r0s $r1s $ts]
 
     } on error e {
         puts stderr $::errorInfo
