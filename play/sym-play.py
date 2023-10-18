@@ -39,9 +39,9 @@ r0s = []
 r1s = []
 ts = []
 for imageNum in range(NUM_IMAGES):
-    r0s.append(symbols(f"r0_{imageNum}_0 r0_{imageNum}_1 r0_{imageNum}_2"))
-    r1s.append(symbols(f"r1_{imageNum}_0 r1_{imageNum}_1 r1_{imageNum}_2"))
-    ts.append(symbols(f"t_{imageNum}_0 t_{imageNum}_1 t_{imageNum}_2"))
+    r0s.append(Matrix(MatrixSymbol(f"r0_{imageNum}", 3, 1)))
+    r1s.append(Matrix(MatrixSymbol(f"r1_{imageNum}", 3, 1)))
+    ts.append(Matrix(MatrixSymbol(f"t_{imageNum}", 3, 1)))
 
 def reprojectionError():
     err = 0
@@ -50,7 +50,7 @@ def reprojectionError():
         r1 = r1s[imageNum]
         t = ts[imageNum]
         for i in range(NUM_POINTS_PER_IMAGE):
-            H = A * Matrix([r0, r1, t]).T
+            H = A * Matrix.hstack(r0, r1, t).T
             reprojectedImagePointHom = H * Matrix([model[i][0], model[i][1], 1])
             reprojectedImagePoint = Matrix([reprojectedImagePointHom[0] / reprojectedImagePointHom[2],
                                             reprojectedImagePointHom[1] / reprojectedImagePointHom[2]])
@@ -80,7 +80,7 @@ def computeReprojectionError(model, images, A, r0s, r1s, ts):
         values[f"r1_{imageNum}"] = r1
         values[f"t_{imageNum}"] = t
 
-    return reprojectionError().evalf(subs=values)
+    return reprojectionError().evalf(subs=values).doit()
 
 # TODO: Compute C version of func & C version of Jacobian.
 # TODO: Use C versions in levmarq.
