@@ -61,7 +61,26 @@ def reprojectionError():
 
     return err
 
-
 # TODO: Evaluate wrt concrete values, compare to Tcl error.
+def computeReprojectionError(model, images, A, r0s, r1s, ts):
+    values = {}
+
+    for i in range(NUM_POINTS_PER_IMAGE):
+        values[f"model{i}_x"], values[f"model{i}_y"] = model[i, 0], model[i, 1]
+
+    for imageNum in range(NUM_IMAGES):
+        for i in range(NUM_POINTS_PER_IMAGE):
+            values[f"image{imageNum}_{i}"] = images[imageNum]
+
+    values["A"] = A
+
+    for imageNum in range(NUM_IMAGES):
+        r0 = r0s[imageNum]; r1 = r1s[imageNum]; t = ts[imageNum]
+        values[f"r0_{imageNum}"] = r0
+        values[f"r1_{imageNum}"] = r1
+        values[f"t_{imageNum}"] = t
+
+    return reprojectionError().evalf(subs=values)
+
 # TODO: Compute C version of func & C version of Jacobian.
 # TODO: Use C versions in levmarq.

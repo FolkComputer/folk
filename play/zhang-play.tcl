@@ -264,15 +264,25 @@ proc loadDetections {name sideLength detections} {
         puts [reprojectionError $A $r0s $r1s $ts]
 
         proc pythonize {A} {
-            string cat {Matrix([} [join [lmap row $A {string cat {[} [join $row {, }] {]}}] ", "] {])}
+            string cat {Matrix([} [join [lmap row $A {string cat {[} [join $row ", "] {]}}] ", "] {])}
         }
         proc reprojectionErrorPython {A r0s r1s ts} {
+            upvar modelPoints modelPoints
+            upvar imagePointsForDetection imagePointsForDetection
+
             python3 [subst {
+                from sympy import *
+
                 import sys
                 sys.path.append('/Users/osnr/Code/folk/play')
 
                 symplay = __import__("sym-play")
-                print(symplay.reprojectionError([pythonize $A], [pythonize $r0s], [pythonize $r1s], [pythonize $ts]))
+                print(symplay.computeReprojectionError([pythonize $modelPoints], \
+                                                       [string cat \
+                                                            {[} \
+                                                            [join [lmap imagePoints $imagePointsForDetection {pythonize $imagePoints}] {, }] \
+                                                            {]}], \
+                                                       [pythonize $A], [pythonize $r0s], [pythonize $r1s], [pythonize $ts]))
             }]
         }
         puts [reprojectionErrorPython $A $r0s $r1s $ts]
