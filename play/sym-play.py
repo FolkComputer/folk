@@ -10,77 +10,54 @@ init_printing(use_unicode=True)
 
 # p:
 #   A is 3x3 -> 9 elements
-#   r0s is Nx3x1 -> N*3 elements
-#   r1s is Nx3x1 -> N*3 elements
-#   ts is Nx3x1 -> N*3 elements
+#   r0s is Nx3 -> N*3 elements
+#   r1s is Nx3 -> N*3 elements
+#   ts is Nx3 -> N*3 elements
 
 NUM_POINTS_PER_IMAGE = 96
 NUM_IMAGES = 4
 
-N = NUM_POINTS_PER_IMAGE * NUM_IMAGES
-
 # Ground-truth data symbols
 # ---
-model = []
-for i in range(NUM_POINTS_PER_IMAGE): model.append(symbols(f"model{i}_x model{i}_y"))
-
-images = []
-for imageNum in range(NUM_IMAGES):
-    image = []
-    for i in range(NUM_POINTS_PER_IMAGE):
-        image.append(Matrix(MatrixSymbol(f"image{imageNum}_{i}", 2, 1)))
-
-    images.append(image)
+model = MatrixSymbol('Model', NUM_POINTS_PER_IMAGE, 2)
+images = MatrixSymbol('Image', NUM_POINTS_PER_IMAGE * NUM_IMAGES, 2)
 
 # Parameter symbols
 # ---
-A = Matrix(MatrixSymbol('A', 3, 3))
-r0s = []
-r1s = []
-ts = []
-for imageNum in range(NUM_IMAGES):
-    r0s.append(Matrix(MatrixSymbol(f"r0_{imageNum}", 3, 1)))
-    r1s.append(Matrix(MatrixSymbol(f"r1_{imageNum}", 3, 1)))
-    ts.append(Matrix(MatrixSymbol(f"t_{imageNum}", 3, 1)))
+A = MatrixSymbol('A', 3, 3)
+r0s = MatrixSymbol('r0s', NUM_IMAGES, 3)
+r1s = MatrixSymbol('r1s', NUM_IMAGES, 3)
+ts = MatrixSymbol('ts', NUM_IMAGES, 3)
 
 def reprojectionError():
     err = 0
-    for imageNum, image in enumerate(images):
-        r0 = r0s[imageNum]
-        r1 = r1s[imageNum]
-        t = ts[imageNum]
+    for imageNum in range(NUM_IMAGES):
+        r0 = Matrix(r0s).row(imageNum)
+        r1 = Matrix(r1s).row(imageNum)
+        t = Matrix(ts).row(imageNum)
+        print(r0, r1, t)
         for i in range(NUM_POINTS_PER_IMAGE):
-            H = A * Matrix.hstack(r0, r1, t).T
-            reprojectedImagePointHom = H * Matrix([model[i][0], model[i][1], 1])
-            reprojectedImagePoint = Matrix([reprojectedImagePointHom[0] / reprojectedImagePointHom[2],
-                                            reprojectedImagePointHom[1] / reprojectedImagePointHom[2]])
+            H = A * Matrix.vstack(r0, r1, t)
+            reprojectedImagePointHom = H * Matrix([model[i, 0], model[i, 1], 1])
+            reprojectedImagePoint = Matrix([reprojectedImagePointHom[0, 0] / reprojectedImagePointHom[2, 0],
+                                            reprojectedImagePointHom[1, 0] / reprojectedImagePointHom[2, 0]])
 
-            imagePoint = images[imageNum][i]
-            diff = imagePoint - reprojectedImagePoint
-            err += sqrt(diff[0]**2 + diff[1]**2)
+            imagePoint = images[NUM_POINTS_PER_IMAGE * imageNum + i, :]
+            diff = imagePoint - reprojectedImagePoint.T
+            err += sqrt(diff[0, 0]**2 + diff[0, 1]**2)
 
     return err
 
 # TODO: Evaluate wrt concrete values, compare to Tcl error.
-def computeReprojectionError(model, images, A, r0s, r1s, ts):
-    values = {}
-
-    for i in range(NUM_POINTS_PER_IMAGE):
-        values[f"model{i}_x"], values[f"model{i}_y"] = model[i, 0], model[i, 1]
-
-    for imageNum in range(NUM_IMAGES):
-        for i in range(NUM_POINTS_PER_IMAGE):
-            values[f"image{imageNum}_{i}"] = images[imageNum]
-
-    values["A"] = A
-
-    for imageNum in range(NUM_IMAGES):
-        r0 = r0s[imageNum]; r1 = r1s[imageNum]; t = ts[imageNum]
-        values[f"r0_{imageNum}"] = r0
-        values[f"r1_{imageNum}"] = r1
-        values[f"t_{imageNum}"] = t
-
-    return reprojectionError().evalf(subs=values).doit()
+# model: NUM_POINTS_PER_IMAGEx2 matrix
+# images: (NUM_POINTS_PER_IMAGE*NUM_IMAGES)x2 matrix
+# A: 3x3 matrix
+# r0s: NUM_IMAGESx3 matrix
+# r1s: NUM_IMAGESx3 matrix
+# ts: NUM_IMAGESx3 matrix
+def computeReprojectionError(model_, images_, A_, r0s_, r1s_, ts_):
+    fn = lambdify([model, images, A, r0s, r1s, ts], reprojectionError())
+    return fn(model_, images_, A_, r0s_, r1s_, ts_)
 
 # TODO: Compute C version of func & C version of Jacobian.
 # TODO: Use C versions in levmarq.

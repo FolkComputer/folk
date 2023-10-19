@@ -264,7 +264,7 @@ proc loadDetections {name sideLength detections} {
         puts [reprojectionError $A $r0s $r1s $ts]
 
         proc pythonize {A} {
-            string cat {Matrix([} [join [lmap row $A {string cat {[} [join $row ", "] {]}}] ", "] {])}
+            string cat {[} [join [lmap row $A {string cat {[} [join $row ", "] {]}}] ", "] {]}
         }
         proc reprojectionErrorPython {A r0s r1s ts} {
             upvar modelPoints modelPoints
@@ -272,17 +272,18 @@ proc loadDetections {name sideLength detections} {
 
             python3 [subst {
                 from sympy import *
+                import numpy as np
 
                 import sys
                 sys.path.append('/Users/osnr/Code/folk/play')
 
                 symplay = __import__("sym-play")
-                print(symplay.computeReprojectionError([pythonize $modelPoints], \
+                print(symplay.computeReprojectionError(np.array([pythonize $modelPoints]), \
                                                        [string cat \
-                                                            {[} \
-                                                            [join [lmap imagePoints $imagePointsForDetection {pythonize $imagePoints}] {, }] \
-                                                            {]}], \
-                                                       [pythonize $A], [pythonize $r0s], [pythonize $r1s], [pythonize $ts]))
+                                                            {np.array(} \
+                                                            [join [lmap imagePoints $imagePointsForDetection {pythonize $imagePoints}] { + }] \
+                                                            {)}], \
+                                                       np.array([pythonize $A]), np.array([pythonize $r0s]), np.array([pythonize $r1s]), np.array([pythonize $ts])))
             }]
         }
         puts [reprojectionErrorPython $A $r0s $r1s $ts]
