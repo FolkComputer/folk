@@ -1,5 +1,6 @@
 namespace eval Evaluator { source "lib/environment.tcl" }
 source "lib/language.tcl"
+source "lib/c.tcl"
 
 lappend auto_path "./vendor"
 package require math::linearalgebra
@@ -261,16 +262,16 @@ proc loadDetections {name sideLength detections} {
             }
             return $err
         }
-        puts [reprojectionError $A $r0s $r1s $ts]
+        puts "Tcl reprojection error: [reprojectionError $A $r0s $r1s $ts]"
 
         proc pythonize {A} {
             string cat {[} [join [lmap row $A {string cat {[} [join $row ", "] {]}}] ", "] {]}
         }
-        proc reprojectionErrorPython {A r0s r1s ts} {
+        proc reprojectionErrorC {A r0s r1s ts} {
             upvar modelPoints modelPoints
             upvar imagePointsForDetection imagePointsForDetection
 
-            python3 [subst {
+            set cexpr [python3 [subst {
                 from sympy import *
                 import numpy as np
 
@@ -278,15 +279,17 @@ proc loadDetections {name sideLength detections} {
                 sys.path.append('/Users/osnr/Code/folk/play')
 
                 symplay = __import__("sym-play")
-                print(symplay.computeReprojectionError(np.array([pythonize $modelPoints]), \
-                                                       [string cat \
-                                                            {np.array(} \
-                                                            [join [lmap imagePoints $imagePointsForDetection {pythonize $imagePoints}] { + }] \
-                                                            {)}], \
-                                                       np.array([pythonize $A]), np.array([pythonize $r0s]), np.array([pythonize $r1s]), np.array([pythonize $ts])))
-            }]
+                print(symplay.ccodeReprojectionError())
+            }]]
+            set cc [c create]
+            $cc include <math.h>
+            $cc proc reprojectionErrorCImpl {float[] Model float[] Image
+                                             float[] A float[] r0s float[] r1s float[] ts} float {
+                return $cexpr;
+            }
+            $cc compile ;# takes about a half-second
         }
-        puts [reprojectionErrorPython $A $r0s $r1s $ts]
+        puts [reprojectionErrorC $A $r0s $r1s $ts]
 
         # proc ravel {A r0s r1s ts} {
             

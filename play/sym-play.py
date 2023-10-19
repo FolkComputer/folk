@@ -35,8 +35,8 @@ def reprojectionError():
         r0 = Matrix(r0s).row(imageNum)
         r1 = Matrix(r1s).row(imageNum)
         t = Matrix(ts).row(imageNum)
+        H = A * Matrix.vstack(r0, r1, t).T
         for i in range(NUM_POINTS_PER_IMAGE):
-            H = A * Matrix.vstack(r0, r1, t).T
             reprojectedImagePointHom = H * Matrix([model[i, 0], model[i, 1], 1])
             reprojectedImagePoint = Matrix([reprojectedImagePointHom[0, 0] / reprojectedImagePointHom[2, 0],
                                             reprojectedImagePointHom[1, 0] / reprojectedImagePointHom[2, 0]])
@@ -54,9 +54,8 @@ def reprojectionError():
 # r0s: NUM_IMAGESx3 matrix
 # r1s: NUM_IMAGESx3 matrix
 # ts: NUM_IMAGESx3 matrix
-def computeReprojectionError(model_, images_, A_, r0s_, r1s_, ts_):
-    fn = lambdify([model, images, A, r0s, r1s, ts], reprojectionError())
-    return fn(model_, images_, A_, r0s_, r1s_, ts_)
+def ccodeReprojectionError():
+    return ccode(reprojectionError())
 
-# TODO: Compute C version of func & C version of Jacobian.
-# TODO: Use C versions in levmarq.
+def ccodeReprojectionErrorJacobian():
+    pass
