@@ -288,8 +288,10 @@ proc loadDetections {name sideLength detections} {
                 return $cexpr;
             }
             $cc compile ;# takes about a half-second
+            reprojectionErrorCImpl [concat {*}$modelPoints] [concat {*}[concat {*}$imagePointsForDetection]] \
+                [concat {*}$A] [concat {*}$r0s] [concat {*}$r1s] [concat {*}$ts]
         }
-        puts [reprojectionErrorC $A $r0s $r1s $ts]
+        puts "C error: [reprojectionErrorC $A $r0s $r1s $ts]"
 
         # proc ravel {A r0s r1s ts} {
             
