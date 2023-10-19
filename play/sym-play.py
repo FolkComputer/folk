@@ -35,9 +35,8 @@ def reprojectionError():
         r0 = Matrix(r0s).row(imageNum)
         r1 = Matrix(r1s).row(imageNum)
         t = Matrix(ts).row(imageNum)
-        print(r0, r1, t)
         for i in range(NUM_POINTS_PER_IMAGE):
-            H = A * Matrix.vstack(r0, r1, t)
+            H = A * Matrix.vstack(r0, r1, t).T
             reprojectedImagePointHom = H * Matrix([model[i, 0], model[i, 1], 1])
             reprojectedImagePoint = Matrix([reprojectedImagePointHom[0, 0] / reprojectedImagePointHom[2, 0],
                                             reprojectedImagePointHom[1, 0] / reprojectedImagePointHom[2, 0]])
