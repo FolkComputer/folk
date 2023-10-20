@@ -1,0 +1,56 @@
+*** testlinfit status = 1
+  CHI-SQUARE = 2.756285    (8 DOF)
+        NPAR = 2
+       NFREE = 2
+     NPEGGED = 0
+     NITER = 3
+      NFEV = 8
+
+  P[0] = 3.209966 +/- 0.022210     (ACTUAL 3.200000)
+  P[1] = -1.770954 +/- 0.018938     (ACTUAL 1.780000)
+*** testquadfit status = 1
+  CHI-SQUARE = 5.679323    (7 DOF)
+        NPAR = 3
+       NFREE = 3
+     NPEGGED = 0
+     NITER = 3
+      NFEV = 10
+
+  P[0] = 4.703829 +/- 0.097512     (ACTUAL 4.700000)
+  P[1] = 0.062586 +/- 0.054802     (ACTUAL 0.000000)
+  P[2] = 6.163087 +/- 0.054433     (ACTUAL 6.200000)
+*** testquadfix status = 1
+  CHI-SQUARE = 6.983588    (8 DOF)
+        NPAR = 3
+       NFREE = 2
+     NPEGGED = 0
+     NITER = 3
+      NFEV = 8
+
+  P[0] = 4.696254 +/- 0.097286     (ACTUAL 4.700000)
+  P[1] = 0.000000 +/- 0.000000     (ACTUAL 0.000000)
+  P[2] = 6.172954 +/- 0.053743     (ACTUAL 6.200000)
+*** testgaussfit status = 1
+  CHI-SQUARE = 10.350032    (6 DOF)
+        NPAR = 4
+       NFREE = 4
+     NPEGGED = 0
+     NITER = 28
+      NFEV = 139
+
+  P[0] = 0.480443 +/- 0.232235     (ACTUAL 0.000000)
+  P[1] = 4.550752 +/- 0.395434     (ACTUAL 4.700000)
+  P[2] = -0.062562 +/- 0.074715     (ACTUAL 0.000000)
+  P[3] = 0.397472 +/- 0.089996     (ACTUAL 0.500000)
+*** testgaussfix status = 1
+  CHI-SQUARE = 15.516134    (8 DOF)
+        NPAR = 4
+       NFREE = 2
+     NPEGGED = 0
+     NITER = 12
+      NFEV = 35
+
+  P[0] = 0.000000 +/- 0.000000     (ACTUAL 0.000000)
+  P[1] = 5.059244 +/- 0.329307     (ACTUAL 4.700000)
+  P[2] = 0.000000 +/- 0.000000     (ACTUAL 0.000000)
+  P[3] = 0.479746 +/- 0.053804     (ACTUAL 0.500000)
