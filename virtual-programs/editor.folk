@@ -95,7 +95,9 @@ proc newRegion {program x y w h} {
   Claim $program has region [region create $vertices $edges]
 }
 
-set baseCode "Claim\nWish \$this is outlined green"
+# set baseCode "Claim\nWish \$this is outlined green"
+# long base code
+set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum\nClaim bloooooop\nClaim hello"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -138,16 +140,14 @@ proc debug {position color} {
 }
 
 proc drawCursor {cursorPosition lineShift region} {
-  puts "$lineShift | $cursorPosition"
   set anchor [region centroid $region]
   set angle [region angle $region]
 
-  # 9 is the width of a character, 20 is the height of a character
-  # These values could theortically be set from drawText in Display.tcl
   set cursorHeight 20
   set cursorWidth 9
   set shiftMultiplier [list 10 10]
 
+  # 20 20 scale is arbitrary, computing it off of Display or something .....
   set cursorScale [list 20 20] ;# OLD
   # set cursorScale [list $cursorHeight $cursorWidth]
 
@@ -161,12 +161,13 @@ proc drawCursor {cursorPosition lineShift region} {
   # add (x * width) to the shiftedAnchor position from the beginning of the line ...
   # Calculate the final cursor position
   set scaledCursor [vec2::mult $cursorScale $cursorPosition]
+
   puts "lineShiftHalf | multipliedShift | adjustedShift | shiftedAnchor | scaledCursor"
   puts "$lineShiftHalf | $multipliedShift | $adjustedShift | $shiftedAnchor | $scaledCursor"
-  debug $scaledCursor blue
+
   # Something is going wrong here, I think
   set finalCursor [add $shiftedAnchor $scaledCursor]
-  debug $finalCursor gold
+  # debug $finalCursor gold
   # Rotate and display the cursor
   set rotatedFinalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
   # This is where the cursor point is relative to.
@@ -182,8 +183,6 @@ proc drawCursor {cursorPosition lineShift region} {
   Display::stroke [rotateStroke \
       [list $finalCursor \
       [add $finalCursor [list $cursorWidth 0]] \
-      [add $finalCursor [list [* -3 $cursorWidth] $cursorHeight]] \
-      [add $finalCursor [list 0 $cursorHeight]] \
     ] \
     $anchor $angle] 2 green
 }
@@ -191,7 +190,9 @@ proc drawCursor {cursorPosition lineShift region} {
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
+
   set lineShift [getLineShift $code]
+  # Hmmmm, need a fn to go from cursor to pixel positions
   drawCursor $cursor $lineShift $r
 }
 
