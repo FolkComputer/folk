@@ -133,35 +133,56 @@ proc getLineShift {lines} {
 }
 
 proc debug {position color} {
-  Display::circle {*}$position 5 2 $color
+  # Display::circle {*}$position 3 2 $color false
+  Display::circle {*}$position 8 2 $color false
 }
 
 proc drawCursor {cursorPosition lineShift region} {
-  set cursorHeight 25
+  puts "$lineShift | $cursorPosition"
   set anchor [region centroid $region]
   set angle [region angle $region]
 
-  # Define constants
-  set shiftMultiplier [list 10 10]
   # 9 is the width of a character, 20 is the height of a character
   # These values could theortically be set from drawText in Display.tcl
-  set cursorScale [list 9 20]
+  set cursorHeight 20
+  set cursorWidth 9
+  set shiftMultiplier [list 10 10]
+
+  set cursorScale [list 20 20] ;# OLD
+  # set cursorScale [list $cursorHeight $cursorWidth]
 
   # Calculate the shift for the anchor point
   set lineShiftHalf [list [lindex $lineShift 0] 0]
   set multipliedShift [vec2::mult $shiftMultiplier $lineShift]
+  # This adjusted shift is seemingly wrong ....
   set adjustedShift [sub $multipliedShift $lineShiftHalf]
+  # set adjustedShift $multipliedShift
   set shiftedAnchor [sub $anchor $adjustedShift]
-
+  # add (x * width) to the shiftedAnchor position from the beginning of the line ...
   # Calculate the final cursor position
   set scaledCursor [vec2::mult $cursorScale $cursorPosition]
+  puts "lineShiftHalf | multipliedShift | adjustedShift | shiftedAnchor | scaledCursor"
+  puts "$lineShiftHalf | $multipliedShift | $adjustedShift | $shiftedAnchor | $scaledCursor"
+  debug $scaledCursor blue
+  # Something is going wrong here, I think
   set finalCursor [add $shiftedAnchor $scaledCursor]
-
+  debug $finalCursor gold
   # Rotate and display the cursor
   set rotatedFinalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
-  # debug $rotatedFinalCursor white
+  # This is where the cursor point is relative to.
+  debug $rotatedFinalCursor white
+  # cursor, green
   Display::stroke [rotateStroke \
       [list $finalCursor \
+      [add $finalCursor [list 0 $cursorHeight]] \
+    ] \
+    $anchor $angle] 2 green
+
+  # cursor box
+  Display::stroke [rotateStroke \
+      [list $finalCursor \
+      [add $finalCursor [list $cursorWidth 0]] \
+      [add $finalCursor [list [* -3 $cursorWidth] $cursorHeight]] \
       [add $finalCursor [list 0 $cursorHeight]] \
     ] \
     $anchor $angle] 2 green
