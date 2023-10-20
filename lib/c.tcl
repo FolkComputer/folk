@@ -428,6 +428,8 @@ namespace eval c {
                 Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
             }]
             ::proc cflags {args} { variable cflags; lappend cflags {*}$args }
+            cflags -I./vendor
+
             ::proc compile {} {
                 variable prelude
                 variable code
