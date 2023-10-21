@@ -29,6 +29,12 @@ r0s = MatrixSymbol('r0s', NUM_IMAGES, 3)
 r1s = MatrixSymbol('r1s', NUM_IMAGES, 3)
 ts = MatrixSymbol('ts', NUM_IMAGES, 3)
 
+# model: NUM_POINTS_PER_IMAGEx2 matrix
+# images: (NUM_POINTS_PER_IMAGE*NUM_IMAGES)x2 matrix
+# A: 3x3 matrix
+# r0s: NUM_IMAGESx3 matrix
+# r1s: NUM_IMAGESx3 matrix
+# ts: NUM_IMAGESx3 matrix
 def reprojectionError():
     err = 0
     for imageNum in range(NUM_IMAGES):
@@ -46,16 +52,6 @@ def reprojectionError():
             err += sqrt(diff[0, 0]**2 + diff[0, 1]**2)
 
     return err
-
-# TODO: Evaluate wrt concrete values, compare to Tcl error.
-# model: NUM_POINTS_PER_IMAGEx2 matrix
-# images: (NUM_POINTS_PER_IMAGE*NUM_IMAGES)x2 matrix
-# A: 3x3 matrix
-# r0s: NUM_IMAGESx3 matrix
-# r1s: NUM_IMAGESx3 matrix
-# ts: NUM_IMAGESx3 matrix
-def ccodeReprojectionError():
-    return ccode(reprojectionError())
 
 def ccodeReprojectionErrorJacobian():
     pass

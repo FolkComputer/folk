@@ -271,61 +271,124 @@ proc loadDetections {name sideLength detections} {
             upvar modelPoints modelPoints
             upvar imagePointsForDetection imagePointsForDetection
 
-            set cexpr [python3 [subst {
-                from sympy import *
-                import numpy as np
-
-                import sys
-                sys.path.append('/Users/osnr/Code/folk/play')
-
-                symplay = __import__("sym-play")
-                print(symplay.ccodeReprojectionError())
-            }]]
             set cc [c create]
             $cc include <math.h>
+            $cc include <string.h>
+            $cc include <assert.h>
+            $cc include "cmpfit/mpfit.h"
+            $cc cflags ./vendor/cmpfit/mpfit.c
             $cc code [csubst {
                 #define NUM_POINTS_IN_IMAGE $[llength $modelPoints]
                 #define NUM_IMAGES $[llength $imagePointsForDetection]
 
-                double Model[NUM_POINTS_IN_IMAGE * 2];
-                double Image[NUM_IMAGES * NUM_POINTS_IN_IMAGE * 2];
+                double Model[NUM_POINTS_IN_IMAGE][2];
+                double Image[NUM_IMAGES][NUM_POINTS_IN_IMAGE][2];
             }]
-            $cc proc reprojectionErrorCImpl {float[] Model float[] Image
-                                             float[] A float[] r0s float[] r1s float[] ts} float {
-                return $cexpr;
-                                             }
             $cc proc setModel {double[] model} void {
-                for (int i = 0; i < NUM_POINTS_IN_IMAGE * 2; i++) { Model[i] = model[i]; }
+                for (int i = 0; i < NUM_POINTS_IN_IMAGE; i++) {
+                    Model[i][0] = model[i * 2 + 0];
+                    Model[i][1] = model[i * 2 + 1];
+                }
             }
             $cc proc setImage {double[] image} void {
-                for (int i = 0; i < NUM_IMAGES * NUM_POINTS_IN_IMAGE * 2; i++) { Image[i] = image[i]; }
+                for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
+                    for (int i = 0; i < NUM_POINTS_IN_IMAGE; i++) {
+                        Image[imageNum][i][0] = image[NUM_IMAGES];
+                        Image[imageNum][i][1] = image[NUM_IMAGES];
+                    }
+                }
             }
-            $cc proc func {double[] params int _ void* __} double {
-                int i = 0;
-
-                double A[9];
-                for (int j = 0; j < 9; j++) { A[j] = params[i++]; }
-
-                double r0s[NUM_IMAGES * 3]; double r1s[NUM_IMAGES * 3]; double ts[NUM_IMAGES * 3];
-                for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
-                    r0s[3 * imageNum + 0] = params[i++];
-                    r0s[3 * imageNum + 1] = params[i++];
-                    r0s[3 * imageNum + 2] = params[i++];
+            $cc code {
+                void mulMat3Mat3(double A[3][3], double B[3][3], double out[3][3]) {
+                    memset(out, 0, sizeof(double) * 9);
+                    for (int y = 0; y < 3; y++) {
+                        for (int x = 0; x < 3; x++) {
+                            for (int k = 0; k < 3; k++) {
+                                out[y][x] += A[y][k] * B[k][x];
+                            }
+                        }
+                    }
                 }
-                for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
-                    r1s[3 * imageNum + 0] = params[i++];
-                    r1s[3 * imageNum + 1] = params[i++];
-                    r1s[3 * imageNum + 2] = params[i++];
+                void mulMat3Vec3(double A[3][3], double x[3], double out[3]) {
+                    memset(out, 0, sizeof(double) * 3);
+                    for (int y = 0; y < 3; y++) {
+                        out[y] = A[y][0]*x[0] + A[y][1]*x[1] + A[y][2]*x[2];
+                    }
                 }
-                for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
-                    ts[3 * imageNum + 0] = params[i++];
-                    ts[3 * imageNum + 1] = params[i++];
-                    ts[3 * imageNum + 2] = params[i++];
-                }
-                return $cexpr;
             }
-            $cc proc grad {double* params double* somthing int sth void* userdata} void {
-                
+            $cc proc func {int m int n double* x
+                           double* fvec double** dvec
+                           void* _} int {
+                assert(m == NUM_POINTS_IN_IMAGE * NUM_IMAGES);
+                double A[3][3];
+                double r0s[NUM_IMAGES][3]; double r1s[NUM_IMAGES][3]; double ts[NUM_IMAGES][3];
+                {
+                    // Unwrap the parameters x[]:
+                    int k = 0;
+
+                    for (int y = 0; y < 3; y++) {
+                        for (int i = 0; i < 3; i++) {
+                            A[y][i] = x[k++];
+                        }
+                    }
+
+                    for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
+                        r0s[imageNum][0] = x[k++];
+                        r0s[imageNum][1] = x[k++];
+                        r0s[imageNum][2] = x[k++];
+                    }
+                    for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
+                        r1s[imageNum][0] = x[k++];
+                        r1s[imageNum][1] = x[k++];
+                        r1s[imageNum][2] = x[k++];
+                    }
+                    for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
+                        ts[imageNum][0] = x[k++];
+                        ts[imageNum][1] = x[k++];
+                        ts[imageNum][2] = x[k++];
+                    }
+                    assert(n == k);
+                }
+                for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
+                    for (int i = 0; i < NUM_POINTS_IN_IMAGE; i++) {
+                        double* r0 = &r0s[imageNum][0];
+                        double* r1 = &r1s[imageNum][0];
+                        double* t = &ts[imageNum][0];
+                        double r0r1t[3][3] = {
+                            { r0[0], r1[0], t[0] },
+                            { r0[1], r1[1], t[1] },
+                            { r0[2], r1[2], t[2] }
+                        };
+                        double H[3][3]; mulMat3Mat3(A, r0r1t, H);
+                        double modelPointHom[3] = { Model[i][0], Model[i][1], 1 };
+
+                        double reprojectedImagePoint[3];
+                        mulMat3Vec3(H, modelPointHom, reprojectedImagePoint);
+                        reprojectedImagePoint[0] /= reprojectedImagePoint[2];
+                        reprojectedImagePoint[1] /= reprojectedImagePoint[2];
+                        reprojectedImagePoint[2] = 1;
+
+                        double imagePoint[2] = { Image[imageNum][i][0], Image[imageNum][i][1] };
+
+                        double dx = reprojectedImagePoint[0] - imagePoint[0];
+                        double dy = reprojectedImagePoint[1] - imagePoint[1];
+                        fvec[imageNum * NUM_POINTS_IN_IMAGE + i] = sqrt(dx * dx + dy * dy);
+                    }
+                }
+                return 0;
+            }
+            # For internal testing to check reprojection error.
+            $cc proc callFunc {double[] p0} double {
+                double errs[NUM_POINTS_IN_IMAGE * NUM_IMAGES];
+                func(NUM_POINTS_IN_IMAGE * NUM_IMAGES,
+                     9 + NUM_IMAGES * 9,
+                     p0, errs, NULL, NULL);
+
+                double errsum = 0;
+                for (int i = 0; i < sizeof(errs)/sizeof(errs[0]); i++) {
+                    errsum += errs[i];
+                }
+                return errsum;
             }
             $cc compile ;# takes about a half-second
             # reprojectionErrorCImpl [concat {*}$modelPoints] [concat {*}[concat {*}$imagePointsForDetection]] \
@@ -333,7 +396,8 @@ proc loadDetections {name sideLength detections} {
 
             setModel [concat {*}$modelPoints]
             setImage [concat {*}[concat {*}$imagePointsForDetection]]
-            func [concat {*}$A {*}$r0s {*}$r1s {*}$ts] 0 "(void*) 0x0"
+
+            callFunc [concat {*}$A {*}$r0s {*}$r1s {*}$ts]
         }
         puts "C error: [reprojectionErrorC $A $r0s $r1s $ts]"
 
