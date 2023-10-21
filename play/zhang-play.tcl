@@ -389,16 +389,25 @@ proc loadDetections {name sideLength detections} {
                 for (int i = 0; i < sizeof(errs)/sizeof(errs[0]); i++) {
                     errsum += errs[i];
                 }
+                printf("errsum: %f\n", errsum);
                 return errsum;
             }
+            $cc proc optimize {double[] params} void {
+                mp_result result = {0};
+                for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
+                mpfit(func, NUM_POINTS_IN_IMAGE * NUM_IMAGES,
+                      9 + NUM_IMAGES * 9, params, NULL,
+                      NULL, NULL, &result);
+                printf("Optimized\n");
+                for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
+                callFunc(params);
+            }
             $cc compile ;# takes about a half-second
-            # reprojectionErrorCImpl [concat {*}$modelPoints] [concat {*}[concat {*}$imagePointsForDetection]] \
-            #     [concat {*}$A] [concat {*}$r0s] [concat {*}$r1s] [concat {*}$ts]
 
             setModel [concat {*}$modelPoints]
             setImage [concat {*}[concat {*}$imagePointsForDetection]]
 
-            callFunc [concat {*}$A {*}$r0s {*}$r1s {*}$ts]
+            optimize [concat {*}$A {*}$r0s {*}$r1s {*}$ts]
         }
         puts "C error: [reprojectionErrorC $A $r0s $r1s $ts]"
 
