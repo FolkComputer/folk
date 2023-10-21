@@ -293,8 +293,9 @@ proc loadDetections {name sideLength detections} {
             $cc proc setImage {double[] image} void {
                 for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
                     for (int i = 0; i < NUM_POINTS_IN_IMAGE; i++) {
-                        Image[imageNum][i][0] = image[NUM_IMAGES];
-                        Image[imageNum][i][1] = image[NUM_IMAGES];
+                        int idx = imageNum * NUM_POINTS_IN_IMAGE * 2 + i * 2;
+                        Image[imageNum][i][0] = image[idx];
+                        Image[imageNum][i][1] = image[idx + 1];
                     }
                 }
             }
