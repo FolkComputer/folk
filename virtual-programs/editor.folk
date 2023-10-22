@@ -123,6 +123,14 @@ proc rotateStroke {points center angle} {
   }
 }
 
+proc getLineLength {code cursor} {
+  set lines [split $code "\n"]
+  set line [lindex $lines [lindex $cursor 1]]
+  set ll [string length $line]
+  puts "linelength: $ll"
+  return $ll
+}
+
 proc getLineShift {lines} {
   set longestLineLength 0
   foreach line [split $lines "\n"] {
@@ -148,6 +156,7 @@ proc drawCursor {cursorPosition lineShift region} {
   set shiftMultiplier [list 10 10]
 
   # 20 20 scale is arbitrary, computing it off of Display or something .....
+  # TODO: Pull these variables from the Display file
   set cursorScale [list 20 20] ;# OLD
   # set cursorScale [list $cursorHeight $cursorWidth]
 
@@ -161,9 +170,6 @@ proc drawCursor {cursorPosition lineShift region} {
   # add (x * width) to the shiftedAnchor position from the beginning of the line ...
   # Calculate the final cursor position
   set scaledCursor [vec2::mult $cursorScale $cursorPosition]
-
-  puts "lineShiftHalf | multipliedShift | adjustedShift | shiftedAnchor | scaledCursor"
-  puts "$lineShiftHalf | $multipliedShift | $adjustedShift | $shiftedAnchor | $scaledCursor"
 
   # Something is going wrong here, I think
   set finalCursor [add $shiftedAnchor $scaledCursor]
@@ -259,7 +265,6 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Claim the cursor is $cursor
       }
       default {
-        Claim the cursor is [updateCursor $cursor {x 1}]
         if {$modifier == "ctrl" & $currentCharacter == "p"} {
           Wish to print $code with job id [expr {rand()}]
           return
@@ -269,6 +274,19 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
           Claim the cursor is [list 0 0]
           return
         }
+        if {$modifier == "ctrl" & $currentCharacter == "a"} {
+          Commit code { Claim $id has program code $code}
+          lassign $cursor x y
+          Claim the cursor is [list 0 $y]
+          return
+        }
+        if {$modifier == "ctrl" & $currentCharacter == "e"} {
+          Commit code { Claim $id has program code $code}
+          lassign $cursor x y
+          Claim the cursor is [list [getLineLength $code $cursor] $y]
+          return
+        }
+        Claim the cursor is [updateCursor $cursor {x 1}]
         Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
       }
     }
