@@ -218,9 +218,11 @@ namespace eval statement {
     }
 
     # Converts a pattern from base form like `the time is /t/` to
-    # claimized form, `/someone/ claims the time is /t/`. The returned
-    # pattern is a new heap-allocated Tcl_Obj and should be freed by
-    # the caller.
+    # claimized form, `/someone/ claims the time is /t/`. Returns NULL
+    # if the pattern already has a verb like `claims` or `wishes` in
+    # second position and shouldn't be claimized. The returned pattern
+    # is a new heap-allocated Tcl_Obj and should be freed by the
+    # caller.
     $cc proc claimizePattern {Tcl_Obj* pattern} Tcl_Obj* {
         static Tcl_Obj* someoneClaims[2] = {0};
         if (someoneClaims[0] == NULL) {
@@ -228,6 +230,15 @@ namespace eval statement {
             someoneClaims[1] = Tcl_NewStringObj("claims", -1);
             Tcl_IncrRefCount(someoneClaims[0]);
             Tcl_IncrRefCount(someoneClaims[1]);
+        }
+
+        Tcl_Obj* secondWord;
+        if (Tcl_ListObjIndex(NULL, pattern, 1, &secondWord) == TCL_OK) {
+            if (secondWord != NULL &&
+                (strcmp(Tcl_GetString(secondWord), "claims") == 0 ||
+                 strcmp(Tcl_GetString(secondWord), "wishes") == 0)) {
+                return NULL;
+            }
         }
 
         // the time is /t/ -> /someone/ claims the time is /t/
@@ -655,10 +666,13 @@ namespace eval Statements { ;# singleton Statement store
         int resultsForFirstPatternCount = searchByPattern(substitutedFirstPattern,
                                                           maxResultsCount, resultsForFirstPattern);
         Tcl_Obj* claimizedSubstitutedFirstPattern = claimizePattern(substitutedFirstPattern);
-        resultsForFirstPatternCount += searchByPattern(claimizedSubstitutedFirstPattern,
-                                                       maxResultsCount - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
         Tcl_DecrRefCount(substitutedFirstPattern);
-        Tcl_DecrRefCount(claimizedSubstitutedFirstPattern);
+        if (claimizedSubstitutedFirstPattern != NULL) {
+            resultsForFirstPatternCount += searchByPattern(claimizedSubstitutedFirstPattern,
+                                                           maxResultsCount - resultsForFirstPatternCount,
+                                                           &resultsForFirstPattern[resultsForFirstPatternCount]);
+            Tcl_DecrRefCount(claimizedSubstitutedFirstPattern);
+        }
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
             if (env != NULL) {
@@ -954,7 +968,10 @@ namespace eval Evaluator {
             for (int i = 0; i < subpatternsCount; i++) {
                 Tcl_Obj* subpattern = subpatterns[i];
                 addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
-                addReaction(claimizePattern(subpattern), id, reactToStatementAdditionThatMatchesCollect);
+                Tcl_Obj* claimizedSubpattern = claimizePattern(subpattern);
+                if (claimizedSubpattern != NULL) {
+                    addReaction(claimizedSubpattern, id, reactToStatementAdditionThatMatchesCollect);
+                }
             }
 
             get(id)->collectNeedsRecollect = true;
@@ -967,7 +984,9 @@ namespace eval Evaluator {
             Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
             addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
             Tcl_Obj* claimizedPattern = claimizePattern(pattern);
-            addReaction(claimizedPattern, id, reactToStatementAdditionThatMatchesWhen);
+            if (claimizedPattern != NULL) {
+                addReaction(claimizedPattern, id, reactToStatementAdditionThatMatchesWhen);
+            }
 
             // Scan the existing statement set for any
             // already-existing matching statements.
@@ -978,11 +997,13 @@ namespace eval Evaluator {
                 statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
                 reactToStatementAdditionThatMatchesWhen(interp, id, pattern, alreadyMatchingStatementId);
             }
-            alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
-                                                          statementClauseToId, claimizedPattern);
-            for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
-                statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
-                reactToStatementAdditionThatMatchesWhen(interp, id, claimizedPattern, alreadyMatchingStatementId);
+            if (claimizedPattern != NULL) {
+                alreadyMatchingStatementIdsCount = trieLookup(interp, alreadyMatchingStatementIds, 1000,
+                                                              statementClauseToId, claimizedPattern);
+                for (int i = 0; i < alreadyMatchingStatementIdsCount; i++) {
+                    statement_handle_t alreadyMatchingStatementId = *(statement_handle_t *)&alreadyMatchingStatementIds[i];
+                    reactToStatementAdditionThatMatchesWhen(interp, id, claimizedPattern, alreadyMatchingStatementId);
+                }
             }
         }
 
