@@ -113,33 +113,24 @@ Start process "display" {
     while true {
         set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
         Step
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with arguments /args/}] {
+        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
             try {
-                dict lappend ::displayList 0 [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
-            } on error e { Say [dict get $match wisher] has error $e with info $::errorInfo }
-        }
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with arguments /args/ layer /layer/}] {
-            try {
-                dict lappend ::displayList [dict get $match layer] \
-                    [list Gpu::draw [dict get $::pipelines [dict get $match name]] {*}[dict get $match args]]
-            } on error e { Say [dict get $match wisher] has error $e with info $::errorInfo }
-        }
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with instances /instances/}] {
-            try {
+                set name [dict get $match name]
                 set pipeline [dict get $::pipelines [dict get $match name]]
-                foreach instance [dict get $match instances] {
-                    dict lappend ::displayList 0 [list Gpu::draw $pipeline {*}$instance]
+
+                set options [dict get $match options]
+                set layer [dict_getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
                 }
-            } on error e { Say [dict get $match wisher] has error $e with info $::errorInfo }
-        }
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with instances /instances/ layer /layer/}] {
-            try {
-                set layer [dict get $match layer]
-                set pipeline [dict get $::pipelines [dict get $match name]]
-                foreach instance [dict get $match instances] {
+                foreach instance $instances {
                     dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
                 }
-            } on error e { Say [dict get $match wisher] has error $e with info $::errorInfo }
+            } on error e {
+                Say [dict get $match wisher] has error $e with info $::errorInfo
+            }
         }
 
         set renderTime [baretime {
