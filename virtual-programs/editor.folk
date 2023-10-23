@@ -1,7 +1,3 @@
-# TODO: Make this not-hard-coded
-#       In fact, this shouldn't be "editor-1" at all but
-#       probably should be the MAC address or some Bluetooth
-#       thread ID?
 set id "editor-1"
 
 When /page/ is editor /n/ & /page/ has region /r/ {
@@ -107,13 +103,6 @@ proc drawText {text cursor count region} {
   Display::text {*}[region centroid $region] 1 $text [region angle $region] NeomatrixCode
 }
 
-#######################################
-# In order to construct a cursor that's relative to the virtual keyboard you must
-# know three things:
-#   1. The center of the virtual region
-#   2. The angle of the virtual region
-#   3. The position of the cursor relative to the virtual region (this is rather involved because it requires calcualting from the center and then taking cursor units from that point)
-#######################################
 proc rotateStroke {points center angle} {
   lmap v $points {
     set v [vec2 sub $v $center]
@@ -153,42 +142,28 @@ proc drawCursor {cursorPosition lineShift region} {
 
   set cursorHeight 20
   set cursorWidth 9
-  set shiftMultiplier [list 10 10]
+  set shiftMultiplier [list 12 20]
+  # set shiftMultiplier [list 14 25]
+  # set shiftMultiplier [list 14 20]
+  set cursorScale [list 14 25] ;# OLD
 
-  # 20 20 scale is arbitrary, computing it off of Display or something .....
-  # TODO: Pull these variables from the Display file
-  set cursorScale [list 20 20] ;# OLD
-  # set cursorScale [list $cursorHeight $cursorWidth]
-
-  # Calculate the shift for the anchor point
   set lineShiftHalf [list [lindex $lineShift 0] 0]
   set multipliedShift [vec2::mult $shiftMultiplier $lineShift]
-  # This adjusted shift is seemingly wrong ....
-  set adjustedShift [sub $multipliedShift $lineShiftHalf]
-  # set adjustedShift $multipliedShift
+  # set adjustedShift [sub $multipliedShift $lineShiftHalf]
+  set adjustedShift $multipliedShift
   set shiftedAnchor [sub $anchor $adjustedShift]
+  debug [lindex [rotateStroke [list $shiftedAnchor] $anchor $angle] 0] white
   # add (x * width) to the shiftedAnchor position from the beginning of the line ...
-  # Calculate the final cursor position
   set scaledCursor [vec2::mult $cursorScale $cursorPosition]
 
-  # Something is going wrong here, I think
   set finalCursor [add $shiftedAnchor $scaledCursor]
-  # debug $finalCursor gold
-  # Rotate and display the cursor
-  set rotatedFinalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
+  set rotatedFenalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
+
   # This is where the cursor point is relative to.
-  debug $rotatedFinalCursor white
   # cursor, green
   Display::stroke [rotateStroke \
       [list $finalCursor \
       [add $finalCursor [list 0 $cursorHeight]] \
-    ] \
-    $anchor $angle] 2 green
-
-  # cursor box
-  Display::stroke [rotateStroke \
-      [list $finalCursor \
-      [add $finalCursor [list $cursorWidth 0]] \
     ] \
     $anchor $angle] 2 green
 }
