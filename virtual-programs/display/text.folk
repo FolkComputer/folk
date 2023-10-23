@@ -146,8 +146,7 @@ On process "display" {
 
         set lineNum 0
         set instances [list]
-        for {set i 0} {$i < [string length $text]} {incr i} {
-            set char [string index $text $i]
+        foreach char [split $text ""] {
             if {$char eq "\n"} {
                 incr lineNum
                 lassign [vec2 add [list $x0 $y0] \
