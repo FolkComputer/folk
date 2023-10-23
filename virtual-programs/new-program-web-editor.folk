@@ -152,12 +152,14 @@ Wish the web server handles route "/new" with handler {
 	    Assert web claims {${program}} has program code {${code}}
 	    if {$::isLaptop} { Step }
 	  `);
-	  setTimeout(() => {
-	    send(`
+          [500, 1000, 3000].forEach(timeout => {
+	    setTimeout(() => {
+	      send(`
 set errors [Statements::findMatches [list {${program}} has error /err/ with info /errorInfo/]]
 ::websocket::send $chan text [join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"]
 `);
-	  }, 500);
+	    }, timeout);
+          });
 	}
 	let jobid;
 	function handlePrint() {
