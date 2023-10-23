@@ -40,12 +40,13 @@ When /someone/ wishes to draw a shape with /...options/ {
 
 set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
                 septagon 7 octagon 8 nonagon 9]
-When /someone/ wishes /p/ draws /a/ /shape/ {
+When /someone/ wishes /p/ draws a /shape/ {
   # TODO: This is a hack because rest pattern doesn't match empty
   # sequence at end.
-  Wish $p draws $a $shape with color white
+  Wish $p draws a $shape with color white
 }
-When /someone/ wishes /p/ draws /a/ /shape/ with /...options/ & /p/ has region /r/ {
+When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
+When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] x y
   set width [region width $r]
   set height [region height $r]
@@ -73,6 +74,9 @@ When /someone/ wishes /p/ draws /a/ /shape/ with /...options/ & /p/ has region /
       Wish to draw a shape with sides 2 \
           center $p radius $radius radians $angle color $color filled $filled
   }
+}
+When /someone/ wishes /p/ draws an /shape/ with /...options/ {
+  Wish $p draws a $shape with {*}$options
 }
 
 Claim $this has demo {
