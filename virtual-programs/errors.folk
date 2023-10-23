@@ -6,6 +6,14 @@ When /p/ has error /err/ with info /info/ {
             Wish $p is outlined red
         }
     }
-
     Wish $p is titled $err
+}
+
+When /p/ has warning /w/ with info /info/ {
+    When the clock time is /t/ {
+        if {[expr {(int($t * 5)) % 2}] != 1} {
+            Wish $p is outlined yellow
+        }
+    }
+    Wish $p is titled $w
 }

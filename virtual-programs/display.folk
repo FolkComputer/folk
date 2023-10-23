@@ -1,27 +1,3 @@
-namespace eval ::Display {
-    variable WIDTH
-    variable HEIGHT
-    variable LAYER 0
-    if {$::isLaptop} {
-        set WIDTH 640; set HEIGHT 480
-    } else {
-        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
-    }
-
-    # Create proxy versions of drawing primitives for the main Folk
-    # process (that will forward those draw commands to the display
-    # subprocess).
-    foreach func {stroke circle text fillTriangle fillQuad fillPolygon image} {
-        proc $func args {
-            set func [lindex [info level 0] 0]
-            error "$func has been removed; use GPU wishes/shaders"
-        }
-    }
-
-    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
-}
-
-
 namespace eval Colors { source "pi/Colors.tcl" }
 proc ::getColor {color} {
     if {[info exists Colors::$color]} { return [set Colors::$color] } \
@@ -149,9 +125,60 @@ Start process "display" {
     }
 }
 
-set ::Display::displayTime none
 set ::displayTime none
 When the display time is /displayTime/ {
     set ::Display::displayTime $displayTime
     set ::displayTime $displayTime
+}
+
+namespace eval ::Display {
+    variable displayTime none
+
+    variable WIDTH
+    variable HEIGHT
+    variable LAYER 0
+    if {$::isLaptop} {
+        set WIDTH 640; set HEIGHT 480
+    } else {
+        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+    }
+
+    # TODO: Remove these / expel them to a shim page; these are only
+    # for backward compatibility now.
+    proc warnDeprecated {} {
+        upvar 2 this this
+        set func [lindex [info level -1] 0]
+        set w "$func was deprecated in Oct 2023; use GPU wishes/shaders"
+        Claim $this has warning $w with info $w
+    }
+    proc stroke {points width color} {
+        warnDeprecated
+        Wish to draw a stroke with points $points width $width color $color
+    }
+    proc circle {x y radius thickness color {filled false}} {
+        warnDeprecated
+        Wish to draw a circle with x $x y $y radius $radius thickness $thickness color $color filled $filled
+    }
+    proc text {x0 y0 scale text radians {font "PTSans-Regular"}} {
+        warnDeprecated
+        Wish to draw text with x $x0 y $y0 scale $scale text $text radians $radians font $font
+    }
+    proc fillTriangle {p0 p1 p2 color} {
+        warnDeprecated
+        Wish to draw a triangle with p0 $p0 p1 $p1 p2 $p2 color $color
+    }
+    proc fillQuad {p0 p1 p2 p3 color} {
+        warnDeprecated
+        Wish to draw a quad with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color $color
+    }
+    proc fillPolygon {points color} {
+        warnDeprecated
+        Wish to draw a polygon with points $points color $color
+    }
+    proc image {x y im radians {scale 1.0}} {
+        warnDeprecated
+        Wish to draw an image with x $x y $y image $im radians $radians scale $scale
+    }
+
+    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
 }
