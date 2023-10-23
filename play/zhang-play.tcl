@@ -267,7 +267,7 @@ proc loadDetections {name sideLength detections} {
         proc pythonize {A} {
             string cat {[} [join [lmap row $A {string cat {[} [join $row ", "] {]}}] ", "] {]}
         }
-        proc reprojectionErrorC {A r0s r1s ts} {
+        proc reprojectionErrorC {alpha gamma u0 beta v0 r0s r1s ts} {
             upvar modelPoints modelPoints
             upvar imagePointsForDetection imagePointsForDetection
 
@@ -321,18 +321,23 @@ proc loadDetections {name sideLength detections} {
                            double* fvec double** dvec
                            void* _} int {
                 assert(m == NUM_POINTS_IN_IMAGE * NUM_IMAGES);
-                double A[3][3];
+
+                // Unwrap the parameters x[]:
+                int k = 0;
+
+                double alpha = x[k++];
+                double gamma = x[k++];
+                double u0 = x[k++];
+                double beta = x[k++];
+                double v0 = x[k++];
+                double A[3][3] = {
+                    {alpha, gamma, u0},
+                    {    0,  beta, v0},
+                    {    0,     0,  1}
+                };
+
                 double r0s[NUM_IMAGES][3]; double r1s[NUM_IMAGES][3]; double ts[NUM_IMAGES][3];
                 {
-                    // Unwrap the parameters x[]:
-                    int k = 0;
-
-                    for (int y = 0; y < 3; y++) {
-                        for (int i = 0; i < 3; i++) {
-                            A[y][i] = x[k++];
-                        }
-                    }
-
                     for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
                         r0s[imageNum][0] = x[k++];
                         r0s[imageNum][1] = x[k++];
@@ -348,8 +353,10 @@ proc loadDetections {name sideLength detections} {
                         ts[imageNum][1] = x[k++];
                         ts[imageNum][2] = x[k++];
                     }
-                    assert(n == k);
                 }
+
+                assert(n == k);
+
                 for (int imageNum = 0; imageNum < NUM_IMAGES; imageNum++) {
                     for (int i = 0; i < NUM_POINTS_IN_IMAGE; i++) {
                         double* r0 = &r0s[imageNum][0];
@@ -382,7 +389,7 @@ proc loadDetections {name sideLength detections} {
             $cc proc callFunc {double[] p0} double {
                 double errs[NUM_POINTS_IN_IMAGE * NUM_IMAGES];
                 func(NUM_POINTS_IN_IMAGE * NUM_IMAGES,
-                     9 + NUM_IMAGES * 9,
+                     5 + NUM_IMAGES * 9,
                      p0, errs, NULL, NULL);
 
                 double errsum = 0;
@@ -395,8 +402,9 @@ proc loadDetections {name sideLength detections} {
             $cc proc optimize {double[] params} void {
                 mp_result result = {0};
                 for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
+                callFunc(params);
                 mpfit(func, NUM_POINTS_IN_IMAGE * NUM_IMAGES,
-                      9 + NUM_IMAGES * 9, params, NULL,
+                      5 + NUM_IMAGES * 9, params, NULL,
                       NULL, NULL, &result);
                 printf("Optimized\n");
                 for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
@@ -407,9 +415,10 @@ proc loadDetections {name sideLength detections} {
             setModel [concat {*}$modelPoints]
             setImage [concat {*}[concat {*}$imagePointsForDetection]]
 
-            optimize [concat {*}$A {*}$r0s {*}$r1s {*}$ts]
+            optimize [concat [list $alpha $gamma $u0 $beta $v0] \
+                          {*}$r0s {*}$r1s {*}$ts]
         }
-        puts "C error: [reprojectionErrorC $A $r0s $r1s $ts]"
+        puts "C error: [reprojectionErrorC $alpha $gamma $u0 $beta $v0 $r0s $r1s $ts]"
 
         # proc ravel {A r0s r1s ts} {
             
