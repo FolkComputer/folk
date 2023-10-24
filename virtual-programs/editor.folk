@@ -169,7 +169,9 @@ proc drawCursor {cursorPosition lineShift region} {
   # set adjustedShift [sub $multipliedShift $lineShiftHalf]
   set adjustedShift $multipliedShift
   set shiftedAnchor [sub $anchor $adjustedShift]
-  debug [lindex [rotateStroke [list $shiftedAnchor] $anchor $angle] 0] white
+  if {$::debug_cursor} {
+    debug [lindex [rotateStroke [list $shiftedAnchor] $anchor $angle] 0] white
+  }
   # add (x * width) to the shiftedAnchor position from the beginning of the line ...
   set scaledCursor [vec2::mult $cursorScale $cursorPosition]
 
@@ -319,7 +321,6 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
           Claim the cursor is [list [getLineLength $code $cursor] $y]
           return
         }
-        puts "adding: $currentCharacter"
         Claim the cursor is [updateCursor $cursor {x 1}]
         Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
       }
