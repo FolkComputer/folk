@@ -1,4 +1,5 @@
 set id "editor-1"
+set debug_cursor false
 
 When /page/ is editor /n/ & /page/ has region /r/ {
     Wish $page is outlined gray
@@ -26,7 +27,10 @@ Commit cursor { Claim the cursor is [list 0 0]}
 proc insertCharacter {code newCharacter cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
-  set x [expr {$x - 1}]
+  set x [- $x 1]
+  if {$x < 0} {
+    set x 0
+  }
   set line [lindex $lines $y]
   set character [string cat [string index $line $x] $newCharacter]
   set line [string replace $line $x $x $character]
@@ -51,10 +55,17 @@ proc deleteCharacter {code cursor} {
     set thisLine [lindex $lines $y]
     set mergedLine [string cat $previousLine $thisLine]
     lset lines [expr {$y - 1}] $mergedLine
-    lset lines $y ""
+    lset lines $y "" ;# this sucks, instead delete the line
     # TODO:
     # - move cursor to end of previous line
-    lreplace lines $y $y
+    # lreplace lines $y $y
+    set newLines {}
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+      if {$i != $y} {
+        lappend newLines [lindex $lines $i]
+      }
+    }
+    set lines $newLines
   } else {
     set line [lindex $lines $y]
     set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
@@ -93,7 +104,7 @@ proc newRegion {program x y w h} {
 
 # set baseCode "Claim\nWish \$this is outlined green"
 # long base code
-set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum\nClaim bloooooop\nClaim hello"
+set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum long long long long long long long long long long long\nClaim bl000000000000000000000000000000_______oooooop\nClaim hello hello hello hello hello hello hello"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -116,7 +127,6 @@ proc getLineLength {code cursor} {
   set lines [split $code "\n"]
   set line [lindex $lines [lindex $cursor 1]]
   set ll [string length $line]
-  puts "linelength: $ll"
   return $ll
 }
 
@@ -133,12 +143,16 @@ proc getLineShift {lines} {
 
 proc debug {position color} {
   # Display::circle {*}$position 3 2 $color false
-  Display::circle {*}$position 8 2 $color false
+  Display::circle {*}$position 5 2 $color true
 }
 
 proc drawCursor {cursorPosition lineShift region} {
   set anchor [region centroid $region]
   set angle [region angle $region]
+
+  if {$debug_cursor} {
+    debug $anchor green
+  }
 
   set cursorHeight 20
   set cursorWidth 9
@@ -159,13 +173,30 @@ proc drawCursor {cursorPosition lineShift region} {
   set finalCursor [add $shiftedAnchor $scaledCursor]
   set rotatedFenalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
 
-  # This is where the cursor point is relative to.
-  # cursor, green
-  Display::stroke [rotateStroke \
-      [list $finalCursor \
-      [add $finalCursor [list 0 $cursorHeight]] \
-    ] \
-    $anchor $angle] 2 green
+  if {$debug_cursor} {
+    # This is where the cursor point is relative to.
+    # cursor, green
+    Display::stroke [rotateStroke \
+        [list $finalCursor \
+        [add $finalCursor [list 0 $cursorHeight]] \
+      ] \
+      $anchor $angle] 2 green  
+    # vertical reticle line
+    Display::stroke [rotateStroke \
+        [list $finalCursor \
+          [add $finalCursor [list 0 25]] \
+          [add $finalCursor [list 0 -25]] \
+      ] \
+      $anchor $angle] 2 green
+
+    # horizontal reticle line
+    Display::stroke [rotateStroke \
+        [list $finalCursor \
+          [add $finalCursor [list 25 0]] \
+          [add $finalCursor [list -25 0]] \
+      ] \
+      $anchor $angle] 2 green
+  }
 }
 
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
@@ -173,8 +204,31 @@ When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
 
   set lineShift [getLineShift $code]
-  # Hmmmm, need a fn to go from cursor to pixel positions
   drawCursor $cursor $lineShift $r
+
+  if {$debug_cursor} {
+    # draw lines for every line of text
+    set lineCount [llength [split $code "\n"]]
+    set horizontalLines [list]
+    set anchor [region centroid $r]
+    set angle [region angle $r]
+
+    set vertical_spacer 20
+    for {set i -10} { $i < 10 } {incr i} {
+      lappend verticalLines [add $anchor [list 0 [expr {$i * $vertical_spacer}]]]
+      lappend verticalLines [add $anchor [list 100 [expr {$i * $vertical_spacer}]]]
+      lappend verticalLines [add $anchor [list $vertical_spacer [expr {$i * $vertical_spacer}]]]
+    }
+
+    set horizontal_spacer 14
+    for {set i -10} { $i < 10 } {incr i} {
+      lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] 0]]
+      lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] 100 ]]
+      lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] $horizontal_spacer]]
+    }
+    Display::stroke [rotateStroke $verticalLines $anchor $angle] 2 green
+    Display::stroke [rotateStroke $horizontalLines $anchor $angle] 2 white
+  }
 }
 
 proc getCurrentLineLength {lines cursor} {
@@ -190,7 +244,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         set updatedCursor [updateCursor $cursor {y -1}]
         set currentLineLength  [getCurrentLineLength $code $updatedCursor]
         if {[lindex $updatedCursor 0] > $currentLineLength} {
-          Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
+          Claim the cursor is [list [- $currentLineLength 1]  [lindex $updatedCursor 1]]
         } else {
           Claim the cursor is $updatedCursor
         }
