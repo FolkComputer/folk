@@ -1,5 +1,5 @@
 set id "editor-1"
-set debug_cursor false
+set ::debug_cursor false
 
 When /page/ is editor /n/ & /page/ has region /r/ {
     Wish $page is outlined gray
@@ -28,14 +28,17 @@ proc insertCharacter {code newCharacter cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   set x [- $x 1]
-  if {$x < 0} {
-    set x 0
-  }
   set line [lindex $lines $y]
-  set character [string cat [string index $line $x] $newCharacter]
-  set line [string replace $line $x $x $character]
-  lset lines $y $line
-  return [join $lines "\n"]
+
+  if {$x < 0} {
+    lset lines $y [string cat $newCharacter $line]
+    return [join $lines "\n"]
+  } else {
+    set character [string cat [string index $line $x] $newCharacter]
+    set line [string replace $line $x $x $character]
+    lset lines $y $line
+    return [join $lines "\n"]
+  }
 }
 
 proc swapCharacter {code newCharacter cursor} {
@@ -150,7 +153,7 @@ proc drawCursor {cursorPosition lineShift region} {
   set anchor [region centroid $region]
   set angle [region angle $region]
 
-  if {$debug_cursor} {
+  if {$::debug_cursor} {
     debug $anchor green
   }
 
@@ -173,7 +176,7 @@ proc drawCursor {cursorPosition lineShift region} {
   set finalCursor [add $shiftedAnchor $scaledCursor]
   set rotatedFenalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
 
-  if {$debug_cursor} {
+  if {$::debug_cursor} {
     # This is where the cursor point is relative to.
     # cursor, green
     Display::stroke [rotateStroke \
@@ -206,7 +209,7 @@ When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor
   set lineShift [getLineShift $code]
   drawCursor $cursor $lineShift $r
 
-  if {$debug_cursor} {
+  if {$::debug_cursor} {
     # draw lines for every line of text
     set lineCount [llength [split $code "\n"]]
     set horizontalLines [list]
@@ -271,7 +274,6 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
           set previousLineLength  [getCurrentLineLength $code $newCursor]
           set newCursor [list $previousLineLength [y $newCursor]]
           Claim the cursor is $newCursor
-          # Delete the old line???
         } else {
           Claim the cursor is [updateCursor $cursor {x -1}]
         }
@@ -315,6 +317,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
           Claim the cursor is [list [getLineLength $code $cursor] $y]
           return
         }
+        puts "adding: $currentCharacter"
         Claim the cursor is [updateCursor $cursor {x 1}]
         Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
       }
