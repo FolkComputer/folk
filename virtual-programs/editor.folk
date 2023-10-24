@@ -105,9 +105,9 @@ proc newRegion {program x y w h} {
   Claim $program has region [region create $vertices $edges]
 }
 
-# set baseCode "Claim\nWish \$this is outlined green"
+set baseCode "Wish \$this is outlined green"
 # long base code
-set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum long long long long long long long long long long long\nClaim bl000000000000000000000000000000_______oooooop\nClaim hello hello hello hello hello hello hello"
+# set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum long long long long long long long long long long long\nClaim bl000000000000000000000000000000_______oooooop\nClaim hello hello hello hello hello hello hello"
 Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
@@ -279,12 +279,14 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         }
         Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
       }
+      DELETE {
+        # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
+      }
       SPACE {
         Claim the cursor is [updateCursor $cursor {x 1}]
         Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
       }
       ENTER {
-        # GOAL: Move cursor to beginning of next line
         set updatedCursor [updateCursor $cursor {y 1}]
         Claim the cursor is [list 0 [lindex $updatedCursor 1]]
         Commit code { Claim $id has program code [insertNewline $code $cursor] }
