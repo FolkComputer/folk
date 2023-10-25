@@ -3,48 +3,33 @@ On process "display" {
         set cc [c create]
         $cc include <math.h>
         defineImageType $cc
-        $cc struct GlyphInfo {
-            float advance;
-
-            float planeLeft;
-            float planeBottom;
-            float planeRight;
-            float planeTop;
-
-            float atlasLeft;
-            float atlasBottom;
-            float atlasRight;
-            float atlasTop;
-        }
         $cc struct Font {
             image_t atlasImage;
             int gpuAtlasImage;
             // TODO: This only handles ASCII, obviously.
-            GlyphInfo glyphInfos[128];
+            Tcl_Obj* glyphInfos[128];
         }
 
         proc load {name} {
             set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
-            set fields [list advance \
-                            planeLeft planeBottom planeRight planeTop \
-                            atlasLeft atlasBottom atlasRight atlasTop]
+            set fields [list ]
             # HACK: Create list of null glyphs to initialize.
             set glyphInfos [list]
             for {set i 0} {$i < 128} {incr i} {
-                set glyphInfo [dict create]
-                foreach field $fields { dict set glyphInfo $field 0 }
-                lappend glyphInfos $glyphInfo
+                lappend glyphInfos {}
             }
 
             foreach line [split $csv "\n"] {
                 set values [lassign [split $line ,] glyph]
                 if {![string is integer -strict $glyph]} { continue }
 
-                set glyphInfo [dict create]
-                foreach field $fields value $values {
-                    dict set glyphInfo $field $value
-                }
-                lset glyphInfos $glyph $glyphInfo
+                lassign $values advance \
+                    planeLeft planeBottom planeRight planeTop \
+                    atlasLeft atlasBottom atlasRight atlasTop
+                lset glyphInfos $glyph \
+                    [list $advance \
+                         [list $planeLeft $planeBottom $planeRight $planeTop] \
+                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
             }
 
             set im [image load "[pwd]/vendor/fonts/$name.png"]
@@ -74,14 +59,18 @@ On process "display" {
                 if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
                     ch = '?';
                 }
-                GlyphInfo glyphInfo = font->glyphInfos[ch];
-                x = x + glyphInfo.advance * em;
+                Tcl_Obj* glyphInfo = font->glyphInfos[ch];
+                Tcl_Obj* advanceObj; Tcl_ListObjIndex(NULL, glyphInfo, 0, &advanceObj);
+                double advance; Tcl_GetDoubleFromObj(NULL, advanceObj, &advance);
+                x = x + advance * em;
                 if (x > width) { width = x; }
             }
             return (vec2f) { width, y + em };
         }
         $cc proc textShape {Font* font char* text
                             float x0 float y0 float scale float radians} Tcl_Obj* {
+            Tcl_Obj* gpuAtlasImageSize = Tcl_ObjPrintf("%d %d", font->atlasImage.width, font->atlasImage.height);
+
             vec2f extent = vec2f_rotate(textExtent(font, text, scale), radians);
             float em = scale * 25.0;
 
@@ -100,18 +89,26 @@ On process "display" {
                 if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
                     ch = '?';
                 }
-                GlyphInfo glyphInfo = font->glyphInfos[ch];
+                Tcl_Obj* glyphInfo = font->glyphInfos[ch];
+                Tcl_Obj* advanceObj; Tcl_ListObjIndex(NULL, glyphInfo, 0, &advanceObj);
+                double advance; Tcl_GetDoubleFromObj(NULL, advanceObj, &advance);
                 if (ch != ' ') {
                     // Append to list of instances.
-                    Tcl_Obj* instance = Tcl_ObjPrintf("%d {%d %d} {%f %f %f %f} {%f %f %f %f} {%f %f} %f %f",
-                                                      font->gpuAtlasImage,
-                                                      font->atlasImage.width, font->atlasImage.height,
-                                                      glyphInfo.atlasLeft, glyphInfo.atlasBottom, glyphInfo.atlasRight, glyphInfo.atlasTop,
-                                                      glyphInfo.planeLeft, glyphInfo.planeBottom, glyphInfo.planeRight, glyphInfo.planeTop,
-                                                      p.x, p.y, radians, em);
+                    Tcl_Obj* planeBounds; Tcl_ListObjIndex(NULL, glyphInfo, 1, &planeBounds);
+                    Tcl_Obj* atlasBounds; Tcl_ListObjIndex(NULL, glyphInfo, 2, &atlasBounds);
+                    Tcl_Obj* pv[] = {Tcl_NewDoubleObj(p.x), Tcl_NewDoubleObj(p.y)};
+                    Tcl_Obj* pObj = Tcl_NewListObj(2, pv);
+                    Tcl_Obj* args[] = {
+                        Tcl_NewIntObj(font->gpuAtlasImage),
+                        gpuAtlasImageSize,
+                        atlasBounds,
+                        planeBounds,
+                        pObj, Tcl_NewDoubleObj(radians), Tcl_NewDoubleObj(em)
+                    };
+                    Tcl_Obj* instance = Tcl_NewListObj(sizeof(args)/sizeof(args[0]), args);
                     Tcl_ListObjAppendElement(NULL, instances, instance);
                 }
-                p = vec2f_add(p, vec2f_rotate((vec2f) {glyphInfo.advance * em, 0}, radians));
+                p = vec2f_add(p, vec2f_rotate((vec2f) {advance * em, 0}, radians));
             }
             return instances;
         }
@@ -184,9 +181,7 @@ On process "display" {
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes to draw text with /...options/]
 
-    set cc [c create]
-    
-    When /someone/ wishes to draw text with /...options/ {
+    When (non-capturing) /someone/ wishes to draw text with /...options/ {
         if {[dict exists $options center]} {
             lassign [dict get $options center] x0 y0
         } else {
