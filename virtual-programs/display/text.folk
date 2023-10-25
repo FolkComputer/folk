@@ -1,28 +1,121 @@
 On process "display" {
     namespace eval font {
+        set cc [c create]
+        $cc include <math.h>
+        defineImageType $cc
+        $cc struct GlyphInfo {
+            float advance;
+
+            float planeLeft;
+            float planeBottom;
+            float planeRight;
+            float planeTop;
+
+            float atlasLeft;
+            float atlasBottom;
+            float atlasRight;
+            float atlasTop;
+        }
+        $cc struct Font {
+            image_t atlasImage;
+            int gpuAtlasImage;
+            // TODO: This only handles ASCII, obviously.
+            GlyphInfo glyphInfos[128];
+        }
+
         proc load {name} {
             set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
-            set glyphInfos [dict create]
+            set fields [list advance \
+                            planeLeft planeBottom planeRight planeTop \
+                            atlasLeft atlasBottom atlasRight atlasTop]
+            # HACK: Create list of null glyphs to initialize.
+            set glyphInfos [list]
+            for {set i 0} {$i < 128} {incr i} {
+                set glyphInfo [dict create]
+                foreach field $fields { dict set glyphInfo $field 0 }
+                lappend glyphInfos $glyphInfo
+            }
+
             foreach line [split $csv "\n"] {
-                set info [lassign [split $line ,] glyph]
-                lassign $info advance \
-                    planeLeft planeBottom planeRight planeTop \
-                    atlasLeft atlasBottom atlasRight atlasTop
-                dict set glyphInfos $glyph \
-                    [list $advance \
-                         [list $planeLeft $planeBottom $planeRight $planeTop] \
-                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+                set values [lassign [split $line ,] glyph]
+                if {![string is integer -strict $glyph]} { continue }
+
+                set glyphInfo [dict create]
+                foreach field $fields value $values {
+                    dict set glyphInfo $field $value
+                }
+                lset glyphInfos $glyph $glyphInfo
             }
 
             set im [image load "[pwd]/vendor/fonts/$name.png"]
             set gim [Gpu::ImageManager::copyImageToGpu $im]
 
-            return [list $glyphInfos $im $gim]
+            return [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
         }
-        proc hasGlyphInfo {font charCode} { dict exists [lindex $font 0] $charCode }
-        proc glyphInfo {font charCode} { dict get [lindex $font 0] $charCode }
-        proc atlasImage {font} { lindex $font 1 }
-        proc gpuAtlasImage {font} { lindex $font 2 }
+        $cc struct vec2f { float x; float y; }
+        $cc proc vec2f_add {vec2f a vec2f b} vec2f {
+            return (vec2f) { a.x + b.x, a.y + b.y };
+        }
+        $cc proc vec2f_rotate {vec2f a float radians} vec2f {
+            return (vec2f) {
+                a.x*cosf(radians) + a.y*sinf(radians),
+                -a.x*sinf(radians) + a.y*cosf(radians)
+            };
+        }
+        $cc proc textExtent {Font* font char* text float scale} vec2f {
+            float em = scale * 25.0;
+            float x = 0; float y = 0;
+            float width = 0;
+            for (int i = 0; text[i] != 0; i++) {
+                int ch = text[i];
+                if (ch == '\n') {
+                    y = y + em; x = 0; continue;
+                }
+                if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+                    ch = '?';
+                }
+                GlyphInfo glyphInfo = font->glyphInfos[ch];
+                x = x + glyphInfo.advance * em;
+                if (x > width) { width = x; }
+            }
+            return (vec2f) { width, y + em };
+        }
+        $cc proc textShape {Font* font char* text
+                            float x0 float y0 float scale float radians} Tcl_Obj* {
+            vec2f extent = vec2f_rotate(textExtent(font, text, scale), radians);
+            float em = scale * 25.0;
+
+            vec2f p0 = { x0 - extent.x/2.0, y0 - extent.y/2.0 };
+            vec2f p = p0;
+
+            int lineNum = 0;
+            Tcl_Obj* instances = Tcl_NewListObj(0, NULL); // List of instances.
+            for (int i = 0; text[i] != 0; i++) {
+                int ch = text[i];
+                if (ch == '\n') {
+                    lineNum++;
+                    p = vec2f_add(p0, vec2f_rotate((vec2f) {0, lineNum * em}, radians));
+                    continue;
+                }
+                if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+                    ch = '?';
+                }
+                GlyphInfo glyphInfo = font->glyphInfos[ch];
+                if (ch != ' ') {
+                    // Append to list of instances.
+                    Tcl_Obj* instance = Tcl_ObjPrintf("%d {%d %d} {%f %f %f %f} {%f %f %f %f} {%f %f} %f %f",
+                                                      font->gpuAtlasImage,
+                                                      font->atlasImage.width, font->atlasImage.height,
+                                                      glyphInfo.atlasLeft, glyphInfo.atlasBottom, glyphInfo.atlasRight, glyphInfo.atlasTop,
+                                                      glyphInfo.planeLeft, glyphInfo.planeBottom, glyphInfo.planeRight, glyphInfo.planeTop,
+                                                      p.x, p.y, radians, em);
+                    Tcl_ListObjAppendElement(NULL, instances, instance);
+                }
+                p = vec2f_add(p, vec2f_rotate((vec2f) {glyphInfo.advance * em, 0}, radians));
+            }
+            return instances;
+        }
+        $cc compile
 
         namespace export *
         namespace ensemble create
@@ -88,31 +181,11 @@ On process "display" {
         return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
     }]
 
-    fn textExtent {text scale font} {
-        set em [* $scale 25.0]
-        set x 0; set y 0
-        set width 0
-        for {set i 0} {$i < [string length $text]} {incr i} {
-            set char [string index $text $i]
-            if {$char eq "\n"} {
-                set y [+ $y $em]; set x 0; continue
-            }
-            set charCode [scan $char %c]
-            if {[font hasGlyphInfo $font $charCode]} {
-                set glyphInfo [font glyphInfo $font $charCode]
-            } else {
-                set glyphInfo [font glyphInfo $font [scan ? %c]]
-            }
-            lassign $glyphInfo advance planeBounds atlasBounds
-            set x [+ $x [* $advance $em]]
-            if {$x > $width} { set width $x }
-        }
-        return [list $width [+ $y $em]]
-    }
-
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes to draw text with /...options/]
 
+    set cc [c create]
+    
     When /someone/ wishes to draw text with /...options/ {
         if {[dict exists $options center]} {
             lassign [dict get $options center] x0 y0
@@ -130,44 +203,7 @@ On process "display" {
         }
         set font [dict get $::FontCache $font]
 
-        set fontAtlas [font gpuAtlasImage $font]
-        set fontAtlasSize [list [::image width [font atlasImage $font]] \
-                               [::image height [font atlasImage $font]]]
-
-        set extent [vec2 rotate [textExtent $text $scale $font] $radians]
-
-        set em [* $scale 25.0]
-
-        # TODO: Add text alignment/anchor options (right now, this
-        # setup centers the text).
-        set x0 [expr {$x0 - [lindex $extent 0]/2}]
-        set y0 [expr {$y0 - [lindex $extent 1]/2}]
-        set x $x0; set y $y0
-
-        set lineNum 0
-        set instances [list]
-        foreach char [split $text ""] {
-            if {$char eq "\n"} {
-                incr lineNum
-                lassign [vec2 add [list $x0 $y0] \
-                             [vec2 rotate [list 0 [* $lineNum $em]] $radians]] x y
-                continue
-            }
-            set charCode [scan $char %c]
-            if {[font hasGlyphInfo $font $charCode]} {
-                set glyphInfo [font glyphInfo $font $charCode]
-            } else {
-                set glyphInfo [font glyphInfo $font [scan ? %c]]
-            }
-            lassign $glyphInfo advance planeBounds atlasBounds
-            if {$char ne " "} {
-                lappend instances \
-                    [list $fontAtlas $fontAtlasSize \
-                         $atlasBounds $planeBounds [list $x $y] $radians $em]
-            }
-            lassign [vec2 add [list $x $y] \
-                         [vec2 rotate [list [* $advance $em] 0] $radians]] x y
-        }
+        set instances [font textShape $font $text $x0 $y0 $scale $radians]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
