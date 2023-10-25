@@ -1,9 +1,9 @@
 proc loopRegion {edges vertices weight color} {
-	foreach edge $edges {
-		set from [lindex $vertices [lindex $edge 0]]
-		set to [lindex $vertices [lindex $edge 1]]
-		Display::stroke [list $from $to] $weight $color
-	}
+    foreach edge $edges {
+        set from [lindex $vertices [lindex $edge 0]]
+        set to [lindex $vertices [lindex $edge 1]]
+        Wish to draw a stroke with points [list $from $to] width $weight color $color
+    }
 }
 
 When the collected matches for [list /someone/ wishes /thing/ is outlined /color/] are /matches/ {

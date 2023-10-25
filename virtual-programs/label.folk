@@ -1,15 +1,12 @@
 When /thing/ has region /region/ {
     lassign [region centroid $region] x y
-    # set width [region width $region]
-    # set height [region height $region]
     set radians [region angle $region]
 
     When the collected matches for [list /someone/ wishes $thing is labelled /text/ with font /font/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
 
-        set scale 1
-        Display::text $x $y $scale $text $radians [dict get $match font]
+        Wish to draw text with x $x y $y text $text radians $radians font [dict get $match font]
     }
 }
 
