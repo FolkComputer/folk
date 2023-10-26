@@ -1,5 +1,5 @@
-set ROWS 4
-set COLS 6
+set ROWS 5
+set COLS 7
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS} {
     set calibrationBoardPs [apply {{ROWS COLS} {
@@ -22,11 +22,6 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
             grestore
 
             $margin $margin translate
-            /circlehere {
-              0 setgray 0.5 setlinewidth
-              0 0 3 0 360 arc closepath stroke
-            } def
-            circlehere
 
             [try {
                 set images [list]
@@ -37,10 +32,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
                         if {$id % 2 == 1} { continue }
                         lappend images [subst {
                             gsave
-                            [expr {$tagWidth*$col}] [expr {$tagHeight*$row}] translate
-                            circlehere
-
-                            $tagWidth $tagHeight scale
+                            [expr {$tagWidth*$col}] [expr {$tagHeight*$row + $tagHeight}] translate
+                            $tagWidth -$tagHeight scale
                             [::tagImageForId $id]
                             grestore
                         }]
@@ -50,7 +43,6 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
             }]
         }
     }} $ROWS $COLS]
-    puts whup
     set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
     set calibrationBoardPdf [read $fp]; close $fp
 
@@ -59,7 +51,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       <html>
       <body>
 
-      <iframe width="300px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+      <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
       </iframe>
 
       <p>
