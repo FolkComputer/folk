@@ -27,10 +27,11 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       <html>
       <body>
 
-      <a href="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">Calibration board</a>
+      <iframe width="300px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+      </iframe>
 
       <p>
-      Enter the side-length of a tag in millimeters:
+      Print the above board, then enter the side-length of a tag in millimeters and click Submit:
       <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Submit</button>
       </p>
 
