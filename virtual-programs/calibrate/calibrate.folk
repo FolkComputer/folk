@@ -1,104 +1,70 @@
-set cc [c create]
-$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
-c loadlib $::env(HOME)/apriltag/libapriltag.so
-$cc code {
-    #include <apriltag.h>
-    #include <tagStandard52h13.h>
-    apriltag_family_t *tf = NULL;
-
-    #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
-}
-$cc proc ::tagCanvasImageForId {int id} char* {
-    if (tf == NULL) tf = tagStandard52h13_create();
-
-    image_u8_t* image = apriltag_to_image(tf, id);
-
-    char* ret = ckalloc(100000);
-    int i = 0;
-    emit("ctx.save()\n");
-    emit("ctx.scale(%f, %f);\n", (float)image->width, (float)image->height);
-    for (int row = 0; row < image->height; row++) {
-        for (int col = 0; col < image->width; col++) {
-            uint8_t pixel = image->buf[(row * image->stride) + col];
-            emit("ctx.fillStyle = 'rgb(%d, %d, %d)';", pixel, pixel, pixel);
-            emit("ctx.beginPath();");
-            emit("ctx.moveTo(%d, %d);", col, row); // bottom-left
-            emit("ctx.lineTo(%d, %d);", col + 1, row); // bottom-right
-            emit("ctx.lineTo(%d, %d);", col + 1, row + 1); // top-right
-            emit("ctx.lineTo(%d, %d);", col, row + 1); // top-left
-            emit("ctx.closePath(); ctx.fill();");
-        }
-        emit("\n");
-    }
-    emit("ctx.restore();\n");
-    ret[i++] = '\0';
-    image_u8_destroy(image);
-    return ret;
-}
-$cc compile
-
 set ROWS 4
 set COLS 6
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS} {
-  upvar ^html ^html
-  html [csubst {
-    <html>
-    <body>
+    set calibrationBoardPs [apply {{} {
+        set margin 36
+        set PageWidth 612; set PageHeight 792
+        set tagwidth 150; set tagheight 150
+        subst {
+            %!PS
+            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-    <p>
+            90 rotate
+
+            gsave
+            [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
+            $tagwidth $tagheight scale
+            [::tagImageForId 48600]
+            grestore
+        }
+    }}]
+    set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
+    set calibrationBoardPdf [read $fp]; close $fp
+
+    upvar ^html ^html
+    html [csubst {
+      <html>
+      <body>
+
+      <a href="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">Calibration board</a>
+
+      <p>
       Enter the side-length of a tag in millimeters:
       <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Submit</button>
-    </p>
-    <script>
-      function uuidv4() {
-	  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-	    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-	  );
-      }
-      const self = uuidv4();
+      </p>
 
-    document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
-        // Report the side length to a statement in Folk.
-
-        const mm = document.getElementById("tag-side-length-mm").value;
-
-        window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-        ws.onopen = () => {
-          ws.send(`
-            set ::checkerboardDetections [list]
-            Retract \${self} claims the checkerboard tag side length is /anything/ mm
-            Assert \${self} claims the checkerboard tag side length is \${mm} mm
-         `);
-        };
-        window.onbeforeunload = () => {
-          ws.send(`
-            set ::checkerboardDetections [list]
-            Retract \${self} claims the checkerboard tag side length is /anything/ mm
-          `);
+      <script>
+        function uuidv4() {
+          return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+          );
         }
-      });
-    </script>
+        const self = uuidv4();
 
-    <canvas id="tags-canvas" width="1280" height="720"></canvas>
+        document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
+          // Report the side length to a statement in Folk.
 
-    <script>
-    const ctx = document.getElementById('tags-canvas').getContext('2d');
-    
-    $[apply {{} {
-        upvar ROWS ROWS; upvar COLS COLS
-        set images [list]
-        for {set row 0} {$row < $ROWS} {incr row} {
-            for {set col 0} {$col < $COLS} {incr col} {
-                lappend images "ctx.save(); ctx.translate($col * 120, $row * 120);
-                                [::tagCanvasImageForId [+ 48600 [llength $images]]]
-                                ctx.restore();"
-            }
-        }
-        return [join $images "\n"]
-    }}]
-    </script>
-    </body>
+          const mm = document.getElementById("tag-side-length-mm").value;
+
+          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+          ws.onopen = () => {
+            ws.send(`
+              set ::checkerboardDetections [list]
+              Retract \${self} claims the checkerboard tag side length is /anything/ mm
+              Assert \${self} claims the checkerboard tag side length is \${mm} mm
+           `);
+          };
+          window.onbeforeunload = () => {
+            ws.send(`
+              set ::checkerboardDetections [list]
+              Retract \${self} claims the checkerboard tag side length is /anything/ mm
+            `);
+          }
+        });
+      </script>
+
+      </body>
     </html>
   }]
 }} $ROWS $COLS]
