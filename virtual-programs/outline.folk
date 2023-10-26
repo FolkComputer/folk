@@ -1,9 +1,12 @@
-proc loopRegion {edges vertices weight color} {
+proc loopRegion {edges vertices width color} {
+    set instances [list]
+    set color [getColor $color]
     foreach edge $edges {
         set from [lindex $vertices [lindex $edge 0]]
         set to [lindex $vertices [lindex $edge 1]]
-        Wish to draw a stroke with points [list $from $to] width $weight color $color
+        lappend instances [list $from $to $width $color]
     }
+    Wish the GPU draws pipeline "line" with instances $instances
 }
 
 When the collected matches for [list /someone/ wishes /thing/ is outlined /color/] are /matches/ {
