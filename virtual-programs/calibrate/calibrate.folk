@@ -2,23 +2,55 @@ set ROWS 4
 set COLS 6
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS} {
-    set calibrationBoardPs [apply {{} {
+    set calibrationBoardPs [apply {{ROWS COLS} {
         set margin 36
         set PageWidth 612; set PageHeight 792
-        set tagwidth 150; set tagheight 150
+        set tagWidth 100; set tagHeight 100
         subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-            90 rotate
+            % (0, 0) is bottom-left of portrait page right now.
+            90 rotate 1 -1 scale
+            % Now (0, 0) is top-left of landscape page.
 
             gsave
-            [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
-            $tagwidth $tagheight scale
-            [::tagImageForId 48600]
+            $margin [/ $margin 2] translate
+            1 -1 scale
+            0 setgray /Helvetica findfont 12 scalefont setfont
+            newpath 0 0 moveto (Folk calibration board) show
             grestore
+
+            $margin $margin translate
+            /circlehere {
+              0 setgray 0.5 setlinewidth
+              0 0 3 0 360 arc closepath stroke
+            } def
+            circlehere
+
+            [try {
+                set images [list]
+                for {set row 0} {$row < $ROWS} {incr row} {
+                    for {set col 0} {$col < $COLS} {incr col} {
+                        set id [expr {48600 + $row*$COLS + $col}]
+                        # Leave a gap at every other tag for projected tags.
+                        if {$id % 2 == 1} { continue }
+                        lappend images [subst {
+                            gsave
+                            [expr {$tagWidth*$col}] [expr {$tagHeight*$row}] translate
+                            circlehere
+
+                            $tagWidth $tagHeight scale
+                            [::tagImageForId $id]
+                            grestore
+                        }]
+                    }
+                }
+                join $images "\n"
+            }]
         }
-    }}]
+    }} $ROWS $COLS]
+    puts whup
     set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
     set calibrationBoardPdf [read $fp]; close $fp
 
@@ -31,7 +63,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       </iframe>
 
       <p>
-      Print the above board, then enter the side-length of a tag in millimeters and click Submit:
+      Print the above board, then measure the inner side-length (6 pixels) of a tag in millimeters, enter it here, and click Submit:
       <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Submit</button>
       </p>
 
