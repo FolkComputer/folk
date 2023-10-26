@@ -612,27 +612,27 @@ if {[info exists ::entry]} {
         }}
 
         # Watch for virtual-programs/ changes.
-        # try {
-        #     set fd [open "|fswatch virtual-programs" r]
-        #     fconfigure $fd -buffering line
-        #     fileevent $fd readable [list apply {{fd} {
-        #         regexp {virtual-programs\/.*$} [gets $fd] changedPath
+        try {
+            set fd [open "|fswatch virtual-programs" r]
+            fconfigure $fd -buffering line
+            fileevent $fd readable [list apply {{fd} {
+                regexp {virtual-programs\/.*$} [gets $fd] changedPath
 
-        #         set changedFilename [file tail $changedPath]
-        #         if {[string index $changedFilename 0] eq "." ||
-        #             [string index $changedFilename 0] eq "#" ||
-        #             [file extension $changedFilename] ne ".folk"} {
-        #             return
-        #         }
+                set changedFilename [file tail $changedPath]
+                if {[string index $changedFilename 0] eq "." ||
+                    [string index $changedFilename 0] eq "#" ||
+                    [file extension $changedFilename] ne ".folk"} {
+                    return
+                }
 
-        #         puts "$changedPath updated, reloading."
-        #         set fp [open $changedPath r]; set programCode [read $fp]; close $fp
-        #         EditVirtualProgram $changedPath $programCode
-        #     }} $fd]
-        # } on error err {
-        #     puts stderr "Warning: could not invoke `fswatch` ($err)."
-        #     puts stderr "Will not watch virtual-programs for changes."
-        # }
+                puts "$changedPath updated, reloading."
+                set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+                EditVirtualProgram $changedPath $programCode
+            }} $fd]
+        } on error err {
+            puts stderr "Warning: could not invoke `fswatch` ($err)."
+            puts stderr "Will not watch virtual-programs for changes."
+        }
     }
     proc ::EditVirtualProgram {programName programCode} {
         set oldRootVirtualPrograms $::rootVirtualPrograms
