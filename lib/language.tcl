@@ -77,6 +77,16 @@ proc lenumerate {l} {
     set ret
 }
 
+# Create `dict getdef` / `dict getwithdefault`
+# Backported from https://core.tcl-lang.org/tips/doc/trunk/tip/342.md
+proc dict_getdef {D args} {
+    if {[dict exists $D {*}[lrange $args 0 end-1]]} then {
+        dict get $D {*}[lrange $args 0 end-1]
+    } else {
+        lindex $args end
+    }
+}
+
 proc python3 {args} {
     exec python3 << [undent [join $args " "]]
 }

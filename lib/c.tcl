@@ -309,6 +309,18 @@ namespace eval c {
                     \$argtype \$argname;
                     \$argname = *(($type *)\$obj->internalRep.ptrAndLongRep.ptr);
                 }]
+                argtype $type* [csubst {
+                    \$argtype \$argname;
+                    if (\$obj->bytes != NULL && \$obj->bytes[0] == '(') {
+                        // If it has a string repr and starts with (.
+                        __ENSURE(sscanf(Tcl_GetString(\$obj), "(\$argtype) 0x%p", &\$argname) == 1);
+
+                    } else {
+                        // Otherwise, try to coerce from struct.
+                        __ENSURE_OK(Tcl_ConvertToType(interp, \$obj, &$[set type]_ObjType));
+                        \$argname = ($type *)\$obj->internalRep.ptrAndLongRep.ptr;
+                    }
+                }]
 
                 rtype $type {
                     $robj = Tcl_NewObj();

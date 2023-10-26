@@ -56,21 +56,35 @@ namespace eval ::Zygote {
     }
 }
 
-proc On-process {name body} {
+proc Start-process {name body} {
+    if {[namespace exists ::Peers::$name]} {
+        error "Process $name already exists"
+        return
+    }
+
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     set processCode [list apply {{__parentProcess __name __body} {
         set ::thisProcess $__name
 
-        Assert <lib/process.tcl> wishes $::thisProcess shares all wishes
-        Assert <lib/process.tcl> wishes $::thisProcess shares all claims
-
         ::peer $__parentProcess true
 
+        Assert <lib/process.tcl> wishes $::thisProcess shares statements like \
+            [list /someone/ claims $::thisProcess has pid /something/]
+        Assert <lib/process.tcl> wishes $::thisProcess receives statements like \
+            [list /someone/ wishes program code /code/ runs on $::thisProcess]
+        Assert <lib/process.tcl> wishes $::thisProcess shares statements like \
+            [list /someone/ wishes $::thisProcess receives statements like /pattern/]
+
         Assert <lib/process.tcl> claims $::thisProcess has pid [pid]
-        Assert when $::thisProcess has pid /something/ [list {} $__body]
-        while true {
-            Step
-        }
+        # Run __body one Step before running any other program code.
+        Assert when $::thisProcess has pid /something/ [list {__body} {
+            When /someone/ wishes program code /__code/ runs on $::thisProcess {
+                eval $__code
+            }
+            eval $__body
+        }] with environment [list $__body]
+
+        while true { Step }
     }} $::thisProcess $name $body]
 
     ::peer $name false

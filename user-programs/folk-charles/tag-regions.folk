@@ -1,0 +1,11 @@
+# tag regions
+
+When /tag/ has region /r/ {
+  set w [region width $r]
+  set h [region height $r]
+
+  set t $r
+  set t [region scale $t width 100px height 100px]
+  set t [region move $t right 190px up 100px]
+  Claim tag $tag has region $t
+}

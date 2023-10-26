@@ -827,7 +827,7 @@ Try doing `sudo chmod 666 $renderFile`."
         foreach {argtype argname} $args {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {fnName fn}.
-                dict set depFnDict $argname [uplevel [list set $argname]]
+                dict set depFnDict [string map {: ""} $argname] [uplevel [list set $argname]]
             } else {
                 lappend fnArgs $argtype $argname
             }
@@ -1311,15 +1311,11 @@ Try doing `sudo chmod 666 $renderFile`."
 
         dc typedef int gpu_image_handle_t
         dc code [csubst {
-            // Contains all GPU-side data structures associated with
+            // Points to all GPU-side data structures associated with
             // an image (that we will destroy when we evict that
             // image).
             typedef struct gpu_image_block {
                 bool alive;
-
-                // This handle is the descriptor index (the index of
-                // the image in the _samplers array).
-                gpu_image_handle_t handle;
 
                 VkImage textureImage;
                 VkDeviceMemory textureImageMemory;
@@ -1489,6 +1485,26 @@ Try doing `sudo chmod 666 $renderFile`."
             block->alive = false;
 
             vkDeviceWaitIdle(device); // TODO: this is probably slow
+
+            // HACK: Use GPU image 0 as a placeholder so it doesn't
+            // fault if it tries to access this freed image.
+            {
+                VkDescriptorImageInfo imageInfo = {0};
+                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                imageInfo.imageView = gpuImages[0].textureImageView;
+                imageInfo.sampler = gpuImages[0].textureSampler;
+
+                VkWriteDescriptorSet descriptorWrite = {0};
+                descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrite.dstSet = imageDescriptorSet;
+                descriptorWrite.dstBinding = 0;
+                descriptorWrite.dstArrayElement = gim;
+                descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrite.descriptorCount = 1;
+                descriptorWrite.pImageInfo = &imageInfo;
+                vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+            }
+
             vkDestroyImage(device, block->textureImage, NULL);
             vkFreeMemory(device, block->textureImageMemory, NULL);
             vkDestroySampler(device, block->textureSampler, NULL);
@@ -1616,10 +1632,10 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set t 0
     while 1 {
         if {$t == 100} {
-            puts "Im2 is $im"
+            puts "Im2 is $im2"
             Gpu::ImageManager::freeGpuImage $im2
             set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg "/Users/osnr/Downloads/IMG_5992.jpeg"]]
-            puts "New im2 is $im"
+            puts "New im2 is $im2"
         }
 
         Gpu::drawStart

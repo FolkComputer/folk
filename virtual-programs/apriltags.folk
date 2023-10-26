@@ -3,21 +3,13 @@ if {$::isLaptop} return
 set tagfamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.
-set mainDetectorProcess [On process {
+set mainDetectorProcess [Start process {
     source pi/AprilTags.tcl
 
-    # TODO: Clean this up. We retract these so that we don't bounce
-    # statements back to the main Folk process that it sends us.
-    Retract /anyone/ wishes $::thisProcess shares all wishes
-    Retract /anyone/ wishes $::thisProcess shares all claims
     Wish $::thisProcess receives statements like \
         [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ wishes /process/ receives statements like /pattern/]
-    Wish $::thisProcess shares statements like \
         [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims $::thisProcess has pid /pid/]
 
     set detector [AprilTags new $tagfamily]
     When the camera frame is /grayFrame/ at /timestamp/ {
@@ -30,21 +22,13 @@ set mainDetectorProcess [On process {
 
 # Incremental detector. Looks at regions where there were tags in the
 # old camera frame.
-On process {
+Start process {
     source pi/AprilTags.tcl
 
-    # TODO: Clean this up. We retract these so that we don't bounce
-    # statements back to the main Folk process that it sends us.
-    Retract /anyone/ wishes $::thisProcess shares all wishes
-    Retract /anyone/ wishes $::thisProcess shares all claims
     Wish $::thisProcess receives statements like \
         [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
     Wish $::thisProcess receives statements like \
         [list /someone/ claims $mainDetectorProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ wishes /process/ receives statements like /pattern/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims $::thisProcess has pid /pid/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims $::thisProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
