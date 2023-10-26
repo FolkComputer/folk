@@ -147,6 +147,7 @@ namespace eval ::Display {
     # for backward compatibility now.
     proc warnDeprecated {} {
         upvar 2 this this
+        if {![info exists this]} {set this "<unknown>"}
         set func [lindex [info level -1] 0]
         set w "$func was deprecated in Oct 2023; use GPU wishes/shaders"
         Claim $this has warning $w with info $w
