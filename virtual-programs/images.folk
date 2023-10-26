@@ -36,8 +36,10 @@ namespace eval ::image {
     $cc include <string.h>
     if {[namespace exists ::Heap]} {
         $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+        $cc import ::Heap::cc folkHeapFree as folkHeapFree
     } else {
         $cc code { #define folkHeapAlloc malloc }
+        $cc code { #define folkHeapFree free }
     }
 
     $cc code {
@@ -256,6 +258,10 @@ namespace eval ::image {
         }
 
         return ret;
+    }
+
+    $cc proc freeImage {image_t im} void {
+        folkHeapFree(im.data);
     }
 
     $cc proc freeJpeg {image_t im} void {
