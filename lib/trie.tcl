@@ -22,7 +22,7 @@
 #
 
 namespace eval ctrie {
-    set cc [c create]
+    variable cc [c create]
     $cc include <stdlib.h>
     $cc include <string.h>
     $cc include <stdbool.h>

@@ -32,10 +32,10 @@ namespace eval statement {
         typedef struct statement_handle_t { int32_t idx; int32_t gen; } statement_handle_t;
         typedef struct match_handle_t { int32_t idx; int32_t gen; } match_handle_t;
     }
-    $cc rtype statement_handle_t { $robj = Tcl_ObjPrintf("s%d:%d", $rvalue.idx, $rvalue.gen); }
-    $cc argtype statement_handle_t { statement_handle_t $argname; sscanf(Tcl_GetString($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
-    $cc rtype match_handle_t { $robj = Tcl_ObjPrintf("m%d:%d", $rvalue.idx, $rvalue.gen); }
-    $cc argtype match_handle_t { match_handle_t $argname; sscanf(Tcl_GetString($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
+    $cc rtype statement_handle_t { $robj = Jim_ObjPrintf("s%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype statement_handle_t { statement_handle_t $argname; sscanf(Jim_GetString($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
+    $cc rtype match_handle_t { $robj = Jim_ObjPrintf("m%d:%d", $rvalue.idx, $rvalue.gen); }
+    $cc argtype match_handle_t { match_handle_t $argname; sscanf(Jim_GetString($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     $cc enum edge_type_t { EMPTY, PARENT, CHILD }
 
@@ -44,8 +44,8 @@ namespace eval statement {
         statement_handle_t statement;
     }
     $cc struct match_destructor_t {
-        Tcl_Obj* body;
-        Tcl_Obj* env;
+        Jim_Obj* body;
+        Jim_Obj* env;
     }
     $cc struct match_t {
         int32_t gen;
@@ -68,7 +68,7 @@ namespace eval statement {
     $cc struct statement_t {
         int32_t gen;
 
-        Tcl_Obj* clause;
+        Jim_Obj* clause;
         bool collectNeedsRecollect; // Dirty flag
 
         size_t capacity_edges;
@@ -80,16 +80,16 @@ namespace eval statement {
     $cc code {
         // Creates a new statement struct (that the caller will
         // probably want to put into the statement DB).
-        statement_t statementCreate(Tcl_Obj* clause,
+        statement_t statementCreate(Jim_Obj* clause,
                                     size_t n_parents, match_handle_t parents[],
                                     size_t n_children, match_handle_t children[]) {
             statement_t ret;
-            ret.clause = clause; Tcl_IncrRefCount(clause);
+            ret.clause = clause; Jim_IncrRefCount(clause);
             ret.capacity_edges = (n_parents + n_children) * 2;
             if (ret.capacity_edges < 8) { ret.capacity_edges = 8; }
             // FIXME: Use edge helpers.
             ret.n_edges = 0;
-            ret.edges = (edge_to_match_t *)ckalloc(sizeof(edge_to_match_t) * ret.capacity_edges);
+            ret.edges = (edge_to_match_t *)malloc(sizeof(edge_to_match_t) * ret.capacity_edges);
             for (size_t i = 0; i < n_parents; i++) {
                 ret.edges[ret.n_edges++] = (edge_to_match_t) { .type = PARENT, .match = parents[i] };
             }
@@ -121,7 +121,7 @@ namespace eval statement {
         static void statementDefragmentEdges(statement_t* stmt) {
             // Copy all non-EMPTY edges into a new edgelist.
             size_t n_edges = 0;
-            edge_to_match_t* edges = (edge_to_match_t *)ckalloc(stmt->capacity_edges * sizeof(edge_to_match_t));
+            edge_to_match_t* edges = (edge_to_match_t *)malloc(stmt->capacity_edges * sizeof(edge_to_match_t));
             memset(edges, 0, stmt->capacity_edges * sizeof(edge_to_match_t));
             for (size_t i = 0; i < stmt->n_edges; i++) {
                 edge_to_match_t* edge = statementEdgeAt(stmt, i);
@@ -129,13 +129,13 @@ namespace eval statement {
             }
 
             stmt->n_edges = n_edges;
-            ckfree((char *)stmt->edges);
+            free((char *)stmt->edges);
             stmt->edges = edges;
         }
         static void matchDefragmentEdges(match_t* match) {
             // Copy all non-EMPTY edges into a new edgelist.
             size_t n_edges = 0;
-            edge_to_statement_t* edges = (edge_to_statement_t *)ckalloc(match->capacity_edges * sizeof(edge_to_statement_t));
+            edge_to_statement_t* edges = (edge_to_statement_t *)malloc(match->capacity_edges * sizeof(edge_to_statement_t));
             memset(edges, 0, match->capacity_edges * sizeof(edge_to_statement_t));
             for (size_t i = 0; i < match->n_edges; i++) {
                 edge_to_statement_t* edge = &match->edges[i];
@@ -143,28 +143,28 @@ namespace eval statement {
             }
 
             match->n_edges = n_edges;
-            ckfree((char *)match->edges);
+            free((char *)match->edges);
             match->edges = edges;
         }
     }
 
     namespace export clause parentMatchIds childMatchIds
-    $cc proc clause {Tcl_Obj* stmtobj} Tcl_Obj* {
+    $cc proc clause {Jim_Obj* stmtobj} Jim_Obj* {
         assert(stmtobj->typePtr == &statement_t_ObjType);
         return ((statement_t *)stmtobj->internalRep.ptrAndLongRep.ptr)->clause;
     }
-    $cc proc edges {Tcl_Interp* interp Tcl_Obj* stmtobj} Tcl_Obj* {
+    $cc proc edges {Jim_Interp* interp Jim_Obj* stmtobj} Jim_Obj* {
         assert(stmtobj->typePtr == &statement_t_ObjType);
         statement_t* stmt = stmtobj->internalRep.ptrAndLongRep.ptr;
-        Tcl_Obj* ret = Tcl_NewListObj(stmt->n_edges, NULL);
+        Jim_Obj* ret = Jim_NewListObj(stmt->n_edges, NULL);
         for (size_t i = 0; i < stmt->n_edges; i++) {
             edge_to_match_t* edge = statementEdgeAt(stmt, i);
-            Tcl_Obj* edgeobj = Tcl_NewObj();
+            Jim_Obj* edgeobj = Jim_NewObj();
             edgeobj->typePtr = &edge_to_match_t_ObjType;
             edgeobj->bytes = NULL;
             edgeobj->internalRep.ptrAndLongRep.ptr = edge;
             edgeobj->internalRep.ptrAndLongRep.value = 0;
-            Tcl_ListObjAppendElement(interp, ret, edgeobj);
+            Jim_ListObjAppendElement(interp, ret, edgeobj);
         }
         return ret;
     }
@@ -197,17 +197,17 @@ namespace eval statement {
     #     `/thing/ is red`,
     #     `/thing/ is cool`
     #
-    # Each subpattern in the out array is a new heap-allocated Tcl_Obj
+    # Each subpattern in the out array is a new heap-allocated Jim_Obj
     # and should be freed by the caller.
-    $cc proc splitPattern {Tcl_Obj* pattern
-                           int maxSubpatternsCount Tcl_Obj** outSubpatterns} int {
-        int patternLength; Tcl_Obj** patternWords;
-        Tcl_ListObjGetElements(NULL, pattern, &patternLength, &patternWords);
+    $cc proc splitPattern {Jim_Obj* pattern
+                           int maxSubpatternsCount Jim_Obj** outSubpatterns} int {
+        int patternLength; Jim_Obj** patternWords;
+        Jim_ListObjGetElements(NULL, pattern, &patternLength, &patternWords);
         int subpatternLength = 0;
         int subpatternsCount = 0;
         for (int i = 0; i <= patternLength; i++) {
-            if (i == patternLength || strcmp(Tcl_GetString(patternWords[i]), "&") == 0) {
-                Tcl_Obj* subpattern = Tcl_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
+            if (i == patternLength || strcmp(Jim_GetString(patternWords[i]), "&") == 0) {
+                Jim_Obj* subpattern = Jim_NewListObj(subpatternLength, &patternWords[i - subpatternLength]);
                 outSubpatterns[subpatternsCount++] = subpattern;
                 subpatternLength = 0;
             } else {
@@ -219,20 +219,20 @@ namespace eval statement {
 
     # Converts a pattern from base form like `the time is /t/` to
     # claimized form, `/someone/ claims the time is /t/`. The returned
-    # pattern is a new heap-allocated Tcl_Obj and should be freed by
+    # pattern is a new heap-allocated Jim_Obj and should be freed by
     # the caller.
-    $cc proc claimizePattern {Tcl_Obj* pattern} Tcl_Obj* {
-        static Tcl_Obj* someoneClaims[2] = {0};
+    $cc proc claimizePattern {Jim_Obj* pattern} Jim_Obj* {
+        static Jim_Obj* someoneClaims[2] = {0};
         if (someoneClaims[0] == NULL) {
-            someoneClaims[0] = Tcl_NewStringObj("/someone/", -1);
-            someoneClaims[1] = Tcl_NewStringObj("claims", -1);
-            Tcl_IncrRefCount(someoneClaims[0]);
-            Tcl_IncrRefCount(someoneClaims[1]);
+            someoneClaims[0] = Jim_NewStringObj(interp, "/someone/", -1);
+            someoneClaims[1] = Jim_NewStringObj(interp, "claims", -1);
+            Jim_IncrRefCount(someoneClaims[0]);
+            Jim_IncrRefCount(someoneClaims[1]);
         }
 
         // the time is /t/ -> /someone/ claims the time is /t/
-        Tcl_Obj* ret = Tcl_DuplicateObj(pattern);
-        Tcl_ListObjReplace(NULL, ret, 0, 0, 2, someoneClaims);
+        Jim_Obj* ret = Jim_DuplicateObj(interp, pattern);
+        Jim_ListInsertElements(interp, ret, 0, 2, someoneClaims);
         return ret;
     }
 }
@@ -263,7 +263,7 @@ namespace eval Statements { ;# singleton Statement store
             }
         }
         matches[nextMatchIdx].capacity_edges = 16;
-        matches[nextMatchIdx].edges = (edge_to_statement_t*)ckalloc(16 * sizeof(edge_to_statement_t));
+        matches[nextMatchIdx].edges = (edge_to_statement_t*)malloc(16 * sizeof(edge_to_statement_t));
         matches[nextMatchIdx].isFromCollect = false;
         matches[nextMatchIdx].alive = true;
         return (match_handle_t) {
@@ -277,17 +277,17 @@ namespace eval Statements { ;# singleton Statement store
         }
         return &matches[matchId.idx];
     }
-    $cc proc matchEdges {Tcl_Interp* interp match_handle_t matchId} Tcl_Obj* {
+    $cc proc matchEdges {Jim_Interp* interp match_handle_t matchId} Jim_Obj* {
         match_t* match = matchGet(matchId);
-        Tcl_Obj* ret = Tcl_NewListObj(match->n_edges, NULL);
+        Jim_Obj* ret = Jim_NewListObj(match->n_edges, NULL);
         for (size_t i = 0; i < match->n_edges; i++) {
             edge_to_statement_t* edge = &match->edges[i];
-            Tcl_Obj* edgeobj = Tcl_NewObj();
+            Jim_Obj* edgeobj = Jim_NewObj();
             edgeobj->typePtr = &edge_to_statement_t_ObjType;
             edgeobj->bytes = NULL;
             edgeobj->internalRep.ptrAndLongRep.ptr = edge;
             edgeobj->internalRep.ptrAndLongRep.value = 0;
-            Tcl_ListObjAppendElement(interp, ret, edgeobj);
+            Jim_ListObjAppendElement(interp, ret, edgeobj);
         }
         return ret;
     }
@@ -295,8 +295,8 @@ namespace eval Statements { ;# singleton Statement store
         match_t* match = matchGet(matchId);
         for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
             if (match->destructors[i].body != NULL) {
-                Tcl_DecrRefCount(match->destructors[i].body);
-                Tcl_DecrRefCount(match->destructors[i].env);
+                Jim_DecrRefCount(match->destructors[i].body);
+                Jim_DecrRefCount(match->destructors[i].env);
                 match->destructors[i].body = NULL;
                 match->destructors[i].env = NULL;
             }
@@ -304,20 +304,20 @@ namespace eval Statements { ;# singleton Statement store
         match->alive = false;
         match->gen++;
         match->n_edges = 0;
-        ckfree((char*)match->edges);
+        free((char*)match->edges);
     }
     $cc proc matchExists {match_handle_t matchId} bool {
         match_t* match = matchGet(matchId);
         return match != NULL && match->alive;
     }
-    $cc proc matchAddDestructor {match_handle_t matchId Tcl_Obj* body Tcl_Obj* env} void {
+    $cc proc matchAddDestructor {match_handle_t matchId Jim_Obj* body Jim_Obj* env} void {
         match_t* match = matchGet(matchId);
         for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
             if (match->destructors[i].body == NULL) {
                 match->destructors[i].body = body;
                 match->destructors[i].env = env;
-                Tcl_IncrRefCount(body);
-                Tcl_IncrRefCount(env);
+                Jim_IncrRefCount(body);
+                Jim_IncrRefCount(env);
                 return;
             }
         }
@@ -347,11 +347,11 @@ namespace eval Statements { ;# singleton Statement store
         statement_t* stmt = get(id);
 
         int32_t gen = stmt->gen;
-        Tcl_Obj* clause = stmt->clause;
-        ckfree((char *)stmt->edges);
+        Jim_Obj* clause = stmt->clause;
+        free((char *)stmt->edges);
         memset(stmt, 0, sizeof(*stmt));
         trieRemove(NULL, statementClauseToId, clause);
-        Tcl_DecrRefCount(clause);
+        Jim_DecrRefCount(clause);
 
         stmt->gen = gen;
         stmt->gen++;
@@ -387,8 +387,8 @@ namespace eval Statements { ;# singleton Statement store
         addMatchImpl [llength $parentMatchIds] $parentMatchIds
     }
 
-    $cc proc addImpl {Tcl_Interp* interp
-                      Tcl_Obj* clause
+    $cc proc addImpl {Jim_Interp* interp
+                      Jim_Obj* clause
                       size_t n_parents match_handle_t parents[]
                       statement_handle_t* outStatement
                       bool* outIsNewStatement} void {
@@ -402,7 +402,7 @@ namespace eval Statements { ;# singleton Statement store
             id.idx = -1;
         } else {
             // error WTF
-            printf("WTF: looked up %s\n", Tcl_GetString(clause));
+            printf("WTF: looked up %s\n", Jim_GetString(clause));
             exit(1);
         }
 
@@ -437,7 +437,7 @@ namespace eval Statements { ;# singleton Statement store
         void statementRealloc(statement_handle_t id) {
             statement_t* stmt = get(id);
             assert(stmt != NULL);
-            stmt->edges = (edge_to_match_t *)ckrealloc((char *)stmt->edges, stmt->capacity_edges*sizeof(edge_to_match_t));
+            stmt->edges = (edge_to_match_t *)realloc((char *)stmt->edges, stmt->capacity_edges*sizeof(edge_to_match_t));
         }
         void statementAddEdgeToMatch(statement_handle_t statementId,
                                      edge_type_t type, match_handle_t matchId) {
@@ -478,7 +478,7 @@ namespace eval Statements { ;# singleton Statement store
         void matchRealloc(match_handle_t id) {
             match_t* match = matchGet(id);
             assert(match != NULL);
-            match->edges = (edge_to_statement_t *)ckrealloc((char *)match->edges, match->capacity_edges*sizeof(edge_to_statement_t));
+            match->edges = (edge_to_statement_t *)realloc((char *)match->edges, match->capacity_edges*sizeof(edge_to_statement_t));
         }
         void matchAddEdgeToStatement(match_handle_t matchId,
                                      edge_type_t type, statement_handle_t statementId) {
@@ -515,7 +515,7 @@ namespace eval Statements { ;# singleton Statement store
 
     $cc struct environment_binding_t {
         char name[100];
-        Tcl_Obj* value;
+        Jim_Obj* value;
     }
     $cc struct environment_t {
         // This environment corresponds to a single concrete match.
@@ -528,7 +528,7 @@ namespace eval Statements { ;# singleton Statement store
         environment_binding_t bindings[1];
     }
     $cc code {
-        Tcl_Obj* environmentLookup(environment_t* env, const char* varName) {
+        Jim_Obj* environmentLookup(environment_t* env, const char* varName) {
             for (int i = 0; i < env->bindingsCount; i++) {
                 if (strcmp(env->bindings[i].name, varName) == 0) {
                     return env->bindings[i].value;
@@ -536,12 +536,12 @@ namespace eval Statements { ;# singleton Statement store
             }
             return NULL;
         }
-        Tcl_Obj* environmentToTclDict(environment_t* env) {
-            Tcl_Obj* ret = Tcl_NewDictObj();
+        Jim_Obj* environmentToTclDict(environment_t* env) {
+            Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
             for (int i = 0; i < env->bindingsCount; i++) {
-                Tcl_DictObjPut(NULL, ret,
-                               Tcl_NewStringObj(env->bindings[i].name, -1),
-                               env->bindings[i].value);
+                Jim_DictAddElement(interp, ret,
+                                   Jim_NewStringObj(interp, env->bindings[i].name, -1),
+                                   env->bindings[i].value);
             }
             return ret;
         }
@@ -549,18 +549,18 @@ namespace eval Statements { ;# singleton Statement store
 
     # unify allocates a new environment.
     $cc proc isBlank {char* varName} bool [subst {
-        [join [lmap blank $statement::blanks {subst {
+        [join [lmap blank $::statement::blanks {subst {
             if (strcmp(varName, "$blank") == 0) { return true; }
         }}] "\n"]
         return false;
     }]
-    $cc proc unify {Tcl_Obj* a Tcl_Obj* b} environment_t* {
-        int alen; Tcl_Obj** awords;
-        int blen; Tcl_Obj** bwords;
-        Tcl_ListObjGetElements(NULL, a, &alen, &awords);
-        Tcl_ListObjGetElements(NULL, b, &blen, &bwords);
+    $cc proc unify {Jim_Obj* a Jim_Obj* b} environment_t* {
+        int alen; Jim_Obj** awords;
+        int blen; Jim_Obj** bwords;
+        Jim_ListObjGetElements(NULL, a, &alen, &awords);
+        Jim_ListObjGetElements(NULL, b, &blen, &bwords);
 
-        environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
+        environment_t* env = (environment_t*)malloc(sizeof(environment_t) + sizeof(environment_binding_t)*alen);
         memset(env, 0, sizeof(*env));
         for (int i = 0; i < alen; i++) {
             char aVarName[100] = {0}; char bVarName[100] = {0};
@@ -568,7 +568,7 @@ namespace eval Statements { ;# singleton Statement store
                 if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
-                    binding->value = Tcl_NewListObj(blen - i, &bwords[i]);
+                    binding->value = Jim_NewListObj(blen - i, &bwords[i]);
 
                 } else if (!isBlank(aVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
@@ -579,7 +579,7 @@ namespace eval Statements { ;# singleton Statement store
                 if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
                     memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
-                    binding->value = Tcl_NewListObj(alen - i, &awords[i]);
+                    binding->value = Jim_NewListObj(alen - i, &awords[i]);
 
                 } else if (!isBlank(bVarName)) {
                     environment_binding_t* binding = &env->bindings[env->bindingsCount++];
@@ -587,15 +587,15 @@ namespace eval Statements { ;# singleton Statement store
                     binding->value = awords[i];
                 }
             } else if (!(awords[i] == bwords[i] ||
-                         strcmp(Tcl_GetString(awords[i]), Tcl_GetString(bwords[i])) == 0)) {
-                ckfree((char *)env);
-                fprintf(stderr, "unification wrt (%s) (%s) failed\n", Tcl_GetString(a), Tcl_GetString(b));
+                         strcmp(Jim_GetString(awords[i]), Jim_GetString(bwords[i])) == 0)) {
+                free((char *)env);
+                fprintf(stderr, "unification wrt (%s) (%s) failed\n", Jim_GetString(a), Jim_GetString(b));
                 return NULL;
             }
         }
         return env;
     }
-    $cc proc searchByPattern {Tcl_Obj* pattern
+    $cc proc searchByPattern {Jim_Obj* pattern
                               int maxResultsCount environment_t** outResults} int {
         uint64_t ids[maxResultsCount];
         int idsCount = trieLookup(NULL, ids, maxResultsCount, statementClauseToId, pattern);
@@ -612,53 +612,53 @@ namespace eval Statements { ;# singleton Statement store
         }
         return resultsCount;
     }
-    $cc proc findMatches {Tcl_Obj* pattern} Tcl_Obj* {
-        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+    $cc proc findMatches {Jim_Obj* pattern} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(0, NULL);
 
         environment_t* results[1000];
         int resultsCount = searchByPattern(pattern, 1000, results);
         for (int i = 0; i < resultsCount; i++) {
-            Tcl_Obj* matchObj = environmentToTclDict(results[i]);
+            Jim_Obj* matchObj = environmentToTclDict(results[i]);
             statement_handle_t id = results[i]->matchedStatementIds[0];
-            Tcl_DictObjPut(NULL, matchObj, Tcl_ObjPrintf("__matcheeIds"), Tcl_ObjPrintf("{s%d:%d}", id.idx, id.gen));
-            Tcl_ListObjAppendElement(NULL, ret, matchObj);
-            ckfree((char *)results[i]);
+            Jim_DictObjPut(NULL, matchObj, Jim_ObjPrintf("__matcheeIds"), Jim_ObjPrintf("{s%d:%d}", id.idx, id.gen));
+            Jim_ListObjAppendElement(NULL, ret, matchObj);
+            free((char *)results[i]);
         }
         return ret;
     }
 
-    $cc proc count {Tcl_Obj* pattern} int {
+    $cc proc count {Jim_Obj* pattern} int {
         environment_t* outResults[1000];
         return searchByPattern(pattern, 1000, outResults);
     }
-    $cc proc searchByPatterns {int patternsCount Tcl_Obj* patterns[]
+    $cc proc searchByPatterns {int patternsCount Jim_Obj* patterns[]
                                environment_t* env
                                int maxResultsCount environment_t** outResults
                                int* outResultsCount} void {
         // Do substitution of bindings into first pattern
-        Tcl_Obj* substitutedFirstPattern = Tcl_DuplicateObj(patterns[0]);
-        int wordCount; Tcl_Obj** words;
-        Tcl_ListObjGetElements(NULL, substitutedFirstPattern,
+        Jim_Obj* substitutedFirstPattern = Jim_DuplicateObj(interp, patterns[0]);
+        int wordCount; Jim_Obj** words;
+        Jim_ListObjGetElements(NULL, substitutedFirstPattern,
                                &wordCount, &words);
         for (int i = 0; i < wordCount; i++) {
-            char varName[100]; Tcl_Obj* boundValue = NULL;
+            char varName[100]; Jim_Obj* boundValue = NULL;
             if (scanVariable(words[i], varName, sizeof(varName)) &&
                 env != NULL &&
                 (boundValue = environmentLookup(env, varName))) {
 
-                Tcl_ListObjReplace(NULL, substitutedFirstPattern, i, 1,
-                                   1, &boundValue);
+                // HACK: direct access into the Jim_Obj...
+                substitutedFirstPattern->ele[i] = boundValue;
             }
         }
 
         environment_t* resultsForFirstPattern[maxResultsCount];
         int resultsForFirstPatternCount = searchByPattern(substitutedFirstPattern,
                                                           maxResultsCount, resultsForFirstPattern);
-        Tcl_Obj* claimizedSubstitutedFirstPattern = claimizePattern(substitutedFirstPattern);
+        Jim_Obj* claimizedSubstitutedFirstPattern = claimizePattern(substitutedFirstPattern);
         resultsForFirstPatternCount += searchByPattern(claimizedSubstitutedFirstPattern,
                                                        maxResultsCount - resultsForFirstPatternCount, &resultsForFirstPattern[resultsForFirstPatternCount]);
-        Tcl_DecrRefCount(substitutedFirstPattern);
-        Tcl_DecrRefCount(claimizedSubstitutedFirstPattern);
+        Jim_DecrRefCount(substitutedFirstPattern);
+        Jim_DecrRefCount(claimizedSubstitutedFirstPattern);
         for (int i = 0; i < resultsForFirstPatternCount; i++) {
             environment_t* result = resultsForFirstPattern[i];
             if (env != NULL) {
@@ -678,58 +678,58 @@ namespace eval Statements { ;# singleton Statement store
                                  result,
                                  maxResultsCount - 1, outResults,
                                  outResultsCount);
-                ckfree((char *)result);
+                free((char *)result);
             }
         }
     }
-    $cc proc findMatchesJoining {Tcl_Obj* patterns Tcl_Obj* bindings} Tcl_Obj* {
+    $cc proc findMatchesJoining {Jim_Obj* patterns Jim_Obj* bindings} Jim_Obj* {
         environment_t* results[1000];
-        int patternsCount; Tcl_Obj** patternsObjs;
-        Tcl_ListObjGetElements(NULL, patterns, &patternsCount, &patternsObjs);
+        int patternsCount; Jim_Obj** patternsObjs;
+        Jim_ListObjGetElements(NULL, patterns, &patternsCount, &patternsObjs);
         int resultsCount = 0;
 
-        environment_t* env = (environment_t*)ckalloc(sizeof(environment_t) + 10*sizeof(environment_binding_t));
+        environment_t* env = (environment_t*)malloc(sizeof(environment_t) + 10*sizeof(environment_binding_t));
         memset(env, 0, sizeof(*env));
-        Tcl_DictSearch search;
-        Tcl_Obj *key, *value;
+        Jim_DictSearch search;
+        Jim_Obj *key, *value;
         int done;
-        if (Tcl_DictObjFirst(NULL, bindings, &search,
+        if (Jim_DictObjFirst(NULL, bindings, &search,
                              &key, &value, &done) != TCL_OK) {
             exit(2);
         }
-        for (; !done ; Tcl_DictObjNext(&search, &key, &value, &done)) {
+        for (; !done ; Jim_DictObjNext(&search, &key, &value, &done)) {
             environment_binding_t* b = &env->bindings[env->bindingsCount++];
-            int nameLen; char* namePtr = Tcl_GetStringFromObj(key, &nameLen);
+            int nameLen; char* namePtr = Jim_GetStringFromObj(key, &nameLen);
             memcpy(b->name, namePtr, nameLen);
             b->value = value;
         }
-        Tcl_DictObjDone(&search);
+        Jim_DictObjDone(&search);
         searchByPatterns(patternsCount, patternsObjs,
                          env,
                          1000, results, &resultsCount);
-        ckfree((char *)env);
+        free((char *)env);
 
-        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+        Jim_Obj* ret = Jim_NewListObj(0, NULL);
         for (int i = 0; i < resultsCount; i++) {
             // TODO: Emit __matcheeIds properly based on results[i]
-            Tcl_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
-            ckfree((char *)results[i]);
+            Jim_ListObjAppendElement(NULL, ret, environmentToTclDict(results[i]));
+            free((char *)results[i]);
         }
         return ret;
     }
 
-    $cc proc all {} Tcl_Obj* {
-        Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+    $cc proc all {} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(0, NULL);
         for (int i = 0; i < sizeof(statements)/sizeof(statements[0]); i++) {
             if (statements[i].clause == NULL) continue;
-            Tcl_Obj* s = Tcl_NewObj();
+            Jim_Obj* s = Jim_NewObj();
             s->bytes = NULL;
             s->typePtr = &statement_t_ObjType;
             s->internalRep.ptrAndLongRep.ptr = &statements[i];
             s->internalRep.ptrAndLongRep.value = 0;
 
-            Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf("s%d:%d", i, statements[i].gen));
-            Tcl_ListObjAppendElement(NULL, ret, s);
+            Jim_ListObjAppendElement(NULL, ret, Jim_ObjPrintf("s%d:%d", i, statements[i].gen));
+            Jim_ListObjAppendElement(NULL, ret, s);
         }
         return ret;
     }
@@ -774,8 +774,8 @@ namespace eval Statements { ;# singleton Statement store
 
     # these are kind of arbitrary/temporary bridge
     $cc proc matchRemoveFirstDestructor {match_handle_t matchId} void {
-        Tcl_DecrRefCount(matchGet(matchId)->destructors[0].body);
-        Tcl_DecrRefCount(matchGet(matchId)->destructors[0].env);
+        Jim_DecrRefCount(matchGet(matchId)->destructors[0].body);
+        Jim_DecrRefCount(matchGet(matchId)->destructors[0].env);
         matchGet(matchId)->destructors[0].body = NULL;
         matchGet(matchId)->destructors[0].env = NULL;
     }
@@ -799,13 +799,13 @@ namespace eval Evaluator {
             va_end(args);
         }
     }
-    $cc proc getOperationLog {} Tcl_Obj* {
-        Tcl_Obj* entries[10000];
+    $cc proc getOperationLog {} Jim_Obj* {
+        Jim_Obj* entries[10000];
         int i;
         for (i = 0; i < 10000 && operationLog[i][0] != '\0'; i++) {
-            entries[i] = Tcl_NewStringObj(operationLog[i], -1);
+            entries[i] = Jim_NewStringObj(interp, operationLog[i], -1);
         }
-        return Tcl_NewListObj(i, entries);
+        return Jim_NewListObj(i, entries);
     }
 
     $cc code {
@@ -822,41 +822,43 @@ namespace eval Evaluator {
         trie_t* reactionsToStatementAddition;
         // Used to quickly remove reactions when the reacting statement is removed:
         // Dict<StatementId, List<StatementPattern + StatementId>>
-        Tcl_Obj* reactionPatternsOfReactingId[32768];
-        typedef void (*reaction_fn_t)(Tcl_Interp* interp,
+        Jim_Obj* reactionPatternsOfReactingId[32768];
+        typedef void (*reaction_fn_t)(Jim_Interp* interp,
                                       statement_handle_t reactingId,
-                                      Tcl_Obj* reactToPattern,
+                                      Jim_Obj* reactToPattern,
                                       statement_handle_t newStatementId);
         typedef struct reaction_t {
             reaction_fn_t react;
             statement_handle_t reactingId;
-            Tcl_Obj* reactToPattern;
+            Jim_Obj* reactToPattern;
         } reaction_t;
 
-        void addReaction(Tcl_Obj* reactToPattern, statement_handle_t reactingId, reaction_fn_t react) {
-            reaction_t *reaction = (reaction_t*)ckalloc(sizeof(reaction_t));
+        void addReaction(Jim_Obj* reactToPattern, statement_handle_t reactingId, reaction_fn_t react) {
+            reaction_t *reaction = (reaction_t*)malloc(sizeof(reaction_t));
             reaction->react = react;
             reaction->reactingId = reactingId;
-            Tcl_IncrRefCount(reactToPattern);
+            Jim_IncrRefCount(reactToPattern);
             reaction->reactToPattern = reactToPattern;
 
-            Tcl_Obj* reactToPatternAndReactingId = Tcl_DuplicateObj(reactToPattern);
-            Tcl_Obj* reactingIdObj = Tcl_NewIntObj(reactingId.idx);
-            int reactToPatternLength; Tcl_ListObjLength(NULL, reactToPattern, &reactToPatternLength);
-            Tcl_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength, 0, 1, &reactingIdObj);
+            Jim_Obj* reactToPatternAndReactingId = Jim_DuplicateObj(interp, reactToPattern);
+            Jim_Obj* reactingIdObj = Jim_NewIntObj(interp, reactingId.idx);
+            int reactToPatternLength = Jim_ListLength(interp, reactToPattern);
+            
+            Jim_ListObjReplace(NULL, reactToPatternAndReactingId, reactToPatternLength, 0, 1, &reactingIdObj);
+            reactToPatternAndReactingId->ele[i] = boundValue;
             trieAdd(NULL, &reactionsToStatementAddition, reactToPatternAndReactingId, (uintptr_t)reaction);
 
             if (reactionPatternsOfReactingId[reactingId.idx] == NULL) {
-                reactionPatternsOfReactingId[reactingId.idx] = Tcl_NewListObj(0, NULL);
-                Tcl_IncrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
+                reactionPatternsOfReactingId[reactingId.idx] = Jim_NewListObj(0, NULL);
+                Jim_IncrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
             }
-            Tcl_ListObjAppendElement(NULL, reactionPatternsOfReactingId[reactingId.idx],
+            Jim_ListObjAppendElement(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                      reactToPatternAndReactingId);
         }
         void removeAllReactions(statement_handle_t reactingId) {
             if (reactionPatternsOfReactingId[reactingId.idx] == NULL) { return; }
-            int patternCount; Tcl_Obj** patterns;
-            Tcl_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
+            int patternCount; Jim_Obj** patterns;
+            Jim_ListObjGetElements(NULL, reactionPatternsOfReactingId[reactingId.idx],
                                    &patternCount, &patterns);
             for (int i = 0; i < patternCount; i++) {
                 uint64_t reactionPtrs[1000];
@@ -864,31 +866,31 @@ namespace eval Evaluator {
                                                        reactionsToStatementAddition, patterns[i]);
                 for (int j = 0; j < reactionsCount; j++) {
                     reaction_t* reaction = (reaction_t*)(uintptr_t) reactionPtrs[j];
-                    Tcl_DecrRefCount(reaction->reactToPattern);
-                    ckfree((char *)reaction);
+                    Jim_DecrRefCount(reaction->reactToPattern);
+                    free((char *)reaction);
                 }
                 trieRemove(NULL, reactionsToStatementAddition, patterns[i]);
             }
-            Tcl_DecrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
+            Jim_DecrRefCount(reactionPatternsOfReactingId[reactingId.idx]);
             reactionPatternsOfReactingId[reactingId.idx] = NULL;
         }
 
-        void tryRunInSerializedEnvironment(Tcl_Interp* interp, Tcl_Obj* lambda, Tcl_Obj* env) {
-            int objc = 3; Tcl_Obj *objv[3];
-            objv[0] = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
+        void tryRunInSerializedEnvironment(Jim_Interp* interp, Jim_Obj* lambda, Jim_Obj* env) {
+            int objc = 3; Jim_Obj *objv[3];
+            objv[0] = Jim_NewStringObj(interp, "Evaluator::tryRunInSerializedEnvironment", -1);
             objv[1] = lambda;
             objv[2] = env;
-            if (Tcl_EvalObjv(interp, objc, objv, 0) == TCL_ERROR) {
-                printf("oh god: %s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+            if (Jim_EvalObjv(interp, objc, objv, 0) == TCL_ERROR) {
+                printf("oh god: %s\n", Jim_GetString(Jim_GetObjResult(interp)));
             }
         }
         static statement_t* get(statement_handle_t id);
         static int exists(statement_handle_t id);
         static match_handle_t addMatchImpl(size_t n_parents, statement_handle_t parents[]);
-        static environment_t* unify(Tcl_Obj* a, Tcl_Obj* b);
-        void reactToStatementAdditionThatMatchesWhen(Tcl_Interp* interp,
+        static environment_t* unify(Jim_Obj* a, Jim_Obj* b);
+        void reactToStatementAdditionThatMatchesWhen(Jim_Interp* interp,
                                                      statement_handle_t whenId,
-                                                     Tcl_Obj* whenPattern,
+                                                     Jim_Obj* whenPattern,
                                                      statement_handle_t statementId) {
             if (!exists(whenId)) {
                 removeAllReactions(whenId);
@@ -899,32 +901,32 @@ namespace eval Evaluator {
 
             environment_t* result = unify(whenPattern, stmt->clause);
             if (result) {
-                int whenClauseLength; Tcl_ListObjLength(NULL, when->clause, &whenClauseLength);
+                int whenClauseLength; Jim_ListObjLength(NULL, when->clause, &whenClauseLength);
 
                 statement_handle_t matchParentIds[] = {whenId, statementId};
                 match_handle_t matchId = addMatchImpl(2, matchParentIds);
-                Tcl_Obj* lambda; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-4, &lambda);
-                Tcl_Obj* env; Tcl_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
+                Jim_Obj* lambda; Jim_ListObjIndex(NULL, when->clause, whenClauseLength-4, &lambda);
+                Jim_Obj* env; Jim_ListObjIndex(NULL, when->clause, whenClauseLength-1, &env);
 
-                env = Tcl_DuplicateObj(env);
+                env = Jim_DuplicateObj(interp, env);
                 // Append bindings to end of env
                 // TODO: does this preserve order?
                 // FIXME: need to only get bindings on the When side
                 for (int i = 0; i < result->bindingsCount; i++) {
-                    /* printf("Appending binding: [%s]->[%s]\n", result->bindings[i].name, Tcl_GetString(result->bindings[i].value)); */
-                    Tcl_ListObjAppendElement(interp, env, result->bindings[i].value);
+                    /* printf("Appending binding: [%s]->[%s]\n", result->bindings[i].name, Jim_GetString(result->bindings[i].value)); */
+                    Jim_ListObjAppendElement(interp, env, result->bindings[i].value);
                 }
-                ckfree((char*)result);
+                free((char*)result);
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
+                Jim_ObjSetVar2(interp, Jim_ObjPrintf("::matchId"), NULL, Jim_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, lambda, env);
             }
         }
         static void LogWriteRecollect(statement_handle_t collectId);
         static void LogWriteUnmatch(match_handle_t matchId);
-        void reactToStatementAdditionThatMatchesCollect(Tcl_Interp* interp,
+        void reactToStatementAdditionThatMatchesCollect(Jim_Interp* interp,
                                                         statement_handle_t collectId,
-                                                        Tcl_Obj* collectPattern,
+                                                        Jim_Obj* collectPattern,
                                                         statement_handle_t statementId) {
             get(collectId)->collectNeedsRecollect = true;
             LogWriteRecollect(collectId);
@@ -935,24 +937,24 @@ namespace eval Evaluator {
         reactionsToStatementAddition = trieCreate();
     }
 
-    $cc proc reactToStatementAddition {Tcl_Interp* interp statement_handle_t id} void {
-        Tcl_Obj* clause = get(id)->clause;
-        int clauseLength; Tcl_Obj** clauseWords;
-        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
+    $cc proc reactToStatementAddition {Jim_Interp* interp statement_handle_t id} void {
+        Jim_Obj* clause = get(id)->clause;
+        int clauseLength; Jim_Obj** clauseWords;
+        Jim_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
 
-        if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0 &&
-            strcmp(Tcl_GetString(clauseWords[1]), "the") == 0 &&
-            strcmp(Tcl_GetString(clauseWords[2]), "collected") == 0 &&
-            strcmp(Tcl_GetString(clauseWords[3]), "matches") == 0 &&
-            strcmp(Tcl_GetString(clauseWords[4]), "for") == 0) {
+        if (strcmp(Jim_GetString(clauseWords[0]), "when") == 0 &&
+            strcmp(Jim_GetString(clauseWords[1]), "the") == 0 &&
+            strcmp(Jim_GetString(clauseWords[2]), "collected") == 0 &&
+            strcmp(Jim_GetString(clauseWords[3]), "matches") == 0 &&
+            strcmp(Jim_GetString(clauseWords[4]), "for") == 0) {
 
             // when the collected matches for [list the time is /t/ & Omar is cool] are /matches/ { ... } with environment /__env/
             //   -> {the time is /t/} {Omar is cool}
-            Tcl_Obj* pattern = clauseWords[5];
-            Tcl_Obj* subpatterns[10];
+            Jim_Obj* pattern = clauseWords[5];
+            Jim_Obj* subpatterns[10];
             int subpatternsCount = splitPattern(pattern, 10, subpatterns);
             for (int i = 0; i < subpatternsCount; i++) {
-                Tcl_Obj* subpattern = subpatterns[i];
+                Jim_Obj* subpattern = subpatterns[i];
                 addReaction(subpattern, id, reactToStatementAdditionThatMatchesCollect);
                 addReaction(claimizePattern(subpattern), id, reactToStatementAdditionThatMatchesCollect);
             }
@@ -960,13 +962,13 @@ namespace eval Evaluator {
             get(id)->collectNeedsRecollect = true;
             LogWriteRecollect(id);
 
-        } else if (strcmp(Tcl_GetString(clauseWords[0]), "when") == 0) {
+        } else if (strcmp(Jim_GetString(clauseWords[0]), "when") == 0) {
             // when the time is /t/ { ... } with environment /env/ -> the time is /t/
-            Tcl_Obj* pattern = Tcl_DuplicateObj(clause);
-            Tcl_ListObjReplace(interp, pattern, clauseLength-4, 4, 0, NULL);
-            Tcl_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
+            Jim_Obj* pattern = Jim_DuplicateObj(interp, clause);
+            Jim_ListObjReplace(interp, pattern, clauseLength-4, 4, 0, NULL);
+            Jim_ListObjReplace(interp, pattern, 0, 1, 0, NULL);
             addReaction(pattern, id, reactToStatementAdditionThatMatchesWhen);
-            Tcl_Obj* claimizedPattern = claimizePattern(pattern);
+            Jim_Obj* claimizedPattern = claimizePattern(pattern);
             addReaction(claimizedPattern, id, reactToStatementAdditionThatMatchesWhen);
 
             // Scan the existing statement set for any
@@ -987,22 +989,22 @@ namespace eval Evaluator {
         }
 
         // Trigger any reactions to the addition of this statement.
-        Tcl_Obj* clauseWithReactingIdWildcard = Tcl_DuplicateObj(clause); {
-            Tcl_Obj* reactingIdWildcard = Tcl_ObjPrintf("/reactingId/");
-            Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
+        Jim_Obj* clauseWithReactingIdWildcard = Jim_DuplicateObj(interp, clause); {
+            Jim_Obj* reactingIdWildcard = Jim_ObjPrintf("/reactingId/");
+            Jim_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
                                1, &reactingIdWildcard);
         }
         uint64_t reactions[1000];
         int reactionCount = trieLookup(interp, reactions, 1000,
                                        reactionsToStatementAddition, clauseWithReactingIdWildcard);
-        Tcl_DecrRefCount(clauseWithReactingIdWildcard);
+        Jim_DecrRefCount(clauseWithReactingIdWildcard);
         for (int i = 0; i < reactionCount; i++) {
             reaction_t* reaction = (reaction_t*)(uintptr_t)reactions[i];
             reaction->react(interp, reaction->reactingId, reaction->reactToPattern, id);
         }
     }
-    $cc code { static void reactToStatementRemoval(Tcl_Interp* interp, statement_handle_t id); }
-    $cc proc reactToMatchRemoval {Tcl_Interp* interp match_handle_t matchId} void {
+    $cc code { static void reactToStatementRemoval(Jim_Interp* interp, statement_handle_t id); }
+    $cc proc reactToMatchRemoval {Jim_Interp* interp match_handle_t matchId} void {
         match_t* match = matchGet(matchId);
 
         for (int j = 0; j < match->n_edges; j++) {
@@ -1033,7 +1035,7 @@ namespace eval Evaluator {
             }
         }
     }
-    $cc proc reactToStatementRemoval {Tcl_Interp* interp statement_handle_t id} void {
+    $cc proc reactToStatementRemoval {Jim_Interp* interp statement_handle_t id} void {
         // unset all things downstream of statement
         removeAllReactions(id);
         statement_t* stmt = get(id);
@@ -1072,7 +1074,7 @@ namespace eval Evaluator {
             }
         }
     }
-    $cc proc UnmatchImpl {Tcl_Interp* interp match_handle_t currentMatchId int level} void {
+    $cc proc UnmatchImpl {Jim_Interp* interp match_handle_t currentMatchId int level} void {
         match_handle_t unmatchId = currentMatchId;
         for (int i = 0; i < level; i++) {
             match_t* unmatch = matchGet(unmatchId);
@@ -1100,7 +1102,7 @@ namespace eval Evaluator {
         UnmatchImpl $::matchId $level
     }
 
-    $cc proc recollect {Tcl_Interp* interp statement_handle_t collectId} void {
+    $cc proc recollect {Jim_Interp* interp statement_handle_t collectId} void {
         // Called when a statement of a pattern that someone is
         // collecting has been added or removed.
 
@@ -1108,39 +1110,39 @@ namespace eval Evaluator {
         if (!collect->collectNeedsRecollect) { return; }
         collect->collectNeedsRecollect = false;
 
-        Tcl_Obj* clause = collect->clause;
-        int clauseLength; Tcl_Obj** clauseWords;
-        Tcl_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
+        Jim_Obj* clause = collect->clause;
+        int clauseLength; Jim_Obj** clauseWords;
+        Jim_ListObjGetElements(interp, clause, &clauseLength, &clauseWords);
 
-        Tcl_Obj* lambda = clauseWords[clauseLength-4];
+        Jim_Obj* lambda = clauseWords[clauseLength-4];
         char matchesVarName[100];
         scanVariable(clauseWords[clauseLength-5], matchesVarName, sizeof(matchesVarName));
-        Tcl_Obj* env = clauseWords[clauseLength-1];
+        Jim_Obj* env = clauseWords[clauseLength-1];
 
         int resultsCount = 0; environment_t* results[1000]; {
-            Tcl_Obj* pattern = clauseWords[5];
-            Tcl_Obj* subpatterns[10];
+            Jim_Obj* pattern = clauseWords[5];
+            Jim_Obj* subpatterns[10];
             int subpatternsCount = splitPattern(pattern, 10, subpatterns);
             searchByPatterns(subpatternsCount, subpatterns,
                              NULL,
                              1000, results,
                              &resultsCount);
             for (int i = 0; i < subpatternsCount; i++) {
-                Tcl_DecrRefCount(subpatterns[i]);
+                Jim_DecrRefCount(subpatterns[i]);
             }
         }
 
-        Tcl_Obj* matches = Tcl_NewListObj(0, NULL);
+        Jim_Obj* matches = Jim_NewListObj(0, NULL);
 
         int parentsCount = 1;
         statement_handle_t parents[resultsCount*10];
         parents[0] = collectId;
         for (int i = 0; i < resultsCount; i++) {
-            Tcl_ListObjAppendElement(NULL, matches, environmentToTclDict(results[i]));
+            Jim_ListObjAppendElement(NULL, matches, environmentToTclDict(results[i]));
             for (int j = 0; j < results[i]->matchedStatementIdsCount; j++) {
                 parents[parentsCount++] = results[i]->matchedStatementIds[j];
             }
-            ckfree((char *)results[i]);
+            free((char *)results[i]);
         }
 
         // Create a new match for the new collection.
@@ -1150,9 +1152,9 @@ namespace eval Evaluator {
         match->collectId = collectId;
 
         // Run the When body within this new match.
-        env = Tcl_DuplicateObj(env);
-        Tcl_ListObjAppendElement(NULL, env, matches);
-        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
+        env = Jim_DuplicateObj(interp, env);
+        Jim_ListObjAppendElement(NULL, env, matches);
+        Jim_ObjSetVar2(interp, Jim_ObjPrintf("::matchId"), NULL, Jim_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
         tryRunInSerializedEnvironment(interp, lambda, env);
 
         // Finally, delete the old match child if any.
@@ -1185,11 +1187,11 @@ namespace eval Evaluator {
             int seq;
 
             union {
-                struct { Tcl_Obj* clause; } assert;
-                struct { Tcl_Obj* pattern; } retract;
+                struct { Jim_Obj* clause; } assert;
+                struct { Jim_Obj* pattern; } retract;
                 struct {
                     match_handle_t parentMatchId;
-                    Tcl_Obj* clause;
+                    Jim_Obj* clause;
                 } say;
                 struct { match_handle_t matchId; } unmatch;
                 struct { statement_handle_t collectId; } recollect;
@@ -1228,26 +1230,26 @@ namespace eval Evaluator {
                             queueEntryGetPosition,
                             queueEntrySetPosition);
     }
-    $cc proc Evaluate {Tcl_Interp* interp} void {
+    $cc proc Evaluate {Jim_Interp* interp} void {
         op("Evaluate");
 
         seq = 0;
 
         queue_entry_t* entryPtr;
         while ((entryPtr = pqueue_pop(queue)) != NULL) {
-            queue_entry_t entry = *entryPtr; ckfree((char*) entryPtr);
+            queue_entry_t entry = *entryPtr; free((char*) entryPtr);
             if (entry.op == ASSERT) {
-                op("Assert (%s)", Tcl_GetString(entry.assert.clause));
+                op("Assert (%s)", Jim_GetString(entry.assert.clause));
                 statement_handle_t id; bool isNewStatement;
                 addImpl(interp, entry.assert.clause, 0, NULL,
                         &id, &isNewStatement);
                 if (isNewStatement) {
                     reactToStatementAddition(interp, id);
                 }
-                Tcl_DecrRefCount(entry.assert.clause);
+                Jim_DecrRefCount(entry.assert.clause);
 
             } else if (entry.op == RETRACT) {
-                op("Retract (%s)", Tcl_GetString(entry.retract.pattern));
+                op("Retract (%s)", Jim_GetString(entry.retract.pattern));
                 environment_t* results[1000];
                 int resultsCount = searchByPattern(entry.retract.pattern,
                                                    1000, results);
@@ -1255,12 +1257,12 @@ namespace eval Evaluator {
                     statement_handle_t id = results[i]->matchedStatementIds[0];
                     reactToStatementRemoval(interp, id);
                     remove_(id);
-                    ckfree((char *)results[i]);
+                    free((char *)results[i]);
                 }
-                Tcl_DecrRefCount(entry.retract.pattern);
+                Jim_DecrRefCount(entry.retract.pattern);
 
             } else if (entry.op == SAY) {
-                op("Say (%s)", Tcl_GetString(entry.say.clause));
+                op("Say (%s)", Jim_GetString(entry.say.clause));
                 if (matchExists(entry.say.parentMatchId)) {
                     statement_handle_t id; bool isNewStatement;
                     addImpl(interp, entry.say.clause, 1, &entry.say.parentMatchId,
@@ -1269,7 +1271,7 @@ namespace eval Evaluator {
                         reactToStatementAddition(interp, id);
                     }
                 }
-                Tcl_DecrRefCount(entry.say.clause);
+                Jim_DecrRefCount(entry.say.clause);
 
             } else if (entry.op == UNMATCH) {
                 op("Unmatch (m%d:%d)", entry.unmatch.matchId.idx, entry.unmatch.matchId.gen);
@@ -1280,7 +1282,7 @@ namespace eval Evaluator {
 
             } else if (entry.op == RECOLLECT) {
                 if (exists(entry.recollect.collectId)) {
-                    op("Recollect (s%d:%d) (%s)", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Tcl_GetString(get(entry.recollect.collectId)->clause));
+                    op("Recollect (s%d:%d) (%s)", entry.recollect.collectId.idx, entry.recollect.collectId.gen, Jim_GetString(get(entry.recollect.collectId)->clause));
                     recollect(interp, entry.recollect.collectId);
                 } else {
                     op("Recollect (s%d:%d) (DEAD)", entry.recollect.collectId.idx, entry.recollect.collectId.gen);
@@ -1290,22 +1292,22 @@ namespace eval Evaluator {
     }
     $cc code {
         void queueInsert(queue_entry_t entry) {
-            queue_entry_t* ptr = (queue_entry_t*)ckalloc(sizeof(entry));
+            queue_entry_t* ptr = (queue_entry_t*)malloc(sizeof(entry));
             *ptr = entry;
             ptr->seq = seq++;
             pqueue_insert(queue, ptr);
         }
     }
-    $cc proc LogWriteAssert {Tcl_Obj* clause} void {
-        Tcl_IncrRefCount(clause);
+    $cc proc LogWriteAssert {Jim_Obj* clause} void {
+        Jim_IncrRefCount(clause);
         queueInsert((queue_entry_t) { .op = ASSERT, .assert = {.clause=clause} });
     }
-    $cc proc LogWriteRetract {Tcl_Obj* pattern} void {
-        Tcl_IncrRefCount(pattern);
+    $cc proc LogWriteRetract {Jim_Obj* pattern} void {
+        Jim_IncrRefCount(pattern);
         queueInsert((queue_entry_t) { .op = RETRACT, .retract = {.pattern=pattern} });
     }
-    $cc proc LogWriteSay {match_handle_t parentMatchId Tcl_Obj* clause} void {
-        Tcl_IncrRefCount(clause);
+    $cc proc LogWriteSay {match_handle_t parentMatchId Jim_Obj* clause} void {
+        Jim_IncrRefCount(clause);
         queueInsert((queue_entry_t) { .op = SAY, .say = {.parentMatchId=parentMatchId, .clause=clause} });
     }
     $cc proc LogWriteUnmatch {match_handle_t matchId} void {
