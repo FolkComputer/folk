@@ -5,7 +5,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
     set calibrationBoardPs [apply {{ROWS COLS} {
         set margin 36
         set PageWidth 612; set PageHeight 792
-        set tagWidth 100; set tagHeight 100
+        set tagSideLength 60
+        set tagOuterLength [expr {$tagSideLength * 10/6}]
         subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -28,13 +29,13 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
                 for {set row 0} {$row < $ROWS} {incr row} {
                     for {set col 0} {$col < $COLS} {incr col} {
                         set id [expr {48600 + $row*$COLS + $col}]
-                        # Leave a gap at every other tag for projected tags.
+                        # Leave a gap at every odd tag for projected tags.
                         if {$id % 2 == 1} { continue }
                         lappend images [subst {
                             gsave
-                            [expr {$tagWidth*$col}] [expr {$tagHeight*$row + $tagHeight}] translate
-                            $tagWidth -$tagHeight scale
-                            [::tagImageForId $id]
+                            [expr {$tagOuterLength*$col}] [expr {$tagOuterLength*$row + $tagOuterLength}] translate
+                            $tagOuterLength -$tagOuterLength scale
+                            [::tagPsForId $id]
                             grestore
                         }]
                     }
@@ -55,8 +56,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       </iframe>
 
       <p>
-      Print the above board, then measure the inner side-length (6 pixels) of a tag in millimeters, enter it here, and click Submit:
-      <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Submit</button>
+        Print the above board, then measure the inner side length (6 blocks) of a tag in millimeters,
+        <br>enter it here, and click Begin Calibration:
+      <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Begin Calibration</button>
       </p>
 
       <script>
@@ -94,18 +96,37 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
   }]
 }} $ROWS $COLS]
 
-fn isValidCheckerboardDetection {detection} {
-    # Does this detection contain many/all of the calibration tags?
-    set expectedTagId 48600
+When the checkerboard tag side length is /sideLengthMm/ mm {
+    # Project projected tags once the side length has been dialed in.
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
-            if {![dict exists $detection $expectedTagId]} {
-                return false
-            }
-            incr expectedTagId
+            set id [expr {48600 + $row*$COLS + $col}]
+            # Leave a gap at every even tag for printed tags.
+            if {$id % 2 == 0} { continue }
+
+            set center [list 0 0]
+            set im [::tagImageForId $id]
+            Wish to draw an image with center $center image $im radians 0 scale 1
         }
     }
-    return true
+}
+
+fn isValidCheckerboardDetection {detection} {
+    set numPrintedTags 0 ;# (even-numbered tags)
+    set numProjectedTags 0 ;# (odd-numbered tags)
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            set id [expr {48600 + $row*$COLS + $col}]
+            if {[dict exists $detection $id]} {
+                if {$id % 2 == 0} {
+                    incr numPrintedTags 
+                } else {
+                    incr numProjectedTags
+                }
+            }
+        }
+    }
+    return [expr {$numPrintedTags > 0 && $numProjectedTags > 0}]
 
     # TODO: Check that the checkerboard occupies a solid majority of
     # the camera space.
@@ -266,9 +287,9 @@ When the checkerboard tag side length is /sideLengthMm/ mm & \
         set ::checkerboardLastDetectionTimestamp $timestamp
     }
 
-    if {[llength $::checkerboardDetections] == 4} {
-        puts "Detected 4 checkerboards. Calibrating."
-        set sideLength [/ $sideLengthMm 1000.0] ;# in meters
-        calibrate $sideLength $::checkerboardDetections
-    }
+    # if {[llength $::checkerboardDetections] == 4} {
+    #     puts "Detected 4 checkerboards. Calibrating."
+    #     set sideLength [/ $sideLengthMm 1000.0] ;# in meters
+    #     calibrate $sideLength $::checkerboardDetections
+    # }
 }
