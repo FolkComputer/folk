@@ -1,0 +1,118 @@
+On process "display" {
+    set invBilinear $::invBilinear
+    set rotate $::rotate
+    # TODO: Do this with a wish, instead of hard-coding the global dict.
+    dict set ::pipelines "image" [Gpu::pipeline {sampler2D image vec2 imageSize
+                              vec2 pos float radians float scale
+                              fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn invBilinear fn rotate} {
+        vec2 a = pos + rotate(-imageSize/2, -radians);
+        vec2 b = pos + rotate(vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(imageSize/2, -radians);
+        vec2 d = pos + rotate(vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(image, uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
+    }]
+
+    When the GPU has loaded /nfonts/ fonts {
+        namespace eval ::ImageCache {
+            # Backing store: stores pairs of (GPU image handle, heap slot version).
+            variable cache [dict create]
+            variable CACHE_MAX_SIZE [- $Gpu::ImageManager::GPU_MAX_IMAGES [uplevel {set nfonts}]]
+
+            proc getOrInsert {im} {
+                variable cache
+                variable CACHE_MAX_SIZE
+                if {[dict exists $cache $im]} {
+                    lassign [dict get $cache $im] gim cachedVersion
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    if {$version == $cachedVersion} {
+                        # Bump this image to end of cache since it's
+                        # most-recently-accessed.
+                        dict unset cache $im
+                        dict set cache $im [list $gim $cachedVersion]
+                        return $gim
+                    } else {
+                        # This image is stale. Don't retain it.
+                        remove $im
+                    }
+                }
+                if {[dict size $cache] >= $CACHE_MAX_SIZE} {
+                    evict
+                }
+                if {[dict size $cache] >= $CACHE_MAX_SIZE} {
+                    puts stderr "image: Warning: Out of slots in GPU image cache."
+                }
+                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                set gim [Gpu::ImageManager::copyImageToGpu $im]
+                dict set cache $im [list $gim $version]
+                return $gim
+            }
+
+            proc evict {} {
+                variable cache
+                variable CACHE_MAX_SIZE
+                set numToEvict [expr {([dict size $cache] + 1) - $CACHE_MAX_SIZE}]
+                set numEvicted [list]
+                # Evict stale.
+                dict for {im v} $cache {
+                    lassign $v gim expectedVersion
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    if {$expectedVersion != $version} {
+                        Gpu::ImageManager::freeGpuImage $gim
+                        lappend numEvicted $im
+                    }
+                }
+                foreach im $numEvicted { dict unset cache $im }
+                # Evict old.
+                dict for {im v} $cache {
+                    if {$numToEvict - [llength $numEvicted] <= 0} {
+                        break
+                    }
+                    lassign $v gim
+                    Gpu::ImageManager::freeGpuImage $gim
+                    lappend numEvicted $im
+                }
+                foreach im $numEvicted { dict unset cache $im }
+            }
+
+            proc remove {im} {
+                variable cache
+                if {[dict exists $cache $im]} {
+                    lassign [dict get $cache $im] gim
+                    Gpu::ImageManager::freeGpuImage $gim
+                }
+                dict unset cache $im
+            }
+        }
+    }
+
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes to draw an image with /...options/]
+    When /someone/ wishes to draw an image with /...options/ {
+        if {[dict exists $options center]} {
+            set center [dict get $options center]
+        } else {
+            set center [list [dict get $options x] [dict get $options y]]
+        }
+        set im [dict get $options image]
+        set radians [dict get $options radians]
+        set scale [dict_getdef $options scale 1.0]
+
+        set gim [ImageCache::getOrInsert $im]
+
+        Wish the GPU draws pipeline "image" with arguments \
+            [list $gim [list [image_t width $im] [image_t height $im]] \
+                 $center $radians $scale]
+    }
+}

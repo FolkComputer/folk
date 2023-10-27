@@ -1,7 +1,14 @@
-# numPoints 2 => line
-# numPoints 3 => triangle
-# numPoints 4 => square
-proc shape {numPoints c r {angle 0} {color white} {filled false} args} {
+# sides 2 => line
+# sides 3 => triangle
+# sides 4 => square
+When /someone/ wishes to draw a shape with /...options/ {
+  set numPoints [dict get $options sides]
+  set c [dict get $options center]
+  set r [dict get $options radius]
+  set radians [dict_getdef $options radians 0]
+  set color [dict_getdef $options color white]
+  set filled [dict_getdef $options filled false]
+
   set p [list 0 0]
   set center $p
   set points [list $p]
@@ -19,24 +26,34 @@ proc shape {numPoints c r {angle 0} {color white} {filled false} args} {
 
   set points [lmap v $points {
       set v [vec2 sub $v $center]
-      set v [vec2 rotate $v $angle]
+      set v [vec2 rotate $v $radians]
       set v [vec2 add $v $c]
       set v
   }]
 
   if {$filled} {
-    Display::fillPolygon $points $color
+    Wish to draw a polygon with points $points color $color
   } else {
-    Display::stroke $points 1 $color
+    Wish to draw a stroke with points $points width 1 color $color
   }
 }
 
-
-When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ has region /r/ {
+set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
+                septagon 7 octagon 8 nonagon 9]
+When /someone/ wishes /p/ draws a /shape/ {
+  # TODO: This is a hack because rest pattern doesn't match empty
+  # sequence at end.
+  Wish $p draws a $shape with color white
+}
+When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
+When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] x y
   set width [region width $r]
   set height [region height $r]
-  lassign $offsetVector offsetX offsetY
+  lassign [dict_getdef $options offset {0 0}] offsetX offsetY
+  set radius [dict_getdef $options radius 50]
+  set color [dict_getdef $options color white]
+  set filled [dict_getdef $options filled false]
  
   if {$offsetX != 0} {
     set x [expr {$x + $offsetX}]
@@ -48,74 +65,39 @@ When /someone/ wishes /p/ draws a /color/ /shape/ offset /offsetVector/ & /p/ ha
   set angle [region angle $r]
   set p [list $x $y]
 
-  # puts "drawing a $shape at $x $y with width $width and height $height"
-  set radius 50
-  switch -nocase $shape {
-    triangle {
-      shape 3 $p $radius $angle $color
-    }
-    square {
-      shape 4 $p $radius $angle $color
-    }
-    pentagon {
-      shape 5 $p $radius $angle $color
-    }
-    hexagon {
-      shape 6 $p $radius $angle $color
-    }
-    septagon {
-      shape 7 $p $radius $angle $color
-    }
-    octagon {
-      shape 8 $p $radius $angle $color
-    }
-    nonagon {
-      shape 9 $p $radius $angle $color
-    }
-    circle {
-      Display::circle $x $y $radius 5 $color
-    }
-    default {
-      shape 2 $p $radius $angle $color
-    }
+  if {$shape eq "circle"} {
+      Wish to draw a circle with center $p radius $radius thickness 5 color $color filled $filled
+  } elseif {[dict exists $shapes $shape]} {
+      Wish to draw a shape with sides [dict get $shapes $shape] \
+          center $p radius $radius radians $angle color $color filled $filled
+  } else {
+      Wish to draw a shape with sides 2 \
+          center $p radius $radius radians $angle color $color filled $filled
   }
 }
-
-set defaultColor white
-
-When /someone/ wishes /p/ draws a /color/ /shape/ & /p/ has region /r/ {
-  Wish $p draws a $color $shape offset {0 0}
-}
-
-When /someone/ wishes /p/ draws a /shape/ & /p/ has region /r/ {
-  Wish $p draws a $defaultColor $shape
-}
-
-When /someone/ wishes /p/ draws a /shape/ offset /offsetVector/ {
-  Wish $p draws a $defaultColor $shape offset $offsetVector 
+When /someone/ wishes /p/ draws an /shape/ with /...options/ {
+  Wish $p draws a $shape with {*}$options
 }
 
 Claim $this has demo {
   Wish $this draws a circle
-  Wish $this draws a skyblue triangle
-  Wish $this draws a green triangle offset {280 0}
-  Wish $this draws a gold pentagon offset {200 0}
-  Wish $this draws a red octagon offset {250 80}
+  Wish $this draws a triangle with color skyblue
+  Wish $this draws a triangle with color green offset {280 0}
+  Wish $this draws a pentagon with color gold offset {200 0}
+  Wish $this draws an octagon with color red offset {250 80}
 
   When the clock time is /t/ {
     set offsetVector [list [sin $t] [cos $t]]
     set offsetVector [::vec2::scale $offsetVector 105]
-    Wish $this draws a palegoldenrod circle offset $offsetVector
+    Wish $this draws a circle with color palegoldenrod offset $offsetVector
   }
 
   # This toggles a square between filled and unfilled
-  # TODO cwervo: Support `Wish $this draws a circle with options /optionsDict/` to make this cleaner
-  # optionsDisct: {size number?: 50, filled boolean?: false, color string?: white, thickness string? white }
   When $this has region /r/ & the clock time is /t/ {
     lassign [region centroid $r] x y
-    set fill [expr {round(sin($t) * 2) % 2 == 0 ? true : false}]
+    set fill [expr {round(sin($t) * 2) % 2 == 0}]
     set y [- $y 150]
-    shape 4 [list [- $x 100] $y] 0 60 white $fill
+    Wish to draw a shape with sides 4 center [list [- $x 100] $y] radius 60 color white filled $fill
   }
 
   Wish $this is outlined white

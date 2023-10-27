@@ -14,7 +14,7 @@ When /thing/ has region /region/ {
         if {$text eq ""} { return }
     
         set scale 1
-        Display::text {*}$top $scale $text $radians
+        Wish to draw text with center $top scale $scale text $text radians $radians
     }
 
     When the collected matches for [list /someone/ wishes $thing is footnoted /text/] are /matches/ {
@@ -22,6 +22,6 @@ When /thing/ has region /region/ {
         if {$text eq ""} { return }
 
         set scale 1
-        Display::text {*}$bot $scale $text $radians
+        Wish to draw text with center $bot scale $scale text $text radians $radians
     }
 }

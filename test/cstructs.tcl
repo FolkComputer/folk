@@ -14,10 +14,15 @@ $cc proc omar {} Person {
     };
     return ret;
 }
+# Test autocasting of Person to Person*.
+$cc proc getFirstFromPointer {Person* p} char* {
+    return p->name.first;
+}
 $cc proc plural {int npersons Person[] persons} void {}
 $cc compile
 
 puts [omar]
+assert {[getFirstFromPointer [omar]] eq "Omar"}
 assert {[dict get [omar] name last] eq "Rizwan"}
 
 plural 2 [list \

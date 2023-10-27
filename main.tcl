@@ -130,7 +130,7 @@ proc Every {event args} {
     }
 }
 
-proc On {event args} {
+proc Start {event args} {
     if {$event eq "process"} {
         if {[llength $args] == 2} {
             lassign $args name body
@@ -144,8 +144,23 @@ proc On {event args} {
         # Serialize the lexical environment at the callsite so we can
         # send that to the subprocess.
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-        uplevel [list On-process $name [list apply [list $argNames $body] {*}$argValues]]
+        uplevel [list Start-process $name [list apply [list $argNames $body] {*}$argValues]]
         set name ;# Return the name to the caller in case they want it.
+    } else {
+        error {Start must be called as `Start process [optional NAME] { ... }`}
+    }
+}
+proc On {event args} {
+    if {$event eq "process"} {
+        if {[llength $args] == 2} {
+            lassign $args name body
+        } else {
+            error "On process must be called as `On process NAME {}` with the name of an existing process"
+        }
+        # Serialize the lexical environment at the callsite so we can
+        # send that to the subprocess.
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        uplevel [list Wish program code [list apply [list $argNames $body] {*}$argValues] runs on $name]
 
     } elseif {$event eq "unmatch"} {
         set body [lindex $args 0]
@@ -562,7 +577,9 @@ if {[info exists ::entry]} {
             close $fp
         }
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+                                     {*}[glob virtual-programs/*/*.folk] \
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+            if {[string match "*/_archive/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms

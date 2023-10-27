@@ -9,10 +9,11 @@ namespace import ::math::linearalgebra::add \
 	::math::linearalgebra::solvePGauss
 
 When the camera frame is /f/ {
-  Claim camera Camera has width [dict get $f width] height [dict get $f height]
+  Claim the camera Camera has width [dict get $f width] height [dict get $f height]
 }
 
-When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
+When the display /display/ has width /displayWidth/ height /displayHeight/ &\
+     the camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
     puts "Evaluating calibration for $camera ($cameraWidth x $cameraHeight)"
     # camera (tag) point -> projection point
     # calibration for Hex
@@ -27,10 +28,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
         set points [list]
         foreach correspondence $generatedCalibration::points {
             lassign $correspondence cx cy dx dy
-            lappend points [list [expr {double($cx)/$generatedCalibration::cameraWidth*$Camera::WIDTH}] \
-                                [expr {double($cy)/$generatedCalibration::cameraHeight*$Camera::HEIGHT}] \
-                                [expr {double($dx)/$generatedCalibration::displayWidth*$Display::WIDTH}] \
-                                [expr {double($dy)/$generatedCalibration::displayHeight*$Display::HEIGHT}]]
+            lappend points [list [expr {double($cx)/$generatedCalibration::cameraWidth*$cameraWidth}] \
+                                [expr {double($cy)/$generatedCalibration::cameraHeight*$cameraHeight}] \
+                                [expr {double($dx)/$generatedCalibration::displayWidth*$displayWidth}] \
+                                [expr {double($dy)/$generatedCalibration::displayHeight*$displayHeight}]]
         }
     }
     if {[llength $points] < 4} {

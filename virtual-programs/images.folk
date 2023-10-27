@@ -36,8 +36,10 @@ namespace eval ::image {
     $cc include <string.h>
     if {[namespace exists ::Heap]} {
         $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+        $cc import ::Heap::cc folkHeapFree as folkHeapFree
     } else {
         $cc code { #define folkHeapAlloc malloc }
+        $cc code { #define folkHeapFree free }
     }
 
     $cc code {
@@ -258,6 +260,10 @@ namespace eval ::image {
         return ret;
     }
 
+    $cc proc freeImage {image_t im} void {
+        folkHeapFree(im.data);
+    }
+
     $cc proc freeJpeg {image_t im} void {
         // TODO: Free the JPEG.
         // ckfree(im.data);
@@ -334,7 +340,7 @@ When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
   # set scale [expr {$Display::WIDTH / $Camera::WIDTH}]
   # Use 1x scale instead of $scale so the projected tag doesn't redetect.
   # TODO: Mask the tag out?
-    Wish display runs [list Display::image {*}$center $slice 0 1]
+    Wish to draw an image with center $center image $slice radians 0 scale 1
 }
 
 When /someone/ wishes /p/ displays image /im/ {
@@ -348,7 +354,7 @@ When /someone/ wishes /p/ displays image /im/ {
         # set scale [expr {min($width / [image width $im],
         #                      $height / [image height $im])}]
         # Wish $p is labelled $im
-        Wish display runs [list Display::image {*}$center $im [region angle $r] 1]
+        Wish to draw an image with center $center image $im radians [region angle $r]
     }
     # On unmatch {
     #     # HACK: Leaves time for the display to finish trying to display this.
