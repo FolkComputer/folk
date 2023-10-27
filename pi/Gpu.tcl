@@ -884,6 +884,7 @@ Try doing `sudo chmod 666 $renderFile`."
         $cc struct vec2 { float x; float y; }
         $cc struct vec3 { float x; float y; float z; }
         $cc struct vec4 { float x; float y; float z; float w; }
+        $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
 
         $cc argtype vec2 {
             vec2 $argname;
@@ -919,6 +920,19 @@ Try doing `sudo chmod 666 $renderFile`."
                 double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
                 double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[3], &w));
                 $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+            }
+        }
+        $cc argtype uvec4 {
+            uvec4 $argname;
+            {
+                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                __ENSURE($[set argname]_objc == 4);
+                uint32_t x; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[0], (int*) &x));
+                uint32_t y; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[1], (int*) &y));
+                uint32_t z; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[2], (int*) &z));
+                uint32_t w; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[3], (int*) &w));
+                $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
             }
         }
         $cc code [csubst {
@@ -1090,6 +1104,7 @@ Try doing `sudo chmod 666 $renderFile`."
                 createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
                 createInfo.bindingCount = 1;
                 createInfo.pBindings = bindings;
+                /* createInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT; */
                 /* createInfo.pNext = &bindingFlags; */
 
                 vkCreateDescriptorSetLayout(device, &createInfo, NULL, &imageDescriptorSetLayout);
@@ -1635,18 +1650,45 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set im [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath]]
     set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath2]]
 
+    set aprilTag [Gpu::pipeline {uvec4 tagBitsVec
+                                 vec2 a vec2 b vec2 c vec2 d} {
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn invBilinear} {
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+
+        int x = int(uv.x * 10); int y = int(uv.y * 10);
+        int bitIdx = y * 10 + x;
+        uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
+        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+    }]
     set drawTags [list]
-    # Let's stress-test image drawing.
     for {set i 0} {$i < 20} {incr i} {
-        set aim [Gpu::ImageManager::copyImageToGpu [::tagImageForId $i]]
-        set x [expr {200 + $i*40}]
+        set tagImage [::tagImageForId $i]
+        puts $tagImage
+        set tagBits [list]
+        # 10x10 AprilTag -> 100 bits
+        for {set y 0} {$y < 10} {incr y} {
+            for {set x 0} {$x < 10} {incr x} {
+                set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+                set bit [== [image_t data $tagImage $j] 255]
+                lappend tagBits $bit
+            }
+        }
+        # -> 2 64-bit integers
+        set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
+                            0b[join [lreverse [lrange $tagBits 32 63]] ""] \
+                            0b[join [lreverse [lrange $tagBits 64 95]] ""] \
+                            0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+        set x [expr {200 + $i*45}]
         set y 0
-        lappend drawTags [list Gpu::draw $image $aim \
-                              [list $x $y] [list [+ $x 40] $y] [list [+ $x 40] [+ $y 40]] [list $x [+ $y 40]]]
+        lappend drawTags \
+            [list Gpu::draw $aprilTag $tagBitsVec \
+                 [list $x $y]               [list [+ $x 40] $y] \
+                 [list [+ $x 40] [+ $y 40]] [list $x [+ $y 40]]]
     }
 
-    set aim2 [Gpu::ImageManager::copyImageToGpu [::tagImageForId 2]]
-    
     set t 0
     while 1 {
         if {$t == 100} {
