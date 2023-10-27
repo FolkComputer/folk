@@ -7,6 +7,10 @@
 source "pi/cUtils.tcl"
 if {[info exists ::argv0] && $::argv0 eq [info script] || \
         ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
+    set ::isLaptop true
+    set ::thisNode [exec hostname]
+    source "lib/language.tcl"
+    source "lib/c.tcl"
     proc When {args} {}
 }
 source "virtual-programs/images.folk"
