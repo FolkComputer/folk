@@ -1635,7 +1635,16 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set im [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath]]
     set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath2]]
 
-    set aim [Gpu::ImageManager::copyImageToGpu [::tagImageForId 1]]
+    set drawTags [list]
+    # Let's stress-test image drawing.
+    for {set i 0} {$i < 10} {incr i} {
+        set aim [Gpu::ImageManager::copyImageToGpu [::tagImageForId $i]]
+        set x [expr {200 + $i*100}]
+        set y 0
+        lappend drawTags [list Gpu::draw $image $aim \
+                              [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]]
+    }
+
     set aim2 [Gpu::ImageManager::copyImageToGpu [::tagImageForId 2]]
     
     set t 0
@@ -1657,8 +1666,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         Gpu::draw $image $im2 {100 0} {200 0} {200 200} {100 200}
         Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
 
-        Gpu::draw $image $aim {200 0} {300 0} {300 300} {200 300}
-        Gpu::draw $image $aim2 {400 0} {500 0} {400 400} {300 400}
+        foreach drawTag $drawTags { {*}$drawTag }
 
         Gpu::draw $line {100 0} {200 0} 10
         Gpu::draw $line {200 0} {200 200} 10
