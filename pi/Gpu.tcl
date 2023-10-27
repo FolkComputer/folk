@@ -1623,6 +1623,8 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
         return vec4(0.0, 0.0, 0.0, 0.0);
     }]
 
+    source "virtual-programs/print.folk"
+
     if {[string match "scoriae*" $::thisNode]} {
         set impath "/Users/osnr/Downloads/u9.jpg"
         set impath2 "/Users/osnr/Downloads/793.jpg"
@@ -1632,6 +1634,9 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     } else { error "Don't know what images to use." }
     set im [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath]]
     set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath2]]
+
+    set aim [Gpu::ImageManager::copyImageToGpu [::tagImageForId 1]]
+    set aim2 [Gpu::ImageManager::copyImageToGpu [::tagImageForId 2]]
     
     set t 0
     while 1 {
@@ -1651,6 +1656,9 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
         Gpu::draw $image $im2 {100 0} {200 0} {200 200} {100 200}
         Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
+
+        Gpu::draw $image $aim {200 0} {300 0} {300 300} {200 300}
+        Gpu::draw $image $aim2 {400 0} {500 0} {400 400} {300 400}
 
         Gpu::draw $line {100 0} {200 0} 10
         Gpu::draw $line {200 0} {200 200} 10
