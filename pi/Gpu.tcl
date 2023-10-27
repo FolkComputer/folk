@@ -1637,12 +1637,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
 
     set drawTags [list]
     # Let's stress-test image drawing.
-    for {set i 0} {$i < 10} {incr i} {
+    for {set i 0} {$i < 20} {incr i} {
         set aim [Gpu::ImageManager::copyImageToGpu [::tagImageForId $i]]
-        set x [expr {200 + $i*100}]
+        set x [expr {200 + $i*40}]
         set y 0
         lappend drawTags [list Gpu::draw $image $aim \
-                              [list $x $y] [list [+ $x 100] $y] [list [+ $x 100] [+ $y 100]] [list $x [+ $y 100]]]
+                              [list $x $y] [list [+ $x 40] $y] [list [+ $x 40] [+ $y 40]] [list $x [+ $y 40]]]
     }
 
     set aim2 [Gpu::ImageManager::copyImageToGpu [::tagImageForId 2]]
