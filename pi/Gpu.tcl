@@ -22,7 +22,7 @@ namespace eval ::Gpu {
         foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
             if {![file readable $renderFile]} {
                 puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
-Try doing `sudo chmod 666 $renderFile`."
+Try doing `sudo adduser folk render`."
             }
         }
     }
@@ -860,7 +860,7 @@ Try doing `sudo chmod 666 $renderFile`."
                 # TODO: Support fn being a list {name fn}.
                 set fn [uplevel [list set $argname]]
                 set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
-                dict set vertFnDict $argname $fn
+                dict set vertFnDict [string map {: ""} $argname] $fn
                 continue
             }
             lappend pushConstants $argtype $argname
@@ -870,7 +870,7 @@ Try doing `sudo chmod 666 $renderFile`."
                 # TODO: Support fn being a list {name fn}.
                 set fn [uplevel [list set $argname]]
                 set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
-                dict set fragFnDict $argname $fn
+                dict set fragFnDict [string map {: ""} $argname] $fn
                 continue
             } else {
                 error "Fragment arguments not supported"
@@ -1666,7 +1666,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script] || \
     set drawTags [list]
     for {set i 0} {$i < 20} {incr i} {
         set tagImage [::tagImageForId $i]
-        puts $tagImage
         set tagBits [list]
         # 10x10 AprilTag -> 100 bits
         for {set y 0} {$y < 10} {incr y} {
