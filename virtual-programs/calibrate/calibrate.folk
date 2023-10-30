@@ -96,19 +96,62 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
   }]
 }} $ROWS $COLS]
 
-When the checkerboard tag side length is /sideLengthMm/ mm {
+Wish the GPU compiles pipeline "apriltag" {
+    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn ::invBilinear} {
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+
+        int x = int(uv.x * 10); int y = int(uv.y * 10);
+        int bitIdx = y * 10 + x;
+        uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
+        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+    }
+}
+When the display Display has width /displayWidth/ height /displayHeight/ &\
+     the checkerboard tag side length is /sideLengthMm/ mm {
     # Project projected tags once the side length has been dialed in.
+
+    # Size to project at, in pixels:
+    set tagSize [expr {int(min($displayWidth/$COLS, $displayHeight/$ROWS))}]
+
+    # TODO: Use a general homography to warp this projection. Then
+    # adjust the homography based on self-perception of the prev
+    # iteration of projection.
+
+    set instances [list]
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
             set id [expr {48600 + $row*$COLS + $col}]
             # Leave a gap at every even tag for printed tags.
             if {$id % 2 == 0} { continue }
 
-            set center [list 0 0]
-            set im [::tagImageForId $id]
-            Wish to draw an image with center $center image $im radians 0 scale 1
+            set tagImage [::tagImageForId $id]
+            set tagBits [list]
+            # 10x10 AprilTag -> 100 bits
+            for {set y 0} {$y < 10} {incr y} {
+                for {set x 0} {$x < 10} {incr x} {
+                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+                    set bit [== [image_t data $tagImage $j] 255]
+                    lappend tagBits $bit
+                }
+            }
+            # -> 4 32-bit integers
+            set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
+                                0b[join [lreverse [lrange $tagBits 32 63]] ""] \
+                                0b[join [lreverse [lrange $tagBits 64 95]] ""] \
+                                0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+            set x [expr {$tagSize*$col}] 
+            set y [expr {$tagSize*$row}]
+            lappend instances \
+                [list $tagBitsVec \
+                     [list $x $y]               [list [+ $x $tagSize] $y] \
+                     [list [+ $x $tagSize] [+ $y $tagSize]] [list $x [+ $y $tagSize]]]
         }
     }
+    Wish the GPU draws pipeline "apriltag" with instances $instances layer 2
 }
 
 fn isValidCheckerboardDetection {detection} {
