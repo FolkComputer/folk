@@ -26,3 +26,7 @@ When /someone/ wishes /p/ has neighbors & /p/ has region /r/ & /p2/ has region /
     #Display::stroke [list [list $b2MinX $b2MinY] [list $b2MaxX $b2MaxY]] 10 blue
   }
 }
+
+When when /p/ has neighbor /n/ /lambda/ with environment /e/ {
+  Wish $p has neighbors
+}

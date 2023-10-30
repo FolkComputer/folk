@@ -9,21 +9,9 @@ proc loopRegion {edges vertices width color} {
     Wish the GPU draws pipeline "line" with instances $instances
 }
 
-When the collected matches for [list /someone/ wishes /thing/ is outlined /color/] are /matches/ {
-    set thingColors [dict create]
-    foreach match $matches {
-        dict lappend thingColors [dict get $match thing] [dict get $match color]
-    }
-    foreach thing [dict keys $thingColors] {
-        When $thing has region /region/ {
-            set thickness 0
-            foreach color [dict get $thingColors $thing] {
-                    # FIXME: assumes path
-                    lassign $region vertices edges
-                    loopRegion $edges $vertices [incr thickness 3] $color
-            }
-        }
-    }
+When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /region/ {
+    lassign $region vertices edges
+    loopRegion $edges $vertices 3 $color
 }
 
 When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
