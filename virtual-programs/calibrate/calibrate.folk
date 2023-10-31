@@ -152,6 +152,65 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
     }
     Wish the GPU draws pipeline "apriltag" with instances $instances layer 2
+
+    # TODO: Look for valid detections and re-adjust.
+    When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+        set detection [dict create] ;# dict keyed by tag id for easy lookup
+        foreach tag $tags { dict set detection [dict get $tag id] $tag }
+
+        # Can we find the bounds of the printed calibration board?
+        for {set col 0} {$col < $COLS} {incr col} {
+            set topId [expr {48600 + $col}]
+            set bottomId [expr {48600 + ($ROWS-1)*$COLS + $col}]
+            if {![info exists topEdge] && $topId % 2 == 0 && [dict exists $detection $topId]} {
+                set topTagCorners [dict get $detection $topId corners]
+                set topEdge [list [lindex $topTagCorners 2] [lindex $topTagCorners 3]]
+            }
+            if {![info exists bottomEdge] && $bottomId % 2 == 0 && [dict exists $detection $bottomId]} {
+                set bottomTagCorners [dict get $detection $bottomId corners]
+                set bottomEdge [list [lindex $bottomTagCorners 0] [lindex $bottomTagCorners 1]]
+            }
+        }
+        for {set row 0} {$row < $ROWS} {incr row} {
+            set leftId [expr {48600 + $row*$COLS}]
+            set rightId [expr {48600 + $row*$COLS + $COLS-1}]
+            if {![info exists leftEdge] && $leftId % 2 == 0 && [dict exists $detection $leftId]} {
+                set leftTagCorners [dict get $detection $leftId corners]
+                set leftEdge [list [lindex $leftTagCorners 0] [lindex $leftTagCorners 3]]
+            }
+            if {![info exists rightEdge] && $rightId % 2 == 0 && [dict exists $detection $rightId]} {
+                set rightTagCorners [dict get $detection $rightId corners]
+                set rightEdge [list [lindex $rightTagCorners 2] [lindex $rightTagCorners 1]]
+            }
+        }
+        foreach edgeName {topEdge bottomEdge leftEdge rightEdge} {
+            if {![info exists $edgeName]} { return }
+        }
+        set printedCalibrationBoard [list {*}[findLineIntersection $topEdge $leftEdge] \
+                                         {*}[findLineIntersection $topEdge $rightEdge] \
+                                         {*}[findLineIntersection $bottomEdge $rightEdge] \
+                                         {*}[findLineIntersection $bottomEdge $leftEdge]]
+
+        set projectedTags [list]
+        for {set row 0} {$row < $ROWS} {incr row} {
+            for {set col 0} {$col < $COLS} {incr col} {
+                set id [expr {48600 + $row*$COLS + $col}]
+                if {$id % 2 == 0} { continue }
+                if {![dict exists $detection $id]} { continue }
+
+                set projectedTag [dict get $detection $id]
+                if {[pointInsidePolygon [dict get $projectedTag center] $printedCalibrationBoard]} {
+                    # This is a projected tag that we detected.
+                    lappend projectedTags $projectedTag
+                }
+            }
+        }
+
+        puts "Saw projected tags: ($projectedTags)"
+        # Is there at least one projected tag whose corners are within those of the printed tags?
+        # Find a homography to the calibration plane.
+        # Reproject with the new homography.
+    }
 }
 
 fn isValidCheckerboardDetection {detection} {
@@ -177,6 +236,8 @@ fn isValidCheckerboardDetection {detection} {
 
 package require math::linearalgebra
 namespace import ::math::linearalgebra::*
+package require math::geometry
+namespace import ::math::geometry::findLineIntersection ::math::geometry::pointInsidePolygon
 
 fn findHomography {sideLength detection} {
     # Camera points, from the camera image.
