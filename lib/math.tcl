@@ -58,6 +58,43 @@ namespace eval ::region {
     # quadrilateral area of space that is covered by that page. A
     # region is defined by a set of vertices and a set of edges among
     # those vertices. (TODO: Allow areas to be filled/unfilled.)
+    
+    set cc [c create]
+
+    # Define a struct for a region
+    $cc struct vec2 { float x; float y; }
+
+    $cc code {
+        typedef struct Vec2 Vec2;
+        struct Vec2 {
+            float x; float y;
+        };
+
+        typedef int Edge[2];  // two indices into points
+
+        typedef struct region_t region_t;
+        struct region_t {
+            Vec2* points;
+            Edge* edges;
+        };
+    }
+
+    $cc proc create_region {} region_t* {
+        // Takes any number of points
+        // Computes the convex-hull
+        // Defines the edges such that they are the border of the convex hull
+        
+        size_t size = sizeof(region_t);
+        region_t* ret = (region_t *) ckalloc(size);
+        memset(ret, 0, size);
+        *ret = (region_t) {
+            .points = NULL,
+            .edges = NULL,
+        };
+        return ret;
+    }
+
+    $cc compile
 
     proc create {vertices edges {angle 0}} {
         list $vertices $edges $angle
