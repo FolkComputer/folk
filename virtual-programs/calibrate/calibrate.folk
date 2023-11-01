@@ -152,7 +152,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                      [list [+ $x $tagSize] [+ $y $tagSize]] [list $x [+ $y $tagSize]]]
         }
     }
-    Wish the GPU draws pipeline "apriltag" with instances $instances layer 2
+    Wish to draw a quad with \
+        p0 [list 0 0] p1 [list $displayWidth 0] \
+        p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
+        color white layer 99
+    Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
 
     # TODO: Look for valid detections and re-adjust.
     When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
@@ -215,26 +219,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     }
 }
 
-fn isValidCheckerboardDetection {detection} {
-    set numPrintedTags 0 ;# (even-numbered tags)
-    set numProjectedTags 0 ;# (odd-numbered tags)
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            set id [expr {48600 + $row*$COLS + $col}]
-            if {[dict exists $detection $id]} {
-                if {$id % 2 == 0} {
-                    incr numPrintedTags 
-                } else {
-                    incr numProjectedTags
-                }
-            }
-        }
-    }
-    return [expr {$numPrintedTags > 0 && $numProjectedTags > 0}]
-
-    # TODO: Check that the checkerboard occupies a solid majority of
-    # the camera space.
-}
 
 package require math::linearalgebra
 namespace import ::math::linearalgebra::*
