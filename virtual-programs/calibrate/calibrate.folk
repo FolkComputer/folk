@@ -50,6 +50,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
     upvar ^html ^html
     html [csubst {
       <html>
+      <head><title>Folk: Calibrate</title></head>
       <body>
 
       <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
@@ -164,11 +165,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set bottomId [expr {48600 + ($ROWS-1)*$COLS + $col}]
             if {![info exists topEdge] && $topId % 2 == 0 && [dict exists $detection $topId]} {
                 set topTagCorners [dict get $detection $topId corners]
-                set topEdge [list [lindex $topTagCorners 2] [lindex $topTagCorners 3]]
+                set topEdge [list {*}[lindex $topTagCorners 2] {*}[lindex $topTagCorners 3]]
             }
             if {![info exists bottomEdge] && $bottomId % 2 == 0 && [dict exists $detection $bottomId]} {
                 set bottomTagCorners [dict get $detection $bottomId corners]
-                set bottomEdge [list [lindex $bottomTagCorners 0] [lindex $bottomTagCorners 1]]
+                set bottomEdge [list {*}[lindex $bottomTagCorners 0] {*}[lindex $bottomTagCorners 1]]
             }
         }
         for {set row 0} {$row < $ROWS} {incr row} {
@@ -176,16 +177,17 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set rightId [expr {48600 + $row*$COLS + $COLS-1}]
             if {![info exists leftEdge] && $leftId % 2 == 0 && [dict exists $detection $leftId]} {
                 set leftTagCorners [dict get $detection $leftId corners]
-                set leftEdge [list [lindex $leftTagCorners 0] [lindex $leftTagCorners 3]]
+                set leftEdge [list {*}[lindex $leftTagCorners 0] {*}[lindex $leftTagCorners 3]]
             }
             if {![info exists rightEdge] && $rightId % 2 == 0 && [dict exists $detection $rightId]} {
                 set rightTagCorners [dict get $detection $rightId corners]
-                set rightEdge [list [lindex $rightTagCorners 2] [lindex $rightTagCorners 1]]
+                set rightEdge [list {*}[lindex $rightTagCorners 2] {*}[lindex $rightTagCorners 1]]
             }
         }
         foreach edgeName {topEdge bottomEdge leftEdge rightEdge} {
             if {![info exists $edgeName]} { return }
         }
+        puts "======\nHave all edges:"
         set printedCalibrationBoard [list {*}[findLineIntersection $topEdge $leftEdge] \
                                          {*}[findLineIntersection $topEdge $rightEdge] \
                                          {*}[findLineIntersection $bottomEdge $rightEdge] \
