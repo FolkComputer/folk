@@ -187,11 +187,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         foreach edgeName {topEdge bottomEdge leftEdge rightEdge} {
             if {![info exists $edgeName]} { return }
         }
-        puts "======\nHave all edges:"
         set printedCalibrationBoard [list {*}[findLineIntersection $topEdge $leftEdge] \
                                          {*}[findLineIntersection $topEdge $rightEdge] \
                                          {*}[findLineIntersection $bottomEdge $rightEdge] \
                                          {*}[findLineIntersection $bottomEdge $leftEdge]]
+        puts "======\nHave board: {$printedCalibrationBoard}"
 
         set projectedTags [list]
         for {set row 0} {$row < $ROWS} {incr row} {
@@ -375,23 +375,23 @@ fn calibrate {sideLength detections} {
     }
 }
 
-set ::checkerboardDetections [list]
-set ::checkerboardLastDetectionTimestamp 0
+# set ::checkerboardDetections [list]
+# set ::checkerboardLastDetectionTimestamp 0
 When the checkerboard tag side length is /sideLengthMm/ mm & \
      /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
 
-    if {[llength $::checkerboardDetections] >= 4} { return }
+    # if {[llength $::checkerboardDetections] >= 4} { return }
 
-    set detection [dict create] ;# dict keyed by tag id for easy lookup
-    foreach tag $tags { dict set detection [dict get $tag id] $tag }
+    # set detection [dict create] ;# dict keyed by tag id for easy lookup
+    # foreach tag $tags { dict set detection [dict get $tag id] $tag }
 
     # Does it contain all of the calibration tags?
-    if {($timestamp - $::checkerboardLastDetectionTimestamp > 2000) &&
-        [isValidCheckerboardDetection $detection]} {
-        puts "Capturing calibration checkerboard"
-        lappend ::checkerboardDetections $detection
-        set ::checkerboardLastDetectionTimestamp $timestamp
-    }
+    # if {($timestamp - $::checkerboardLastDetectionTimestamp > 2000) &&
+    #     [isValidCheckerboardDetection $detection]} {
+    #     puts "Capturing calibration checkerboard"
+    #     lappend ::checkerboardDetections $detection
+    #     set ::checkerboardLastDetectionTimestamp $timestamp
+    # }
 
     # if {[llength $::checkerboardDetections] == 4} {
     #     puts "Detected 4 checkerboards. Calibrating."
