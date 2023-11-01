@@ -1,12 +1,23 @@
-set ROWS 5
-set COLS 7
+set ROWS 4
+set COLS 6
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS} {
-    set calibrationBoardPs [apply {{ROWS COLS} {
+fn isPrintedTag {id} {
+    # We print tags on the outer perimeter of the grid.
+    set idx [- $id 48600]
+    set row [expr {$idx / $COLS}]
+    set col [expr {$idx % $COLS}]
+    return [expr {$row == 0 || $row == $ROWS - 1 ||
+                  $col == 0 || $col == $COLS - 1}]
+}
+fn isProjectedTag {id} { ! [isPrintedTag $id] }
+
+Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS ^isPrintedTag} {
+    set calibrationBoardPs [apply {{ROWS COLS ^isPrintedTag} {
         set margin 36
         set PageWidth 612; set PageHeight 792
         set tagSideLength 60
         set tagOuterLength [expr {$tagSideLength * 10/6}]
+        set pad [expr {$tagSideLength - ($tagOuterLength - $tagSideLength)}]
         subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -29,21 +40,21 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
                 for {set row 0} {$row < $ROWS} {incr row} {
                     for {set col 0} {$col < $COLS} {incr col} {
                         set id [expr {48600 + $row*$COLS + $col}]
-                        # Leave a gap at every odd tag for projected tags.
-                        if {$id % 2 == 1} { continue }
-                        lappend images [subst {
-                            gsave
-                            [expr {$tagOuterLength*$col}] [expr {$tagOuterLength*$row + $tagOuterLength}] translate
-                            $tagOuterLength -$tagOuterLength scale
-                            [::tagPsForId $id]
-                            grestore
-                        }]
+                        if {[isPrintedTag $id]} {
+                            lappend images [subst {
+                                gsave
+                                [expr {($tagOuterLength + $pad)*$col}] [expr {($tagOuterLength + $pad)*$row + $tagOuterLength}] translate
+                                $tagOuterLength -$tagOuterLength scale
+                                [::tagPsForId $id]
+                                grestore
+                            }]
+                        }
                     }
                 }
                 join $images "\n"
             }]
         }
-    }} $ROWS $COLS]
+    }} $ROWS $COLS ${^isPrintedTag}]
     set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
     set calibrationBoardPdf [read $fp]; close $fp
 
@@ -95,7 +106,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       </body>
     </html>
   }]
-}} $ROWS $COLS]
+}} $ROWS $COLS ${^isPrintedTag}]
 
 Wish the GPU compiles pipeline "apriltag" {
     {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
