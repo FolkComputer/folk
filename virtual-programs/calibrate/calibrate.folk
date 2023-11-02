@@ -13,7 +13,7 @@ fn isProjectedTag {id} { ! [isPrintedTag $id] }
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS ^isPrintedTag} {
     set calibrationBoardPs [apply {{ROWS COLS ^isPrintedTag} {
-        set margin 36
+        set marginTop 72; set marginLeft 36
         set PageWidth 612; set PageHeight 792
         set tagSideLength 60
         set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -27,13 +27,13 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
             % Now (0, 0) is top-left of landscape page.
 
             gsave
-            $margin [/ $margin 2] translate
+            $marginLeft [- $marginTop 18] translate
             1 -1 scale
             0 setgray /Helvetica findfont 12 scalefont setfont
             newpath 0 0 moveto (Folk calibration board) show
             grestore
 
-            $margin $margin translate
+            $marginLeft $marginTop translate
 
             [try {
                 set images [list]
@@ -137,8 +137,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
             set id [expr {48600 + $row*$COLS + $col}]
-            # Leave a gap at every even tag for printed tags.
-            if {$id % 2 == 0} { continue }
+            if {![isProjectedTag $id]} { continue }
 
             set tagImage [::tagImageForId $id]
             set tagBits [list]
@@ -159,7 +158,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set y [expr {$tagSize*$row}]
             lappend instances \
                 [list $tagBitsVec \
-                     [list $x $y]               [list [+ $x $tagSize] $y] \
+                     [list $x $y]                           [list [+ $x $tagSize] $y] \
                      [list [+ $x $tagSize] [+ $y $tagSize]] [list $x [+ $y $tagSize]]]
         }
     }
@@ -178,11 +177,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         for {set col 0} {$col < $COLS} {incr col} {
             set topId [expr {48600 + $col}]
             set bottomId [expr {48600 + ($ROWS-1)*$COLS + $col}]
-            if {![info exists topEdge] && $topId % 2 == 0 && [dict exists $detection $topId]} {
+            if {![info exists topEdge] && [isPrintedTag $topId] && [dict exists $detection $topId]} {
                 set topTagCorners [dict get $detection $topId corners]
                 set topEdge [list {*}[lindex $topTagCorners 2] {*}[lindex $topTagCorners 3]]
             }
-            if {![info exists bottomEdge] && $bottomId % 2 == 0 && [dict exists $detection $bottomId]} {
+            if {![info exists bottomEdge] && [isPrintedTag $bottomId] && [dict exists $detection $bottomId]} {
                 set bottomTagCorners [dict get $detection $bottomId corners]
                 set bottomEdge [list {*}[lindex $bottomTagCorners 0] {*}[lindex $bottomTagCorners 1]]
             }
@@ -190,11 +189,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         for {set row 0} {$row < $ROWS} {incr row} {
             set leftId [expr {48600 + $row*$COLS}]
             set rightId [expr {48600 + $row*$COLS + $COLS-1}]
-            if {![info exists leftEdge] && $leftId % 2 == 0 && [dict exists $detection $leftId]} {
+            if {![info exists leftEdge] && [isPrintedTag $leftId] && [dict exists $detection $leftId]} {
                 set leftTagCorners [dict get $detection $leftId corners]
                 set leftEdge [list {*}[lindex $leftTagCorners 0] {*}[lindex $leftTagCorners 3]]
             }
-            if {![info exists rightEdge] && $rightId % 2 == 0 && [dict exists $detection $rightId]} {
+            if {![info exists rightEdge] && [isPrintedTag $rightId] && [dict exists $detection $rightId]} {
                 set rightTagCorners [dict get $detection $rightId corners]
                 set rightEdge [list {*}[lindex $rightTagCorners 2] {*}[lindex $rightTagCorners 1]]
             }
@@ -212,7 +211,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         for {set row 0} {$row < $ROWS} {incr row} {
             for {set col 0} {$col < $COLS} {incr col} {
                 set id [expr {48600 + $row*$COLS + $col}]
-                if {$id % 2 == 0} { continue }
+                if {![isProjectedTag $id]} { continue }
                 if {![dict exists $detection $id]} { continue }
 
                 set projectedTag [dict get $detection $id]
