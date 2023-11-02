@@ -2,7 +2,8 @@ set ROWS 4
 set COLS 5
 
 fn isPrintedTag {id} {
-    # We print tags on the outer perimeter of the grid.
+    # We print tags on the outer perimeter of the grid, and we project
+    # tags in the interior.
     set idx [- $id 48600]
     set row [expr {$idx / $COLS}]
     set col [expr {$idx % $COLS}]
@@ -10,6 +11,39 @@ fn isPrintedTag {id} {
                   $col == 0 || $col == $COLS - 1}]
 }
 fn isProjectedTag {id} { ! [isPrintedTag $id] }
+
+# Takes a list of at least 4 point pairs (model -> image) like
+#
+# [list \
+#   [list x0 y0 u0 v0]] \
+#   [list x1 y1 u1 v1] \
+#   [list x2 y2 u2 v2] \
+#   [list x3 y3 u3 v3]]
+#
+# Returns a 3x3 homography that maps model (x, y) to image (u, v)
+# (using homogeneous coordinates).
+fn estimateHomography {pointPairs} {
+    set A [list]
+    set b [list]
+    foreach pair $pointPairs {
+        lassign $pair x y u v
+        lappend A [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
+        lappend A [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
+        lappend b $u $v
+    }
+
+    lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2 c0 c1
+    set H [subst {
+        {$a0 $a1 $a2}
+        {$b0 $b1 $b2}
+        {$c0 $c1 1}
+    }]
+    return $H
+}
+fn applyHomography {H xy} {
+    lassign [matmul $H [list {*}$xy 1]] u v w
+    return [list [/ $u $w] [/ $v $w]]
+}
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS ^isPrintedTag} {
     set calibrationBoardPs [apply {{ROWS COLS ^isPrintedTag} {
@@ -127,12 +161,27 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # Project projected tags once the side length has been dialed in.
 
     # Size to project at, in pixels:
-    set tagOuterLength [expr {int(min($displayWidth/($COLS*10/6), $displayHeight/($ROWS*10/6)))}]
+    set tagOuterLength 1.0
     set pad [expr {$tagOuterLength * 6/10}]
 
     # TODO: Use a general homography to warp this projection. Then
     # adjust the homography based on self-perception of the prev
     # iteration of projection.
+
+    set tagOuterLengthPixels [expr {int(min($displayWidth/($COLS*10/6), $displayHeight/($ROWS*10/6)))}]
+    
+    # What points go to what?
+    # - {1 1} -> {$tagOuterLength $tagOuterLength}
+    # - {1 0} -> {$tagOuterLength 0}
+    # - {0 1} -> {0 $tagOuterLength}
+    # - {0 0} -> {0 0}
+    set H [estimateHomography [subst {
+        {1 1 $tagOuterLengthPixels $tagOuterLengthPixels}
+        {1 0 $tagOuterLengthPixels 0}
+        {0 1 0 $tagOuterLengthPixels}
+        {0 0 0 0}
+    }]]
+    puts "H is ($H)"
 
     set instances [list]
     for {set row 0} {$row < $ROWS} {incr row} {
@@ -159,10 +208,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set y [expr {($tagOuterLength + $pad)*$row}]
             lappend instances \
                 [list $tagBitsVec \
-                     [list $x $y]  \
-                     [list [+ $x $tagOuterLength] $y] \
-                     [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]] \
-                     [list $x [+ $y $tagOuterLength]]]
+                     [applyHomography $H [list $x $y]]  \
+                     [applyHomography $H [list [+ $x $tagOuterLength] $y]] \
+                     [applyHomography $H [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]]] \
+                     [applyHomography $H [list $x [+ $y $tagOuterLength]]]]
         }
     }
     Wish to draw a quad with \
@@ -227,10 +276,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         if {[llength $projectedTags] > 0} {
             puts "======\nHave board: {$printedCalibrationBoard}"
             puts "Saw projected tags: ($projectedTags)"
+
+            # Is there at least one projected tag whose corners are within those of the printed tags?
+            # Find a homography to the calibration plane.
+            # Reproject with the new homography.
         }
-        # Is there at least one projected tag whose corners are within those of the printed tags?
-        # Find a homography to the calibration plane.
-        # Reproject with the new homography.
     }
 }
 
