@@ -80,6 +80,7 @@ if flashing from a Mac])
       
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
+     1. on Ubuntu 23.10 server you might miss `gbm`, for that `apt install libgbm-dev`
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. Get AprilTags: `cd ~ && git clone

@@ -30,7 +30,7 @@ Try doing `sudo adduser folk render`."
     if {$::isLaptop} {
         set WIDTH [* 640 2]; set HEIGHT [* 480 2]
     } else {
-        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
     }
 
     rename [c create] dc
