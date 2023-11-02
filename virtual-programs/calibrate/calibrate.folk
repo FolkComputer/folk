@@ -1,5 +1,5 @@
 set ROWS 4
-set COLS 6
+set COLS 5
 
 fn isPrintedTag {id} {
     # We print tags on the outer perimeter of the grid.
@@ -15,9 +15,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
     set calibrationBoardPs [apply {{ROWS COLS ^isPrintedTag} {
         set marginTop 72; set marginLeft 36
         set PageWidth 612; set PageHeight 792
-        set tagSideLength 60
+        set tagSideLength 50
         set tagOuterLength [expr {$tagSideLength * 10/6}]
-        set pad [expr {$tagSideLength - ($tagOuterLength - $tagSideLength)}]
+        set pad $tagSideLength
         subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
