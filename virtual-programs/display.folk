@@ -140,7 +140,7 @@ namespace eval ::Display {
     if {$::isLaptop} {
         set WIDTH 640; set HEIGHT 480
     } else {
-        regexp {mode "(\d+)x(\d+)"} [exec fbset] -> WIDTH HEIGHT
+        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
     }
 
     # TODO: Remove these / expel them to a shim page; these are only
