@@ -87,7 +87,7 @@ namespace eval ::region {
 
         };
 
-        int orientation(Point start, Point end, Point candidate) {
+        float orientation(Point start, Point end, Point candidate) {
             return (
                 (end.x - start.x) * (candidate.y - start.y) - 
                 (end.y - start.y) * (candidate.x - start.x)
@@ -114,7 +114,7 @@ namespace eval ::region {
             points[i].y = point_list[i][1];
         }
 
-        // Construct edges (using naive Convex-Hull algorithm)
+        // Construct edges
         size_t e_sz = N * sizeof(Edge);
         Edge* edges = (Edge*) ckalloc(e_sz);
         memset(edges, 0, e_sz);
@@ -129,19 +129,38 @@ namespace eval ::region {
             return ret;
         }
 
-        int num_edges = 0;
+        // Convex-Hull
+        // Start with the point with smallest x coordinate.
+        // You're guaranteed this point is on the convex-hull.
         int from = 0;
+        for (int i = 0; i < N; i++) {
+            if (points[i].x < points[from].x) {
+                from = i;
+            }
+        }
         int to = (from + 1) % N;
 
+        // Iteratively, find the following point that's smallest
+        // counter-clockwise furn from the current edge.
+        // Repeat until you're back where you started.
+        int num_edges = 0;
         while (true) {
+            float best = -1e9;
             for (int candidate = 0; candidate < N; candidate++) {
-                if (orientation(points[from], points[to], points[candidate]) < 0) {
+                float o = orientation(points[from], points[to], points[candidate]);
+                if (best < o && o < 0) {
                     to = candidate;
+                    best = o;
                 }
             }
             edges[num_edges].from = from;
             edges[num_edges].to = to;
             num_edges += 1;
+            if (num_edges > N) {
+                // If all points are on the perimeter, then there should be
+                // only N edges. More than N, you have a bug.
+                break;
+            }
 
             from = to;
             to = (from + 1) % N;
@@ -171,27 +190,35 @@ namespace eval ::region {
 
     $cc proc to_tcl {Region* region} Tcl_Obj* {
 
-        Tcl_Obj* _points[region->n_points];
-        for (int i = 0; i < region->n_points; i++) {
-            Tcl_Obj* p[] = {
-                Tcl_NewDoubleObj(region->points[i].x),
-                Tcl_NewDoubleObj(region->points[i].y),
-            };
-            _points[i] = Tcl_NewListObj(2, p);
-        }
         Tcl_Obj* points;
-        points = Tcl_NewListObj(region->n_points, _points);
-
-        Tcl_Obj* _edges[region->n_edges];
-        for (int i = 0; i < region->n_edges; i++) {
-            Tcl_Obj* e[] = {
-                Tcl_NewIntObj(region->edges[i].from),
-                Tcl_NewIntObj(region->edges[i].to),
-            };
-            _edges[i] = Tcl_NewListObj(2, e);
+        if (region->n_edges) {
+            Tcl_Obj* _points[region->n_points];
+            for (int i = 0; i < region->n_points; i++) {
+                Tcl_Obj* p[] = {
+                    Tcl_NewDoubleObj(region->points[i].x),
+                    Tcl_NewDoubleObj(region->points[i].y),
+                };
+                _points[i] = Tcl_NewListObj(2, p);
+            }
+            points = Tcl_NewListObj(region->n_points, _points);
+        } else {
+            points = Tcl_NewListObj(0, NULL);
         }
+
         Tcl_Obj* edges;
-        edges = Tcl_NewListObj(region->n_edges, _edges);
+        if (region->n_edges) {
+            Tcl_Obj* _edges[region->n_edges];
+            for (int i = 0; i < region->n_edges; i++) {
+                Tcl_Obj* e[] = {
+                    Tcl_NewIntObj(region->edges[i].from),
+                    Tcl_NewIntObj(region->edges[i].to),
+                };
+                _edges[i] = Tcl_NewListObj(2, e);
+            }
+            edges = Tcl_NewListObj(region->n_edges, _edges);
+        } else {
+            edges = Tcl_NewListObj(0, NULL);
+        }
 
         Tcl_Obj* _robj[3] = {
             points,
