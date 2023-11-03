@@ -86,9 +86,16 @@ namespace eval ::region {
             Edge* edges;
 
         };
+
+        int orientation(Point start, Point end, Point candidate) {
+            return (
+                (end.x - start.x) * (candidate.y - start.y) - 
+                (end.y - start.y) * (candidate.x - start.x)
+            );
+        }
     }
 
-    $cc proc create_region {int[][2] point_list int N} Region* {
+    $cc proc create_convex_region {int[][2] point_list int N} Region* {
         // Takes any number of points
         // Computes the convex-hull
         // Defines the edges such that they are the border of the convex hull
@@ -104,30 +111,46 @@ namespace eval ::region {
         memset(points, 0, p_sz);
         for (int i = 0; i < N; i++) {
             points[i].x = point_list[i][0];
-            points[i].y = point_list[i][0];
+            points[i].y = point_list[i][1];
         }
 
-        // Construct edges (using Convex-Hull algorithm)
+        // Construct edges (using naive Convex-Hull algorithm)
         size_t e_sz = N * sizeof(Edge);
         Edge* edges = (Edge*) ckalloc(e_sz);
         memset(edges, 0, e_sz);
-        for (int i = 0; i < N-1; i++) {
-            edges[i].from = i;
-            edges[i].to = i + 1;
+
+        int num_edges = 0;
+        int from = 0;
+        int to = (from + 1) % N;
+
+        while (true) {
+            for (int candidate = 0; candidate < N; candidate++) {
+                if (orientation(points[from], points[to], points[candidate]) < 0) {
+                    to = candidate;
+                }
+            }
+            edges[num_edges].from = from;
+            edges[num_edges].to = to;
+            num_edges += 1;
+
+            from = to;
+            to = (from + 1) % N;
+            if (from == edges[0].from) {
+                break;
+            }
         }
 
-        // Return pointer to the region
         *ret = (Region) {
             .n_points = N,
             .points = points,
-            .n_edges = N,
+            .n_edges = num_edges,
             .edges = edges,
         };
 
         return ret;
     }
 
-    $cc proc puts_region {Region* region} void {
+    $cc proc pprint {Region* region} void {
         for (int i = 0; i < region->n_points; i++) {
             printf("Point %d: [%d, %d]\n", i, region->points[i].x, region->points[i].y);
         }
@@ -136,7 +159,45 @@ namespace eval ::region {
         }
     }
 
+    $cc proc to_tcl {Region* region} Tcl_Obj* {
+
+        Tcl_Obj* _points[region->n_points];
+        for (int i = 0; i < region->n_points; i++) {
+            Tcl_Obj* p[] = {
+                Tcl_NewDoubleObj(region->points[i].x),
+                Tcl_NewDoubleObj(region->points[i].y),
+            };
+            _points[i] = Tcl_NewListObj(2, p);
+        }
+        Tcl_Obj* points;
+        points = Tcl_NewListObj(region->n_points, _points);
+
+        Tcl_Obj* _edges[region->n_edges];
+        for (int i = 0; i < region->n_edges; i++) {
+            Tcl_Obj* e[] = {
+                Tcl_NewDoubleObj(region->edges[i].from),
+                Tcl_NewDoubleObj(region->edges[i].to),
+            };
+            _edges[i] = Tcl_NewListObj(2, e);
+        }
+        Tcl_Obj* edges;
+        edges = Tcl_NewListObj(region->n_edges, _edges);
+
+        Tcl_Obj* _robj[3] = {
+            points,
+            edges,
+            Tcl_NewDoubleObj(0)
+        };
+        Tcl_Obj* robj;
+        robj = Tcl_NewListObj(3, _robj);
+        return robj;
+    }
+
     $cc compile
+
+    proc convexHull {points} {
+        set r [region create_convex_region $points [llength $points]]
+    }
 
     proc create {vertices edges {angle 0}} {
         list $vertices $edges $angle
