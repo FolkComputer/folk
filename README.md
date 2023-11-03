@@ -41,25 +41,27 @@ if flashing from a Mac])
 1. **Install Vulkan for graphics (without dragging in X or Wayland)**
    (we use "VK_KHR_display", which lets us draw directly to monitors):
      1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
-     1. Clone `mesa`, which implements the Vulkan API on Linux: `git
-        clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
-        (TODO: Nvidia has a different process and doesn't use Mesa,
-        figure this out)
-     1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
-        compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
-        `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
-        depending on your GPU. Here are some examples:
+     1. **If you have a non-Nvidia GPU:** Clone `mesa`, which
+        implements the Vulkan API on Linux: `git clone --depth 1
+        https://gitlab.freedesktop.org/mesa/mesa.git`
+          1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
+             compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
+             `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
+             depending on your GPU. Here are some examples:
 
-            # Raspberry Pi 4
-            $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
+                 # Raspberry Pi 4
+                 $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
 
-            # AMD (radeonsi), including Beelink SER5
-            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
+                 # AMD (radeonsi), including Beelink SER5
+                 $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
 
-            # Intel (i915), including Beelink Mini S12
-            $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
+                 # Intel (i915), including Beelink Mini S12
+                 $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
 
-     1. Run `sudo ninja install`.
+          1. Run `sudo ninja install`.
+     1. **If you have an Nvidia GPU (work in progress, not well-tested
+        yet):** Install Linux GPU drivers from Nvidia's website:
+        <https://developer.nvidia.com/vulkan-driver>
      1. Try `vulkaninfo` and see if it works.
           1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
              in the current config", add `dtoverlay=vc4-fkms-v3d` to
@@ -78,9 +80,13 @@ if flashing from a Mac])
             mkdir build; cd build; meson .. && ninja
             ./vkcube -m khr -k 0:0:0
       
+        If vkcube says `Assertion ``vc->image_count > 0' failed`, you
+        might be able to still skip vkcube and continue the install
+        process. See [this
+        bug](https://github.com/FolkComputer/folk/issues/109#issuecomment-1788085237)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
-     1. on Ubuntu 23.10 server you might miss `gbm`, for that `apt install libgbm-dev`
+     1. (On Ubuntu 23.10 server you might miss `gbm`, for that `apt install libgbm-dev`)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
 1. Get AprilTags: `cd ~ && git clone
