@@ -99,7 +99,7 @@ namespace eval ::region {
         // Takes any number of points
         // Computes the convex-hull
         // Defines the edges such that they are the border of the convex hull
-        
+
         // Initialize a Region struct on the heap
         size_t r_sz = sizeof(Region);
         Region* ret = (Region *) ckalloc(r_sz);
@@ -118,6 +118,16 @@ namespace eval ::region {
         size_t e_sz = N * sizeof(Edge);
         Edge* edges = (Edge*) ckalloc(e_sz);
         memset(edges, 0, e_sz);
+        
+        if (N == 0) {
+            *ret = (Region) {
+                .n_points = 0,
+                .points = points,
+                .n_edges = 0,
+                .edges = edges,
+            };
+            return ret;
+        }
 
         int num_edges = 0;
         int from = 0;
