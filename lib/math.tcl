@@ -66,8 +66,8 @@ namespace eval ::region {
 
         typedef struct Point Point;
         struct Point {
-            int32_t x;
-            int32_t y;
+            float x;
+            float y;
         };
 
         typedef struct Edge Edge;
@@ -95,7 +95,7 @@ namespace eval ::region {
         }
     }
 
-    $cc proc create_convex_region {int[][2] point_list int N} Region* {
+    $cc proc create_convex_region {float[][2] point_list int N} Region* {
         // Takes any number of points
         // Computes the convex-hull
         // Defines the edges such that they are the border of the convex hull
@@ -152,7 +152,7 @@ namespace eval ::region {
 
     $cc proc pprint {Region* region} void {
         for (int i = 0; i < region->n_points; i++) {
-            printf("Point %d: [%d, %d]\n", i, region->points[i].x, region->points[i].y);
+            printf("Point %d: [%f, %f]\n", i, region->points[i].x, region->points[i].y);
         }
         for (int i = 0; i < region->n_edges; i++) {
             printf("Edge %d: %d -> %d\n", i, region->edges[i].from, region->edges[i].to);
@@ -175,8 +175,8 @@ namespace eval ::region {
         Tcl_Obj* _edges[region->n_edges];
         for (int i = 0; i < region->n_edges; i++) {
             Tcl_Obj* e[] = {
-                Tcl_NewDoubleObj(region->edges[i].from),
-                Tcl_NewDoubleObj(region->edges[i].to),
+                Tcl_NewIntObj(region->edges[i].from),
+                Tcl_NewIntObj(region->edges[i].to),
             };
             _edges[i] = Tcl_NewListObj(2, e);
         }
@@ -197,6 +197,7 @@ namespace eval ::region {
 
     proc convexHull {points} {
         set r [region create_convex_region $points [llength $points]]
+        region to_tcl $r
     }
 
     proc create {vertices edges {angle 0}} {
