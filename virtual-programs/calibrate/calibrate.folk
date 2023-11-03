@@ -329,7 +329,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # puts "Saw printed tags: ($printedTags)"
         # puts "Saw projected tags: ($projectedTags)"
 
-        if {[dict size $projectedTags] > 0} {
+        if {[dict size $projectedTags] > 0 && ![info exists ::donecalib]} {
             puts "======\nHave board: {$printedCalibrationBoard}"
             puts "Saw projected tags: ($projectedTags)"
 
@@ -352,6 +352,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                     cameraCorner [dict get $projectedTag corners] {
                         puts "HMTOD IS ($::Hmtod)"
                         set displayCorner [applyHomography $::Hmtod $modelCorner]
+                        puts "MODELCORNER($id) is ($modelCorner) -> DISPLAYCORNER($id) is ($displayCorner)"
                         lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                     }
             }
@@ -359,6 +360,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
             set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
             set ::Hmtod $H_modelToDisplay
+            set ::donecalib true
             Commit H_modelToDisplay {
                 Claim the calibration model-to-display homography is $H_modelToDisplay
             }
