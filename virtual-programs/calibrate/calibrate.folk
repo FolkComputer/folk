@@ -270,7 +270,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # TODO: Look for valid detections and re-adjust.
     When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
-        foreach tag $tags { dict set detection [dict get $tag id] $tag }
+        foreach tag $tags {
+            set id [dict get $tag id]
+            dict set allDetectedTags $id $tag
+            if {[isPrintedTag $id]} { dict set printedTags $id $tag }
+        }
 
         # Can we find the bounds of the printed calibration board?
         for {set col 0} {$col < $COLS} {incr col} {
@@ -306,19 +310,17 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                          {*}[findLineIntersection $bottomEdge $leftEdge]]
 
         set projectedTags [dict create]
-        for {set row 0} {$row < $ROWS} {incr row} {
-            for {set col 0} {$col < $COLS} {incr col} {
-                set id [expr {48600 + $row*$COLS + $col}]
-                if {![isProjectedTag $id]} { continue }
-                if {![dict exists $detection $id]} { continue }
-
-                set projectedTag [dict get $detection $id]
-                if {[pointInsidePolygon [dict get $projectedTag center] $printedCalibrationBoard]} {
-                    # This is a projected tag that we detected.
-                    dict set projectedTags $id $projectedTag
-                }
+        dict for {id tag} $allDetectedTags {
+            if {![isProjectedTag $id]} { continue }
+            if {[pointInsidePolygon [dict get $tag center] $printedCalibrationBoard]} {
+                # This is a projected tag that we detected.
+                dict set projectedTags $id $tag
             }
         }
+
+        # puts "======\nHave board: {$printedCalibrationBoard}"
+        # puts "Saw printed tags: ($printedTags)"
+        # puts "Saw projected tags: ($projectedTags)"
 
         if {[dict size $projectedTags] > 0} {
             puts "======\nHave board: {$printedCalibrationBoard}"
