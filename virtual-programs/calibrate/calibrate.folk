@@ -221,7 +221,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     set innerToOuter [expr {($tagOuterLength - $tagSideLength)/2}]
     set pad $tagSideLength
 
-    When /nobody/ claims the calibration model-to-display homography is /anything/ {
+    When /nobody/ claims the calibration model-to-display homography is /anything/ at /_/ {
         set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
                                                $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
 
@@ -231,11 +231,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             {0 1 0 $tagSideLengthPixels}
             {0 0 0 0}
         }]]
-        set ::Hmtod $H_modelToDisplay
-        Commit H_modelToDisplay { Claim the calibration model-to-display homography is $H_modelToDisplay }
+        Commit H_modelToDisplay { Claim the calibration model-to-display homography is $H_modelToDisplay at [clock milliseconds] }
     }
 
-    When the calibration model-to-display homography is /H_modelToDisplay/ {
+    When the calibration model-to-display homography is /H_modelToDisplay/ at /timestamp/ {
         set instances [list]
         dict for {id modelTag} $MODEL {
             if {![isProjectedTag $id]} { continue }
@@ -275,7 +274,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     }
 
     # TODO: Look for valid detections and re-adjust.
-    When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+    When /someone/ detects tags /tags/ at /timestamp/ in time /something/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ at /hTimestamp/ {
+
+        if {$timestamp - $hTimestamp < 200} { return }
+
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
             set id [dict get $tag id]
@@ -329,7 +332,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # puts "Saw printed tags: ($printedTags)"
         # puts "Saw projected tags: ($projectedTags)"
 
-        if {[dict size $projectedTags] > 0 && ![info exists ::donecalib]} {
+        if {[dict size $projectedTags] > 0} {
             puts "======\nHave board: {$printedCalibrationBoard}"
             puts "Saw projected tags: ($projectedTags)"
 
@@ -350,19 +353,15 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 set modelTag [dict get $MODEL $id]
                 foreach modelCorner [dict get $modelTag corners] \
                     cameraCorner [dict get $projectedTag corners] {
-                        puts "HMTOD IS ($::Hmtod)"
-                        set displayCorner [applyHomography $::Hmtod $modelCorner]
-                        puts "MODELCORNER($id) is ($modelCorner) -> DISPLAYCORNER($id) is ($displayCorner)"
+                        set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
                         lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                     }
             }
             set H_cameraToDisplay [estimateHomography $projectedPointPairs]
 
             set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
-            set ::Hmtod $H_modelToDisplay
-            set ::donecalib true
             Commit H_modelToDisplay {
-                Claim the calibration model-to-display homography is $H_modelToDisplay
+                Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
             }
         }
     }
