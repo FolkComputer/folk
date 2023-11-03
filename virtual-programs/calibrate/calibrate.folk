@@ -1,5 +1,26 @@
 set ROWS 4
 set COLS 5
+# The model is a dictionary whose keys are tag IDs and whose values
+# are model points (x, y). The points on the outer perimeter will get
+# projected to PostScript points and printed; the points in the
+# interior will get projected to Vulkan points and rendered on
+# projector.
+set MODEL [apply {{ROWS COLS} {
+    set MODEL [dict create]
+
+    set tagSideLength 1.0
+    set tagOuterLength [expr {$tagSideLength * 10/6}]
+    set pad $tagSideLength
+    for {set row 0} {$row < $ROWS} {incr row} {
+        for {set col 0} {$col < $COLS} {incr col} {
+            set id [expr {48600 + $row*$COLS + $col}]
+            set modelX [expr {($tagOuterLength + $pad)*$col}]
+            set modelY [expr {($tagOuterLength + $pad)*$row}]
+            dict set MODEL $id [list $modelX $modelY]
+        }
+    }
+    return $MODEL
+}} $ROWS $COLS]
 
 fn isPrintedTag {id} {
     # We print tags on the outer perimeter of the grid, and we project
@@ -45,13 +66,22 @@ fn applyHomography {H xy} {
     return [list [/ $u $w] [/ $v $w]]
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS COLS ^isPrintedTag} {
-    set calibrationBoardPs [apply {{ROWS COLS ^isPrintedTag} {
+Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL ^isPrintedTag ^estimateHomography ^applyHomography} {
+    set calibrationBoardPs [apply {{MODEL ^isPrintedTag ^estimateHomography ^applyHomography} {
         set marginTop 72; set marginLeft 36
         set PageWidth 612; set PageHeight 792
+
         set tagSideLength 50
         set tagOuterLength [expr {$tagSideLength * 10/6}]
         set pad $tagSideLength
+
+        set H_modelToPs [estimateHomography [subst {
+            {1 1 $tagOuterLength $tagOuterLength}
+            {1 0 $tagOuterLength 0}
+            {0 1 0 $tagOuterLength}
+            {0 0 0 0}
+        }]]
+
         subst {
             %!PS
             << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -69,26 +99,20 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
 
             $marginLeft $marginTop translate
 
-            [try {
-                set images [list]
-                for {set row 0} {$row < $ROWS} {incr row} {
-                    for {set col 0} {$col < $COLS} {incr col} {
-                        set id [expr {48600 + $row*$COLS + $col}]
-                        if {[isPrintedTag $id]} {
-                            lappend images [subst {
-                                gsave
-                                [expr {($tagOuterLength + $pad)*$col}] [expr {($tagOuterLength + $pad)*$row + $tagOuterLength}] translate
-                                $tagOuterLength -$tagOuterLength scale
-                                [::tagPsForId $id]
-                                grestore
-                            }]
-                        }
-                    }
+            [join [dict values [dict map {id modelPoint} $MODEL {
+                if {![isPrintedTag $id]} { continue }
+
+                lassign [applyHomography $H_modelToPs $modelPoint] psX psY
+                subst {
+                    gsave
+                    $psX [+ $psY $tagOuterLength] translate
+                    $tagOuterLength -$tagOuterLength scale
+                    [::tagPsForId $id]
+                    grestore
                 }
-                join $images "\n"
-            }]
+            }]] "\n"]
         }
-    }} $ROWS $COLS ${^isPrintedTag}]
+    }} $MODEL ${^isPrintedTag} ${^estimateHomography} ${^applyHomography}]
     set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
     set calibrationBoardPdf [read $fp]; close $fp
 
@@ -140,7 +164,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{ROWS 
       </body>
     </html>
   }]
-}} $ROWS $COLS ${^isPrintedTag}]
+}} $MODEL ${^isPrintedTag} ${^estimateHomography} ${^applyHomography}]
 
 Wish the GPU compiles pipeline "apriltag" {
     {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
@@ -169,19 +193,13 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # iteration of projection.
 
     set tagOuterLengthPixels [expr {int(min($displayWidth/($COLS*10/6), $displayHeight/($ROWS*10/6)))}]
-    
-    # What points go to what?
-    # - {1 1} -> {$tagOuterLength $tagOuterLength}
-    # - {1 0} -> {$tagOuterLength 0}
-    # - {0 1} -> {0 $tagOuterLength}
-    # - {0 0} -> {0 0}
-    set H [estimateHomography [subst {
+
+    set ::H_modelToDisplay [estimateHomography [subst {
         {1 1 $tagOuterLengthPixels $tagOuterLengthPixels}
         {1 0 $tagOuterLengthPixels 0}
         {0 1 0 $tagOuterLengthPixels}
         {0 0 0 0}
     }]]
-    puts "H is ($H)"
 
     set instances [list]
     for {set row 0} {$row < $ROWS} {incr row} {
@@ -208,10 +226,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set y [expr {($tagOuterLength + $pad)*$row}]
             lappend instances \
                 [list $tagBitsVec \
-                     [applyHomography $H [list $x $y]]  \
-                     [applyHomography $H [list [+ $x $tagOuterLength] $y]] \
-                     [applyHomography $H [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]]] \
-                     [applyHomography $H [list $x [+ $y $tagOuterLength]]]]
+                     [applyHomography $::projH [list $x $y]]  \
+                     [applyHomography $::projH [list [+ $x $tagOuterLength] $y]] \
+                     [applyHomography $::projH [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]]] \
+                     [applyHomography $::projH [list $x [+ $y $tagOuterLength]]]]
         }
     }
     Wish to draw a quad with \
@@ -280,6 +298,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             # Is there at least one projected tag whose corners are within those of the printed tags?
             # Find a homography to the calibration plane.
             # Reproject with the new homography.
+
+            # Set ::projH
+            
         }
     }
 }
