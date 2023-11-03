@@ -182,55 +182,52 @@ Wish the GPU compiles pipeline "apriltag" {
 }
 When the display Display has width /displayWidth/ height /displayHeight/ &\
      the checkerboard tag side length is /sideLengthMm/ mm {
-    # Project projected tags once the side length has been dialed in.
+    # Project projected tags once the printed side length has been
+    # dialed in.
 
-    # Size to project at, in pixels:
-    set tagOuterLength 1.0
-    set pad [expr {$tagOuterLength * 6/10}]
+    set tagSideLength 1.0
+    set tagOuterLength [expr {$tagSideLength * 10/6}]
+    set pad $tagSideLength
 
     # TODO: Use a general homography to warp this projection. Then
     # adjust the homography based on self-perception of the prev
     # iteration of projection.
 
-    set tagOuterLengthPixels [expr {int(min($displayWidth/($COLS*10/6), $displayHeight/($ROWS*10/6)))}]
+    set tagSideLengthPixels [expr {int(min($displayWidth/($COLS), $displayHeight/($ROWS)))}]
 
     set ::H_modelToDisplay [estimateHomography [subst {
-        {1 1 $tagOuterLengthPixels $tagOuterLengthPixels}
-        {1 0 $tagOuterLengthPixels 0}
-        {0 1 0 $tagOuterLengthPixels}
+        {1 1 $tagSideLengthPixels $tagSideLengthPixels}
+        {1 0 $tagSideLengthPixels 0}
+        {0 1 0 $tagSideLengthPixels}
         {0 0 0 0}
     }]]
 
     set instances [list]
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            set id [expr {48600 + $row*$COLS + $col}]
-            if {![isProjectedTag $id]} { continue }
+    dict for {id modelPoint} $MODEL {
+        if {![isProjectedTag $id]} { continue }
 
-            set tagImage [::tagImageForId $id]
-            set tagBits [list]
-            # 10x10 AprilTag -> 100 bits
-            for {set y 0} {$y < 10} {incr y} {
-                for {set x 0} {$x < 10} {incr x} {
-                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-                    set bit [== [image_t data $tagImage $j] 255]
-                    lappend tagBits $bit
-                }
+        set tagImage [::tagImageForId $id]
+        set tagBits [list]
+        # 10x10 AprilTag -> 100 bits
+        for {set y 0} {$y < 10} {incr y} {
+            for {set x 0} {$x < 10} {incr x} {
+                set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+                set bit [== [image_t data $tagImage $j] 255]
+                lappend tagBits $bit
             }
-            # -> 4 32-bit integers
-            set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
-                                0b[join [lreverse [lrange $tagBits 32 63]] ""] \
-                                0b[join [lreverse [lrange $tagBits 64 95]] ""] \
-                                0b[join [lreverse [lrange $tagBits 96 127]] ""]]
-            set x [expr {($tagOuterLength + $pad)*$col}]
-            set y [expr {($tagOuterLength + $pad)*$row}]
-            lappend instances \
-                [list $tagBitsVec \
-                     [applyHomography $::projH [list $x $y]]  \
-                     [applyHomography $::projH [list [+ $x $tagOuterLength] $y]] \
-                     [applyHomography $::projH [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]]] \
-                     [applyHomography $::projH [list $x [+ $y $tagOuterLength]]]]
         }
+        # -> 4 32-bit integers
+        set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
+                            0b[join [lreverse [lrange $tagBits 32 63]] ""] \
+                            0b[join [lreverse [lrange $tagBits 64 95]] ""] \
+                            0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+        lassign $modelPoint x y
+        lappend instances \
+            [list $tagBitsVec \
+                 [applyHomography $::H_modelToDisplay [list $x $y]]  \
+                 [applyHomography $::H_modelToDisplay [list [+ $x $tagOuterLength] $y]] \
+                 [applyHomography $::H_modelToDisplay [list [+ $x $tagOuterLength] [+ $y $tagOuterLength]]] \
+                 [applyHomography $::H_modelToDisplay [list $x [+ $y $tagOuterLength]]]]
     }
     Wish to draw a quad with \
         p0 [list 0 0] p1 [list $displayWidth 0] \
