@@ -349,7 +349,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             dict for {id projectedTag} $projectedTags {
                 set modelTag [dict get $MODEL $id]
                 foreach modelCorner [dict get $modelTag corners] \
-                    cameraCorner [dict get $printedTag corners] {
+                    cameraCorner [dict get $projectedTag corners] {
                         puts "HMTOD IS ($::Hmtod)"
                         set displayCorner [applyHomography $::Hmtod $modelCorner]
                         lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
