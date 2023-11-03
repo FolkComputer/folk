@@ -193,7 +193,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # adjust the homography based on self-perception of the prev
     # iteration of projection.
 
-    set tagSideLengthPixels [expr {int(min($displayWidth/($COLS), $displayHeight/($ROWS)))}]
+    set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
+                                           $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
 
     set ::H_modelToDisplay [estimateHomography [subst {
         {1 1 $tagSideLengthPixels $tagSideLengthPixels}
