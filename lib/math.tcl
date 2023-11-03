@@ -60,38 +60,80 @@ namespace eval ::region {
     # those vertices. (TODO: Allow areas to be filled/unfilled.)
     
     set cc [c create]
-
-    # Define a struct for a region
-    $cc struct vec2 { float x; float y; }
+    $cc include <string.h>
 
     $cc code {
-        typedef struct Vec2 Vec2;
-        struct Vec2 {
-            float x; float y;
+
+        typedef struct Point Point;
+        struct Point {
+            int32_t x;
+            int32_t y;
         };
 
-        typedef int Edge[2];  // two indices into points
+        typedef struct Edge Edge;
+        struct Edge {
+            int32_t from;
+            int32_t to;
+        };
 
-        typedef struct region_t region_t;
-        struct region_t {
-            Vec2* points;
+        typedef struct Region Region;
+        struct Region {
+
+            int32_t n_points;
+            Point* points;
+
+            int32_t n_edges;
             Edge* edges;
+
         };
     }
 
-    $cc proc create_region {} region_t* {
+    $cc proc create_region {int[][2] point_list int N} Region* {
         // Takes any number of points
         // Computes the convex-hull
         // Defines the edges such that they are the border of the convex hull
         
-        size_t size = sizeof(region_t);
-        region_t* ret = (region_t *) ckalloc(size);
-        memset(ret, 0, size);
-        *ret = (region_t) {
-            .points = NULL,
-            .edges = NULL,
+        // Initialize a Region struct on the heap
+        size_t r_sz = sizeof(Region);
+        Region* ret = (Region *) ckalloc(r_sz);
+        memset(ret, 0, r_sz);
+
+        // Construct Points
+        size_t p_sz = N * sizeof(Point);
+        Point* points = (Point*) ckalloc(p_sz);
+        memset(points, 0, p_sz);
+        for (int i = 0; i < N; i++) {
+            points[i].x = point_list[i][0];
+            points[i].y = point_list[i][0];
+        }
+
+        // Construct edges (using Convex-Hull algorithm)
+        size_t e_sz = N * sizeof(Edge);
+        Edge* edges = (Edge*) ckalloc(e_sz);
+        memset(edges, 0, e_sz);
+        for (int i = 0; i < N-1; i++) {
+            edges[i].from = i;
+            edges[i].to = i + 1;
+        }
+
+        // Return pointer to the region
+        *ret = (Region) {
+            .n_points = N,
+            .points = points,
+            .n_edges = N,
+            .edges = edges,
         };
+
         return ret;
+    }
+
+    $cc proc puts_region {Region* region} void {
+        for (int i = 0; i < region->n_points; i++) {
+            printf("Point %d: [%d, %d]\n", i, region->points[i].x, region->points[i].y);
+        }
+        for (int i = 0; i < region->n_edges; i++) {
+            printf("Edge %d: %d -> %d\n", i, region->edges[i].from, region->edges[i].to);
+        }
     }
 
     $cc compile
