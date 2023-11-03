@@ -45,7 +45,9 @@ set MODEL [apply {{ROWS COLS} {
     return $MODEL
 }} $ROWS $COLS]
 
+fn isCalibrationTag {id} { expr {$id >= 48600 && $id < 48600 + $ROWS*$COLS} }
 fn isPrintedTag {id} {
+    if {![isCalibrationTag $id]} { return false }
     # We print tags on the outer perimeter of the grid, and we project
     # tags in the interior.
     set idx [- $id 48600]
@@ -54,7 +56,10 @@ fn isPrintedTag {id} {
     return [expr {$row == 0 || $row == $ROWS - 1 ||
                   $col == 0 || $col == $COLS - 1}]
 }
-fn isProjectedTag {id} { ! [isPrintedTag $id] }
+fn isProjectedTag {id} {
+    if {![isCalibrationTag $id]} { return false }
+    ! [isPrintedTag $id]
+}
 
 # Takes a list of at least 4 point pairs (model -> image) like
 #
@@ -216,56 +221,58 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     set innerToOuter [expr {($tagOuterLength - $tagSideLength)/2}]
     set pad $tagSideLength
 
-    # TODO: Use a general homography to warp this projection. Then
-    # adjust the homography based on self-perception of the prev
-    # iteration of projection.
+    When /nobody/ claims the calibration model-to-display homography is /anything/ {
+        set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
+                                               $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
 
-    set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
-                                           $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
-
-    set ::H_modelToDisplay [estimateHomography [subst {
-        {1 1 $tagSideLengthPixels $tagSideLengthPixels}
-        {1 0 $tagSideLengthPixels 0}
-        {0 1 0 $tagSideLengthPixels}
-        {0 0 0 0}
-    }]]
-
-    set instances [list]
-    dict for {id modelTag} $MODEL {
-        if {![isProjectedTag $id]} { continue }
-
-        set tagImage [::tagImageForId $id]
-        set tagBits [list]
-        # 10x10 AprilTag -> 100 bits
-        for {set y 0} {$y < 10} {incr y} {
-            for {set x 0} {$x < 10} {incr x} {
-                set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-                set bit [== [image_t data $tagImage $j] 255]
-                lappend tagBits $bit
-            }
-        }
-        # -> 4 32-bit integers
-        set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
-                            0b[join [lreverse [lrange $tagBits 32 63]] ""] \
-                            0b[join [lreverse [lrange $tagBits 64 95]] ""] \
-                            0b[join [lreverse [lrange $tagBits 96 127]] ""]]
-        set modelInnerCorners [dict get $modelTag corners]
-        set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list -$innerToOuter $innerToOuter]]
-        set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuter $innerToOuter]]
-        set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuter -$innerToOuter]]
-        set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list -$innerToOuter -$innerToOuter]]
-        lappend instances \
-            [list $tagBitsVec \
-                 [applyHomography $::H_modelToDisplay $modelOuterTopLeft]  \
-                 [applyHomography $::H_modelToDisplay $modelOuterTopRight] \
-                 [applyHomography $::H_modelToDisplay $modelOuterBottomRight] \
-                 [applyHomography $::H_modelToDisplay $modelOuterBottomLeft]]
+        set H_modelToDisplay [estimateHomography [subst {
+            {1 1 $tagSideLengthPixels $tagSideLengthPixels}
+            {1 0 $tagSideLengthPixels 0}
+            {0 1 0 $tagSideLengthPixels}
+            {0 0 0 0}
+        }]]
+        set ::Hmtod $H_modelToDisplay
+        Commit H_modelToDisplay { Claim the calibration model-to-display homography is $H_modelToDisplay }
     }
-    Wish to draw a quad with \
-        p0 [list 0 0] p1 [list $displayWidth 0] \
-        p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
-        color white layer 99
-    Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
+
+    When the calibration model-to-display homography is /H_modelToDisplay/ {
+        set instances [list]
+        dict for {id modelTag} $MODEL {
+            if {![isProjectedTag $id]} { continue }
+
+            set tagImage [::tagImageForId $id]
+            set tagBits [list]
+            # 10x10 AprilTag -> 100 bits
+            for {set y 0} {$y < 10} {incr y} {
+                for {set x 0} {$x < 10} {incr x} {
+                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+                    set bit [== [image_t data $tagImage $j] 255]
+                    lappend tagBits $bit
+                }
+            }
+            # -> 4 32-bit integers
+            set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
+                                0b[join [lreverse [lrange $tagBits 32 63]] ""] \
+                                0b[join [lreverse [lrange $tagBits 64 95]] ""] \
+                                0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+            set modelInnerCorners [dict get $modelTag corners]
+            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list -$innerToOuter $innerToOuter]]
+            set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuter $innerToOuter]]
+            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuter -$innerToOuter]]
+            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list -$innerToOuter -$innerToOuter]]
+            lappend instances \
+                [list $tagBitsVec \
+                     [applyHomography $H_modelToDisplay $modelOuterTopLeft]  \
+                     [applyHomography $H_modelToDisplay $modelOuterTopRight] \
+                     [applyHomography $H_modelToDisplay $modelOuterBottomRight] \
+                     [applyHomography $H_modelToDisplay $modelOuterBottomLeft]]
+        }
+        Wish to draw a quad with \
+            p0 [list 0 0] p1 [list $displayWidth 0] \
+            p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
+            color white layer 99
+        Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
+    }
 
     # TODO: Look for valid detections and re-adjust.
     When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
@@ -326,27 +333,35 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             puts "======\nHave board: {$printedCalibrationBoard}"
             puts "Saw projected tags: ($projectedTags)"
 
-            # set printedPointPairs [list]
-            # dict for {id printedTag} $printedTags {
-            #     lappend printedPointPairs \
-            #         [list {*}[dict get $MODEL $id] \
-            #              {*}[lindex [dict get $printedTag $id corners] 3]]
-            # }
+            set printedPointPairs [list]
+            dict for {id printedTag} $printedTags {
+                set modelTag [dict get $MODEL $id]
+                foreach modelCorner [dict get $modelTag corners] \
+                    cameraCorner [dict get $printedTag corners] {
+                        lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
+                    }
+            }
+            # Describes how tags from the model that were printed
+            # ended up mapping to camera coordinates.
+            set H_modelToCameraViaPs [estimateHomography $printedPointPairs]
 
-            # set projectedPointPairs [list]
-            # dict for {id projectedTag} $projectedTags {
-            #     lappend projectedPointPairs [list ]
-            # }
+            set projectedPointPairs [list]
+            dict for {id projectedTag} $projectedTags {
+                set modelTag [dict get $MODEL $id]
+                foreach modelCorner [dict get $modelTag corners] \
+                    cameraCorner [dict get $printedTag corners] {
+                        puts "HMTOD IS ($::Hmtod)"
+                        set displayCorner [applyHomography $::Hmtod $modelCorner]
+                        lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
+                    }
+            }
+            set H_cameraToDisplay [estimateHomography $projectedPointPairs]
 
-            # Is there at least one projected tag whose corners are within those of the printed tags?
-            # Find a homography to the calibration plane.
-            # Reproject with the new homography.
-
-            # Set ::projH
-
-            # What homography to apply to a model point to convert to a Vulkan point?
-            # First, apply model->camera homography
-            # Then, apply camera->projector homography
+            set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
+            set ::Hmtod $H_modelToDisplay
+            Commit H_modelToDisplay {
+                Claim the calibration model-to-display homography is $H_modelToDisplay
+            }
         }
     }
 }
