@@ -76,9 +76,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
         set pad $tagSideLength
 
         set H_modelToPs [estimateHomography [subst {
-            {1 1 $tagOuterLength $tagOuterLength}
-            {1 0 $tagOuterLength 0}
-            {0 1 0 $tagOuterLength}
+            {1 1 $tagSideLength $tagSideLength}
+            {1 0 $tagSideLength 0}
+            {0 1 0 $tagSideLength}
             {0 0 0 0}
         }]]
 
