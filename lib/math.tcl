@@ -145,10 +145,10 @@ namespace eval ::region {
         // Repeat until you're back where you started.
         int num_edges = 0;
         while (true) {
-            float best = -1e9;
+            float best = 1e9;
             for (int candidate = 0; candidate < N; candidate++) {
                 float o = orientation(points[from], points[to], points[candidate]);
-                if (best < o && o < 0) {
+                if (0 < o && o < best) {
                     to = candidate;
                     best = o;
                 }
