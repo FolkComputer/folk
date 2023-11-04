@@ -1,5 +1,6 @@
 set id "editor-1"
-set ::debug_cursor false
+set ::debug_cursor true
+set ::debug_print true
 
 When /page/ is editor /n/ & /page/ has region /r/ {
     Wish $page is outlined gray
@@ -170,6 +171,7 @@ proc drawCursor {cursorPosition lineShift region} {
   # set shiftMultiplier [list 14 25]
   # set shiftMultiplier [list 14 20]
   set cursorScale [list 14 25] ;# OLD
+  # projectorToCamera????
 
   set lineShiftHalf [list [lindex $lineShift 0] 0]
   set multipliedShift [vec2::mult $shiftMultiplier $lineShift]
@@ -211,11 +213,23 @@ proc drawCursor {cursorPosition lineShift region} {
   }
 }
 
+proc drawWontPrintTwice {id} {
+  When $id has printed /lastPrintedCode/ & $id has program code /code/ & $id has region /r/ {
+    if {$lastPrintedCode == $code} {
+      # TODO: Maybe offset to top right or something???
+      Wish $id draws a circle with radius 3 color red filled true center [list 0 0] offset [list 100 100]
+    } else {
+      Wish $id draws a circle with radius 3 color color
+    }
+  }
+}
+
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
 
   set lineShift [getLineShift $code]
+  drawWontPrintTwice $id
   drawCursor $cursor $lineShift $r
 
   if {$::debug_cursor} {
@@ -262,9 +276,14 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         }
       }
       DOWN {
+        set linecount [llength [split $code "\n"]]
         set updatedCursor [updateCursor $cursor {y 1}]
         set currentLineLength [getCurrentLineLength $code $updatedCursor]
-        if {[lindex $updatedCursor 0] > $currentLineLength} {
+
+        if {[lindex $updatedCursor 1] == $linecount} {
+          Claim the cursor is $cursor
+          return
+        } elseif {[lindex $updatedCursor 0] > $currentLineLength} {
           Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
         } else {
           Claim the cursor is $updatedCursor
@@ -315,8 +334,28 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Claim the cursor is $cursor
       }
       default {
+        # Make "PRINTED statement display as long as code will-not-print-twice is around!"
+        # VISUAL FEEDBACKKKKKKK
         if {$modifier == "ctrl" & $currentCharacter == "p"} {
-          Wish to print $code with job id [expr {rand()}]
+          When $id has printed /lastPrintedCode/ {
+            if {$lastPrintedCode == $code} {
+              Claim the cursor is $cursor
+              if {$::debug_print} {
+                puts "Not printing the same code twice"
+              }
+              return
+            }
+          }
+          When /nobody/ has printed /lastPrintedCode/ {
+            if {$::debug_print} {
+              puts "Printing $code"
+            }
+            Commit print { Claim $id has printed $code}
+            Wish to print $code with job id [expr {rand()}]
+            return
+          }
+          Commit code { Claim $id has program code $code}
+          Claim the cursor is $cursor
           return
         }
         if {$modifier == "ctrl" & $currentCharacter == "r"} {
@@ -352,7 +391,8 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
 
 Claim $this has demo {
   ## Okay, this needs to be:
-  # Claim $this is keyboard
+  # Claim $this is keyboard ABCD:1234:ABCD:1234
+  #                           (MAC address)
   # Tape this program underneath the main keyboard of your system to try it out
   Claim $this is editor editor-1
 }
