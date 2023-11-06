@@ -1,10 +1,13 @@
 package require math::linearalgebra
-foreach p {add scale leastSquaresSVD matmul} {
+foreach p {add norm sub scale leastSquaresSVD matmul} {
     namespace import ::math::linearalgebra::$p
 }
 
 package require math::geometry
 namespace import ::math::geometry::findLineIntersection ::math::geometry::pointInsidePolygon
+
+package require math
+namespace import ::math::mean
 
 set ROWS 4
 set COLS 5
@@ -277,7 +280,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ at /hTimestamp/ {
 
-        if {$timestamp - $hTimestamp < 200} { return }
+        if {$timestamp - $hTimestamp < 500} { return }
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -341,6 +344,45 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         Commit H_modelToDisplay {
             Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
         }
+
+        # Are we ready to record these points for calibration?
+        # We want to be seeing at least 50% of printed and projected tags.
+        if {[dict size $printedTags] < $COLS + $ROWS ||
+            [dict size $projectedTags] < $COLS - 2} {
+            return
+        }
+        # Check if projected tag corners have been pretty stable since
+        # the last frame.
+        if {[info exists ::prevProjectedTags]} {
+            set prevProjectedTags $::prevProjectedTags
+            set ::prevProjectedTags $projectedTags
+        } else {
+            set ::prevProjectedTags $projectedTags
+            return
+        }
+        set differencesFromPrevProjectedTags [list]
+        dict for {id projectedTag} $projectedTags {
+            if {![dict exists $prevProjectedTags $id]} { continue }
+            set prevCorners [dict get $prevProjectedTags $id corners]
+            set cornerDifferences [lmap corner [dict get $projectedTag corners] \
+                                       prevCorner $prevCorners {
+                norm [sub $corner $prevCorner]
+            }]
+            lappend differencesFromPrevProjectedTags {*}$cornerDifferences
+        }
+        puts "-----------\nMean: [mean {*}$differencesFromPrevProjectedTags]\n---------"
+        if {[llength $differencesFromPrevProjectedTags] == 0 ||
+            [mean {*}$differencesFromPrevProjectedTags] > 5} {
+            return
+        }
+
+        # FIXME: Quick hack so you can tell calibration went through.
+        Retract /someone/ claims the printed tag side length is /anything/ mm
+        
+        # TODO: Check if camera corners _have_ moved a lot since last saved
+        # corners.
+
+        set ::prevProjectedTags $projectedTags
     }
 }
 
