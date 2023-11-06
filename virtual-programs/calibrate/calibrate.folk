@@ -285,39 +285,30 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             dict set allDetectedTags $id $tag
             if {[isPrintedTag $id]} { dict set printedTags $id $tag }
         }
+        if {[dict size $printedTags] == 0} { return }
 
-        # Can we find the bounds of the printed calibration board?
-        for {set col 0} {$col < $COLS} {incr col} {
-            set topId [expr {48600 + $col}]
-            set bottomId [expr {48600 + ($ROWS-1)*$COLS + $col}]
-            if {![info exists topEdge] && [dict exists $printedTags $topId]} {
-                set topTagCorners [dict get $printedTags $topId corners]
-                set topEdge [list {*}[lindex $topTagCorners 2] {*}[lindex $topTagCorners 3]]
-            }
-            if {![info exists bottomEdge] && [dict exists $printedTags $bottomId]} {
-                set bottomTagCorners [dict get $printedTags $bottomId corners]
-                set bottomEdge [list {*}[lindex $bottomTagCorners 0] {*}[lindex $bottomTagCorners 1]]
-            }
+        set printedPointPairs [list]
+        dict for {id printedTag} $printedTags {
+            set modelTag [dict get $MODEL $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                cameraCorner [dict get $printedTag corners] {
+                    lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
+                }
         }
-        for {set row 0} {$row < $ROWS} {incr row} {
-            set leftId [expr {48600 + $row*$COLS}]
-            set rightId [expr {48600 + $row*$COLS + $COLS-1}]
-            if {![info exists leftEdge] && [dict exists $printedTags $leftId]} {
-                set leftTagCorners [dict get $printedTags $leftId corners]
-                set leftEdge [list {*}[lindex $leftTagCorners 0] {*}[lindex $leftTagCorners 3]]
-            }
-            if {![info exists rightEdge] && [dict exists $printedTags $rightId]} {
-                set rightTagCorners [dict get $printedTags $rightId corners]
-                set rightEdge [list {*}[lindex $rightTagCorners 2] {*}[lindex $rightTagCorners 1]]
-            }
-        }
-        foreach edgeName {topEdge bottomEdge leftEdge rightEdge} {
-            if {![info exists $edgeName]} { return }
-        }
-        set printedCalibrationBoard [list {*}[findLineIntersection $topEdge $leftEdge] \
-                                         {*}[findLineIntersection $topEdge $rightEdge] \
-                                         {*}[findLineIntersection $bottomEdge $rightEdge] \
-                                         {*}[findLineIntersection $bottomEdge $leftEdge]]
+        # Describes how tags from the model that were printed
+        # ended up mapping to camera coordinates.
+        set H_modelToCameraViaPs [estimateHomography $printedPointPairs]
+
+        # Map the bounds of the board to camera coordinates, so we can
+        # check if projected tags are inside the board.
+        set modelTopLeft [lindex [dict get $MODEL [expr {48600 + 0*$COLS + 0}] corners] 3]
+        set modelTopRight [lindex [dict get $MODEL [expr {48600 + 0*$COLS + $COLS-1}] corners] 2]
+        set modelBottomRight [lindex [dict get $MODEL [expr {48600 + ($ROWS-1)*$COLS + 0}] corners] 1]
+        set modelBottomLeft [lindex [dict get $MODEL [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] corners] 0]
+        set printedCalibrationBoard [list {*}[applyHomography $H_modelToCameraViaPs $modelTopLeft] \
+                                         {*}[applyHomography $H_modelToCameraViaPs $modelTopRight] \
+                                         {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
+                                         {*}[applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
 
         set projectedTags [dict create]
         dict for {id tag} $allDetectedTags {
@@ -327,42 +318,28 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 dict set projectedTags $id $tag
             }
         }
+        if {[dict size $projectedTags] == 0} { return }
 
         # puts "======\nHave board: {$printedCalibrationBoard}"
         # puts "Saw printed tags: ($printedTags)"
         # puts "Saw projected tags: ($projectedTags)"
+        puts "======\nHave board: {$printedCalibrationBoard}"
+        puts "Saw projected tags: ($projectedTags)"
 
-        if {[dict size $projectedTags] > 0} {
-            puts "======\nHave board: {$printedCalibrationBoard}"
-            puts "Saw projected tags: ($projectedTags)"
+        set projectedPointPairs [list]
+        dict for {id projectedTag} $projectedTags {
+            set modelTag [dict get $MODEL $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                cameraCorner [dict get $projectedTag corners] {
+                    set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+                    lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
+                }
+        }
+        set H_cameraToDisplay [estimateHomography $projectedPointPairs]
 
-            set printedPointPairs [list]
-            dict for {id printedTag} $printedTags {
-                set modelTag [dict get $MODEL $id]
-                foreach modelCorner [dict get $modelTag corners] \
-                    cameraCorner [dict get $printedTag corners] {
-                        lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
-                    }
-            }
-            # Describes how tags from the model that were printed
-            # ended up mapping to camera coordinates.
-            set H_modelToCameraViaPs [estimateHomography $printedPointPairs]
-
-            set projectedPointPairs [list]
-            dict for {id projectedTag} $projectedTags {
-                set modelTag [dict get $MODEL $id]
-                foreach modelCorner [dict get $modelTag corners] \
-                    cameraCorner [dict get $projectedTag corners] {
-                        set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
-                        lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
-                    }
-            }
-            set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-
-            set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
-            Commit H_modelToDisplay {
-                Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
-            }
+        set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
+        Commit H_modelToDisplay {
+            Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
         }
     }
 }
