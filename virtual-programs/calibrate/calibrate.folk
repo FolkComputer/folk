@@ -327,7 +327,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # puts "Saw printed tags: ($printedTags)"
         # puts "Saw projected tags: ($projectedTags)"
         puts "======\nHave board: {$printedCalibrationBoard}"
-        puts "Saw projected tags: ($projectedTags)"
+        puts "Saw printed tags: [expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%"
+        puts "Saw projected tags: [expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%"
 
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
