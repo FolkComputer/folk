@@ -18,7 +18,6 @@ namespace eval Keyboard {
                 lappend keyboardDevices $device
             }
         }
-        puts "kbd:  $keyboardDevices"
 
         foreach device $keyboardDevices {
             if {[file readable $device] == 0} {

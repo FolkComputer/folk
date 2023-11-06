@@ -153,7 +153,6 @@ proc getLineShift {lines} {
 }
 
 proc debug {position color} {
-  # Display::circle {*}$position 3 2 $color false
   Display::circle {*}$position 5 2 $color true
 }
 
@@ -213,23 +212,11 @@ proc drawCursor {cursorPosition lineShift region} {
   }
 }
 
-proc drawWontPrintTwice {id} {
-  When $id has printed /lastPrintedCode/ & $id has program code /code/ & $id has region /r/ {
-    if {$lastPrintedCode == $code} {
-      # TODO: Maybe offset to top right or something???
-      Wish $id draws a circle with radius 3 color red filled true center [list 0 0] offset [list 100 100]
-    } else {
-      Wish $id draws a circle with radius 3 color color
-    }
-  }
-}
-
 When $id has program code /code/ & the clock time is /t/ & the cursor is /cursor/ & $id has region /r/ {
   set intTime [expr {int($t * 10)}]
   drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
 
   set lineShift [getLineShift $code]
-  drawWontPrintTwice $id
   drawCursor $cursor $lineShift $r
 
   if {$::debug_cursor} {
@@ -334,9 +321,8 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         Claim the cursor is $cursor
       }
       default {
-        # Make "PRINTED statement display as long as code will-not-print-twice is around!"
-        # VISUAL FEEDBACKKKKKKK
         if {$modifier == "ctrl" & $currentCharacter == "p"} {
+          # TODO: Save time instead and prevent printing the same code within the same ... second?
           When $id has printed /lastPrintedCode/ {
             if {$lastPrintedCode == $code} {
               Claim the cursor is $cursor
@@ -377,7 +363,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
         }
         if {$modifier == "ctrl" & $currentCharacter == "u"} {
           # delete from cursor back to 0 and move cursor to 0
-          Commit code { Claim $id has program code $code}
+          Commit code { Claim $id has program code [deleteToBeginning $code $cursor]}
           lassign $cursor x y
           Claim the cursor is [list 0 $y]
           return
@@ -390,7 +376,7 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
 }
 
 Claim $this has demo {
-  ## Okay, this needs to be:
+  ## Okay, this could be:
   # Claim $this is keyboard ABCD:1234:ABCD:1234
   #                           (MAC address)
   # Tape this program underneath the main keyboard of your system to try it out

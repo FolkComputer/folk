@@ -40,7 +40,6 @@ try {
 
             # Use `list` to escape special chars (brackets, quotes, whitespace)
             thread::send -async "%s" [subst {
-                # puts "Keyboard thread: $key $keyState $heldModifiers"
                 Retract keyboard claims key /k/ is /t/ with modifiers /m/
                 Assert keyboard claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
             }]
