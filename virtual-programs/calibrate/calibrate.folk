@@ -314,11 +314,14 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
 
         set projectedTags [dict create]
+        set outsideBoardProjectedTags [dict create]
         dict for {id tag} $allDetectedTags {
             if {![isProjectedTag $id]} { continue }
             if {[pointInsidePolygon [dict get $tag center] $printedCalibrationBoard]} {
                 # This is a projected tag that we detected.
                 dict set projectedTags $id $tag
+            } else {
+                dict set outsideBoardProjectedTags $id $tag
             }
         }
         if {[dict size $projectedTags] == 0} { return }
@@ -334,6 +337,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
             puts "  Saw projected tag $id (row $row, col $col)"
         }
+        puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
 
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
