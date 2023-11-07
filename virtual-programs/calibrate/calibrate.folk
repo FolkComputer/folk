@@ -327,8 +327,13 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # puts "Saw printed tags: ($printedTags)"
         # puts "Saw projected tags: ($projectedTags)"
         puts "======\nHave board: {$printedCalibrationBoard}"
-        puts "Saw printed tags: [expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%"
-        puts "Saw projected tags: [expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%"
+        puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
+        puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
+        dict for {id tag} $projectedTags {
+            set idx [- $id 48600]
+            set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
+            puts "  Saw projected tag $id (row $row, col $col)"
+        }
 
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
