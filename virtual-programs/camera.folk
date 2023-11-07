@@ -1,6 +1,6 @@
 if {$::isLaptop} return
 
-if {$::thisNode eq "folk-interact"} {
+if {$::thisNode eq "folk-convivial" || $::thisNode eq "folk-interact"} {
     namespace eval ::Camera {
         variable WIDTH 1920
         variable HEIGHT 1080
