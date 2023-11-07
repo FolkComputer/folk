@@ -6,9 +6,6 @@ foreach p {add norm sub scale leastSquaresSVD matmul} {
 package require math::geometry
 namespace import ::math::geometry::findLineIntersection ::math::geometry::pointInsidePolygon
 
-package require math
-namespace import ::math::mean
-
 set ROWS 4
 set COLS 5
 # The model is a dictionary whose keys are tag IDs and where each
@@ -95,6 +92,24 @@ fn estimateHomography {pointPairs} {
 fn applyHomography {H xy} {
     lassign [matmul $H [list {*}$xy 1]] u v w
     return [list [/ $u $w] [/ $v $w]]
+}
+
+package require math
+namespace import ::math::mean
+fn meanPoseDifference {pose1 pose2} {
+    set differences [list]
+    dict for {id tag} $pose1 {
+        if {![dict exists $pose2 $id]} { continue }
+        set corners1 [dict get $tag corners]
+        set corners2 [dict get $pose2 $id corners]
+        set cornerDifferences \
+            [lmap corner1 $corners1 corner2 $corners2 {
+                norm [sub $corner1 $corner2]
+            }]
+        lappend differences {*}$cornerDifferences
+    }
+    if {[llength $differences] == 0} { return Inf }
+    return [mean {*}$differences]
 }
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL ^isPrintedTag ^estimateHomography ^applyHomography} {
@@ -276,7 +291,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
     }
 
-    # TODO: Look for valid detections and re-adjust.
+    # A list of dictionaries of tag ID => dictionary of tag detection info.
+    # We'll want at least 10 poses to do ultimate calibration+refinement.
+    set ::calibrationPoses [list]
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ at /hTimestamp/ {
 
@@ -327,17 +344,14 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         if {[dict size $projectedTags] == 0} { return }
 
         # puts "======\nHave board: {$printedCalibrationBoard}"
-        # puts "Saw printed tags: ($printedTags)"
-        # puts "Saw projected tags: ($projectedTags)"
-        puts "======\nHave board: {$printedCalibrationBoard}"
-        puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
-        puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
-        dict for {id tag} $projectedTags {
-            set idx [- $id 48600]
-            set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
-            puts "  Saw projected tag $id (row $row, col $col)"
-        }
-        puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
+        # puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
+        # puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
+        # dict for {id tag} $projectedTags {
+        #     set idx [- $id 48600]
+        #     set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
+        #     puts "  Saw projected tag $id (row $row, col $col)"
+        # }
+        # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
 
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
@@ -355,44 +369,55 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
         }
 
-        # Are we ready to record these points for calibration?
+        # Are we ready to record these points as a calibration pose?
+
         # We want to be seeing at least 50% of printed and projected tags.
         if {[dict size $printedTags] < $COLS + $ROWS ||
             [dict size $projectedTags] < $COLS - 2} {
             return
         }
+
+        set pose [dict merge $printedTags $projectedTags]
+
         # Check if projected tag corners have been pretty stable since
         # the last frame.
-        if {[info exists ::prevProjectedTags]} {
-            set prevProjectedTags $::prevProjectedTags
-            set ::prevProjectedTags $projectedTags
+        if {[info exists ::prevPose]} {
+            set prevPose $::prevPose
+            set ::prevPose $pose
         } else {
-            set ::prevProjectedTags $projectedTags
+            set ::prevPose $pose
             return
         }
-        set differencesFromPrevProjectedTags [list]
-        dict for {id projectedTag} $projectedTags {
-            if {![dict exists $prevProjectedTags $id]} { continue }
-            set prevCorners [dict get $prevProjectedTags $id corners]
-            set cornerDifferences [lmap corner [dict get $projectedTag corners] \
-                                       prevCorner $prevCorners {
-                norm [sub $corner $prevCorner]
-            }]
-            lappend differencesFromPrevProjectedTags {*}$cornerDifferences
-        }
-        puts "-----------\nMean: [mean {*}$differencesFromPrevProjectedTags]\n---------"
-        if {[llength $differencesFromPrevProjectedTags] == 0 ||
-            [mean {*}$differencesFromPrevProjectedTags] > 5} {
-            return
-        }
+
+        # If the corners have moved a lot since last frame, we're not
+        # stable enough and shouldn't record this as a calibration
+        # pose.
+        if {[meanPoseDifference $pose $prevPose] > 5} { return }
+        puts "WOULD APPEND CALIBRATION..."
 
         # FIXME: Quick hack so you can tell calibration went through.
-        Retract /someone/ claims the printed tag side length is /anything/ mm
-        
-        # TODO: Check if camera corners _have_ moved a lot since last saved
-        # corners.
+        # Retract /someone/ claims the printed tag side length is /anything/ mm
 
-        set ::prevProjectedTags $projectedTags
+        # If the corners have _not_ moved a lot since last calibration
+        # pose, this isn't different enough to be a good calibration
+        # pose to save.
+        if {[llength $::calibrationPoses] > 0} {
+            set prevCalibrationPose [lindex $::calibrationPoses end]
+            if {[meanPoseDifference $pose $prevCalibrationPose] < 10} {
+                return
+            }
+        }
+
+        puts "APPENDING CALIBRATION TO POSES"
+        lappend ::calibrationPoses $pose
+
+        # TODO: If we have enough poses, then stop the calibration
+        # process (retract the printed side length?) and do a
+        # calibration. :-)
+        if {[llength $::calibrationPoses] >= 10} {
+            puts "DONE CALIBARTION!"
+            Retract /someone/ claims the printed tag side length is /anything/ mm
+        }
     }
 }
 
