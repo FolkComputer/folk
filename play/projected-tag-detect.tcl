@@ -33,5 +33,7 @@ $cc proc rgbToGray {image_t rgb} image_t {
 $cc compile
 
 set detector [AprilTags new "tagStandard52h13"]
-set im [rgbToGray [image loadJpeg "frame-image-2.jpeg"]]
-puts [$detector detect $im]
+set im [rgbToGray [image loadJpeg "frame-image-3.jpeg"]]
+foreach tag [$detector detect $im] {
+    puts $tag
+}
