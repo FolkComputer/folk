@@ -97,6 +97,8 @@ fn applyHomography {H xy} {
 package require math
 namespace import ::math::mean
 fn meanPoseDifference {pose1 pose2} {
+    set pose1 [dict get $pose1 tags]
+    set pose2 [dict get $pose2 tags]
     set differences [list]
     dict for {id tag} $pose1 {
         if {![dict exists $pose2 $id]} { continue }
@@ -237,25 +239,40 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     set innerToOuter [expr {($tagOuterLength - $tagSideLength)/2}]
     set pad $tagSideLength
 
-    When /nobody/ claims the calibration model-to-display homography is /anything/ at /_/ {
+    set printedSideLengthM [/ $printedSideLengthMm 1000.0]
+    # MODEL's 2D coordinates have inner tag side length of 1.0: scale
+    # it to real-world coordinates.
+    set baseModel [dict map {id tag} $MODEL {
+        dict create center [scale $printedSideLengthM [dict get $tag center]] \
+            corners [scale $printedSideLengthM [dict get $tag corners]]
+    }]
+    set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
+
+    When /nobody/ claims the calibration model-to-display homography is /anything/ with \
+                         model /anything/ version /anything/ {
+        # Default projection: just make the tags fill most of the projector area.
         set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
                                                $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
 
         set H_modelToDisplay [estimateHomography [subst {
-            {1 1 $tagSideLengthPixels $tagSideLengthPixels}
-            {1 0 $tagSideLengthPixels 0}
-            {0 1 0 $tagSideLengthPixels}
+            {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
+            {$printedSideLengthM 0 $tagSideLengthPixels 0}
+            {0 $printedSideLengthM 0 $tagSideLengthPixels}
             {0 0 0 0}
         }]]
-        Commit H_modelToDisplay { Claim the calibration model-to-display homography is $H_modelToDisplay at [clock milliseconds] }
+        Commit H_modelToDisplay {
+            # Default model and version: nothing rotated.
+            Claim the calibration model-to-display homography is $H_modelToDisplay with \
+                model $baseModel version -1
+        }
     }
-    On unmatch {
-        Commit H_modelToDisplay {}
-    }
+    On unmatch { Commit H_modelToDisplay {} }
 
-    When the calibration model-to-display homography is /H_modelToDisplay/ at /timestamp/ {
+    When the calibration model-to-display homography is /H_modelToDisplay/ with \
+         model /model/ version /anything/ {
+        set innerToOuterM [expr {$innerToOuter * $printedSideLengthM}]
         set instances [list]
-        dict for {id modelTag} $MODEL {
+        dict for {id modelTag} $model {
             if {![isProjectedTag $id]} { continue }
 
             set tagImage [::tagImageForId $id]
@@ -274,10 +291,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                 0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                                 0b[join [lreverse [lrange $tagBits 96 127]] ""]]
             set modelInnerCorners [dict get $modelTag corners]
-            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list -$innerToOuter $innerToOuter]]
-            set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuter $innerToOuter]]
-            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuter -$innerToOuter]]
-            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list -$innerToOuter -$innerToOuter]]
+            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list -$innerToOuterM $innerToOuterM]]
+            set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuterM $innerToOuterM]]
+            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuterM -$innerToOuterM]]
+            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list -$innerToOuterM -$innerToOuterM]]
             lappend instances \
                 [list $tagBitsVec \
                      [applyHomography $H_modelToDisplay $modelOuterTopLeft]  \
@@ -292,15 +309,18 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
     }
 
-    # A list of dictionaries of tag ID => dictionary of tag detection info.
-    # We'll want at least 10 poses to do ultimate calibration+refinement.
+    # A list of dictionaries. Each dictionary has entries `model` and
+    # `H_modelToDisplay` ('prewarp' homography from model plane to
+    # projector plane) and `tags` (tag ID => dictionary of tag
+    # detection info from camera and AprilTag detector).
+    #
+    # We'll want at least 10 poses to do ultimate
+    # calibration+refinement.
     set ::calibrationPoses [list]
-    When /someone/ detects tags /tags/ at /timestamp/ in time /something/ &\
-         the calibration model-to-display homography is /H_modelToDisplay/ at /hTimestamp/ {
 
-        # TODO: The minimum safe delay varies across systems -- can we
-        # avoid this fixed delay or otherwise autofind it?
-        if {$timestamp - $hTimestamp < 1000} { return }
+    When /someone/ detects tags /tags/ at /timestamp/ in time /something/ & \
+         the calibration model-to-display homography is /H_modelToDisplay/ with \
+         model /model/ version /version/ {
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -346,6 +366,38 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
         if {[dict size $projectedTags] == 0} { return }
 
+        # TODO: Check the rotation of the central projected tag (its
+        # angle relative to any other tag) to figure out the version
+        # of what the camera saw, unless it's version -1.
+        # if {$version != -1} {
+        #     # Find the version tag. If it wasn't detected, then abort
+        #     # and wait until a later frame.
+        #     if {![dict exists $projectedTags $versionTagId]} { return }
+
+        #     set versionTagAngle [dict get $projectedTags $versionTagId angle]
+        #     # Compare angle to angle of any other projected tag.
+        #     set otherTagAngle [dict get [lindex [dict values [dict remove $projectedTags $versionTagId]] 0] angle]
+        #     # Get quadrant, that's the version.
+        #     set detectedVersion [expr {($versionTagAngle - $otherTagAngle) / (3.14159/2)}]
+
+        #     # If the detected version does not correspond to version,
+        #     # then we should abort and wait until a later frame.
+        #     if {$detectedVersion != $version} { return }
+        # }
+
+        set nextVersion [expr {($version + 1) % 4}]
+        set nextModel [apply {{baseModel versionTagId nextVersion} {
+            # Rotate the version tag.
+            set model $baseModel
+            set corners [dict get $model $versionTagId]
+            set rotatedCorners [list]
+            for {set i 0} {$i < 4} {incr i} {
+                lappend rotatedCorners [lindex $corners [expr {($i + $nextVersion) % 4}]]
+            }
+            dict set model $versionTagId corners $rotatedCorners
+            return $model
+        }} $baseModel $versionTagId $nextVersion]
+
         # puts "======\nHave board: {$printedCalibrationBoard}"
         # puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
         # puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
@@ -366,11 +418,13 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 }
         }
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
-            Claim the calibration model-to-display homography is $H_modelToDisplay at $timestamp
+            Claim the calibration model-to-display homography is $H_modelToDisplay with \
+                model $nextModel version $nextVersion
         }
+
+        return ;# ------------------------------------------------ deal with later
 
         # Are we ready to record these points as a calibration pose?
 
@@ -380,7 +434,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             return
         }
 
-        set pose [dict merge $printedTags $projectedTags]
+        set pose [dict create H_modelToDisplay $H_modelToDisplay \
+                      tags [dict merge $printedTags $projectedTags]]
 
         # Check if projected tag corners have been pretty stable since
         # the last frame.
@@ -492,49 +547,50 @@ fn zhangCalibrate {Hs} {
     # TODO: nlopt for better intrinsics + distortion parameters
 }
 
-exec mkdir -p "$::env(HOME)/folk-calibrations"
 # sideLength is inner side length of a tag, in meters.
 # calibrationPoses is a list of N dictionaries of detected tags.
 fn calibrate {sideLength calibrationPoses} {
-    set fd [open "$::env(HOME)/folk-calibrations/$::thisNode-calibration-[clock milliseconds].tcl" w]
-    puts $fd [subst {
-        set sideLength $sideLength
-        set detections {$detections}
-    }]
-    close $fd
 
-    # MODEL's 2D coordinates have inner tag side length of 1.0: scale
-    # it up to real-world coordinates.
-    set model [scale $sideLength $MODEL]
 
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
-    set Hs_cameraToModel [lmap pose $calibrationPoses {
+    set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
+        set tags [dict get $pose tags]
         set pointPairs [list]
-        dict for {id cameraTag} $pose {
+        dict for {id cameraTag} $tags {
             if {![isPrintedTag $id]} continue
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag corners] \
                 cameraCorner [dict get $cameraTag corners] {
-                    lappend pointPairs [list {*}$cameraCorner {*}$modelCorner]
+                    lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
         estimateHomography $pointPairs
     }]
-    set cameraIntrinsics [zhangCalibrate $Hs_cameraToModel]
+    set cameraIntrinsics [zhangCalibrate $Hs_modelToCamera]
 
     # Second, calibrate the projector.
-    set Hs_projectorToModel [lmap pose $calibrationPoses {
+    set Hs_modelToProjector [lmap pose $calibrationPoses {
+        set H_modelToDisplay [dict get $pose H_modelToDisplay]
+        set tags [dict get $pose tags]
+
         # Homography from projector -> camera.
         
 
         # Homography from camera -> model.
 
 
-        # Pairs of (projector coordinates, model coordinates).
-        # but... what is a projector coordinate...
+        # I don't understand why this doesn't seem to use the camera
+        # points at all???
+
+        # Or the camera intrinisics??
+
+
+        # pairs of (projector coordinates, model coordinates).
+        # but... what is a projector coordinate... (it's from prewarp)
+
         set pointPairs [list]
         dict for {id cameraTag} $pose {
             if {![isProjectedTag $id]} continue
@@ -547,29 +603,4 @@ fn calibrate {sideLength calibrationPoses} {
         estimateHomography $pointPairs
     }]
     set projectorIntrinsics [zhangCalibrate $Hs_projectorToModel]
-}
-
-# set ::checkerboardDetections [list]
-# set ::checkerboardLastDetectionTimestamp 0
-When the printed tag side length is /sideLengthMm/ mm & \
-     /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
-
-    # if {[llength $::checkerboardDetections] >= 4} { return }
-
-    # set detection [dict create] ;# dict keyed by tag id for easy lookup
-    # foreach tag $tags { dict set detection [dict get $tag id] $tag }
-
-    # Does it contain all of the calibration tags?
-    # if {($timestamp - $::checkerboardLastDetectionTimestamp > 2000) &&
-    #     [isValidCheckerboardDetection $detection]} {
-    #     puts "Capturing calibration checkerboard"
-    #     lappend ::checkerboardDetections $detection
-    #     set ::checkerboardLastDetectionTimestamp $timestamp
-    # }
-
-    # if {[llength $::checkerboardDetections] == 4} {
-    #     puts "Detected 4 checkerboards. Calibrating."
-    #     set sideLength [/ $sideLengthMm 1000.0] ;# in meters
-    #     calibrate $sideLength $::checkerboardDetections
-    # }
 }

@@ -205,6 +205,9 @@ fn calibrate {sideLength calibrationPoses} {
         # Homography from camera -> model.
 
 
+        # I don't understand why this doesn't seem to use the camera
+        # points at all???
+
         # pairs of (projector coordinates, model coordinates).
         # but... what is a projector coordinate...
         set pointPairs [list]
