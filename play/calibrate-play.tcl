@@ -182,7 +182,7 @@ fn calibrate {sideLength calibrationPoses} {
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
-    set Hs_cameraToModel [lmap pose $calibrationPoses {
+    set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
         set pointPairs [list]
         dict for {id cameraTag} $pose {
@@ -190,15 +190,15 @@ fn calibrate {sideLength calibrationPoses} {
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag corners] \
                 cameraCorner [dict get $cameraTag corners] {
-                    lappend pointPairs [list {*}$cameraCorner {*}$modelCorner]
+                    lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
         estimateHomography $pointPairs
     }]
-    set cameraIntrinsics [zhangCalibrate $Hs_cameraToModel]
+    set cameraIntrinsics [zhangCalibrate $Hs_modelToCamera]
 
     # Second, calibrate the projector.
-    set Hs_projectorToModel [lmap pose $calibrationPoses {
+    set Hs_modelToProjector [lmap pose $calibrationPoses {
         # Homography from projector -> camera.
         
 
