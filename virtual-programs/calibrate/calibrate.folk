@@ -298,7 +298,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ at /hTimestamp/ {
 
-        if {$timestamp - $hTimestamp < 500} { return }
+        # TODO: The minimum safe delay varies across systems -- can we
+        # avoid this fixed delay or otherwise autofind it?
+        if {$timestamp - $hTimestamp < 1000} { return }
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -409,12 +411,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             }
         }
 
-        puts "APPENDING CALIBRATION TO POSES"
         lappend ::calibrationPoses $pose
+        puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
 
-        # TODO: If we have enough poses, then stop the calibration
-        # process (retract the printed side length?) and do a
-        # calibration. :-)
+        # If we have enough poses, then stop the calibration process
+        # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
             puts "DONE CALIBARTION!"
             Retract /someone/ claims the printed tag side length is /anything/ mm
@@ -441,6 +442,7 @@ fn processHomography {H} {
     return $V
 }
 
+
 # Uses Zhang's calibration technique
 # (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf)
 # to calibrate a projector or camera given a known 2D planar pattern
@@ -452,24 +454,9 @@ fn processHomography {H} {
 # detector to get real-world coordinates for each AprilTag.)
 #
 # Arguments:
-# model is a dictionary of tag ID -> 2D planar coordinates (probably in meters).
-# poses is a list of N dictionaries of tag ID -> observed camera coordinates (in pixels).
-fn zhangCalibrate {model poses} {
-    # Compute N homographies: one homography for each pose, where the
-    # homography maps model coordinates to camera/projector
-    # coordinates for that pose:
-    set Hs [lmap pose $poses {
-        set pointPairs [list]
-        dict for {id poseTag} $pose {
-            set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                poseCorner [dict get $poseTag corners] {
-                    lappend pointPairs [list {*}$worldCorner {*}$poseCorner]
-                }
-        }
-        estimateHomography $pointPairs
-    }]
-
+#         Hs   a list of N homographies from camera/projector image
+#              plane -> model plane (for N different poses).
+fn zhangCalibrate {Hs} {
     # Try to solve for the camera intrinsics:
 
     # Construct V:
@@ -505,13 +492,6 @@ fn zhangCalibrate {model poses} {
     # TODO: nlopt for better intrinsics + distortion parameters
 }
 
-# Arguments:
-# model is a dictionary of tag ID -> 2D planar coordinates (probably in meters).
-# poses is a list of N dictionaries of tag ID -> real-world coordinates (probably in meters).
-fn otherCalibrate {model poses} {
-    
-}
-
 exec mkdir -p "$::env(HOME)/folk-calibrations"
 # sideLength is inner side length of a tag, in meters.
 # calibrationPoses is a list of N dictionaries of detected tags.
@@ -525,15 +505,48 @@ fn calibrate {sideLength calibrationPoses} {
 
     # MODEL's 2D coordinates have inner tag side length of 1.0: scale
     # it up to real-world coordinates.
-    set worldModel [scale $sideLength $MODEL]
+    set model [scale $sideLength $MODEL]
 
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
-    set cameraIntrinsics [zhangCalibrate $worldModel $printedTagPoses]
+    set Hs_cameraToModel [lmap pose $calibrationPoses {
+        # Pairs of (camera coordinates, model coordinates).
+        set pointPairs [list]
+        dict for {id cameraTag} $pose {
+            if {![isPrintedTag $id]} continue
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                cameraCorner [dict get $cameraTag corners] {
+                    lappend pointPairs [list {*}$cameraCorner {*}$modelCorner]
+                }
+        }
+        estimateHomography $pointPairs
+    }]
+    set cameraIntrinsics [zhangCalibrate $Hs_cameraToModel]
 
     # Second, calibrate the projector.
-    set projectorIntrinsics [zhangCalibrate $worldModel $projectedTagPoses]
+    set Hs_projectorToModel [lmap pose $calibrationPoses {
+        # Homography from projector -> camera.
+        
+
+        # Homography from camera -> model.
+
+
+        # Pairs of (projector coordinates, model coordinates).
+        # but... what is a projector coordinate...
+        set pointPairs [list]
+        dict for {id cameraTag} $pose {
+            if {![isProjectedTag $id]} continue
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                poseCorner [dict get $poseTag corners] {
+                    lappend pointPairs [list {*}$modelCorner {*}$poseCorner]
+                }
+        }
+        estimateHomography $pointPairs
+    }]
+    set projectorIntrinsics [zhangCalibrate $Hs_projectorToModel]
 }
 
 # set ::checkerboardDetections [list]
