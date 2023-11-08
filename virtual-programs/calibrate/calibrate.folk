@@ -4,7 +4,7 @@ foreach p {add norm sub scale leastSquaresSVD matmul} {
 }
 
 package require math::geometry
-namespace import ::math::geometry::findLineIntersection ::math::geometry::pointInsidePolygon
+namespace import ::math::geometry::pointInsidePolygon
 
 set ROWS 4
 set COLS 5
@@ -196,14 +196,12 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
           window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
           ws.onopen = () => {
             ws.send(`
-              set ::checkerboardDetections [list]
               Retract \${self} claims the printed tag side length is /anything/ mm
               Assert \${self} claims the printed tag side length is \${mm} mm
            `);
           };
           window.onbeforeunload = () => {
             ws.send(`
-              set ::checkerboardDetections [list]
               Retract \${self} claims the printed tag side length is /anything/ mm
             `);
           }
@@ -250,6 +248,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             {0 0 0 0}
         }]]
         Commit H_modelToDisplay { Claim the calibration model-to-display homography is $H_modelToDisplay at [clock milliseconds] }
+    }
+    On unmatch {
+        Commit H_modelToDisplay {}
     }
 
     When the calibration model-to-display homography is /H_modelToDisplay/ at /timestamp/ {
@@ -403,7 +404,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # pose to save.
         if {[llength $::calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $::calibrationPoses end]
-            if {[meanPoseDifference $pose $prevCalibrationPose] < 10} {
+            if {[meanPoseDifference $pose $prevCalibrationPose] < 50} {
                 return
             }
         }
@@ -419,60 +420,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             Retract /someone/ claims the printed tag side length is /anything/ mm
         }
     }
-}
-
-fn findHomography {sideLength detection} {
-    # Camera points, from the camera image.
-    fn detectionTagCorner {row col corner} {
-        set id [expr {48600 + $row*$COLS + $col}]
-        return [lindex [dict get [dict get $detection $id] corners] $corner]
-    }
-    set points [list]
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            lappend points [detectionTagCorner $row $col 0]
-            lappend points [detectionTagCorner $row $col 1]
-            lappend points [detectionTagCorner $row $col 2]
-            lappend points [detectionTagCorner $row $col 3]
-        }
-    }
-
-    # Model points, from the known geometry of the checkerboard (in
-    # meters, where top-left corner of top-left AprilTag is 0, 0).
-    set model [list]
-    for {set row 0} {$row < $ROWS} {incr row} {
-        for {set col 0} {$col < $COLS} {incr col} {
-            lappend model [list [* $col $sideLength 2] \
-                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-left
-
-            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
-                               [+ [* $row $sideLength 2] $sideLength]] ;# bottom-right
-
-            lappend model [list [+ [* $col $sideLength 2] $sideLength] \
-                               [* $row $sideLength 2]] ;# top-right
-
-            lappend model [list [* $col $sideLength 2] [* $row $sideLength 2]] ;# top-left
-        }
-    }
-
-    set A [list]
-    set b [list]
-    foreach imagePoint $points modelPoint $model {
-        lassign $imagePoint u v
-        lassign $modelPoint x y
-        lappend A [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
-        lappend A [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
-        lappend b $u $v
-    }
-
-    lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2 c0 c1
-    set H [subst {
-        {$a0 $a1 $a2}
-        {$b0 $b1 $b2}
-        {$c0 $c1 1}
-    }]
-
-    return $H
 }
 
 fn processHomography {H} {
@@ -494,65 +441,99 @@ fn processHomography {H} {
     return $V
 }
 
-exec mkdir -p "$::env(HOME)/folk-calibrate-detections"
-fn calibrate {sideLength detections} {
-    # sideLength is inner side length of a tag, in meters.
-    # detections is a list of N dictionaries of detected tags.
+# Uses Zhang's calibration technique
+# (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf)
+# to calibrate a projector or camera given a known 2D planar pattern
+# and multiple observed poses.
+#
+# Returns intrinsic matrix for the camera/projector, which explains
+# how 3D real-world coordinates get projected to 2D coordinates by
+# that device. (The intrinsic matrix can be used with an AprilTag
+# detector to get real-world coordinates for each AprilTag.)
+#
+# Arguments:
+# model is a dictionary of tag ID -> 2D planar coordinates (probably in meters).
+# poses is a list of N dictionaries of tag ID -> observed camera coordinates (in pixels).
+fn zhangCalibrate {model poses} {
+    # Compute N homographies: one homography for each pose, where the
+    # homography maps model coordinates to camera/projector
+    # coordinates for that pose:
+    set Hs [lmap pose $poses {
+        set pointPairs [list]
+        dict for {id poseTag} $pose {
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                poseCorner [dict get $poseTag corners] {
+                    lappend pointPairs [list {*}$worldCorner {*}$poseCorner]
+                }
+        }
+        estimateHomography $pointPairs
+    }]
 
-    set fd [open "$::env(HOME)/folk-calibrate-detections/$::thisNode-detections-[clock milliseconds].tcl" w]
+    # Try to solve for the camera intrinsics:
+
+    # Construct V:
+    set Vtop [list]; set Vbottom [list]
+    foreach H $Hs {
+        lassign [processHomography $H] Vtop_ Vbottom_
+        lappend Vtop $Vtop_
+        lappend Vbottom $Vbottom_
+    }
+    set V [list {*}$Vtop {*}$Vbottom]
+    assert {[::math::linearalgebra::shape $V] eq [list [* 2 [llength $Hs]] 6]}
+
+    # Solve Vb = 0:
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V'
+    set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
+
+    # Compute camera intrinsic matrix A:
+    lassign $b B11 B12 B22 B13 B23 B33
+    set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
+    set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
+    set alpha [expr {sqrt($lambda/$B11)}]
+    set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
+    set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
+    set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
+    foreach var {v0 lambda alpha beta gamma u0} {
+        puts "$var = [set $var]"
+    }
+
+    puts "   Focal Length: \[ $alpha $beta ]"
+    puts "Principal Point: \[ $u0 $v0 ]"
+    puts "           Skew: \[ $gamma ] "
+
+    # TODO: nlopt for better intrinsics + distortion parameters
+}
+
+# Arguments:
+# model is a dictionary of tag ID -> 2D planar coordinates (probably in meters).
+# poses is a list of N dictionaries of tag ID -> real-world coordinates (probably in meters).
+fn otherCalibrate {model poses} {
+    
+}
+
+exec mkdir -p "$::env(HOME)/folk-calibrations"
+# sideLength is inner side length of a tag, in meters.
+# calibrationPoses is a list of N dictionaries of detected tags.
+fn calibrate {sideLength calibrationPoses} {
+    set fd [open "$::env(HOME)/folk-calibrations/$::thisNode-calibration-[clock milliseconds].tcl" w]
     puts $fd [subst {
         set sideLength $sideLength
         set detections {$detections}
     }]
     close $fd
 
-    # The below calibration technique is from Zhang
-    # (https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr98-71.pdf):
+    # MODEL's 2D coordinates have inner tag side length of 1.0: scale
+    # it up to real-world coordinates.
+    set worldModel [scale $sideLength $MODEL]
 
-    # Compute N homographies (one homography for each detection):
-    set Hs [lmap detection $detections {
-        findHomography $sideLength $detection
-    }]
+    # First, calibrate the camera. "Using only the corners from
+    # printed markers xb and their detected corners xc, [...]
+    # calibrate the camera with no difficulties using Zhang’s method."
+    set cameraIntrinsics [zhangCalibrate $worldModel $printedTagPoses]
 
-    # puts "Detections {$detections}"
-    # puts "Hs {$Hs}"
-
-    # Try to solve for the camera intrinsics:
-    try {
-        # Construct V:
-        set Vtop [list]; set Vbottom [list]
-        foreach H $Hs {
-            lassign [processHomography $H] Vtop_ Vbottom_
-            lappend Vtop $Vtop_
-            lappend Vbottom $Vbottom_
-        }
-        set V [list {*}$Vtop {*}$Vbottom]
-        assert {[::math::linearalgebra::shape $V] eq [list [* 2 [llength $Hs]] 6]}
-
-        # Solve Vb = 0:
-        lassign [determineSVD [matmul [transpose $V] $V]] U S V'
-        set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
-
-        # Compute camera intrinsic matrix A:
-        lassign $b B11 B12 B22 B13 B23 B33
-        set v0 [expr {($B12*$B13 - $B11*$B23) / ($B11*$B22 - $B12*$B12)}]
-        set lambda [expr {$B33 - ($B13*$B13 + $v0*($B12*$B13 - $B11*$B23))/$B11}]
-        set alpha [expr {sqrt($lambda/$B11)}]
-        set beta [expr {sqrt($lambda*$B11/($B11*$B22 - $B12*$B12))}]
-        set gamma [expr {-$B12*$alpha*$alpha*$beta/$lambda}]
-        set u0 [expr {$gamma*$v0/$beta - $B13*$alpha*$alpha/$lambda}]
-        foreach var {v0 lambda alpha beta gamma u0} {
-            puts "$var = [set $var]"
-        }
-
-        puts "   Focal Length: \[ $alpha $beta ]"
-        puts "Principal Point: \[ $u0 $v0 ]"
-        puts "           Skew: \[ $gamma ] "
-
-        # TODO: nlopt for better intrinsics + distortion parameters
-    } on error e {
-        puts stderr $::errorInfo
-    }
+    # Second, calibrate the projector.
+    set projectorIntrinsics [zhangCalibrate $worldModel $projectedTagPoses]
 }
 
 # set ::checkerboardDetections [list]
