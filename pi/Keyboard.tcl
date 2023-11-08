@@ -15,6 +15,7 @@ namespace eval Keyboard {
             # Check if it's a keyboard by looking for "ID_INPUT_KEYBOARD=1" in the udevadm output
             if {[string first "ID_INPUT_KEYBOARD=1" $deviceInfo] >= 0} {
                 # It's a keyboard, add to list of keyboard devices
+                puts "---------\ngot device $device"
                 lappend keyboardDevices $device
             }
         }

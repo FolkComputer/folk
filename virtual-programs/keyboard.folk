@@ -1,0 +1,77 @@
+set ::debug_keyboard true
+
+# TODO: Make this respond to a keyboard being plugged in or unplugged
+# TODO: Make this the main keyboard logic and change keyboard.tcl to just use utilities from in here or from some share utils/keyboard.tcl
+
+When /someone/ claims /keyboardPage/ is keyboard with path /kbPath/ {
+    # (2023-11-07) on folk0 this is /dev/input/by-path/platform-i8042-serio-0-event-kbd
+    # (2023-11-08) on folk-convivial this is /dev/input/by-path/pci-0000:04:00.3-usb-0:3:1.0-event-kbd
+    Wish $keyboardPage is outlined white
+    Wish $keyboardPage is labelled "\n\n\n\n\n\n$kbPath"
+
+    set keyboardDevices [list]
+
+    # Get udevadm information for the device
+    set deviceInfo [exec udevadm info --query=property --name=$kbPath]
+
+    # Check if it's a keyboard by looking for "ID_INPUT_KEYBOARD=1" in the udevadm output
+    if {[string first "ID_INPUT_KEYBOARD=1" $deviceInfo] >= 0} {
+        # It's a keyboard, add to list of keyboard devices
+        if {$::debug_keyboard} {
+            Wish $this is labelled "---------\ngot device $kbPath"
+        }
+       
+        lappend keyboardDevices $kbPath
+
+        if {[file readable $kbPath] == 0} {
+            puts "Device $kbPath is not readable. Attempting to change permissions."
+            # Attempt to change permissions so that the file can be read
+            exec sudo chmod +r $device
+        }
+
+        Claim $kbPath is a valid keyboard
+    }
+}
+
+proc getKeyEvent {kb} {
+    variable evtBytes
+    variable evtFormat
+
+    # See https://www.kernel.org/doc/Documentation/input/input.txt
+    # https://www.kernel.org/doc/Documentation/input/event-codes.txt
+    # https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
+    #
+    # struct input_event {
+    #     struct timeval time;
+    #     unsigned short type; (should be EV_KEY = 0x01)
+    #     unsigned short code; (scancode; for example, 16 = q)
+    #     unsigned int value; (0 for key release, 1 for press, 2 for repeat)
+    # };
+    #
+    while 1 {
+        binary scan [read $kb $evtBytes] $evtFormat tvSec tvUsec type code value
+        if {$type == 0x01} {
+            return [list $code $value]
+        }
+    }
+}
+
+When /keyboard/ is a valid keyboard {
+  set kb [open $keyboard r]
+  fconfigure $kb -translation binary
+
+    variable evtBytes 16
+    variable evtFormat iissi
+    if {[exec getconf LONG_BIT] == 64} {
+      set evtBytes 24
+      set evtFormat wwssi
+    }
+
+  Wish $this is labelled "$kb"; # Hmmmm, this crashes Folk ;# \n---\n [getKeyEvent $kb]"
+  # write to the statement DB a stream of millisecond timecodes and keys e.g.
+  #    123450 platform-i8042-serio-0-event-kbd H
+  #    123451 platform-i8042-serio-0-event-kbd e
+  #    123452 platform-i8042-serio-0-event-kbd l
+  #    123453 platform-i8042-serio-0-event-kbd l
+  #    123454 platform-i8042-serio-0-event-kbd o
+}

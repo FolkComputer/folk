@@ -376,9 +376,9 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
 }
 
 Claim $this has demo {
-  ## Okay, this could be:
-  # Claim $this is keyboard ABCD:1234:ABCD:1234
-  #                           (MAC address)
   # Tape this program underneath the main keyboard of your system to try it out
   Claim $this is editor editor-1
+
+  # Ideally:
+  Claim $this is keyboard with path /dev/input/by-path/platform-i8042-serio-0-event-kbd
 }
