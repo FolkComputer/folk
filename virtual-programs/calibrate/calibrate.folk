@@ -236,7 +236,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
-    set innerToOuter [expr {($tagOuterLength - $tagSideLength)/2}]
     set pad $tagSideLength
 
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
@@ -270,7 +269,12 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
     When the calibration model-to-display homography is /H_modelToDisplay/ with \
          model /model/ version /anything/ timestamp /anything/ {
-        set innerToOuterM [expr {$innerToOuter * $printedSideLengthM}]
+
+        fn innerToOuter {center corner} {
+            set r [sub $corner $center]
+            return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
+        }
+
         set instances [list]
         dict for {id modelTag} $model {
             if {![isProjectedTag $id]} { continue }
@@ -290,11 +294,13 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                 0b[join [lreverse [lrange $tagBits 32 63]] ""] \
                                 0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                                 0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+
             set modelInnerCorners [dict get $modelTag corners]
-            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list [- $innerToOuterM] $innerToOuterM]]
-            set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuterM $innerToOuterM]]
-            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuterM [- $innerToOuterM]]]
-            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list [- $innerToOuterM] [- $innerToOuterM]]]
+            set modelCenter [dict get $modelTag center]
+            set modelOuterBottomLeft [innerToOuter $modelCenter [lindex $modelInnerCorners 0]]
+            set modelOuterBottomRight [innerToOuter $modelCenter [lindex $modelInnerCorners 1]]
+            set modelOuterTopRight [innerToOuter $modelCenter [lindex $modelInnerCorners 2]]
+            set modelOuterTopLeft [innerToOuter $modelCenter [lindex $modelInnerCorners 3]]
             lappend instances \
                 [list $tagBitsVec \
                      [applyHomography $H_modelToDisplay $modelOuterTopLeft]  \
