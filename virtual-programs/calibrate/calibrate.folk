@@ -328,8 +328,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
 
-        if {$timestamp - $hTimestamp < 500} { return }
-
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
             set id [dict get $tag id]
@@ -374,24 +372,38 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
         if {[dict size $projectedTags] == 0} { return }
 
-        # TODO: Check the rotation of the central projected tag (its angle
+        # Check the rotation of the central projected tag (its angle
         # relative to any other tag) to figure out the version of what
         # the camera saw, unless it's version -1.
-        # if {$version != -1} {
-        #     # Find the version tag. If it wasn't detected, then abort
-        #     # and wait until a later frame.
-        #     if {![dict exists $projectedTags $versionTagId]} { return }
+        if {$version != -1} {
+            puts "VERSION CHECK"
 
-        #     set versionTagAngle [dict get $projectedTags $versionTagId angle]
-        #     # Compare angle to angle of any other projected tag.
-        #     set otherTagAngle [dict get [lindex [dict values [dict remove $projectedTags $versionTagId]] 0] angle]
-        #     # Get quadrant, that's the version.
-        #     set detectedVersion [expr {($versionTagAngle - $otherTagAngle) / (3.14159/2)}]
+            # Find the version tag. If it wasn't detected, then abort
+            # and wait until a later frame.
+            if {![dict exists $projectedTags $versionTagId]} { return }
 
-        #     # If the detected version does not correspond to version,
-        #     # then we should abort and wait until a later frame.
-        #     if {$detectedVersion != $version} { return }
-        # }
+            set versionTagAngle [dict get $projectedTags $versionTagId angle]
+            # Compare angle to angle of any other projected tag.
+            if {[dict size $projectedTags] < 2} { return }
+            set otherTagAngle [dict get [lindex [dict values [dict remove $projectedTags $versionTagId]] 0] angle]
+            set versionAngle [expr {$versionTagAngle - $otherTagAngle}]
+            # Rotations corresponding to versions 0, 1, 2, 3:
+            set possibleVersions \
+                [list 1  0 \
+                      0  1 \
+                     -1  0 \
+                      0 -1]
+            # Which of the possibleVersions is versionAngle closest to?
+            set detectedVersion [lindex [lsort -indices [lmap {x y} $possibleVersions {
+                expr {($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2}
+            }]] 0]
+
+            # If the detected version does not correspond to version,
+            # then we should abort and wait until a later frame.
+            if {$detectedVersion != $version} { return }
+
+            puts "VERSION CHECK PASSED"
+        }
 
         set nextVersion [expr {($version + 1) % 4}]
         set nextModel [apply {{baseModel versionTagId nextVersion} {
