@@ -334,7 +334,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         set printedPointPairs [list]
         dict for {id printedTag} $printedTags {
-            set modelTag [dict get $MODEL $id]
+            set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag corners] \
                 cameraCorner [dict get $printedTag corners] {
                     lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
@@ -346,10 +346,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         # Map the bounds of the board to camera coordinates, so we can
         # check if projected tags are inside the board.
-        set modelTopLeft [lindex [dict get $MODEL [expr {48600 + 0*$COLS + 0}] corners] 3]
-        set modelTopRight [lindex [dict get $MODEL [expr {48600 + 0*$COLS + $COLS-1}] corners] 2]
-        set modelBottomRight [lindex [dict get $MODEL [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] corners] 1]
-        set modelBottomLeft [lindex [dict get $MODEL [expr {48600 + ($ROWS-1)*$COLS + 0}] corners] 0]
+        set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] corners] 3]
+        set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] corners] 2]
+        set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] corners] 1]
+        set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] corners] 0]
         set printedCalibrationBoard [list {*}[applyHomography $H_modelToCameraViaPs $modelTopLeft] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelTopRight] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
@@ -412,7 +412,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
-            set modelTag [dict get $MODEL $id]
+            set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag corners] \
                 cameraCorner [dict get $projectedTag corners] {
                     set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
