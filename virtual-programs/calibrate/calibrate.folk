@@ -249,7 +249,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
-                         model /anything/ version /anything/ {
+                         model /anything/ version /anything/ timestamp /anything/ {
         # Default projection: just make the tags fill most of the projector area.
         set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
                                                $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
@@ -263,13 +263,13 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         Commit H_modelToDisplay {
             # Default model and version: nothing rotated.
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
-                model $baseModel version -1
+                model $baseModel version -1 timestamp [clock milliseconds]
         }
     }
     On unmatch { Commit H_modelToDisplay {} }
 
     When the calibration model-to-display homography is /H_modelToDisplay/ with \
-         model /model/ version /anything/ {
+         model /model/ version /anything/ timestamp /anything/ {
         set innerToOuterM [expr {$innerToOuter * $printedSideLengthM}]
         set instances [list]
         dict for {id modelTag} $model {
@@ -291,10 +291,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                 0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                                 0b[join [lreverse [lrange $tagBits 96 127]] ""]]
             set modelInnerCorners [dict get $modelTag corners]
-            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list -$innerToOuterM $innerToOuterM]]
+            set modelOuterBottomLeft [add [lindex $modelInnerCorners 0] [list [- $innerToOuterM] $innerToOuterM]]
             set modelOuterBottomRight [add [lindex $modelInnerCorners 1] [list $innerToOuterM $innerToOuterM]]
-            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuterM -$innerToOuterM]]
-            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list -$innerToOuterM -$innerToOuterM]]
+            set modelOuterTopRight [add [lindex $modelInnerCorners 2] [list $innerToOuterM [- $innerToOuterM]]]
+            set modelOuterTopLeft [add [lindex $modelInnerCorners 3] [list [- $innerToOuterM] [- $innerToOuterM]]]
             lappend instances \
                 [list $tagBitsVec \
                      [applyHomography $H_modelToDisplay $modelOuterTopLeft]  \
@@ -320,7 +320,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
-         model /model/ version /version/ {
+             model /model/ version /version/ timestamp /hTimestamp/ {
+
+        if {$timestamp - $hTimestamp < 500} { return }
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -366,9 +368,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
         if {[dict size $projectedTags] == 0} { return }
 
-        # TODO: Check the rotation of the central projected tag (its
-        # angle relative to any other tag) to figure out the version
-        # of what the camera saw, unless it's version -1.
+        # TODO: Check the rotation of the central projected tag (its angle
+        # relative to any other tag) to figure out the version of what
+        # the camera saw, unless it's version -1.
         # if {$version != -1} {
         #     # Find the version tag. If it wasn't detected, then abort
         #     # and wait until a later frame.
@@ -389,7 +391,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set nextModel [apply {{baseModel versionTagId nextVersion} {
             # Rotate the version tag.
             set model $baseModel
-            set corners [dict get $model $versionTagId]
+            set corners [dict get $model $versionTagId corners]
             set rotatedCorners [list]
             for {set i 0} {$i < 4} {incr i} {
                 lappend rotatedCorners [lindex $corners [expr {($i + $nextVersion) % 4}]]
@@ -421,7 +423,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
-                model $nextModel version $nextVersion
+                model $nextModel version $nextVersion timestamp [clock milliseconds]
         }
 
         return ;# ------------------------------------------------ deal with later
