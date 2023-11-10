@@ -1,8 +1,10 @@
 set id "editor-1"
-set ::debug_cursor true
-set ::debug_print true
+set ::debug_cursor false
+set ::debug_print false
 
-When /page/ is editor /n/ & /page/ has region /r/ {
+# When /page/ is editor /n/ & /page/ has region /r/ {
+When /page/ is a keyboard with path /kbPath/ & /page/ has region /r/ {
+    # Claim $this is a keyboard with path /dev/input/by-path/platform-i8042-serio-0-event-kbd
     Wish $page is outlined gray
     Claim $id has region [region move $r up 450px]
 }
