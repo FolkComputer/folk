@@ -376,8 +376,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # relative to any other tag) to figure out the version of what
         # the camera saw, unless it's version -1.
         if {$version != -1} {
-            puts "VERSION CHECK"
-
             # Find the version tag. If it wasn't detected, then abort
             # and wait until a later frame.
             if {![dict exists $projectedTags $versionTagId]} { return }
@@ -395,14 +393,12 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                       0 -1]
             # Which of the possibleVersions is versionAngle closest to?
             set detectedVersion [lindex [lsort -indices [lmap {x y} $possibleVersions {
-                expr {($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2}
+                expr {sqrt(($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2)}
             }]] 0]
 
             # If the detected version does not correspond to version,
             # then we should abort and wait until a later frame.
             if {$detectedVersion != $version} { return }
-
-            puts "VERSION CHECK PASSED"
         }
 
         set nextVersion [expr {($version + 1) % 4}]
