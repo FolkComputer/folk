@@ -3,7 +3,7 @@ On process "display" {
     set rotate $::rotate
     # TODO: Do this with a wish, instead of hard-coding the global dict.
     dict set ::pipelines "image" [Gpu::pipeline {sampler2D image vec2 imageSize
-                              vec2 pos float radians float scale
+                              vec2 pos float radians vec2 scale
                               fn rotate} {
         vec2 a = pos + scale * (rotate(-imageSize/2, -radians));
         vec2 b = pos + scale * (rotate(vec2(imageSize.x, -imageSize.y)/2, -radians));
@@ -108,6 +108,9 @@ On process "display" {
         set im [dict get $options image]
         set radians [dict get $options radians]
         set scale [dict_getdef $options scale 1.0]
+        if {[llength $scale] == 1} {
+          set scale [list $scale $scale] 
+        }
 
         set gim [ImageCache::getOrInsert $im]
 
