@@ -94,16 +94,38 @@ fn applyHomography {H xy} {
     return [list [/ $u $w] [/ $v $w]]
 }
 
+
+set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
+# Takes a dictionary of tag ID => {corners, center} and rotates the
+# version tag according to version.
+fn versionizeTags {tags version} {
+    # Rotate the version tag.
+    set corners [dict get $tags $versionTagId corners]
+    set rotatedCorners [list]
+    for {set i 0} {$i < 4} {incr i} {
+        lappend rotatedCorners [lindex $corners [expr {($i + $version) % 4}]]
+    }
+    dict set tags $versionTagId corners $rotatedCorners
+    return $tags
+}
+
 package require math
 namespace import ::math::mean
 fn meanPoseDifference {pose1 pose2} {
-    set pose1 [dict get $pose1 tags]
-    set pose2 [dict get $pose2 tags]
+    # First, remove the version rotations from tags1 and tags2.
+    set tags1 [dict get $pose1 tags]
+    set version1 [dict get $pose1 version]
+    set tags1 [versionizeTags $tags1 [- $version1]]
+
+    set tags2 [dict get $pose2 tags]
+    set version2 [dict get $pose2 version]
+    set tags2 [versionizeTags $tags2 [- $version2]]
+
     set differences [list]
-    dict for {id tag} $pose1 {
-        if {![dict exists $pose2 $id]} { continue }
+    dict for {id tag} $tags1 {
+        if {![dict exists $tags2 $id]} { continue }
         set corners1 [dict get $tag corners]
-        set corners2 [dict get $pose2 $id corners]
+        set corners2 [dict get $tags2 $id corners]
         set cornerDifferences \
             [lmap corner1 $corners1 corner2 $corners2 {
                 norm [sub $corner1 $corner2]
@@ -245,7 +267,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         dict create center [scale $printedSideLengthM [dict get $tag center]] \
             corners [scale $printedSideLengthM [dict get $tag corners]]
     }]
-    set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
                          model /anything/ version /anything/ timestamp /anything/ {
@@ -410,19 +431,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             if {$detectedVersion != $version} { return }
         }
 
-        set nextVersion [expr {($version + 1) % 4}]
-        set nextModel [apply {{baseModel versionTagId nextVersion} {
-            # Rotate the version tag.
-            set model $baseModel
-            set corners [dict get $model $versionTagId corners]
-            set rotatedCorners [list]
-            for {set i 0} {$i < 4} {incr i} {
-                lappend rotatedCorners [lindex $corners [expr {($i + $nextVersion) % 4}]]
-            }
-            dict set model $versionTagId corners $rotatedCorners
-            return $model
-        }} $baseModel $versionTagId $nextVersion]
-
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
             set modelTag [dict get $model $id]
@@ -435,6 +443,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
+            set nextVersion [expr {($version + 1) % 4}]
+            set nextModel [versionizeTags $baseModel $nextVersion]
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
                 model $nextModel version $nextVersion timestamp [clock milliseconds]
         }
@@ -449,7 +459,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             return
         }
 
-        set pose [dict create H_modelToDisplay $H_modelToDisplay \
+        set pose [dict create \
+                      model $model \
+                      version $version \
+                      H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
 
         # Check if projected tag corners have been pretty stable since
@@ -588,8 +601,14 @@ fn calibrate {sideLength calibrationPoses} {
 
     # Second, calibrate the projector.
     set Hs_modelToProjector [lmap pose $calibrationPoses {
+        # For each pose:
+
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
         set tags [dict get $pose tags]
+        set pointPairs [list]
+        dict for {id cameraTag} $pose {
+            if {![isProjectedTag $id]} continue
+        }
 
         # Homography from projector -> camera.
         
