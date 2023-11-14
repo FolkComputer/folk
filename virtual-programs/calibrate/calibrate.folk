@@ -370,6 +370,15 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 dict set outsideBoardProjectedTags $id $tag
             }
         }
+        puts "======\nHave board"
+        puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
+        puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
+        dict for {id tag} $projectedTags {
+            set idx [- $id 48600]
+            set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
+            puts "  Saw projected tag $id (row $row, col $col)"
+        }
+        # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
         if {[dict size $projectedTags] == 0} { return }
 
         # Check the rotation of the central projected tag (its angle
@@ -414,16 +423,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             return $model
         }} $baseModel $versionTagId $nextVersion]
 
-        # puts "======\nHave board: {$printedCalibrationBoard}"
-        # puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
-        # puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
-        # dict for {id tag} $projectedTags {
-        #     set idx [- $id 48600]
-        #     set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
-        #     puts "  Saw projected tag $id (row $row, col $col)"
-        # }
-        # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
-
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
             set modelTag [dict get $model $id]
@@ -440,7 +439,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 model $nextModel version $nextVersion timestamp [clock milliseconds]
         }
 
-        return ;# ------------------------------------------------ deal with later
+        # return ;# ------------------------------------------------ deal with later
 
         # Are we ready to record these points as a calibration pose?
 
