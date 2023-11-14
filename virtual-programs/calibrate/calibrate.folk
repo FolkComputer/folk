@@ -1,5 +1,6 @@
 package require math::linearalgebra
-foreach p {add norm sub scale leastSquaresSVD matmul} {
+foreach p {add norm sub scale leastSquaresSVD matmul
+           getelem transpose determineSVD} {
     namespace import ::math::linearalgebra::$p
 }
 
@@ -575,16 +576,16 @@ fn zhangCalibrate {Hs} {
     # TODO: nlopt for better intrinsics + distortion parameters
 }
 
-# sideLength is inner side length of a tag, in meters.
-# calibrationPoses is a list of N dictionaries of detected tags.
-fn calibrate {sideLength calibrationPoses} {
-
-
+# calibrationPoses is a list of N pose dictionaries. Each pose
+# dictionary includes `tags` from a camera detection, `model` with
+# coordinates in meters, `H_modelToDisplay`.
+fn calibrate {calibrationPoses} {
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
     set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
+        set model [dict get $pose model]
         set tags [dict get $pose tags]
         set pointPairs [list]
         dict for {id cameraTag} $tags {
@@ -597,44 +598,52 @@ fn calibrate {sideLength calibrationPoses} {
         }
         estimateHomography $pointPairs
     }]
+    puts "Zhang calibrate camera:"
+    puts "========"
     set cameraIntrinsics [zhangCalibrate $Hs_modelToCamera]
 
     # Second, calibrate the projector.
-    set Hs_modelToProjector [lmap pose $calibrationPoses {
+    set Hs_modelToDisplay [lmap pose $calibrationPoses {
         # For each pose:
-
+        set model [dict get $pose model]
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
         set tags [dict get $pose tags]
-        set pointPairs [list]
-        dict for {id cameraTag} $pose {
-            if {![isProjectedTag $id]} continue
-        }
+
+        # TODO: Test both split homography and 1 homography.
 
         # Homography from projector -> camera.
-        
-
-        # Homography from camera -> model.
-
-
-        # I don't understand why this doesn't seem to use the camera
-        # points at all???
-
-        # Or the camera intrinisics??
-
-
-        # pairs of (projector coordinates, model coordinates).
-        # but... what is a projector coordinate... (it's from prewarp)
-
-        set pointPairs [list]
-        dict for {id cameraTag} $pose {
+        set cameraDisplayPointPairs [list]
+        dict for {id cameraTag} $tags {
             if {![isProjectedTag $id]} continue
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag corners] \
-                poseCorner [dict get $poseTag corners] {
-                    lappend pointPairs [list {*}$modelCorner {*}$poseCorner]
+                cameraCorner [dict get $cameraTag corners] {
+                    set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+                    lappend cameraDisplayPointPairs \
+                        [list {*}$cameraCorner {*}$displayCorner]
                 }
         }
-        estimateHomography $pointPairs
+        set H_cameraToDisplay [estimateHomography $cameraDisplayPointPairs]
+
+        # Homography from camera -> model.
+        set modelCameraPointPairs [list]
+        dict for {id cameraTag} $tags {
+            set modelTag [dict get $model $id]
+            foreach modelCorner [dict get $modelTag corners] \
+                cameraCorner [dict get $cameraTag corners] {
+                    lappend modelCameraPointPairs \
+                        [list {*}$modelCorner {*}$cameraCorner]
+                }
+        }
+        set H_modelToCamera [estimateHomography $modelCameraPointPairs]
+
+        # I don't understand why this doesn't seem to use the camera
+        # points at all???
+        # Or the camera intrinisics??
+
+        matmul $H_cameraToDisplay $H_modelToCamera
     }]
-    set projectorIntrinsics [zhangCalibrate $Hs_projectorToModel]
+    puts "Zhang calibrate projector:"
+    puts "========"
+    set projectorIntrinsics [zhangCalibrate $Hs_modelToDisplay]
 }
