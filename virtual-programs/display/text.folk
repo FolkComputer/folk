@@ -68,7 +68,7 @@ On process "display" {
             return (vec2f) { width, y + em };
         }
         $cc proc textShape {Font* font char* text
-                            float x0 float y0 float scale float radians} Tcl_Obj* {
+                            float x0 float y0 float scale float radians Tcl_Obj* color} Tcl_Obj* {
             Tcl_Obj* gpuAtlasImageSize = Tcl_ObjPrintf("%d %d", font->atlasImage.width, font->atlasImage.height);
 
             vec2f extent = vec2f_rotate(textExtent(font, text, scale), radians);
@@ -103,7 +103,7 @@ On process "display" {
                         gpuAtlasImageSize,
                         atlasBounds,
                         planeBounds,
-                        pObj, Tcl_NewDoubleObj(radians), Tcl_NewDoubleObj(em)
+                        pObj, Tcl_NewDoubleObj(radians), Tcl_NewDoubleObj(em), color
                     };
                     Tcl_Obj* instance = Tcl_NewListObj(sizeof(args)/sizeof(args[0]), args);
                     Tcl_ListObjAppendElement(NULL, instances, instance);
@@ -145,6 +145,7 @@ On process "display" {
                        vec4 atlasGlyphBounds
                        vec4 planeGlyphBounds
                        vec2 pos float radians float em
+                       vec4 color
                        fn rotate} {
          float left = planeGlyphBounds[0] * em;
          float bottom = planeGlyphBounds[1] * em;
@@ -172,10 +173,12 @@ On process "display" {
             return vec4(0, 0, 0, 0);
         }
         vec3 msd = glyphMsd(atlas, atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+        // https://blog.mapbox.com/drawing-text-with-signed-distance-fields-in-mapbox-gl-b0933af6f817
         float sd = median(msd.r, msd.g, msd.b);
-        float screenPxDistance = 4.5*(sd - 0.5);
-        float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-        return mix(vec4(0, 0, 0, 0), vec4(1, 1, 1, 1), opacity);
+        float uBuffer = 0.2;
+        float uGamma = 0.2;
+        float opacity = smoothstep(uBuffer - uGamma, uBuffer + uGamma, sd);
+        return vec4(color.rgb, opacity * color.a);
     }]
 
     Wish $::thisProcess receives statements like \
@@ -192,13 +195,14 @@ On process "display" {
         set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
         set radians [dict get $options radians]
+        set color [getColor [dict_getdef $options color white]]
 
         if {!([dict exists $::FontCache $font])} {
             throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
         }
         set font [dict get $::FontCache $font]
 
-        set instances [font textShape $font $text $x0 $y0 $scale $radians]
+        set instances [font textShape $font $text $x0 $y0 $scale $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
