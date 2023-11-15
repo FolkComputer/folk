@@ -18,6 +18,19 @@ class create AprilTags {
             apriltag_detector_t *td;
             apriltag_family_t *tf;
         }
+        # In favor of this: we want to have the member getters generated in Tcl.
+        # Against this:
+        #  - duplicate struct defn (add a flag?)
+        #  - how to free the matd_t on destruction (add destructor support?)
+        $cc struct apriltag_detection_t {
+            apriltag_family_t* family;
+            int id;
+            int hamming;
+            float decision_margin;
+            matd_t* H;
+            double c[2];
+            double p[8]; // TODO: Make 2D array.
+        }; # -nodefine -destructor
         ::defineImageType $cc
 
         $cc proc detectInit {} void [csubst {
@@ -26,10 +39,12 @@ class create AprilTags {
             apriltag_detector_add_family_bits(td, tf, 1);
             td->nthreads = 2;
         }]
+
+        # Returns a Tcl-wrapped list of AprilTag detection objects.
         $cc proc detectImpl {image_t gray} Tcl_Obj* {
             assert(gray.components == 1);
             image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
-            
+
             zarray_t *detections = apriltag_detector_detect(td, &im);
             int detectionCount = zarray_size(detections);
 
@@ -38,18 +53,14 @@ class create AprilTags {
                 apriltag_detection_t *det;
                 zarray_get(detections, i, &det);
 
-                int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
-		double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
-                detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
-                                                 det->id,
-                                                 det->c[0], det->c[1],
-                                                 det->p[0][0], det->p[0][1],
-                                                 det->p[1][0], det->p[1][1],
-                                                 det->p[2][0], det->p[2][1],
-                                                 det->p[3][0], det->p[3][1],
-                                                 size, angle);
+                // TODO: convert the apriltag_detection_t* to a Tcl_Obj*.
+                detectionObjs[i] = Tcl_NewObj();
+                detectionObjs[i]->bytes = NULL;
+                detectionObjs[i]->typePtr = &apriltag_detection_t_ObjType;
+                detectionObjs[i]->internalRep.ptrAndLongRep.ptr = det;
+                // owned by us, not by Tcl.
+                detectionObjs[i]->internalRep.ptrAndLongRep.value = 0;
             }
-            
 
             zarray_destroy(detections);
             Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
