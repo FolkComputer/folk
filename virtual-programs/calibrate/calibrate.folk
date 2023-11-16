@@ -502,7 +502,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
             puts "DONE CALIBARTION!"
+            set calibration [calibrate $::calibrationPoses]
             Retract /someone/ claims the printed tag side length is /anything/ mm
+            Assert <calibrate.folk> claims the calibration is $calibration
         }
     }
 }
@@ -611,6 +613,19 @@ fn calibrate {calibrationPoses} {
 
         # TODO: Test both split homography and 1 homography.
 
+        # set modelDisplayPointPairs [list]
+        # dict for {id cameraTag} $tags {
+        #     if {![isProjectedTag $id]} continue
+        #     set modelTag [dict get $model $id]
+        #     foreach modelCorner [dict get $modelTag corners] \
+        #         cameraCorner [dict get $cameraTag corners] {
+        #             set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+        #             lappend modelDisplayPointPairs \
+        #                 [list {*}$modelCorner {*}$displayCorner]
+        #         }
+        # }
+        # estimateHomography $modelDisplayPointPairs
+
         # Homography from projector -> camera.
         set cameraDisplayPointPairs [list]
         dict for {id cameraTag} $tags {
@@ -641,9 +656,12 @@ fn calibrate {calibrationPoses} {
         # points at all???
         # Or the camera intrinisics??
 
+        # Return a homography from model to display.
         matmul $H_cameraToDisplay $H_modelToCamera
     }]
     puts "Zhang calibrate projector:"
     puts "========"
     set projectorIntrinsics [zhangCalibrate $Hs_modelToDisplay]
+
+    return [list $cameraIntrinsics $projectorIntrinsics]
 }
