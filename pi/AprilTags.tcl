@@ -22,7 +22,8 @@ class create AprilTags {
         # Against this:
         #  - duplicate struct defn (add a flag?)
         #  - how to free the matd_t on destruction (add destructor support?)
-        $cc struct apriltag_detection_t {
+        # Hack for now: this is identical to apriltag_detection_t, but redefined here.
+        $cc struct apriltag_detection_ffi {
             apriltag_family_t* family;
             int id;
             int hamming;
@@ -30,7 +31,7 @@ class create AprilTags {
             matd_t* H;
             double c[2];
             double p[8]; // TODO: Make 2D array.
-        }; # -nodefine -destructor
+        } ;# -nodefine -destructor
         ::defineImageType $cc
 
         $cc proc detectInit {} void [csubst {
@@ -50,13 +51,13 @@ class create AprilTags {
 
             Tcl_Obj* detectionObjs[detectionCount];
             for (int i = 0; i < detectionCount; i++) {
-                apriltag_detection_t *det;
+                apriltag_detection_ffi *det;
                 zarray_get(detections, i, &det);
 
-                // TODO: convert the apriltag_detection_t* to a Tcl_Obj*.
+                // Wrap the apriltag_detection_t* in a Tcl_Obj*.
                 detectionObjs[i] = Tcl_NewObj();
                 detectionObjs[i]->bytes = NULL;
-                detectionObjs[i]->typePtr = &apriltag_detection_t_ObjType;
+                detectionObjs[i]->typePtr = &apriltag_detection_ffi_ObjType;
                 detectionObjs[i]->internalRep.ptrAndLongRep.ptr = det;
                 // owned by us, not by Tcl.
                 detectionObjs[i]->internalRep.ptrAndLongRep.value = 0;
