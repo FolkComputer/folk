@@ -12,6 +12,8 @@ $cc struct apriltag_detection_ffi {
     double c[2];
     double p[8]; // TODO: Make 2D array.
 } ;# -nodefine -destructor
+# Returns a 4x1 pose matrix that transforms {x y z} from 3D camera
+# optical frame to AprilTag frame.
 $cc proc estimateTagPose {apriltag_detection_ffi det
                           double tagSize double fx double fy double cx double cy} Tcl_Obj* {
     apriltag_detection_info_t info = {
@@ -22,32 +24,31 @@ $cc proc estimateTagPose {apriltag_detection_ffi det
     };
     apriltag_pose_t pose;
     double err = estimate_tag_pose(&info, &pose);
+    (void) err;
 
-    printf("Tag %d: Pose (err %f) R %dx%d t %dx%d\n", det.id, err,
-           pose.R->nrows, pose.R->ncols, pose.t->nrows, pose.t->ncols);
+    // printf("Tag %d: Pose (err %f) R %dx%d t %dx%d\n", det.id, err,
+    //       pose.R->nrows, pose.R->ncols, pose.t->nrows, pose.t->ncols);
 
     // Return matd_t R
     // Return matd_t t
-    
+    return Tcl_ObjPrintf(
+        "{%f %f %f %f}\n"
+        "{%f %f %f %f}\n"
+        "{%f %f %f %f}\n"
+        "{0   0  0  1}\n",
+        MATD_EL(pose.R, 0, 0), MATD_EL(pose.R, 0, 1), MATD_EL(pose.R, 0, 2), MATD_EL(pose.t, 0, 0),
+        MATD_EL(pose.R, 1, 0), MATD_EL(pose.R, 1, 1), MATD_EL(pose.R, 1, 2), MATD_EL(pose.t, 1, 0),
+        MATD_EL(pose.R, 2, 0), MATD_EL(pose.R, 2, 1), MATD_EL(pose.R, 2, 2), MATD_EL(pose.t, 2, 0)
+    );
+
     // TODO: Free R
     // TODO: Free t
-
-    return Tcl_ObjPrintf("ok");
 }
 c loadlib $::env(HOME)/apriltag/libapriltag.so
 $cc compile
 
-if 0 {
-/**
- * This struct holds the transformation from the camera optical frame to
- * the April tag frame. The pose refers to the position of the tag within
- * the camera frame.
- */
-typedef struct {
-    matd_t* R; // Rotation matrix 3x3 of doubles.
-    matd_t* t; // Translation matrix 3x1 of doubles.
-} apriltag_pose_t;
-}
+package require math::linearalgebra
+namespace import ::math::linearalgebra::solvePGauss ::math::linearalgebra::mkIdentity ::math::linearalgebra::matmul
 
 When (non-capturing) tag /tag/ has detection info /det/ {
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
@@ -58,9 +59,33 @@ When (non-capturing) tag /tag/ has detection info /det/ {
     set cy 565.146
     set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
 
+    # Invert the pose?
+    set poseInv [solvePGauss $pose [mkIdentity 4]]
 
-    # TODO: Use pose (R and t matrices) to unproject each corner into
-    # real-world space (camera optical frame)
+    # poseInv now transforms from AprilTag frame (fixed-pos corners)
+    # to 3D camera optical frame
+    set aprilTagFrameCorners \
+        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}] 0] \
+             [list [expr {$tagSize/2}] [expr {$tagSize/2}] 0] \
+             [list [expr {$tagSize/2}] [expr {-$tagSize/2}] 0] \
+             [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+    for {set i 0} {$i < 4} {incr i} {
+        # Augment to be homogenous.
+        set aprilTagFrameCorner [list {*}[lindex $aprilTagFrameCorners $i] 1]
+
+        set cameraFrameCorner [matmul $poseInv $aprilTagFrameCorner]
+        # TODO: test reprojection to optical frame?
+        puts "cameraFrameCorner: $cameraFrameCorner"
+
+        set x [apriltag_detection_ffi p $det [expr {$i * 2}]]
+        set y [apriltag_detection_ffi p $det [expr {$i * 2 + 1}]]
+
+        # x and y are in camera space.
+
+        # FIXME: Use pose (R and t matrices) to unproject each corner into
+        # real-world space (camera optical frame)
+        
+    }
 
     # Zhang-calibrated projector intrinsics:
     
