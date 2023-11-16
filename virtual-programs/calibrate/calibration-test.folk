@@ -1,0 +1,72 @@
+set cc [c create]
+$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+$cc include <apriltag_pose.h>
+
+# TODO: deduplicate w/ AprilTags.tcl
+$cc struct apriltag_detection_ffi {
+    apriltag_family_t* family;
+    int id;
+    int hamming;
+    float decision_margin;
+    matd_t* H;
+    double c[2];
+    double p[8]; // TODO: Make 2D array.
+} ;# -nodefine -destructor
+$cc proc estimateTagPose {apriltag_detection_ffi det
+                          double tagSize double fx double fy double cx double cy} Tcl_Obj* {
+    apriltag_detection_info_t info = {
+        .det = (apriltag_detection_t*) &det,
+        .tagsize = tagSize,
+        .fx = fx, .fy = fy,
+        .cx = cx, .cy = cy
+    };
+    apriltag_pose_t pose;
+    double err = estimate_tag_pose(&info, &pose);
+
+    printf("Tag %d: Pose (err %f) R %dx%d t %dx%d\n", det.id, err,
+           pose.R->nrows, pose.R->ncols, pose.t->nrows, pose.t->ncols);
+
+    // Return matd_t R
+    // Return matd_t t
+    
+    // TODO: Free R
+    // TODO: Free t
+
+    return Tcl_ObjPrintf("ok");
+}
+c loadlib $::env(HOME)/apriltag/libapriltag.so
+$cc compile
+
+if 0 {
+/**
+ * This struct holds the transformation from the camera optical frame to
+ * the April tag frame. The pose refers to the position of the tag within
+ * the camera frame.
+ */
+typedef struct {
+    matd_t* R; // Rotation matrix 3x3 of doubles.
+    matd_t* t; // Translation matrix 3x1 of doubles.
+} apriltag_pose_t;
+}
+
+When (non-capturing) tag /tag/ has detection info /det/ {
+    set tagSize [expr {31.5 / 1000}]; # 31.5 mm
+    # Zhang-calibrated camera intrinsics:
+    set fx 1429.93
+    set fy 1432.907
+    set cx 949.85
+    set cy 565.146
+    set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
+
+
+    # TODO: Use pose (R and t matrices) to unproject each corner into
+    # real-world space (camera optical frame)
+
+    # Zhang-calibrated projector intrinsics:
+    
+    
+    # TODO: Project pose back to projector coordinates
+    # how does apriltag pose work?
+
+    
+}

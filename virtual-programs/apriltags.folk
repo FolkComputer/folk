@@ -20,9 +20,10 @@ set mainDetectorProcess [Start process {
     }
 }]
 
+
 When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
     foreach tag $tags {
-        puts "$tag"
+        Claim tag [dict get $tag id] has detection info $tag        
     }
 }
 
