@@ -308,8 +308,13 @@ Every time keyboard claims key /currentCharacter/ is down with modifiers /modifi
       MUTE -
       VOLUMEUP -
       VOLUMEDOWN -
+      ESC -
+      TAB -
+      CAPSLOCK -
       LEFTSHIFT -
       RIGHTSHIFT -
+      LEFTALT -
+      RIGHTALT -
       LEFTCTRL -
       RIGHTCTRL {
         # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
