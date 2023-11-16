@@ -1,17 +1,191 @@
 set ::debug_keyboard true
 
+# Keeping this here for reference, do this in a loop for each keyboard that is Claimed as out :)
+# TODO: DELETE THIS, move this logic into virtual-programs/keyboard.folk
+while false {
+  package require Thread
+  proc errorproc {id errorInfo} {puts "Thread error in $id: $errorInfo"}
+  thread::errorproc errorproc
+
+  try {
+      set keyboardThread [thread::create [format {
+          source "pi/KeyCodes.tcl"
+          source "lib/c.tcl"
+          source "pi/cUtils.tcl"
+          Keyboard::init 
+          puts "Keyboard tid: [getTid]"
+
+          set keyStates [list up down repeat]
+          set modifiers [dict create \
+              shift 0 \
+              ctrl 0 \
+              alt 0 \
+          ]
+          # TODO: DELETE THIS, move this logic into virtual-programs/keyboard.folk
+          while false { 
+              lassign [Keyboard::getKeyEvent] keyCode eventType
+
+              set shift [dict get $modifiers shift]
+              set key [keyFromCode $keyCode $shift]
+              set keyState [lindex $keyStates $eventType]
+
+              set isDown [expr {$keyState != "up"}]
+              if {[string match *SHIFT $key]} {
+                dict set modifiers shift $isDown
+              }
+              if {[string match *CTRL $key]} {
+                dict set modifiers ctrl $isDown
+              }
+              if {[string match *ALT $key]} {
+                dict set modifiers alt $isDown
+              }
+
+              set heldModifiers [dict keys [dict filter $modifiers value 1]]
+
+              # Use `list` to escape special chars (brackets, quotes, whitespace)
+              thread::send -async "%s" [subst {
+                  Retract keyboard claims key /k/ is /t/ with modifiers /m/
+                  Assert keyboard claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+              }]
+          }
+      } [thread::id]]]
+      puts "Keyboard thread id: $keyboardThread"
+  } on error error {
+      puts stderr "Keyboard thread failed: $error"
+  }
+}
+
 Start process "keyboard" {
-  Wish $::thisProcess shares statements like \
-    [list /someone/ claims /node/ has keyboards /...anything/]
-  Wish $::thisProcess shares statements like \
-    [list /someone/ claims the default keyboard is /defaultKb/]
+  # Wish $::thisProcess shares statements like \
+  #   [list /someone/ claims /node/ has keyboards /...anything/]
+  # Wish $::thisProcess shares statements like \
+  #   [list /someone/ claims the default keyboard is /defaultKb/]
 
-  source "pi/Keyboard.tcl"
+  # Event size depends on sizeof(long). Default to 32-bit longs
+  variable evtBytes 16
+  variable evtFormat iissi
+  if {[exec getconf LONG_BIT] == 64} {
+    set evtBytes 24
+    set evtFormat wwssi
+  }
 
-  set keyboardDevices [Keyboard::walkInputEventPaths]
+  ###############
+  # Keyboard Linux device utils
+  ###############
+  proc udevadmProperties {device} {
+      return [exec udevadm info --query=property --name=$device]
+  }
+
+  proc getDEVLINKS {device} {
+      set properties [udevadmProperties $device]
+      if {$properties eq ""} {
+          return ""
+      }
+      set devlinks [list]
+      foreach line [split $properties \n] {
+          if {[string match "DEVLINKS=*" $line]} {
+              set devlinks [string replace $line 0 8]
+              foreach path [split $devlinks " "] {
+                  lappend devlinks $path
+              }
+          }
+      }
+
+      return $devlinks
+  }
+
+  proc establishKeyPressListener {eventPath} {
+      set kb [open $eventPath r]
+      fconfigure $kb -translation binary
+      return $kb
+  }
+
+  # Function to check if the device is a keyboard
+  proc isKeyboard {device} {
+      set properties [udevadmProperties $device]
+      if {$properties eq ""} {
+          return false
+      }
+      set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
+      return $isKeyboard
+      # TODO: Excluding mice would nice to keey the list of keyboard devices short
+      #       Alas, including mice is necessary for the Logitech K400R keyboard
+      # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
+      # return [expr {$isKeyboard && !$isMouse}]
+  }
+
+  ####
+  # /dev/input/event* addresses are the ground truth for keyboard devices
+  #
+  # This function goes through each of them and checks if they are keyboards
+  proc walkInputEventPaths {} {
+      set allDevices [glob -nocomplain "/dev/input/event*"]
+      set keyboards [list]
+      foreach device $allDevices {
+          set devLinks [getDEVLINKS $device]
+          if {[llength $devLinks] > 0 && [isKeyboard $device]} {
+              if {[file readable $device] == 0} {
+                  puts "Device $device is not readable. Attempting to change permissions."
+                  # Attempt to change permissions so that the file can be read
+                  exec sudo chmod +r $device
+              }
+              lappend keyboards [dict create eventPath $device devLinks $devLinks]
+          }
+      }
+      return $keyboards
+  }
+
+  # TODO: Parameterize this to be a generic keyboard
+  proc init {} {
+      variable kb
+      variable keyboards
+
+      set keyboardDevices [walkInputEventPaths]
+      set keyboards $keyboardDevices
+
+      puts "=== Keyboard devices ([llength $keyboardDevices])"
+      set firstKeyboard [dict get [lindex $keyboardDevices 0] eventPath]
+      set kb [establishKeyPressListener $firstKeyboard]
+      puts "=== Opened keyboard device: $firstKeyboard \\ $kb"
+  }
+
+  # e.g. getKeyEvent /dev/input/event0
+  proc getKeyEvent {keyboardSpecifier args} {
+    puts "getting key event for $keyboardSpecifier"
+    When /thisProcess/ has keyboards /keyboardsList/ {
+      # Hmmmm, how to make this a global accessor? Always just pass in the keyboard array tooo???? That'd be dumb idk
+      set keyboardStream [dict get $keyboardsList $keyboardSpecifier]
+
+      # TODO: Allow keyboardSpecifier to be a keyboard device file
+      # e.g. /dev/input/by-path/platform-i8042-serio-0-event-kbd
+      variable evtBytes
+      variable evtFormat
+
+      # See https://www.kernel.org/doc/Documentation/input/input.txt
+      # https://www.kernel.org/doc/Documentation/input/event-codes.txt
+      # https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
+      #
+      # struct input_event {
+      #     struct timeval time;
+      #     unsigned short type; (should be EV_KEY = 0x01)
+      #     unsigned short code; (scancode; for example, 16 = q)
+      #     unsigned int value; (0 for key release, 1 for press, 2 for repeat)
+      # };
+      #
+      while 1 {
+          binary scan [read $keyboardStream $evtBytes] $evtFormat tvSec tvUsec type code value
+          if {$type == 0x01} {
+              return [list $code $value]
+          }
+      }
+    }
+  }
+
+  set keyboardDevices [walkInputEventPaths]
 
   puts "=========== keyboard info block =============="
   puts "Found [llength $keyboardDevices] keyboards:"
+  # TODO: Make a process for each eventPath found that's a keyboard!
   foreach keyboard $keyboardDevices {
     puts " * eventpath: [dict get $keyboard eventPath]"
     foreach devlink [dict get $keyboard devLinks] {
@@ -20,4 +194,6 @@ Start process "keyboard" {
   }
   Claim the default keyboard is [lindex $keyboardDevices 0]
   Claim $::thisNode has keyboards $keyboardDevices
+  # Need to modify getKeyPress (define it in here, even, maybe???) to listen to all keyboards hmmmm
+  # Maybe it should even return a keyboard originator in the return value?
 }
