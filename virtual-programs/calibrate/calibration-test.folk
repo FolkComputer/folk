@@ -12,7 +12,7 @@ $cc struct apriltag_detection_ffi {
     double c[2];
     double p[8]; // TODO: Make 2D array.
 } ;# -nodefine -destructor
-# Returns a 4x1 pose matrix that transforms {x y z} from 3D camera
+# Returns a 4x4 pose matrix that transforms {x y z} from 3D camera
 # optical frame to AprilTag frame.
 $cc proc estimateTagPose {apriltag_detection_ffi det
                           double tagSize double fx double fy double cx double cy} Tcl_Obj* {
@@ -70,11 +70,11 @@ When (non-capturing) tag /tag/ has detection info /det/ {
              [list [expr {$tagSize/2}] [expr {-$tagSize/2}] 0] \
              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
     for {set i 0} {$i < 4} {incr i} {
-        # Augment to be homogenous.
+        # Augment to be homogeneous.
         set aprilTagFrameCorner [list {*}[lindex $aprilTagFrameCorners $i] 1]
 
         set cameraFrameCorner [matmul $poseInv $aprilTagFrameCorner]
-        # TODO: test reprojection to optical frame?
+        # TODO: test reprojection to 2D camera plane, compare to x and y
         puts "cameraFrameCorner: $cameraFrameCorner"
 
         set x [apriltag_detection_ffi p $det [expr {$i * 2}]]
