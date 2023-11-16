@@ -34,11 +34,24 @@ class create AprilTags {
         } ;# -nodefine -destructor
         ::defineImageType $cc
 
+        $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+        $cc code {
+            void* heap;
+            void* detectAlloc(size_t sz) {
+                void* ret = heap;
+                if (ret >= heap + 10000000) exit(99);
+                heap += sz;
+                return ret;
+            }
+        }
+
         $cc proc detectInit {} void [csubst {
             td = apriltag_detector_create();
             tf = ${TAG_FAMILY}_create();
             apriltag_detector_add_family_bits(td, tf, 1);
             td->nthreads = 2;
+
+            heap = folkHeapAlloc(10000000);
         }]
 
         # Returns a Tcl-wrapped list of AprilTag detection objects.
@@ -51,19 +64,26 @@ class create AprilTags {
 
             Tcl_Obj* detectionObjs[detectionCount];
             for (int i = 0; i < detectionCount; i++) {
-                apriltag_detection_ffi *det;
+                apriltag_detection_ffi* det;
                 zarray_get(detections, i, &det);
+
+                // Copy det to interprocess memory.
+                apriltag_detection_ffi* heapDet = detectAlloc(sizeof(apriltag_detection_ffi));
+                memcpy(heapDet, det, sizeof(apriltag_detection_ffi));
+                // Copy H to interprocess memory.
+                heapDet->H = detectAlloc(sizeof(matd_t) + sizeof(double)*det->H->nrows*det->H->ncols);
+                memcpy(heapDet->H, det->H, sizeof(matd_t) + sizeof(double)*det->H->nrows*det->H->ncols);
 
                 // Wrap the apriltag_detection_t* in a Tcl_Obj*.
                 detectionObjs[i] = Tcl_NewObj();
                 detectionObjs[i]->bytes = NULL;
                 detectionObjs[i]->typePtr = &apriltag_detection_ffi_ObjType;
-                detectionObjs[i]->internalRep.ptrAndLongRep.ptr = det;
+                detectionObjs[i]->internalRep.ptrAndLongRep.ptr = heapDet;
                 // owned by us, not by Tcl.
                 detectionObjs[i]->internalRep.ptrAndLongRep.value = 0;
             }
 
-            zarray_destroy(detections);
+            apriltag_detections_destroy(detections);
             Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
             return result;
         }
