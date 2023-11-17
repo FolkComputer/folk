@@ -80,11 +80,12 @@ When (non-capturing) tag /tag/ has detection info /det/ {
         {         0  2234.27633      915.952663}
         {         0           0               1}
     }]
-    set projectorIntrinsics2 [subst {
-        {}
-        {}
-        {}
-    }]
+    # From calibrating without premultiplying homographies. Broken:
+    # set projectorIntrinsics2 [subst {
+    #     {2198.284027   28.5968899   962.0741365}
+    #     {          0  2186.364329  1099.4065579}
+    #     {          0            0             1}
+    # }]
 
     set aprilTagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}] 0] \
@@ -111,14 +112,12 @@ When (non-capturing) tag /tag/ has detection info /det/ {
         # puts "$tag: reproj from real-world: camera corner $i: ($reprojX $reprojY)"
         # puts "==="
 
-        # TODO: Use projector intrinsics to project real-world
-        # coordinates down to 2D projector plane
+        # Use projector intrinsics to project real-world coordinates
+        # down to 2D projector plane
         lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
         set projX [/ $px $pz]; set projY [/ $py $pz]
         lappend projectorCorners [list $projX $projY]
     }
     lappend projectorCorners [lindex $projectorCorners 0]
-
-    # TODO: Outline the $projectorCorners
     Wish to draw a stroke with points $projectorCorners width 3 color white
 }
