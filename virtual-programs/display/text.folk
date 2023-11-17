@@ -65,16 +65,30 @@ On process "display" {
                 x = x + advance * em;
                 if (x > width) { width = x; }
             }
-            return (vec2f) { width, y + em };
+            return (vec2f) { width, y };
         }
         $cc proc textShape {Font* font char* text
-                            float x0 float y0 float scale float radians Tcl_Obj* color} Tcl_Obj* {
+                            float x0 float y0 float scale int halign float radians Tcl_Obj* color} Tcl_Obj* {
             Tcl_Obj* gpuAtlasImageSize = Tcl_ObjPrintf("%d %d", font->atlasImage.width, font->atlasImage.height);
 
-            vec2f extent = vec2f_rotate(textExtent(font, text, scale), radians);
+            vec2f extent = textExtent(font, text, scale);
             float em = scale * 25.0;
 
-            vec2f p0 = { x0 - extent.x/2.0, y0 - extent.y/2.0 };
+            vec2f offset;
+
+            switch (halign) {
+                case -1: // left align
+                    offset = vec2f_rotate((vec2f){0, extent.y/2}, radians);
+                    break;
+                case 0: // center
+                    offset = vec2f_rotate((vec2f){extent.x/2.0, extent.y/2.0}, radians);
+                    break;
+                case 1: // right align
+                    offset = vec2f_rotate((vec2f){extent.x, extent.y/2}, radians);
+                    break;
+            }
+
+            vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
             vec2f p = p0;
 
             int lineNum = 0;
@@ -194,15 +208,22 @@ On process "display" {
         set scale [dict_getdef $options scale 1.0]
         set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
+        set halign [dict_getdef $options halign "center"]
         set radians [dict get $options radians]
         set color [getColor [dict_getdef $options color white]]
+
+        if {$halign == "left"} { 
+            set halign_enum -1
+        } elseif {$halign == "right"} {
+            set halign_enum 1
+        } else { set halign_enum 0 }
 
         if {!([dict exists $::FontCache $font])} {
             throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
         }
         set font [dict get $::FontCache $font]
 
-        set instances [font textShape $font $text $x0 $y0 $scale $radians $color]
+        set instances [font textShape $font $text $x0 $y0 $scale $halign_enum $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
