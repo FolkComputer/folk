@@ -213,8 +213,11 @@ On process "display" {
 
     When (non-capturing) /someone/ wishes to draw text with /...options/ {
         if {[dict exists $options center]} {
+            # This is deprecated
             lassign [dict get $options center] x0 y0
-        } else {
+        } elseif {[dict exists $options position]} {
+            lassign [dict get $options position] x0 y0
+        else {
             set x0 [dict get $options x]
             set y0 [dict get $options y]
         }
