@@ -2,26 +2,43 @@
 # for wishes of the form:
 # "Wish $tag is titled "This is a tag"" or "Wish $tag is footnoted "This is a footnote""
 
-
 When /thing/ has region /region/ {
     set radians [region angle $region]
-
-    set top [vec2 add [region top $region] [vec2 rotate [list 0 -12] $radians]]
-    set bot [vec2 add [region bottom $region] [vec2 rotate [list 0 16] $radians]]
 
     When the collected matches for [list /someone/ wishes $thing is titled /text/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
     
-        set scale 1
-        Wish to draw text with center $top scale $scale text $text radians $radians
+        set scale [dict_getdef $match scale 1.0]
+        set pos [region top [region move $region up 10px]]
+        Wish to draw text with position $pos scale $scale text $text radians $radians valign bottom
     }
 
-    When the collected matches for [list /someone/ wishes $thing is footnoted /text/] are /matches/ {
+    When the collected matches for [list /someone/ wishes $thing is footnoted /text/ with scale /scale/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
 
-        set scale 1
-        Wish to draw text with center $bot scale $scale text $text radians $radians
+        set scale [dict_getdef $match scale 0.75]
+        set pos [region bottom [region move $region down 10px]]
+        Wish to draw text with position $pos scale $scale text $text radians $radians valign top
+    }
+    
+    When the collected matches for [list /someone/ wishes $thing is right margined /text/ with scale /scale/] are /matches/ {
+        set text [join [lmap match $matches {dict get $match text}] "\n"]
+        if {$text eq ""} { return }
+    
+        set scale [dict_getdef $match scale 0.75]
+        set pos [region right [region move $region right 10px]]
+        Wish to draw text with position $pos scale $scale text $text radians $radians halign left
+    }
+
+    When the collected matches for [list /someone/ wishes $thing is left margined /text/ with scale /scale/] are /matches/ {
+        set text [join [lmap match $matches {dict get $match text}] "\n"]
+        if {$text eq ""} { return }
+    
+        set scale [dict_getdef $match scale 0.75]
+        set pos [region left [region move $region left 10px]]
+        Wish to draw text with position $pos scale $scale text $text radians $radians halign left
     }
 }
+
