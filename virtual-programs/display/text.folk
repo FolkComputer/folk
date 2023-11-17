@@ -217,7 +217,7 @@ On process "display" {
             lassign [dict get $options center] x0 y0
         } elseif {[dict exists $options position]} {
             lassign [dict get $options position] x0 y0
-        else {
+        } else {
             set x0 [dict get $options x]
             set y0 [dict get $options y]
         }
