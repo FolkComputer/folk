@@ -55,7 +55,7 @@ When (non-capturing) tag /tag/ has detection info /det/ {
     # And they're different sizes, so we don't want to use them.
     if {$tag >= 48600} { return }
 
-    puts "\n"
+    # puts "\n"
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
     # Zhang-calibrated camera intrinsics:
@@ -64,7 +64,7 @@ When (non-capturing) tag /tag/ has detection info /det/ {
     set cx 949.85091
     set cy 565.14558
     set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
-    puts "Tag $tag center (real-world x/y/z meters from cam center): [getelem $pose 0 3] [getelem $pose 1 3] [getelem $pose 2 3]"
+    # puts "Tag $tag center (real-world x/y/z meters from cam center): [getelem $pose 0 3] [getelem $pose 1 3] [getelem $pose 2 3]"
 
     # set R [lmap row {0 1 2} {getrow $pose $row 0 2}]
     # set t [lmap row {0 1 2} {getelem $pose $row 3}]
@@ -74,37 +74,51 @@ When (non-capturing) tag /tag/ has detection info /det/ {
         {0   $fy $cy}
         {0   0   1}
     }]
+    # Zhang-calibrated projector intrinsics:
+    set projectorIntrinsics [subst {
+        {2145.67291   -81.50309     722.2164738}
+        {         0  2234.27633      915.952663}
+        {         0           0               1}
+    }]
+    set projectorIntrinsics2 [subst {
+        {}
+        {}
+        {}
+    }]
 
     set aprilTagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}] 0] \
              [list [expr {$tagSize/2}] [expr {$tagSize/2}] 0] \
              [list [expr {$tagSize/2}] [expr {-$tagSize/2}] 0] \
              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+    set projectorCorners [list]
     for {set i 0} {$i < 4} {incr i} {
         set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
         # Augment to be homogeneous.
         set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
-        puts "Tag $tag: cameraFrameCorner $i (real-world x/y/z meters from cam center): ($cameraFrameCorner)"
+        # puts "Tag $tag: cameraFrameCorner $i (real-world x/y/z meters from cam center): ($cameraFrameCorner)"
 
         # TODO: use camera intrinsics to test reprojection to 2D camera
         # plane, compare to x and y
-        lassign [matmul $cameraIntrinsics $cameraFrameCorner] rpx rpy rpz
-        set reprojX [/ $rpx $rpz]
-        set reprojY [/ $rpy $rpz]
+        # lassign [matmul $cameraIntrinsics $cameraFrameCorner] rpx rpy rpz
+        # set reprojX [/ $rpx $rpz]
+        # set reprojY [/ $rpy $rpz]
 
-        set x [apriltag_detection_ffi p $det [expr {$i * 2}]]
-        set y [apriltag_detection_ffi p $det [expr {$i * 2 + 1}]]
-        # x and y are in camera-plane space.
-        puts "$tag: original:               camera corner $i: ($x $y)"
-        puts "$tag: reproj from real-world: camera corner $i: ($reprojX $reprojY)"
-        puts "==="
+        # set x [apriltag_detection_ffi p $det [expr {$i * 2}]]
+        # set y [apriltag_detection_ffi p $det [expr {$i * 2 + 1}]]
+        # # x and y are in camera-plane space.
+        # puts "$tag: original:               camera corner $i: ($x $y)"
+        # puts "$tag: reproj from real-world: camera corner $i: ($reprojX $reprojY)"
+        # puts "==="
+
+        # TODO: Use projector intrinsics to project real-world
+        # coordinates down to 2D projector plane
+        lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
+        set projX [/ $px $pz]; set projY [/ $py $pz]
+        lappend projectorCorners [list $projX $projY]
     }
+    lappend projectorCorners [lindex $projectorCorners 0]
 
-    # Zhang-calibrated projector intrinsics:
-    
-    
-    # TODO: Project pose back to projector coordinates
-    # how does apriltag pose work?
-
-    
+    # TODO: Outline the $projectorCorners
+    Wish to draw a stroke with points $projectorCorners width 3 color white
 }
