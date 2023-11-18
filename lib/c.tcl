@@ -171,7 +171,7 @@ namespace eval c {
                 default {
                     if {[string index $rtype end] == "*"} {
                         expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
-                    } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                         if {$basetype eq "char"} { expr {{
                             $robj = Tcl_ObjPrintf("%s", $rvalue);
                         }} } else { expr {{
@@ -183,15 +183,26 @@ namespace eval c {
                                 $robj = Tcl_NewListObj($arraylen, objv);
                             }
                         }} }
-                    } else {
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
+                        {
+                            Tcl_Obj* objv[$arraylen];
+                            for (int i = 0; i < $arraylen; i++) {
+                                $[ret ${basetype}\[${arraylen2}\] objv\[i\] $rvalue\[i\]]
+                            }
+                            $robj = Tcl_NewListObj($arraylen, objv);
+                        }
+                    }} } else {
                         error "Unrecognized rtype $rtype"
                     }
                 }
             }
+            # Defines a new rtype.
             ::proc rtype {t h} {
                 variable rtypes
                 set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
             }
+            # Gets and monomorphizes(?) an rtype (used during code
+            # emit).
             ::proc ret {rtype robj rvalue} {
                 variable rtypes
                 csubst [switch $rtype $rtypes]
@@ -355,20 +366,25 @@ namespace eval c {
                 foreach {fieldtype fieldname} $fields {
                     try {
                         if {$fieldtype ne "Tcl_Obj*" &&
-                            [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                            [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                             if {$basefieldtype eq "char"} {
                                 proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
                                     __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                     return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
                                 }
                             } else {
-                                proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                if {$arraylen2 eq ""} {
+                                    proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
+                                        __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                        return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                    }
+                                    set elementtype $basefieldtype
+                                } else {
+                                    set elementtype $basefieldtype\[$arraylen2\]
                                 }
                                 # If fieldtype is a pointer or an array,
                                 # then make a getter that takes an index.
-                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $elementtype {
                                     __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                     return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
                                 }
@@ -393,7 +409,7 @@ namespace eval c {
                 set cname [string map {":" "_"} $name]
                 set body [uplevel [list csubst $body]]
 
-                # puts "$name $args $rtype $body"
+                # puts "$name $args $rtype"
                 set arglist [list]
                 set argnames [list]
                 set loadargs [list]
