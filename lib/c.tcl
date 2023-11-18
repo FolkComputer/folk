@@ -60,14 +60,14 @@ namespace eval c {
             variable procs [dict create]
 
             ::proc cstyle {type name} {
-                if {[regexp {([^\[]+)(\[\d*\])$} $type -> basetype arraysuffix]} {
+                if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
                     list $basetype $name$arraysuffix
                 } else {
                     list $type $name
                 }
             }
             ::proc typestyle {type name} {
-                if {[regexp {([^\[]+)(\[\d*\])$} $name -> basename arraysuffix]} {
+                if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
                     list $type$arraysuffix $basename
                 } else {
                     list $type $name
@@ -104,21 +104,39 @@ namespace eval c {
                             $argtype $argname;
                             __ENSURE(sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) == 1);
                         }}
-                    } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                         # note: arraylen can be ""
                         if {$basetype eq "char"} { expr {{
                             char $argname[$arraylen]; memcpy($argname, Tcl_GetString($obj), $arraylen);
-                        }} } else { expr {{
-                            int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                        }} } else { 
+                            expr {{
+                                int $[set argname]_objc;
+                                Tcl_Obj** $[set argname]_objv;
+                                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+
+                                $basetype $argname[$[set argname]_objc];
+                                {
+                                    for (int i = 0; i < $[set argname]_objc; i++) {
+                                        $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
+                                        $argname[i] = $[set argname]_i;
+                                    }
+                                }
+                            }} 
+                        }
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                        expr {{
+                            int $[set argname]_objc;
+                            Tcl_Obj** $[set argname]_objv;
                             __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
-                            $basetype $argname[$[set argname]_objc];
+
+                            $basetype $argname[$[set argname]_objc][$arraylen2];
                             {
                                 for (int i = 0; i < $[set argname]_objc; i++) {
-                                    $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
-                                    $argname[i] = $[set argname]_i;
+                                    $[arg ${basetype}\[\] ${argname}_i ${argname}_objv\[i\]]
+                                    memcpy(${argname}[i], ${argname}_i, sizeof(${argname}_i));
                                 }
                             }
-                        }} }
+                        }}
                     } else {
                         error "Unrecognized argtype $argtype"
                     }
