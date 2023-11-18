@@ -44,3 +44,21 @@ assert {[string match {expected integer but got "Wrong"*} $err]}
 
 catch {dostuff hi} err
 assert {[string match {failed to convert argument from Tcl to C*} $err]}
+
+set cc [c create]
+$cc proc getthree {} {int[3]} {
+    int* x = ckalloc(sizeof(int) * 3);
+    x[0] = 10;
+    x[1] = 20;
+    x[2] = 30;
+    return x;
+}
+$cc compile
+assert {[getthree] eq {10 20 30}}
+
+return
+
+set cc [c create]
+$cc struct Tag { double corners[4][2]; }
+$cc compile
+

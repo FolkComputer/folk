@@ -407,6 +407,7 @@ namespace eval c {
                     set obj [subst {objv\[1 + [llength $loadargs]\]}]
                     lappend loadargs [arg {*}[typestyle $argtype $argname] $obj]
                 }
+                regsub {\[\d*\]} $rtype * decayedRtype
                 if {$rtype == "void"} {
                     set saverv [subst {
                         $cname ([join $argnames ", "]);
@@ -414,7 +415,7 @@ namespace eval c {
                     }]
                 } else {
                     set saverv [subst {
-                        $rtype rvalue = $cname ([join $argnames ", "]);
+                        $decayedRtype rvalue = $cname ([join $argnames ", "]);
                         Tcl_Obj* robj;
                         [ret $rtype robj rvalue]
                         Tcl_SetObjResult(interp, robj);
@@ -428,7 +429,7 @@ namespace eval c {
                 dict set procs $name arglist $arglist
                 dict set procs $name ns [uplevel {namespace current}]
                 dict set procs $name code [subst {
-                    static $rtype $cname ([join $arglist ", "]) {
+                    static $decayedRtype $cname ([join $arglist ", "]) {
                         [linedirective]
                         $body
                     }
