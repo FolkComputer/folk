@@ -71,6 +71,7 @@ $cc proc tagtest {} Tag {
 $cc compile
 
 set tag [tagtest]
+assert {$tag eq {corners {{10 20} {1 2} {100 200} {900 1000}}}}
 assert {[Tag corners $tag 0] eq {10 20}}
 assert {[Tag corners $tag 1] eq {1 2}}
 assert {[Tag corners $tag 2] eq {100 200}}

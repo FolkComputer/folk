@@ -187,7 +187,9 @@ namespace eval c {
                         {
                             Tcl_Obj* objv[$arraylen];
                             for (int i = 0; i < $arraylen; i++) {
-                                $[ret ${basetype}\[${arraylen2}\] objv\[i\] $rvalue\[i\]]
+                                $basetype* rrow = $rvalue[i];
+                                Tcl_Obj** objrow = &objv[i];
+                                $[ret ${basetype}\[${arraylen2}\] *objrow rrow]
                             }
                             $robj = Tcl_NewListObj($arraylen, objv);
                         }
