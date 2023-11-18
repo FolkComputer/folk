@@ -1,15 +1,8 @@
 if {$::isLaptop} return
 
-if {$::thisNode eq "folk-convivial" || $::thisNode eq "folk-interact"} {
-    namespace eval ::Camera {
-        variable WIDTH 1920
-        variable HEIGHT 1080
-    }
-} else {
-    namespace eval ::Camera {
-        variable WIDTH 1280
-        variable HEIGHT 720
-    }
+namespace eval ::Camera {
+    variable WIDTH 1920
+    variable HEIGHT 1080
 }
 set width $::Camera::WIDTH
 set height $::Camera::HEIGHT
