@@ -56,10 +56,13 @@ while false {
 }
 
 Start process "keyboard" {
-  # Wish $::thisProcess shares statements like \
-  #   [list /someone/ claims /node/ has keyboards /...anything/]
-  # Wish $::thisProcess shares statements like \
-  #   [list /someone/ claims the default keyboard is /defaultKb/]
+    # TODO: Simplify
+  Wish $::thisProcess shares statements like \
+    [list /someone/ claims /node/ has keyboards /keyboardsList/]
+  Wish $::thisProcess shares statements like \
+    [list /someone/ claims the default keyboard is /defaultKb/]
+
+  puts "node: $::thisNode"
 
   # Event size depends on sizeof(long). Default to 32-bit longs
   variable evtBytes 16
@@ -135,20 +138,6 @@ Start process "keyboard" {
       return $keyboards
   }
 
-  # TODO: Parameterize this to be a generic keyboard
-  proc init {} {
-      variable kb
-      variable keyboards
-
-      set keyboardDevices [walkInputEventPaths]
-      set keyboards $keyboardDevices
-
-      puts "=== Keyboard devices ([llength $keyboardDevices])"
-      set firstKeyboard [dict get [lindex $keyboardDevices 0] eventPath]
-      set kb [establishKeyPressListener $firstKeyboard]
-      puts "=== Opened keyboard device: $firstKeyboard \\ $kb"
-  }
-
   proc findMatchingEventPath {searchList eventPath} {
       foreach element $searchList {
           set elEventPath [dict get $element eventPath]
@@ -162,7 +151,7 @@ Start process "keyboard" {
   # e.g. getKeyEvent /dev/input/event0
   proc getKeyEvent {keyboardSpecifier args} {
     puts "getting key event for $keyboardSpecifier"
-    When /thisProcess/ has keyboards /keyboardsList/ {
+    When /someone/ claims /thisNode/ has keyboards /keyboardsList/ {
       # Hmmmm, how to make this a global accessor? Always just pass in the keyboard array tooo???? That'd be dumb idk
       puts "==== getKeyEvent: $keyboardsList"
       puts "==== getKeyEvent: $keyboardSpecifier"
@@ -185,12 +174,13 @@ Start process "keyboard" {
       #     unsigned int value; (0 for key release, 1 for press, 2 for repeat)
       # };
       #
-      set kbEventPath [dict get $keyboardStream eventPath]
+      set kbEventPath [open [dict get $keyboardStream eventPath] r]
       while 1 {
           binary scan [read $kbEventPath $evtBytes] $evtFormat tvSec tvUsec type code value
           if {$type == 0x01} {
               Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/
               Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+              puts "got key event ($keyboardSpecifier): $key $keyState $heldModifiers"
               return [list $code $value]
           }
       }
@@ -202,18 +192,27 @@ Start process "keyboard" {
   puts "=========== keyboard info block =============="
   puts "Found [llength $keyboardDevices] keyboards:"
   # TODO: Make a process for each eventPath found that's a keyboard!
-  foreach keyboard $keyboardDevices {
-    set eventPath [dict get $keyboard eventPath]
-    puts " * eventpath: $eventPath"
-    establishKeyPressListener $eventPath
-    getKeyEvent $eventPath
-    foreach devlink [dict get $keyboard devLinks] {
-          puts " ** : $devlink"
-          establishKeyPressListener $devlink
-    }
-  }
-  Claim the default keyboard is [lindex $keyboardDevices 0]
-  Claim $::thisNode has keyboards $keyboardDevices
+#   foreach keyboard $keyboardDevices {
+#     set eventPath [dict get $keyboard eventPath]
+#     puts " - eventpath: $eventPath"
+#     establishKeyPressListener $eventPath
+#     getKeyEvent $eventPath
+#     foreach devlink [dict get $keyboard devLinks] {
+#           puts " -- : $devlink"
+#           establishKeyPressListener $devlink
+#     }
+#   }
+#   puts " <<<<<< "
+#   puts " keyboardsDevices: $keyboardDevices "
+#   puts " default keyboard: [lindex $keyboardDevices 0]  "
+#   puts " <<<<<< "
+#   Claim the default keyboard is [lindex $keyboardDevices 0]
+#   Claim $::thisNode has keyboards $keyboardDevices
+#   When /someone/ claims /node/ has keyboards /keyboards/ {
+#     puts "$node: has keyboard $keyboards"
+#   }
+  Claim $::thisNode has keyboards [list "beep"]
+  Claim the default keyboard is "beep"
   # Need to modify getKeyPress (define it in here, even, maybe???) to listen to all keyboards hmmmm
   # Maybe it should even return a keyboard originator in the return value?
 }
