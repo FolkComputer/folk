@@ -36,16 +36,24 @@ class create AprilTags {
 
         $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
         $cc code {
-            void* heapBase;
-            void* heap;
-            void* detectAlloc(size_t sz) {
-                void* ret = heap;
-                if (ret >= heapBase + 10000000) {
-                    fprintf(stderr, "AprilTags: Heap is exhausted\n");
-                    exit(99);
-                }
-                heap += sz;
-                return ret;
+            typedef struct H {
+                matd_t hdr;
+                float data[9];
+            } H;
+            apriltag_detection_ffi* detpool;
+            H* Hpool;
+            #define NDETECTIONS_MAX 10000
+
+            // FIXME: we're lazy and just reuse old slots for now.
+            apriltag_detection_ffi* detalloc() {
+                static int idx = 0;
+                if (idx >= NDETECTIONS_MAX) { idx = 0; }
+                return &detpool[idx++];
+            }
+            matd_t* Halloc() {
+                static int idx = 0;
+                if (idx >= NDETECTIONS_MAX) { idx = 0; }
+                return &Hpool[idx++].hdr;
             }
         }
 
@@ -55,8 +63,8 @@ class create AprilTags {
             apriltag_detector_add_family_bits(td, tf, 1);
             td->nthreads = 2;
 
-            heapBase = folkHeapAlloc(10000000);
-            heap = heapBase;
+            detpool = folkHeapAlloc(sizeof(*detpool) * NDETECTIONS_MAX);
+            Hpool = folkHeapAlloc(sizeof(*Hpool) * NDETECTIONS_MAX);
         }]
 
         # Returns a Tcl-wrapped list of AprilTag detection objects.
@@ -73,10 +81,10 @@ class create AprilTags {
                 zarray_get(detections, i, &det);
 
                 // Copy det to interprocess memory.
-                apriltag_detection_ffi* heapDet = detectAlloc(sizeof(apriltag_detection_ffi));
+                apriltag_detection_ffi* heapDet = detalloc();
                 memcpy(heapDet, det, sizeof(apriltag_detection_ffi));
                 // Copy H to interprocess memory.
-                heapDet->H = detectAlloc(sizeof(matd_t) + sizeof(double)*det->H->nrows*det->H->ncols);
+                heapDet->H = Halloc();
                 memcpy(heapDet->H, det->H, sizeof(matd_t) + sizeof(double)*det->H->nrows*det->H->ncols);
 
                 // Wrap the apriltag_detection_t* in a Tcl_Obj*.
