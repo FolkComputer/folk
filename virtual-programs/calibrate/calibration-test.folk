@@ -10,7 +10,7 @@ $cc struct apriltag_detection_ffi {
     float decision_margin;
     matd_t* H;
     double c[2];
-    double p[8]; // TODO: Make 2D array.
+    double p[4][2];
 } ;# -nodefine -destructor
 # Returns a 4x4 affine transformation that transforms {x y z} from
 # AprilTag frame to 3D camera optical frame.
