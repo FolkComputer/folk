@@ -36,10 +36,14 @@ class create AprilTags {
 
         $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
         $cc code {
+            void* heapBase;
             void* heap;
             void* detectAlloc(size_t sz) {
                 void* ret = heap;
-                if (ret >= heap + 10000000) exit(99);
+                if (ret >= heapBase + 10000000) {
+                    fprintf(stderr, "AprilTags: Heap is exhausted\n");
+                    exit(99);
+                }
                 heap += sz;
                 return ret;
             }
@@ -51,7 +55,8 @@ class create AprilTags {
             apriltag_detector_add_family_bits(td, tf, 1);
             td->nthreads = 2;
 
-            heap = folkHeapAlloc(10000000);
+            heapBase = folkHeapAlloc(10000000);
+            heap = heapBase;
         }]
 
         # Returns a Tcl-wrapped list of AprilTag detection objects.
