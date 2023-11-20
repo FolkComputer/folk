@@ -10,7 +10,7 @@ namespace import ::math::geometry::pointInsidePolygon
 set ROWS 4
 set COLS 5
 # The model is a dictionary whose keys are tag IDs and where each
-# value is a dictionary with keys `center` and `corners` which are
+# value is a dictionary with keys `c` and `p` which are
 # model points (x, y). The tags on the outer perimeter will get
 # projected to PostScript points and printed; the tags in the
 # interior will get projected to Vulkan points and rendered on
@@ -37,8 +37,8 @@ set MODEL [apply {{ROWS COLS} {
             set modelBottomRight [list [+ $modelX $tagSideLength] [+ $modelY $tagSideLength]]
             set modelBottomLeft [list $modelX [+ $modelY $tagSideLength]]
             set modelTag [dict create \
-                              center [scale 0.5 [add $modelTopLeft $modelBottomRight]] \
-                              corners [list $modelBottomLeft $modelBottomRight \
+                              c [scale 0.5 [add $modelTopLeft $modelBottomRight]] \
+                              p [list $modelBottomLeft $modelBottomRight \
                                           $modelTopRight $modelTopLeft]]
             dict set MODEL $id $modelTag
         }
@@ -97,16 +97,16 @@ fn applyHomography {H xy} {
 
 
 set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
-# Takes a dictionary of tag ID => {corners, center} and rotates the
+# Takes a dictionary of tag ID => {p, c} and rotates the
 # version tag according to version.
 fn versionizeTags {tags version} {
     # Rotate the version tag.
-    set corners [dict get $tags $versionTagId corners]
+    set p [dict get $tags $versionTagId p]
     set rotatedCorners [list]
     for {set i 0} {$i < 4} {incr i} {
-        lappend rotatedCorners [lindex $corners [expr {($i + $version) % 4}]]
+        lappend rotatedCorners [lindex $p [expr {($i + $version) % 4}]]
     }
-    dict set tags $versionTagId corners $rotatedCorners
+    dict set tags $versionTagId p $rotatedCorners
     return $tags
 }
 
@@ -125,8 +125,8 @@ fn meanPoseDifference {pose1 pose2} {
     set differences [list]
     dict for {id tag} $tags1 {
         if {![dict exists $tags2 $id]} { continue }
-        set corners1 [dict get $tag corners]
-        set corners2 [dict get $tags2 $id corners]
+        set corners1 [dict get $tag p]
+        set corners2 [dict get $tags2 $id p]
         set cornerDifferences \
             [lmap corner1 $corners1 corner2 $corners2 {
                 norm [sub $corner1 $corner2]
@@ -174,7 +174,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             [join [dict values [dict map {id modelTag} $MODEL {
                 if {![isPrintedTag $id]} { continue }
 
-                set modelInnerTopLeft [lindex [dict get $modelTag corners] 3]
+                set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
                 set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
                 lassign [applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
                 subst {
@@ -265,8 +265,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # MODEL's 2D coordinates have inner tag side length of 1.0: scale
     # it to real-world coordinates.
     set baseModel [dict map {id tag} $MODEL {
-        dict create center [scale $printedSideLengthM [dict get $tag center]] \
-            corners [scale $printedSideLengthM [dict get $tag corners]]
+        dict create c [scale $printedSideLengthM [dict get $tag c]] \
+            p [scale $printedSideLengthM [dict get $tag p]]
     }]
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
@@ -317,8 +317,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                 0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                                 0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
-            set modelInnerCorners [dict get $modelTag corners]
-            set modelCenter [dict get $modelTag center]
+            set modelInnerCorners [dict get $modelTag p]
+            set modelCenter [dict get $modelTag c]
             set modelOuterBottomLeft [innerToOuter $modelCenter [lindex $modelInnerCorners 0]]
             set modelOuterBottomRight [innerToOuter $modelCenter [lindex $modelInnerCorners 1]]
             set modelOuterTopRight [innerToOuter $modelCenter [lindex $modelInnerCorners 2]]
@@ -361,8 +361,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set printedPointPairs [list]
         dict for {id printedTag} $printedTags {
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                cameraCorner [dict get $printedTag corners] {
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $printedTag p] {
                     lappend printedPointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
@@ -372,10 +372,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         # Map the bounds of the board to camera coordinates, so we can
         # check if projected tags are inside the board.
-        set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] corners] 3]
-        set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] corners] 2]
-        set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] corners] 1]
-        set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] corners] 0]
+        set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]
+        set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
+        set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
+        set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
         set printedCalibrationBoard [list {*}[applyHomography $H_modelToCameraViaPs $modelTopLeft] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelTopRight] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
@@ -385,7 +385,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set outsideBoardProjectedTags [dict create]
         dict for {id tag} $allDetectedTags {
             if {![isProjectedTag $id]} { continue }
-            if {[pointInsidePolygon [dict get $tag center] $printedCalibrationBoard]} {
+            if {[pointInsidePolygon [dict get $tag c] $printedCalibrationBoard]} {
                 # This is a projected tag that we detected.
                 dict set projectedTags $id $tag
             } else {
@@ -435,8 +435,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set projectedPointPairs [list]
         dict for {id projectedTag} $projectedTags {
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                cameraCorner [dict get $projectedTag corners] {
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $projectedTag p] {
                     set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
@@ -593,8 +593,8 @@ fn calibrate {calibrationPoses} {
         dict for {id cameraTag} $tags {
             if {![isPrintedTag $id]} continue
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                cameraCorner [dict get $cameraTag corners] {
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $cameraTag p] {
                     lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
@@ -617,8 +617,8 @@ fn calibrate {calibrationPoses} {
         # dict for {id cameraTag} $tags {
         #     if {![isProjectedTag $id]} continue
         #     set modelTag [dict get $model $id]
-        #     foreach modelCorner [dict get $modelTag corners] \
-        #         cameraCorner [dict get $cameraTag corners] {
+        #     foreach modelCorner [dict get $modelTag p] \
+        #         cameraCorner [dict get $cameraTag p] {
         #             set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
         #             lappend modelDisplayPointPairs \
         #                 [list {*}$modelCorner {*}$displayCorner]
@@ -631,8 +631,8 @@ fn calibrate {calibrationPoses} {
         dict for {id cameraTag} $tags {
             if {![isProjectedTag $id]} continue
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                cameraCorner [dict get $cameraTag corners] {
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $cameraTag p] {
                     set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
                     lappend cameraDisplayPointPairs \
                         [list {*}$cameraCorner {*}$displayCorner]
@@ -644,8 +644,8 @@ fn calibrate {calibrationPoses} {
         set modelCameraPointPairs [list]
         dict for {id cameraTag} $tags {
             set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag corners] \
-                cameraCorner [dict get $cameraTag corners] {
+            foreach modelCorner [dict get $modelTag p] \
+                cameraCorner [dict get $cameraTag p] {
                     lappend modelCameraPointPairs \
                         [list {*}$modelCorner {*}$cameraCorner]
                 }
@@ -662,6 +662,9 @@ fn calibrate {calibrationPoses} {
     puts "Zhang calibrate projector:"
     puts "========"
     set projectorIntrinsics [zhangCalibrate $Hs_modelToDisplay]
+
+    # TODO: Test projector intrinsics by reprojecting model points
+    # using homographies and comparing to it.
 
     return [list $cameraIntrinsics $projectorIntrinsics]
 }
