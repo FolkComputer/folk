@@ -411,10 +411,15 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             # and wait until a later frame.
             if {![dict exists $projectedTags $versionTagId]} { return }
 
-            set versionTagAngle [dict get $projectedTags $versionTagId angle]
+            set getTagAngle {{tag} {
+                set p [dict get $tag p]
+                expr {atan2(-1 * ([lindex $p 1 1] - [lindex $p 0 1]),
+                            [lindex $p 1 0] - [lindex $p 0 0])}
+            }}
+            set versionTagAngle [apply $getTagAngle [dict get $projectedTags $versionTagId]]
             # Compare angle to angle of any other projected tag.
             if {[dict size $projectedTags] < 2} { return }
-            set otherTagAngle [dict get [lindex [dict values [dict remove $projectedTags $versionTagId]] 0] angle]
+            set otherTagAngle [apply $getTagAngle [lindex [dict values [dict remove $projectedTags $versionTagId]] 0]]
             set versionAngle [expr {$versionTagAngle - $otherTagAngle}]
             # Rotations corresponding to versions 0, 1, 2, 3:
             set possibleVersions \
