@@ -30,7 +30,7 @@ class create AprilTags {
             float decision_margin;
             matd_t* H;
             double c[2];
-            double p[8]; // TODO: Make 2D array.
+            double p[4][2];
         } ;# -nodefine -destructor
         ::defineImageType $cc
 
