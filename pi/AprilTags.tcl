@@ -38,7 +38,7 @@ class create AprilTags {
         $cc code {
             typedef struct H {
                 matd_t hdr;
-                float data[9];
+                double data[9];
             } H;
             apriltag_detection_ffi* detpool;
             H* Hpool;
