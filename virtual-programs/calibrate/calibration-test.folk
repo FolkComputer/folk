@@ -69,6 +69,9 @@ When (non-capturing) tag /tag/ has detection info /det/ {
         set fy 1082.16878575
         set cx 976.1675632
         set cy 568.1400575
+    } elseif {$::thisNode eq "folk-beads"} {
+        set fx 937.1005024503788; set fy 938.8289444287349
+        set cx 963.4191178688565; set cy 520.5960008149558
     } else {
         error "No camera calibration for $::thisNode"
     }
@@ -85,25 +88,27 @@ When (non-capturing) tag /tag/ has detection info /det/ {
     }]
     # Zhang-calibrated projector intrinsics:
     if {$::thisNode eq "folk-convivial"} {
-        set projectorIntrinsics [subst {
-            {2145.67291   -81.50309     722.2164738}
-            {         0  2234.27633      915.952663}
-            {         0           0               1}
-        }]
+        set fx 2145.67291
+        set s -81.50309; set cx 722.2164738
+        set fy 2234.27633; set cy 915.952663
     } elseif {$::thisNode eq "folk0"} {
         set fx 4283.17395649
         set fy 4238.4255918
         set cx 2516.4171005
         set cy 2089.0865125
         set s -91.6739422
-        set projectorIntrinsics [subst {
-            {$fx  $s   $cx}
-            {0    $fy  $cy}
-            {0    0    1}
-        }]
+    } elseif {$::thisNode eq "folk-beads"} {
+        lassign {534.4499715425313 555.2167657112419} fx fy
+        lassign {928.7753413077204 1307.248130315749} cx cy
+        set s 21.05253039271823
     } else {
         error "No projector calibration for $::thisNode"
     }
+    set projectorIntrinsics [subst {
+        {$fx  $s   $cx}
+        {0    $fy  $cy}
+        {0    0    1}
+    }]
 
     # From calibrating without premultiplying homographies. Broken:
     # set projectorIntrinsics2 [subst {

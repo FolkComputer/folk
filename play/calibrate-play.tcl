@@ -7,7 +7,7 @@ proc When {args} {}
 apply {{} {
     source "virtual-programs/calibrate/calibrate.folk"
 
-    set fd [open "$::env(HOME)/Code/folk/calibrationposes4-folk0.txt" r]
+    set fd [open "$::env(HOME)/Code/folk/calibrationposes-0-folk-beads.txt" r]
     eval "set calibrationPoses [read $fd]"; close $fd
 
     calibrate $calibrationPoses
