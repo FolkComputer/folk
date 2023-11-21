@@ -224,29 +224,36 @@ On process "display" {
         set scale [dict_getdef $options scale 1.0]
         set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
-        set halign [dict_getdef $options halign "center"]
-        set valign [dict_getdef $options valign "center"]
+        set anchor [dict_getdef $options anchor "center"]
         set radians [dict get $options radians]
         set color [getColor [dict_getdef $options color white]]
 
-        if {$halign == "left"} { 
-            set halign_enum -1
-        } elseif {$halign == "right"} {
-            set halign_enum 1
-        } else { set halign_enum 0 }
-
-        if {$valign == "top"} { 
-            set valign_enum -1
-        } elseif {$valign == "bottom"} {
-            set valign_enum 1
-        } else { set valign_enum 0 }
+        if {$anchor == "topleft"} {
+            set align [list -1 -1]
+        } elseif {$anchor == "top"} {
+            set align [list 0 -1]
+        } elseif {$anchor == "topright"} {
+            set align [list 1 -1]
+        } elseif {$anchor == "left"} {
+            set align [list -1 0]
+        } elseif {$anchor == "center"} {
+            set align [list 0 0]
+        } elseif {$anchor == "right"} {
+            set align [list 1 0]
+        } elseif {$anchor == "bottomleft"} {
+            set align [list -1 1]
+        } elseif {$anchor == "bottom"} {
+            set align [list 0 1]
+        } elseif {$anchor == "bottomright"} {
+            set align [list 1 1]
+        }
 
         if {!([dict exists $::FontCache $font])} {
             throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
         }
         set font [dict get $::FontCache $font]
 
-        set instances [font textShape $font $text $x0 $y0 $scale $halign_enum $valign_enum $radians $color]
+        set instances [font textShape $font $text $x0 $y0 $scale {*}$align $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
