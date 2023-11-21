@@ -95,18 +95,21 @@ fn applyHomography {H xy} {
     return [list [/ $u $w] [/ $v $w]]
 }
 
-
-set versionTagId [expr {48600 + ($ROWS/2)*$COLS + ($COLS/2)}]
-# Takes a dictionary of tag ID => {p, c} and rotates the
-# version tag according to version.
+# Takes a dictionary of tag ID => {p, c} and rotates version tags
+# according to version.
 fn versionizeTags {tags version} {
-    # Rotate the version tag.
-    set p [dict get $tags $versionTagId p]
-    set rotatedCorners [list]
-    for {set i 0} {$i < 4} {incr i} {
-        lappend rotatedCorners [lindex $p [expr {($i + $version) % 4}]]
+    foreach id [dict keys $tags] {
+        if {!([isProjectedTag $id] && $id % 2 == 1)} {
+            continue
+        }
+        # This is a version tag. Rotate it.
+        set p [dict get $tags $id p]
+        set rotatedCorners [list]
+        for {set i 0} {$i < 4} {incr i} {
+            lappend rotatedCorners [lindex $p [expr {($i + $version) % 4}]]
+        }
+        dict set tags $id p $rotatedCorners
     }
-    dict set tags $versionTagId p $rotatedCorners
     return $tags
 }
 
@@ -403,13 +406,18 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
         if {[dict size $projectedTags] == 0} { return }
 
-        # Check the rotation of the central projected tag (its angle
-        # relative to any other tag) to figure out the version of what
-        # the camera saw, unless it's version -1.
+        # Check the rotation of a version tag to figure out the
+        # version of what the camera saw, unless it's version -1.
         if {$version != -1} {
-            # Find the version tag. If it wasn't detected, then abort
+            # Find any version tag. If none were detected, then abort
             # and wait until a later frame.
-            if {![dict exists $projectedTags $versionTagId]} { return }
+            dict for {id tag} $projectedTags {
+                if {[isProjectedTag $id] && $id % 2 == 1} {
+                    set versionTagId $id
+                    break
+                }
+            }
+            if {![info exists versionTagId]} { return }
 
             set getTagAngle {{tag} {
                 set p [dict get $tag p]
@@ -448,7 +456,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-        if {[::math::linearalgebra::det $H_cameraToDisplay] < 0.001} {
+        if {[abs [::math::linearalgebra::det $H_cameraToDisplay]] < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
