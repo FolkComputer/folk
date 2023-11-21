@@ -63,7 +63,7 @@ namespace eval ::region {
         list $vertices $edges $angle
     }
 
-    proc newRegion {x y w h {angle 0}} {
+    proc fromRect {x y w h {angle 0}} {
 	set hw [expr {$w / 2.}]
 	set hh [expr {$h / 2.}]
         set vertices [list \
