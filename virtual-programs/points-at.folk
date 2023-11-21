@@ -1,8 +1,10 @@
 When when /rect/ points /direction/ with length /l/ at /someone/ /lambda/ with environment /e/ {
+  if {[string match "/*" $rect]} { return }
   Wish $rect points $direction with length $l
 }
 
 When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
+  if {[string match "/*" $rect]} { return }
   Wish $rect points $direction with length 1
 }
 
