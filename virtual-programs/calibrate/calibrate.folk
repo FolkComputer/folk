@@ -446,9 +446,17 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
         }
-        puts "point pairs (camera -> display): {$projectedPointPairs}"
+        # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
+        if {[::math::linearalgebra::det $H_cameraToDisplay] < 0.001} {
+            # Garbage homography that just shrinks the points way down
+            # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
+            # It's sort of 'overfitted' and just has a big y-intercept
+            # and will break everything if we let it through. Skip.
+            return
+        }
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
+        # puts "H_modelToDisplay {$H_modelToDisplay}"
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
