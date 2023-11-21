@@ -392,7 +392,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 dict set outsideBoardProjectedTags $id $tag
             }
         }
-        puts "======\nHave board"
+        puts "======\nHave board (version $version)"
         puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
         puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
         dict for {id tag} $projectedTags {
@@ -432,9 +432,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 expr {sqrt(($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2)}
             }]] 0]
 
-            # If the detected version does not correspond to version,
+            # If the detected version does not correspond to version mod 4,
             # then we should abort and wait until a later frame.
-            if {$detectedVersion != $version} { return }
+            if {$detectedVersion != [expr {$version % 4}]} { return }
         }
 
         set projectedPointPairs [list]
@@ -446,10 +446,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
         }
+        puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
-            set nextVersion [expr {($version + 1) % 4}]
+            set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
                 model $nextModel version $nextVersion timestamp [clock milliseconds]
