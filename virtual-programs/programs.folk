@@ -5,18 +5,26 @@ When (non-capturing) /type/ /obj/ has a program {
     On unmatch { puts "Removed $type $obj" }
 
     try {
-    set tempPath "$::env(HOME)/folk-printed-programs/$obj.folk.temp"
+        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
+            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
+        } else {
+            if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
+                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial")} {
+                # HACK: 'Page fault' to folk0, try getting page from
+                # there. Ideally we would have some general (Avahi?)
+                # way of finding the 'authoritative' node on the local
+                # network, or broadcasting out, and getting pages from
+                # there.
+                exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
+                    "http://folk0.local:4273/printed-programs/$obj.folk"
+            }
+            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
+        }
+        set code [read $fd]
+        close $fd
 
-    if {[file exists $tempPath]} {
-      set path [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
-    } else {
-      set path [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
+        Claim $obj has program code $code
+    } on error error {
+        puts stderr "No code for $type $obj"
     }
-     set code [read $path]
-     close $path
-
-     Claim $obj has program code $code
-     } on error error {
-      puts stderr "No code for $type $obj"
-     }
 }

@@ -20,8 +20,7 @@ if flashing from a Mac])
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
    you're not reusing one)
 
-   If no `folk`
-   user, then:
+   If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
         sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
@@ -31,46 +30,31 @@ if flashing from a Mac])
    command.)
 
 1. `sudo apt update`
+
 1. Set up OpenSSH server if needed; connect to network. To ssh into
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
+
+1. `sudo adduser folk video` & `sudo adduser folk render` & `sudo
+   adduser folk input` (?) & log out and log back in (re-ssh)
+
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
-   git libjpeg-dev libpng-dev fbset libdrm-dev libdrm-tests pkg-config
-   v4l-utils`
-1. `sudo adduser folk video` & `sudo adduser folk render` & `sudo adduser folk input` (?) & log out and log back in (re-ssh)
-1. **Install Vulkan for graphics (without dragging in X or Wayland)**
-   (we use "VK_KHR_display", which lets us draw directly to monitors):
-     1. `sudo apt install libvulkan-dev libvulkan1 vulkan-tools flex bison python3-mako python3-setuptools libexpat1-dev libudev-dev libelf-dev gettext ca-certificates xz-utils zlib1g-dev meson glslang-dev glslang-tools spirv-tools pkg-config clang llvm-dev --no-install-recommends`
-     1. Clone `mesa`, which implements the Vulkan API on Linux: `git
-        clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git`
-        (TODO: Nvidia has a different process and doesn't use Mesa,
-        figure this out)
-     1. `cd mesa; mkdir build; cd build`; Run a `meson` command to
-        compile Mesa with `-Dplatforms=` empty (no X or Wayland) and
-        `-Dvulkan-drivers=SOMETHING` and `-Dgallium-drivers=SOMETHING`
-        depending on your GPU. Here are some examples:
+   git libjpeg-dev libpng-dev fbset libdrm-dev pkg-config v4l-utils
+   mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
+   libgbm-dev glslc vulkan-validationlayers`
 
-            # Raspberry Pi 4
-            $ CFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" CXXFLAGS="-O2 -march=armv8-a+crc+simd -mtune=cortex-a72" meson -Dglx=disabled -Dplatforms= -Dllvm=disabled -Dvulkan-drivers=broadcom -Dgallium-drivers=v3d,vc4,kmsro -Dbuildtype=release ..
+   (glslc may not be available if you're not on Ubuntu 23.04; on ARM
+   like Pi 4 you need to build it from source; [binaries are
+   available](https://github.com/google/shaderc/blob/main/downloads.md)
+   otherwise)
 
-            # AMD (radeonsi), including Beelink SER5
-            $ meson -Dglx=disabled -Dplatforms= -Dvulkan-drivers=amd -Dgallium-drivers=radeonsi -Dbuildtype=release .. 
-
-            # Intel (i915), including Beelink Mini S12
-            $ meson -Dllvm=disabled -Dglx=disabled -Dplatforms= -Dvulkan-drivers=intel -Dgallium-drivers=i915 -Dbuildtype=release ..
-
-     1. Run `sudo ninja install`.
+1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
           1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
              in the current config", add `dtoverlay=vc4-fkms-v3d` to
              the bottom of `/boot/firmware/config.txt` or
-             `/boot/config.txt`, whichever exists (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
-     1. Install validation layers and glslc: `sudo apt install
-        vulkan-validationlayers glslc` (glslc may not be available if
-        you're not on Ubuntu 23.04; on ARM like Pi 4 you need to build
-        it from source; [binaries are
-        available](https://github.com/google/shaderc/blob/main/downloads.md)
-        otherwise)
+             `/boot/config.txt`, whichever exists
+             (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
      1. Try `vkcube`:
 
             git clone https://github.com/krh/vkcube
@@ -78,14 +62,22 @@ if flashing from a Mac])
             mkdir build; cd build; meson .. && ninja
             ./vkcube -m khr -k 0:0:0
       
+        If vkcube says `Assertion ``vc->image_count > 0' failed`, you
+        might be able to still skip vkcube and continue the install
+        process. See [this
+        bug](https://github.com/FolkComputer/folk/issues/109#issuecomment-1788085237)
      1. See [notes](https://folk.computer/notes/vulkan) and [Naveen's
         notes](https://gist.github.com/nmichaud/1c08821833449bdd3ac70dcb28486539).
+
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
-   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm control --reload-rules && sudo udevadm trigger`
+   `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
+   control --reload-rules && sudo udevadm trigger`
+
 1. Get AprilTags: `cd ~ && git clone
    https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
+
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
    (as root) ([from
@@ -475,7 +467,7 @@ Use it in an animation:
 
 ```
 When the clock time is /t/ {
-  Wish $this draws a circle offset [list [expr {sin($t) * 50}] 0]
+  Wish $this draws a circle with offset [list [expr {sin($t) * 50}] 0]
 }
 ```
 

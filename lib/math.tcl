@@ -69,6 +69,18 @@ namespace eval ::region {
         list $vertices $edges $angle
     }
 
+    proc fromRect {x y w h {angle 0}} {
+	set hw [expr {$w / 2.}]
+	set hh [expr {$h / 2.}]
+        set vertices [list \
+		     [list [expr {$x-$hw}] [expr {$y+$hh}]] \
+                     [list [expr {$x+$hw}] [expr {$y+$hh}]] \
+                     [list [expr {$x+$hw}] [expr {$y-$hh}]] \
+                     [list [expr {$x-$hw}] [expr {$y-$hh}]]]
+        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+        region rotate [region create $vertices $edges] $angle
+    }
+
     proc vertices {r} { lindex $r 0 }
     proc edges {r} { lindex $r 1 }
     # Angle the region is rotated above the horizontal, in radians:
