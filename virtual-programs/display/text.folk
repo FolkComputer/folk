@@ -79,7 +79,7 @@ On process "display" {
             float y = anchory * extent.y;
             
             // Text rendering starts from the baseline
-            if (y == 0) { y = -em; }
+            if (anchory == 0) { y = -em; }
 
             vec2f offset = vec2f_rotate((vec2f){x, y}, radians);
             vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
