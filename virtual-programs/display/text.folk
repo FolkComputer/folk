@@ -68,37 +68,15 @@ On process "display" {
             return (vec2f) { width, y };
         }
         $cc proc textShape {Font* font char* text
-                            float x0 float y0 float scale int halign int valign float radians Tcl_Obj* color} Tcl_Obj* {
+                            float x0 float y0 float scale float anchorx float anchory float radians Tcl_Obj* color} Tcl_Obj* {
             Tcl_Obj* gpuAtlasImageSize = Tcl_ObjPrintf("%d %d", font->atlasImage.width, font->atlasImage.height);
 
             vec2f extent = textExtent(font, text, scale);
             float em = scale * 25.0;
 
-            float x = 0;
-            float y = 0;
-            switch (halign) {
-                case -1: // left align
-                    x = 0;
-                    break;
-                case 0: // center
-                    x = extent.x/2.0;
-                    break;
-                case 1: // right align
-                    x = extent.x;
-                    break;
-            }
-
-            switch (valign) {
-                case -1: // top align
-                    y = -em;
-                    break;
-                case 0: // center
-                    y = extent.y/2.0;
-                    break;
-                case 1: // bottom align
-                    y = extent.y;
-                    break;
-            }
+            // The anchor origin is the top left of the text
+            float x = anchorx * extent.x;
+            float y = anchory * extent.y;
 
             vec2f offset = vec2f_rotate((vec2f){x, y}, radians);
             vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
@@ -229,23 +207,23 @@ On process "display" {
         set color [getColor [dict_getdef $options color white]]
 
         if {$anchor == "topleft"} {
-            set align [list -1 -1]
+            set anchor [list 0 0]
         } elseif {$anchor == "top"} {
-            set align [list 0 -1]
+            set anchor [list 0.5 0]
         } elseif {$anchor == "topright"} {
-            set align [list 1 -1]
+            set anchor [list 1.0 0]
         } elseif {$anchor == "left"} {
-            set align [list -1 0]
+            set anchor [list 0 0.5]
         } elseif {$anchor == "center"} {
-            set align [list 0 0]
+            set anchor [list 0.5 0.5]
         } elseif {$anchor == "right"} {
-            set align [list 1 0]
+            set anchor [list 1.0 0.5]
         } elseif {$anchor == "bottomleft"} {
-            set align [list -1 1]
+            set anchor [list 0 1]
         } elseif {$anchor == "bottom"} {
-            set align [list 0 1]
+            set anchor [list 0.5 1]
         } elseif {$anchor == "bottomright"} {
-            set align [list 1 1]
+            set anchor [list 1 1]
         }
 
         if {!([dict exists $::FontCache $font])} {
@@ -253,7 +231,7 @@ On process "display" {
         }
         set font [dict get $::FontCache $font]
 
-        set instances [font textShape $font $text $x0 $y0 $scale {*}$align $radians $color]
+        set instances [font textShape $font $text $x0 $y0 $scale {*}$anchor $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
