@@ -517,6 +517,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             }
         }
 
+        # Save the pose / camera image to a jpeg
+        image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims the camera frame is /frame/]] 0] frame] \
+            "pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
         lappend ::calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
 
