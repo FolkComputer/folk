@@ -599,6 +599,10 @@ fn zhangCalibrate {Hs} {
     puts "Principal Point: \[ $u0 $v0 ]"
     puts "           Skew: \[ $gamma ] "
 
+    return [dict create fx $alpha fy $beta \
+                cx $u0 cy $v0 \
+                s $gamma]
+
     # TODO: nlopt for better intrinsics + distortion parameters
 }
 
@@ -626,7 +630,7 @@ fn calibrate {calibrationPoses} {
     }]
     puts "Zhang calibrate camera:"
     puts "========"
-    set cameraIntrinsics [zhangCalibrate $Hs_modelToCamera]
+    set cameraCalibration [zhangCalibrate $Hs_modelToCamera]
 
     # Second, calibrate the projector.
     set Hs_modelToDisplay [lmap pose $calibrationPoses {
@@ -685,16 +689,17 @@ fn calibrate {calibrationPoses} {
     }]
     puts "Zhang calibrate projector:"
     puts "========"
-    set projectorIntrinsics [zhangCalibrate $Hs_modelToDisplay]
+    set projectorCalibration [zhangCalibrate $Hs_modelToDisplay]
 
     # TODO: Test projector intrinsics by reprojecting model points
     # using homographies and comparing to it.
 
-    return [list $cameraIntrinsics $projectorIntrinsics]
+    return [dict create camera $cameraCalibration \
+               projector $projectorCalibration]
 }
 
 When the calibration poses are /calibrationPoses/ {
     puts "DOING CALIBRATION!"
     set calibration [calibrate $calibrationPoses]
-    Assert <calibrate.folk> claims the calibration is $calibration
+    Commit calibration { Claim the calibration is $calibration }
 }

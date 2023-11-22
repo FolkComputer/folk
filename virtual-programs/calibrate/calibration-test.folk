@@ -50,7 +50,8 @@ $cc compile
 package require math::linearalgebra
 namespace import ::math::linearalgebra::solvePGauss ::math::linearalgebra::mkIdentity ::math::linearalgebra::matmul ::math::linearalgebra::getelem ::math::linearalgebra::getrow ::math::linearalgebra::sub ::math::linearalgebra::add
 
-When (non-capturing) tag /tag/ has detection info /det/ {
+When (non-capturing) the calibration is /calibration/ & \
+     tag /tag/ has detection info /det/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     # And they're different sizes, so we don't want to use them.
     if {$tag >= 48600} { return }
@@ -58,58 +59,24 @@ When (non-capturing) tag /tag/ has detection info /det/ {
     # puts "\n"
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
-    # Zhang-calibrated camera intrinsics:
-    if {$::thisNode eq "folk-convivial"} {
-        set fx 1429.9300452
-        set fy 1432.906947
-        set cx 949.85091
-        set cy 565.14558
-    } elseif {$::thisNode eq "folk0"} {
-        set fx 1094.202037
-        set fy 1082.16878575
-        set cx 976.1675632
-        set cy 568.1400575
-    } elseif {$::thisNode eq "folk-beads"} {
-        set fx 937.1005024503788; set fy 938.8289444287349
-        set cx 963.4191178688565; set cy 520.5960008149558
-    } else {
-        error "No camera calibration for $::thisNode"
+    dict with calibration camera {
+        set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
+        # set cameraIntrinsics [subst {
+        #     {$fx 0   $cx}
+        #     {0   $fy $cy}
+        #     {0   0   1}
+        # }]
     }
-    set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
     # puts "Tag $tag center (real-world x/y/z meters from cam center): [getelem $pose 0 3] [getelem $pose 1 3] [getelem $pose 2 3]"
 
-    # set R [lmap row {0 1 2} {getrow $pose $row 0 2}]
-    # set t [lmap row {0 1 2} {getelem $pose $row 3}]
-
-    set cameraIntrinsics [subst {
-        {$fx 0   $cx}
-        {0   $fy $cy}
-        {0   0   1}
-    }]
     # Zhang-calibrated projector intrinsics:
-    if {$::thisNode eq "folk-convivial"} {
-        set fx 2145.67291
-        set s -81.50309; set cx 722.2164738
-        set fy 2234.27633; set cy 915.952663
-    } elseif {$::thisNode eq "folk0"} {
-        set fx 4283.17395649
-        set fy 4238.4255918
-        set cx 2516.4171005
-        set cy 2089.0865125
-        set s -91.6739422
-    } elseif {$::thisNode eq "folk-beads"} {
-        lassign {534.4499715425313 555.2167657112419} fx fy
-        lassign {928.7753413077204 1307.248130315749} cx cy
-        set s 21.05253039271823
-    } else {
-        error "No projector calibration for $::thisNode"
+    dict with calibration projector {
+        set projectorIntrinsics [subst {
+            {$fx  $s   $cx}
+            {0    $fy  $cy}
+            {0    0    1}
+        }]
     }
-    set projectorIntrinsics [subst {
-        {$fx  $s   $cx}
-        {0    $fy  $cy}
-        {0    0    1}
-    }]
-
     # From calibrating without premultiplying homographies. Broken:
     # set projectorIntrinsics2 [subst {
     #     {2198.284027   28.5968899   962.0741365}
