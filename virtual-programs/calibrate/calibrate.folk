@@ -632,27 +632,17 @@ fn calibrate {calibrationPoses} {
     puts "========"
     set cameraCalibration [zhangCalibrate $Hs_modelToCamera]
 
+    puts "\n======================\n"
+
     # Second, calibrate the projector.
-    set Hs_modelToDisplay [lmap pose $calibrationPoses {
-        # For each pose:
+    set Hs_modelToDisplay [lmap pose $calibrationPoses {apply {{pose} {
+        foreach v {^isProjectedTag ^estimateHomography ^applyHomography} {
+            upvar $v $v
+        }
         set model [dict get $pose model]
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
         set tags [dict get $pose tags]
-
-        # TODO: Test both split homography and 1 homography.
-
-        # set modelDisplayPointPairs [list]
-        # dict for {id cameraTag} $tags {
-        #     if {![isProjectedTag $id]} continue
-        #     set modelTag [dict get $model $id]
-        #     foreach modelCorner [dict get $modelTag p] \
-        #         cameraCorner [dict get $cameraTag p] {
-        #             set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
-        #             lappend modelDisplayPointPairs \
-        #                 [list {*}$modelCorner {*}$displayCorner]
-        #         }
-        # }
-        # estimateHomography $modelDisplayPointPairs
+        # return $H_modelToDisplay
 
         # Homography from projector -> camera.
         set cameraDisplayPointPairs [list]
@@ -686,7 +676,18 @@ fn calibrate {calibrationPoses} {
 
         # Return a homography from model to display.
         matmul $H_cameraToDisplay $H_modelToCamera
-    }]
+    }} $pose}]
+    set idx 0
+    foreach H_modelToDisplay $Hs_modelToDisplay pose $calibrationPoses {
+        puts "Evaluating homography on pose [incr idx]:"
+        set model [dict get $pose model]
+        dict for {id modelTag} $model {
+            if {![isProjectedTag $id]} { continue }
+            set modelPoint [lindex [dict get $modelTag p] 0]
+            puts "  $id: $modelPoint -> [applyHomography $H_modelToDisplay $modelPoint]"
+        }
+    }
+    puts ""
     puts "Zhang calibrate projector:"
     puts "========"
     set projectorCalibration [zhangCalibrate $Hs_modelToDisplay]
