@@ -395,14 +395,14 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 dict set outsideBoardProjectedTags $id $tag
             }
         }
-        puts "======\nHave board (version $version)"
-        puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
-        puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
-        dict for {id tag} $projectedTags {
-            set idx [- $id 48600]
-            set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
-            puts "  Saw projected tag $id (row $row, col $col)"
-        }
+        # puts "======\nHave board (version $version)"
+        # puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
+        # puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
+        # dict for {id tag} $projectedTags {
+        #     set idx [- $id 48600]
+        #     set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
+        #     puts "  Saw projected tag $id (row $row, col $col)"
+        # }
         # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
         if {[dict size $projectedTags] == 0} { return }
 
@@ -526,10 +526,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
-            puts "DONE CALIBARTION!"
-            set calibration [calibrate $::calibrationPoses]
+            puts "READY CALIBARTION!"
+            Commit calibrationPoses { Claim the calibration poses are $::calibrationPoses }
             Retract /someone/ claims the printed tag side length is /anything/ mm
-            Assert <calibrate.folk> claims the calibration is $calibration
         }
     }
 }
@@ -692,4 +691,10 @@ fn calibrate {calibrationPoses} {
     # using homographies and comparing to it.
 
     return [list $cameraIntrinsics $projectorIntrinsics]
+}
+
+When the calibration poses are /calibrationPoses/ {
+    puts "DOING CALIBRATION!"
+    set calibration [calibrate $calibrationPoses]
+    Assert <calibrate.folk> claims the calibration is $calibration
 }
