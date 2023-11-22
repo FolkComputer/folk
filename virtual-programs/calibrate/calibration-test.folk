@@ -85,10 +85,10 @@ When (non-capturing) the calibration is /calibration/ & \
     # }]
 
     set aprilTagFrameCorners \
-        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}] 0] \
-             [list [expr {$tagSize/2}] [expr {$tagSize/2}] 0] \
-             [list [expr {$tagSize/2}] [expr {-$tagSize/2}] 0] \
-             [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
+              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
     set projectorCorners [list]
     for {set i 0} {$i < 4} {incr i} {
         set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]

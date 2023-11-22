@@ -642,7 +642,10 @@ fn calibrate {calibrationPoses} {
         set model [dict get $pose model]
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
         set tags [dict get $pose tags]
-        # return $H_modelToDisplay
+        puts "H_modelToDisplay:\n[::math::linearalgebra::show $H_modelToDisplay]"
+        return $H_modelToDisplay
+
+        ##################################################
 
         # Homography from projector -> camera.
         set cameraDisplayPointPairs [list]
@@ -675,17 +678,19 @@ fn calibrate {calibrationPoses} {
         # Or the camera intrinisics??
 
         # Return a homography from model to display.
-        matmul $H_cameraToDisplay $H_modelToCamera
+        set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCamera]
+        puts "H_modelToDisplay (recalc):\n[::math::linearalgebra::show $H_modelToDisplay]"
+        return $H_modelToDisplay
     }} $pose}]
     set idx 0
     foreach H_modelToDisplay $Hs_modelToDisplay pose $calibrationPoses {
-        puts "Evaluating homography on pose [incr idx]:"
-        set model [dict get $pose model]
-        dict for {id modelTag} $model {
-            if {![isProjectedTag $id]} { continue }
-            set modelPoint [lindex [dict get $modelTag p] 0]
-            puts "  $id: $modelPoint -> [applyHomography $H_modelToDisplay $modelPoint]"
-        }
+        # puts "Evaluating homography on pose [incr idx]:"
+        # set model [dict get $pose model]
+        # dict for {id modelTag} $model {
+        #     if {![isProjectedTag $id]} { continue }
+        #     set modelPoint [dict get $modelTag c]
+        #     puts "  $id: $modelPoint -> [applyHomography $H_modelToDisplay $modelPoint]"
+        # }
     }
     puts ""
     puts "Zhang calibrate projector:"
@@ -699,8 +704,19 @@ fn calibrate {calibrationPoses} {
                projector $projectorCalibration]
 }
 
+try {
+    set fd [open "$::env(HOME)/folk-calibration.txt" r]
+    set calibration [read $fd]; close $fd
+    Commit calibration { Claim the calibration is $calibration }
+} on error e {
+    puts stderr "Failed to load calibration: $e"
+}
 When the calibration poses are /calibrationPoses/ {
     puts "DOING CALIBRATION!"
     set calibration [calibrate $calibrationPoses]
+
+    set fd [open "$::env(HOME)/folk-calibration.txt" w]
+    puts $fd $calibration; close $fd
+    
     Commit calibration { Claim the calibration is $calibration }
 }
