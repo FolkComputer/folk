@@ -636,72 +636,56 @@ fn calibrate {calibrationPoses} {
 
     # Second, calibrate the projector.
     set Hs_modelToDisplay [lmap pose $calibrationPoses {apply {{pose} {
-        foreach v {^isProjectedTag ^estimateHomography ^applyHomography} {
-            upvar $v $v
-        }
         set model [dict get $pose model]
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
         set tags [dict get $pose tags]
-        puts "H_modelToDisplay:\n[::math::linearalgebra::show $H_modelToDisplay]"
-        return $H_modelToDisplay
-
-        ##################################################
-
-        # Homography from projector -> camera.
-        set cameraDisplayPointPairs [list]
-        dict for {id cameraTag} $tags {
-            if {![isProjectedTag $id]} continue
-            set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $cameraTag p] {
-                    set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
-                    lappend cameraDisplayPointPairs \
-                        [list {*}$cameraCorner {*}$displayCorner]
-                }
-        }
-        set H_cameraToDisplay [estimateHomography $cameraDisplayPointPairs]
-
-        # Homography from camera -> model.
-        set modelCameraPointPairs [list]
-        dict for {id cameraTag} $tags {
-            set modelTag [dict get $model $id]
-            foreach modelCorner [dict get $modelTag p] \
-                cameraCorner [dict get $cameraTag p] {
-                    lappend modelCameraPointPairs \
-                        [list {*}$modelCorner {*}$cameraCorner]
-                }
-        }
-        set H_modelToCamera [estimateHomography $modelCameraPointPairs]
-
-        # I don't understand why this doesn't seem to use the camera
-        # points at all???
-        # Or the camera intrinisics??
-
-        # Return a homography from model to display.
-        set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCamera]
-        puts "H_modelToDisplay (recalc):\n[::math::linearalgebra::show $H_modelToDisplay]"
+        # puts "H_modelToDisplay:\n[::math::linearalgebra::show $H_modelToDisplay]"
         return $H_modelToDisplay
     }} $pose}]
-    set idx 0
-    foreach H_modelToDisplay $Hs_modelToDisplay pose $calibrationPoses {
-        # puts "Evaluating homography on pose [incr idx]:"
-        # set model [dict get $pose model]
-        # dict for {id modelTag} $model {
-        #     if {![isProjectedTag $id]} { continue }
-        #     set modelPoint [dict get $modelTag c]
-        #     puts "  $id: $modelPoint -> [applyHomography $H_modelToDisplay $modelPoint]"
-        # }
-    }
-    puts ""
     puts "Zhang calibrate projector:"
     puts "========"
     set projectorCalibration [zhangCalibrate $Hs_modelToDisplay]
 
+    puts "\n======================\n"
+
+    set calibration [dict create camera $cameraCalibration \
+                         projector $projectorCalibration]
     # TODO: Test projector intrinsics by reprojecting model points
     # using homographies and comparing to it.
+    dict with calibration projector {
+        set projectorIntrinsics [subst {
+            {$fx  $s   $cx}
+            {0    $fy  $cy}
+            {0    0    1}
+        }]
+    }
+    set tagSize [expr {17 / 1000}]; # 17 mm
+    set aprilTagFrameCorners \
+        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
+             [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
+             [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
+             [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+    dict for {id cameraTag} [dict get [lindex $calibrationPoses 0] tags] {
+        if {![isProjectedTag $id]} continue
 
-    return [dict create camera $cameraCalibration \
-               projector $projectorCalibration]
+        dict with calibration camera {
+            set pose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
+        }
+        for {set i 0} {$i < 4} {incr i} {
+            set H_modelToDisplay [dict get [lindex $calibrationPoses 0] H_modelToDisplay]
+            lassign [applyHomography $H_modelToDisplay [lindex [dict get [lindex $calibrationPoses 0] model $id p] $i]] origX origY
+            puts "$id (corner $i): orig projected x y: $origX $origY"
+
+            set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
+            set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
+
+            # FIXME FIXME FIXME: cameraFrameCorner needs to be moved to be in projectorFrameCorner
+            lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
+            set projX [/ $px $pz]; set projY [/ $py $pz]
+            puts "$id (corner $i): reprojected x y:    $projX $projY"
+        }
+    }
+    return $calibration
 }
 
 try {

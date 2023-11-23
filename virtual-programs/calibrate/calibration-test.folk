@@ -91,8 +91,11 @@ When (non-capturing) the calibration is /calibration/ & \
               [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
     set projectorCorners [list]
     for {set i 0} {$i < 4} {incr i} {
+        # These are 3D coordinates in meters from the center of the
+        # AprilTag.
         set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
-        # Augment to be homogeneous.
+        # These are 3D coordinates in meters from the center of the
+        # webcam.
         set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
         # puts "Tag $tag: cameraFrameCorner $i (real-world x/y/z meters from cam center): ($cameraFrameCorner)"
 
@@ -102,17 +105,21 @@ When (non-capturing) the calibration is /calibration/ & \
         # set reprojX [/ $rpx $rpz]
         # set reprojY [/ $rpy $rpz]
 
-        # set x [apriltag_detection_ffi p $det [expr {$i * 2}]]
-        # set y [apriltag_detection_ffi p $det [expr {$i * 2 + 1}]]
-        # # x and y are in camera-plane space.
+        # lassign [apriltag_detection_ffi p $det $i] x y
+        # x and y are in camera-plane space.
         # puts "$tag: original:               camera corner $i: ($x $y)"
-        # puts "$tag: reproj from real-world: camera corner $i: ($reprojX $reprojY)"
         # puts "==="
 
         # Use projector intrinsics to project real-world coordinates
-        # down to 2D projector plane
+        # down to 2D projector plane.
         lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
         set projX [/ $px $pz]; set projY [/ $py $pz]
+
+        # puts "$tag: original:     corner $i: ($x $y)"
+        # puts "$tag: real-world:   corner $i: ($cameraFrameCorner)"
+        # puts "$tag: projector:    corner $i: ($projX $projY)"
+        # puts "==="
+
         lappend projectorCorners [list $projX $projY]
     }
     lappend projectorCorners [lindex $projectorCorners 0]
