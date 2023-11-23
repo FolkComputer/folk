@@ -115,6 +115,8 @@ proc Start-process {name body} {
             }
         }
         On unmatch {
+	    # Clear the mailbox
+            ::Peers::${name}::clear
             # Remember to suppress/kill the process if it shows up
             # later after we're gone.
             dict set ::peersBlacklist $name true
