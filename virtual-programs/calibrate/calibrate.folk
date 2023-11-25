@@ -485,6 +485,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set pose [dict create \
                       model $model \
                       version $version \
+                      H_cameraToDisplay $H_cameraToDisplay \
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
 
@@ -648,10 +649,21 @@ fn calibrate {calibrationPoses} {
 
     puts "\n======================\n"
 
+    # TODO: Use poses to figure out where the projector is in
+    # camera-frame-space.
+    
+
     set calibration [dict create camera $cameraCalibration \
                          projector $projectorCalibration]
     # TODO: Test projector intrinsics by reprojecting model points
     # using homographies and comparing to it.
+    dict with calibration camera {
+        set cameraIntrinsics [subst {
+            {$fx  0    $cx}
+            {0    $fy  $cy}
+            {0    0    1}
+        }]
+    }
     dict with calibration projector {
         set projectorIntrinsics [subst {
             {$fx  $s   $cx}
@@ -659,12 +671,57 @@ fn calibrate {calibrationPoses} {
             {0    0    1}
         }]
     }
+    set projectorIntrinsicsInv [solvePGauss $cameraIntrinsics [mkIdentity 3]]
+
     set tagSize [expr {17 / 1000}]; # 17 mm
-    set aprilTagFrameCorners \
+    set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+    # Accumulate a list of point pairs, then use least-squares to
+    # find R and T matrices.
+    set cameraFrameCorners [list]
+    set projectorFrameCorners [list]
+    foreach pose $calibrationPoses {
+        set H_cameraToDisplay [dict get $pose H_cameraToDisplay]
+
+        dict for {id cameraTag} [dict get $pose tags] {
+            dict with calibration camera {
+                set tagPose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
+            }
+
+            for {set i 0} {$i < 4} {incr i} {
+                set tagFrameCorner [lindex $tagFrameCorners $i]
+                lappend cameraFrameCorners [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+
+                lappend projectorFrameCorners \
+                    [matmul $projectorIntrinsicsInv \
+                         [matmul $H_cameraToDisplay \
+                              [matmul $cameraIntrinsics $cameraFrameCorner]]]
+            }
+        }
+    }
+
+    # For each point in pointPairs: R * Xc + T = Xp
+    # What are R and T?
+
+    # TODO: Find centroids of cameraFrameCorners and projectorFrameCorners
+    set cameraFrameCornersCentroid [centroid $cameraFrameCorners]
+    set projectorFrameCornersCentroid [centroid $projectorFrameCorners]
+    # TODO: Recenter corners, use SVD to find rotation matrix
+    set A_minus_centroid [lmap xc $cameraFrameCorners {
+        sub $xc $cameraFrameCornersCentroid
+    }]
+    set B_minus_centroid [lmap xp $projectorFrameCorners {
+        sub $xp $projectorFrameCornersCentroid
+    }]
+    set H [matmul $A_minus_centroid [transpose $B_minus_centroid]]
+    lassign [determineSVD $H] U S V'
+    set R [matmul [transpose ${V'}] [transpose $U]]
+    # TODO: Find translation vector using centroids
+    set t [sub $projectorFrameCornersCentroid [matmul $R $cameraFrameCornersCentroid]]
+
     dict for {id cameraTag} [dict get [lindex $calibrationPoses 0] tags] {
         if {![isProjectedTag $id]} continue
 
@@ -679,8 +736,8 @@ fn calibrate {calibrationPoses} {
             set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
             set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
 
-            # FIXME FIXME FIXME: cameraFrameCorner needs to be moved to be in projectorFrameCorner
-            lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
+            set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
+            lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
             set projX [/ $px $pz]; set projY [/ $py $pz]
             puts "$id (corner $i): reprojected x y:    $projX $projY"
         }
