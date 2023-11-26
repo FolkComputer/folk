@@ -18,55 +18,15 @@ class create AprilTags {
             apriltag_detector_t *td;
             apriltag_family_t *tf;
         }
-        # In favor of this: we want to have the member getters generated in Tcl.
-        # Against this:
-        #  - duplicate struct defn (add a flag?)
-        #  - how to free the matd_t on destruction (add destructor support?)
-        # Hack for now: this is identical to apriltag_detection_t, but redefined here.
-        $cc struct apriltag_detection_ffi {
-            apriltag_family_t* family;
-            int id;
-            int hamming;
-            float decision_margin;
-            matd_t* H;
-            double c[2];
-            double p[4][2];
-        } ;# -nodefine -destructor
-        ::defineImageType $cc
-
-        $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
-        $cc code {
-            typedef struct H {
-                matd_t hdr;
-                double data[9];
-            } H;
-            apriltag_detection_ffi* detpool;
-            H* Hpool;
-            #define NDETECTIONS_MAX 10000
-
-            // FIXME: we're lazy and just reuse old slots for now.
-            apriltag_detection_ffi* detalloc() {
-                static int idx = 0;
-                if (idx >= NDETECTIONS_MAX) { idx = 0; }
-                return &detpool[idx++];
-            }
-            matd_t* Halloc() {
-                static int idx = 0;
-                if (idx >= NDETECTIONS_MAX) { idx = 0; }
-                return &Hpool[idx++].hdr;
-            }
-        }
 
         $cc proc detectInit {} void [csubst {
             td = apriltag_detector_create();
             tf = ${TAG_FAMILY}_create();
             apriltag_detector_add_family_bits(td, tf, 1);
             td->nthreads = 2;
-
-            detpool = folkHeapAlloc(sizeof(*detpool) * NDETECTIONS_MAX);
-            Hpool = folkHeapAlloc(sizeof(*Hpool) * NDETECTIONS_MAX);
         }]
 
+        ::defineImageType $cc
         # Returns a Tcl-wrapped list of AprilTag detection objects.
         $cc proc detectImpl {image_t gray} Tcl_Obj* {
             assert(gray.components == 1);
@@ -77,23 +37,23 @@ class create AprilTags {
 
             Tcl_Obj* detectionObjs[detectionCount];
             for (int i = 0; i < detectionCount; i++) {
-                apriltag_detection_ffi* det;
+                apriltag_detection_t* det;
                 zarray_get(detections, i, &det);
 
-                // Copy det to interprocess memory.
-                apriltag_detection_ffi* heapDet = detalloc();
-                memcpy(heapDet, det, sizeof(apriltag_detection_ffi));
-                // Copy H to interprocess memory.
-                heapDet->H = Halloc();
-                memcpy(heapDet->H, det->H, sizeof(matd_t) + sizeof(double)*det->H->nrows*det->H->ncols);
-
-                // Wrap the apriltag_detection_t* in a Tcl_Obj*.
-                detectionObjs[i] = Tcl_NewObj();
-                detectionObjs[i]->bytes = NULL;
-                detectionObjs[i]->typePtr = &apriltag_detection_ffi_ObjType;
-                detectionObjs[i]->internalRep.ptrAndLongRep.ptr = heapDet;
-                // owned by us, not by Tcl.
-                detectionObjs[i]->internalRep.ptrAndLongRep.value = 0;
+                detectionObjs[i] =
+                    Tcl_ObjPrintf("id %d "
+                                  "H {%f %f %f %f %f %f %f %f %f} "
+                                  "c {%f %f} "
+                                  "p {{%f %f} {%f %f} {%f %f} {%f %f}}",
+                                  det->id,
+                                  det->H->data[0], det->H->data[1], det->H->data[2],
+                                  det->H->data[3], det->H->data[4], det->H->data[5],
+                                  det->H->data[6], det->H->data[7], det->H->data[8],
+                                  det->c[0], det->c[1],
+                                  det->p[0][0], det->p[0][1],
+                                  det->p[1][0], det->p[1][1],
+                                  det->p[2][0], det->p[2][1],
+                                  det->p[3][0], det->p[3][1]);
             }
 
             apriltag_detections_destroy(detections);

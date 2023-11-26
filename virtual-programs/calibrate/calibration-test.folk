@@ -2,22 +2,30 @@ set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
 $cc include <apriltag_pose.h>
 
-# TODO: deduplicate w/ AprilTags.tcl
-$cc struct apriltag_detection_ffi {
-    apriltag_family_t* family;
-    int id;
-    int hamming;
-    float decision_margin;
-    matd_t* H;
-    double c[2];
-    double p[4][2];
-} ;# -nodefine -destructor
 # Returns a 4x4 affine transformation that transforms {x y z} from
 # AprilTag frame to 3D camera optical frame.
-$cc proc estimateTagPose {apriltag_detection_ffi det
+$cc proc estimateTagPose {Tcl_Obj* detObj
                           double tagSize double fx double fy double cx double cy} Tcl_Obj* {
+    // HACK: we just fill the fields that pose detection will use.
+    apriltag_detection_t det; {
+        Tcl_Obj* pObj; Tcl_DictObjGet(NULL, detObj, Tcl_ObjPrintf("p"), &pObj);
+        for (int i = 0; i < 4; i++) {
+            Tcl_Obj* cornerObj; Tcl_ListObjIndex(NULL, pObj, i, &cornerObj);
+            Tcl_Obj* cornerXObj; Tcl_ListObjIndex(NULL, cornerObj, 0, &cornerXObj);
+            Tcl_Obj* cornerYObj; Tcl_ListObjIndex(NULL, cornerObj, 1, &cornerYObj);
+            Tcl_GetDoubleFromObj(NULL, cornerXObj, &det.p[i][0]);
+            Tcl_GetDoubleFromObj(NULL, cornerYObj, &det.p[i][1]);
+        }
+        det.H = alloca(sizeof(matd_t) * 9*sizeof(double));
+        det.H->nrows = 3; det.H->ncols = 3;
+        Tcl_Obj* Hobj; Tcl_DictObjGet(NULL, detObj, Tcl_ObjPrintf("H"), &Hobj);
+        for (int i = 0; i < 9; i++) {
+            Tcl_Obj* entryObj; Tcl_ListObjIndex(NULL, Hobj, i, &entryObj);
+            Tcl_GetDoubleFromObj(NULL, entryObj, &det.H->data[i]);
+        }
+    }
     apriltag_detection_info_t info = {
-        .det = (apriltag_detection_t*) &det,
+        .det = &det,
         .tagsize = tagSize,
         .fx = fx, .fy = fy,
         .cx = cx, .cy = cy
