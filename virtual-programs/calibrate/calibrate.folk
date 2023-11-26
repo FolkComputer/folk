@@ -527,7 +527,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
-            puts "READY CALIBARTION!"
+            puts "READY CALIBARTION POSES!"
+            
+            set fd [open "$::env(HOME)/folk-calibration-poses.txt" w]
+            puts $fd $::calibrationPoses; close $fd
+
             Commit calibrationPoses { Claim the calibration poses are $::calibrationPoses }
             Retract /someone/ claims the printed tag side length is /anything/ mm
         }
@@ -744,20 +748,16 @@ fn calibrate {calibrationPoses} {
     }
     return $calibration
 }
-
 try {
-    set fd [open "$::env(HOME)/folk-calibration.txt" r]
-    set calibration [read $fd]; close $fd
-    Commit calibration { Claim the calibration is $calibration }
+    set fd [open "$::env(HOME)/folk-calibration-poses.txt" r]
+    set calibrationPoses [read $fd]; close $fd
+    Commit calibrationPoses { Claim the calibration poses are $calibrationPoses }
 } on error e {
-    puts stderr "Failed to load calibration: $e"
+    puts stderr "Failed to load calibration poses: $e"
 }
+
 When the calibration poses are /calibrationPoses/ {
     puts "DOING CALIBRATION!"
     set calibration [calibrate $calibrationPoses]
-
-    set fd [open "$::env(HOME)/folk-calibration.txt" w]
-    puts $fd $calibration; close $fd
-    
-    Commit calibration { Claim the calibration is $calibration }
+    Claim the calibration is $calibration
 }
