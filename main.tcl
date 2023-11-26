@@ -483,6 +483,8 @@ namespace eval ::Mailbox {
     $cc include <pthread.h>
     $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
     $cc code {
+        #define NMAILBOXES 100
+	#define MAILBOXSIZE 1000000
         typedef struct mailbox_t {
             bool active;
 
@@ -492,10 +494,9 @@ namespace eval ::Mailbox {
             char to[100];
 
             int mailLen;
-            char mail[1000000];
+            char mail[MAILBOXSIZE];
         } mailbox_t;
 
-        #define NMAILBOXES 100
         mailbox_t* mailboxes;
     }
     $cc proc init {} void {
@@ -544,7 +545,9 @@ namespace eval ::Mailbox {
             exit(1);
         }
         pthread_mutex_lock(&mailbox->mutex); {
-            mailbox->mailLen = snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
+            int written = snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
+	    if (written > MAILBOXSIZE) { written = MAILBOXSIZE; }
+	    mailbox->mailLen = written;
         } pthread_mutex_unlock(&mailbox->mutex);
     }
     $cc proc receive {char* from char* to} Tcl_Obj* {
