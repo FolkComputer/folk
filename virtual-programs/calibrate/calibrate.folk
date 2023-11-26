@@ -677,7 +677,7 @@ fn calibrate {calibrationPoses} {
     }
     set projectorIntrinsicsInv [solvePGauss $cameraIntrinsics [mkIdentity 3]]
 
-    set tagSize [expr {17 / 1000}]; # 17 mm
+    set tagSize [expr {17.0 / 1000}]; # 17 mm
     set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
