@@ -1,6 +1,8 @@
 package require math::linearalgebra
 foreach p {add norm sub scale leastSquaresSVD matmul
-           getelem transpose determineSVD} {
+    getelem transpose determineSVD shape mkIdentity
+    solvePGauss
+} {
     namespace import ::math::linearalgebra::$p
 }
 
@@ -611,6 +613,12 @@ fn zhangCalibrate {Hs} {
     # TODO: nlopt for better intrinsics + distortion parameters
 }
 
+fn centroid {points} {
+    set sum {0 0 0}
+    foreach point $points { set sum [add $sum $point] }
+    return [scale [expr {1.0 / [llength $points]}] $sum]
+}
+
 # calibrationPoses is a list of N pose dictionaries. Each pose
 # dictionary includes `tags` from a camera detection, `model` with
 # coordinates in meters, `H_modelToDisplay`.
@@ -683,10 +691,9 @@ fn calibrate {calibrationPoses} {
              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
-    # Accumulate a list of point pairs, then use least-squares to
-    # find R and T matrices.
-    set cameraFrameCorners [list]
-    set projectorFrameCorners [list]
+
+    set cameraFramePoints [list]
+    set projectorFramePoints [list]
     foreach pose $calibrationPoses {
         set H_cameraToDisplay [dict get $pose H_cameraToDisplay]
 
@@ -697,9 +704,10 @@ fn calibrate {calibrationPoses} {
 
             for {set i 0} {$i < 4} {incr i} {
                 set tagFrameCorner [lindex $tagFrameCorners $i]
-                lappend cameraFrameCorners [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+                set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+                lappend cameraFramePoints $cameraFrameCorner
 
-                lappend projectorFrameCorners \
+                lappend projectorFramePoints \
                     [matmul $projectorIntrinsicsInv \
                          [matmul $H_cameraToDisplay \
                               [matmul $cameraIntrinsics $cameraFrameCorner]]]
@@ -707,24 +715,29 @@ fn calibrate {calibrationPoses} {
         }
     }
 
-    # For each point in pointPairs: R * Xc + T = Xp
-    # What are R and T?
+    # For each point: R*cameraFramePoint + t = projectorFramePoint
+    # What are R and t?
 
-    # TODO: Find centroids of cameraFrameCorners and projectorFrameCorners
-    set cameraFrameCornersCentroid [centroid $cameraFrameCorners]
-    set projectorFrameCornersCentroid [centroid $projectorFrameCorners]
-    # TODO: Recenter corners, use SVD to find rotation matrix
-    set A_minus_centroid [lmap xc $cameraFrameCorners {
-        sub $xc $cameraFrameCornersCentroid
+    # Find centroids of cameraFramePoints and projectorFramePoints
+    set cameraFramePointsCentroid [centroid $cameraFramePoints]
+    set projectorFramePointsCentroid [centroid $projectorFramePoints]
+    # Recenter points from each frame & use SVD to find rotation matrix
+    set A_minus_centroid [lmap xc $cameraFramePoints {
+        sub $xc $cameraFramePointsCentroid
     }]
-    set B_minus_centroid [lmap xp $projectorFrameCorners {
-        sub $xp $projectorFrameCornersCentroid
+    set B_minus_centroid [lmap xp $projectorFramePoints {
+        sub $xp $projectorFramePointsCentroid
     }]
-    set H [matmul $A_minus_centroid [transpose $B_minus_centroid]]
+    puts "A-c ([shape $A_minus_centroid]) B-c ([shape $B_minus_centroid])"
+    set H [matmul [transpose $A_minus_centroid] $B_minus_centroid]
+    puts "BEFORE SVD of ([shape $H])"
     lassign [determineSVD $H] U S V'
+    puts "AFTER SVD"
     set R [matmul [transpose ${V'}] [transpose $U]]
-    # TODO: Find translation vector using centroids
-    set t [sub $projectorFrameCornersCentroid [matmul $R $cameraFrameCornersCentroid]]
+    # Find translation vector using centroids
+    set t [sub $projectorFramePointsCentroid [matmul $R $cameraFramePointsCentroid]]
+    puts "R is ($R)"
+    puts "t is ($t)"
 
     dict for {id cameraTag} [dict get [lindex $calibrationPoses 0] tags] {
         if {![isProjectedTag $id]} continue
@@ -737,8 +750,8 @@ fn calibrate {calibrationPoses} {
             lassign [applyHomography $H_modelToDisplay [lindex [dict get [lindex $calibrationPoses 0] model $id p] $i]] origX origY
             puts "$id (corner $i): orig projected x y: $origX $origY"
 
-            set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
-            set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
+            set aprilTagFrameCorner [lindex $tagFrameCorners $i]
+            set cameraFrameCorner [lrange [matmul $pose [list {*}$tagFrameCorner 1]] 0 2]
 
             set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
             lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz

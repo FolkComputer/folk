@@ -6,9 +6,10 @@ proc When {args} {}
 
 apply {{} {
     source "virtual-programs/calibrate/calibrate.folk"
+    source "lib/c.tcl"
+    source "virtual-programs/calibrate/calibration-test.folk"
 
-    set fd [open "$::env(HOME)/Code/folk/calibrationposes-0-folk-beads.txt" r]
-    eval "set calibrationPoses [read $fd]"; close $fd
-
+    set fd [open "folk-calibration-poses.txt" r]
+    set calibrationPoses [read $fd]; close $fd
     calibrate $calibrationPoses
 }}
