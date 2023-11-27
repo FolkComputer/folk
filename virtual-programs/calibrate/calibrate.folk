@@ -739,18 +739,19 @@ fn calibrate {calibrationPoses} {
     puts "R is ($R)"
     puts "t is ($t)"
 
-    dict for {id cameraTag} [dict get [lindex $calibrationPoses 0] tags] {
+    set calibrationPose [lindex $calibrationPoses 0]
+    dict for {id cameraTag} [dict get $calibrationPose tags] {
         if {![isProjectedTag $id]} continue
 
         dict with calibration camera {
             set pose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
         }
         for {set i 0} {$i < 4} {incr i} {
-            set H_modelToDisplay [dict get [lindex $calibrationPoses 0] H_modelToDisplay]
-            lassign [applyHomography $H_modelToDisplay [lindex [dict get [lindex $calibrationPoses 0] model $id p] $i]] origX origY
+            set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
+            lassign [applyHomography $H_modelToDisplay [lindex [dict get $calibrationPose model $id p] $i]] origX origY
             puts "$id (corner $i): orig projected x y: $origX $origY"
 
-            set aprilTagFrameCorner [lindex $tagFrameCorners $i]
+            set tagFrameCorner [lindex $tagFrameCorners $i]
             set cameraFrameCorner [lrange [matmul $pose [list {*}$tagFrameCorner 1]] 0 2]
 
             set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
