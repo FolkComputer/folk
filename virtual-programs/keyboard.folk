@@ -55,6 +55,189 @@ while false {
   }
 }
 
+proc udevadmProperties {device} {
+    return [exec udevadm info --query=property --name=$device]
+}
+
+proc getDEVLINKS {device} {
+    set properties [udevadmProperties $device]
+    if {$properties eq ""} {
+        return ""
+    }
+    set devlinks [list]
+    foreach line [split $properties \n] {
+        if {[string match "DEVLINKS=*" $line]} {
+            set devlinks [string replace $line 0 8]
+            foreach path [split $devlinks " "] {
+                lappend devlinks $path
+            }
+        }
+    }
+
+    return $devlinks
+}
+
+proc establishKeyPressListener {eventPath} {
+    set kb [open $eventPath r]
+    fconfigure $kb -translation binary
+    return $kb
+}
+
+# Function to check if the device is a keyboard
+proc isKeyboard {device} {
+    set properties [udevadmProperties $device]
+    if {$properties eq ""} {
+        return false
+    }
+    set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
+    return $isKeyboard
+    # TODO: Excluding mice would nice to keey the list of keyboard devices short
+    #       Alas, including mice is necessary for the Logitech K400R keyboard
+    # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
+    # return [expr {$isKeyboard && !$isMouse}]
+}
+
+####
+# /dev/input/event* addresses are the ground truth for keyboard devices
+#
+# This function goes through each of them and checks if they are keyboards
+proc walkInputEventPaths {} {
+    set allDevices [glob -nocomplain "/dev/input/event*"]
+    set keyboards [list]
+    foreach device $allDevices {
+        set devLinks [getDEVLINKS $device]
+        if {[llength $devLinks] > 0 && [isKeyboard $device]} {
+            if {[file readable $device] == 0} {
+                puts "Device $device is not readable. Attempting to change permissions."
+                # Attempt to change permissions so that the file can be read
+                exec sudo chmod +r $device
+            }
+            lappend keyboards [dict create eventPath $device devLinks $devLinks]
+        }
+    }
+    return $keyboards
+}
+
+proc findMatchingEventPath {searchList eventPath} {
+    foreach element $searchList {
+        set elEventPath [dict get $element eventPath]
+        if {$eventPath eq $elEventPath} {
+            return $element
+        }
+    }
+    return 0
+}
+
+# e.g. getKeyEvent /dev/input/event0
+proc getKeyEvent {keyboardSpecifier args} {
+puts "getting key event for $keyboardSpecifier"
+When /someone/ claims /thisNode/ has keyboards /keyboardsList/ {
+    # Hmmmm, how to make this a global accessor? Always just pass in the keyboard array tooo???? That'd be dumb idk
+    puts "==== getKeyEvent: $keyboardsList"
+    puts "==== getKeyEvent: $keyboardSpecifier"
+    # set keyboardStream [dict get $keyboardsList $keyboardSpecifier]
+    set keyboardStream [findMatchingEventPath $keyboardsList $keyboardSpecifier]
+
+    # TODO: Allow keyboardSpecifier to be a keyboard device file
+    # e.g. /dev/input/by-path/platform-i8042-serio-0-event-kbd
+    variable evtBytes
+    variable evtFormat
+
+    # See https://www.kernel.org/doc/Documentation/input/input.txt
+    # https://www.kernel.org/doc/Documentation/input/event-codes.txt
+    # https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
+    #
+    # struct input_event {
+    #     struct timeval time;
+    #     unsigned short type; (should be EV_KEY = 0x01)
+    #     unsigned short code; (scancode; for example, 16 = q)
+    #     unsigned int value; (0 for key release, 1 for press, 2 for repeat)
+    # };
+    #
+    set kbEventPath [open [dict get $keyboardStream eventPath] r]
+    while 1 {
+        binary scan [read $kbEventPath $evtBytes] $evtFormat tvSec tvUsec type code value
+        if {$type == 0x01} {
+            Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/
+            Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+            puts "got key event ($keyboardSpecifier): $key $keyState $heldModifiers"
+            return [list $code $value]
+        }
+    }
+}
+}
+
+
+set keyboardDevices [walkInputEventPaths]
+
+# go through each keyboard device and start a process that 
+foreach keyboard $keyboardDevices {
+    set eventPath [dict get $keyboard eventPath]
+    Start process "keyboard-$eventPath" {
+        variable evtBytes 16
+        variable evtFormat iissi
+        if {[exec getconf LONG_BIT] == 64} {
+        set evtBytes 24
+        set evtFormat wwssi
+        }
+        set keyboardSpecifier $eventPath
+        puts "starting keyboard process for $keyboard"
+        while 1 {
+            puts "reading ... ($eventPath)"
+            binary scan [read [open $eventPath r] $evtBytes] $evtFormat tvSec tvUsec type code value
+            puts "read: $tvSec $tvUsec $type $code $value"
+            if {$type == 0x01} {
+                puts "got key event ($keyboardSpecifier): $code | $value"
+                return [list $code $value]
+            }
+        }
+
+        return
+
+        set kbEventPath [open $eventPath r]
+
+        set keyStates [list up down repeat]
+        set modifiers [dict create \
+            shift 0 \
+            ctrl 0 \
+            alt 0 \
+        ]
+
+        set shift [dict get $modifiers shift]
+        set key [keyFromCode $keyCode $shift]
+        set keyState [lindex $keyStates $eventType]
+
+        set isDown [expr {$keyState != "up"}]
+        if {[string match *SHIFT $key]} {
+        dict set modifiers shift $isDown
+        }
+        if {[string match *CTRL $key]} {
+        dict set modifiers ctrl $isDown
+        }
+        if {[string match *ALT $key]} {
+        dict set modifiers alt $isDown
+        }
+
+        set heldModifiers [dict keys [dict filter $modifiers value 1]]
+
+        while 1 {
+            binary scan [read $kbEventPath $evtBytes] $evtFormat tvSec tvUsec type code value
+            if {$type == 0x01} {
+                Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/
+                Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+                puts "got key event ($keyboardSpecifier): $key $keyState $heldModifiers"
+                return [list $code $value]
+            }
+        }
+        # establishKeyPressListener $eventPath
+        # foreach devlink [dict get $keyboard devLinks] {
+        #     puts " -- : $devlink"
+        #     establishKeyPressListener $devlink
+        # }
+    }
+}
+
+return
 Start process "keyboard" {
     # TODO: Simplify
   Wish $::thisProcess shares statements like \
@@ -192,27 +375,27 @@ Start process "keyboard" {
   puts "=========== keyboard info block =============="
   puts "Found [llength $keyboardDevices] keyboards:"
   # TODO: Make a process for each eventPath found that's a keyboard!
-#   foreach keyboard $keyboardDevices {
-#     set eventPath [dict get $keyboard eventPath]
-#     puts " - eventpath: $eventPath"
-#     establishKeyPressListener $eventPath
-#     getKeyEvent $eventPath
-#     foreach devlink [dict get $keyboard devLinks] {
-#           puts " -- : $devlink"
-#           establishKeyPressListener $devlink
-#     }
-#   }
+  foreach keyboard $keyboardDevices {
+    set eventPath [dict get $keyboard eventPath]
+    puts " - eventpath: $eventPath"
+    establishKeyPressListener $eventPath
+    # getKeyEvent $eventPath
+    foreach devlink [dict get $keyboard devLinks] {
+          puts " -- : $devlink"
+          establishKeyPressListener $devlink
+    }
+  }
 #   puts " <<<<<< "
 #   puts " keyboardsDevices: $keyboardDevices "
 #   puts " default keyboard: [lindex $keyboardDevices 0]  "
 #   puts " <<<<<< "
-#   Claim the default keyboard is [lindex $keyboardDevices 0]
-#   Claim $::thisNode has keyboards $keyboardDevices
+  Claim the default keyboard is [lindex $keyboardDevices 0]
+  Claim $::thisNode has keyboards $keyboardDevices
 #   When /someone/ claims /node/ has keyboards /keyboards/ {
 #     puts "$node: has keyboard $keyboards"
 #   }
-  Claim $::thisNode has keyboards [list "beep"]
-  Claim the default keyboard is "beep"
+#   Claim $::thisNode has keyboards [list "beep"]
+#   Claim the default keyboard is "beep"
   # Need to modify getKeyPress (define it in here, even, maybe???) to listen to all keyboards hmmmm
   # Maybe it should even return a keyboard originator in the return value?
 }
