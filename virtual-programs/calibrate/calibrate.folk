@@ -1,4 +1,5 @@
 package require math::linearalgebra
+rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
     getelem transpose determineSVD shape mkIdentity
     solvePGauss
@@ -717,6 +718,7 @@ fn calibrate {calibrationPoses} {
 
     # For each point: R*cameraFramePoint + t = projectorFramePoint
     # What are R and t?
+    package require Tk
 
     # Find centroids of cameraFramePoints and projectorFramePoints
     set cameraFramePointsCentroid [centroid $cameraFramePoints]
@@ -736,8 +738,11 @@ fn calibrate {calibrationPoses} {
     set R [matmul [transpose ${V'}] [transpose $U]]
     # Find translation vector using centroids
     set t [sub $projectorFramePointsCentroid [matmul $R $cameraFramePointsCentroid]]
-    puts "R is ($R)"
+    puts "R is\n[::math::linearalgebra::show $R]"
     puts "t is ($t)"
+
+    canvas .canv -width 1920 -height 1080 -background white
+    pack .canv -fill both -expand true
 
     set calibrationPose [lindex $calibrationPoses 0]
     dict for {id cameraTag} [dict get $calibrationPose tags] {
@@ -747,8 +752,12 @@ fn calibrate {calibrationPoses} {
             set pose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
         }
         for {set i 0} {$i < 4} {incr i} {
+            set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
+            .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
+
             set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
-            lassign [applyHomography $H_modelToDisplay [lindex [dict get $calibrationPose model $id p] $i]] origX origY
+            lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
+            .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
             puts "$id (corner $i): orig projected x y: $origX $origY"
 
             set tagFrameCorner [lindex $tagFrameCorners $i]
@@ -758,6 +767,10 @@ fn calibrate {calibrationPoses} {
             lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
             set projX [/ $px $pz]; set projY [/ $py $pz]
             puts "$id (corner $i): reprojected x y:    $projX $projY"
+
+            puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
+            puts "$id (corner $i): projectorFrameCorner ($projectorFrameCorner)"
+            puts ""
         }
     }
     return $calibration
