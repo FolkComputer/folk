@@ -67,32 +67,21 @@ When (non-capturing) the calibration is /calibration/ & \
     # puts "\n"
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
-    dict with calibration camera {
-        set pose [estimateTagPose $det $tagSize $fx $fy $cx $cy]
-        # set cameraIntrinsics [subst {
-        #     {$fx 0   $cx}
-        #     {0   $fy $cy}
-        #     {0   0   1}
-        # }]
-    }
-    # puts "Tag $tag center (real-world x/y/z meters from cam center): [getelem $pose 0 3] [getelem $pose 1 3] [getelem $pose 2 3]"
 
-    # Zhang-calibrated projector intrinsics:
-    dict with calibration projector {
-        set projectorIntrinsics [subst {
-            {$fx  $s   $cx}
-            {0    $fy  $cy}
-            {0    0    1}
-        }]
-    }
-    # From calibrating without premultiplying homographies. Broken:
-    # set projectorIntrinsics2 [subst {
-    #     {2198.284027   28.5968899   962.0741365}
-    #     {          0  2186.364329  1099.4065579}
-    #     {          0            0             1}
-    # }]
+    set cameraIntrinsics [dict get $calibration camera intrinsics]
+    set cameraFx [getelem $cameraIntrinsics 0 0]
+    set cameraFy [getelem $cameraIntrinsics 1 1]
+    set cameraCx [getelem $cameraIntrinsics 0 2]
+    set cameraCy [getelem $cameraIntrinsics 1 2]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
 
-    set aprilTagFrameCorners \
+    set R [dict get $calibration R_cameraToProjector]
+    set t [dict get $calibration t_cameraToProjector]
+
+    set tagPose [estimateTagPose $det $tagSize \
+                     $cameraFx $cameraFy $cameraCx $cameraCy]
+
+    set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
               [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
               [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
@@ -101,33 +90,16 @@ When (non-capturing) the calibration is /calibration/ & \
     for {set i 0} {$i < 4} {incr i} {
         # These are 3D coordinates in meters from the center of the
         # AprilTag.
-        set aprilTagFrameCorner [lindex $aprilTagFrameCorners $i]
+        set tagFrameCorner [lindex $tagFrameCorners $i]
         # These are 3D coordinates in meters from the center of the
         # webcam.
-        set cameraFrameCorner [lrange [matmul $pose [list {*}$aprilTagFrameCorner 1]] 0 2]
-        # puts "Tag $tag: cameraFrameCorner $i (real-world x/y/z meters from cam center): ($cameraFrameCorner)"
+        set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
 
-        # TODO: use camera intrinsics to test reprojection to 2D camera
-        # plane, compare to x and y
-        # lassign [matmul $cameraIntrinsics $cameraFrameCorner] rpx rpy rpz
-        # set reprojX [/ $rpx $rpz]
-        # set reprojY [/ $rpy $rpz]
-
-        # lassign [apriltag_detection_ffi p $det $i] x y
-        # x and y are in camera-plane space.
-        # puts "$tag: original:               camera corner $i: ($x $y)"
-        # puts "==="
-
+        set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
         # Use projector intrinsics to project real-world coordinates
         # down to 2D projector plane.
-        lassign [matmul $projectorIntrinsics $cameraFrameCorner] px py pz
+        lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
         set projX [/ $px $pz]; set projY [/ $py $pz]
-
-        # puts "$tag: original:     corner $i: ($x $y)"
-        # puts "$tag: real-world:   corner $i: ($cameraFrameCorner)"
-        # puts "$tag: projector:    corner $i: ($projX $projY)"
-        # puts "==="
-
         lappend projectorCorners [list $projX $projY]
     }
     lappend projectorCorners [lindex $projectorCorners 0]

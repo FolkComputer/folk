@@ -1,5 +1,5 @@
 package require math::linearalgebra
-rename ::scale scaleTk
+# rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
     getelem transpose determineSVD shape mkIdentity
     solvePGauss crossproduct getcol
@@ -631,7 +631,8 @@ fn zhangCalibrate {Hs} {
 
         set t [scale $lambda [matmul $Ainv $h3]]
 
-        # Refine R into a better rotation matrix using SVD.
+        # Refine R into a better rotation matrix (reorthogonalize)
+        # using SVD.
         lassign [determineSVD $R] U S V'
         set R [matmul $U [transpose ${V'}]]
 
@@ -703,7 +704,6 @@ fn calibrate {calibrationPoses} {
     set cameraCx [getelem $cameraIntrinsics 0 2]
     set cameraCy [getelem $cameraIntrinsics 1 2]
     set projectorIntrinsics [dict get $calibration projector intrinsics]
-    set projectorIntrinsicsInv [solvePGauss $cameraIntrinsics [mkIdentity 3]]
 
     set tagSize [expr {17.0 / 1000}]; # 17 mm
     set tagFrameCorners \
@@ -736,10 +736,12 @@ fn calibrate {calibrationPoses} {
     # Average R and t from all poses.
     set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
     set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
+    dict set calibration R_cameraToProjector $R
+    dict set calibration t_cameraToProjector $t
 
-    package require Tk
-    canvas .canv -width 1920 -height 1080 -background white
-    pack .canv -fill both -expand true
+    # package require Tk
+    # canvas .canv -width 1920 -height 1080 -background white
+    # pack .canv -fill both -expand true
 
     set calibrationPose [lindex $calibrationPoses 0]
     dict for {id cameraTag} [dict get $calibrationPose tags] {
@@ -749,11 +751,11 @@ fn calibrate {calibrationPoses} {
                          $cameraFx $cameraFy $cameraCx $cameraCy]
         for {set i 0} {$i < 4} {incr i} {
             set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
-            .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
+            # .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
 
             set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
             lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
-            .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
+            # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
             puts "$id (corner $i): orig projected x y: $origX $origY"
 
             set tagFrameCorner [lindex $tagFrameCorners $i]
@@ -762,7 +764,7 @@ fn calibrate {calibrationPoses} {
             set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
             lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
             set projX [/ $px $pz]; set projY [/ $py $pz]
-            .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
+            # .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
             puts "$id (corner $i): reprojected x y:    $projX $projY"
 
             puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
