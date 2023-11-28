@@ -630,7 +630,10 @@ fn zhangCalibrate {Hs} {
 
         set t [scale $lambda [matmul $Ainv $h3]]
 
-        # TODO: Refine R using SVD
+        # Refine R into a better rotation matrix using SVD.
+        lassign [determineSVD $R] U S V'
+        set R [matmul $U [transpose ${V'}]]
+
         dict create R $R t $t
     }]
 
