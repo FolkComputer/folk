@@ -716,33 +716,21 @@ fn calibrate {calibrationPoses} {
         # Rp*modelFramePoint + tp = projectorFramePoint
 
         set calibrationPose [lindex $calibrationPoses $i]
+
         set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
         set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
-        dict for {id cameraTag} [dict get $calibrationPose tags] {
-            # First, let's test by taking a model point and using R
-            # and t to rigid-transform it to camera frame, then
-            # down-projecting it to camera plane. Does it look similar
-            # to the actually-seen camera plane point?
-            set modelFramePoint [list {*}[dict get $calibrationPose model $id c] 0]
-            set cameraFramePoint [add [matmul $Rc $modelFramePoint] $tc]
-            puts "tag $id center: model frame   $modelFramePoint"
-            puts "tag $id center: camera frame  $cameraFramePoint"
-            lassign [matmul $cameraIntrinsics $cameraFramePoint] rpx rpy rpz
-            puts "tag $id center: camera reproj [/ $rpx $rpz] [/ $rpy $rpz]"
-            set cameraPoint [dict get $cameraTag c]
-            puts "tag $id center: camera orig   $cameraPoint"
-        }
-        
-        # What is the R and t of this pose relative to the camera?
-        # What is the R and t of this pose relative to the projector?
 
+        set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
+        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
 
+        set Rcinv [solvePGauss $Rc [mkIdentity 3]]
+        set R [matmul $Rp $Rcinv]
+        set t [sub $tp [matmul $R $tc]]
 
-
-        # or is it the other way around?
-        # Rc*cameraFramePoint + tc = modelFramePoint
-        # Rp*projectorFramePoint + tp = modelFramePoint
+        puts "R is ($R)"
+        puts "t is ($t)"
     }
+    # TODO: Average R and t from all poses.
 
     package require Tk
     canvas .canv -width 1920 -height 1080 -background white
@@ -764,7 +752,7 @@ fn calibrate {calibrationPoses} {
             puts "$id (corner $i): orig projected x y: $origX $origY"
 
             set tagFrameCorner [lindex $tagFrameCorners $i]
-            set cameraFrameCorner [lrange [matmul $pose [list {*}$tagFrameCorner 1]] 0 2]
+            set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
 
             set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
             lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
