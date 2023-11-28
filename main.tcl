@@ -556,6 +556,14 @@ namespace eval ::Mailbox {
         } pthread_mutex_unlock(&mailbox->mutex);
         return ret;
     }
+    $cc proc clear {char* from char* to} void {
+        mailbox_t* mailbox = find(from, to);
+        pthread_mutex_lock(&mailbox->mutex); {
+            mailbox->active = 0;
+            mailbox->mail[0] = '\0';
+            mailbox->mailLen = 0;
+        } pthread_mutex_unlock(&mailbox->mutex);
+    }
     $cc compile
     init
 }
