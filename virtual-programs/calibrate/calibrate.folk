@@ -622,6 +622,7 @@ fn zhangCalibrate {Hs} {
         set h1 [getcol $H 0]
         set h2 [getcol $H 1]
         set h3 [getcol $H 2]
+        set lambda [/ 1.0 [norm [matmul $Ainv $h1]]]
 
         set r1 [scale $lambda [matmul $Ainv $h1]]
         set r2 [scale $lambda [matmul $Ainv $h2]]
