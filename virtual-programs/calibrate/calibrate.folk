@@ -2,7 +2,7 @@ package require math::linearalgebra
 rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
     getelem transpose determineSVD shape mkIdentity
-    solvePGauss
+    solvePGauss crossproduct getcol
 } {
     namespace import ::math::linearalgebra::$p
 }
@@ -603,15 +603,40 @@ fn zhangCalibrate {Hs} {
         puts "$var = [set $var]"
     }
 
-    puts "   Focal Length: \[ $alpha $beta ]"
-    puts "Principal Point: \[ $u0 $v0 ]"
-    puts "           Skew: \[ $gamma ] "
+    set fx $alpha; set fy $beta
+    set cx $u0; set cy $v0
+    set s $gamma
+    puts "   Focal Length: \[ $fx $fy ]"
+    puts "Principal Point: \[ $cx $cy ]"
+    puts "           Skew: \[ $s ] "
 
-    return [dict create fx $alpha fy $beta \
-                cx $u0 cy $v0 \
-                s $gamma]
+    # Intrinsic matrix:
+    set A [subst {
+        {$fx  $s   $cx}
+        {0    $fy  $cy}
+        {0    0    1}
+    }]
+    set Ainv [solvePGauss $A [mkIdentity 3]]
+
+    set extrinsics [lmap H $Hs {
+        set h1 [getcol $H 0]
+        set h2 [getcol $H 1]
+        set h3 [getcol $H 2]
+
+        set r1 [scale $lambda [matmul $Ainv $h1]]
+        set r2 [scale $lambda [matmul $Ainv $h2]]
+        set r3 [crossproduct $r1 $r2]
+        set R [transpose [list $r1 $r2 $r3]]
+
+        set t [scale $lambda [matmul $Ainv $h3]]
+
+        # TODO: Refine R using SVD
+        dict create R $R t $t
+    }]
 
     # TODO: nlopt for better intrinsics + distortion parameters
+
+    return [dict create intrinsics $A extrinsics $extrinsics]
 }
 
 fn centroid {points} {
@@ -645,7 +670,6 @@ fn calibrate {calibrationPoses} {
     puts "Zhang calibrate camera:"
     puts "========"
     set cameraCalibration [zhangCalibrate $Hs_modelToCamera]
-
     puts "\n======================\n"
 
     # Second, calibrate the projector.
@@ -659,7 +683,6 @@ fn calibrate {calibrationPoses} {
     puts "Zhang calibrate projector:"
     puts "========"
     set projectorCalibration [zhangCalibrate $Hs_modelToDisplay]
-
     puts "\n======================\n"
 
     # TODO: Use poses to figure out where the projector is in
@@ -670,77 +693,58 @@ fn calibrate {calibrationPoses} {
                          projector $projectorCalibration]
     # TODO: Test projector intrinsics by reprojecting model points
     # using homographies and comparing to it.
-    dict with calibration camera {
-        set cameraIntrinsics [subst {
-            {$fx  0    $cx}
-            {0    $fy  $cy}
-            {0    0    1}
-        }]
-    }
-    dict with calibration projector {
-        set projectorIntrinsics [subst {
-            {$fx  $s   $cx}
-            {0    $fy  $cy}
-            {0    0    1}
-        }]
-    }
+    set cameraIntrinsics [dict get $calibration camera intrinsics]
+    set cameraFx [getelem $cameraIntrinsics 0 0]
+    set cameraFy [getelem $cameraIntrinsics 1 1]
+    set cameraCx [getelem $cameraIntrinsics 0 2]
+    set cameraCy [getelem $cameraIntrinsics 1 2]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
     set projectorIntrinsicsInv [solvePGauss $cameraIntrinsics [mkIdentity 3]]
 
     set tagSize [expr {17.0 / 1000}]; # 17 mm
     set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
-             [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
-             [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
-             [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
+              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
 
-    set cameraFramePoints [list]
-    set projectorFramePoints [list]
-    foreach pose $calibrationPoses {
-        set H_cameraToDisplay [dict get $pose H_cameraToDisplay]
+    # What are R and t such that
+    # R*cameraFramePoint + t = projectorFramePoint?
+    for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
+        # For each checkerboard pose (model plane):
+        # Rc*modelFramePoint + tc = cameraFramePoint
+        # Rp*modelFramePoint + tp = projectorFramePoint
 
-        dict for {id cameraTag} [dict get $pose tags] {
-            dict with calibration camera {
-                set tagPose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
-            }
-
-            for {set i 0} {$i < 4} {incr i} {
-                set tagFrameCorner [lindex $tagFrameCorners $i]
-                set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
-                lappend cameraFramePoints $cameraFrameCorner
-
-                lappend projectorFramePoints \
-                    [matmul $projectorIntrinsicsInv \
-                         [matmul $H_cameraToDisplay \
-                              [matmul $cameraIntrinsics $cameraFrameCorner]]]
-            }
+        set calibrationPose [lindex $calibrationPoses $i]
+        set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
+        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
+        dict for {id cameraTag} [dict get $calibrationPose tags] {
+            # First, let's test by taking a model point and using R
+            # and t to rigid-transform it to camera frame, then
+            # down-projecting it to camera plane. Does it look similar
+            # to the actually-seen camera plane point?
+            set modelFramePoint [list {*}[dict get $calibrationPose model $id c] 0]
+            set cameraFramePoint [add [matmul $Rc $modelFramePoint] $tc]
+            puts "tag $id center: model frame   $modelFramePoint"
+            puts "tag $id center: camera frame  $cameraFramePoint"
+            lassign [matmul $cameraIntrinsics $cameraFramePoint] rpx rpy rpz
+            puts "tag $id center: camera reproj [/ $rpx $rpz] [/ $rpy $rpz]"
+            set cameraPoint [dict get $cameraTag c]
+            puts "tag $id center: camera orig   $cameraPoint"
         }
+        
+        # What is the R and t of this pose relative to the camera?
+        # What is the R and t of this pose relative to the projector?
+
+
+
+
+        # or is it the other way around?
+        # Rc*cameraFramePoint + tc = modelFramePoint
+        # Rp*projectorFramePoint + tp = modelFramePoint
     }
 
-    # For each point: R*cameraFramePoint + t = projectorFramePoint
-    # What are R and t?
     package require Tk
-
-    # Find centroids of cameraFramePoints and projectorFramePoints
-    set cameraFramePointsCentroid [centroid $cameraFramePoints]
-    set projectorFramePointsCentroid [centroid $projectorFramePoints]
-    # Recenter points from each frame & use SVD to find rotation matrix
-    set A_minus_centroid [lmap xc $cameraFramePoints {
-        sub $xc $cameraFramePointsCentroid
-    }]
-    set B_minus_centroid [lmap xp $projectorFramePoints {
-        sub $xp $projectorFramePointsCentroid
-    }]
-    puts "A-c ([shape $A_minus_centroid]) B-c ([shape $B_minus_centroid])"
-    set H [matmul [transpose $A_minus_centroid] $B_minus_centroid]
-    puts "BEFORE SVD of ([shape $H])"
-    lassign [determineSVD $H] U S V'
-    puts "AFTER SVD"
-    set R [matmul [transpose ${V'}] [transpose $U]]
-    # Find translation vector using centroids
-    set t [sub $projectorFramePointsCentroid [matmul $R $cameraFramePointsCentroid]]
-    puts "R is\n[::math::linearalgebra::show $R]"
-    puts "t is ($t)"
-
     canvas .canv -width 1920 -height 1080 -background white
     pack .canv -fill both -expand true
 
@@ -748,9 +752,8 @@ fn calibrate {calibrationPoses} {
     dict for {id cameraTag} [dict get $calibrationPose tags] {
         if {![isProjectedTag $id]} continue
 
-        dict with calibration camera {
-            set pose [estimateTagPose $cameraTag $tagSize $fx $fy $cx $cy]
-        }
+        set tagPose [estimateTagPose $cameraTag $tagSize \
+                         $cameraFx $cameraFy $cameraCx $cameraCy]
         for {set i 0} {$i < 4} {incr i} {
             set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
             .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
@@ -766,6 +769,7 @@ fn calibrate {calibrationPoses} {
             set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
             lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
             set projX [/ $px $pz]; set projY [/ $py $pz]
+            .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
             puts "$id (corner $i): reprojected x y:    $projX $projY"
 
             puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
