@@ -710,6 +710,8 @@ fn calibrate {calibrationPoses} {
 
     # What are R and t such that
     # R*cameraFramePoint + t = projectorFramePoint?
+    set Rsum {{0 0 0} {0 0 0} {0 0 0}}
+    set tsum {0 0 0}
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
         # For each checkerboard pose (model plane):
         # Rc*modelFramePoint + tc = cameraFramePoint
@@ -724,13 +726,12 @@ fn calibrate {calibrationPoses} {
         set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
 
         set Rcinv [solvePGauss $Rc [mkIdentity 3]]
-        set R [matmul $Rp $Rcinv]
-        set t [sub $tp [matmul $R $tc]]
-
-        puts "R is ($R)"
-        puts "t is ($t)"
+        set R [matmul $Rp $Rcinv]; set Rsum [add $Rsum $R]
+        set t [sub $tp [matmul $R $tc]]; set tsum [add $tsum $t]
     }
-    # TODO: Average R and t from all poses.
+    # Average R and t from all poses.
+    set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
+    set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
 
     package require Tk
     canvas .canv -width 1920 -height 1080 -background white
