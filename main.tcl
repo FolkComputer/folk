@@ -546,7 +546,12 @@ namespace eval ::Mailbox {
         }
         pthread_mutex_lock(&mailbox->mutex); {
             int written = snprintf(mailbox->mail, sizeof(mailbox->mail), "%s", statements);
-	    if (written > MAILBOXSIZE) { written = MAILBOXSIZE; }
+	    if (written > MAILBOXSIZE) {
+                fprintf(stderr, "WARNING: Mailbox %s -> %s: "
+                        "Mailbox overflow (%d bytes, MAILBOXSIZE = %d bytes)\n",
+                        from, to, written, MAILBOXSIZE);
+                written = MAILBOXSIZE;
+            }
 	    mailbox->mailLen = written;
         } pthread_mutex_unlock(&mailbox->mutex);
     }
