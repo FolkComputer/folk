@@ -81,14 +81,13 @@ foreach keyboard $keyboardDevices {
     Start process "keyboard-$eventPath" {
         source "pi/KeyCodes.tcl"
         Wish $::thisProcess shares statements like \
-            [list keyboard /k/ claims /k/ is /v/]
+            [list keyboard /k/ claims key /k/ is /v/]
         variable evtBytes 16
         variable evtFormat iissi
         if {[exec getconf LONG_BIT] == 64} {
             set evtBytes 24
             set evtFormat wwssi
         }
-        Assert keyboard [rand] claims key A is "boop: [rand]"
         set keyboardSpecifier $eventPath
         variable eventPathChannel [open $eventPath r]
         puts "starting keyboard process for $keyboard"
@@ -104,6 +103,7 @@ foreach keyboard $keyboardDevices {
                 puts "got key event ($keyboardSpecifier): $code => [keyFromCode $code false] | $value"
                 Retract keyboard $keyboardSpecifier key /k/ is /t/
                 Assert keyboard $keyboardSpecifier claims key [keyFromCode $code false] is [list $value]
+                Step
             }
         }
         # set kbEventPath [open $eventPath r]
