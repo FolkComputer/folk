@@ -1,3 +1,13 @@
+# calibrate.folk --
+#
+#     Implements camera-projector calibration: generate a calibration
+#     pattern PDF, have the user measure its real-world dimension, run
+#     iterative projector-camera process to get various poses of the
+#     printed tags alongside projected tags, do linear fit and then
+#     nonlinear refinement to find intrinsic and extrinsic parameters
+#     for the camera and projector.
+#
+
 package require math::linearalgebra
 # rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
@@ -48,6 +58,7 @@ set MODEL [apply {{ROWS COLS} {
     }
     return $MODEL
 }} $ROWS $COLS]
+Claim the calibration model is $MODEL
 
 fn isCalibrationTag {id} { expr {$id >= 48600 && $id < 48600 + $ROWS*$COLS} }
 fn isPrintedTag {id} {
@@ -574,7 +585,7 @@ fn processHomography {H} {
 # Arguments:
 #         Hs   a list of N homographies from camera/projector image
 #              plane -> model plane (for N different poses).
-fn zhangCalibrate {Hs} {
+fn zhangUnrefinedCalibrate {Hs} {
     # Try to solve for the camera intrinsics:
 
     # Construct V:
@@ -639,8 +650,6 @@ fn zhangCalibrate {Hs} {
         dict create R $R t $t
     }]
 
-    # TODO: nlopt for better intrinsics + distortion parameters
-
     return [dict create intrinsics $A extrinsics $extrinsics]
 }
 
@@ -653,10 +662,11 @@ fn centroid {points} {
 # calibrationPoses is a list of N pose dictionaries. Each pose
 # dictionary includes `tags` from a camera detection, `model` with
 # coordinates in meters, `H_modelToDisplay`.
-fn calibrate {calibrationPoses} {
+fn calibrate {calibrationPoses refineCalibration} {
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
+    set modelToCameraPointPairSets [list]
     set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
         set model [dict get $pose model]
@@ -670,34 +680,45 @@ fn calibrate {calibrationPoses} {
                     lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
+        lappend modelToCameraPointPairSets $pointPairs
+
         estimateHomography $pointPairs
     }]
     puts "Zhang calibrate camera:"
     puts "========"
-    set cameraCalibration [zhangCalibrate $Hs_modelToCamera]
+    set cameraCalibration [apply $refineCalibration \
+                               $modelToCameraPointPairSets \
+                               [zhangUnrefinedCalibrate $Hs_modelToCamera]]
     puts "\n======================\n"
 
     # Second, calibrate the projector.
-    set Hs_modelToDisplay [lmap pose $calibrationPoses {apply {{pose} {
-        set model [dict get $pose model]
+    set modelToDisplayPointPairSets [list]
+    set Hs_modelToDisplay [lmap pose $calibrationPoses {
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
-        set tags [dict get $pose tags]
-        # puts "H_modelToDisplay:\n[::math::linearalgebra::show $H_modelToDisplay]"
-        return $H_modelToDisplay
-    }} $pose}]
+
+        set pointPairs [list]
+        set model [dict get $pose model]
+        dict for {id modelTag} $model {
+            if {![isProjectedTag $id]} continue
+            foreach modelCorner [dict get $modelTag p] {
+                set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+                lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
+            }
+        }
+        lappend modelToDisplayPointPairSets $pointPairs
+
+        set H_modelToDisplay
+    }]
     puts "Zhang calibrate projector:"
     puts "========"
-    set projectorCalibration [zhangCalibrate $Hs_modelToDisplay]
+    set projectorCalibration [apply $refineCalibration \
+                                  $modelToDisplayPointPairSets \
+                                  [zhangUnrefinedCalibrate $Hs_modelToDisplay]]
     puts "\n======================\n"
-
-    # TODO: Use poses to figure out where the projector is in
-    # camera-frame-space.
-    
 
     set calibration [dict create camera $cameraCalibration \
                          projector $projectorCalibration]
-    # TODO: Test projector intrinsics by reprojecting model points
-    # using homographies and comparing to it.
+
     set cameraIntrinsics [dict get $calibration camera intrinsics]
     set cameraFx [getelem $cameraIntrinsics 0 0]
     set cameraFy [getelem $cameraIntrinsics 1 1]
@@ -782,8 +803,9 @@ try {
     puts stderr "Failed to load calibration poses: $e"
 }
 
-When the calibration poses are /calibrationPoses/ {
+When the calibration poses are /calibrationPoses/ &\
+     the calibration refiner is /refineCalibration/ {
     puts "DOING CALIBRATION!"
-    set calibration [calibrate $calibrationPoses]
-    Claim the calibration is $calibration
+    set calibration [calibrate $calibrationPoses $refineCalibration]
+    Claim the unrefined calibration is $calibration
 }
