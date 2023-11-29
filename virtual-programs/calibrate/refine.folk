@@ -155,12 +155,21 @@ When the calibration model is /MODEL/ {
         puts "refined ($refined)"
 
         set refined [lassign $refined fx s cx fy cy]
+        dict set $calibration intrinsics [subst {
+            {$fx  $s   $cx}
+            {0    $fy  $cy}
+            {0    0    1}
+        }]
         for {set i 0} {$i < [llength $poses]} {incr i} {
-            # TODO: Mutate R (r0, r1)
-            # TODO: Mutate t
+            set R [dict get [lindex $extrinsics $i] R]
+            set r0 [lrange $refined [expr {$i*9}] [expr {$i*9 + 2}]]
+            set r1 [lrange $refined [expr {$i*9 + 3}] [expr {$i*9 + 5}]]
+            setcol R 0 $r0; setcol R 1 $r1
+            set t [lrange $refined [expr {$i*9 + 6}] [expr {$i*9 + 8}]]
+            lset extrinsics $i [dict create R $R t $t]
         }
-        # TODO: Re-ravel refined parameters
-        # TODO: Write-back and return new intrinsics and extrinsics
+        dict set $calibration extrinsics $extrinsics
+        return $calibration
     }}
     Claim the calibration refiner is $refineCalibration
 }

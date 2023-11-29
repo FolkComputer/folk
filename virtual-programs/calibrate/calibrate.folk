@@ -12,7 +12,7 @@ package require math::linearalgebra
 # rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
     getelem transpose determineSVD shape mkIdentity
-    solvePGauss crossproduct getcol
+    solvePGauss crossproduct getcol setcol
 } {
     namespace import ::math::linearalgebra::$p
 }
@@ -807,5 +807,5 @@ When the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
     puts "DOING CALIBRATION!"
     set calibration [calibrate $calibrationPoses $refineCalibration]
-    Claim the unrefined calibration is $calibration
+    Claim the calibration is $calibration
 }
