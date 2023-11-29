@@ -65,44 +65,23 @@ When the calibration model is /MODEL/ {
             { 0,   0,   1}
         };
 
-        double r0s[NUM_POSES][3]; double r1s[NUM_POSES][3]; double ts[NUM_POSES][3];
-        {
-            for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
-                r0s[poseNum][0] = x[k++];
-                r0s[poseNum][1] = x[k++];
-                r0s[poseNum][2] = x[k++];
-            }
-            for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
-                r1s[poseNum][0] = x[k++];
-                r1s[poseNum][1] = x[k++];
-                r1s[poseNum][2] = x[k++];
-            }
-            for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
-                ts[poseNum][0] = x[k++];
-                ts[poseNum][1] = x[k++];
-                ts[poseNum][2] = x[k++];
-            }
-        }
-
-        assert(n == k);
-
-        // For each pose:
         int f = 0;               
         for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
+            // For each pose:
+            double r0[3] = { x[k++], x[k++], x[k++] };
+            double r1[3] = { x[k++], x[k++], x[k++] };
+            double t[3] = { x[k++], x[k++], x[k++] };
+            double r0r1t[3][3] = {
+                { r0[0], r1[0], t[0] },
+                { r0[1], r1[1], t[1] },
+                { r0[2], r1[2], t[2] }
+            };
+            // This homography takes model-plane points and
+            // reprojects them onto the pose plane.
+            double H[3][3]; mulMat3Mat3(A, r0r1t, H);
+
             // For each point in the pose:
             for (int i = 0; i < PoseCounts[poseNum]; i++) {
-                double* r0 = &r0s[poseNum][0];
-                double* r1 = &r1s[poseNum][0];
-                double* t = &ts[poseNum][0];
-                double r0r1t[3][3] = {
-                    { r0[0], r1[0], t[0] },
-                    { r0[1], r1[1], t[1] },
-                    { r0[2], r1[2], t[2] }
-                };
-                // This homography takes model-plane points and
-                // reprojects them onto the pose plane.
-                double H[3][3]; mulMat3Mat3(A, r0r1t, H);
-
                 double modelX = Poses[poseNum][i][0];
                 double modelY = Poses[poseNum][i][1];
                 double modelPointHom[3] = { modelX, modelY, 1 };
@@ -156,26 +135,30 @@ When the calibration model is /MODEL/ {
         set A [dict get $calibration intrinsics]
         lassign [getrow $A 0] fx s cx; lassign [getrow $A 1] _ fy cy
 
+        set params [list $fx $s $cx $fy $cy]
+
         set extrinsics [dict get $calibration extrinsics]
-        set r0s [list]; set r1s [list]; set ts [list]
         # For each pose:
         for {set i 0} {$i < [llength $poses]} {incr i} {
             set pointPairs [lindex $poses $i]
             setPose $i [concat {*}$pointPairs] [llength $pointPairs]
 
             set R [dict get [lindex $extrinsics $i] R]
-            # Unravel extrinsics into r0s, r1s, ts
-            lappend r0s [getcol $R 0]
-            lappend r1s [getcol $R 1]
-            lappend ts [dict get [lindex $extrinsics $i] t]
+            # Unravel extrinsics into params
+            lappend params {*}[getcol $R 0]
+            lappend params {*}[getcol $R 1]
+            lappend params {*}[dict get [lindex $extrinsics $i] t]
         }
 
-        set refined [refineCalibrationOptimize \
-                         [concat [list $fx $s $cx $fy $cy] \
-                              {*}$r0s {*}$r1s {*}$ts]]
+        set refined [refineCalibrationOptimize $params]
         puts "++++++++++++++++++++++"
         puts "refined ($refined)"
 
+        set refined [lassign $refined fx s cx fy cy]
+        for {set i 0} {$i < [llength $poses]} {incr i} {
+            # TODO: Mutate R (r0, r1)
+            # TODO: Mutate t
+        }
         # TODO: Re-ravel refined parameters
         # TODO: Write-back and return new intrinsics and extrinsics
     }}
