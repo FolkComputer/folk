@@ -49,7 +49,7 @@ When the calibration model is /MODEL/ {
     $cc proc func {int m int n double* x
                    double* fvec double** dvec
                    void* _} int {
-        assert(m == MAX_POINTS_PER_POSE * NUM_POSES);
+        assert(m <= MAX_POINTS_PER_POSE * NUM_POSES);
 
         // Unwrap the parameters x[]:
         int k = 0;
@@ -87,6 +87,7 @@ When the calibration model is /MODEL/ {
         assert(n == k);
 
         // For each pose:
+        int f = 0;               
         for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
             // For each point in the pose:
             for (int i = 0; i < PoseCounts[poseNum]; i++) {
@@ -116,35 +117,34 @@ When the calibration model is /MODEL/ {
 
                 double dx = reprojectedPosePoint[0] - posePoint[0];
                 double dy = reprojectedPosePoint[1] - posePoint[1];
-                fvec[poseNum * MAX_POINTS_PER_POSE + i] = sqrt(dx * dx + dy * dy);
+                fvec[f++] = sqrt(dx * dx + dy * dy);
             }
         }
         return 0;
     }
-    # For internal testing to check reprojection error.
-    $cc proc callFunc {double[] p0} double {
-        double errs[MAX_POINTS_PER_POSE * NUM_POSES];
-        func(MAX_POINTS_PER_POSE * NUM_POSES,
-             5 + NUM_POSES * 9,
-             p0, errs, NULL, NULL);
-
-        double errsum = 0;
-        for (int i = 0; i < sizeof(errs)/sizeof(errs[0]); i++) {
-            errsum += errs[i];
-        }
-        printf("errsum: %f\n", errsum);
-        return errsum;
-    }
-    $cc proc refineCalibrationOptimize {double[] params} void {
+    $cc proc refineCalibrationOptimize {double[] params} Tcl_Obj* {
+        setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+        
         mp_result result = {0};
-        for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
-        callFunc(params);
-        mpfit(func, MAX_POINTS_PER_POSE * NUM_POSES,
-              5 + NUM_POSES * 9, params, NULL,
+        int totalPoseCount = 0;
+        for (int i = 0; i < NUM_POSES; i++) {
+            totalPoseCount += PoseCounts[i];
+        }
+        int paramCount = 5 + NUM_POSES*9;
+        mpfit(func,
+              // Number of example point pairs:
+              totalPoseCount,
+              // Number of parameters to optimize:
+              paramCount,
+              params, NULL,
               NULL, NULL, &result);
         printf("Optimized\n");
-        for (int i = 0; i < 9; i++) { printf("params[%d] = %f\n", i, params[i]); }
-        callFunc(params);
+
+        Tcl_Obj* paramObjs[paramCount];
+        for (int i = 0; i < paramCount; i++) {
+            paramObjs[i] = Tcl_NewDoubleObj(params[i]);
+        }
+        return Tcl_NewListObj(paramCount, paramObjs);
     }
     $cc compile ;# takes about a half-second
 
@@ -170,9 +170,13 @@ When the calibration model is /MODEL/ {
             lappend ts [dict get [lindex $extrinsics $i] t]
         }
 
-        refineCalibrationOptimize \
-            [concat [list $fx $s $cx $fy $cy] \
-                 {*}$r0s {*}$r1s {*}$ts]
+        set refined [refineCalibrationOptimize \
+                         [concat [list $fx $s $cx $fy $cy] \
+                              {*}$r0s {*}$r1s {*}$ts]]
+        puts "++++++++++++++++++++++"
+        puts "refined ($refined)"
+
+        # TODO: Re-ravel refined parameters
         # TODO: Write-back and return new intrinsics and extrinsics
     }}
     Claim the calibration refiner is $refineCalibration
