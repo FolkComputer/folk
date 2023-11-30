@@ -101,7 +101,7 @@ foreach keyboard $keyboardDevices {
             }
             if {$type == 0x01 && $value == 1} {
                 puts "got key event ($keyboardSpecifier): $code => [keyFromCode $code false] | $value"
-                Retract keyboard $keyboardSpecifier key /k/ is /t/
+                Retract keyboard $keyboardSpecifier claims key /k/ is /t/
                 Assert keyboard $keyboardSpecifier claims key [keyFromCode $code false] is [list $value]
                 Step
             }
