@@ -81,7 +81,7 @@ foreach keyboard $keyboardDevices {
     Start process "keyboard-$eventPath" {
         source "pi/KeyCodes.tcl"
         Wish $::thisProcess shares statements like \
-            [list keyboard /k/ claims key /k/ is /v/]
+            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/]
         variable evtBytes 16
         variable evtFormat iissi
         if {[exec getconf LONG_BIT] == 64} {
@@ -90,18 +90,45 @@ foreach keyboard $keyboardDevices {
         }
         set keyboardSpecifier $eventPath
         variable eventPathChannel [open $eventPath r]
+        set keyStates [list up down repeat]
+        set modifiers [dict create \
+            shift 0 \
+            ctrl 0 \
+            alt 0 \
+        ]
         while 1 {
             binary scan [read $eventPathChannel $evtBytes] $evtFormat tvSec tvUsec type code value
             if {$type > 0x04} {
                 set eventPathChannel [open $eventPath r]
                 binary scan [read $eventPathChannel $evtBytes] $evtFormat tvSec tvUsec type code value
             }
-            if {$type == 0x01 && ($value == 1) || ($value == 2)} {
-                set key [keyFromCode $code 0]
-                # puts "shift: [string match *SHIFT $key] | $key"
+            if {$type == 0x01} {
+                set shift [dict get $modifiers shift]
+                set key [keyFromCode $code $shift]
+                set keyState [lindex $keyStates $value]
+
+                # dict set modifiers shift 0
+                # dict set modifiers alt 0
+                # dict set modifiers ctrl 0
+
+                set isDown [expr {$keyState != "up"}]
+                if {[string match *SHIFT $key]} {
+                    dict set modifiers shift $isDown
+                }
+                if {[string match *CTRL $key]} {
+                    dict set modifiers ctrl $isDown
+                }
+                if {[string match *ALT $key]} {
+                    dict set modifiers alt $isDown
+                }
+
+                set heldModifiers [dict keys [dict filter $modifiers value 1]]
+                puts "shift: [string match *SHIFT $key] | $key"
+                puts "modifiers: $heldModifiers"
+
                 puts "got key event ($keyboardSpecifier): $code => $key | $value"
-                Retract keyboard $keyboardSpecifier claims key /k/ is /t/
-                Assert keyboard $keyboardSpecifier claims key [keyFromCode $code false] is [list $value]
+                Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/
+                Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
                 Step
             }
         }
