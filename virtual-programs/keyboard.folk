@@ -90,10 +90,7 @@ foreach keyboard $keyboardDevices {
         }
         set keyboardSpecifier $eventPath
         variable eventPathChannel [open $eventPath r]
-        puts "starting keyboard process for $keyboard"
-        set readCount 0
         while 1 {
-            set readCount [incr $readCount]
             binary scan [read $eventPathChannel $evtBytes] $evtFormat tvSec tvUsec type code value
             if {$type > 0x04} {
                 set eventPathChannel [open $eventPath r]
