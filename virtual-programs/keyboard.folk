@@ -47,7 +47,8 @@ proc isKeyboard {device} {
 #
 # This function goes through each of them and checks if they are keyboards
 proc walkInputEventPaths {} {
-    set allDevices [glob -nocomplain "/dev/input/event*"]
+    # set allDevices [glob -nocomplain "/dev/input/event*"]
+    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
     set keyboards [list]
     foreach device $allDevices {
         set devLinks [getDEVLINKS $device]
@@ -78,6 +79,7 @@ set keyboardDevices [walkInputEventPaths]
 # go through each keyboard device and start a process that 
 foreach keyboard $keyboardDevices {
     set eventPath [dict get $keyboard eventPath]
+    Claim keyboards are $keyboardDevices
     Start process "keyboard-$eventPath" {
         source "pi/KeyCodes.tcl"
         Wish $::thisProcess shares statements like \
@@ -128,7 +130,8 @@ foreach keyboard $keyboardDevices {
 
                 puts "got key event ($keyboardSpecifier): $code => $key | $value"
                 Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/
-                Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+                # Assert keyboard $keyboardSpecifier claims key [list $key] is [list $keyState] with modifiers [list $heldModifiers]
+                Assert keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $heldModifiers
                 Step
             }
         }

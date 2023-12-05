@@ -250,131 +250,133 @@ proc getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
-Every time keyboard claims key /currentCharacter/ is down with modifiers /modifier/ & the cursor is /cursor/ & $id has program code /code/ {
-  Commit cursor {
-    switch $currentCharacter {
-      UP {
-        set updatedCursor [updateCursor $cursor {y -1}]
-        set currentLineLength  [getCurrentLineLength $code $updatedCursor]
-        if {[lindex $updatedCursor 0] > $currentLineLength} {
-          Claim the cursor is [list [- $currentLineLength 1]  [lindex $updatedCursor 1]]
-        } else {
-          Claim the cursor is $updatedCursor
+When /page/ is a keyboard with path /kbPath/ {
+  Every time  keyboard $kbPath claims key /currentCharacter/ is down with modifiers /modifier/ & the cursor is /cursor/ & $id has program code /code/ {
+    Commit cursor {
+      switch $currentCharacter {
+        UP {
+          set updatedCursor [updateCursor $cursor {y -1}]
+          set currentLineLength  [getCurrentLineLength $code $updatedCursor]
+          if {[lindex $updatedCursor 0] > $currentLineLength} {
+            Claim the cursor is [list [- $currentLineLength 1]  [lindex $updatedCursor 1]]
+          } else {
+            Claim the cursor is $updatedCursor
+          }
         }
-      }
-      DOWN {
-        set linecount [llength [split $code "\n"]]
-        set updatedCursor [updateCursor $cursor {y 1}]
-        set currentLineLength [getCurrentLineLength $code $updatedCursor]
+        DOWN {
+          set linecount [llength [split $code "\n"]]
+          set updatedCursor [updateCursor $cursor {y 1}]
+          set currentLineLength [getCurrentLineLength $code $updatedCursor]
 
-        if {[lindex $updatedCursor 1] == $linecount} {
+          if {[lindex $updatedCursor 1] == $linecount} {
+            Claim the cursor is $cursor
+            return
+          } elseif {[lindex $updatedCursor 0] > $currentLineLength} {
+            Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
+          } else {
+            Claim the cursor is $updatedCursor
+          }
+        }
+        RIGHT {
+          set currentLineLength [getCurrentLineLength $code $cursor]
+          # TODO: Check if the cursor is at the end of the line, if so cap it
+          Claim the cursor is [updateCursor $cursor {x 1}]
+        }
+        LEFT { Claim the cursor is [updateCursor $cursor {x -1}] }
+        BACKSPACE {
+          # if cursor is at the beginning of the line, delete the newline
+          if {[x $cursor] == 0} {
+            set newCursor [updateCursor $cursor {y -1}]
+            set previousLineLength  [getCurrentLineLength $code $newCursor]
+            set newCursor [list $previousLineLength [y $newCursor]]
+            Claim the cursor is $newCursor
+          } else {
+            Claim the cursor is [updateCursor $cursor {x -1}]
+          }
+          Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
+        }
+        SPACE {
+          Claim the cursor is [updateCursor $cursor {x 1}]
+          Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
+        }
+        ENTER {
+          set updatedCursor [updateCursor $cursor {y 1}]
+          Claim the cursor is [list 0 [lindex $updatedCursor 1]]
+          Commit code { Claim $id has program code [insertNewline $code $cursor] }
+        }
+        DELETE -
+        INSERT -
+        MUTE -
+        VOLUMEUP -
+        VOLUMEDOWN -
+        ESC -
+        TAB -
+        CAPSLOCK -
+        LEFTSHIFT -
+        RIGHTSHIFT -
+        LEFTALT -
+        RIGHTALT -
+        LEFTCTRL -
+        RIGHTCTRL {
+          # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
+          # TODO: MUTE VOLUMEUP VOLUMEDOWN
+          #       implement sound.folk that allows a system-wide 
+          #       volume setting to be adjusted.
+          #       Perhaps `Wish $system volume is 0.5` or something
+
           Claim the cursor is $cursor
-          return
-        } elseif {[lindex $updatedCursor 0] > $currentLineLength} {
-          Claim the cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
-        } else {
-          Claim the cursor is $updatedCursor
         }
-      }
-      RIGHT {
-        set currentLineLength [getCurrentLineLength $code $cursor]
-        # TODO: Check if the cursor is at the end of the line, if so cap it
-        Claim the cursor is [updateCursor $cursor {x 1}]
-      }
-      LEFT { Claim the cursor is [updateCursor $cursor {x -1}] }
-      BACKSPACE {
-        # if cursor is at the beginning of the line, delete the newline
-        if {[x $cursor] == 0} {
-          set newCursor [updateCursor $cursor {y -1}]
-          set previousLineLength  [getCurrentLineLength $code $newCursor]
-          set newCursor [list $previousLineLength [y $newCursor]]
-          Claim the cursor is $newCursor
-        } else {
-          Claim the cursor is [updateCursor $cursor {x -1}]
-        }
-        Commit code { Claim $id has program code [deleteCharacter $code $cursor] }
-      }
-      SPACE {
-        Claim the cursor is [updateCursor $cursor {x 1}]
-        Commit code { Claim $id has program code [insertCharacter $code " " $cursor] }
-      }
-      ENTER {
-        set updatedCursor [updateCursor $cursor {y 1}]
-        Claim the cursor is [list 0 [lindex $updatedCursor 1]]
-        Commit code { Claim $id has program code [insertNewline $code $cursor] }
-      }
-      DELETE -
-      INSERT -
-      MUTE -
-      VOLUMEUP -
-      VOLUMEDOWN -
-      ESC -
-      TAB -
-      CAPSLOCK -
-      LEFTSHIFT -
-      RIGHTSHIFT -
-      LEFTALT -
-      RIGHTALT -
-      LEFTCTRL -
-      RIGHTCTRL {
-        # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
-        # TODO: MUTE VOLUMEUP VOLUMEDOWN
-        #       implement sound.folk that allows a system-wide 
-        #       volume setting to be adjusted.
-        #       Perhaps `Wish $system volume is 0.5` or something
-
-        Claim the cursor is $cursor
-      }
-      default {
-        if {$modifier == "ctrl" & $currentCharacter == "p"} {
-          # TODO: Save time instead and prevent printing the same code within the same ... second?
-          When $id has printed /lastPrintedCode/ {
-            if {$lastPrintedCode == $code} {
-              Claim the cursor is $cursor
-              if {$::debug_print} {
-                puts "Not printing the same code twice"
+        default {
+          if {$modifier == "ctrl" & $currentCharacter == "p"} {
+            # TODO: Save time instead and prevent printing the same code within the same ... second?
+            When $id has printed /lastPrintedCode/ {
+              if {$lastPrintedCode == $code} {
+                Claim the cursor is $cursor
+                if {$::debug_print} {
+                  puts "Not printing the same code twice"
+                }
+                return
               }
+            }
+            When /nobody/ has printed /lastPrintedCode/ {
+              if {$::debug_print} {
+                puts "Printing $code"
+              }
+              Commit print { Claim $id has printed $code}
+              Wish to print $code with job id [expr {rand()}]
               return
             }
-          }
-          When /nobody/ has printed /lastPrintedCode/ {
-            if {$::debug_print} {
-              puts "Printing $code"
-            }
-            Commit print { Claim $id has printed $code}
-            Wish to print $code with job id [expr {rand()}]
+            Commit code { Claim $id has program code $code}
+            Claim the cursor is $cursor
             return
           }
-          Commit code { Claim $id has program code $code}
-          Claim the cursor is $cursor
-          return
+          if {$modifier == "ctrl" & $currentCharacter == "r"} {
+            Commit code { Claim $id has program code $baseCode }
+            Claim the cursor is [list 0 0]
+            return
+          }
+          if {$modifier == "ctrl" & $currentCharacter == "a"} {
+            Commit code { Claim $id has program code $code}
+            lassign $cursor x y
+            Claim the cursor is [list 0 $y]
+            return
+          }
+          if {$modifier == "ctrl" & $currentCharacter == "e"} {
+            Commit code { Claim $id has program code $code}
+            lassign $cursor x y
+            Claim the cursor is [list [getLineLength $code $cursor] $y]
+            return
+          }
+          if {$modifier == "ctrl" & $currentCharacter == "u"} {
+            # delete from cursor back to 0 and move cursor to 0
+            Commit code { Claim $id has program code [deleteToBeginning $code $cursor]}
+            lassign $cursor x y
+            Claim the cursor is [list 0 $y]
+            return
+          }
+          Claim the cursor is [updateCursor $cursor {x 1}]
+          Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
         }
-        if {$modifier == "ctrl" & $currentCharacter == "r"} {
-          Commit code { Claim $id has program code $baseCode }
-          Claim the cursor is [list 0 0]
-          return
-        }
-        if {$modifier == "ctrl" & $currentCharacter == "a"} {
-          Commit code { Claim $id has program code $code}
-          lassign $cursor x y
-          Claim the cursor is [list 0 $y]
-          return
-        }
-        if {$modifier == "ctrl" & $currentCharacter == "e"} {
-          Commit code { Claim $id has program code $code}
-          lassign $cursor x y
-          Claim the cursor is [list [getLineLength $code $cursor] $y]
-          return
-        }
-        if {$modifier == "ctrl" & $currentCharacter == "u"} {
-          # delete from cursor back to 0 and move cursor to 0
-          Commit code { Claim $id has program code [deleteToBeginning $code $cursor]}
-          lassign $cursor x y
-          Claim the cursor is [list 0 $y]
-          return
-        }
-        Claim the cursor is [updateCursor $cursor {x 1}]
-        Commit code { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
       }
     }
   }
