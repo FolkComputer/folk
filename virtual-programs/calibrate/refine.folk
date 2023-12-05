@@ -102,6 +102,13 @@ When the calibration model is /MODEL/ {
         }
         return 0;
     }
+    $cc proc computeError {int totalPoseCount int paramCount double[] params} void {
+        double fvec[totalPoseCount];
+        func(totalPoseCount, paramCount, params, fvec, NULL, NULL);
+        double totalError = 0;
+        for (int i = 0; i < totalPoseCount; i++) { totalError += fvec[i]; }
+        printf("Total Error: %f\n", totalError);
+    }
     $cc proc refineCalibrationOptimize {double[] params} Tcl_Obj* {
         setvbuf(stdout, NULL, _IONBF, BUFSIZ);
         
@@ -111,6 +118,9 @@ When the calibration model is /MODEL/ {
             totalPoseCount += PoseCounts[i];
         }
         int paramCount = 5 + NUM_POSES*9;
+        printf("Unrefined: ");
+        computeError(totalPoseCount, paramCount, params);
+        
         mpfit(func,
               // Number of example point pairs:
               totalPoseCount,
@@ -118,7 +128,8 @@ When the calibration model is /MODEL/ {
               paramCount,
               params, NULL,
               NULL, NULL, &result);
-        printf("Optimized\n");
+        printf("Refined: ");
+        computeError(totalPoseCount, paramCount, params);
 
         Tcl_Obj* paramObjs[paramCount];
         for (int i = 0; i < paramCount; i++) {

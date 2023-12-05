@@ -787,7 +787,7 @@ fn calibrate {calibrationPoses refineCalibration} {
                 set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
                 lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
                 set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
-                # .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
+                # .canv create oval $reprojX $reprojY {*}[add [list $reprojX $reprojY] {5 5}] -fill yellow
                 # puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
 
                 # puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
