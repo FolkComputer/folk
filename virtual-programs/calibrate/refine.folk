@@ -64,6 +64,9 @@ When the calibration model is /MODEL/ {
             { 0,  fy,  cy},
             { 0,   0,   1}
         };
+        double k1 = x[k++];
+        double k2 = x[k++];
+        (void)k1; (void)k2;
 
         int f = 0;
         // For each pose:
@@ -117,7 +120,7 @@ When the calibration model is /MODEL/ {
         for (int i = 0; i < NUM_POSES; i++) {
             totalPoseCount += PoseCounts[i];
         }
-        int paramCount = 5 + NUM_POSES*9;
+        int paramCount = 7 + NUM_POSES*9;
         printf("Unrefined: ");
         computeError(totalPoseCount, paramCount, params);
         
@@ -146,8 +149,10 @@ When the calibration model is /MODEL/ {
     set refineCalibration {{poses calibration} {
         set A [dict get $calibration intrinsics]
         lassign [getrow $A 0] fx s cx; lassign [getrow $A 1] _ fy cy
+        set k1 [dict get $calibration k1]
+        set k2 [dict get $calibration k2]
 
-        set params [list $fx $s $cx $fy $cy]
+        set params [list $fx $s $cx $fy $cy $k1 $k2]
 
         set extrinsics [dict get $calibration extrinsics]
         # For each pose:
@@ -167,10 +172,11 @@ When the calibration model is /MODEL/ {
         puts "Refined:"
         # puts "refined ($refined)"
 
-        set refined [lassign $refined fx s cx fy cy]
+        set refined [lassign $refined fx s cx fy cy k1 k2]
         puts "   Focal Length: \[ $fx $fy ]"
         puts "Principal Point: \[ $cx $cy ]"
         puts "           Skew: \[ $s ] "
+        puts "     Distortion: \[ $k1 $k2 ] "
         dict set calibration intrinsics [subst {
             {$fx  $s   $cx}
             {0    $fy  $cy}

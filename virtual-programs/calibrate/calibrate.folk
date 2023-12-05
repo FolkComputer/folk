@@ -650,7 +650,10 @@ fn zhangUnrefinedCalibrate {Hs} {
         dict create R $R t $t
     }]
 
-    return [dict create intrinsics $A extrinsics $extrinsics]
+    # Initialize distortion terms k1 and k2 to 0 -- they get figured
+    # out during nonlinear refinement.
+    return [dict create intrinsics $A extrinsics $extrinsics \
+                k1 0 k2 0]
 }
 
 fn centroid {points} {
@@ -779,6 +782,7 @@ fn calibrate {calibrationPoses refineCalibration} {
                 set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
                 lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
                 # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
+                # puts ""
                 # puts "$id (corner $i): orig projected x y: $origX $origY"
 
                 set tagFrameCorner [lindex $tagFrameCorners $i]
