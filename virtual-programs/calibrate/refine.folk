@@ -160,7 +160,7 @@ When the calibration model is /MODEL/ {
         puts "   Focal Length: \[ $fx $fy ]"
         puts "Principal Point: \[ $cx $cy ]"
         puts "           Skew: \[ $s ] "
-        dict set $calibration intrinsics [subst {
+        dict set calibration intrinsics [subst {
             {$fx  $s   $cx}
             {0    $fy  $cy}
             {0    0    1}
@@ -173,7 +173,7 @@ When the calibration model is /MODEL/ {
             set t [lrange $refined [expr {$i*9 + 6}] [expr {$i*9 + 8}]]
             lset extrinsics $i [dict create R $R t $t]
         }
-        dict set $calibration extrinsics $extrinsics
+        dict set calibration extrinsics $extrinsics
         return $calibration
     }}
     Claim the calibration refiner is $refineCalibration
