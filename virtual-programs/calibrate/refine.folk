@@ -68,9 +68,10 @@ When the calibration model is /MODEL/ {
         int f = 0;               
         for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
             // For each pose:
-            double r0[3] = { x[k++], x[k++], x[k++] };
-            double r1[3] = { x[k++], x[k++], x[k++] };
-            double t[3] = { x[k++], x[k++], x[k++] };
+            double r0[3] = { x[k+1], x[k+2], x[k+3] };
+            double r1[3] = { x[k+4], x[k+5], x[k+6] };
+            double t[3] = { x[k+7], x[k+8], x[k+9] };
+            k += 9;
             double r0r1t[3][3] = {
                 { r0[0], r1[0], t[0] },
                 { r0[1], r1[1], t[1] },
