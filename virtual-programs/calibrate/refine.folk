@@ -153,9 +153,13 @@ When the calibration model is /MODEL/ {
 
         set refined [refineCalibrationOptimize $params]
         puts "++++++++++++++++++++++"
-        puts "refined ($refined)"
+        puts "Refined:"
+        # puts "refined ($refined)"
 
         set refined [lassign $refined fx s cx fy cy]
+        puts "   Focal Length: \[ $fx $fy ]"
+        puts "Principal Point: \[ $cx $cy ]"
+        puts "           Skew: \[ $s ] "
         dict set $calibration intrinsics [subst {
             {$fx  $s   $cx}
             {0    $fy  $cy}
