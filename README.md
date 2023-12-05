@@ -11,7 +11,7 @@ your own risk!**
 We're working on a more complete open-source release for 2024, which
 would open up our internal GitHub repository, document the
 installation process, and provide canonical examples/demos to show
-what's possible -- if you don't know what this is, then you might want
+what's possible. If you don't know what this is, then you might want
 to wait for that release.
 
 -----
