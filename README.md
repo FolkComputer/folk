@@ -1,3 +1,13 @@
+**Note: Folk is in a *pre-alpha* state and isn't yet well-documented
+or well-exampled.**
+
+**We're making Folk's source code free and available to the public,
+but haven't formally released it or made it ready for public use; we
+make no guarantee of support or of continuing backward compatibility
+as we change things. Try at your own risk!**
+
+-----
+
 # Folk
 
 ## Hardware/setup info
@@ -244,10 +254,8 @@ https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-
 
 ## License
 
-We intend to release this repo as open-source under an MIT, GPLv3,
-Apache 2.0, or AGPLv3 license in 2023; by contributing
-code, you're also agreeing to license your code under whichever
-license we end up choosing.
+Folk is available under the Apache 2.0 license. See the [LICENSE](LICENSE) file
+for more information.
 
 ## Troubleshooting
 
