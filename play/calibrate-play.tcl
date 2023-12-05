@@ -21,5 +21,10 @@ apply {{} {
 
     set fd [open "folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
+
+    # Test without refinement (refiner is identity fn).
+    calibrate $calibrationPoses {{poses calibration} {set calibration}}
+
+    # Test with refinement.
     calibrate $calibrationPoses $::refineCalibration
 }}

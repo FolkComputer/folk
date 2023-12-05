@@ -764,35 +764,44 @@ fn calibrate {calibrationPoses refineCalibration} {
     # canvas .canv -width 1920 -height 1080 -background white
     # pack .canv -fill both -expand true
 
-    set calibrationPose [lindex $calibrationPoses 0]
-    dict for {id cameraTag} [dict get $calibrationPose tags] {
-        if {![isProjectedTag $id]} continue
+    set totalError 0
 
-        set tagPose [estimateTagPose $cameraTag $tagSize \
-                         $cameraFx $cameraFy $cameraCx $cameraCy]
-        for {set i 0} {$i < 4} {incr i} {
-            set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
-            # .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
+    foreach calibrationPose $calibrationPoses {
+        dict for {id cameraTag} [dict get $calibrationPose tags] {
+            if {![isProjectedTag $id]} continue
 
-            set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
-            lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
-            # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
-            puts "$id (corner $i): orig projected x y: $origX $origY"
+            set tagPose [estimateTagPose $cameraTag $tagSize \
+                             $cameraFx $cameraFy $cameraCx $cameraCy]
+            for {set i 0} {$i < 4} {incr i} {
+                set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
+                # .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
 
-            set tagFrameCorner [lindex $tagFrameCorners $i]
-            set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+                set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
+                lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
+                # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
+                # puts "$id (corner $i): orig projected x y: $origX $origY"
 
-            set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
-            lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
-            set projX [/ $px $pz]; set projY [/ $py $pz]
-            # .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
-            puts "$id (corner $i): reprojected x y:    $projX $projY"
+                set tagFrameCorner [lindex $tagFrameCorners $i]
+                set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
 
-            puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
-            puts "$id (corner $i): projectorFrameCorner ($projectorFrameCorner)"
-            puts ""
+                set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
+                lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
+                set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
+                # .canv create oval $projX $projY {*}[add [list $projX $projY] {5 5}] -fill yellow
+                # puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
+
+                # puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
+                # puts "$id (corner $i): projectorFrameCorner ($projectorFrameCorner)"
+                # puts ""
+
+                set error [expr {sqrt(($reprojX - $origX)*($reprojX - $origX) + ($reprojY - $origY)*($reprojY - $origY))}]
+                set totalError [+ $totalError $error]
+            }
         }
     }
+
+    puts "TOTAL ERROR: $totalError"
+
     return $calibration
 }
 try {
