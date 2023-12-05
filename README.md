@@ -1,18 +1,26 @@
 **Note: Folk is in a *pre-alpha* state and isn't yet well-documented
 or well-exampled.**
 
-**We're making Folk's source code free and available to the public,
-but haven't formally released it or made it ready for public use; we
-make no guarantee of support or of continuing backward compatibility
-as we change things. Try at your own risk!**
+**We're making Folk's source code free and available to the public in
+a [read-only form](https://git.folk.computer/folk/about/), in case
+you're already excited about trying it, but we haven't formally
+announced it or made it ready for public use. We make no guarantee of
+support, of usability, or of continuing backward compatibility. Try at
+your own risk!**
+
+We're working on a more complete open-source release for 2024, which
+would open up our internal GitHub repository, document the
+installation process, and provide canonical examples/demos to show
+what's possible -- if you don't know what this is, then you might want
+to wait for that release.
 
 -----
 
-# Folk
+# [Folk](https://folk.computer)
 
 ## Hardware/setup info
 
-<http://folk.computer/pilot/>
+<https://folk.computer/pilot/>
 
 ## Linux tabletop installation
 
@@ -117,9 +125,15 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-Then, _on your laptop_, clone this repo and run `make
-sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This will rsync folk to the
-tabletop and run it there as well as running it on your laptop.
+Then, _on your laptop_, clone this repository:
+
+```
+$ git clone https://git.folk.computer/folk
+```
+
+And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
+will rsync folk to the tabletop and run it there as well as running it
+on your laptop.
 
 ### How to control tabletop Folk from your laptop
 
@@ -252,11 +266,6 @@ Edit /boot/cmdline.txt https://github.com/raspberrypi/firmware/issues/1647#issue
 https://askubuntu.com/questions/1321443/very-long-startup-time-on-ubuntu-server-network-configuration
 (add `optional: true` to all netplan interfaces)
 
-## License
-
-Folk is available under the Apache 2.0 license. See the [LICENSE](LICENSE) file
-for more information.
-
 ## Troubleshooting
 
 ### Why is my camera slow (why is tracking janky or laggy, why is camera time high)
@@ -278,6 +287,11 @@ v4l2-ctl -c white_balance_automatic=0
 You can build Tcl with `TCL_MEM_DEBUG`. Download Tcl source code. (On
 Mac, _do not_ go to the macosx/ subdir; go to the unix/ subdir.) Do
 `./configure --enable-symbols=all`, do `make`, `make install`
+
+## License
+
+Folk is available under the Apache 2.0 license. See the [LICENSE](LICENSE) file
+for more information.
 
 ## Language reference
 
