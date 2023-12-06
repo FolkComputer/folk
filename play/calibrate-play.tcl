@@ -12,6 +12,71 @@ proc When {args} {
 }
 proc Claim {args} {}
 
+proc testCalibration {calibrationPoses calibration} {
+    upvar ^isProjectedTag ^isProjectedTag
+    upvar ^applyHomography ^applyHomography
+
+    set tagSize [expr {17.0 / 1000}]; # 17 mm
+    set tagFrameCorners \
+        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
+              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+
+    set cameraIntrinsics [dict get $calibration camera intrinsics]
+    set cameraFx [getelem $cameraIntrinsics 0 0]
+    set cameraFy [getelem $cameraIntrinsics 1 1]
+    set cameraCx [getelem $cameraIntrinsics 0 2]
+    set cameraCy [getelem $cameraIntrinsics 1 2]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
+
+    set R_cameraToProjector [dict get $calibration R_cameraToProjector]
+    set t_cameraToProjector [dict get $calibration t_cameraToProjector]
+
+    # package require Tk
+    # canvas .canv -width 1920 -height 1080 -background white
+    # pack .canv -fill both -expand true
+
+    set totalError 0
+
+    foreach calibrationPose $calibrationPoses {
+        dict for {id cameraTag} [dict get $calibrationPose tags] {
+            if {![isProjectedTag $id]} continue
+
+            set tagPose [estimateTagPose $cameraTag $tagSize \
+                             $cameraFx $cameraFy $cameraCx $cameraCy]
+            for {set i 0} {$i < 4} {incr i} {
+                set modelPoint [lindex [dict get $calibrationPose model $id p] $i]
+                # .canv create oval {*}[scale 1000 $modelPoint] {*}[add [scale 1000 $modelPoint] {5 5}] -fill red
+
+                set H_modelToDisplay [dict get $calibrationPose H_modelToDisplay]
+                lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
+                # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
+                # puts ""
+                # puts "$id (corner $i): orig projected x y: $origX $origY"
+
+                set tagFrameCorner [lindex $tagFrameCorners $i]
+                set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+
+                set projectorFrameCorner [add [matmul $R_cameraToProjector $cameraFrameCorner] $t_cameraToProjector]
+                lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
+                set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
+                # .canv create oval $reprojX $reprojY {*}[add [list $reprojX $reprojY] {5 5}] -fill yellow
+                # puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
+
+                # puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
+                # puts "$id (corner $i): projectorFrameCorner ($projectorFrameCorner)"
+                # puts ""
+
+                set error [expr {sqrt(($reprojX - $origX)*($reprojX - $origX) + ($reprojY - $origY)*($reprojY - $origY))}]
+                set totalError [+ $totalError $error]
+            }
+        }
+    }
+
+    puts "TOTAL ERROR: $totalError"
+}
+
 apply {{} {
     source "lib/c.tcl"
     source "virtual-programs/calibrate/calibrate.folk"
@@ -65,9 +130,17 @@ apply {{} {
         close $modelFd; foreach poseFd $poseFds { close $poseFd }
     }} $calibrationPoses
 
-    # Test without refinement (refiner is identity fn).
-    calibrate $calibrationPoses {{poses calibration} {set calibration}}
+    puts "Test without refinement (refiner is identity fn)."
+    puts "-------------------------------------------------"
+    testCalibration $calibrationPoses [calibrate $calibrationPoses {{poses cal} {set cal}}]
+    puts ""
+    puts "Test with refinement."
+    puts "-------------------------------------------------"
+    testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
 
-    # Test with refinement.
-    calibrate $calibrationPoses $::refineCalibration
+
+    # Test with camera override.
+    # calibrate $calibrationPoses {{poses calibration} {
+    #     set calibration
+    # }}
 }}
