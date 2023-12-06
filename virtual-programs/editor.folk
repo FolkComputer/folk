@@ -2,9 +2,14 @@ set id "editor-1"
 set ::debug_cursor false
 set ::debug_print false
 
+# long base code
+# set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum long long long long long long long long long long long\nClaim bl000000000000000000000000000000_______oooooop\nClaim hello hello hello hello hello hello hello"
+set baseCode "Wish \$this is outlined green"
+
 When /page/ is a keyboard with path /kbPath/ & /page/ has region /r/ {
-    Wish $page is outlined gray
-    Claim $id has region [region move $r up 450px]
+  Wish $page is outlined gray
+  Claim $id has region [region move $r up 450px]
+  Commit code { Claim $id has program code $baseCode }
 }
 
 proc updateCursor {oldCursor updates} {
@@ -112,11 +117,6 @@ proc newRegion {program x y w h} {
   set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
   Claim $program has region [region create $vertices $edges]
 }
-
-set baseCode "Wish \$this is outlined green"
-# long base code
-# set baseCode "Claim\nWish \$this is outlined green\nClaim this is a super long linelooooooooong line\nClaim the future is good\nClaim lorem ipsum long long long long long long long long long long long\nClaim bl000000000000000000000000000000_______oooooop\nClaim hello hello hello hello hello hello hello"
-Commit code { Claim $id has program code $baseCode }
 
 proc drawText {text cursor count region} {
   set lineNumber 1
