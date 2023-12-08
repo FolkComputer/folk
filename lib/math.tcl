@@ -193,6 +193,12 @@ namespace eval ::region {
         return ret;
     }
 
+    $cc proc free {Region* region} void {
+        ckfree((char*) region->points);
+        ckfree((char*) region->edges);
+        ckfree((char*) region);
+    }
+
     $cc proc pprint {Region* region} void {
         for (int i = 0; i < region->n_points; i++) {
             printf("Point %d: [%f, %f]\n", i, region->points[i].x, region->points[i].y);
@@ -247,8 +253,10 @@ namespace eval ::region {
     $cc compile
 
     proc convexHull {points} {
-        set r [region create_convex_region $points [llength $points]]
-        region to_tcl $r
+        set ch [region create_convex_region $points [llength $points]]
+        set r [region to_tcl $ch]
+        region free $ch
+        return $r
     }
 
     proc create {vertices edges {angle 0}} {
