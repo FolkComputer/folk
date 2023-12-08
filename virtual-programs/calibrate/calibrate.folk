@@ -517,6 +517,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # stable enough and shouldn't record this as a calibration
         # pose.
         if {[meanPoseDifference $pose $prevPose] > 5} { return }
+        # Decreasing this threshold to 1 helps with data
+        # accuracy. TODO: Use an _older_ frame?
         puts "WOULD APPEND CALIBRATION..."
 
         # FIXME: Quick hack so you can tell calibration went through.
