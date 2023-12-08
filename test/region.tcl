@@ -47,12 +47,30 @@ testCH "Line" \
     [list [list 0 1] [list 1 0]] \
     [pointsFromAscii "*  *"]
 
+testCH "Line with point in middle" \
+    [list [list 0 2] [list 2 0]] \
+    [pointsFromAscii "*       *     *"]
+
+testCH "Line with point in middle, shuffeled" \
+    [list [list 0 1] [list 1 0]] \
+    [list [list 0 0] [list 0 10] [list 0 5]]
+
 testCH "Triangle" \
     [list [list 0 2] [list 2 1] [list 1 0]] \
     [pointsFromAscii "
         *    *
 
           *
+    "]
+
+testCH "Collinear points" \
+    [list [list 0 5] [list 5 2] [list 2 0]] \
+    [pointsFromAscii "
+        *  *  *
+
+        *  *
+
+        *
     "]
 
 testCH "Triangle with bounded point" \
@@ -102,18 +120,3 @@ testCH "Pentagon" \
                *
     "]
 
-testCH "Line with point in middle" \
-    [list [list 0 2] [list 2 0]] \
-    [pointsFromAscii "*       *     *"]
-
-testCH "Line with point in middle, shuffeled" \
-    [list [list 0 1] [list 1 0]] \
-    [list [list 0 0] [list 0 10] [list 0 5]]
-
-testCH "Co-linear points" \
-    [list [list 0 5] [list 5 2] [list 2 0]] \
-    [pointsFromAscii "
-        * * *
-        * *
-        *
-    "]
