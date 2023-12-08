@@ -13,6 +13,7 @@ When the calibration model is /MODEL/ {
     $cc include "cmpfit/mpfit.h"
     $cc cflags ./vendor/cmpfit/mpfit.c
     $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+    c loadlib $::env(HOME)/apriltag/libapriltag.so
     $cc include <apriltag_pose.h>
     $cc code [csubst {
         #define MAX_POINTS_PER_POSE $[* [dict size $MODEL] 4]
