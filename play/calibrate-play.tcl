@@ -16,7 +16,7 @@ proc testCalibration {calibrationPoses calibration} {
     upvar ^isProjectedTag ^isProjectedTag
     upvar ^applyHomography ^applyHomography
 
-    set tagSize [expr {17.0 / 1000}]; # 17 mm
+    set tagSize [expr {17.5 / 1000}]; # 17.5 mm
     set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
               [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
@@ -136,26 +136,16 @@ apply {{} {
         close $modelFd; foreach poseFd $poseFds { close $poseFd }
     }} $calibrationPoses
 
-    puts "Test without refinement (refiner is identity fn)."
+    puts "Test without refinement"
     puts "-------------------------------------------------"
-    set unrefinedCalibration [calibrate $calibrationPoses {{poses cal} {set cal}}]
+    set unrefinedCalibration [calibrate $calibrationPoses]
     testCalibration $calibrationPoses $unrefinedCalibration
 
-    puts ""
-    puts "Test with refinement."
+    puts "Test WITH refinement"
     puts "-------------------------------------------------"
-    testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
-
-    # puts ""
-    # puts "Test with hard-coding."
-    # puts "-------------------------------------------------"
-    # lassign {1368.51525 1372.89528} fx fy
-    # lassign {922.51410  570.47142} cx cy
-    # set s -6.0599534
-    # dict set unrefinedCalibration camera intrinsics [subst {
-    #     {$fx   $s  $cx}
-    #     {  0  $fy  $cy}
-    #     {  0    0    1}
-    # }]
-    # testCalibration $calibrationPoses $unrefinedCalibration
+    set refinedCalibration [apply $::refineCalibration \
+                                [/ 17.5 1000] $calibrationPoses \
+                                $unrefinedCalibration]
+    puts "Refined calibration is ($refinedCalibration)"
+    testCalibration $calibrationPoses $refinedCalibration
 }}

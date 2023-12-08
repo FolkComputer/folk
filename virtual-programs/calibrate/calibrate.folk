@@ -668,11 +668,10 @@ fn centroid {points} {
 # calibrationPoses is a list of N pose dictionaries. Each pose
 # dictionary includes `tags` from a camera detection, `model` with
 # coordinates in meters, `H_modelToDisplay`.
-fn calibrate {calibrationPoses refineCalibration} {
+fn calibrate {calibrationPoses} {
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
-    set modelToCameraPointPairSets [list]
     set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
         set model [dict get $pose model]
@@ -686,15 +685,12 @@ fn calibrate {calibrationPoses refineCalibration} {
                     lappend pointPairs [list {*}$modelCorner {*}$cameraCorner]
                 }
         }
-        lappend modelToCameraPointPairSets $pointPairs
 
         estimateHomography $pointPairs
     }]
     puts "Zhang calibrate camera:"
     puts "========"
-    set cameraCalibration [apply $refineCalibration \
-                               $modelToCameraPointPairSets \
-                               [zhangUnrefinedCalibrate $Hs_modelToCamera]]
+    set cameraCalibration [zhangUnrefinedCalibrate $Hs_modelToCamera]
     puts "\n======================\n"
 
     # Second, calibrate the projector.
@@ -711,15 +707,12 @@ fn calibrate {calibrationPoses refineCalibration} {
                 lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
             }
         }
-        lappend modelToDisplayPointPairSets $pointPairs
 
         set H_modelToDisplay
     }]
     puts "Zhang calibrate projector:"
     puts "========"
-    set projectorCalibration [apply $refineCalibration \
-                                  $modelToDisplayPointPairSets \
-                                  [zhangUnrefinedCalibrate $Hs_modelToDisplay]]
+    set projectorCalibration [zhangUnrefinedCalibrate $Hs_modelToDisplay]
     puts "\n======================\n"
 
     set calibration [dict create camera $cameraCalibration \
@@ -764,6 +757,6 @@ try {
 When the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
     puts "DOING CALIBRATION!"
-    set calibration [calibrate $calibrationPoses $refineCalibration]
+    set calibration [calibrate $calibrationPoses]
     Claim the calibration is $calibration
 }
