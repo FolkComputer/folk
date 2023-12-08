@@ -193,7 +193,7 @@ namespace eval ::region {
         return ret;
     }
 
-    $cc proc free {Region* region} void {
+    $cc proc free_region {Region* region} void {
         ckfree((char*) region->points);
         ckfree((char*) region->edges);
         ckfree((char*) region);
@@ -255,7 +255,7 @@ namespace eval ::region {
     proc convexHull {points} {
         set ch [region create_convex_region $points [llength $points]]
         set r [region to_tcl $ch]
-        region free $ch
+        region free_region $ch
         return $r
     }
 
