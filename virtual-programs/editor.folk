@@ -383,5 +383,6 @@ When /page/ is a keyboard with path /kbPath/ {
 }
 
 Claim $this has demo {
-  Claim $this is keyboard with path /dev/input/by-path/platform-i8042-serio-0-event-kbd
+  # Find your keyboard path with the script in this guide: https://folk.computer/guides/keyboard
+  Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse
 }
