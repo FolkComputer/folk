@@ -87,6 +87,13 @@ namespace eval ::region {
 
         };
 
+        float dist2(Point start, Point end) {
+            return (
+                (start.x - end.x) * (start.x - end.x) +
+                (start.y - end.y) * (start.y - end.y)
+            );
+        }
+
         float orientation(Point start, Point end, Point candidate) {
             return (
                 (end.x - start.x) * (candidate.y - start.y) - 
@@ -141,21 +148,28 @@ namespace eval ::region {
         int to = (from + 1) % N;
 
         // Iteratively, find the following point that's smallest
-        // counter-clockwise furn from the current edge.
+        // counter-clockwise turn from the current edge.
         // Repeat until you're back where you started.
         int num_edges = 0;
         while (true) {
-            float best = 1e9;
-            for (int candidate = 0; candidate < N; candidate++) {
-                float o = orientation(points[from], points[to], points[candidate]);
-                if (0 < o && o < best) {
-                    to = candidate;
-                    best = o;
+            for (int cand = 0; cand < N; cand++) {
+                if (cand == from) {
+                    continue;
+                }
+                float o = orientation(points[from], points[to], points[cand]);
+                if (o > 0) {
+                    to = cand;
+                } else if (
+                    o == 0 && 
+                    dist2(points[from], points[cand]) > dist2(points[from], points[to])
+                ) {
+                    to = cand;
                 }
             }
             edges[num_edges].from = from;
             edges[num_edges].to = to;
             num_edges += 1;
+
             if (num_edges > N) {
                 // If all points are on the perimeter, then there should be
                 // only N edges. More than N, you have a bug.
