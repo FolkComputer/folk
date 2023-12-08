@@ -457,8 +457,8 @@ namespace eval c {
                             Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
                             return TCL_ERROR;
                         }
-                        int r = setjmp(__onError);
-                        if (r != 0) { return TCL_ERROR; }
+                        int __r = setjmp(__onError);
+                        if (__r != 0) { return TCL_ERROR; }
 
                         [join $loadargs "\n"]
                         $saverv
