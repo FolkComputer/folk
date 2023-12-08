@@ -53,7 +53,6 @@ proc testCalibration {calibrationPoses calibration} {
                 lassign [applyHomography $H_modelToDisplay $modelPoint] origX origY
                 # .canv create oval $origX $origY {*}[add [list $origX $origY] {5 5}] -fill green
                 # puts ""
-                # puts "$id (corner $i): orig projected x y: $origX $origY"
 
                 set tagFrameCorner [lindex $tagFrameCorners $i]
                 set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
@@ -62,18 +61,18 @@ proc testCalibration {calibrationPoses calibration} {
                 lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
                 set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
                 # .canv create oval $reprojX $reprojY {*}[add [list $reprojX $reprojY] {5 5}] -fill yellow
-                # puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
-                # puts ""
+                puts "$id (corner $i): orig projected x y: $origX $origY"
+                puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
+                puts ""
 
                 # puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
                 # puts "$id (corner $i): projectorFrameCorner ($projectorFrameCorner)"
                 # puts ""
 
-                # TODO: Try reprojecting back to original camera coordinates.
                 lassign [matmul $cameraIntrinsics $cameraFrameCorner] rcx rcy rcz
-                puts "$id (corner $i): orig camera x y:   [lindex [dict get $calibrationPose tags $id p] $i]"
-                puts "$id (corner $i): reproj camera x y: [/ $rcx $rcz] [/ $rcy $rcz]"
-                puts ""
+                # puts "$id (corner $i): orig camera x y:   [lindex [dict get $calibrationPose tags $id p] $i]"
+                # puts "$id (corner $i): reproj camera x y: [/ $rcx $rcz] [/ $rcy $rcz]"
+                # puts ""
 
                 set error [expr {sqrt(($reprojX - $origX)*($reprojX - $origX) + ($reprojY - $origY)*($reprojY - $origY))}]
                 set totalError [+ $totalError $error]
@@ -142,21 +141,21 @@ apply {{} {
     set unrefinedCalibration [calibrate $calibrationPoses {{poses cal} {set cal}}]
     testCalibration $calibrationPoses $unrefinedCalibration
 
-    puts ""
-    puts "Test with refinement."
-    puts "-------------------------------------------------"
-    testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
+    # puts ""
+    # puts "Test with refinement."
+    # puts "-------------------------------------------------"
+    # testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
 
-    puts ""
-    puts "Test with hard-coding."
-    puts "-------------------------------------------------"
-    lassign {1368.51525 1372.89528} fx fy
-    lassign {922.51410  570.47142} cx cy
-    set s -6.0599534
-    dict set unrefinedCalibration camera intrinsics [subst {
-        {$fx   $s  $cx}
-        {  0  $fy  $cy}
-        {  0    0    1}
-    }]
-    testCalibration $calibrationPoses $unrefinedCalibration
+    # puts ""
+    # puts "Test with hard-coding."
+    # puts "-------------------------------------------------"
+    # lassign {1368.51525 1372.89528} fx fy
+    # lassign {922.51410  570.47142} cx cy
+    # set s -6.0599534
+    # dict set unrefinedCalibration camera intrinsics [subst {
+    #     {$fx   $s  $cx}
+    #     {  0  $fy  $cy}
+    #     {  0    0    1}
+    # }]
+    # testCalibration $calibrationPoses $unrefinedCalibration
 }}
