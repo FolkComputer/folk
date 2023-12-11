@@ -6,7 +6,11 @@ When /page/ is a keyboard with path /kbPath/ & /page/ has region /r/ {
   set id "$page$kbPath"
   Wish $page is outlined gray
   Claim $id has region [region move $r up 450px]
-  Commit "code$kbPath" { Claim $id has program code $baseCode }
+  When /nobody/ claims $id has program code /c/ {
+    Commit "code$kbPath" {
+      Claim $id has program code $baseCode 
+    }
+  }
 }
 
 proc updateCursor {oldCursor updates} {
