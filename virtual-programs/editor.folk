@@ -121,13 +121,6 @@ proc newRegion {program x y w h} {
   Claim $program has region [region create $vertices $edges]
 }
 
-proc drawText {text cursor count region} {
-  set lineNumber 1
-  set showCursor [expr {$count % 2 == 0}]
-  # TODO: Make the font size change relative to `Wish $this is small|medium|large editor 1` (by default should use small, e.g. fontSize 1)
-  Display::text {*}[region centroid $region] 1 $text [region angle $region] NeomatrixCode
-}
-
 proc rotateStroke {points center angle} {
   lmap v $points {
     set v [vec2 sub $v $center]
@@ -159,70 +152,39 @@ proc debug {position color} {
   Display::circle {*}$position 5 2 $color true
 }
 
-proc drawCursor {cursorPosition lineShift region} {
-  set anchor [region centroid $region]
-  set angle [region angle $region]
-
-  if {$::debug_cursor} {
-    debug $anchor green
-  }
-
-  set cursorHeight 20
-  set cursorWidth 9
-  set shiftMultiplier [list 12 20]
-  # set shiftMultiplier [list 14 25]
-  # set shiftMultiplier [list 14 20]
-  set cursorScale [list 14 25] ;# OLD
-  # projectorToCamera????
-
-  set lineShiftHalf [list [lindex $lineShift 0] 0]
-  set multipliedShift [vec2::mult $shiftMultiplier $lineShift]
-  # set adjustedShift [sub $multipliedShift $lineShiftHalf]
-  set adjustedShift $multipliedShift
-  set shiftedAnchor [sub $anchor $adjustedShift]
-  if {$::debug_cursor} {
-    debug [lindex [rotateStroke [list $shiftedAnchor] $anchor $angle] 0] white
-  }
-  # add (x * width) to the shiftedAnchor position from the beginning of the line ...
-  set scaledCursor [vec2::mult $cursorScale $cursorPosition]
-
-  set finalCursor [add $shiftedAnchor $scaledCursor]
-  set rotatedFenalCursor [lindex [rotateStroke [list $finalCursor] $anchor $angle] 0]
-
-  if {$::debug_cursor} {
-    # This is where the cursor point is relative to.
-    # cursor, green
-    Display::stroke [rotateStroke \
-        [list $finalCursor \
-        [add $finalCursor [list 0 $cursorHeight]] \
-      ] \
-      $anchor $angle] 2 green  
-    # vertical reticle line
-    Display::stroke [rotateStroke \
-        [list $finalCursor \
-          [add $finalCursor [list 0 25]] \
-          [add $finalCursor [list 0 -25]] \
-      ] \
-      $anchor $angle] 2 green
-
-    # horizontal reticle line
-    Display::stroke [rotateStroke \
-        [list $finalCursor \
-          [add $finalCursor [list 25 0]] \
-          [add $finalCursor [list -25 0]] \
-      ] \
-      $anchor $angle] 2 green
-  }
-}
-
 When /page/ is a keyboard with path /kbPath/ {
   set id "$page$kbPath"
   When $id has program code /code/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set intTime [expr {int($t * 10)}]
-    drawText [insertCursor $code $cursor $intTime] $cursor $intTime $r
+    set scale 0.60
 
-    set lineShift [getLineShift $code]
-    drawCursor $cursor $lineShift $r
+    lassign [region topleft $r] xstart ystart
+    set em [expr {$scale * 25}]
+    # From NeomatrixCode.csv
+    set advance [expr {0.5859375 * $em}]
+    set margin [expr {$advance * 3 + 10}]
+
+    set p [region topleft [region move $r right ${margin}px down 10px]]
+    set lp [region topleft [region move $r right 5px down 10px]]
+    set height [expr {[region height $r] - 25}]
+    set width [expr {[region width $r] - ($margin + 20)}]
+    set radians [region angle $r]
+
+    set curs [vec2 scale $cursor $advance $em]
+
+    set x1 [vec2 sub $p $curs]
+    set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+
+    set theta [expr {$radians + 3.14159}]
+    set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
+    set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
+    set s [expr {$scale * 4}]
+
+    # Draw text
+    Wish to draw text with position $p text $code scale $scale anchor topleft radians [region angle $r] font NeomatrixCode
+    # Draw cursor
+    Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
+    Wish to draw a stroke with points [list $x1 $x2] width $s color green
 
     if {$::debug_cursor} {
       # draw lines for every line of text
