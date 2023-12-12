@@ -90,7 +90,7 @@ apply {{} {
     source "virtual-programs/calibrate/refine.folk"
     source "virtual-programs/calibrate/calibration-test.folk"
 
-    set fd [open "folk-calibration-poses.txt" r]
+    set fd [open "folk-calibration-poses-folk0-threshold-1.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
     # Emit files into ~/aux/CameraCalibration/ for testing:
@@ -141,10 +141,10 @@ apply {{} {
     set unrefinedCalibration [calibrate $calibrationPoses {{poses cal} {set cal}}]
     testCalibration $calibrationPoses $unrefinedCalibration
 
-    # puts ""
-    # puts "Test with refinement."
-    # puts "-------------------------------------------------"
-    # testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
+    puts ""
+    puts "Test with refinement."
+    puts "-------------------------------------------------"
+    testCalibration $calibrationPoses [calibrate $calibrationPoses $::refineCalibration]
 
     # puts ""
     # puts "Test with hard-coding."
