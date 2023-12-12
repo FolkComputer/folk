@@ -248,8 +248,11 @@ When /page/ is a keyboard with path /kbPath/ {
         }
         RIGHT {
           set currentLineLength [getCurrentLineLength $code $cursor]
-          # TODO: Check if the cursor is at the end of the line, if so cap it
-          Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+          if {[lindex $cursor 0] == $currentLineLength} {
+            Claim the $kbPath cursor is $cursor
+          } else {
+            Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+          }
         }
         LEFT { Claim the $kbPath cursor is [updateCursor $cursor {x -1}] }
         BACKSPACE {
