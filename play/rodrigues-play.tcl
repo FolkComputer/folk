@@ -82,6 +82,7 @@ proc testMatrix {R} {
 testMatrix {roll 3.1}
 testMatrix {pitch 3.1}
 testMatrix {yaw 3.1}
+testMatrix {matmul [yaw 3.1] [pitch 3.1]}
 testMatrix {list \
     {0.96608673169969	-0.25800404198456	-0.01050433974302} \
     {0.25673182392846	0.95537412871306	0.14611312318926} \
