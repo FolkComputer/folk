@@ -55,6 +55,16 @@ proc rotationVectorToRotationMatrix {r} {
                      [scale [sin $theta] $ux]]]
 }
 
+proc yaw {theta} { subst {
+    {[cos $theta] [- [sin $theta]] 0}
+    {[sin $theta] [cos $theta] 0}
+    {0 0 1}
+} }
+proc pitch {theta} { subst {
+    {[cos $theta] 0 [sin $theta]}
+    {0 1 0}
+    {[- [sin $theta]] 0 [cos $theta]}
+} }
 proc roll {theta} { subst {
     {1 0 0}
     {0 [cos $theta] [- [sin $theta]]}
@@ -63,13 +73,17 @@ proc roll {theta} { subst {
 
 proc testMatrix {R} {
     puts "=========="
+    puts "$R:"
+    set R [eval $R]
     puts [show $R]
     puts [show [rotationMatrixToRotationVector $R]]
     puts [show [rotationVectorToRotationMatrix [rotationMatrixToRotationVector $R]]]
 }
-testMatrix [roll 3.1]
-testMatrix {
-    {0.96608673169969	-0.25800404198456	-0.01050433974302}
-    {0.25673182392846	0.95537412871306	0.14611312318926}
+testMatrix {roll 3.1}
+testMatrix {pitch 3.1}
+testMatrix {yaw 3.1}
+testMatrix {list \
+    {0.96608673169969	-0.25800404198456	-0.01050433974302} \
+    {0.25673182392846	0.95537412871306	0.14611312318926} \
     {-0.02766220194012	-0.14385474794174	0.98921211783846}
 }
