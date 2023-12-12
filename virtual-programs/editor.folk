@@ -1,4 +1,3 @@
-set ::debug_cursor false
 set ::debug_print false
 set baseCode "Wish \$this is outlined green"
 
@@ -185,30 +184,6 @@ When /page/ is a keyboard with path /kbPath/ {
     # Draw cursor
     Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
     Wish to draw a stroke with points [list $x1 $x2] width $s color green
-
-    if {$::debug_cursor} {
-      # draw lines for every line of text
-      set lineCount [llength [split $code "\n"]]
-      set horizontalLines [list]
-      set anchor [region centroid $r]
-      set angle [region angle $r]
-
-      set vertical_spacer 20
-      for {set i -10} { $i < 10 } {incr i} {
-        lappend verticalLines [add $anchor [list 0 [expr {$i * $vertical_spacer}]]]
-        lappend verticalLines [add $anchor [list 100 [expr {$i * $vertical_spacer}]]]
-        lappend verticalLines [add $anchor [list $vertical_spacer [expr {$i * $vertical_spacer}]]]
-      }
-
-      set horizontal_spacer 14
-      for {set i -10} { $i < 10 } {incr i} {
-        lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] 0]]
-        lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] 100 ]]
-        lappend horizontalLines [add $anchor [list [expr {$i * $horizontal_spacer}] $horizontal_spacer]]
-      }
-      Display::stroke [rotateStroke $verticalLines $anchor $angle] 2 green
-      Display::stroke [rotateStroke $horizontalLines $anchor $angle] 2 white
-    }
   }
 }
 
