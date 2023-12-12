@@ -15,10 +15,10 @@ When /page/ is a keyboard with path /kbPath/ & /page/ has region /r/ {
 proc updateCursor {oldCursor updates} {
   set newCursor $oldCursor
   if {[dict exists $updates x]} {
-    lset newCursor 0 [expr {max(0, [dict get $updates x] + [lindex $oldCursor 0])}]
+    lset newCursor 0 [expr {max(0, [dict get $updates x] + [x $oldCursor])}]
   }
   if {[dict exists $updates y]} {
-    lset newCursor 1 [expr {max(0, [dict get $updates y] + [lindex $oldCursor 1])}]
+    lset newCursor 1 [expr {max(0, [dict get $updates y] + [y $oldCursor])}]
   }
   return $newCursor
 }
@@ -47,15 +47,6 @@ proc insertCharacter {code newCharacter cursor} {
     lset lines $y $line
     return [join $lines "\n"]
   }
-}
-
-proc swapCharacter {code newCharacter cursor} {
-  set lines [split $code "\n"]
-  lassign $cursor x y
-  set line [lindex $lines $y]
-  set line [string replace $line $x $x $newCharacter]
-  lset lines $y $line
-  return [join $lines "\n"]
 }
 
 proc deleteCharacter {code cursor} {
@@ -91,7 +82,6 @@ proc deleteToBeginning {code cursor} {
   return [join $lines "\n"]
 }
 
-
 proc insertNewline {code cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
@@ -103,32 +93,6 @@ proc insertNewline {code cursor} {
   return [join $lines "\n"]
 }
 
-proc insertCursor {code cursor count} {
-   if {$count % 2 == 0} {
-     return [swapCharacter $code "_" $cursor]
-   } else {
-     return $code    
-   }
-}
-
-proc newRegion {program x y w h} {
-  set vertices [list [list [expr {$x+$w}] $y] \
-              [list $x $y] \
-              [list $x [expr {$y+$h}]] \
-              [list [expr {$x+$w}] [expr {$y+$h}]]]
-  set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-  Claim $program has region [region create $vertices $edges]
-}
-
-proc rotateStroke {points center angle} {
-  lmap v $points {
-    set v [vec2 sub $v $center]
-    set v [vec2 rotate $v $angle]
-    set v [vec2 add $v $center]
-    set v
-  }
-}
-
 proc getLineLength {code cursor} {
   set lines [split $code "\n"]
   set line [lindex $lines [lindex $cursor 1]]
@@ -136,15 +100,13 @@ proc getLineLength {code cursor} {
   return $ll
 }
 
-proc getLineShift {lines} {
-  set longestLineLength 0
-  foreach line [split $lines "\n"] {
-    set lineLength [string length $line]
-    if {$lineLength > $longestLineLength} {
-      set longestLineLength $lineLength
-    }
+proc lineNumberView {ystart linecount} {
+  set yend [expr {$ystart + $linecount}]
+  set numbers [list]
+  for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
+    lappend numbers $i
   }
-  return [list [expr {$longestLineLength / 2}] [expr {[llength $lines] / 2}]]
+  join $numbers "\n"
 }
 
 proc debug {position color} {
@@ -181,6 +143,13 @@ When /page/ is a keyboard with path /kbPath/ {
 
     # Draw text
     Wish to draw text with position $p text $code scale $scale anchor topleft radians [region angle $r] font NeomatrixCode
+
+    # Draw line numbers
+    # set linecount [expr {int(floor($height / $em))}]
+    set linecount [llength [split $code "\n"]]
+    set linenumbers [lineNumberView 0 $linecount]
+    Wish to draw text with position $lp text $linenumbers scale $scale anchor topleft radians $radians font NeomatrixCode
+
     # Draw cursor
     Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
     Wish to draw a stroke with points [list $x1 $x2] width $s color green
@@ -189,7 +158,7 @@ When /page/ is a keyboard with path /kbPath/ {
 
 proc getCurrentLineLength {lines cursor} {
   set splitLines [split $lines "\n"]
-  set currentLine [lindex $splitLines [lindex $cursor 1]]
+  set currentLine [lindex $splitLines [y $cursor]]
   string length $currentLine
 }
 
@@ -201,8 +170,8 @@ When /page/ is a keyboard with path /kbPath/ {
         UP {
           set updatedCursor [updateCursor $cursor {y -1}]
           set currentLineLength  [getCurrentLineLength $code $updatedCursor]
-          if {[lindex $updatedCursor 0] > $currentLineLength} {
-            Claim the $kbPath cursor is [list [- $currentLineLength 1]  [lindex $updatedCursor 1]]
+          if {[x $updatedCursor] > $currentLineLength} {
+            Claim the $kbPath cursor is [list [- $currentLineLength 1]  [y $updatedCursor]]
           } else {
             Claim the $kbPath cursor is $updatedCursor
           }
@@ -212,18 +181,18 @@ When /page/ is a keyboard with path /kbPath/ {
           set updatedCursor [updateCursor $cursor {y 1}]
           set currentLineLength [getCurrentLineLength $code $updatedCursor]
 
-          if {[lindex $updatedCursor 1] == $linecount} {
+          if {[y $updatedCursor] == $linecount} {
             Claim the $kbPath cursor is $cursor
             return
-          } elseif {[lindex $updatedCursor 0] > $currentLineLength} {
-            Claim the $kbPath cursor is [list $currentLineLength  [lindex $updatedCursor 1]]
+          } elseif {[x $updatedCursor] > $currentLineLength} {
+            Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
           } else {
             Claim the $kbPath cursor is $updatedCursor
           }
         }
         RIGHT {
           set currentLineLength [getCurrentLineLength $code $cursor]
-          if {[lindex $cursor 0] == $currentLineLength} {
+          if {[x $cursor] == $currentLineLength} {
             Claim the $kbPath cursor is $cursor
           } else {
             Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
@@ -248,7 +217,7 @@ When /page/ is a keyboard with path /kbPath/ {
         }
         ENTER {
           set updatedCursor [updateCursor $cursor {y 1}]
-          Claim the $kbPath cursor is [list 0 [lindex $updatedCursor 1]]
+          Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
           Commit "code$kbPath" { Claim $id has program code [insertNewline $code $cursor] }
         }
         DELETE -
