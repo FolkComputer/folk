@@ -91,7 +91,7 @@ When the calibration model is /MODEL/ {
                 };
             }
             double u[3] = {r[0]/theta, r[1]/theta, r[2]/theta};
-            out = (double[3][3]) {
+            double ret[3][3] = {
                 {cos(theta) + u[0]*u[0]*(1 - cos(theta)),
                  u[0]*u[1]*(1 - cos(theta)) - u[2]*sin(theta),
                  u[0]*u[2]*(1 - cos(theta)) + u[1]*sin(theta)},
@@ -102,6 +102,7 @@ When the calibration model is /MODEL/ {
                  u[1]*u[2]*(1 - cos(theta)) + u[0]*sin(theta),
                  cos(theta) + u[2]*u[2]*(1 - cos(theta))}
             };
+            memcpy(out, ret, sizeof(ret));
         }
         void mulMat3Mat3(double A[3][3], double B[3][3], double out[3][3]) {
             memset(out, 0, sizeof(double) * 9);
@@ -147,14 +148,14 @@ When the calibration model is /MODEL/ {
         for (int poseNum = 0; poseNum < NUM_POSES; poseNum++) {
             double r[3] = { x[k], x[k+1], x[k+2] }; k += 3;
             double R[3][3]; rotationVectorToRotationMatrix(r, R);
-            printf("pose %d: Rotation vector: {%f, %f, %f}\n", poseNum, r[0], r[1], r[2]);
-            printf("pose %d: Rotation matrix:\n"
-                   "{%f, %f, %f}\n"
-                   "{%f, %f, %f}\n"
-                   "{%f, %f, %f}\n", poseNum,
-                   R[0][0], R[0][1], R[0][2],
-                   R[1][0], R[1][1], R[1][2],
-                   R[2][0], R[2][1], R[2][2]);
+            /* printf("pose %d: Rotation vector: {%f, %f, %f}\n", poseNum, r[0], r[1], r[2]); */
+            /* printf("pose %d: Rotation matrix:\n" */
+            /*        "{%f, %f, %f}\n" */
+            /*        "{%f, %f, %f}\n" */
+            /*        "{%f, %f, %f}\n", poseNum, */
+            /*        R[0][0], R[0][1], R[0][2], */
+            /*        R[1][0], R[1][1], R[1][2], */
+            /*        R[2][0], R[2][1], R[2][2]); */
 
             double r0[3] = { R[0][0], R[1][0], R[2][0] };
             double r1[3] = { R[0][1], R[1][1], R[2][1] };
@@ -269,8 +270,8 @@ When the calibration model is /MODEL/ {
         for {set i 0} {$i < [llength $poses]} {incr i} {
             set r [lrange $refined [expr {$i*6}] [expr {$i*6 + 2}]]
             set R [rotationVectorToRotationMatrix $r]
-            puts "Old R:\n[math::linearalgebra::show [dict get [lindex $extrinsics $i] R]]"
-            puts "New R:\n[math::linearalgebra::show $R]"
+            # puts "Old R:\n[math::linearalgebra::show [dict get [lindex $extrinsics $i] R]]"
+            # puts "New R:\n[math::linearalgebra::show $R]"
             set t [lrange $refined [expr {$i*6 + 3}] [expr {$i*6 + 5}]]
             lset extrinsics $i [dict create R $R t $t]
         }
