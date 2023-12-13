@@ -275,7 +275,7 @@ When the calibration model is /MODEL/ {
             set t [lrange $refined [expr {$i*6 + 3}] [expr {$i*6 + 5}]]
             lset extrinsics $i [dict create R $R t $t]
         }
-        dict set calibrationpa extrinsics $extrinsics
+        dict set calibration extrinsics $extrinsics
         return $calibration
     }}
     Claim the calibration refiner is $refineCalibration
