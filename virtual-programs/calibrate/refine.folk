@@ -178,14 +178,22 @@ When the calibration model is /MODEL/ {
 
                 double reprojectedPosePoint[3];
                 mulMat3Vec3(H, modelPointHom, reprojectedPosePoint);
-                reprojectedPosePoint[0] /= reprojectedPosePoint[2];
-                reprojectedPosePoint[1] /= reprojectedPosePoint[2];
-                reprojectedPosePoint[2] = 1;
+                double idealReprojX = reprojectedPosePoint[0] / reprojectedPosePoint[2];
+                double idealReprojY = reprojectedPosePoint[1] / reprojectedPosePoint[2];
 
+                // Distort idealReprojX and idealReprojY using the distortion
+                // coefficients.
+                double x = (idealReprojX - cx);
+                double y = (idealReprojY - cy);
+                double r = sqrt(x*x + y*y);
+                double D = k1 * r*r + k2 * r*r*r*r;
+                double distortedReprojX = idealReprojX * (1.0 + D);
+                double distortedReprojY = idealReprojY * (1.0 + D);
+ 
                 double posePoint[2] = { Poses[poseNum][i][2], Poses[poseNum][i][3] };
 
-                double dx = reprojectedPosePoint[0] - posePoint[0];
-                double dy = reprojectedPosePoint[1] - posePoint[1];
+                double dx = distortedReprojX - posePoint[0];
+                double dy = distortedReprojY - posePoint[1];
                 fvec[f++] = sqrt(dx * dx + dy * dy);
             }
         }
@@ -267,6 +275,8 @@ When the calibration model is /MODEL/ {
             {0    $fy  $cy}
             {0    0    1}
         }]
+        dict set calibration k1 $k1
+        dict set calibration k2 $k2
         for {set i 0} {$i < [llength $poses]} {incr i} {
             set r [lrange $refined [expr {$i*6}] [expr {$i*6 + 2}]]
             set R [rotationVectorToRotationMatrix $r]
