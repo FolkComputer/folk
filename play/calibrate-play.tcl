@@ -28,7 +28,13 @@ proc testCalibration {calibrationPoses calibration} {
     set cameraFy [getelem $cameraIntrinsics 1 1]
     set cameraCx [getelem $cameraIntrinsics 0 2]
     set cameraCy [getelem $cameraIntrinsics 1 2]
+    set cameraK1 [dict get $calibration camera k1]
+    set cameraK2 [dict get $calibration camera k2]
     set projectorIntrinsics [dict get $calibration projector intrinsics]
+    set projectorCx [getelem $projectorIntrinsics 0 2]
+    set projectorCy [getelem $projectorIntrinsics 1 2]
+    set projectorK1 [dict get $calibration projector k1]
+    set projectorK2 [dict get $calibration projector k2]
 
     set R_cameraToProjector [dict get $calibration R_cameraToProjector]
     set t_cameraToProjector [dict get $calibration t_cameraToProjector]
@@ -43,6 +49,8 @@ proc testCalibration {calibrationPoses calibration} {
         dict for {id cameraTag} [dict get $calibrationPose tags] {
             if {![isProjectedTag $id]} continue
 
+            # TODO: Should we undistort the corners of cameraTag using
+            # the camera distortion coefficients?
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
             for {set i 0} {$i < 4} {incr i} {
@@ -59,8 +67,18 @@ proc testCalibration {calibrationPoses calibration} {
 
                 set projectorFrameCorner [add [matmul $R_cameraToProjector $cameraFrameCorner] $t_cameraToProjector]
                 lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
-                set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
+                set idealReprojX [/ $rpx $rpz]; set idealReprojY [/ $rpy $rpz]
                 # .canv create oval $reprojX $reprojY {*}[add [list $reprojX $reprojY] {5 5}] -fill yellow
+
+                # Distort idealReprojX and idealReprojY using the
+                # distortion coefficients.
+                set x [- $idealReprojX $projectorCx]
+                set y [- $idealReprojY $projectorCy]
+                set r [expr {sqrt($x*$x + $y*$y)}]
+                set D [expr {$projectorK1 * $r*$r + $projectorK2 * $r*$r*$r*$r}]
+                set reprojX [expr {$idealReprojX * (1.0 + $D)}]
+                set reprojY [expr {$idealReprojY * (1.0 + $D)}]
+
                 puts "$id (corner $i): orig projected x y: $origX $origY"
                 puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
                 puts ""
