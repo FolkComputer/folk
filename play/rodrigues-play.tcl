@@ -55,6 +55,42 @@ proc rotationVectorToRotationMatrix {r} {
                      [scale [sin $theta] $ux]]]
 }
 
+source "lib/c.tcl"
+set cc [c create]
+$cc include <math.h>
+$cc code {
+    void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
+        double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
+        if (fabs(theta) < 0.0001) {
+            out = (double[3][3]) {
+                {1, 0, 0},
+                {0, 1, 0},
+                {0, 0, 1}
+            };
+        }
+        double u[3] = {r[0]/theta, r[1]/theta, r[2]/theta};
+        out = (double[3][3]) {
+            {cos(theta) + u[0]*u[0]*(1 - cos(theta)),
+             u[0]*u[1]*(1 - cos(theta)) - u[2]*sin(theta),
+             u[0]*u[2]*(1 - cos(theta)) + u[1]*sin(theta)},
+            {u[0]*u[1]*(1 - cos(theta)) + u[2]*sin(theta),
+             cos(theta) + u[1]*u[1]*(1 - cos(theta)),
+             u[1]*u[2]*(1 - cos(theta)) - u[0]*sin(theta)},
+            {u[0]*u[2]*(1 - cos(theta)) - u[1]*sin(theta),
+             u[1]*u[2]*(1 - cos(theta)) + u[0]*sin(theta),
+             cos(theta) + u[2]*u[2]*(1 - cos(theta))}
+        };
+    }
+}
+$cc proc cRotationVectorToRotationMatrix {double[3] r} Tcl_Obj* {
+    double out[3][3]; rotationVectorToRotationMatrix(r, out);
+    return Tcl_ObjPrintf("{%f %f %f}\n{%f %f %f}\n{%f %f %f}",
+                         out[0][0], out[0][1], out[0][2],
+                         out[1][0], out[1][1], out[1][2],
+                         out[2][0], out[2][1], out[2][2]);
+}
+$cc compile
+
 proc yaw {theta} { subst {
     {[cos $theta] [- [sin $theta]] 0}
     {[sin $theta] [cos $theta] 0}
@@ -79,7 +115,10 @@ proc testMatrix {R} {
     set r [rotationMatrixToRotationVector $R]
     puts "r (magnitude [norm $r]):"
     puts [show $r]
+    puts "reconverted to R via Tcl:"
     puts [show [rotationVectorToRotationMatrix [rotationMatrixToRotationVector $R]]]
+    puts "reconverted to R via C:"
+    puts [show [cRotationVectorToRotationMatrix [rotationMatrixToRotationVector $R]]]
 }
 testMatrix {roll 1.1}
 testMatrix {pitch 1.1}
