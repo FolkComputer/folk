@@ -1,7 +1,7 @@
 set ::debug_print false
 set baseCode "Wish \$this is outlined green"
 
-When /page/ is a keyboard with path /kbPath/ & /page/ has region /r/ {
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has region /r/ {
   set id "$page$kbPath"
   Wish $page is outlined gray
   Claim $id has region [region move $r up 450px]
@@ -27,8 +27,7 @@ proc updateCursor {oldCursor updates} {
 proc x {vector} { lindex $vector 0 }
 proc y {vector} { lindex $vector 1 }
 
-# TODO: Scope to "When the editor is out" or something
-When /page/ is a keyboard with path /kbPath/ {
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   Commit "cursor$kbPath" { Claim the $kbPath cursor is [list 0 0]}
 }
 
@@ -113,7 +112,7 @@ proc debug {position color} {
   Display::circle {*}$position 5 2 $color true
 }
 
-When /page/ is a keyboard with path /kbPath/ {
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
   When $id has program code /code/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set intTime [expr {int($t * 10)}]
@@ -162,7 +161,7 @@ proc getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
-When /page/ is a keyboard with path /kbPath/ {
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
   Every time keyboard $kbPath claims key /currentCharacter/ is down with modifiers /modifier/ & the $kbPath cursor is /cursor/ & $id has program code /code/ {
     Commit "cursor$kbPath" {
@@ -301,4 +300,5 @@ When /page/ is a keyboard with path /kbPath/ {
 Claim $this has demo {
   # Find your keyboard path with the script in this guide: https://folk.computer/guides/keyboard
   Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse
+  Claim $this is an editor
 }
