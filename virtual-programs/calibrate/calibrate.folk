@@ -102,16 +102,6 @@ fn estimateHomography {pointPairs} {
         {$b0 $b1 $b2}
         {$c0 $c1 1}
     }]
-    puts "estimateHomography ([llength $pointPairs] point pairs)"
-    # How off is the homography?
-    set totalError 0
-    foreach pair $pointPairs {
-        lassign $pair x y u v
-        lassign [matmul $H [list $x $y 1]] u1 v1 w1
-        set u1 [/ $u1 $w1]; set v1 [/ $v1 $w1]
-        set totalError [expr {$totalError + sqrt(($u1 - $u)*($u1 - $u) + ($v1 - $v)*($v1 - $v))}]
-    }
-    puts "  total error $totalError"
     return $H
 }
 fn applyHomography {H xy} {
