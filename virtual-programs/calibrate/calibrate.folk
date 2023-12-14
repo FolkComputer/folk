@@ -762,6 +762,6 @@ try {
 When the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
     puts "DOING CALIBRATION!"
-    set calibration [calibrate $calibrationPoses $refineCalibration]
+    set calibration [calibrate $calibrationPoses {{poses cal} {set cal}}]
     Claim the calibration is $calibration
 }
