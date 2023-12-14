@@ -30,7 +30,26 @@ proc testCalibration {calibrationPoses calibration} {
     set cameraCy [getelem $cameraIntrinsics 1 2]
     set cameraK1 [dict get $calibration camera k1]
     set cameraK2 [dict get $calibration camera k2]
+
+    # https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
+    set undistort {{fx fy cx cy k1 k2 xy} {
+        lassign $xy x y
+        set x [expr {($x - $cx)/$fx}]
+        set x0 $x
+        set y [expr {($y - $cy)/$fy}]
+        set y0 $y
+        for {set i 0} {$i < 3} {incr i} {
+            set r2 [expr {$x*$x + $y*$y}]
+            set kinv [expr {1.0 / (1.0 + $k1 * $r2 + $k2 * $r2*$r2)}]
+            set x [expr {$x0 * $kinv}]
+            set y [expr {$y0 * $kinv}]
+        }
+        return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
+    }}
+
     set projectorIntrinsics [dict get $calibration projector intrinsics]
+    set projectorFx [getelem $projectorIntrinsics 0 0]
+    set projectorFy [getelem $projectorIntrinsics 1 1]
     set projectorCx [getelem $projectorIntrinsics 0 2]
     set projectorCy [getelem $projectorIntrinsics 1 2]
     set projectorK1 [dict get $calibration projector k1]
@@ -49,8 +68,14 @@ proc testCalibration {calibrationPoses calibration} {
         dict for {id cameraTag} [dict get $calibrationPose tags] {
             if {![isProjectedTag $id]} continue
 
-            # TODO: Should we undistort the corners of cameraTag using
-            # the camera distortion coefficients?
+            # Before estimating pose, undistort the corners of
+            # cameraTag using the camera distortion coefficients.
+            # TODO: This doesn't fixup the homography in cameraTag.
+            dict set $cameraTag p [lmap cameraCorner [dict get $cameraTag p] {
+                apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
+                    $cameraK1 $cameraK2 \
+                    $cameraCorner
+            }]
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
             for {set i 0} {$i < 4} {incr i} {
@@ -72,8 +97,8 @@ proc testCalibration {calibrationPoses calibration} {
 
                 # Distort idealReprojX and idealReprojY using the
                 # distortion coefficients.
-                set x [- $idealReprojX $projectorCx]
-                set y [- $idealReprojY $projectorCy]
+                set x [expr {($idealReprojX - $projectorCx)/$projectorFx}]
+                set y [expr {($idealReprojY - $projectorCy)/$projectorFy}]
                 set r [expr {sqrt($x*$x + $y*$y)}]
                 set D [expr {$projectorK1 * $r*$r + $projectorK2 * $r*$r*$r*$r}]
                 set reprojX [expr {$idealReprojX * (1.0 + $D)}]

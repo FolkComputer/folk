@@ -185,8 +185,8 @@ When the calibration model is /MODEL/ {
 
                 // Distort idealReprojX and idealReprojY using the distortion
                 // coefficients.
-                double x = (idealReprojX - cx);
-                double y = (idealReprojY - cy);
+                double x = (idealReprojX - cx) / fx;
+                double y = (idealReprojY - cy) / fy;
                 double r = sqrt(x*x + y*y);
                 double D = k1 * r*r + k2 * r*r*r*r;
                 double distortedReprojX = idealReprojX * (1.0 + D);
