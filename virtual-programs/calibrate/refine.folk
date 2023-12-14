@@ -125,7 +125,7 @@ When the calibration model is /MODEL/ {
     }
     $cc proc func {int m int n double* x
                    double* fvec double** dvec
-                   void* _} int {
+                   void* debug} int {
         assert(m <= MAX_POINTS_PER_POSE * NUM_POSES);
 
         // Unwrap the parameters x[]:
@@ -194,6 +194,9 @@ When the calibration model is /MODEL/ {
  
                 double posePoint[2] = { Poses[poseNum][i][2], Poses[poseNum][i][3] };
 
+                if (debug != NULL) {
+                    printf("Point %d: Pose (%f %f) Reproj (%f %f)\n", i, posePoint[0], posePoint[1], distortedReprojX, distortedReprojY);
+                }
                 double dx = distortedReprojX - posePoint[0];
                 double dy = distortedReprojY - posePoint[1];
                 fvec[f++] = sqrt(dx * dx + dy * dy);
@@ -203,7 +206,7 @@ When the calibration model is /MODEL/ {
     }
     $cc proc computeError {int totalPoseCount int paramCount double[] params} void {
         double fvec[totalPoseCount];
-        func(totalPoseCount, paramCount, params, fvec, NULL, NULL);
+        func(totalPoseCount, paramCount, params, fvec, NULL, (void*)1);
         double totalError = 0;
         for (int i = 0; i < totalPoseCount; i++) { totalError += fvec[i]; }
         printf("Total Error: %f\n", totalError);
