@@ -32,17 +32,16 @@ proc testCalibration {calibrationPoses calibration} {
     set cameraK2 [dict get $calibration camera k2]
 
     # https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
+    # https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
     set undistort {{fx fy cx cy k1 k2 xy} {
         lassign $xy x y
         set x [expr {($x - $cx)/$fx}]
-        set x0 $x
         set y [expr {($y - $cy)/$fy}]
-        set y0 $y
         for {set i 0} {$i < 3} {incr i} {
             set r2 [expr {$x*$x + $y*$y}]
-            set kinv [expr {1.0 / (1.0 + $k1 * $r2 + $k2 * $r2*$r2)}]
-            set x [expr {$x0 * $kinv}]
-            set y [expr {$y0 * $kinv}]
+            set rad [expr {1.0 + $k1 * $r2 + $k2 * $r2*$r2}]
+            set x [expr {$x / $rad}]
+            set y [expr {$y / $rad}]
         }
         return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
     }}
@@ -71,11 +70,13 @@ proc testCalibration {calibrationPoses calibration} {
             # Before estimating pose, undistort the corners of
             # cameraTag using the camera distortion coefficients.
             # TODO: This doesn't fixup the homography in cameraTag.
+            puts "Old: [dict get $cameraTag p]"
             dict set $cameraTag p [lmap cameraCorner [dict get $cameraTag p] {
                 apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
                     $cameraK1 $cameraK2 \
                     $cameraCorner
             }]
+            puts "New: [dict get $cameraTag p]"
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
             for {set i 0} {$i < 4} {incr i} {
