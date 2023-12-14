@@ -70,13 +70,11 @@ proc testCalibration {calibrationPoses calibration} {
             # Before estimating pose, undistort the corners of
             # cameraTag using the camera distortion coefficients.
             # TODO: This doesn't fixup the homography in cameraTag.
-            puts "Old: [dict get $cameraTag p]"
-            dict set $cameraTag p [lmap cameraCorner [dict get $cameraTag p] {
+            dict set cameraTag p [lmap cameraCorner [dict get $cameraTag p] {
                 apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
                     $cameraK1 $cameraK2 \
                     $cameraCorner
             }]
-            puts "New: [dict get $cameraTag p]"
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
             for {set i 0} {$i < 4} {incr i} {
