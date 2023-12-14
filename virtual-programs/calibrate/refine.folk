@@ -84,11 +84,13 @@ When the calibration model is /MODEL/ {
         void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
             double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
             if (fabs(theta) < 0.0001) {
-                out = (double[3][3]) {
+                double ret[3][3] = {
                     {1, 0, 0},
                     {0, 1, 0},
                     {0, 0, 1}
                 };
+                memcpy(out, ret, sizeof(ret));
+                return;
             }
             double u[3] = {r[0]/theta, r[1]/theta, r[2]/theta};
             double ret[3][3] = {
