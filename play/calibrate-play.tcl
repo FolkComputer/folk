@@ -71,7 +71,10 @@ proc testCalibration {calibrationPoses calibration} {
 
     set totalError 0
 
+    set i 0
     foreach calibrationPose $calibrationPoses {
+        puts "CALIBRATION POSE $i"; incr i
+        puts "======="
         dict for {id cameraTag} [dict get $calibrationPose tags] {
             if {![isProjectedTag $id]} continue
 

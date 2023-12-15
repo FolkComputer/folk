@@ -86,7 +86,8 @@ fn isProjectedTag {id} {
 #
 # Returns a 3x3 homography that maps model (x, y) to image (u, v)
 # (using homogeneous coordinates).
-fn estimateHomography {pointPairs} {
+# HACK: to share with test
+set ::estimateHomography {{pointPairs} {
     set A [list]
     set b [list]
     foreach pair $pointPairs {
@@ -103,6 +104,9 @@ fn estimateHomography {pointPairs} {
         {$c0 $c1 1}
     }]
     return $H
+}}
+fn estimateHomography {pointPairs} {
+    apply $::estimateHomography $pointPairs
 }
 fn applyHomography {H xy} {
     lassign [matmul $H [list {*}$xy 1]] u v w
@@ -758,5 +762,6 @@ When the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
     puts "DOING CALIBRATION!"
     set calibration [calibrate $calibrationPoses]
-    Claim the calibration is $calibration
+    Claim the calibration is [apply $refineCalibration \
+                                  [/ 17.5 1000] $calibrationPoses $calibration]
 }

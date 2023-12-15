@@ -65,27 +65,72 @@ When (non-capturing) the calibration is /calibration/ & \
     if {$tag >= 48600} { return }
 
     # puts "\n"
+    
+    # https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
+    # https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
+    set undistort {{fx fy cx cy k1 k2 x y} {
+        set x [expr {($x - $cx)/$fx}]
+        set y [expr {($y - $cy)/$fy}]
+        for {set i 0} {$i < 3} {incr i} {
+            set r2 [expr {$x*$x + $y*$y}]
+            set rad [expr {1.0 + $k1 * $r2 + $k2 * $r2*$r2}]
+            set x [expr {$x / $rad}]
+            set y [expr {$y / $rad}]
+        }
+        return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
+    }}
+    set distort {{fx fy cx cy k1 k2 x y} {
+        set x [expr {($x - $cx)/$fx}]
+        set y [expr {($y - $cy)/$fy}]
+        set r2 [expr {$x*$x + $y*$y}]
+        set D [expr {$k1 * $r2 + $k2 * $r2*$r2}]
+        return [list [expr {($x * (1.0 + $D))*$fx + $cx}] \
+                    [expr {($y * (1.0 + $D))*$fy + $cy}]]
+    }}
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
+    set tagFrameCorners \
+        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
+              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
+              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
 
     set cameraIntrinsics [dict get $calibration camera intrinsics]
     set cameraFx [getelem $cameraIntrinsics 0 0]
     set cameraFy [getelem $cameraIntrinsics 1 1]
     set cameraCx [getelem $cameraIntrinsics 0 2]
     set cameraCy [getelem $cameraIntrinsics 1 2]
-    set projectorIntrinsics [dict get $calibration projector intrinsics]
+    set cameraK1 [dict get $calibration camera k1]
+    set cameraK2 [dict get $calibration camera k2]
 
-    set R [dict get $calibration R_cameraToProjector]
-    set t [dict get $calibration t_cameraToProjector]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
+    set projectorFx [getelem $projectorIntrinsics 0 0]
+    set projectorFy [getelem $projectorIntrinsics 1 1]
+    set projectorCx [getelem $projectorIntrinsics 0 2]
+    set projectorCy [getelem $projectorIntrinsics 1 2]
+    set projectorK1 [dict get $calibration projector k1]
+    set projectorK2 [dict get $calibration projector k2]
+
+    set R_cameraToProjector [dict get $calibration R_cameraToProjector]
+    set t_cameraToProjector [dict get $calibration t_cameraToProjector]
+
+    # Before estimating pose, undistort the corners of
+    # cameraTag using the camera distortion coefficients.
+    set p [lmap cameraCorner [dict get $det p] {
+        apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
+            $cameraK1 $cameraK2 \
+            {*}$cameraCorner
+    }]
+    dict set det p $p
+    set pointPairs [list [list -1 1 {*}[lindex $p 0]] \
+                        [list 1 1 {*}[lindex $p 1]] \
+                        [list 1 -1 {*}[lindex $p 2]] \
+                        [list -1 -1 {*}[lindex $p 3]]]
+    dict set det H [concat {*}[apply $::estimateHomography $pointPairs]]
 
     set tagPose [estimateTagPose $det $tagSize \
                      $cameraFx $cameraFy $cameraCx $cameraCy]
 
-    set tagFrameCorners \
-        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
-              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
-              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
-              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
     set projectorCorners [list]
     for {set i 0} {$i < 4} {incr i} {
         # These are 3D coordinates in meters from the center of the
@@ -95,12 +140,17 @@ When (non-capturing) the calibration is /calibration/ & \
         # webcam.
         set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
 
-        set projectorFrameCorner [add [matmul $R $cameraFrameCorner] $t]
+        set projectorFrameCorner [add [matmul $R_cameraToProjector $cameraFrameCorner] $t_cameraToProjector]
         # Use projector intrinsics to project real-world coordinates
         # down to 2D projector plane.
         lassign [matmul $projectorIntrinsics $projectorFrameCorner] px py pz
         set projX [/ $px $pz]; set projY [/ $py $pz]
-        lappend projectorCorners [list $projX $projY]
+
+        lassign [apply $distort $projectorFx $projectorFy $projectorCx $projectorCy \
+                     $projectorK1 $projectorK2 $projX $projY] \
+            distortedProjX distortedProjY
+
+        lappend projectorCorners [list $distortedProjX $distortedProjY]
     }
     lappend projectorCorners [lindex $projectorCorners 0]
     Wish to draw a stroke with points $projectorCorners width 3 color white
