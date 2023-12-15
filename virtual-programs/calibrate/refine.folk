@@ -206,7 +206,7 @@ When the calibration model is /MODEL/ {
     }
     $cc proc computeError {int totalPoseCount int paramCount double[] params} void {
         double fvec[totalPoseCount];
-        func(totalPoseCount, paramCount, params, fvec, NULL, (void*)1);
+        func(totalPoseCount, paramCount, params, fvec, NULL, (void*)0);
         double totalError = 0;
         for (int i = 0; i < totalPoseCount; i++) { totalError += fvec[i]; }
         printf("Total Error: %f\n", totalError);

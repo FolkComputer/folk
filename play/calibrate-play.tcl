@@ -15,8 +15,9 @@ proc Claim {args} {}
 proc testCalibration {calibrationPoses calibration} {
     upvar ^isProjectedTag ^isProjectedTag
     upvar ^applyHomography ^applyHomography
+    upvar ^estimateHomography ^estimateHomography
 
-    set tagSize [expr {17.0 / 1000}]; # 17 mm
+    set tagSize [expr {17.7 / 1000}]; # 17.5 mm
     set tagFrameCorners \
         [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
               [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
@@ -69,12 +70,18 @@ proc testCalibration {calibrationPoses calibration} {
 
             # Before estimating pose, undistort the corners of
             # cameraTag using the camera distortion coefficients.
-            # TODO: This doesn't fixup the homography in cameraTag.
-            dict set cameraTag p [lmap cameraCorner [dict get $cameraTag p] {
+            set p [lmap cameraCorner [dict get $cameraTag p] {
                 apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
                     $cameraK1 $cameraK2 \
-                    $cameraCorner
+                    $cameraCorner                
             }]
+            dict set cameraTag p $p
+            set pointPairs [list [list -1 1 {*}[lindex $p 0]] \
+                                [list 1 1 {*}[lindex $p 1]] \
+                                [list 1 -1 {*}[lindex $p 2]] \
+                                [list -1 -1 {*}[lindex $p 3]]]
+            dict set cameraTag H [concat {*}[estimateHomography $pointPairs]]
+
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
             for {set i 0} {$i < 4} {incr i} {
