@@ -3,8 +3,7 @@ set baseCode "Wish \$this is outlined green"
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has region /r/ {
   set id "$page$kbPath"
-  Wish $page is outlined gray
-  Claim $id has region [region move $r up 450px]
+  Claim $id has region [region move $r up 900px]
   When /nobody/ claims $id has program code /c/ {
     Commit "code$kbPath" {
       Claim $id has program code $baseCode 
@@ -118,17 +117,20 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
     set intTime [expr {int($t * 10)}]
     set scale 0.60
 
+    set relativeRegion [region move $r down 450px]
+    Claim $id' has region $relativeRegion
+    Wish $id' is outlined white
     lassign [region topleft $r] xstart ystart
     set em [expr {$scale * 25}]
     # From NeomatrixCode.csv
     set advance [expr {0.5859375 * $em}]
     set margin [expr {$advance * 3 + 10}]
 
-    set p [region topleft [region move $r right ${margin}px down 10px]]
-    set lp [region topleft [region move $r right 5px down 10px]]
-    set height [expr {[region height $r] - 25}]
-    set width [expr {[region width $r] - ($margin + 20)}]
-    set radians [region angle $r]
+    set p [region topleft [region move $relativeRegion right ${margin}px down 10px]]
+    set lp [region topleft [region move $relativeRegion right 5px down 10px]]
+    set height [expr {[region height $relativeRegion] - 25}]
+    set width [expr {[region width $relativeRegion] - ($margin + 20)}]
+    set radians [region angle $relativeRegion]
 
     set curs [vec2 scale $cursor $advance $em]
 
@@ -141,7 +143,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
     set s [expr {$scale * 4}]
 
     # Draw text
-    Wish to draw text with position $p text $code scale $scale anchor topleft radians [region angle $r] font NeomatrixCode
+    Wish to draw text with position $p text $code scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
 
     # Draw line numbers
     # set linecount [expr {int(floor($height / $em))}]
