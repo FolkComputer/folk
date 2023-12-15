@@ -57,21 +57,6 @@ proc rotationVectorToRotationMatrix {r} {
                      [scale [sin $theta] $ux]]]
 }
 
-# https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
-# https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
-set undistort {{fx fy cx cy k1 k2 xy} {
-    lassign $xy x y
-    set x [expr {($x - $cx)/$fx}]
-    set y [expr {($y - $cy)/$fy}]
-    for {set i 0} {$i < 3} {incr i} {
-        set r2 [expr {$x*$x + $y*$y}]
-        set rad [expr {1.0 + $k1 * $r2 + $k2 * $r2*$r2}]
-        set x [expr {$x / $rad}]
-        set y [expr {$y / $rad}]
-    }
-    return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
-}}
-
 When the calibration model is /MODEL/ {
     set cc [c create]
     $cc include <math.h>

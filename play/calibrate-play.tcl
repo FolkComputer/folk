@@ -15,6 +15,29 @@ proc Claim {args} {}
 proc testCalibration {calibrationPoses calibration} {
     upvar ^isProjectedTag ^isProjectedTag
     upvar ^applyHomography ^applyHomography
+    upvar ^estimateHomography ^estimateHomography
+    
+    # https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
+    # https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
+    set undistort {{fx fy cx cy k1 k2 x y} {
+        set x [expr {($x - $cx)/$fx}]
+        set y [expr {($y - $cy)/$fy}]
+        for {set i 0} {$i < 3} {incr i} {
+            set r2 [expr {$x*$x + $y*$y}]
+            set rad [expr {1.0 + $k1 * $r2 + $k2 * $r2*$r2}]
+            set x [expr {$x / $rad}]
+            set y [expr {$y / $rad}]
+        }
+        return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
+    }}
+    set distort {{fx fy cx cy k1 k2 x y} {
+        set x [expr {($x - $cx)/$fx}]
+        set y [expr {($y - $cy)/$fy}]
+        set r2 [expr {$x*$x + $y*$y}]
+        set D [expr {$k1 * $r2 + $k2 * $r2*$r2}]
+        return [list [expr {($x * (1.0 + $D))*$fx + $cx}] \
+                    [expr {($y * (1.0 + $D))*$fy + $cy}]]
+    }}
 
     set tagSize [expr {17.5 / 1000}]; # 17.5 mm
     set tagFrameCorners \
@@ -28,7 +51,16 @@ proc testCalibration {calibrationPoses calibration} {
     set cameraFy [getelem $cameraIntrinsics 1 1]
     set cameraCx [getelem $cameraIntrinsics 0 2]
     set cameraCy [getelem $cameraIntrinsics 1 2]
+    set cameraK1 [dict get $calibration camera k1]
+    set cameraK2 [dict get $calibration camera k2]
+
     set projectorIntrinsics [dict get $calibration projector intrinsics]
+    set projectorFx [getelem $projectorIntrinsics 0 0]
+    set projectorFy [getelem $projectorIntrinsics 1 1]
+    set projectorCx [getelem $projectorIntrinsics 0 2]
+    set projectorCy [getelem $projectorIntrinsics 1 2]
+    set projectorK1 [dict get $calibration projector k1]
+    set projectorK2 [dict get $calibration projector k2]
 
     set R_cameraToProjector [dict get $calibration R_cameraToProjector]
     set t_cameraToProjector [dict get $calibration t_cameraToProjector]
@@ -42,6 +74,20 @@ proc testCalibration {calibrationPoses calibration} {
     foreach calibrationPose $calibrationPoses {
         dict for {id cameraTag} [dict get $calibrationPose tags] {
             if {![isProjectedTag $id]} continue
+
+            # Before estimating pose, undistort the corners of
+            # cameraTag using the camera distortion coefficients.
+            set p [lmap cameraCorner [dict get $cameraTag p] {
+                apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
+                    $cameraK1 $cameraK2 \
+                    {*}$cameraCorner
+            }]
+            dict set cameraTag p $p
+            set pointPairs [list [list -1 1 {*}[lindex $p 0]] \
+                                [list 1 1 {*}[lindex $p 1]] \
+                                [list 1 -1 {*}[lindex $p 2]] \
+                                [list -1 -1 {*}[lindex $p 3]]]
+            dict set cameraTag H [concat {*}[estimateHomography $pointPairs]]
 
             set tagPose [estimateTagPose $cameraTag $tagSize \
                              $cameraFx $cameraFy $cameraCx $cameraCy]
@@ -61,8 +107,11 @@ proc testCalibration {calibrationPoses calibration} {
                 lassign [matmul $projectorIntrinsics $projectorFrameCorner] rpx rpy rpz
                 set reprojX [/ $rpx $rpz]; set reprojY [/ $rpy $rpz]
                 # .canv create oval $reprojX $reprojY {*}[add [list $reprojX $reprojY] {5 5}] -fill yellow
+                lassign [apply $distort $projectorFx $projectorFy $projectorCx $projectorCy \
+                             $projectorK1 $projectorK2 $reprojX $reprojY] \
+                    distortedReprojX distortedReprojY
                 puts "$id (corner $i): orig projected x y: $origX $origY"
-                puts "$id (corner $i): reprojected x y:    $reprojX $reprojY"
+                puts "$id (corner $i): reprojected x y:    $distortedReprojX $distortedReprojY"
                 puts ""
 
                 # puts "$id (corner $i): cameraFrameCorner ($cameraFrameCorner)"
@@ -74,7 +123,7 @@ proc testCalibration {calibrationPoses calibration} {
                 # puts "$id (corner $i): reproj camera x y: [/ $rcx $rcz] [/ $rcy $rcz]"
                 # puts ""
 
-                set error [expr {sqrt(($reprojX - $origX)*($reprojX - $origX) + ($reprojY - $origY)*($reprojY - $origY))}]
+                set error [expr {sqrt(($distortedReprojX - $origX)*($distortedReprojX - $origX) + ($distortedReprojY - $origY)*($distortedReprojY - $origY))}]
                 set totalError [+ $totalError $error]
             }
         }
