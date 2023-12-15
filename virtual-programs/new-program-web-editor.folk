@@ -165,9 +165,9 @@ set errors [Statements::findMatches [list {${program}} has error /err/ with info
 	function handlePrint() {
 	  const code = document.getElementById("code").value;
 	  jobid = String(Math.random());
-	  send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
+	  send(`Assert web wishes to print program {${program}} with code {${code}} with job id {${jobid}}`);
 	  setTimeout(500, () => {
-	    send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
+	    send(`Retract web wishes to print program {${program}} with code {${code}} with job id {${jobid}}`);
 	  });
 	  document.getElementById('printback').style.display = '';
 	}

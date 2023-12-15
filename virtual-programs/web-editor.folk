@@ -110,9 +110,9 @@ set errors [Statements::findMatches [list program_id has error /err/ with info /
           function handlePrint() {
             const code = document.getElementById("code").value;
             jobid = String(Math.random());
-            send(`Assert web wishes to print program program_id with code {${code}} with job id {${jobid}}`);
+            send(`Assert web wishes to reprint program program_id with code {${code}} with job id {${jobid}}`);
             setTimeout(500, () => {
-              send(`Retract web wishes to print program program_id with code {${code}} with job id {${jobid}}`);
+              send(`Retract web wishes to reprint program program_id with code {${code}} with job id {${jobid}}`);
             });
           }
         </script>
