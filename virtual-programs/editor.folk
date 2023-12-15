@@ -7,6 +7,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has 
   When /nobody/ claims $id has program code /c/ {
     Commit "code$kbPath" {
       Claim $id has program code $baseCode 
+      Claim $id has editor code $baseCode 
     }
   }
 }
@@ -113,7 +114,7 @@ proc debug {position color} {
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
-  When $id has program code /code/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
+  When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set intTime [expr {int($t * 10)}]
     set scale 0.60
 
@@ -143,11 +144,10 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
     set s [expr {$scale * 4}]
 
     # Draw text
-    Wish to draw text with position $p text $code scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
+    Wish to draw text with position $p text $editorCode scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
 
     # Draw line numbers
-    # set linecount [expr {int(floor($height / $em))}]
-    set linecount [llength [split $code "\n"]]
+    set linecount [llength [split $editorCode "\n"]]
     set linenumbers [lineNumberView 0 $linecount]
     Wish to draw text with position $lp text $linenumbers scale $scale anchor topleft radians $radians font NeomatrixCode
 
@@ -165,12 +165,12 @@ proc getCurrentLineLength {lines cursor} {
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
-  Every time keyboard $kbPath claims key /currentCharacter/ is down with modifiers /modifier/ & the $kbPath cursor is /cursor/ & $id has program code /code/ {
+  Every time keyboard $kbPath claims key /currentCharacter/ is down with modifiers /modifier/ & the $kbPath cursor is /cursor/ & $id has program code /code/ & $id has editor code /editorCode/ {
     Commit "cursor$kbPath" {
       switch $currentCharacter {
         UP {
           set updatedCursor [updateCursor $cursor {y -1}]
-          set currentLineLength  [getCurrentLineLength $code $updatedCursor]
+          set currentLineLength  [getCurrentLineLength $editorCode $updatedCursor]
           if {[x $updatedCursor] > $currentLineLength} {
             Claim the $kbPath cursor is [list [- $currentLineLength 1]  [y $updatedCursor]]
           } else {
@@ -178,9 +178,9 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
           }
         }
         DOWN {
-          set linecount [llength [split $code "\n"]]
+          set linecount [llength [split $editorCode "\n"]]
           set updatedCursor [updateCursor $cursor {y 1}]
-          set currentLineLength [getCurrentLineLength $code $updatedCursor]
+          set currentLineLength [getCurrentLineLength $editorCode $updatedCursor]
 
           if {[y $updatedCursor] == $linecount} {
             Claim the $kbPath cursor is $cursor
@@ -192,7 +192,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
           }
         }
         RIGHT {
-          set currentLineLength [getCurrentLineLength $code $cursor]
+          set currentLineLength [getCurrentLineLength $editorCode $cursor]
           if {[x $cursor] == $currentLineLength} {
             Claim the $kbPath cursor is $cursor
           } else {
@@ -204,22 +204,31 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
           # if cursor is at the beginning of the line, delete the newline
           if {[x $cursor] == 0} {
             set newCursor [updateCursor $cursor {y -1}]
-            set previousLineLength  [getCurrentLineLength $code $newCursor]
+            set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
             set newCursor [list $previousLineLength [y $newCursor]]
             Claim the $kbPath cursor is $newCursor
           } else {
             Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
           }
-          Commit "code$kbPath" { Claim $id has program code [deleteCharacter $code $cursor] }
+          Commit "code$kbPath" {
+            Claim $id has program code $code
+            Claim $id has editor code [deleteCharacter $editorCode $cursor]
+          }
         }
         SPACE {
           Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-          Commit "code$kbPath" { Claim $id has program code [insertCharacter $code " " $cursor] }
+          Commit "code$kbPath" {
+            Claim $id has program code $code
+            Claim $id has editor code [insertCharacter $editorCode " " $cursor]
+          }
         }
         ENTER {
           set updatedCursor [updateCursor $cursor {y 1}]
           Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
-          Commit "code$kbPath" { Claim $id has program code [insertNewline $code $cursor] }
+          Commit "code$kbPath" {
+            Claim $id has program code $code
+            Claim $id has editor code [insertNewline $editorCode $cursor]
+          }
         }
         DELETE -
         INSERT -
@@ -263,36 +272,62 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
               Wish to print $code with job id [expr {rand()}]
               return
             }
-            Commit "code$kbPath" { Claim $id has program code $code}
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code $editorCode
+            }
             Claim the $kbPath cursor is $cursor
             return
           }
           if {$modifier == "ctrl" & $currentCharacter == "r"} {
-            Commit "code$kbPath" { Claim $id has program code $baseCode }
+            Commit "code$kbPath" {
+              Claim $id has program code $baseCode 
+              Claim $id has editor code $baseCode 
+            }
             Claim the $kbPath cursor is [list 0 0]
             return
           }
+          if {$modifier == "ctrl" & $currentCharacter == "s"} {
+            Commit "code$kbPath" {
+              Claim $id has program code $editorCode
+              Claim $id has editor code $editorCode
+            }
+            Claim the $kbPath cursor is $cursor
+            return
+          }
           if {$modifier == "ctrl" & $currentCharacter == "a"} {
-            Commit "code$kbPath" { Claim $id has program code $code}
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code $editorCode
+            }
             lassign $cursor x y
             Claim the $kbPath cursor is [list 0 $y]
             return
           }
           if {$modifier == "ctrl" & $currentCharacter == "e"} {
-            Commit "code$kbPath" { Claim $id has program code $code}
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code $editorCode
+            }
             lassign $cursor x y
             Claim the $kbPath cursor is [list [getLineLength $code $cursor] $y]
             return
           }
           if {$modifier == "ctrl" & $currentCharacter == "u"} {
             # delete from cursor back to 0 and move cursor to 0
-            Commit "code$kbPath" { Claim $id has program code [deleteToBeginning $code $cursor]}
+            Commit "code$kbPath" {
+              Claims $id has program code $code
+              Claim $id has program code [deleteToBeginning $editorCode $cursor]
+            }
             lassign $cursor x y
             Claim the $kbPath cursor is [list 0 $y]
             return
           }
           Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-          Commit "code$kbPath" { Claim $id has program code [insertCharacter $code $currentCharacter $cursor] }
+          Commit "code$kbPath" {
+            Claim $id has program code $code
+            Claim $id has editor code [insertCharacter $editorCode $currentCharacter $cursor]
+          }
         }
       }
     }
