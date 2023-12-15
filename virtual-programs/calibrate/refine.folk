@@ -57,6 +57,21 @@ proc rotationVectorToRotationMatrix {r} {
                      [scale [sin $theta] $ux]]]
 }
 
+# https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
+# https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
+set undistort {{fx fy cx cy k1 k2 xy} {
+    lassign $xy x y
+    set x [expr {($x - $cx)/$fx}]
+    set y [expr {($y - $cy)/$fy}]
+    for {set i 0} {$i < 3} {incr i} {
+        set r2 [expr {$x*$x + $y*$y}]
+        set rad [expr {1.0 + $k1 * $r2 + $k2 * $r2*$r2}]
+        set x [expr {$x / $rad}]
+        set y [expr {$y / $rad}]
+    }
+    return [list [expr {$x*$fx + $cx}] [expr {$y*$fy + $cy}]]
+}}
+
 When the calibration model is /MODEL/ {
     set cc [c create]
     $cc include <math.h>
@@ -151,6 +166,28 @@ When the calibration model is /MODEL/ {
             mulMat3Vec3(R, x, out);
             for (int i = 0; i < 3; i++) { out[i] += t[i]; }
         }
+        void undistort(double fx, double fy, double cx, double cy,
+                       double k1, double k2,
+                       double xy[2], double out[2]) {
+            double x = (xy[0] - cx)/fx;
+            double y = (xy[1] - cy)/fy;
+            for (int i = 0; i < 3; i++) {
+                double r2 = x*x + y*y;
+                double rad = 1.0 + k1 * r2 + k2 * r2*r2;
+                x /= rad; y /= rad;
+            }
+            out[0] = x*fx + cx; out[1] = y*fy + cy;
+        }
+        void distort(double fx, double fy, double cx, double cy,
+                     double k1, double k2,
+                     double xy[2], double out[2]) {
+            double x = (xy[0] - cx)/fx;
+            double y = (xy[1] - cy)/fy;
+            double r2 = x*x + y*y;
+            double D = k1 * r2 + k2 * r2*r2;
+            out[0] = (x * (1.0 + D))*fx + cx;
+            out[1] = (y * (1.0 + D))*fy + cy;
+        }
     }
     $cc proc func {int m int n double* x
                    double* fvec double** dvec
@@ -164,6 +201,8 @@ When the calibration model is /MODEL/ {
         double ccx = x[k++];
         double cfy = x[k++];
         double ccy = x[k++];
+        double ck1 = x[k++];
+        double ck2 = x[k++];
 
         // Projector intrinsics:
         double pfx = x[k++];
@@ -176,6 +215,8 @@ When the calibration model is /MODEL/ {
             {  0,  pfy,  pcy},
             {  0,    0,    1}
         };
+        double pk1 = x[k++];
+        double pk2 = x[k++];
 
         double r[3] = { x[k], x[k+1], x[k+2] }; k += 3;
         double R_cameraToProjector[3][3];
@@ -189,15 +230,22 @@ When the calibration model is /MODEL/ {
         for (int tagNum = 0; tagNum < TagsCount; tagNum++) {
             apriltag_detection_t det; {
                 for (int i = 0; i < 4; i++) {
-                    det.p[i][0] = CameraTagCorners[tagNum][i][0];
-                    det.p[i][1] = CameraTagCorners[tagNum][i][1];
+                    // Undistort the tag corners into ideal camera
+                    // space.
+                    undistort(cfx, cfy, ccx, ccy, ck1, ck2,
+                              CameraTagCorners[tagNum][i],
+                              det.p[i]);
+                    /* det.p[i][0] = CameraTagCorners[tagNum][i][0]; */
+                    /* det.p[i][1] = CameraTagCorners[tagNum][i][1]; */
                 }
                 det.H = alloca(sizeof(matd_t) * 9*sizeof(double));
                 det.H->nrows = 3; det.H->ncols = 3;
                 for (int i = 0; i < 9; i++) {
+                    // TODO: Undistort the homography.
                     det.H->data[i] = CameraTagHs[tagNum][i];
                 }
             }
+
             apriltag_detection_info_t info = {
                 .det = &det,
                 .tagsize = TagSize,
@@ -236,6 +284,12 @@ When the calibration model is /MODEL/ {
                 reprojCorner[1] /= reprojCorner[2];
                 reprojCorner[2] = 1;
 
+                // Use projector distortion coefficients to distort
+                // the 2D coordinates.
+                /* (void)pk1; (void)pk2; */
+                distort(pfx, pfy, pcx, pcy, pk1, pk2,
+                        reprojCorner, reprojCorner);
+
                 double dx = reprojCorner[0] - ProjectorTagCorners[tagNum][i][0];
                 double dy = reprojCorner[1] - ProjectorTagCorners[tagNum][i][1];
                 /* printf("%d (%d): Orig (%f %f) -> Reproj (%f %f)\n", */
@@ -261,7 +315,7 @@ When the calibration model is /MODEL/ {
         
         mp_result result = {0};
 
-        assert(paramsCount == 5 + 5 + 3 + 3);
+        assert(paramsCount == 7 + 7 + 3 + 3);
         printf("Unrefined:");
         computeError(params, paramsCount);
 
@@ -329,7 +383,11 @@ When the calibration model is /MODEL/ {
         lassign [getrow $projectorIntrinsics 1] _ projectorFy projectorCy
 
         set params [list $cameraFx $cameraS $cameraCx $cameraFy $cameraCy \
-                        $projectorFx $projectorS $projectorCx $projectorFy $projectorCy]
+                        [dict get $calibration camera k1] \
+                        [dict get $calibration camera k2] \
+                        $projectorFx $projectorS $projectorCx $projectorFy $projectorCy \
+                        [dict get $calibration projector k1] \
+                        [dict get $calibration projector k2]]
 
         set R_cameraToProjector [dict get $calibration R_cameraToProjector]
         lappend params {*}[rotationMatrixToRotationVector $R_cameraToProjector]
@@ -343,18 +401,24 @@ When the calibration model is /MODEL/ {
         # Unspool the optimization result into the calibration data
         # structure and return that.
 
-        set refined [lassign $refined cameraFx cameraS cameraCx cameraFy cameraCy]
+        set refined [lassign $refined cameraFx cameraS cameraCx cameraFy cameraCy \
+                        cameraK1 cameraK2]
         dict set calibration camera intrinsics [subst {
             {$cameraFx  $cameraS   $cameraCx}
             {0          $cameraFy  $cameraCy}
             {0          0                  1}
         }]
-        set refined [lassign $refined projectorFx projectorS projectorCx projectorFy projectorCy]
+        dict set calibration camera k1 $cameraK1
+        dict set calibration camera k2 $cameraK2
+        set refined [lassign $refined projectorFx projectorS projectorCx projectorFy projectorCy \
+                        projectorK1 projectorK2]
         dict set calibration projector intrinsics [subst {
             {$projectorFx  $projectorS   $projectorCx}
             {0             $projectorFy  $projectorCy}
             {0             0                        1}
         }]
+        dict set calibration projector k1 $projectorK1
+        dict set calibration projector k2 $projectorK2
 
         puts "Remaining refined: ($refined)"
         dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
