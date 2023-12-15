@@ -5,6 +5,58 @@
 #     cmpfit.
 #
 
+# From https://courses.cs.duke.edu/cps274/fall13/notes/rodrigues.pdf:
+proc rotationMatrixToRotationVector {R} {
+    set A [scale 0.5 [sub $R [transpose $R]]]
+    set rho [list [getelem $A 2 1] \
+                 [getelem $A 0 2] \
+                 [getelem $A 1 0]]
+    set s [norm $rho]
+    set c [expr {([getelem $R 0 0] + [getelem $R 1 1] + [getelem $R 2 2] - 1) / 2}]
+
+    # If s = 0 and c = 1:
+    if {abs($s) < 0.0001 && abs($c - 1) < 0.0001} {
+        return {0 0 0}
+    }
+    # If s = 0 and c = -1:
+    if {abs($s) < 0.0001 && abs($c - (-1)) < 0.0001} {
+        # let v = a nonzero column of R + I
+        set v [getcol [add $R [mkIdentity 3]] 0]
+        set u [scale [/ 1.0 [norm $v]] $v]
+        set r [scale 3.14159 $u]
+        if {abs([norm $r] - 3.14159) < 0.0001 &&
+            ((abs([getelem $r 0]) < 0.0001 &&
+              abs([getelem $r 1]) < 0.0001 &&
+              [getelem $r 2] < 0) ||
+             (abs([getelem $r 0]) < 0.0001 &&
+              [getelem $r 1] < 0) ||
+             ([getelem $r 0] < 0))} {
+            return [scale -1 $r]
+        } else {
+            return $r
+        }
+    }
+
+    set u [scale [/ 1.0 $s] $rho]
+    set theta [atan2 $s $c]
+    return [scale $theta $u]
+}
+
+proc rotationVectorToRotationMatrix {r} {
+    set theta [norm $r]
+    if {abs($theta) < 0.0001} {
+        return [mkIdentity 3]
+    }
+    set u [scale [/ 1.0 $theta] $r]
+    set ux [list [list 0                       [* -1.0 [getelem $u 2]] [getelem $u 1]] \
+                 [list [getelem $u 2]          0                       [* -1.0 [getelem $u 0]]] \
+                 [list [* -1.0 [getelem $u 1]] [getelem $u 0]          0]]
+    return [add [scale [cos $theta] [mkIdentity 3]] \
+                [add [scale [expr {1.0 - cos($theta)}] \
+                          [matmul $u [transpose $u]]] \
+                     [scale [sin $theta] $ux]]]
+}
+
 When the calibration model is /MODEL/ {
     set cc [c create]
     $cc include <math.h>
@@ -29,8 +81,6 @@ When the calibration model is /MODEL/ {
         double ProjectorTagCorners[NUM_POSES * $[dict size $MODEL]][4][2];
         int TagsCount;
 
-        double R_cameraToProjector[3][3];
-
         double TagSize;
     }]
     $cc proc setTags {double tagSize
@@ -54,10 +104,32 @@ When the calibration model is /MODEL/ {
         }
         TagsCount = tagsCount;
     }
-    $cc proc setR {double[] r} void {
-        memcpy(R_cameraToProjector, r, sizeof(double) * 9);
-    }
     $cc code {
+        void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
+            double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
+            if (fabs(theta) < 0.0001) {
+                double ret[3][3] = {
+                    {1, 0, 0},
+                    {0, 1, 0},
+                    {0, 0, 1}
+                };
+                memcpy(out, ret, sizeof(ret));
+                return;
+            }
+            double u[3] = {r[0]/theta, r[1]/theta, r[2]/theta};
+            double ret[3][3] = {
+                {cos(theta) + u[0]*u[0]*(1 - cos(theta)),
+                 u[0]*u[1]*(1 - cos(theta)) - u[2]*sin(theta),
+                 u[0]*u[2]*(1 - cos(theta)) + u[1]*sin(theta)},
+                {u[0]*u[1]*(1 - cos(theta)) + u[2]*sin(theta),
+                 cos(theta) + u[1]*u[1]*(1 - cos(theta)),
+                 u[1]*u[2]*(1 - cos(theta)) - u[0]*sin(theta)},
+                {u[0]*u[2]*(1 - cos(theta)) - u[1]*sin(theta),
+                 u[1]*u[2]*(1 - cos(theta)) + u[0]*sin(theta),
+                 cos(theta) + u[2]*u[2]*(1 - cos(theta))}
+            };
+            memcpy(out, ret, sizeof(ret));
+        }
         void mulMat3Mat3(double A[3][3], double B[3][3], double out[3][3]) {
             memset(out, 0, sizeof(double) * 9);
             for (int y = 0; y < 3; y++) {
@@ -105,15 +177,11 @@ When the calibration model is /MODEL/ {
             {  0,    0,    1}
         };
 
-        /* double r[3] = { x[k], x[k+1], x[k+2] }; (void)r; */
-        /* k += 3; */
-        /* double R_cameraToProjector[9] = { */
-            
-        /* }; */
+        double r[3] = { x[k], x[k+1], x[k+2] }; k += 3;
+        double R_cameraToProjector[3][3];
+        rotationVectorToRotationMatrix(r, R_cameraToProjector);
         double t_cameraToProjector[3];
-        for (int i = 0; i < 3; i++) {
-            t_cameraToProjector[i] = x[k++];
-        }
+        for (int i = 0; i < 3; i++) { t_cameraToProjector[i] = x[k++]; }
 
         assert(k == n);
         int f = 0;
@@ -193,7 +261,7 @@ When the calibration model is /MODEL/ {
         
         mp_result result = {0};
 
-        assert(paramsCount == 5 + 5 + 3);
+        assert(paramsCount == 5 + 5 + 3 + 3);
         printf("Unrefined:");
         computeError(params, paramsCount);
 
@@ -263,12 +331,8 @@ When the calibration model is /MODEL/ {
         set params [list $cameraFx $cameraS $cameraCx $cameraFy $cameraCy \
                         $projectorFx $projectorS $projectorCx $projectorFy $projectorCy]
 
-        # set R_cameraToProjector [dict get $calibration R_cameraToProjector]
-        # puts "R_cToP:\n$R_cameraToProjector"
-        # lappend params {*}[getcol $R_cameraToProjector 0] \
-        #     {*}[getcol $R_cameraToProjector 1]
-        # TODO: Refine this matrix.            
-        setR [concat {*}[dict get $calibration R_cameraToProjector]]
+        set R_cameraToProjector [dict get $calibration R_cameraToProjector]
+        lappend params {*}[rotationMatrixToRotationVector $R_cameraToProjector]
         set t_cameraToProjector [dict get $calibration t_cameraToProjector]
         lappend params {*}$t_cameraToProjector
 
@@ -292,13 +356,9 @@ When the calibration model is /MODEL/ {
             {0             0                        1}
         }]
 
-        # TODO: Unravel the new R.
-        # set r0 [lrange $refined 0 2]
-        # set r1 [lrange $refined 3 5]
-        # setcol R_cameraToProjector 0 $r0; setcol R_cameraToProjector 1 $r1
-        # dict set calibration R_cameraToProjector $R_cameraToProjector
         puts "Remaining refined: ($refined)"
-        dict set calibration t_cameraToProjector [lrange $refined 0 2]
+        dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+        dict set calibration t_cameraToProjector [lrange $refined 3 5]
 
         return $calibration
     }}
