@@ -89,11 +89,12 @@ When (non-capturing) the calibration is /calibration/ & \
     }}
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
+    set tagOuterSize [expr {$tagSize * 10/6}]
     set tagFrameCorners \
-        [list [list [expr {-$tagSize/2}] [expr {$tagSize/2}]  0] \
-              [list [expr {$tagSize/2}]  [expr {$tagSize/2}]  0] \
-              [list [expr {$tagSize/2}]  [expr {-$tagSize/2}] 0] \
-              [list [expr {-$tagSize/2}] [expr {-$tagSize/2}] 0]]
+        [list [list [expr {-$tagOuterSize/2}] [expr {$tagOuterSize/2}]  0] \
+              [list [expr {$tagOuterSize/2}]  [expr {$tagOuterSize/2}]  0] \
+              [list [expr {$tagOuterSize/2}]  [expr {-$tagOuterSize/2}] 0] \
+              [list [expr {-$tagOuterSize/2}] [expr {-$tagOuterSize/2}] 0]]
 
     set cameraIntrinsics [dict get $calibration camera intrinsics]
     set cameraFx [getelem $cameraIntrinsics 0 0]
