@@ -59,6 +59,7 @@ $cc compile
 package require math::linearalgebra
 namespace import ::math::linearalgebra::solvePGauss ::math::linearalgebra::mkIdentity ::math::linearalgebra::matmul ::math::linearalgebra::getelem ::math::linearalgebra::getrow ::math::linearalgebra::sub ::math::linearalgebra::add
 
+set ::oldPointPairs [dict create]
 When (non-capturing) the calibration is /calibration/ & \
      tag /tag/ has detection info /det/ {
     # Setting aside this tag space (48600 to 48713) for calibration.

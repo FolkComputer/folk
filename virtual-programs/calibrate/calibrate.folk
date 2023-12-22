@@ -563,6 +563,22 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         lappend ::calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
 
+        # Default projection: just make the tags fill most of the projector area.
+        # set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
+        #                                        $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
+
+        # set H_modelToDisplay [estimateHomography [subst {
+        #     {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
+        #     {$printedSideLengthM 0 $tagSideLengthPixels 0}
+        #     {0 $printedSideLengthM 0 $tagSideLengthPixels}
+        #     {0 0 0 0}
+        # }]]
+        # Commit H_modelToDisplay {
+        #     # Default model and version: nothing rotated.
+        #     Claim the calibration model-to-display homography is $H_modelToDisplay with \
+        #         model $baseModel version -1 timestamp [clock milliseconds]
+        # }
+
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
