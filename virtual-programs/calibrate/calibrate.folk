@@ -553,7 +553,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set fd [open "$::env(HOME)/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
-            Commit calibrationPoses { Claim the calibration poses are $::calibrationPoses }
+            Commit calibration { Claim the calibration poses are $::calibrationPoses }
             Retract /someone/ claims the printed tag side length is /anything/ mm
         }
     }
@@ -753,15 +753,40 @@ fn calibrate {calibrationPoses} {
 try {
     set fd [open "$::env(HOME)/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
-    Commit calibrationPoses { Claim the calibration poses are $calibrationPoses }
+
+    if {[file exists "$::env(HOME)/folk-calibration-output.txt"]} {
+        set fd [open "$::env(HOME)/folk-calibration-output.txt" r]
+        set calibration [read $fd]; close $fd
+        puts "READING CALIB"
+        Commit calibration {
+            Claim the calibration poses are $calibrationPoses
+            Claim the calibration is $calibration
+        }
+    } else {
+        Commit calibration {
+            puts "NO CALIBRATION, JUST CALIB POSES"
+            Claim the calibration poses are $calibrationPoses
+        }
+    }
+
 } on error e {
     puts stderr "Failed to load calibration poses: $e"
 }
 
-When the calibration poses are /calibrationPoses/ &\
+When /nobody/ claims the calibration is /anything/ &\
+     the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
-    puts "DOING CALIBRATION!"
+    if {[llength [Statements::findMatches [list /someone/ claims the calibration is /i/]]] >= 1} {
+        return
+    }
+
     set calibration [calibrate $calibrationPoses]
-    Claim the calibration is [apply $refineCalibration \
-                                  [/ 17.5 1000] $calibrationPoses $calibration]
+    set calibration [apply $refineCalibration \
+                         [/ 17.5 1000] $calibrationPoses $calibration]
+    Commit calibration {
+        Claim the calibration poses are $calibrationPoses
+        Claim the calibration is $calibration
+    }
+    set fd [open "$::env(HOME)/folk-calibration-output.txt" w]
+    puts $fd $calibration; close $fd
 }
