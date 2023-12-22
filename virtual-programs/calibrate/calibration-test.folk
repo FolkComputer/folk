@@ -31,7 +31,8 @@ $cc proc estimateTagPose {Tcl_Obj* detObj
         .cx = cx, .cy = cy
     };
     apriltag_pose_t pose;
-    double err = estimate_tag_pose(&info, &pose);
+    double err; err = estimate_tag_pose(&info, &pose);
+    // estimate_pose_for_tag_homography(&info, &pose);
     (void) err;
 
     // printf("Tag %d: Pose (err %f) R %dx%d t %dx%d\n", det.id, err,
@@ -90,6 +91,7 @@ When (non-capturing) the calibration is /calibration/ & \
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
     set tagOuterSize [expr {$tagSize * 10/6}]
+    # set tagOuterSize $tagSize
     set tagFrameCorners \
         [list [list [expr {-$tagOuterSize/2}] [expr {$tagOuterSize/2}]  0] \
               [list [expr {$tagOuterSize/2}]  [expr {$tagOuterSize/2}]  0] \
@@ -115,6 +117,13 @@ When (non-capturing) the calibration is /calibration/ & \
     set R_cameraToProjector [dict get $calibration R_cameraToProjector]
     set t_cameraToProjector [dict get $calibration t_cameraToProjector]
 
+    set p [dict get $det p]
+    # for {set i 0} {$i < 4} {incr i} {
+    #     puts "$tag-$i,[join [lindex $p $i] ,]"
+    # }
+    # set H [dict get $det H]
+    # puts "$tag-H,[join [lmap row $H {join $row ,}] ,]"
+
     # Before estimating pose, undistort the corners of
     # cameraTag using the camera distortion coefficients.
     set p [lmap cameraCorner [dict get $det p] {
@@ -123,12 +132,28 @@ When (non-capturing) the calibration is /calibration/ & \
             {*}$cameraCorner
     }]
     dict set det p $p
+    
     set pointPairs [list [list -1 1 {*}[lindex $p 0]] \
                         [list 1 1 {*}[lindex $p 1]] \
                         [list 1 -1 {*}[lindex $p 2]] \
                         [list -1 -1 {*}[lindex $p 3]]]
-    dict set det H [concat {*}[apply $::estimateHomography $pointPairs]]
+    # for {set i 0} {$i < 4} {incr i} {
+    #     puts "$tag-$i,[lindex $p $i]"
+    # }
+    # if {[dict exists $::oldPointPairs $tag]} {
+    #     set alpha 0.9
+    #     set pointPairs [lmap oldPt [dict get $::oldPointPairs $tag] pt $pointPairs {
+    #         lmap o $oldPt p $pt {
+    #             expr {$alpha * $p + (1 - $alpha) * $o}
+    #         }
+    #     }]
+    #     dict set det p [lmap pt $pointPairs {list [lindex $pt 2] [lindex $pt 3]}]
+    # }
+    # dict set ::oldPointPairs $tag $pointPairs
 
+    set H [concat {*}[apply $::estimateSimpleHomography $pointPairs]]
+    dict set det H $H
+    
     set tagPose [estimateTagPose $det $tagSize \
                      $cameraFx $cameraFy $cameraCx $cameraCy]
 
@@ -139,7 +164,8 @@ When (non-capturing) the calibration is /calibration/ & \
         set tagFrameCorner [lindex $tagFrameCorners $i]
         # These are 3D coordinates in meters from the center of the
         # webcam.
-        set cameraFrameCorner [lrange [matmul $tagPose [list {*}$tagFrameCorner 1]] 0 2]
+        lassign [matmul $tagPose [list {*}$tagFrameCorner 1]] cfx cfy cfz cfw
+        set cameraFrameCorner [list [/ $cfx $cfw] [/ $cfy $cfw] [/ $cfz $cfw]]
 
         set projectorFrameCorner [add [matmul $R_cameraToProjector $cameraFrameCorner] $t_cameraToProjector]
         # Use projector intrinsics to project real-world coordinates

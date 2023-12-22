@@ -108,6 +108,24 @@ set ::estimateHomography {{pointPairs} {
 fn estimateHomography {pointPairs} {
     apply $::estimateHomography $pointPairs
 }
+set ::estimateSimpleHomography {{pointPairs} {
+    set A [list]
+    set b [list]
+    foreach pair $pointPairs {
+        lassign $pair x y u v
+        lappend A [list $x $y 1 0  0  0]
+        lappend A [list 0  0  0 $x $y 1]
+        lappend b $u $v
+    }
+
+    lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2
+    set H [subst {
+        {$a0 $a1 $a2}
+        {$b0 $b1 $b2}
+        {0 0 1}
+    }]
+    return $H
+}}
 fn applyHomography {H xy} {
     lassign [matmul $H [list {*}$xy 1]] u v w
     return [list [/ $u $w] [/ $v $w]]
