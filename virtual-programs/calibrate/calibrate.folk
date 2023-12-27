@@ -583,7 +583,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= 10} {
             puts "READY CALIBARTION POSES!"
-            
+
+            catch {exec rm "$::env(HOME)/folk-calibration-output.txt"}
+
             set fd [open "$::env(HOME)/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
