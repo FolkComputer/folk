@@ -28,7 +28,12 @@ proc x {vector} { lindex $vector 0 }
 proc y {vector} { lindex $vector 1 }
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
-  Commit "cursor$kbPath" { Claim the $kbPath cursor is [list 0 0]}
+  set id "$page$kbPath"
+  When /nobody/ claims $id has program code /c/ {
+    Commit "cursor$kbPath" {
+      Claim the $kbPath cursor is [list 0 0]
+    }
+  }
 }
 
 proc insertCharacter {code newCharacter cursor} {
@@ -167,7 +172,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
   Every time keyboard $kbPath claims key /currentCharacter/ is /keyState/ with modifiers /modifier/ & the $kbPath cursor is /cursor/ & $id has program code /code/ & $id has editor code /editorCode/ {
     if {$keyState == "down" || $keyState == "repeat"} {
-          Commit "cursor$kbPath" {
+      Commit "cursor$kbPath" {
         switch $currentCharacter {
           UP {
             set updatedCursor [updateCursor $cursor {y -1}]
@@ -206,7 +211,9 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
             }
           }
           LEFT {
-            if {[x $cursor] == 0} {
+            if {[x $cursor] == 0 && [y $cursor] == 0} {
+              Claim the $kbPath cursor is $cursor
+            } elseif {[x $cursor] == 0} {
               set newCursor [updateCursor $cursor {y -1}]
               set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
               set newCursor [list $previousLineLength [y $newCursor]]
