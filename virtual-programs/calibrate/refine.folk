@@ -359,7 +359,10 @@ static matd_t* homography_compute2(double c[4][4]) {
         double fvec[TagsCount * 4];
         func(TagsCount * 4, paramsCount, params, fvec, NULL, NULL);
         double totalError = 0;
-        for (int i = 0; i < TagsCount * 4; i++) { totalError += fvec[i]; }
+        for (int i = 0; i < TagsCount * 4; i++) {
+            printf("  Error Tag %d (%d): %f\n", i/4, i%4, fvec[i]);
+            totalError += fvec[i];
+        }
         printf("Total Error: %f\n", totalError);
     }
     $cc proc refineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
@@ -368,7 +371,7 @@ static matd_t* homography_compute2(double c[4][4]) {
         mp_result result = {0};
 
         assert(paramsCount == 7 + 7 + 3 + 3);
-        printf("Unrefined:");
+        printf("Unrefined -----------------\n");
         computeError(params, paramsCount);
 
         mpfit(func,
@@ -378,7 +381,7 @@ static matd_t* homography_compute2(double c[4][4]) {
               paramsCount,
               params, NULL,
               NULL, NULL, &result);
-        printf("Refined:");
+        printf("Refined -------------------\n");
         computeError(params, paramsCount);
 
         Tcl_Obj* paramObjs[paramsCount];
@@ -402,7 +405,11 @@ static matd_t* homography_compute2(double c[4][4]) {
         set cameraTagHs [list]
         set cameraTagCorners [list]
         set projectorTagCorners [list]
+        set poseIdx 0
         foreach calibrationPose $calibrationPoses {
+            puts -nonewline "pose $poseIdx: tags [llength $cameraTagHs] "
+            incr poseIdx
+
             set H_modelToProjector [dict get $calibrationPose H_modelToDisplay]
             dict for {id cameraTag} [dict get $calibrationPose tags] {
                 if {![isProjectedTag $id]} continue
@@ -418,6 +425,8 @@ static matd_t* homography_compute2(double c[4][4]) {
                     lappend projectorTagCorners $projectorCorner
                 }
             }
+
+            puts "to [- [llength $cameraTagHs] 1]"
         }
         setTags $tagSize \
             [concat {*}$cameraTagHs] [concat {*}$cameraTagCorners] \
