@@ -170,7 +170,7 @@ proc getCurrentLineLength {lines cursor} {
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   set id "$page$kbPath"
-  Every time keyboard $kbPath claims key /currentCharacter/ is /keyState/ with modifiers /modifier/ & the $kbPath cursor is /cursor/ & $id has program code /code/ & $id has editor code /editorCode/ {
+  Every time keyboard $kbPath claims key /currentCharacter/ is /keyState/ with modifiers /modifier/ with rand /r/ & the $kbPath cursor is /cursor/ & $id has program code /code/ & $id has editor code /editorCode/ {
     if {$keyState == "down" || $keyState == "repeat"} {
       Commit "cursor$kbPath" {
         switch $currentCharacter {
