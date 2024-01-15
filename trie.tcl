@@ -4,36 +4,36 @@ set cc [c create]
 $cc cflags -I. trie.c
 $cc include <stdlib.h>
 $cc include "trie.h"
-$cc proc tclify {Trie* trie} Tcl_Obj* {
+$cc proc tclify {Trie* trie} Jim_Obj* {
     int objc = 3 + trie->nbranches;
-    Tcl_Obj* objv[objc];
-    objv[0] = Tcl_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
-    objv[1] = trie->key ? Tcl_ObjPrintf("%s", trie->key) : Tcl_ObjPrintf("ROOT");
-    objv[2] = trie->value ? Tcl_ObjPrintf("%"PRIu64, trie->value) : Tcl_ObjPrintf("NULL");
+    Jim_Obj* objv[objc];
+    objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
+    objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
+    objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
     for (int i = 0; i < trie->nbranches; i++) {
-        objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Tcl_NewStringObj("", 0);
+        objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
     }
-    return Tcl_NewListObj(objc, objv);
+    return Jim_NewListObj(interp, objv, objc);
 }
 $cc code {
-Clause* clause(char* first, ...) {
-    Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
-    va_list argp;
-    va_start(argp, first);
-    c->terms[0] = first;
-    int i = 1;
-    for (;;) {
-        if (i >= 100) abort();
-        c->terms[i] = va_arg(argp, char*);
-        if (c->terms[i] == 0) break;
-        i++;
+    Clause* clause(char* first, ...) {
+        Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
+        va_list argp;
+        va_start(argp, first);
+        c->terms[0] = first;
+        int i = 1;
+        for (;;) {
+            if (i >= 100) abort();
+            c->terms[i] = va_arg(argp, char*);
+            if (c->terms[i] == 0) break;
+            i++;
+        }
+        va_end(argp);
+        c->nterms = i;
+        return c;
     }
-    va_end(argp);
-    c->nterms = i;
-    return c;
 }
-}
-$cc proc test {} Tcl_Obj* {
+$cc proc test {} Jim_Obj* {
     Trie* t = trieCreate();
     trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
     trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
