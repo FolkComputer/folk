@@ -20,13 +20,13 @@ Trie* trieCreate() {
     return ret;
 }
 
-static Trie* trieAddImpl(Trie* trie, int32_t nterms, char* terms[], uint64_t value) {
+static Trie* trieAddImpl(Trie* trie, int32_t nterms, const char* terms[], uint64_t value) {
     if (nterms == 0) {
         trie->value = value;
         trie->hasValue = true;
         return trie;
     }
-    char* term = terms[0];
+    const char* term = terms[0];
 
     Trie* match = NULL;
 
@@ -72,3 +72,87 @@ Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
     return trieAddImpl(trie, c->nterms, c->terms, value);
 }
 
+
+bool scanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
+    if (term[0] != '/') { return false; }
+    int i = 1;
+    while (true) {
+        if (i - 1 > sizeOutVarName) { return false; }
+        if (term[i] == '/') {
+            if (term[i + 1] == '\0') {
+                outVarName[i - 1] = '\0';
+                return true;
+            } else {
+                return false;
+            }
+        }
+        if (term[i] == '\0') { return false; }
+        outVarName[i - 1] = term[i];
+        i++;
+    }
+}
+
+static void trieLookupImpl(Trie* trie, Clause* pattern, int patternIdx,
+                           uint64_t* results, size_t maxResults, int* resultsIdx) {
+    int wordc = pattern->nterms - patternIdx;
+    if (wordc == 0) {
+        if (trie->hasValue) {
+            if (*resultsIdx < maxResults) {
+                results[(*resultsIdx)++] = trie->value;
+            }
+        }
+        return;
+    }
+
+    const char* term = pattern->terms[patternIdx];
+    enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
+    char termVarName[100];
+    if (scanVariable(term, termVarName, 100)) {
+        if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
+            termType = TERM_TYPE_REST_VARIABLE;
+        } else { termType = TERM_TYPE_VARIABLE; }
+    } else { termType = TERM_TYPE_LITERAL; }
+
+    for (int j = 0; j < trie->nbranches; j++) {
+        if (trie->branches[j] == NULL) { break; }
+
+        // Easy cases:
+        if (trie->branches[j]->key == term || // Is there an exact pointer match?
+            termType == TERM_TYPE_VARIABLE) { // Is the current lookup term a variable?
+            trieLookupImpl(trie->branches[j], pattern, patternIdx + 1,
+                           results, maxResults, resultsIdx);
+
+        } else if (termType == TERM_TYPE_REST_VARIABLE) {
+            /* trieLookupAll(results, resultsIdx, maxresults, trie->branches[j]); */
+
+        } else {
+            char keyVarName[100];
+            // Is the trie node (we're currently walking) a variable?
+            if (scanVariable(trie->branches[j]->key, keyVarName, 100)) {
+                // Is the trie node a rest variable?
+                if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
+                    /* lookupAll(results, resultsIdx, maxresults, trie->branches[j]); */
+
+                } else { // Or is the trie node a normal variable?
+                    trieLookupImpl(trie->branches[j], pattern, patternIdx + 1,
+                                   results, maxResults, resultsIdx);
+                }
+            } else {
+                const char *keyString = trie->branches[j]->key;
+                const char *termString = term;
+                if (strcmp(keyString, termString) == 0) {
+                    trieLookupImpl(trie->branches[j], pattern, patternIdx + 1,
+                                   results, maxResults, resultsIdx);
+                }
+            }
+        }
+    }
+}
+
+int trieLookup(Trie* trie, Clause* pattern,
+               uint64_t* results, size_t maxResults) {
+    int resultCount = 0;
+    trieLookupImpl(trie, pattern, 0,
+                   results, maxResults, &resultCount);
+    return resultCount;
+}

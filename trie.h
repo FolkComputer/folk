@@ -3,12 +3,13 @@
 
 typedef struct Clause {
     int32_t nterms;
-    char* terms[];
+    const char* terms[];
 } Clause;
+#define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
 
 typedef struct Trie Trie;
 struct Trie {
-    char* key;
+    const char* key;
 
     // We generally store a pointer (for example, to a reaction thunk)
     // in this 64-bit value slot.
@@ -18,7 +19,6 @@ struct Trie {
     int32_t nbranches;
     Trie* branches[];
 };
-
 #define SIZEOF_TRIE(NBRANCHES) (sizeof(Trie) + (NBRANCHES)*sizeof(Trie*))
 
 typedef struct Trie Trie;
@@ -33,5 +33,8 @@ Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
 // Clause.
 
 // TODO: Provide a method to emit a graphviz graph.
+
+int trieLookup(Trie* trie, Clause* pattern,
+               uint64_t* results, size_t maxResults);
 
 #endif

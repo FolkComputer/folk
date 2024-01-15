@@ -15,6 +15,26 @@ $cc proc tclify {Trie* trie} Jim_Obj* {
     }
     return Jim_NewListObj(interp, objv, objc);
 }
+$cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
+    int nterms = Jim_ListLength(interp, patternObj);
+    Clause* pattern = alloca(SIZEOF_CLAUSE(nterms));
+    pattern->nterms = nterms;
+    for (int i = 0; i < nterms; i++) {
+        Jim_Obj* termObj = Jim_ListGetIndex(interp, patternObj, i);
+        pattern->terms[i] = Jim_GetString(termObj, NULL);
+    }
+
+    uint64_t results[50];
+    int resultCount = trieLookup(trie, pattern, results, 50);
+
+    // FIXME: Construct a list from results.
+    Jim_Obj* resultObjs[resultCount];
+    for (int i = 0; i < resultCount; i++) {
+        resultObjs[i] = Jim_NewIntObj(interp, results[i]);
+    }
+
+    return Jim_NewListObj(interp, resultObjs, resultCount);
+}
 $cc code {
     Clause* clause(char* first, ...) {
         Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
@@ -33,15 +53,6 @@ $cc code {
         return c;
     }
 }
-$cc proc test {} Jim_Obj* {
-    Trie* t = trieCreate();
-    trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
-    trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
-    trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
-    return tclify(t);
-}
-$cc compile
-
 proc dotify {trie} {
     proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
@@ -69,7 +80,20 @@ proc dotify {trie} {
     }
     return "digraph { rankdir=LR; [subdot $trie] }"
 }
+$cc proc test {} Trie* {
+    Trie* t = trieCreate();
+    trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
+    trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
+    trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
+    return t;
+}
+$cc compile
 
 set trie [test]; puts $trie
-exec dot -Tpdf <<[dotify $trie] >trie.pdf
+
+puts [lookup $trie [list This is a thing]]
+puts [lookup $trie [list This is another thing]]
+puts [lookup $trie [list This is another statement]]
+
+exec dot -Tpdf <<[dotify [tclify $trie]] >trie.pdf
 puts trie.pdf
