@@ -1,9 +1,14 @@
-typedef struct Clause {
-    int32_t nterms;
-    char* terms[];
-} Clause;
+// Plan: we'll use locks for the trie at first, then switch to some
+// sort of RCU scheme.
 
-typedef struct Trie {
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "trie.h"
+
+struct Trie {
     char* key;
 
     // We generally store a pointer (for example, to a reaction thunk)
@@ -13,8 +18,9 @@ typedef struct Trie {
 
     int32_t nbranches;
     Trie* branches[];
-} Trie;
-#define SIZEOF_TRIE(nbranches) (sizeof(Trie) + (nbranches)*sizeof(Trie*))
+};
+
+#define SIZEOF_TRIE(NBRANCHES) (sizeof(Trie) + (NBRANCHES)*sizeof(Trie*))
 
 Trie* trieCreate() {
     size_t size = sizeof(Trie) + 10*sizeof(Trie*);
@@ -26,9 +32,14 @@ Trie* trieCreate() {
         .nbranches = 10
     };
     return ret;
-} 
+}
 
-Trie* trieAddImpl(const Trie* trie, int32_t nterms, char* terms[], uint64_t value) {
+static Trie* trieAddImpl(Trie* trie, int32_t nterms, char* terms[], uint64_t value) {
+    if (nterms == 0) {
+        trie->value = value;
+        trie->hasValue = true;
+        return trie;
+    }
     char* term = terms[0];
 
     Trie* match = NULL;
@@ -57,8 +68,7 @@ Trie* trieAddImpl(const Trie* trie, int32_t nterms, char* terms[], uint64_t valu
         }
 
         Trie* branch = calloc(SIZEOF_TRIE(10), 1);
-        branch->key = word;
-        Tcl_IncrRefCount(branch->key);
+        branch->key = term;
         branch->value = 0;
         branch->hasValue = false;
         branch->nbranches = 10;
@@ -68,10 +78,10 @@ Trie* trieAddImpl(const Trie* trie, int32_t nterms, char* terms[], uint64_t valu
         match = trie->branches[j];
     }
 
-    return trieAddImpl(trie, nterms - 1, terms + 1, value);
+    trieAddImpl(match, nterms - 1, terms + 1, value);
+    return trie;
 }
 
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
     return trieAddImpl(trie, c->nterms, c->terms, value);
 }
-

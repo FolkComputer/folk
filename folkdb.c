@@ -2,16 +2,13 @@
 #include <stdint.h>
 #include <stdarg.h>
 
+#include "trie.h"
+
 // TODO: Interprocess heap
 
 // What is the db?
 // Can we make a trie and have that be authoritative?
 // Need to store data in each statement too
-
-typedef struct Clause {
-    int32_t nterms;
-    char* terms[];
-} Clause;
 
 typedef struct Result {
     char* blup;
@@ -21,6 +18,8 @@ typedef struct ResultSet {
     Result* results[];
 } ResultSet;
 
+Trie* clauseToStatementId;
+
 // Query
 ResultSet* query(Clause* c) {
     return NULL;
@@ -29,7 +28,7 @@ ResultSet* query(Clause* c) {
 // Add
 void add(Clause* c) {
     // add to db
-    
+    trieAdd(clauseToStatementId, c, 1);
 }
 
 // Remove
@@ -45,16 +44,17 @@ Clause* clause(char* first, ...) {
     c->terms[0] = first;
     int i = 1;
     for (;;) {
-        if (i >= 100) break;
+        if (i >= 100) abort();
         c->terms[i] = va_arg(argp, char*);
         if (c->terms[i] == 0) break;
         i++;
     }
     va_end(argp);
-    c->length = i;
+    c->nterms = i;
     return c;
 }
 int main() {
+    clauseToStatementId = trieCreate();
     add(clause("This", "is", "a", "thing", 0));
     query(clause("This", "is", "a", "thing", 0));
 }
