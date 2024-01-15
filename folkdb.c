@@ -58,3 +58,7 @@ int main() {
     add(clause("This", "is", "a", "thing", 0));
     query(clause("This", "is", "a", "thing", 0));
 }
+
+// FIXME: Implement query.
+// FIXME: Implement Graphviz output.
+// FIXME: Test with multiple threads.

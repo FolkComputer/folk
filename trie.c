@@ -8,20 +8,6 @@
 
 #include "trie.h"
 
-struct Trie {
-    char* key;
-
-    // We generally store a pointer (for example, to a reaction thunk)
-    // in this 64-bit value slot.
-    bool hasValue;
-    uint64_t value;
-
-    int32_t nbranches;
-    Trie* branches[];
-};
-
-#define SIZEOF_TRIE(NBRANCHES) (sizeof(Trie) + (NBRANCHES)*sizeof(Trie*))
-
 Trie* trieCreate() {
     size_t size = sizeof(Trie) + 10*sizeof(Trie*);
     Trie* ret = (Trie*) calloc(size, 1);
@@ -85,3 +71,4 @@ static Trie* trieAddImpl(Trie* trie, int32_t nterms, char* terms[], uint64_t val
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
     return trieAddImpl(trie, c->nterms, c->terms, value);
 }
+
