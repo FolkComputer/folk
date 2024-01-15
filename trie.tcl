@@ -36,6 +36,8 @@ Clause* clause(char* first, ...) {
 $cc proc test {} Tcl_Obj* {
     Trie* t = trieCreate();
     trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
+    trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
+    trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
     return tclify(t);
 }
 $cc compile
@@ -68,5 +70,6 @@ proc dotify {trie} {
     return "digraph { rankdir=LR; [subdot $trie] }"
 }
 
-exec dot -Tpdf <<[dotify [test]] >trie.pdf
+set trie [test]; puts $trie
+exec dot -Tpdf <<[dotify $trie] >trie.pdf
 puts trie.pdf
