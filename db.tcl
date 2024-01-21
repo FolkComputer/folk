@@ -8,6 +8,8 @@ $cc include "db.h"
 $cc proc dbTest {} Trie* {
     testInit();
     testAssert(clause("This", "is", "a", "thing", 0));
+    testAssert(clause("This", "is", "a", "thing", 0));
+    testAssert(clause("This", "is", "another", "thing", 0));
 
     return testGetClauseToStatementId();
 }

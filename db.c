@@ -194,7 +194,7 @@ void dbInsert(Clause* clause,
         exit(1);
     }
 
-    bool isNewStatement = id != NULL;
+    bool isNewStatement = id == NULL;
     if (isNewStatement) {
         id = statementNew(clause, nParents, parents, 0, NULL);
         clauseToStatementId = trieAdd(clauseToStatementId, clause, (uint64_t) id);
