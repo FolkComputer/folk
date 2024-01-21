@@ -2,12 +2,14 @@ source "lib/c.tcl"
 source "trie.tcl"
 
 set cc [c create]
-$cc cflags -I. trie.c folkdb.c
+$cc cflags -I. trie.c db.c
 $cc include <stdlib.h>
 $cc include "db.h"
 $cc proc dbTest {} void {
     testInit();
     testAssert(clause("This", "is", "a", "thing", 0));
+
+    testGetClauseToStatementId();
 }
 try {
     $cc compile

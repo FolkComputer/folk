@@ -241,9 +241,13 @@ Clause* clause(char* first, ...) {
 void testInit() {
     clauseToStatementId = trieCreate();
 }
+Trie* testGetClauseToStatementId() {
+    return clauseToStatementId;
+}
 void testAssert(Clause* clause) {
     dbInsert(clause, 0, NULL, NULL, NULL);
 }
+
 
 // FIXME: Implement Graphviz output.
 // FIXME: Test with multiple threads.
