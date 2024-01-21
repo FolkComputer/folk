@@ -88,6 +88,10 @@ $cc proc trieTest {} Trie* {
 }
 $cc compile
 
+proc trieWriteToPdf {trie pdf} {
+    exec dot -Tpdf <<[dotify [trieTclify $trie]] >$pdf
+}
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     set trie [trieTest]; puts $trie
 
@@ -96,6 +100,6 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     puts [lookup $trie [list This is another statement]]
     puts [lookup $trie [list This is another /x/]]
 
-    exec dot -Tpdf <<[dotify [trieTclify $trie]] >trie.pdf
+    trieWriteToPdf $trie trie.pdf
     puts trie.pdf
 }

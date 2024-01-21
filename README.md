@@ -1,7 +1,7 @@
-# folk2
+# db
 
 ```
 $ cd vendor/jimtcl
 $ ./configure CFLAGS=-g && make
-$ vendor/jimtcl/jimsh trie.tcl
+$ vendor/jimtcl/jimsh db.tcl
 ```
