@@ -4,14 +4,14 @@ set cc [c create]
 $cc cflags -I. trie.c
 $cc include <stdlib.h>
 $cc include "trie.h"
-$cc proc tclify {Trie* trie} Jim_Obj* {
+$cc proc trieTclify {Trie* trie} Jim_Obj* {
     int objc = 3 + trie->nbranches;
     Jim_Obj* objv[objc];
     objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
     objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
     objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
     for (int i = 0; i < trie->nbranches; i++) {
-        objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
+        objv[3+i] = trie->branches[i] ? trieTclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
     }
     return Jim_NewListObj(interp, objv, objc);
 }
@@ -27,7 +27,6 @@ $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
     uint64_t results[50];
     int resultCount = trieLookup(trie, pattern, results, 50);
 
-    // FIXME: Construct a list from results.
     Jim_Obj* resultObjs[resultCount];
     for (int i = 0; i < resultCount; i++) {
         resultObjs[i] = Jim_NewIntObj(interp, results[i]);
@@ -80,20 +79,23 @@ proc dotify {trie} {
     }
     return "digraph { rankdir=LR; [subdot $trie] }"
 }
-$cc proc test {} Trie* {
+$cc proc trieTest {} Trie* {
     Trie* t = trieCreate();
-    trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
-    trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
-    trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
+    t = trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
+    t = trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
+    t = trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
     return t;
 }
 $cc compile
 
-set trie [test]; puts $trie
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    set trie [trieTest]; puts $trie
 
-puts [lookup $trie [list This is a thing]]
-puts [lookup $trie [list This is another thing]]
-puts [lookup $trie [list This is another statement]]
+    puts [lookup $trie [list This is a thing]]
+    puts [lookup $trie [list This is another thing]]
+    puts [lookup $trie [list This is another statement]]
+    puts [lookup $trie [list This is another /x/]]
 
-exec dot -Tpdf <<[dotify [tclify $trie]] >trie.pdf
-puts trie.pdf
+    exec dot -Tpdf <<[dotify [trieTclify $trie]] >trie.pdf
+    puts trie.pdf
+}

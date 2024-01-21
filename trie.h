@@ -23,11 +23,12 @@ struct Trie {
 
 typedef struct Trie Trie;
 
-// Tries are immutable.
+// TODO: Make tries immutable.
 
 Trie* trieCreate();
 
-// Returns a new Trie pointer with the clause added.
+// Returns a new Trie pointer with the clause added. For now, we can't
+// guarantee that it doesn't mutate the original trie.
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
 // TODO: Specify ownership of Clause and term strings inside the
 // Clause.
@@ -36,5 +37,11 @@ Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
 
 int trieLookup(Trie* trie, Clause* pattern,
                uint64_t* results, size_t maxResults);
+
+// Only looks for literal matches of `literal` in the trie (does not
+// treat /variable/ as a variable). Used to check for an
+// already-existing statement whenever a statement is inserted.
+int trieLookupLiteral(Trie* trie, Clause* literal,
+                      uint64_t* results, size_t maxResults);
 
 #endif

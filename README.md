@@ -2,6 +2,6 @@
 
 ```
 $ cd vendor/jimtcl
-$ ./configure && make
+$ ./configure CFLAGS=-g && make
 $ vendor/jimtcl/jimsh trie.tcl
 ```
