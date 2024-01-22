@@ -8,7 +8,7 @@
 
 #include "trie.h"
 
-Trie* trieCreate() {
+Trie* trieNew() {
     size_t size = sizeof(Trie) + 10*sizeof(Trie*);
     Trie* ret = (Trie*) calloc(size, 1);
     *ret = (Trie) {

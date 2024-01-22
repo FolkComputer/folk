@@ -166,38 +166,49 @@ void matchAddParentStatement(Match* match, Statement* parent) {
 // Database:
 ////////////////////////////////////////////////////////////
 
-// This is the primary trie (index) used for queries.
-Trie* clauseToStatementId;
+typedef struct Db {
+    // This is the primary trie (index) used for queries.
+    Trie* clauseToStatementId;
 
-Trie* clauseToReaction;
+    // TODO: Trie* clauseToReaction;
+} Db;
+// TODO: Implement locking.
+
+Db* dbNew() {
+    Db* ret = malloc(sizeof(Db));
+    ret->clauseToStatementId = trieNew();
+    return ret;
+}
+Trie* dbGetClauseToStatementId(Db* db) { return db->clauseToStatementId; }
 
 // Query
-ResultSet* query(Clause* c) {
+ResultSet* query(Db* db, Clause* c) {
     return NULL;
 }
 
-void dbInsert(Clause* clause,
+void dbInsert(Db* db,
+              Clause* clause,
               size_t nParents, Match* parents[],
               Statement** outStatement, bool* outIsNewStatement) {
     // Is this clause already present among the existing statements?
     uint64_t ids[10];
-    int idslen = trieLookupLiteral(clauseToStatementId, clause,
-                                   ids, 10);
+    int idslen = trieLookupLiteral(db->clauseToStatementId, clause,
+                                   ids, sizeof(ids)/sizeof(ids[0]));
     Statement* id;
     if (idslen == 1) {
         id = (Statement *)&ids[0];
     } else if (idslen == 0) {
         id = NULL;
     } else {
-        // error WTF
-        printf("WTF: looked up\n");
-        exit(1);
+        // Invariant has been violated: somehow we have 2+ copies of
+        // the same clause already in the db?
+        fprintf(stderr, "Error: Clause duplicate\n"); exit(1);
     }
 
     bool isNewStatement = id == NULL;
     if (isNewStatement) {
         id = statementNew(clause, nParents, parents, 0, NULL);
-        clauseToStatementId = trieAdd(clauseToStatementId, clause, (uint64_t) id);
+        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, (uint64_t) id);
 
     } else {
         // The clause already exists. We'll add the parents to the
@@ -217,7 +228,7 @@ void dbInsert(Clause* clause,
 }
 
 // Remove
-void dbRemove(Clause* c) {
+void dbRemove(Db* db, Clause* c) {
     
 }
 
@@ -238,14 +249,9 @@ Clause* clause(char* first, ...) {
     c->nterms = i;
     return c;
 }
-void testInit() {
-    clauseToStatementId = trieCreate();
-}
-Trie* testGetClauseToStatementId() {
-    return clauseToStatementId;
-}
-void testAssert(Clause* clause) {
-    dbInsert(clause, 0, NULL, NULL, NULL);
+
+void testAssert(Db* db, Clause* clause) {
+    dbInsert(db, clause, 0, NULL, NULL, NULL);
 }
 
 

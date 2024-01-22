@@ -25,7 +25,7 @@ typedef struct Trie Trie;
 
 // TODO: Make tries immutable.
 
-Trie* trieCreate();
+Trie* trieNew();
 
 // Returns a new Trie pointer with the clause added. For now, we can't
 // guarantee that it doesn't mutate the original trie.

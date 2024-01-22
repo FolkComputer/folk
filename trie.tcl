@@ -80,7 +80,7 @@ proc trieDotify {trie} {
     return "digraph { rankdir=LR; [subdot [trieTclify $trie]] }"
 }
 $cc proc trieTest {} Trie* {
-    Trie* t = trieCreate();
+    Trie* t = trieNew();
     t = trieAdd(t, clause("This", "is", "a", "thing", 0), 1);
     t = trieAdd(t, clause("This", "is", "another", "thing", 0), 2);
     t = trieAdd(t, clause("This", "is", "another", "statement", 0), 300);

@@ -6,14 +6,17 @@
 typedef struct Statement Statement;
 typedef struct Match Match;
 typedef struct Clause Clause;
+typedef struct Db Db;
+
+Db* dbNew();
+Trie* dbGetClauseToStatementId(Db* db);
 
 Clause* clause(char* first, ...);
-void dbInsert(Clause* clause,
+void dbInsert(Db* db,
+              Clause* clause,
               size_t nParents, Match* parents[],
               Statement** outStatement, bool* outIsNewStatement);
 
-void testInit();
-Trie* testGetClauseToStatementId();
-void testAssert(Clause* clause);
+void testAssert(Db* db, Clause* clause);
 
 #endif
