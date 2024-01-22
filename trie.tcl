@@ -52,7 +52,7 @@ $cc code {
         return c;
     }
 }
-proc dotify {trie} {
+proc trieDotify {trie} {
     proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
         regsub -all {\W+} $word "_"
@@ -77,7 +77,7 @@ proc dotify {trie} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot $trie] }"
+    return "digraph { rankdir=LR; [subdot [trieTclify $trie]] }"
 }
 $cc proc trieTest {} Trie* {
     Trie* t = trieCreate();
@@ -89,7 +89,7 @@ $cc proc trieTest {} Trie* {
 $cc compile
 
 proc trieWriteToPdf {trie pdf} {
-    exec dot -Tpdf <<[dotify [trieTclify $trie]] >$pdf
+    exec dot -Tpdf <<[trieDotify $trie] >$pdf
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {

@@ -249,5 +249,4 @@ void testAssert(Clause* clause) {
 }
 
 
-// FIXME: Implement Graphviz output.
 // FIXME: Test with multiple threads.
