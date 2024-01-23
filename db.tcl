@@ -5,6 +5,7 @@ set trieCc $cc
 set cc [c create]
 $cc cflags -I. trie.c db.c
 $cc include <stdlib.h>
+$cc include <assert.h>
 $cc include "db.h"
 $cc import $trieCc jimObjToClause as jimObjToClause
 $cc proc testNew {} Db* { return dbNew(); }
@@ -12,6 +13,16 @@ $cc proc testAssert {Db* db Jim_Obj* clauseObj} Statement* {
     Clause* c = jimObjToClause(clauseObj);
     Statement* ret = dbAssert(db, c);
     free(c);
+    return ret;
+}
+# TODO: Return list of Statement*.
+$cc proc testQuery {Db* db Jim_Obj* patternObj} Statement* {
+    Clause* c = jimObjToClause(patternObj);
+    ResultSet* rs = dbQuery(db, c);
+    free(c);
+    assert(rs->nResults == 1);
+    Statement* ret = rs->results[0];
+    free(rs);
     return ret;
 }
 $cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
@@ -56,9 +67,15 @@ proc dbWriteToPdf {db pdf} {
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     set db [testNew]
-    set thing [testAssert $db [list This is a thing]]
-    set anotherThing [testAssert $db [list This is another thing]]
-    set also [testAssert $db [list Also x is true besides]]
+    proc Test: {args} {
+        upvar db db
+        set clause $args
+        set stmt [testAssert $db $clause]
+        puts "$stmt ([testQuery $db $clause])"
+    }
+    Test: This is a thing
+    Test: This is another thing
+    Test: Also x is true besides
     trieWriteToPdf [testGetClauseToStatementIdTrie $db] trie.pdf; puts trie.pdf
     dbWriteToPdf [dbDotify $db] db.pdf; puts db.pdf
 }
