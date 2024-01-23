@@ -15,17 +15,21 @@ $cc proc trieTclify {Trie* trie} Jim_Obj* {
     }
     return Jim_NewListObj(interp, objv, objc);
 }
-$cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
-    int nterms = Jim_ListLength(interp, patternObj);
-    Clause* pattern = alloca(SIZEOF_CLAUSE(nterms));
-    pattern->nterms = nterms;
+$cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
+    int nterms = Jim_ListLength(interp, clauseObj);
+    Clause* clause = malloc(SIZEOF_CLAUSE(nterms));
+    clause->nterms = nterms;
     for (int i = 0; i < nterms; i++) {
-        Jim_Obj* termObj = Jim_ListGetIndex(interp, patternObj, i);
-        pattern->terms[i] = Jim_GetString(termObj, NULL);
+        Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
+        clause->terms[i] = Jim_GetString(termObj, NULL);
     }
-
+    return clause;
+}
+$cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
     uint64_t results[50];
+    Clause* pattern = jimObjToClause(patternObj);
     int resultCount = trieLookup(trie, pattern, results, 50);
+    free(pattern);
 
     Jim_Obj* resultObjs[resultCount];
     for (int i = 0; i < resultCount; i++) {

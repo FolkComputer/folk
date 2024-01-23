@@ -1,18 +1,20 @@
 source "lib/c.tcl"
 source "trie.tcl"
+set trieCc $cc
 
 set cc [c create]
 $cc cflags -I. trie.c db.c
 $cc include <stdlib.h>
 $cc include "db.h"
-$cc code { Db* db; }
-$cc proc testRun {} void {
-    db = dbNew();
-    testAssert(db, clause("This", "is", "a", "thing", 0));
-    testAssert(db, clause("This", "is", "a", "thing", 0));
-    testAssert(db, clause("This", "is", "another", "thing", 0));
+$cc import $trieCc jimObjToClause as jimObjToClause
+$cc proc testNew {} Db* { return dbNew(); }
+$cc proc testAssert {Db* db Jim_Obj* clauseObj} Statement* {
+    Clause* c = jimObjToClause(clauseObj);
+    Statement* ret = dbAssert(db, c);
+    free(c);
+    return ret;
 }
-$cc proc testGetClauseToStatementIdTrie {} Trie* {
+$cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
     return dbGetClauseToStatementId(db);
 }
 try {
@@ -21,7 +23,7 @@ try {
 
 proc dbDotify {db} {
     set dot [list]
-    dict for {id stmt} [all] {
+    dict for {id stmt} [testQuery ...] {
         lappend dot "subgraph <cluster_$id> {"
         lappend dot "color=lightgray;"
 
@@ -49,10 +51,14 @@ proc dbDotify {db} {
     return "digraph { rankdir=LR; [join $dot "\n"] }"
 }
 proc dbWriteToPdf {db pdf} {
-    exec dot -Tpdf <<[] >$pdf
+    exec dot -Tpdf <<[dbDotify $db] >$pdf
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
-    testRun
-    trieWriteToPdf [testGetClauseToStatementIdTrie] db.pdf; puts db.pdf
+    set db [testNew]
+    set thing [testAssert $db [list This is a thing]]
+    set anotherThing [testAssert $db [list This is another thing]]
+    set also [testAssert $db [list Also x is true besides]]
+    trieWriteToPdf [testGetClauseToStatementIdTrie $db] trie.pdf; puts trie.pdf
+    dbWriteToPdf [dbDotify $db] db.pdf; puts db.pdf
 }

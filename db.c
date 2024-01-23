@@ -7,20 +7,7 @@
 #include <string.h>
 
 #include "trie.h"
-
-// TODO: Interprocess heap
-
-// What is the db?
-// Can we make a trie and have that be authoritative?
-// Need to store data in each statement too
-
-typedef struct Result {
-    char* blup;
-} Result;
-typedef struct ResultSet {
-    int32_t nresults;
-    Result* results[];
-} ResultSet;
+#include "db.h"
 
 ////////////////////////////////////////////////////////////
 // EdgeTo and ListOfEdgeTo:
@@ -182,8 +169,22 @@ Db* dbNew() {
 Trie* dbGetClauseToStatementId(Db* db) { return db->clauseToStatementId; }
 
 // Query
-ResultSet* query(Db* db, Clause* c) {
-    return NULL;
+ResultSet* dbQuery(Db* db, Clause* pattern) {
+    uint64_t results[500];
+    size_t maxResults = sizeof(results)/sizeof(results[0]);
+    size_t nResults = trieLookup(db->clauseToStatementId, pattern,
+                                    results, maxResults);
+    if (nResults == maxResults) {
+        // TODO: Try again with a larger maxResults?
+        fprintf(stderr, "dbQuery: Hit max results\n"); exit(1);
+    }
+
+    ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
+    ret->nResults = nResults;
+    for (size_t i = 0; i < nResults; i++) {
+        ret->results[i] = (Statement*) results[i];
+    }
+    return ret;
 }
 
 void dbInsert(Db* db,
@@ -250,8 +251,11 @@ Clause* clause(char* first, ...) {
     return c;
 }
 
-void testAssert(Db* db, Clause* clause) {
-    dbInsert(db, clause, 0, NULL, NULL, NULL);
+Statement* dbAssert(Db* db, Clause* clause) {
+    Statement* ret; bool isNewStmt;
+    dbInsert(db, clause, 0, NULL, &ret, &isNewStmt);
+    assert(isNewStmt);
+    return ret;
 }
 
 

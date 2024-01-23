@@ -473,7 +473,7 @@ namespace eval c {
                 load [file rootname $cfile].so cfile
             }
             ::proc import {scc sname as dest} {
-                set scc [namespace origin [namespace qualifiers $scc]::[set $scc]]
+                set scc [uplevel [list namespace origin $scc]]
                 set procinfo [dict get [set ${scc}::procs] $sname]
                 set rtype [dict get $procinfo rtype]
                 set arglist [dict get $procinfo arglist]
