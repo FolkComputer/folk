@@ -49,8 +49,9 @@ try {
 } on error e { puts stderr $e }
 
 proc dbDotify {db} {
+    puts ([testQuery $db /...anything/])
     set dot [list]
-    dict for {id stmt} [testQuery ...] {
+    dict for {id stmt} [testQuery $db /...anything/] {
         lappend dot "subgraph <cluster_$id> {"
         lappend dot "color=lightgray;"
 

@@ -92,6 +92,19 @@ bool scanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
     }
 }
 
+static void trieLookupAll(Trie* trie,
+                          uint64_t* results, size_t maxResults, int* resultsIdx) {
+    if (trie->hasValue) {
+        if (*resultsIdx < maxResults) {
+            results[(*resultsIdx)++] = trie->value;
+        }
+    }
+    for (int j = 0; j < trie->nbranches; j++) {
+        if (trie->branches[j] == NULL) { break; }
+        trieLookupAll(trie->branches[j],
+                      results, maxResults, resultsIdx);
+    }
+}
 static void trieLookupImpl(bool isLiteral, Trie* trie, Clause* pattern, int patternIdx,
                            uint64_t* results, size_t maxResults, int* resultsIdx) {
     int wordc = pattern->nterms - patternIdx;
@@ -123,7 +136,8 @@ static void trieLookupImpl(bool isLiteral, Trie* trie, Clause* pattern, int patt
                            results, maxResults, resultsIdx);
 
         } else if (termType == TERM_TYPE_REST_VARIABLE) {
-            /* trieLookupAll(results, resultsIdx, maxresults, trie->branches[j]); */
+            trieLookupAll(trie->branches[j],
+                          results, maxResults, resultsIdx);
 
         } else {
             char keyVarName[100];
