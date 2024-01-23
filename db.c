@@ -18,7 +18,7 @@ typedef struct {
     EdgeType type;
     void* to;
 } EdgeTo;
-typedef struct {
+typedef struct ListOfEdgeTo {
     size_t capacityEdges;
     size_t nEdges; // This is an estimate.
     EdgeTo edges[];
@@ -92,14 +92,6 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 ////////////////////////////////////////////////////////////
 // Statement:
 ////////////////////////////////////////////////////////////
-
-typedef struct Statement {
-    Clause* clause;
-    bool collectNeedsRecollect;
-
-    // List of edges to parent & child Matches:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
-} Statement;
 
 typedef struct Match Match;
 

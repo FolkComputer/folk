@@ -20,6 +20,7 @@ $cc include <stdlib.h>
 $cc include <assert.h>
 $cc include "db.h"
 $cc import $trieCc jimObjToClause as jimObjToClause
+$cc import $trieCc clauseToJimObj as clauseToJimObj
 $cc proc testNew {} Db* { return dbNew(); }
 $cc proc testAssert {Db* db Jim_Obj* clauseObj} Statement* {
     Clause* c = jimObjToClause(clauseObj);
@@ -43,15 +44,28 @@ $cc proc testQuery {Db* db Jim_Obj* patternObj} Jim_Obj* {
 $cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
     return dbGetClauseToStatementId(db);
 }
+
+namespace eval statement {
+    upvar cc cc
+    $cc proc clause {Statement* stmt} Jim_Obj* {
+        return clauseToJimObj(stmt->clause);
+    }
+    $cc proc parentMatches {Statement* stmt} Jim_Obj* {
+        return Jim_NewListObj(interp, NULL, 0); // FIXME 
+    }
+    $cc proc childMatches {Statement* stmt} Jim_Obj* {
+        return Jim_NewListObj(interp, NULL, 0); // FIXME
+    }
+    namespace ensemble create
+}
 try {
     $cc compile
 } on error e { puts stderr $e }
 
 proc dbDotify {db} {
-    puts ([testQuery $db /...anything/])
     set dot [list]
-    dict for {id stmt} [testQuery $db /...anything/] {
-        lappend dot "subgraph <cluster_$id> {"
+    foreach stmt [testQuery $db /...anything/] {
+        lappend dot "subgraph <cluster_$stmt> {"
         lappend dot "color=lightgray;"
 
         set label [statement clause $stmt]
@@ -59,20 +73,20 @@ proc dbDotify {db} {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
         }] "\n"]
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-        lappend dot "<$id> \[label=\"$id: $label\"\];"
+        lappend dot "<$stmt> \[label=\"$stmt: $label\"\];"
 
-        dict for {matchId _} [statement parentMatchIds $stmt] {
+        dict for {matchId _} [statement parentMatches $stmt] {
             set parents [lmap edge [matchEdges $matchId] {expr {
                 [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
             }}]
             lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
-            lappend dot "<$matchId> -> <$id>;"
+            lappend dot "<$matchId> -> <$stmt>;"
         }
 
         lappend dot "}"
 
-        dict for {childMatchId _} [statement childMatchIds $stmt] {
-            lappend dot "<$id> -> <$childMatchId>;"
+        dict for {childMatchId _} [statement childMatches $stmt] {
+            lappend dot "<$stmt> -> <$childMatchId>;"
         }
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
@@ -96,5 +110,5 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     assert {[llength [testQuery $db [list This is /some/ thing]]] == 2}
 
     trieWriteToPdf [testGetClauseToStatementIdTrie $db] trie.pdf; puts trie.pdf
-    dbWriteToPdf [dbDotify $db] db.pdf; puts db.pdf
+    dbWriteToPdf $db db.pdf; puts db.pdf
 }

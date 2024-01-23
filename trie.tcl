@@ -25,6 +25,13 @@ $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
     }
     return clause;
 }
+$cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
+    Jim_Obj* termObjs[clause->nterms];
+    for (int i = 0; i < clause->nterms; i++) {
+        termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
+    }
+    return Jim_NewListObj(interp, termObjs, clause->nterms);
+}
 $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
     uint64_t results[50];
     Clause* pattern = jimObjToClause(patternObj);
