@@ -24,7 +24,6 @@ $cc proc testNew {} Db* { return dbNew(); }
 $cc proc testAssert {Db* db Jim_Obj* clauseObj} Statement* {
     Clause* c = jimObjToClause(clauseObj);
     Statement* ret = dbAssert(db, c);
-    free(c);
     return ret;
 }
 $cc proc testQuery {Db* db Jim_Obj* patternObj} Jim_Obj* {
