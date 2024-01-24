@@ -1,0 +1,130 @@
+NO WARRANTY - NO WARRANTY - NO WARRANTY - NO WARRANTY - NO WARRANTY
+
+THIS CODE IS RELESED AS IS, WITH NO WARRANTY OF ANY KIND.
+
+NO WARRANTY - NO WARRANTY - NO WARRANTY - NO WARRANTY - NO WARRANTY
+
+
+These malloc routines are based primarily on the paper "Efficient Kernel
+Memory Allocation on Shared-Memory Multiprocessors", by McKenney and
+Slingwine, which appears in the USENIX Winter 1993 conference proceedings.
+
+The basic idea is to reduce the number of interlocks required by using
+small per-process free lists.  Interlocks are only required when the
+free lists are empty or overflow.
+
+This per-process free list idea is used only for blocks smaller than 1
+page.  For these small blocks, all allocations are rounded up to a
+power-of-two size and one free list is used for each size.  Blocks are
+allocated by splitting an entire page into blocks of the same size, so
+that no extra per-block storage is required for in-use blocks.
+
+Larger allocations are always rounded up to a multiple of the page size.
+Free pages are kept in a sorted list, and a best-fit allocation scheme
+is used.
+
+When compiled directly, the source will produce malloc replacement code.
+
+When compiled with -DMALLOC_DEBUG, it will add in extra guard and consistency
+checks as an aid to debugging heap corruption problems.
+
+When compiled with -DSHM, the source will produce a shared-memory malloc
+package, which uses mmap to get memory from the system (so it may also
+be used as persistent storage).  There are a number of important routines.
+
+void *shm_malloc(size_t);
+void *shm_calloc(int, int);
+void *shm_realloc(void *, size_t);
+void shm_free(void *);
+    These are used instead of the standard malloc routines.
+
+void shm_init(char *filename [, void (*init)()]);
+    This must be called in each process to get access to the shared memory.
+    If the file doesn't (yet) exist, it will be created and initialized to
+    `all free'.  It contains code to avoid race conditions, so you can call
+    it in multiple processes simultaneously and the right thing will happen
+
+    The optional init function will be called if this is a newly created
+    file.  Only one process will call this function if multiple processes
+    call shm_init on a new file simultaneously; the others will wait for it
+    to finish.
+
+void shm_fini();
+    This must be called in each process before exiting (unless shm_destroy
+    is called).  It frees up all the process internal tables and `disconnects'
+    from the shared memory.
+
+void shm_destroy();
+    This works as shm_fini and also removes the shared memory file.  Other
+    processes which are trying to use the shared memory may fail mysteriously
+    after this is called.
+
+void shm_child();
+    This should be called in the child process if a process calls fork
+    after it calls shm_init, before the child process calls any other
+    shared memory routine.  The child can safely call exit or exec
+    without calling shm_child, as long as it calls no shared memory
+    routines before then.
+
+void *shm_global();
+void shm_set_global(void *);
+    These two routines give all process who have mapped a shared memory file
+    (with shm_init) acces to a single global variable.  Usually a pointer
+    into the shared memory.  Initialized to 0 when shm_init is called for
+    a non-existant file.
+
+The code is arranged so that all processes will map the memory at the same
+address.  This precludes the possibility of mapping multiple shared memory
+files into one process, but its almost impossible to work without it.  The
+shared memory load address is a constant that will need to be changed for
+any port.
+
+You have a choice of 4 different locking schemes for the global tables:
+System V semaphores, File locks, atomic test-and-set spin locks, and
+pthreads mutexes.  You can choose between them by compiling with one of:
+    -DLOCKTYPE=SYSVSEM
+    -DLOCKTYPE=FLOCK
+    -DLOCKTYPE=SPINLOCK
+    -DLOCKTYPE=PMUTEX
+Put this into the `CFLAGS' in the Makefile, or use it on the command line
+when compiling malloc.c manually.  The default is posix mutexes on posix
+systems, otherwise spinlocks if it is supported, otherwise file locks.
+Currently spinlocks are only supported when using GCC on the following
+processors:
+    m68k
+    m88k
+    sparc
+    alpha
+    i386
+    ppc
+    x86_64
+To add support for an additional processor, you'll need to add appropriate
+macros to `atomic.h'.
+
+I've tested this code on the following machines:
+    sparc SunOS 4
+    sparc SunOS 5
+    mips IRIX 5
+    alpha OSF/1
+    i586 FreeBSD 2.1.5
+    rs6k AIX 4.2
+    Linux 2.6.38
+
+On FreeBSD and AIX, the code does not work if the shared memory file is on
+an NFS-mounted partition.  On all systems, its a bit slower to use an NFS
+file, so you're better off using a local file if possible.
+
+Note that the fact that you can use a file on a NFS server does NOT mean
+that you can use this code for distributed shared memory -- it won't
+work.  In general ANY TIME two different client machines try to modify
+the same file on a NFS server, all bets are off and everything will
+break.  NFS is an abbreviation for `Not a File System.'
+
+On hppa HP-UX 9 machines, this code is known to crash the machine.  On
+i86 FreeBSD 2.0 it also frequently crashes the machine.
+
+I'd appreciate reciving a copy of any bug-fixes, enhancements, or ports
+anyone makes with this code.
+
+Chris Dodd
+dodd@csl.sri.com
