@@ -96,7 +96,7 @@ static inline int SMLIST(int sz) {
 
 struct basepage * const membase =
 #if __SIZEOF_POINTER__ == 8
-#  define	membase		((struct basepage *)0x1000000000L)
+#  define	membase		((struct basepage *)0x7000000000L)
 #else
 # if defined(sun)
 #  define	membase		((struct basepage *)0xe0000000)
