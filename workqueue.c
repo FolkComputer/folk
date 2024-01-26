@@ -39,21 +39,10 @@ size_t workQueueEntryGetPosition(void* a) { return 0; }
 void workQueueEntrySetPosition(void* a, size_t pos) {}
 
 WorkQueue* workQueueNew() {
-    // TODO: How do I fix all these function addresses?
-    printf("workQueueNew\n");
-    printf("workQueueEntryCompare: %p\n", workQueueEntryCompare);
-    printf("workQueueEntryGetPriority: %p\n", workQueueEntryGetPriority);
-    printf("workQueueEntrySetPriority: %p\n", workQueueEntrySetPriority);
-    printf("workQueueEntryGetPosition: %p\n", workQueueEntryGetPosition);
-    printf("workQueueEntrySetPosition: %p\n", workQueueEntrySetPosition);
     return (WorkQueue*) pqueue_init(16384,
                                     workQueueEntryCompare,
                                     workQueueEntryGetPriority,
                                     workQueueEntrySetPriority,
                                     workQueueEntryGetPosition,
                                     workQueueEntrySetPosition);
-}
-
-int main() {
-    workQueueNew();
 }
