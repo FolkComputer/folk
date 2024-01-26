@@ -79,13 +79,22 @@ static void pushAssert(char* text) {
 }
 
 // FIXME: Implement Assert, When, Claim
-static int AssertCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
+    clause->nterms = argc - 1;
+    for (int i = 1; i < argc; i++) {
+        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
+    }
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = ASSERT,
+       .assert = { .clause = clause }
+    });
     return (JIM_OK);
 }
-static int ClaimCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_ERR);
 }
-static int WhenCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int WhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_ERR);
 }
 
@@ -96,6 +105,9 @@ static void eval(char* code) {
         interp = Jim_CreateInterp();
         Jim_RegisterCoreCommands(interp);
         Jim_InitStaticExtensions(interp);
+        Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
+        Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
+        Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
     }
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
