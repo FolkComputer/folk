@@ -38,6 +38,11 @@ WorkQueue* workQueueNew() {
                                     workQueueItemSetPosition);
 }
 
+void workQueuePush(WorkQueue* q, WorkQueueItem item) {
+    WorkQueueItem* ptr = malloc(sizeof(item));
+    *ptr = item; // ptr->seq = seq++;
+    pqueue_insert(&q->q, ptr);
+}
 WorkQueueItem workQueuePop(WorkQueue* q) {
     WorkQueueItem* itemPtr = pqueue_pop(&q->q);
     if (itemPtr == NULL) {
