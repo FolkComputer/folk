@@ -4,6 +4,9 @@
 #include <pthread.h>
 #include <string.h>
 
+#define JIM_EMBEDDED
+#include <jim.h>
+
 #include <pqueue.h>
 
 #include "db.h"
@@ -48,6 +51,8 @@ void* workerMain(void* arg) {
 
         // TODO: if item is none, then sleep or wait on condition
         // variable.
+        if (item.op == NONE) { usleep(100000); continue; }
+
         printf("Worker %d: item %d\n", id, item.op);
         workerRun(item);
     }
@@ -73,6 +78,18 @@ static void pushAssert(char* text) {
     });
 }
 
+static void dbWriteToPdf(Db* db) {
+    Jim_Interp* interp;
+    interp = Jim_CreateInterp();
+    Jim_RegisterCoreCommands(interp);
+    Jim_InitStaticExtensions(interp);
+
+    char code[500];
+    snprintf(code, 500,
+             "source db.tcl; "
+             "dbWriteToPdf {(Db*) %p} db.pdf", db);
+    Jim_Eval(interp, code);
+}
 int main() {
     // Do all setup.
 
@@ -98,8 +115,9 @@ int main() {
     usleep(1000000);
 
     printf("main: Done!\n");
+
     pthread_mutex_lock(&dbMutex);
-    // TODO: Print the database as a viz trie
+    dbWriteToPdf(db);
     pthread_mutex_unlock(&dbMutex);
 }
 
