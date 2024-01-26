@@ -22,9 +22,9 @@ char* printClause(Clause* c) {
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        printf("Assert (");
-        printClause(item.assert.clause);
-        printf(")\n");
+        /* printf("Assert ("); */
+        /* printClause(item.assert.clause); */
+        /* printf(")\n"); */
 
         Statement* ret; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
@@ -96,4 +96,28 @@ int main() {
     }
 
     usleep(1000000);
+
+    printf("main: Done!\n");
+    pthread_mutex_lock(&dbMutex);
+    // TODO: Print the database as a viz trie
+    pthread_mutex_unlock(&dbMutex);
 }
+
+
+/* Folk { */
+/*     Claim Mac is an OS */
+/*     Claim Linux is an OS */
+/*     Claim Windows is an OS */
+
+/*     When /x/ is an OS { */
+/*         sleep 3 */
+/*         Claim $x really is an OS */
+/*     } */
+
+/*     When Mac really is an OS \& */
+/*          Linux really is an OS \& */
+/*          Windows really is an OS { */
+/*         puts "Passed" */
+/*         exit 0 */
+/*     } */
+/* } */
