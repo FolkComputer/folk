@@ -1,6 +1,10 @@
 #ifndef TRIE_H
 #define TRIE_H
 
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+
 typedef struct Clause {
     int32_t nterms;
     const char* terms[];
