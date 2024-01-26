@@ -53,3 +53,7 @@ WorkQueue* workQueueNew() {
                                     workQueueEntryGetPosition,
                                     workQueueEntrySetPosition);
 }
+
+int main() {
+    workQueueNew();
+}
