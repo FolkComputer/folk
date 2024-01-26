@@ -78,17 +78,39 @@ static void pushAssert(char* text) {
     });
 }
 
-static void dbWriteToPdf(Db* db) {
-    Jim_Interp* interp;
-    interp = Jim_CreateInterp();
-    Jim_RegisterCoreCommands(interp);
-    Jim_InitStaticExtensions(interp);
+// FIXME: Implement Assert, When, Claim
+static int AssertCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return (JIM_OK);
+}
+static int ClaimCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return (JIM_ERR);
+}
+static int WhenCommandFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return (JIM_ERR);
+}
 
+
+Jim_Interp* interp = NULL;
+static void eval(char* code) {
+    if (interp == NULL) {
+        interp = Jim_CreateInterp();
+        Jim_RegisterCoreCommands(interp);
+        Jim_InitStaticExtensions(interp);
+    }
+    int error = Jim_Eval(interp, code);
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "%s\n", Jim_GetString(Jim_GetResult(interp), NULL));
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+    }
+}
+static void dbWriteToPdf(Db* db) {
     char code[500];
     snprintf(code, 500,
              "source db.tcl; "
              "dbWriteToPdf {(Db*) %p} db.pdf", db);
-    Jim_Eval(interp, code);
+    eval(code);
 }
 int main() {
     // Do all setup.
@@ -102,9 +124,7 @@ int main() {
     pthread_mutex_init(&workQueueMutex, NULL);
 
     // Queue up some items (JUST FOR TESTING)
-    pushAssert("C is a programming language");
-    pushAssert("Java is a programming language");
-    pushAssert("JavaScript is a programming language");
+    eval("puts {main: Main}; source main.tcl");
 
     // Spawn NCPUS workers.
     for (int i = 0; i < 4; i++) {
@@ -120,22 +140,3 @@ int main() {
     dbWriteToPdf(db);
     pthread_mutex_unlock(&dbMutex);
 }
-
-
-/* Folk { */
-/*     Claim Mac is an OS */
-/*     Claim Linux is an OS */
-/*     Claim Windows is an OS */
-
-/*     When /x/ is an OS { */
-/*         sleep 3 */
-/*         Claim $x really is an OS */
-/*     } */
-
-/*     When Mac really is an OS \& */
-/*          Linux really is an OS \& */
-/*          Windows really is an OS { */
-/*         puts "Passed" */
-/*         exit 0 */
-/*     } */
-/* } */
