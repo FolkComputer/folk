@@ -1,6 +1,13 @@
 set ::debug_print false
 set baseCode "Wish \$this is outlined green"
 
+# This makes all keyboards into editors automatically, so a keyboard
+# doesn't need an extra printed claim to be an editor. May choose to
+# change later, or exclude keyboards that opt out.
+When /page/ is a keyboard with path /anything/ {
+    Claim $page is an editor
+}
+
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has region /r/ {
   set id "$page$kbPath"
   Claim $id has region [region move $r up 900px]
