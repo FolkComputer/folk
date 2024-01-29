@@ -52,6 +52,8 @@ foreach keyboard $keyboardDevices {
     Claim keyboards are $keyboardDevices
     Start process "keyboard-$keyboard" {
         source "pi/KeyCodes.tcl"
+        set KEY_STATES [list up down repeat]
+
         Wish $::thisProcess shares statements like \
             [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ with rand /r/]
         variable evtBytes 16
@@ -61,8 +63,10 @@ foreach keyboard $keyboardDevices {
             set evtFormat wwssi
         }
         set keyboardSpecifier $keyboard
+
         variable keyboardChannel [open $keyboard r]
-        set keyStates [list up down repeat]
+        chan configure $keyboardChannel -translation binary
+
         set modifiers [dict create \
             shift 0 \
             ctrl 0 \
@@ -70,14 +74,10 @@ foreach keyboard $keyboardDevices {
         ]
         while 1 {
             binary scan [read $keyboardChannel $evtBytes] $evtFormat tvSec tvUsec type code value
-            if {$type > 0x04} {
-                set keyboardChannel [open $keyboard r]
-                binary scan [read $keyboardChannel $evtBytes] $evtFormat tvSec tvUsec type code value
-            }
-            if {$type == 0x01} {
+            if {$type == 0x01} { ;# EV_KEY
                 set shift [dict get $modifiers shift]
                 set key [keyFromCode $code $shift]
-                set keyState [lindex $keyStates $value]
+                set keyState [lindex $KEY_STATES $value]
 
                 set isDown [expr {$keyState != "up"}]
                 if {[string match *SHIFT $key]} {
