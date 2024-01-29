@@ -49,7 +49,7 @@ set keyboardDevices [walkInputEventPaths]
 
 # go through each keyboard device and start a process that 
 foreach keyboard $keyboardDevices {
-    Claim keyboards are $keyboardDevices
+    Claim the keyboards are $keyboardDevices
     Start process "keyboard-$keyboard" {
         source "pi/KeyCodes.tcl"
         set KEY_STATES [list up down repeat]
