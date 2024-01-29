@@ -10,7 +10,7 @@ When /page/ is a keyboard with path /anything/ {
 
 When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has region /r/ {
   set id "$page$kbPath"
-  Claim $id has region [region move $r up 900px]
+  Claim $id has region [region move $r up 210%]
   When /nobody/ claims $id has program code /c/ {
     Commit "code$kbPath" {
       Claim $id has program code $baseCode 
@@ -130,7 +130,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
     set intTime [expr {int($t * 10)}]
     set scale 0.60
 
-    set relativeRegion [region move $r down 450px]
+    set relativeRegion [region move $r down 105%]
     Claim $id' has region $relativeRegion
     Wish $id' is outlined white
     lassign [region topleft $r] xstart ystart
