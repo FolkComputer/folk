@@ -1,3 +1,3 @@
-When keyboard /k/ claims key ESC is down with modifiers alt with rand /r/ {
+When keyboard /k/ claims key ESC is down with modifiers alt timestamp /any/ {
 	exec sudo systemctl restart folk
 }

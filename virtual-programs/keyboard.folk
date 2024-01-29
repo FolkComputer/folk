@@ -55,7 +55,7 @@ foreach keyboard $keyboardDevices {
         set KEY_STATES [list up down repeat]
 
         Wish $::thisProcess shares statements like \
-            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ with rand /r/]
+            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /timestamp/]
         variable evtBytes 16
         variable evtFormat iissi
         if {[exec getconf LONG_BIT] == 64} {
@@ -73,7 +73,9 @@ foreach keyboard $keyboardDevices {
             alt 0 \
         ]
         while 1 {
-            binary scan [read $keyboardChannel $evtBytes] $evtFormat tvSec tvUsec type code value
+            binary scan [read $keyboardChannel $evtBytes] $evtFormat \
+                tvSec tvUsec type code value
+
             if {$type == 0x01} { ;# EV_KEY
                 set shift [dict get $modifiers shift]
                 set key [keyFromCode $code $shift]
@@ -91,8 +93,20 @@ foreach keyboard $keyboardDevices {
                 }
 
                 set heldModifiers [dict keys [dict filter $modifiers value 1]]
-                Retract keyboard $keyboardSpecifier claims key /k/ is /t/ with modifiers /m/ with rand /r/
-                Assert keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $heldModifiers with rand [rand]
+                set now [clock milliseconds]
+                Assert keyboard $keyboardSpecifier claims key $key is $keyState with \
+                                     modifiers $heldModifiers timestamp $now
+
+                # Retract all key events that are more than 5 seconds old.
+                set events [Statements::findMatches [list keyboard $keyboardSpecifier claims key /key/ is /keyState/ with modifiers /ms/ timestamp /timestamp/]]
+                foreach event $events {
+                    dict with event {
+                        if {$timestamp - $now > 5000} {
+                            puts "Retract!!!!"
+                        }
+                    }
+                }
+
                 Step
             }
         }
