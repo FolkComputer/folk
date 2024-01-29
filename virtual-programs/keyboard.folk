@@ -101,8 +101,8 @@ foreach keyboard $keyboardDevices {
                 set events [Statements::findMatches [list keyboard $keyboardSpecifier claims key /key/ is /keyState/ with modifiers /ms/ timestamp /timestamp/]]
                 foreach event $events {
                     dict with event {
-                        if {$timestamp - $now > 5000} {
-                            puts "Retract!!!!"
+                        if {$now - $timestamp > 5000} {
+                            Retract keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $ms timestamp $timestamp
                         }
                     }
                 }
