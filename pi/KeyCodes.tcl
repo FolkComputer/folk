@@ -15,7 +15,7 @@ proc keyFromCode {code {shift false}} {
     return [lindex $vals [expr {$shift ? 1 : 0}]]
   }
   puts "WARNING: unknown key code \"$code\""
-  return "?"
+  return ""
 }
 
 # Keycodes from https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h

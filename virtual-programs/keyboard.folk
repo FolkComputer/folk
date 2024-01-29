@@ -79,6 +79,8 @@ foreach keyboard $keyboardDevices {
             if {$type == 0x01} { ;# EV_KEY
                 set shift [dict get $modifiers shift]
                 set key [keyFromCode $code $shift]
+                if {$key eq ""} { continue }
+
                 set keyState [lindex $KEY_STATES $value]
 
                 set isDown [expr {$keyState != "up"}]
