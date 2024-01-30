@@ -203,6 +203,11 @@ not the PS for it to work, probably)
 1. When you've successfully calibrated, start Folk back up with
    `./folk.tcl start`.
 
+### Connect a keyboard
+
+Follow [the instructions on this Folk wiki page](https://folk.computer/guides/keyboard)
+to connect a new keyboard to your system.
+
 ### Bluetooth keyboards
 
 Install `bluetoothctl`. Follow the instructions in
