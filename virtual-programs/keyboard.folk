@@ -1,9 +1,5 @@
 set ::debug_keyboard true
 
-proc udevadmProperties {device} {
-    return [exec udevadm info --query=property --name=$device]
-}
-
 proc establishKeyPressListener {keyboard} {
     set kb [open $keyboard r]
     fconfigure $kb -translation binary
@@ -12,7 +8,7 @@ proc establishKeyPressListener {keyboard} {
 
 # Function to check if the device is a keyboard
 proc isKeyboard {device} {
-    set properties [udevadmProperties $device]
+    set properties [exec udevadm info --query=property --name=$device]
     if {$properties eq ""} {
         return false
     }
