@@ -9,7 +9,7 @@ When the keyboards are /keyboards/ {
         [join [lmap kb $keyboards { subst {
             <dt>$kb</dt>
             <dd>
-              <pre id="$kb-presses"></pre><br>
+              <code id="$kb-presses"></code><br>
               <button>Print</button>
             </dd>
         } }] "\n"]
@@ -23,14 +23,16 @@ When the keyboards are /keyboards/ {
           ws.onopen = () => {
             document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
             send(`
-              Assert when keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /ts/ {{chan kb k t m ts} {
-                ::websocket::send \$chan text "\$kb||\$k"
+              Assert when keyboard /kb/ claims key /k/ is down with modifiers /m/ timestamp /ts/ {{chan kb k m ts} {
+                if {\$ts > [clock milliseconds]} {
+                  ::websocket::send \$chan text "\$kb||\$k"
+                }
               }} with environment \[list \$chan]
             `);
           };
           ws.onclose = window.onbeforeunload = () => {
             document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
-            send(`Retract when keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /ts/ /anything/ with environment \[list \$chan]`)
+            send(`Retract when keyboard /kb/ claims key /k/ is down with modifiers /m/ timestamp /ts/ /anything/ with environment \[list \$chan]`)
             setTimeout(() => { wsConnect(); }, 1000);
           };
           ws.onerror = (err) => {
@@ -40,7 +42,7 @@ When the keyboards are /keyboards/ {
           }
           ws.onmessage = (msg) => {
             const \[kb, key] = msg.data.split("||");
-            document.getElementById(kb + "-presses").innerText += key;
+            document.getElementById(kb + "-presses").innerText += key + " ";
           }
         };
         wsConnect();
