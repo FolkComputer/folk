@@ -21,7 +21,8 @@ fn text {coords text angle} {
 
 When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {
   lassign [lindex $r 0] a b c d
+  set angle [region angle $r]
   lassign $a x y
-  text [list [lindex $a 0] [expr {[lindex $a 1] - 50}]] $message 0
-  text [list [lindex $d 0] [expr {[lindex $d 1] + 50}]] $message 3.1415
+  text [list [lindex $a 0] [expr {[lindex $a 1] - 50}]] $message $angle
+  text [list [lindex $d 0] [expr {[lindex $d 1] + 50}]] $message [+ 3.1415 $angle]
 }
