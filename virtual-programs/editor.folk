@@ -234,7 +234,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
           }
           BACKSPACE {
             # if cursor is at the beginning of the line, delete the newline
-            if {[x $cursor] == 0} {
+            if {[x $cursor] == 0 && [y $cursor] > 0} {
               set newCursor [updateCursor $cursor {y -1}]
               set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
               set newCursor [list $previousLineLength [y $newCursor]]
