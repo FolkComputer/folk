@@ -8,7 +8,10 @@ When /page/ is a keyboard with path /anything/ {
     Claim $page is an editor
 }
 
-When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has region /r/ {
+When /page/ is a keyboard with path /kbPath/ &\
+  /page/ is an editor &\
+  /page/ has region /r/ &\
+  the clock time is /t/ {
   set id "$page$kbPath"
   Claim $id has region [region move $r up 210%]
   When /nobody/ claims $id has program code /c/ {
@@ -16,6 +19,19 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor & /page/ has 
       Claim $id has program code $baseCode 
       Claim $id has editor code $baseCode 
     }
+  }
+
+  When /nobody/ claims $id has start time /startTime/ {
+    Commit "time$kbPath" {
+      Claim $id has start time $t
+    }
+  }
+}
+
+When /page/ is a keyboard with path /kbPath/ {
+  On unmatch {
+    puts "unmatching"
+    Commit "time$kbPath" {}
   }
 }
 
@@ -180,8 +196,10 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
   Every time keyboard $kbPath claims key /currentCharacter/ is /keyState/ with modifiers /modifier/ timestamp /timestamp/ &\
              the $kbPath cursor is /cursor/ &\
              $id has program code /code/ &\
-             $id has editor code /editorCode/ {
-    if {$keyState == "down" || $keyState == "repeat"} {
+             $id has editor code /editorCode/ &\
+             $id has start time /startTime/ {
+    if {($keyState == "down" || $keyState == "repeat") & $timestamp > ($startTime * 1000) } {
+      puts "$currentCharacter [expr {$timestamp > ($startTime * 1000)}]"
       Commit "cursor$kbPath" {
         switch $currentCharacter {
           UP {
