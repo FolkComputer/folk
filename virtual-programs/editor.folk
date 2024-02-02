@@ -30,7 +30,6 @@ When /page/ is a keyboard with path /kbPath/ &\
 
 When /page/ is a keyboard with path /kbPath/ {
   On unmatch {
-    puts "unmatching"
     Commit "time$kbPath" {}
   }
 }
@@ -199,7 +198,6 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
              $id has editor code /editorCode/ &\
              $id has start time /startTime/ {
     if {($keyState == "down" || $keyState == "repeat") & $timestamp > ($startTime * 1000) } {
-      puts "$currentCharacter [expr {$timestamp > ($startTime * 1000)}]"
       Commit "cursor$kbPath" {
         switch $currentCharacter {
           UP {

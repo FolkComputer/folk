@@ -177,10 +177,6 @@ proc hex2fbColor color {
     set b [expr {($color >> 16) & 0xFF}]
 
     set fbColor "\[[dec2bin8 $b]\] \[[dec2bin8 $g]\] \[[dec2bin8 $r]\]"
-    # puts "16-BIT: \[[dec2bin5 $b]\] \[[dec2bin6 $g]\] \[[dec2bin5 $r]\]"
-    # puts "32-BIT: \[[dec2bin8 $b]\] \[[dec2bin8 $g]\] \[[dec2bin8 $r]\] | $b $g $r"
-    # puts " ~~~~~~~~~~~~~~ "
-    # return $fbColor
     if {$Color::depth == 16} {
         return "\[[dec2bin5 $b]\] \[[dec2bin6 $g]\] \[[dec2bin5 $r]\]"
     } elseif {$Color::depth == 32} {
@@ -188,22 +184,11 @@ proc hex2fbColor color {
     }
 }
 
-# getColor $aliceblue R
-puts "yellow:     [hex2fbColor $Color::yellow]"
-puts "hex green: [hex2fbColor 0x00FF00]"
-puts "red:       [hex2fbColor $Color::red]"
-puts "blue:      [hex2fbColor $Color::blue]"
-puts "teal:      [hex2fbColor $Color::teal]"
-
-# Ideal syntax => Color::color -> 16bit color
-
-## TODO: Namespace Colors
 proc getRGBComponent {name RGBchannel 32bit} {
     # name -> one of the named Colors
     # RGBChannel -> one of R, G, or B
     # 32bit -> assumed to be false
 
-    # B
     set result [expr {$name & 0xFF}]
     set result [switch -glob RGBchannel {
         G {expr {($name >> 8) & 0xFF}}
@@ -211,102 +196,9 @@ proc getRGBComponent {name RGBchannel 32bit} {
         default {expr {$name & 0xFF}}
     }]
 
-    # puts $result
     expr {$name & 0xFF}
 }
-
-# ---- answer from GPT3: -----
-# set b [expr {$blue & 0xFF}]
-# set g [expr {($blue >> 8) & 0xFF}]
-# set r [expr {($blue >> 16) & 0xFF}]
-
-# # 32-bit color
-# set blue32 [expr {($r << 24) | ($g << 16) | ($b << 8) | 0xFF}]
-# # create the variable
-# # set variable blue [list color $b $g $r]
-# puts [list color $b $g $r]
-# puts $blue32
-# ----- end GPT3 output -----
-
-# set variable blue32 [list color $blue32]
-# set variable blueblue [expr {getRGBComponent($blue "B" true)}]
-# puts "blue blue $blueblue"
 
 getRGBComponent 0xF0F8FF "R" 1
 getRGBComponent 0xF0F8FF "G" 0
 getRGBComponent 0xF0F8FF "B" 1
-
-# ----------------------------
-
-# ---- colors from Three.js array ----
-# ----
-
-# # Create the array to store the color names and their corresponding RGB values
-# array set colors [
-#     { aliceblue {240 248 255} }
-#     antiquewhite {250 235 215}
-#     aqua {0 255 255}
-#     aquamarine {127 255 212}
-#     azure {240 255 255}
-#     beige {245 245 220}
-#     bisque {255 228 196}
-#     black {0 0 0}
-#     # add more color names and RGB values as needed
-# ]
-
-# # Example usage
-# set colorName "aqua"
-# set colorValue [lindex  0]
-
-# parray $colors
-
-# # proc get_color_name {color_value permitted_list} {
-# #     set convenient_large_number 10000
-# #     set least_distance $convenient_large_number
-# #     set set_name unknown
-
-# #     if [regexp #(.*) $color_value -> rgb] {
-# #         scan $rgb %2x%2x%2x r0 g0 b0
-# #     } else {
-# #             # Assume it's a known color name.  In production, one 
-# #             #    ought to handle exceptions.
-# #         foreach {r0 g0 b0} [get_rgb $color_value] {}
-# #     }
-
-# #     foreach name $permitted_list {
-# #         lassign [get_rgb $name] r g b
-# #             # One can make a case for several other metrics.  This
-# #             #    has the advantages of being mathematically robust
-# #             #    and maintainable from a software standpoint.
-# #         set d [expr abs($r - $r0) + abs($g - $g0) + abs($b - $b0)]
-# #         if {!$d} {
-# #             return $name
-# #         }
-# #         if {$d < $least_distance} {
-# #             # puts "$name, at ($r, $g, $b), is within $d of ($r0, $g, $b0)."
-# #             set least_distance $d
-# #             set best_name $name
-# #         }
-# #     }
-# #     return "$best_name +/ $least_distance"
-# # }
-# #     # Where are these formats documented?
-# # proc get_rgb color_name {
-# #         # If it's sufficiently important, one might replace the [winfo ...]
-# #         #    with a table lookup.  At that point, this script becomes "pure Tcl".
-# #     foreach part [winfo rgb . $color_name] {
-# #         scan [format %4x $part] %2x%2x first second
-# #         lappend list $first
-# #     }
-# #     return $list
-# # }
-
-# # set short_list {red orange yellow green blue violet}
-
-# # set COLORS { snow {ghost white} {white smoke} gainsboro }
-
-# # get_color_name yellow $short_list
-# # # get_color_name sienna $short_list     # -> red +/- 222
-# # # get_color_name {light coral} $COLORS  # -> light coral
-# # # get_color_name #39a051 $COLORS        # -> sea green +/ 38
-# # 
