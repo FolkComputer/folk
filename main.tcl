@@ -23,3 +23,5 @@ Assert when C is a programming language {
 Assert when /pl/ is a programming language {
     Do stuff
 } with environment {}
+
+Assert TypeScript is a programming language

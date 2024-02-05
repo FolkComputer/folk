@@ -91,18 +91,31 @@ static void reactToNewStatement(Statement* stmt) {
         }
     }
 
-    // TODO: trigger any existing reactions to the addition of this
-    // statement.
-    // (look for whens in the db)
+    // Trigger any already-existing reactions to the addition of this
+    // statement. (Look for Whens that are already in the database.)
+    Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nterms + 5));
+    whenPattern->nterms = clause->nterms + 5;
+    whenPattern->terms[0] = "when";
+    for (int i = 0; i < clause->nterms; i++) {
+        whenPattern->terms[1 + i] = clause->terms[i];
+    }
+    whenPattern->terms[1 + clause->nterms] = "/__lambda/";
+    whenPattern->terms[2 + clause->nterms] = "with";
+    whenPattern->terms[3 + clause->nterms] = "environment";
+    whenPattern->terms[4 + clause->nterms] = "/__env/";
+
+    ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
+    for (int i = 0; i < existingReactingWhens->nResults; i++) {
+        runWhenBlock(existingReactingWhens->results[i], stmt);
+    }
+    free(existingReactingWhens);
 
     // TODO: look for collects in the db
     
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        /* printf("Assert ("); */
-        /* printClause(item.assert.clause); */
-        /* printf(")\n"); */
+        printf("Assert (%s)\n", clauseToString(item.assert.clause));
 
         Statement* ret; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
@@ -112,7 +125,9 @@ void workerRun(WorkQueueItem item) {
         if (isNewStmt) { reactToNewStatement(ret); }
 
     } else if (item.op == RETRACT) {
-        
+        printf("retract\n");
+    } else {
+        printf("other\n");
     }
 }
 void* workerMain(void* arg) {
@@ -126,7 +141,7 @@ void* workerMain(void* arg) {
         // variable.
         if (item.op == NONE) { usleep(100000); continue; }
 
-        printf("Worker %d: item %d\n", id, item.op);
+        printf("Worker %d: ", id, item.op);
         workerRun(item);
     }
 }
@@ -207,7 +222,7 @@ int main() {
         pthread_create(&th, NULL, workerMain, i);
     }
 
-    usleep(1000000);
+    usleep(5000000);
 
     printf("main: Done!\n");
 
