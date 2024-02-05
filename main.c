@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
+#include <assert.h>
 
 #define JIM_EMBEDDED
 #include <jim.h>
@@ -18,6 +19,51 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
+// FIXME: Implement Assert, When, Claim
+static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
+    clause->nTerms = argc - 1;
+    for (int i = 1; i < argc; i++) {
+        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
+    }
+    pthread_mutex_lock(&workQueueMutex);
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = ASSERT,
+       .assert = { .clause = clause }
+    });
+    pthread_mutex_unlock(&workQueueMutex);
+    return (JIM_OK);
+}
+static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return (JIM_ERR);
+}
+static int WhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    return (JIM_ERR);
+}
+
+__thread Jim_Interp* interp = NULL;
+static void eval(const char* code) {
+    if (interp == NULL) {
+        interp = Jim_CreateInterp();
+        Jim_RegisterCoreCommands(interp);
+        Jim_InitStaticExtensions(interp);
+        Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
+        Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
+        Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
+    }
+
+    int error = Jim_Eval(interp, code);
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+    }
+}
+
+
+////// Evaluator //////////////
+
 char* clauseToString(Clause* c) {
     int totalLength = 0;
     for (int i = 0; i < c->nTerms; i++) {
@@ -32,12 +78,17 @@ char* clauseToString(Clause* c) {
 }
 static void runWhenBlock(Statement* when, Statement* stmt) {
     // TODO: Free clauseToString
-    printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n",
-           clauseToString(when->clause),
-           clauseToString(stmt->clause));
+    /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
+    /*        clauseToString(when->clause), */
+    /*        clauseToString(stmt->clause)); */
 
-    // TODO: copy the when body into Tcl
+    // TODO: copy the when lambda into Tcl
+    assert(when->clause->nTerms >= 6);
+    // when ... /lambda/ with environment {...}
+    const char* lambda = when->clause->terms[when->clause->nTerms - 4];
+
     // TODO: run it with variables bound
+    eval(lambda);
 }
 // Prepends `/someone/ claims` to `pattern`. Returns NULL if `pattern`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
@@ -77,7 +128,7 @@ static void reactToNewStatement(Statement* stmt) {
         // matching statements.
 
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
-        printf("Results for (%s): %d\n", clauseToString(pattern), existingMatchingStatements->nResults);
+        /* printf("Results for (%s): %d\n", clauseToString(pattern), existingMatchingStatements->nResults); */
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
             runWhenBlock(stmt, existingMatchingStatements->results[i]);
         }
@@ -118,7 +169,7 @@ static void reactToNewStatement(Statement* stmt) {
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        printf("Assert (%s)\n", clauseToString(item.assert.clause));
+        /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         Statement* ret; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
@@ -135,6 +186,7 @@ void workerRun(WorkQueueItem item) {
 }
 void* workerMain(void* arg) {
     int id = (int) arg;
+
     for (;;) {
         pthread_mutex_lock(&workQueueMutex);
         WorkQueueItem item = workQueuePop(workQueue);
@@ -144,53 +196,13 @@ void* workerMain(void* arg) {
         // variable.
         if (item.op == NONE) { usleep(100000); continue; }
 
-        printf("Worker %d: ", id, item.op);
+        /* printf("Worker %d: ", id, item.op); */
         workerRun(item);
     }
 }
 
 
-// FIXME: Implement Assert, When, Claim
-static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
-    clause->nTerms = argc - 1;
-    for (int i = 1; i < argc; i++) {
-        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
-    }
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
-       .op = ASSERT,
-       .assert = { .clause = clause }
-    });
-    pthread_mutex_unlock(&workQueueMutex);
-    return (JIM_OK);
-}
-static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    return (JIM_ERR);
-}
-static int WhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    return (JIM_ERR);
-}
 
-
-Jim_Interp* interp = NULL;
-static void eval(char* code) {
-    if (interp == NULL) {
-        interp = Jim_CreateInterp();
-        Jim_RegisterCoreCommands(interp);
-        Jim_InitStaticExtensions(interp);
-        Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
-        Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
-        Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
-    }
-    int error = Jim_Eval(interp, code);
-    if (error == JIM_ERR) {
-        Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "%s\n", Jim_GetString(Jim_GetResult(interp), NULL));
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
-    }
-}
 static void trieWriteToPdf(Trie* trie) {
     char code[500];
     snprintf(code, 500,

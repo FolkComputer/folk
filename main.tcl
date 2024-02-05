@@ -21,7 +21,7 @@ Assert when C is a programming language {
 } with environment {}
 
 Assert when /pl/ is a programming language {
-    Do stuff
+    puts "language ($pl)"
 } with environment {}
 
 Assert TypeScript is a programming language
