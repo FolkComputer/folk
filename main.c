@@ -84,11 +84,29 @@ static void runWhenBlock(Statement* when, Statement* stmt) {
 
     // TODO: copy the when lambda into Tcl
     assert(when->clause->nTerms >= 6);
-    // when ... /lambda/ with environment {...}
+    // when the time is /t/ /lambda/ with environment /env/
     const char* lambda = when->clause->terms[when->clause->nTerms - 4];
+    const char* env = when->clause->terms[when->clause->nTerms - 1];
 
     // TODO: run it with variables bound
-    eval(lambda);
+    Jim_Obj* expr = Jim_NewStringObj(interp, env, -1);
+    Jim_Obj* applyLambda[] = {
+        Jim_NewStringObj(interp, "apply", -1),
+        Jim_NewStringObj(interp, lambda, -1)
+    };
+    // Prepend `apply $lambda` to expr:
+    Jim_ListInsertElements(interp, expr, 0,
+                           sizeof(applyLambda)/sizeof(applyLambda[0]),
+                           applyLambda);
+    int error = Jim_EvalObj(interp, expr);
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "runWhenBlock: (%s) -> (%s)\n",
+                lambda,
+                Jim_GetString(Jim_GetResult(interp), NULL));
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+    }
 }
 // Prepends `/someone/ claims` to `pattern`. Returns NULL if `pattern`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
@@ -186,6 +204,13 @@ void workerRun(WorkQueueItem item) {
 }
 void* workerMain(void* arg) {
     int id = (int) arg;
+
+    interp = Jim_CreateInterp();
+    Jim_RegisterCoreCommands(interp);
+    Jim_InitStaticExtensions(interp);
+    Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
 
     for (;;) {
         pthread_mutex_lock(&workQueueMutex);
