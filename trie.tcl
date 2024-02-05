@@ -16,21 +16,21 @@ $cc proc trieTclify {Trie* trie} Jim_Obj* {
     return Jim_NewListObj(interp, objv, objc);
 }
 $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
-    int nterms = Jim_ListLength(interp, clauseObj);
-    Clause* clause = malloc(SIZEOF_CLAUSE(nterms));
-    clause->nterms = nterms;
-    for (int i = 0; i < nterms; i++) {
+    int nTerms = Jim_ListLength(interp, clauseObj);
+    Clause* clause = malloc(SIZEOF_CLAUSE(nTerms));
+    clause->nTerms = nTerms;
+    for (int i = 0; i < nTerms; i++) {
         Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
         clause->terms[i] = Jim_GetString(termObj, NULL);
     }
     return clause;
 }
 $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
-    Jim_Obj* termObjs[clause->nterms];
-    for (int i = 0; i < clause->nterms; i++) {
+    Jim_Obj* termObjs[clause->nTerms];
+    for (int i = 0; i < clause->nTerms; i++) {
         termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
     }
-    return Jim_NewListObj(interp, termObjs, clause->nterms);
+    return Jim_NewListObj(interp, termObjs, clause->nTerms);
 }
 $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
     uint64_t results[50];
@@ -59,7 +59,7 @@ $cc code {
             i++;
         }
         va_end(argp);
-        c->nterms = i;
+        c->nTerms = i;
         return c;
     }
 }

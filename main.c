@@ -20,11 +20,11 @@ pthread_mutex_t workQueueMutex;
 
 char* clauseToString(Clause* c) {
     int totalLength = 0;
-    for (int i = 0; i < c->nterms; i++) {
+    for (int i = 0; i < c->nTerms; i++) {
         totalLength += strlen(c->terms[i]) + 1;
     }
     char* ret; char* s; ret = s = malloc(totalLength);
-    for (int i = 0; i < c->nterms; i++) {
+    for (int i = 0; i < c->nTerms; i++) {
         s += snprintf(s, totalLength - (s - ret), "%s ",
                       c->terms[i]);
     }
@@ -35,22 +35,25 @@ static void runWhenBlock(Statement* when, Statement* stmt) {
     printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n",
            clauseToString(when->clause),
            clauseToString(stmt->clause));
+
+    // TODO: copy the when body into Tcl
+    // TODO: run it with variables bound
 }
 // Prepends `/someone/ claims` to `pattern`. Returns NULL if `pattern`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
 static Clause* claimizePattern(Clause* pattern) {
-    if (pattern->nterms >= 2 &&
+    if (pattern->nTerms >= 2 &&
         (strcmp(pattern->terms[1], "claims") == 0 ||
          strcmp(pattern->terms[1], "wishes") == 0)) {
         return NULL;
     }
 
     // the time is /t/ -> /someone/ claims the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(2 + pattern->nterms));
-    ret->nterms = 2 + pattern->nterms;
+    Clause* ret = malloc(SIZEOF_CLAUSE(2 + pattern->nTerms));
+    ret->nTerms = 2 + pattern->nTerms;
     ret->terms[0] = "/someone/"; ret->terms[1] = "claims";
-    for (int i = 0; i < pattern->nterms; i++) {
+    for (int i = 0; i < pattern->nTerms; i++) {
         ret->terms[2 + i] = pattern->terms[i];
     }
     return ret;
@@ -64,10 +67,10 @@ static void reactToNewStatement(Statement* stmt) {
         // Find the query pattern of the when:
         //   when the time is /t/ { ... } with environment /env/
         //     -> the time is /t/
-        Clause* pattern = alloca(SIZEOF_CLAUSE(clause->nterms - 5));
-        pattern->nterms = 0;
-        for (int i = 1; i < clause->nterms - 4; i++) {
-            pattern->terms[pattern->nterms++] = clause->terms[i];
+        Clause* pattern = alloca(SIZEOF_CLAUSE(clause->nTerms - 5));
+        pattern->nTerms = 0;
+        for (int i = 1; i < clause->nTerms - 4; i++) {
+            pattern->terms[pattern->nTerms++] = clause->terms[i];
         }
 
         // Scan the existing statement set for any already-existing
@@ -93,16 +96,16 @@ static void reactToNewStatement(Statement* stmt) {
 
     // Trigger any already-existing reactions to the addition of this
     // statement. (Look for Whens that are already in the database.)
-    Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nterms + 5));
-    whenPattern->nterms = clause->nterms + 5;
+    Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nTerms + 5));
+    whenPattern->nTerms = clause->nTerms + 5;
     whenPattern->terms[0] = "when";
-    for (int i = 0; i < clause->nterms; i++) {
+    for (int i = 0; i < clause->nTerms; i++) {
         whenPattern->terms[1 + i] = clause->terms[i];
     }
-    whenPattern->terms[1 + clause->nterms] = "/__lambda/";
-    whenPattern->terms[2 + clause->nterms] = "with";
-    whenPattern->terms[3 + clause->nterms] = "environment";
-    whenPattern->terms[4 + clause->nterms] = "/__env/";
+    whenPattern->terms[1 + clause->nTerms] = "/__lambda/";
+    whenPattern->terms[2 + clause->nTerms] = "with";
+    whenPattern->terms[3 + clause->nTerms] = "environment";
+    whenPattern->terms[4 + clause->nTerms] = "/__env/";
 
     ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
     for (int i = 0; i < existingReactingWhens->nResults; i++) {
@@ -150,7 +153,7 @@ void* workerMain(void* arg) {
 // FIXME: Implement Assert, When, Claim
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
-    clause->nterms = argc - 1;
+    clause->nTerms = argc - 1;
     for (int i = 1; i < argc; i++) {
         clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
     }

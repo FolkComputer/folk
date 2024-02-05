@@ -239,7 +239,7 @@ Clause* clause(char* first, ...) {
         i++;
     }
     va_end(argp);
-    c->nterms = i;
+    c->nTerms = i;
     return c;
 }
 

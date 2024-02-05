@@ -20,8 +20,8 @@ Trie* trieNew() {
     return ret;
 }
 
-static Trie* trieAddImpl(Trie* trie, int32_t nterms, const char* terms[], uint64_t value) {
-    if (nterms == 0) {
+static Trie* trieAddImpl(Trie* trie, int32_t nTerms, const char* terms[], uint64_t value) {
+    if (nTerms == 0) {
         trie->value = value;
         trie->hasValue = true;
         return trie;
@@ -64,12 +64,12 @@ static Trie* trieAddImpl(Trie* trie, int32_t nterms, const char* terms[], uint64
         match = trie->branches[j];
     }
 
-    trieAddImpl(match, nterms - 1, terms + 1, value);
+    trieAddImpl(match, nTerms - 1, terms + 1, value);
     return trie;
 }
 
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
-    return trieAddImpl(trie, c->nterms, c->terms, value);
+    return trieAddImpl(trie, c->nTerms, c->terms, value);
 }
 
 
@@ -107,7 +107,7 @@ static void trieLookupAll(Trie* trie,
 }
 static void trieLookupImpl(bool isLiteral, Trie* trie, Clause* pattern, int patternIdx,
                            uint64_t* results, size_t maxResults, int* resultsIdx) {
-    int wordc = pattern->nterms - patternIdx;
+    int wordc = pattern->nTerms - patternIdx;
     if (wordc == 0) {
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
