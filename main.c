@@ -18,10 +18,85 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
-char* printClause(Clause* c) {
+char* clauseToString(Clause* c) {
+    int totalLength = 0;
     for (int i = 0; i < c->nterms; i++) {
-        printf("%s ", c->terms[i]);
+        totalLength += strlen(c->terms[i]) + 1;
     }
+    char* ret; char* s; ret = s = malloc(totalLength);
+    for (int i = 0; i < c->nterms; i++) {
+        s += snprintf(s, totalLength - (s - ret), "%s ",
+                      c->terms[i]);
+    }
+    return ret;
+}
+static void runWhenBlock(Statement* when, Statement* stmt) {
+    // TODO: Free clauseToString
+    printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n",
+           clauseToString(when->clause),
+           clauseToString(stmt->clause));
+}
+// Prepends `/someone/ claims` to `pattern`. Returns NULL if `pattern`
+// shouldn't be claimized. Returns a new heap-allocated Clause* that
+// must be freed by the caller.
+static Clause* claimizePattern(Clause* pattern) {
+    if (pattern->nterms >= 2 &&
+        (strcmp(pattern->terms[1], "claims") == 0 ||
+         strcmp(pattern->terms[1], "wishes") == 0)) {
+        return NULL;
+    }
+
+    // the time is /t/ -> /someone/ claims the time is /t/
+    Clause* ret = malloc(SIZEOF_CLAUSE(2 + pattern->nterms));
+    ret->nterms = 2 + pattern->nterms;
+    ret->terms[0] = "/someone/"; ret->terms[1] = "claims";
+    for (int i = 0; i < pattern->nterms; i++) {
+        ret->terms[2 + i] = pattern->terms[i];
+    }
+    return ret;
+}
+static void reactToNewStatement(Statement* stmt) {
+    Clause* clause = stmt->clause;
+
+    // TODO: implement collected matches
+
+    if (strcmp(clause->terms[0], "when") == 0) {
+        // Find the query pattern of the when:
+        //   when the time is /t/ { ... } with environment /env/
+        //     -> the time is /t/
+        Clause* pattern = alloca(SIZEOF_CLAUSE(clause->nterms - 5));
+        pattern->nterms = 0;
+        for (int i = 1; i < clause->nterms - 4; i++) {
+            pattern->terms[pattern->nterms++] = clause->terms[i];
+        }
+
+        // Scan the existing statement set for any already-existing
+        // matching statements.
+
+        ResultSet* existingMatchingStatements = dbQuery(db, pattern);
+        printf("Results for (%s): %d\n", clauseToString(pattern), existingMatchingStatements->nResults);
+        for (int i = 0; i < existingMatchingStatements->nResults; i++) {
+            runWhenBlock(stmt, existingMatchingStatements->results[i]);
+        }
+        free(existingMatchingStatements);
+
+        Clause* claimizedPattern = claimizePattern(pattern);
+        if (claimizedPattern) {
+            existingMatchingStatements = dbQuery(db, claimizedPattern);
+            for (int i = 0; i < existingMatchingStatements->nResults; i++) {
+                runWhenBlock(stmt, existingMatchingStatements->results[i]);
+            }
+            free(existingMatchingStatements);
+            free(claimizedPattern);
+        }
+    }
+
+    // TODO: trigger any existing reactions to the addition of this
+    // statement.
+    // (look for whens in the db)
+
+    // TODO: look for collects in the db
+    
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
@@ -34,9 +109,7 @@ void workerRun(WorkQueueItem item) {
         dbInsert(db, item.assert.clause, 0, NULL, &ret, &isNewStmt);
         pthread_mutex_unlock(&dbMutex);
 
-        if (isNewStmt) {
-            // TODO: React.
-        }
+        if (isNewStmt) { reactToNewStatement(ret); }
 
     } else if (item.op == RETRACT) {
         
@@ -58,25 +131,6 @@ void* workerMain(void* arg) {
     }
 }
 
-// Test:
-static void pushAssert(char* text) {
-    // Tokenize text by space & build up a Clause:
-    char* tofree; char* s;
-    tofree = s = strdup(text);
-    char* token;
-    Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
-    while ((token = strsep(&s, " ")) != NULL) {
-        c->terms[c->nterms++] = strdup(token);
-        if (c->nterms >= 100) abort();
-    }
-    free(tofree);
-
-    // Assert it
-    workQueuePush(workQueue, (WorkQueueItem) {
-       .op = ASSERT,
-       .assert = { .clause = c }
-    });
-}
 
 // FIXME: Implement Assert, When, Claim
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -85,10 +139,12 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     for (int i = 1; i < argc; i++) {
         clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
     }
+    pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
        .op = ASSERT,
        .assert = { .clause = clause }
     });
+    pthread_mutex_unlock(&workQueueMutex);
     return (JIM_OK);
 }
 static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -117,11 +173,18 @@ static void eval(char* code) {
         exit(EXIT_FAILURE);
     }
 }
+static void trieWriteToPdf(Trie* trie) {
+    char code[500];
+    snprintf(code, 500,
+             "source db.tcl; "
+             "trieWriteToPdf {(Trie*) %p} trie.pdf; puts trie.pdf", trie);
+    eval(code);
+}
 static void dbWriteToPdf(Db* db) {
     char code[500];
     snprintf(code, 500,
              "source db.tcl; "
-             "dbWriteToPdf {(Db*) %p} db.pdf", db);
+             "dbWriteToPdf {(Db*) %p} db.pdf; puts db.pdf", db);
     eval(code);
 }
 int main() {
@@ -149,6 +212,7 @@ int main() {
     printf("main: Done!\n");
 
     pthread_mutex_lock(&dbMutex);
+    trieWriteToPdf(dbGetClauseToStatementId(db));
     dbWriteToPdf(db);
     pthread_mutex_unlock(&dbMutex);
 }
