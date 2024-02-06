@@ -75,6 +75,12 @@ static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *con
     Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
     return JIM_OK;
 }
+static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
+    exit(exitCode);
+    return JIM_OK;
+}
 
 __thread Jim_Interp* interp = NULL;
 static void interpBoot() {
@@ -86,6 +92,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
     Jim_EvalFile(interp, "main.tcl");
 }
 static void eval(const char* code) {
@@ -217,32 +224,64 @@ static void reactToNewStatement(Statement* stmt) {
 
     // Trigger any already-existing reactions to the addition of this
     // statement. (Look for Whens that are already in the database.)
-    Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nTerms + 5));
-    whenPattern->nTerms = clause->nTerms + 5;
-    whenPattern->terms[0] = "when";
-    for (int i = 0; i < clause->nTerms; i++) {
-        whenPattern->terms[1 + i] = clause->terms[i];
-    }
-    whenPattern->terms[1 + clause->nTerms] = "/__lambda/";
-    whenPattern->terms[2 + clause->nTerms] = "with";
-    whenPattern->terms[3 + clause->nTerms] = "environment";
-    whenPattern->terms[4 + clause->nTerms] = "/__env/";
-
-    pthread_mutex_lock(&dbMutex);
-    ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
-    pthread_mutex_unlock(&dbMutex);
-    for (int i = 0; i < existingReactingWhens->nResults; i++) {
-        Statement* when = existingReactingWhens->results[i];
-        Clause* whenClause = statementClause(when);
-        Clause* pattern = alloca(SIZEOF_CLAUSE(whenClause->nTerms - 5));
-        pattern->nTerms = 0;
-        for (int i = 1; i < whenClause->nTerms - 4; i++) {
-            pattern->terms[pattern->nTerms++] = whenClause->terms[i];
+    {
+        Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nTerms + 5));
+        whenPattern->nTerms = clause->nTerms + 5;
+        whenPattern->terms[0] = "when";
+        for (int i = 0; i < clause->nTerms; i++) {
+            whenPattern->terms[1 + i] = clause->terms[i];
         }
+        whenPattern->terms[1 + clause->nTerms] = "/__lambda/";
+        whenPattern->terms[2 + clause->nTerms] = "with";
+        whenPattern->terms[3 + clause->nTerms] = "environment";
+        whenPattern->terms[4 + clause->nTerms] = "/__env/";
 
-        runWhenBlock(when, pattern, stmt);
+        pthread_mutex_lock(&dbMutex);
+        ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
+        pthread_mutex_unlock(&dbMutex);
+        for (int i = 0; i < existingReactingWhens->nResults; i++) {
+            Statement* when = existingReactingWhens->results[i];
+            Clause* whenClause = statementClause(when);
+            Clause* pattern = alloca(SIZEOF_CLAUSE(whenClause->nTerms - 5));
+            pattern->nTerms = 0;
+            for (int i = 1; i < whenClause->nTerms - 4; i++) {
+                pattern->terms[pattern->nTerms++] = whenClause->terms[i];
+            }
+
+            runWhenBlock(when, pattern, stmt);
+        }
+        free(existingReactingWhens);
     }
-    free(existingReactingWhens);
+    // cut off `/x/ claims` from start of clause
+    if (clause->nTerms >= 2 && strcmp(clause->terms[1], "claims") == 0) {
+        Clause* whenPattern = alloca(SIZEOF_CLAUSE(clause->nTerms + 3));
+        whenPattern->nTerms = 1;
+        whenPattern->terms[0] = "when";
+        for (int i = 2; i < clause->nTerms; i++) {
+            whenPattern->terms[whenPattern->nTerms++] = clause->terms[i];
+        }
+        whenPattern->terms[whenPattern->nTerms++] = "/__lambda/";
+        whenPattern->terms[whenPattern->nTerms++] = "with";
+        whenPattern->terms[whenPattern->nTerms++] = "environment";
+        whenPattern->terms[whenPattern->nTerms++] = "/__env/";
+
+        pthread_mutex_lock(&dbMutex);
+        ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
+        pthread_mutex_unlock(&dbMutex);
+        for (int i = 0; i < existingReactingWhens->nResults; i++) {
+            Statement* when = existingReactingWhens->results[i];
+            Clause* whenClause = statementClause(when);
+            Clause* pattern = alloca(SIZEOF_CLAUSE(whenClause->nTerms - 5));
+            pattern->nTerms = 2;
+            pattern->terms[0] = "/someone/"; pattern->terms[1] = "claims";
+            for (int i = 1; i < whenClause->nTerms - 4; i++) {
+                pattern->terms[pattern->nTerms++] = whenClause->terms[i];
+            }
+
+            runWhenBlock(when, pattern, stmt);
+        }
+        free(existingReactingWhens);
+    }
 
     // TODO: look for collects in the db
     
@@ -326,13 +365,14 @@ int main() {
     eval("puts {main: Main}; source test.tcl");
 
     // Spawn NCPUS workers.
+    pthread_t th[4];
     for (int i = 0; i < 4; i++) {
-        pthread_t th;
-        pthread_create(&th, NULL, workerMain, i);
+        pthread_create(&th[i], NULL, workerMain, (void*) i);
     }
 
-    usleep(50000000);
-
+    for (int i = 0; i < 4; i++) {
+        pthread_join(th[i], NULL);
+    }
     printf("main: Done!\n");
 
     pthread_mutex_lock(&dbMutex);

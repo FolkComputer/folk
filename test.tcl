@@ -16,7 +16,7 @@ Assert when C is a programming language {{} {
          Linux really is an OS &\
          Windows really is an OS {
         puts "Passed"
-        exit 0
+        __exit 0
     }
 }} with environment {}
 
