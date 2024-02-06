@@ -8,7 +8,7 @@ proc When {args} {
         set pattern [lreplace $pattern 0 0]
     } else {
         # lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-        set argNames [list]; set argValeus [list]
+        set argNames [list]; set argValues [list]
     }
 
     set varNamesWillBeBound [list]
@@ -29,9 +29,9 @@ proc When {args} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[set varName [trie scanVariable $word]] != "false"} {
-            if {$varName in $statement::blanks} {
-            } elseif {$varName in $statement::negations} {
+        } elseif {[set varName [__scanVariable $word]] != 0} {
+            if {[__variableNameIsNonCapturing $varName]} {
+            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 # Rewrite this entire clause to be negated.
                 set negate true
             } else {
@@ -42,7 +42,7 @@ proc When {args} {
                 }
                 lappend varNamesWillBeBound $varName
             }
-        } elseif {[trie startsWithDollarSign $word]} {
+        } elseif {[__startsWithDollarSign $word]} {
             lset pattern $i [uplevel [list subst $word]]
         }
     }

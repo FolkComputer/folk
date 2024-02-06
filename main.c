@@ -55,6 +55,26 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
+static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    char varName[100];
+    if (trieScanVariable(Jim_String(argv[1]), varName, 100)) {
+        Jim_SetResultString(interp, varName, strlen(varName));
+    } else {
+        Jim_SetResultBool(interp, false);
+    }
+    return JIM_OK;
+}
+static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(argv[1])));
+    return JIM_OK;
+}
+static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
+    return JIM_OK;
+}
 
 __thread Jim_Interp* interp = NULL;
 static void interpBoot() {
@@ -63,6 +83,9 @@ static void interpBoot() {
     Jim_InitStaticExtensions(interp);
     Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_EvalFile(interp, "main.tcl");
 }
 static void eval(const char* code) {
@@ -81,9 +104,9 @@ static void eval(const char* code) {
 
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
-    /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
-    /*        clauseToString(when->clause), */
-    /*        clauseToString(stmt->clause)); */
+    printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n",
+           clauseToString(statementClause(when)),
+           clauseToString(statementClause(stmt)));
 
     Clause* whenClause = statementClause(when);
     assert(whenClause->nTerms >= 6);
@@ -308,7 +331,7 @@ int main() {
         pthread_create(&th, NULL, workerMain, i);
     }
 
-    usleep(5000000);
+    usleep(50000000);
 
     printf("main: Done!\n");
 

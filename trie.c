@@ -74,7 +74,7 @@ Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
 }
 
 
-bool scanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
+bool trieScanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
     if (term[0] != '/') { return false; }
     int i = 1;
     while (true) {
@@ -91,6 +91,17 @@ bool scanVariable(const char* term, char* outVarName, size_t sizeOutVarName) {
         outVarName[i - 1] = term[i];
         i++;
     }
+}
+bool trieVariableNameIsNonCapturing(const char* varName) {
+    const char* nonCapturingVarNames[] = {
+        "someone", "something", "anyone", "anything", "any"
+    };
+    for (int i = 0; i < sizeof(nonCapturingVarNames)/sizeof(nonCapturingVarNames[0]); i++) {
+        if (strcmp(varName, nonCapturingVarNames[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void trieLookupAll(Trie* trie,
@@ -121,7 +132,7 @@ static void trieLookupImpl(bool isLiteral, Trie* trie, Clause* pattern, int patt
     const char* term = pattern->terms[patternIdx];
     enum { TERM_TYPE_LITERAL, TERM_TYPE_VARIABLE, TERM_TYPE_REST_VARIABLE } termType;
     char termVarName[100];
-    if (!isLiteral && scanVariable(term, termVarName, 100)) {
+    if (!isLiteral && trieScanVariable(term, termVarName, 100)) {
         if (termVarName[0] == '.' && termVarName[1] == '.' && termVarName[2] == '.') {
             termType = TERM_TYPE_REST_VARIABLE;
         } else { termType = TERM_TYPE_VARIABLE; }
@@ -143,7 +154,7 @@ static void trieLookupImpl(bool isLiteral, Trie* trie, Clause* pattern, int patt
         } else {
             char keyVarName[100];
             // Is the trie node (we're currently walking) a variable?
-            if (!isLiteral && scanVariable(trie->branches[j]->key, keyVarName, 100)) {
+            if (!isLiteral && trieScanVariable(trie->branches[j]->key, keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
                     /* lookupAll(results, resultsIdx, maxresults, trie->branches[j]); */
@@ -192,30 +203,19 @@ char* clauseToString(Clause* c) {
     }
     return ret;
 }
-static bool isNonCapturing(const char* varName) {
-    const char* nonCapturingVarNames[] = {
-        "someone", "something", "anyone", "anything", "any"
-    };
-    for (int i = 0; i < sizeof(nonCapturingVarNames)/sizeof(nonCapturingVarNames[0]); i++) {
-        if (strcmp(varName, nonCapturingVarNames[i]) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
 Environment* clauseUnify(Clause* a, Clause* b) {
     Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
 
     for (int i = 0; i < a->nTerms; i++) {
         char aVarName[100] = {0}; char bVarName[100] = {0};
-        if (scanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
-            if (!isNonCapturing(aVarName)) {
+        if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
+            if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
                 binding->value = b->terms[i];
             }
-        } else if (scanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
-            if (!isNonCapturing(bVarName)) {
+        } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
+            if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
                 binding->value = a->terms[i];

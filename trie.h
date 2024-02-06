@@ -47,8 +47,10 @@ int trieLookupLiteral(Trie* trie, Clause* literal,
                       uint64_t* results, size_t maxResults);
 
 char* clauseToString(Clause* c);
-bool scanVariable(const char* term,
-                  char* outVarName, size_t sizeOutVarName);
+
+bool trieScanVariable(const char* term,
+                      char* outVarName, size_t sizeOutVarName);
+bool trieVariableNameIsNonCapturing(const char* varName);
 
 typedef struct EnvironmentBinding {
     char name[100];
