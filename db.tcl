@@ -48,7 +48,7 @@ $cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
 namespace eval statement {
     upvar cc cc
     $cc proc clause {Statement* stmt} Jim_Obj* {
-        return clauseToJimObj(stmt->clause);
+        return clauseToJimObj(statementClause(stmt));
     }
     $cc proc parentMatches {Statement* stmt} Jim_Obj* {
         return Jim_NewListObj(interp, NULL, 0); // FIXME 

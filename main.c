@@ -19,38 +19,54 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
-// FIXME: Implement Assert, When, Claim
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
     clause->nTerms = argc - 1;
     for (int i = 1; i < argc; i++) {
         clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
     }
+
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
        .op = ASSERT,
        .assert = { .clause = clause }
     });
     pthread_mutex_unlock(&workQueueMutex);
+
     return (JIM_OK);
 }
-static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    fprintf(stderr, "ClaimFunc\n"); return (JIM_ERR);
-}
-static int WhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    fprintf(stderr, "WhenFunc\n"); return (JIM_ERR);
+__thread Match* currentMatch = NULL;
+static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
+    clause->nTerms = argc - 1;
+    for (int i = 1; i < argc; i++) {
+        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
+    }
+
+    pthread_mutex_lock(&workQueueMutex);
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = SAY,
+       .say = {
+           .parent = currentMatch,
+           .clause = clause
+       }
+    });
+    pthread_mutex_unlock(&workQueueMutex);
+
+    return (JIM_OK);
 }
 
 __thread Jim_Interp* interp = NULL;
+static void interpBoot() {
+    interp = Jim_CreateInterp();
+    Jim_RegisterCoreCommands(interp);
+    Jim_InitStaticExtensions(interp);
+    Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
+    Jim_EvalFile(interp, "main.tcl");
+}
 static void eval(const char* code) {
-    if (interp == NULL) {
-        interp = Jim_CreateInterp();
-        Jim_RegisterCoreCommands(interp);
-        Jim_InitStaticExtensions(interp);
-        Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
-        Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
-        Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
-    }
+    if (interp == NULL) { interpBoot(); }
 
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
@@ -61,7 +77,6 @@ static void eval(const char* code) {
     }
 }
 
-
 ////// Evaluator //////////////
 
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
@@ -70,11 +85,12 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
     /*        clauseToString(when->clause), */
     /*        clauseToString(stmt->clause)); */
 
-    assert(when->clause->nTerms >= 6);
+    Clause* whenClause = statementClause(when);
+    assert(whenClause->nTerms >= 6);
 
     // when the time is /t/ /lambda/ with environment /builtinEnv/
-    const char* lambda = when->clause->terms[when->clause->nTerms - 4];
-    const char* builtinEnv = when->clause->terms[when->clause->nTerms - 1];
+    const char* lambda = whenClause->terms[whenClause->nTerms - 4];
+    const char* builtinEnv = whenClause->terms[whenClause->nTerms - 1];
 
     Jim_Obj* expr = Jim_NewStringObj(interp, builtinEnv, -1);
 
@@ -88,7 +104,8 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
                            applyLambda);
 
     // Postpend bound variables to expr:
-    Environment* env = clauseUnify(whenPattern, stmt->clause);
+    Environment* env = clauseUnify(whenPattern, statementClause(stmt));
+    assert(env != NULL);
     Jim_Obj* envArgs[env->nBindings];
     for (int i = 0; i < env->nBindings; i++) {
         envArgs[i] = Jim_NewStringObj(interp, env->bindings[i].value, -1);
@@ -96,6 +113,12 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
     Jim_ListInsertElements(interp, expr,
                            Jim_ListLength(interp, expr),
                            env->nBindings, envArgs);
+    free(env);
+
+    pthread_mutex_lock(&dbMutex);
+    Statement* parents[] = { when, stmt };
+    dbInsertMatch(db, 2, parents, &currentMatch);
+    pthread_mutex_unlock(&dbMutex);
 
     int error = Jim_EvalObj(interp, expr);
 
@@ -128,7 +151,7 @@ static Clause* claimizePattern(Clause* pattern) {
     return ret;
 }
 static void reactToNewStatement(Statement* stmt) {
-    Clause* clause = stmt->clause;
+    Clause* clause = statementClause(stmt);
 
     // TODO: implement collected matches
 
@@ -145,7 +168,9 @@ static void reactToNewStatement(Statement* stmt) {
         // Scan the existing statement set for any already-existing
         // matching statements.
 
+        pthread_mutex_lock(&dbMutex);
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
+        pthread_mutex_unlock(&dbMutex);
         /* printf("Results for (%s): %d\n", clauseToString(pattern), existingMatchingStatements->nResults); */
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
             runWhenBlock(stmt, pattern,
@@ -155,7 +180,9 @@ static void reactToNewStatement(Statement* stmt) {
 
         Clause* claimizedPattern = claimizePattern(pattern);
         if (claimizedPattern) {
+            pthread_mutex_lock(&dbMutex);
             existingMatchingStatements = dbQuery(db, claimizedPattern);
+            pthread_mutex_unlock(&dbMutex);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
                 runWhenBlock(stmt, claimizedPattern,
                              existingMatchingStatements->results[i]);
@@ -178,13 +205,16 @@ static void reactToNewStatement(Statement* stmt) {
     whenPattern->terms[3 + clause->nTerms] = "environment";
     whenPattern->terms[4 + clause->nTerms] = "/__env/";
 
+    pthread_mutex_lock(&dbMutex);
     ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
+    pthread_mutex_unlock(&dbMutex);
     for (int i = 0; i < existingReactingWhens->nResults; i++) {
         Statement* when = existingReactingWhens->results[i];
-        Clause* pattern = alloca(SIZEOF_CLAUSE(when->clause->nTerms - 5));
+        Clause* whenClause = statementClause(when);
+        Clause* pattern = alloca(SIZEOF_CLAUSE(whenClause->nTerms - 5));
         pattern->nTerms = 0;
-        for (int i = 1; i < when->clause->nTerms - 4; i++) {
-            pattern->terms[pattern->nTerms++] = when->clause->terms[i];
+        for (int i = 1; i < whenClause->nTerms - 4; i++) {
+            pattern->terms[pattern->nTerms++] = whenClause->terms[i];
         }
 
         runWhenBlock(when, pattern, stmt);
@@ -198,15 +228,27 @@ void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
-        Statement* ret; bool isNewStmt;
+        Statement* stmt; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
-        dbInsert(db, item.assert.clause, 0, NULL, &ret, &isNewStmt);
+        dbInsertStatement(db, item.assert.clause, 0, NULL, &stmt, &isNewStmt);
         pthread_mutex_unlock(&dbMutex);
 
-        if (isNewStmt) { reactToNewStatement(ret); }
+        if (isNewStmt) { reactToNewStatement(stmt); }
 
     } else if (item.op == RETRACT) {
         printf("retract\n");
+
+    } else if (item.op == SAY) {
+        // TODO: Check if match still exists
+
+        printf("Say (%p) (%s)\n", item.say.parent, clauseToString(item.say.clause));
+
+        Statement* stmt; bool isNewStmt;
+        dbInsertStatement(db, item.say.clause, 1, &item.say.parent,
+                          &stmt, &isNewStmt);
+
+        if (isNewStmt) { reactToNewStatement(stmt); }
+
     } else {
         printf("other\n");
     }
@@ -214,12 +256,7 @@ void workerRun(WorkQueueItem item) {
 void* workerMain(void* arg) {
     int id = (int) arg;
 
-    interp = Jim_CreateInterp();
-    Jim_RegisterCoreCommands(interp);
-    Jim_InitStaticExtensions(interp);
-    Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "Claim", ClaimFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "When", WhenFunc, NULL, NULL);
+    interpBoot();
 
     for (;;) {
         pthread_mutex_lock(&workQueueMutex);
@@ -263,7 +300,7 @@ int main() {
     pthread_mutex_init(&workQueueMutex, NULL);
 
     // Queue up some items (JUST FOR TESTING)
-    eval("puts {main: Main}; source main.tcl");
+    eval("puts {main: Main}; source test.tcl");
 
     // Spawn NCPUS workers.
     for (int i = 0; i < 4; i++) {

@@ -35,23 +35,22 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr);
 // it (requiring replacement of the original pointer).
 void listOfEdgeToAdd(ListOfEdgeTo** listPtr,
                      EdgeType type, void* to) {
-    ListOfEdgeTo* list = *listPtr;
-    if (list->nEdges == list->capacityEdges) {
+    if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
         // We've run out of edge slots at the end of the
         // list. Try defragmenting the list.
-        listOfEdgeToDefragment(&list);
-        if (list->nEdges == list->capacityEdges) {
+        listOfEdgeToDefragment(listPtr);
+        if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
             // Still no slots? Grow the statement to
             // accommodate.
-            list->capacityEdges = list->capacityEdges * 2;
-            *listPtr = realloc(*listPtr, SIZEOF_LIST_OF_EDGE_TO(list->capacityEdges));
+            (*listPtr)->capacityEdges = (*listPtr)->capacityEdges * 2;
+            *listPtr = realloc(*listPtr, SIZEOF_LIST_OF_EDGE_TO((*listPtr)->capacityEdges));
         }
     }
 
-    assert(list->nEdges < list->capacityEdges);
+    assert((*listPtr)->nEdges < (*listPtr)->capacityEdges);
     // There's a free slot at the end of the edgelist in
     // the statement. Use it.
-    list->edges[list->nEdges++] = (EdgeTo) { .type = type, .to = to };
+    (*listPtr)->edges[(*listPtr)->nEdges++] = (EdgeTo) { .type = type, .to = to };
 }
 int listOfEdgeToRemove(ListOfEdgeTo* list,
                        EdgeType type, void* to) {
@@ -94,6 +93,14 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 ////////////////////////////////////////////////////////////
 
 typedef struct Match Match;
+typedef struct ListOfEdgeTo ListOfEdgeTo;
+typedef struct Statement {
+    Clause* clause;
+    bool collectNeedsRecollect;
+
+    // List of edges to parent & child Matches:
+    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+} Statement;
 
 // Creates a new statement.
 Statement* statementNew(Clause* clause,
@@ -101,7 +108,8 @@ Statement* statementNew(Clause* clause,
                         size_t nChildren, Match* children[]) {
     Statement* ret = malloc(sizeof(Statement));
     ret->clause = clause;
-    ret->edges = listOfEdgeToNew((nParents + nChildren) * 2);
+    ret->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
+                                 8 : (nParents + nChildren) * 2 < 8);
     for (size_t i = 0; i < nParents; i++) {
         listOfEdgeToAdd(&ret->edges, EDGE_PARENT, parents[i]);
     }
@@ -110,6 +118,8 @@ Statement* statementNew(Clause* clause,
     }
     return ret;
 }
+Clause* statementClause(Statement* stmt) { return stmt->clause; }
+
 void statementAddChildMatch(Statement* stmt, Match* child) {
     listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, child);
 }
@@ -122,11 +132,8 @@ void statementAddParentMatch(Statement* stmt, Match* parent) {
 ////////////////////////////////////////////////////////////
 
 struct Match {
-    int32_t gen;
-    bool alive;
-
-    bool isFromCollect;
-    Statement* collectId;
+    /* bool isFromCollect; */
+    /* Statement* collectId; */
 
     // TODO: Add match destructors.
 
@@ -134,6 +141,14 @@ struct Match {
     ListOfEdgeTo* edges; // Allocated separately so it can be resized.
 };
 
+Match* matchNew(size_t nParents, Statement* parents[]) {
+    Match* ret = malloc(sizeof(Match));
+    ret->edges = listOfEdgeToNew(nParents * 2);
+    for (size_t i = 0; i < nParents; i++) {
+        listOfEdgeToAdd(&ret->edges, EDGE_PARENT, parents[i]);
+    }
+    return ret;
+}
 void matchAddChildStatement(Match* match, Statement* child) {
     listOfEdgeToAdd(&match->edges, EDGE_CHILD, child);
 }
@@ -179,10 +194,10 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
-void dbInsert(Db* db,
-              Clause* clause,
-              size_t nParents, Match* parents[],
-              Statement** outStatement, bool* outIsNewStatement) {
+void dbInsertStatement(Db* db,
+                       Clause* clause,
+                       size_t nParents, Match* parents[],
+                       Statement** outStatement, bool* outIsNewStatement) {
     // Is this clause already present among the existing statements?
     uint64_t ids[10];
     int idslen = trieLookupLiteral(db->clauseToStatementId, clause,
@@ -220,6 +235,16 @@ void dbInsert(Db* db,
     if (outIsNewStatement) { *outIsNewStatement = isNewStatement; }
 }
 
+void dbInsertMatch(Db* db,
+                   size_t nParents, Statement* parents[],
+                   Match** outMatch) {
+    Match* match = matchNew(nParents, parents);
+    for (size_t i = 0; i < nParents; i++) {
+        statementAddChildMatch(parents[i], match);
+    }
+    if (outMatch) { *outMatch = match; }
+}
+
 // Remove
 void dbRemove(Db* db, Clause* c) {
     
@@ -245,7 +270,7 @@ Clause* clause(char* first, ...) {
 
 Statement* dbAssert(Db* db, Clause* clause) {
     Statement* ret; bool isNewStmt;
-    dbInsert(db, clause, 0, NULL, &ret, &isNewStmt);
+    dbInsertStatement(db, clause, 0, NULL, &ret, &isNewStmt);
     assert(isNewStmt);
     return ret;
 }

@@ -1,27 +1,57 @@
-Assert C is a programming language
-Assert Java is a programming language
-Assert JavaScript is a programming language
-
-Assert when C is a programming language {{} {
-    Claim Mac is an OS
-    Claim Linux is an OS
-    Claim Windows is an OS
-
-    When /x/ is an OS {
-        sleep 3
-        Claim $x really is an OS
+proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
+proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+proc When {args} {
+    set body [lindex $args end]
+    set pattern [lreplace $args end end]
+    if {[lindex $pattern 0] eq "(non-capturing)"} {
+        set argNames [list]; set argValues [list]
+        set pattern [lreplace $pattern 0 0]
+    } else {
+        # lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        set argNames [list]; set argValeus [list]
     }
 
-    When Mac really is an OS \&
-         Linux really is an OS \&
-         Windows really is an OS {
-        puts "Passed"
-        exit 0
+    set varNamesWillBeBound [list]
+    set negate false
+    for {set i 0} {$i < [llength $pattern]} {incr i} {
+        set word [lindex $pattern $i]
+        if {$word eq "&"} {
+            # Desugar this join into nested Whens.
+            set remainingPattern [lrange $pattern $i+1 end]
+            set pattern [lrange $pattern 0 $i-1]
+            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
+                set remainingWord [lindex $remainingPattern $j]
+                if {[regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName] &&
+                    $remainingVarName in $varNamesWillBeBound} {
+                    lset remainingPattern $j \$$remainingVarName
+                }
+            }
+            set body [list When {*}$remainingPattern $body]
+            break
+
+        } elseif {[set varName [trie scanVariable $word]] != "false"} {
+            if {$varName in $statement::blanks} {
+            } elseif {$varName in $statement::negations} {
+                # Rewrite this entire clause to be negated.
+                set negate true
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                if {[string range $varName 0 2] eq "..."} {
+                    set varName [string range $varName 3 end]
+                }
+                lappend varNamesWillBeBound $varName
+            }
+        } elseif {[trie startsWithDollarSign $word]} {
+            lset pattern $i [uplevel [list subst $word]]
+        }
     }
-}} with environment {}
 
-Assert when /pl/ is a programming language {{pl} {
-    puts "language ($pl)"
-}} with environment {}
-
-Assert TypeScript is a programming language
+    if {$negate} {
+        set negateBody [list if {[llength $__matches] == 0} $body]
+        Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues
+    } else {
+        lappend argNames {*}$varNamesWillBeBound
+        Say when {*}$pattern [list $argNames $body] with environment $argValues
+    }
+}

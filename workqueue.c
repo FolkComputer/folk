@@ -22,6 +22,7 @@ pqueue_pri_t workQueueItemGetPriority(void* a) {
     case NONE: return 0;
     case ASSERT:
     case RETRACT: return 80000 - item->seq;
+    case SAY: return 80000 + item->seq;
     }
     return 0;
 }

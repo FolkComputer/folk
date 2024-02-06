@@ -1,10 +1,11 @@
 #ifndef WORKQUEUE_H
 #define WORKQUEUE_H
 
+#include "db.h"
 #include "trie.h"
 
 typedef struct WorkQueue WorkQueue;
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, SAY } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
     int seq;
@@ -12,15 +13,19 @@ typedef struct WorkQueueItem {
     union {
         struct { Clause* clause; } assert;
         struct { Clause* pattern; } retract;
+        struct {
+            Match* parent;
+            Clause* clause;
+        } say;
     };
 } WorkQueueItem;
 
 WorkQueue* workQueueNew();
 
-// These add entries to work queue:
+// Adds an item to work queue:
 void workQueuePush(WorkQueue* q, WorkQueueItem item);
 
-// Removes an item from work queue:
+// Removes the highest-priority item from work queue:
 WorkQueueItem workQueuePop(WorkQueue* q);
 
 #endif

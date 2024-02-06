@@ -3,14 +3,8 @@
 
 #include "trie.h"
 
-typedef struct ListOfEdgeTo ListOfEdgeTo;
-typedef struct Statement {
-    Clause* clause;
-    bool collectNeedsRecollect;
-
-    // List of edges to parent & child Matches:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
-} Statement;
+typedef struct Statement Statement;
+Clause* statementClause(Statement* stmt);
 
 typedef struct Match Match;
 typedef struct Clause Clause;
@@ -27,10 +21,13 @@ typedef struct ResultSet {
 // Caller must free the returned ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
-void dbInsert(Db* db,
-              Clause* clause,
-              size_t nParents, Match* parents[],
-              Statement** outStatement, bool* outIsNewStatement);
+void dbInsertStatement(Db* db,
+                       Clause* clause,
+                       size_t nParents, Match* parents[],
+                       Statement** outStatement, bool* outIsNewStatement);
+void dbInsertMatch(Db* db,
+                   size_t nParents, Statement* parents[],
+                   Match** outMatch);
 
 // Assert creates a statement without parents, a premise.
 Statement* dbAssert(Db* db, Clause* clause);
