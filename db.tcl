@@ -47,14 +47,47 @@ $cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
 
 namespace eval statement {
     upvar cc cc
+    $cc code {
+typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
+typedef struct {
+    EdgeType type;
+    void* to;
+} EdgeTo;
+typedef struct ListOfEdgeTo {
+    size_t capacityEdges;
+    size_t nEdges; // This is an estimate.
+    EdgeTo edges[];
+} ListOfEdgeTo;
+typedef struct Statement {
+    Clause* clause;
+    bool collectNeedsRecollect;
+
+    // List of edges to parent & child Matches:
+    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+} Statement;
+    }
     $cc proc clause {Statement* stmt} Jim_Obj* {
         return clauseToJimObj(statementClause(stmt));
     }
     $cc proc parentMatches {Statement* stmt} Jim_Obj* {
-        return Jim_NewListObj(interp, NULL, 0); // FIXME 
+        int nParents = 0;
+        Jim_Obj* parentObjs[stmt->edges->nEdges];
+        for (int i = 0; i < stmt->edges->nEdges; i++) {
+            if (stmt->edges->edges[i].type == EDGE_PARENT) {
+                parentObjs[nParents++] = Jim_ObjPrintf("(Match*) %p", stmt->edges->edges[i].to);
+            }
+        }
+        return Jim_NewListObj(interp, parentObjs, nParents);
     }
     $cc proc childMatches {Statement* stmt} Jim_Obj* {
-        return Jim_NewListObj(interp, NULL, 0); // FIXME
+        int nChildren = 0;
+        Jim_Obj* childObjs[stmt->edges->nEdges];
+        for (int i = 0; i < stmt->edges->nEdges; i++) {
+            if (stmt->edges->edges[i].type == EDGE_CHILD) {
+                childObjs[nChildren++] = Jim_ObjPrintf("(Match*) %p", stmt->edges->edges[i].to);
+            }
+        }
+        return Jim_NewListObj(interp, childObjs, nChildren);
     }
     namespace ensemble create
 }
@@ -65,9 +98,6 @@ try {
 proc dbDotify {db} {
     set dot [list]
     foreach stmt [testQuery $db /...anything/] {
-        lappend dot "subgraph <cluster_$stmt> {"
-        lappend dot "color=lightgray;"
-
         set label [statement clause $stmt]
         set label [join [lmap line [split $label "\n"] {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
@@ -75,17 +105,15 @@ proc dbDotify {db} {
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
         lappend dot "<$stmt> \[label=\"$stmt: $label\"\];"
 
-        dict for {matchId _} [statement parentMatches $stmt] {
-            set parents [lmap edge [matchEdges $matchId] {expr {
-                [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
-            }}]
-            lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
+        foreach matchId [statement parentMatches $stmt] {
+            # set parents [lmap edge [matchEdges $matchId] {expr {
+            #     [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
+            # }}]
+            # lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
             lappend dot "<$matchId> -> <$stmt>;"
         }
 
-        lappend dot "}"
-
-        dict for {childMatchId _} [statement childMatches $stmt] {
+        foreach childMatchId [statement childMatches $stmt] {
             lappend dot "<$stmt> -> <$childMatchId>;"
         }
     }
