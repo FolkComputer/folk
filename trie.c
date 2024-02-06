@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "trie.h"
 
@@ -177,4 +178,55 @@ int trieLookupLiteral(Trie* trie, Clause* pattern,
     trieLookupImpl(true, trie, pattern, 0,
                    results, maxResults, &resultCount);
     return resultCount;
+}
+
+char* clauseToString(Clause* c) {
+    int totalLength = 0;
+    for (int i = 0; i < c->nTerms; i++) {
+        totalLength += strlen(c->terms[i]) + 1;
+    }
+    char* ret; char* s; ret = s = malloc(totalLength);
+    for (int i = 0; i < c->nTerms; i++) {
+        s += snprintf(s, totalLength - (s - ret), "%s ",
+                      c->terms[i]);
+    }
+    return ret;
+}
+static bool isNonCapturing(const char* varName) {
+    const char* nonCapturingVarNames[] = {
+        "someone", "something", "anyone", "anything", "any"
+    };
+    for (int i = 0; i < sizeof(nonCapturingVarNames)/sizeof(nonCapturingVarNames[0]); i++) {
+        if (strcmp(varName, nonCapturingVarNames[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+Environment* clauseUnify(Clause* a, Clause* b) {
+    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
+
+    for (int i = 0; i < a->nTerms; i++) {
+        char aVarName[100] = {0}; char bVarName[100] = {0};
+        if (scanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
+            if (!isNonCapturing(aVarName)) {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, aVarName, sizeof(binding->name));
+                binding->value = b->terms[i];
+            }
+        } else if (scanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
+            if (!isNonCapturing(bVarName)) {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, bVarName, sizeof(binding->name));
+                binding->value = a->terms[i];
+            }
+        } else if (!(a->terms[i] == b->terms[i] ||
+                     strcmp(a->terms[i], b->terms[i]) == 0)) {
+            free(env);
+            fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
+                    clauseToString(a), clauseToString(b));
+            return NULL;
+        }
+    }
+    return env;
 }

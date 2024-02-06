@@ -37,8 +37,6 @@ Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
 // TODO: Specify ownership of Clause and term strings inside the
 // Clause.
 
-// TODO: Provide a method to emit a graphviz graph.
-
 int trieLookup(Trie* trie, Clause* pattern,
                uint64_t* results, size_t maxResults);
 
@@ -47,5 +45,21 @@ int trieLookup(Trie* trie, Clause* pattern,
 // already-existing statement whenever a statement is inserted.
 int trieLookupLiteral(Trie* trie, Clause* literal,
                       uint64_t* results, size_t maxResults);
+
+char* clauseToString(Clause* c);
+bool scanVariable(const char* term,
+                  char* outVarName, size_t sizeOutVarName);
+
+typedef struct EnvironmentBinding {
+    char name[100];
+    const char* value;
+} EnvironmentBinding;
+typedef struct Environment {
+    int nBindings;
+    EnvironmentBinding bindings[];
+} Environment;
+
+// Caller must free the returned Environment*.
+Environment* clauseUnify(Clause* a, Clause* b);
 
 #endif

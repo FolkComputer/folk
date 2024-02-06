@@ -35,10 +35,10 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 static int ClaimFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    return (JIM_ERR);
+    fprintf(stderr, "ClaimFunc\n"); return (JIM_ERR);
 }
 static int WhenFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    return (JIM_ERR);
+    fprintf(stderr, "WhenFunc\n"); return (JIM_ERR);
 }
 
 __thread Jim_Interp* interp = NULL;
@@ -64,41 +64,41 @@ static void eval(const char* code) {
 
 ////// Evaluator //////////////
 
-char* clauseToString(Clause* c) {
-    int totalLength = 0;
-    for (int i = 0; i < c->nTerms; i++) {
-        totalLength += strlen(c->terms[i]) + 1;
-    }
-    char* ret; char* s; ret = s = malloc(totalLength);
-    for (int i = 0; i < c->nTerms; i++) {
-        s += snprintf(s, totalLength - (s - ret), "%s ",
-                      c->terms[i]);
-    }
-    return ret;
-}
-static void runWhenBlock(Statement* when, Statement* stmt) {
+static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
     /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
     /*        clauseToString(when->clause), */
     /*        clauseToString(stmt->clause)); */
 
-    // TODO: copy the when lambda into Tcl
     assert(when->clause->nTerms >= 6);
-    // when the time is /t/ /lambda/ with environment /env/
-    const char* lambda = when->clause->terms[when->clause->nTerms - 4];
-    const char* env = when->clause->terms[when->clause->nTerms - 1];
 
-    // TODO: run it with variables bound
-    Jim_Obj* expr = Jim_NewStringObj(interp, env, -1);
+    // when the time is /t/ /lambda/ with environment /builtinEnv/
+    const char* lambda = when->clause->terms[when->clause->nTerms - 4];
+    const char* builtinEnv = when->clause->terms[when->clause->nTerms - 1];
+
+    Jim_Obj* expr = Jim_NewStringObj(interp, builtinEnv, -1);
+
+    // Prepend `apply $lambda` to expr:
     Jim_Obj* applyLambda[] = {
         Jim_NewStringObj(interp, "apply", -1),
         Jim_NewStringObj(interp, lambda, -1)
     };
-    // Prepend `apply $lambda` to expr:
     Jim_ListInsertElements(interp, expr, 0,
                            sizeof(applyLambda)/sizeof(applyLambda[0]),
                            applyLambda);
+
+    // Postpend bound variables to expr:
+    Environment* env = clauseUnify(whenPattern, stmt->clause);
+    Jim_Obj* envArgs[env->nBindings];
+    for (int i = 0; i < env->nBindings; i++) {
+        envArgs[i] = Jim_NewStringObj(interp, env->bindings[i].value, -1);
+    }
+    Jim_ListInsertElements(interp, expr,
+                           Jim_ListLength(interp, expr),
+                           env->nBindings, envArgs);
+
     int error = Jim_EvalObj(interp, expr);
+
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         fprintf(stderr, "runWhenBlock: (%s) -> (%s)\n",
@@ -148,7 +148,8 @@ static void reactToNewStatement(Statement* stmt) {
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
         /* printf("Results for (%s): %d\n", clauseToString(pattern), existingMatchingStatements->nResults); */
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-            runWhenBlock(stmt, existingMatchingStatements->results[i]);
+            runWhenBlock(stmt, pattern,
+                         existingMatchingStatements->results[i]);
         }
         free(existingMatchingStatements);
 
@@ -156,7 +157,8 @@ static void reactToNewStatement(Statement* stmt) {
         if (claimizedPattern) {
             existingMatchingStatements = dbQuery(db, claimizedPattern);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                runWhenBlock(stmt, existingMatchingStatements->results[i]);
+                runWhenBlock(stmt, claimizedPattern,
+                             existingMatchingStatements->results[i]);
             }
             free(existingMatchingStatements);
             free(claimizedPattern);
@@ -178,7 +180,14 @@ static void reactToNewStatement(Statement* stmt) {
 
     ResultSet* existingReactingWhens = dbQuery(db, whenPattern);
     for (int i = 0; i < existingReactingWhens->nResults; i++) {
-        runWhenBlock(existingReactingWhens->results[i], stmt);
+        Statement* when = existingReactingWhens->results[i];
+        Clause* pattern = alloca(SIZEOF_CLAUSE(when->clause->nTerms - 5));
+        pattern->nTerms = 0;
+        for (int i = 1; i < when->clause->nTerms - 4; i++) {
+            pattern->terms[pattern->nTerms++] = when->clause->terms[i];
+        }
+
+        runWhenBlock(when, pattern, stmt);
     }
     free(existingReactingWhens);
 

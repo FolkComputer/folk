@@ -251,4 +251,3 @@ Statement* dbAssert(Db* db, Clause* clause) {
 }
 
 
-// FIXME: Test with multiple threads.
