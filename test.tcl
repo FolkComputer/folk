@@ -8,7 +8,7 @@ Assert when C is a programming language {{} {
     Claim Windows is an OS
 
     When /x/ is an OS {
-        sleep 3
+        sleep 1
         Claim $x really is an OS
     }
 

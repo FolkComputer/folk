@@ -111,9 +111,9 @@ static void eval(const char* code) {
 
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
-    printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n",
-           clauseToString(statementClause(when)),
-           clauseToString(statementClause(stmt)));
+    /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
+    /*        clauseToString(statementClause(when)), */
+    /*        clauseToString(statementClause(stmt))); */
 
     Clause* whenClause = statementClause(when);
     assert(whenClause->nTerms >= 6);
@@ -350,6 +350,12 @@ static void dbWriteToPdf(Db* db) {
              "dbWriteToPdf {(Db*) %p} db.pdf; puts db.pdf", db);
     eval(code);
 }
+static void exitHandler() {
+    pthread_mutex_lock(&dbMutex);
+    trieWriteToPdf(dbGetClauseToStatementId(db));
+    dbWriteToPdf(db);
+    pthread_mutex_unlock(&dbMutex);
+}
 int main() {
     // Do all setup.
 
@@ -370,13 +376,8 @@ int main() {
         pthread_create(&th[i], NULL, workerMain, (void*) i);
     }
 
+    atexit(exitHandler);
     for (int i = 0; i < 4; i++) {
         pthread_join(th[i], NULL);
     }
-    printf("main: Done!\n");
-
-    pthread_mutex_lock(&dbMutex);
-    trieWriteToPdf(dbGetClauseToStatementId(db));
-    dbWriteToPdf(db);
-    pthread_mutex_unlock(&dbMutex);
 }
