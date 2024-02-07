@@ -19,12 +19,16 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
-static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
     clause->nTerms = argc - 1;
     for (int i = 1; i < argc; i++) {
         clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
     }
+    return clause;
+}
+static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* clause = jimArgsToClause(argc, argv);
 
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
@@ -35,13 +39,21 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
+static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* pattern = jimArgsToClause(argc, argv);
+
+    pthread_mutex_lock(&workQueueMutex);
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = RETRACT,
+       .retract = { .pattern = pattern }
+    });
+    pthread_mutex_unlock(&workQueueMutex);
+
+    return (JIM_OK);
+}
 __thread Match* currentMatch = NULL;
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
-    clause->nTerms = argc - 1;
-    for (int i = 1; i < argc; i++) {
-        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
-    }
+    Clause* clause = jimArgsToClause(argc, argv);
 
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
@@ -88,6 +100,7 @@ static void interpBoot() {
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
     Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Retract", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
@@ -286,6 +299,15 @@ static void reactToNewStatement(Statement* stmt) {
     // TODO: look for collects in the db
     
 }
+static void reactToRemovedStatement(Statement* stmt) {
+    // walk through edges to matches
+
+    // for each parent match: remove edge from it to stmt
+
+    // for each child match:
+    //   react to removed match
+    //   remove match
+}
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
@@ -300,14 +322,28 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == RETRACT) {
         printf("retract\n");
 
+        pthread_mutex_lock(&dbMutex);
+        ResultSet* retractStmts = dbRemoveStatements(db, item.retract.pattern);
+        for (int i = 0; i < retractStmts->nResults; i++) {
+            /* reactToRemovedStatement(retractStmts->results[i]); */
+            /* // Statement is removed (tombstoned) immediately. */
+            /* dbRemoveStatement(db, retractStmts->results[i]); */
+        }
+        // TODO: mark all statements as tombstoned
+        // TODO: find child matches and mark as tombstoned
+        pthread_mutex_unlock(&dbMutex);
+        free(retractStmts);
+
     } else if (item.op == SAY) {
         // TODO: Check if match still exists
 
         printf("Say (%p) (%s)\n", item.say.parent, clauseToString(item.say.clause));
 
         Statement* stmt; bool isNewStmt;
+        pthread_mutex_lock(&dbMutex);
         dbInsertStatement(db, item.say.clause, 1, &item.say.parent,
                           &stmt, &isNewStmt);
+        pthread_mutex_unlock(&dbMutex);
 
         if (isNewStmt) { reactToNewStatement(stmt); }
 

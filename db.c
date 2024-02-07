@@ -13,7 +13,6 @@
 // EdgeTo and ListOfEdgeTo:
 ////////////////////////////////////////////////////////////
 
-typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
 typedef struct {
     EdgeType type;
     void* to;
@@ -102,12 +101,16 @@ typedef struct Statement {
     ListOfEdgeTo* edges; // Allocated separately so it can be resized.
 } Statement;
 
-// Creates a new statement.
-Statement* statementNew(Clause* clause,
-                        size_t nParents, Match* parents[],
-                        size_t nChildren, Match* children[]) {
+// Creates a new statement. Internal helper for the DB, not callable
+// from the outside (they need to insert into the DB as a complete
+// operation).
+static Statement* statementNew(Clause* clause,
+                               size_t nParents, Match* parents[],
+                               size_t nChildren, Match* children[]) {
     Statement* ret = malloc(sizeof(Statement));
-    ret->clause = clause;
+    // Make a DB-owned copy of the clause. Also makes DB-owned copies
+    // of all the term strings inside the Clause.
+    ret->clause = clauseDup(clause);
     ret->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
                                  8 : (nParents + nChildren) * 2 < 8);
     for (size_t i = 0; i < nParents; i++) {
@@ -119,6 +122,9 @@ Statement* statementNew(Clause* clause,
     return ret;
 }
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
+ListOfEdgeToMatch* statementEdges(Statement* stmt) {
+    return (ListOfEdgeToMatch*) stmt->edges;
+}
 
 void statementAddChildMatch(Statement* stmt, Match* child) {
     listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, child);
@@ -246,8 +252,25 @@ void dbInsertMatch(Db* db,
 }
 
 // Remove
-void dbRemove(Db* db, Clause* c) {
-    
+ResultSet* dbRemoveStatements(Db* db, Clause* pattern) {
+    uint64_t results[500];
+    size_t maxResults = sizeof(results)/sizeof(results[0]);
+    size_t nResults = trieRemove(db->clauseToStatementId, pattern,
+                                 results, maxResults);
+    // REMOVE
+    // FREE CLAUSE & TERMS
+
+    if (nResults == maxResults) {
+        // TODO: Try again with a larger maxResults?
+        fprintf(stderr, "dbQuery: Hit max results\n"); exit(1);
+    }
+
+    ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
+    ret->nResults = nResults;
+    for (size_t i = 0; i < nResults; i++) {
+        ret->results[i] = (Statement*) results[i];
+    }
+    return ret;
 }
 
 // Test:

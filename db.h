@@ -7,6 +7,17 @@ typedef struct Statement Statement;
 Clause* statementClause(Statement* stmt);
 
 typedef struct Match Match;
+typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
+typedef struct ListOfEdgeToMatch {
+    size_t capacityEdges;
+    size_t nEdges; // This is an estimate.
+    struct {
+        EdgeType type;
+        Match* to;
+    } edges[];
+} ListOfEdgeToMatch;
+ListOfEdgeToMatch* statementEdges(Statement* stmt);
+
 typedef struct Clause Clause;
 typedef struct Db Db;
 
@@ -21,6 +32,8 @@ typedef struct ResultSet {
 // Caller must free the returned ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
+// The Clause* and all term strings inside the Clause are copied so
+// that the database owns them.
 void dbInsertStatement(Db* db,
                        Clause* clause,
                        size_t nParents, Match* parents[],
@@ -28,6 +41,8 @@ void dbInsertStatement(Db* db,
 void dbInsertMatch(Db* db,
                    size_t nParents, Statement* parents[],
                    Match** outMatch);
+
+ResultSet* dbRemoveStatements(Db* db, Clause* pattern);
 
 // Assert creates a statement without parents, a premise.
 Statement* dbAssert(Db* db, Clause* clause);

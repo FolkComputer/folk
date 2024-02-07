@@ -11,6 +11,12 @@ typedef struct Clause {
 } Clause;
 #define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
 
+// Make a new copy of the original Clause that points to new copies of
+// all the term strings inside that Clause.
+Clause* clauseDup(Clause* c);
+
+char* clauseToString(Clause* c);
+
 typedef struct Trie Trie;
 struct Trie {
     const char* key;
@@ -53,8 +59,6 @@ int trieLookup(Trie* trie, Clause* pattern,
 // already-existing statement whenever a statement is inserted.
 int trieLookupLiteral(Trie* trie, Clause* literal,
                       uint64_t* results, size_t maxResults);
-
-char* clauseToString(Clause* c);
 
 bool trieScanVariable(const char* term,
                       char* outVarName, size_t sizeOutVarName);

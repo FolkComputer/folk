@@ -9,6 +9,28 @@
 
 #include "trie.h"
 
+Clause* clauseDup(Clause* c) {
+    Clause* ret = malloc(SIZEOF_CLAUSE(c->nTerms));
+    ret->nTerms = c->nTerms;
+    for (int i = 0; i < c->nTerms; i++) {
+        ret->terms[i] = strdup(c->terms[i]);
+    }
+    return ret;
+}
+
+char* clauseToString(Clause* c) {
+    int totalLength = 0;
+    for (int i = 0; i < c->nTerms; i++) {
+        totalLength += strlen(c->terms[i]) + 1;
+    }
+    char* ret; char* s; ret = s = malloc(totalLength);
+    for (int i = 0; i < c->nTerms; i++) {
+        s += snprintf(s, totalLength - (s - ret), "%s ",
+                      c->terms[i]);
+    }
+    return ret;
+}
+
 Trie* trieNew() {
     size_t size = sizeof(Trie) + 10*sizeof(Trie*);
     Trie* ret = (Trie*) calloc(size, 1);
@@ -237,18 +259,6 @@ int trieRemove(Trie* trie, Clause* pattern,
     return resultCount;
 }
 
-char* clauseToString(Clause* c) {
-    int totalLength = 0;
-    for (int i = 0; i < c->nTerms; i++) {
-        totalLength += strlen(c->terms[i]) + 1;
-    }
-    char* ret; char* s; ret = s = malloc(totalLength);
-    for (int i = 0; i < c->nTerms; i++) {
-        s += snprintf(s, totalLength - (s - ret), "%s ",
-                      c->terms[i]);
-    }
-    return ret;
-}
 Environment* clauseUnify(Clause* a, Clause* b) {
     Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
 

@@ -48,7 +48,6 @@ $cc proc testGetClauseToStatementIdTrie {Db* db} Trie* {
 namespace eval statement {
     upvar cc cc
     $cc code {
-typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
 typedef struct {
     EdgeType type;
     void* to;
