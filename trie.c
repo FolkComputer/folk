@@ -194,10 +194,16 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
     }
 
     if (doRemove) {
+        // Recopy and compact the branches without the deleted
+        // (matched) subtries.
         Trie* newBranches[trie->nbranches];
         int newBranchesCount = 0;
         for (int j = 0; j < trie->nbranches; j++) {
-            if (!subtriesMatched[j]) {
+            if (trie->branches[j] == NULL) { break; }
+            if (subtriesMatched[j]) {
+                free(trie->branches[j]->key);
+                free(trie->branches[j]);
+            } else {
                 newBranches[newBranchesCount++] = trie->branches[j];
             }
         }
