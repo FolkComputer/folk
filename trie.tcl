@@ -45,6 +45,19 @@ $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
 
     return Jim_NewListObj(interp, resultObjs, resultCount);
 }
+$cc proc remove_ {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
+    uint64_t results[50];
+    Clause* pattern = jimObjToClause(patternObj);
+    int resultCount = trieRemove(trie, pattern, results, 50);
+    free(pattern);
+
+    Jim_Obj* resultObjs[resultCount];
+    for (int i = 0; i < resultCount; i++) {
+        resultObjs[i] = Jim_NewIntObj(interp, results[i]);
+    }
+
+    return Jim_NewListObj(interp, resultObjs, resultCount);
+}
 $cc code {
     Clause* clause(char* first, ...) {
         Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
@@ -97,7 +110,9 @@ $cc proc trieTest {} Trie* {
     t = trieAdd(t, clause("This", "is", "another", "statement", 0), 300);
     return t;
 }
-$cc compile
+try {
+    $cc compile
+} on error e { puts stderr $e }
 
 proc trieWriteToPdf {trie pdf} {
     exec dot -Tpdf <<[trieDotify $trie] >$pdf
@@ -110,6 +125,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     puts [lookup $trie [list This is another thing]]
     puts [lookup $trie [list This is another statement]]
     puts [lookup $trie [list This is another /x/]]
+    puts [remove_ $trie [list This is another /x/]]
 
     trieWriteToPdf $trie trie.pdf
     puts trie.pdf

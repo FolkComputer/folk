@@ -31,12 +31,19 @@ typedef struct Trie Trie;
 
 Trie* trieNew();
 
-// Returns a new Trie pointer with the clause added. For now, we can't
-// guarantee that it doesn't mutate the original trie.
+// Returns a pointer to a Trie that is trie + the clause. For now, we
+// can't guarantee that it doesn't mutate the original trie, so you
+// should discard that old pointer. The trie will retain copies of all
+// the term strings inside the Clause, so you can free c and all its
+// terms afterward if you want.
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
-// TODO: Specify ownership of Clause and term strings inside the
-// Clause.
 
+// Removes all clauses matching `pattern` from `trie`. Fills `results`
+// with the values of all removed clauses.
+int trieRemove(Trie* trie, Clause* pattern,
+               uint64_t* results, size_t maxResults);
+
+// Fills `results` with the values of all clauses matching `pattern`.
 int trieLookup(Trie* trie, Clause* pattern,
                uint64_t* results, size_t maxResults);
 
