@@ -33,9 +33,10 @@ Trie* trieNew();
 
 // Returns a pointer to a Trie that is trie + the clause. For now, we
 // can't guarantee that it doesn't mutate the original trie, so you
-// should discard that old pointer. The trie will retain copies of all
-// the term strings inside the Clause, so you can free c and all its
-// terms afterward if you want.
+// should discard that old pointer. The trie will retain pointers to
+// all the term strings in the Clause c, so you must not free those
+// terms while the clause is still in the trie. (You can free the
+// Clause* itself, though.)
 Trie* trieAdd(Trie* trie, Clause* c, uint64_t value);
 
 // Removes all clauses matching `pattern` from `trie`. Fills `results`

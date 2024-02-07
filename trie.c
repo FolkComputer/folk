@@ -51,7 +51,7 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, const char* terms[], uint64
         }
 
         Trie* branch = calloc(SIZEOF_TRIE(10), 1);
-        branch->key = strdup(term);
+        branch->key = term;
         branch->value = 0;
         branch->hasValue = false;
         branch->nbranches = 10;
@@ -201,7 +201,6 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
         for (int j = 0; j < trie->nbranches; j++) {
             if (trie->branches[j] == NULL) { break; }
             if (subtriesMatched[j]) {
-                free(trie->branches[j]->key);
                 free(trie->branches[j]);
             } else {
                 newBranches[newBranchesCount++] = trie->branches[j];
