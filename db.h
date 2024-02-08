@@ -16,6 +16,8 @@ typedef struct ListOfEdgeToMatch {
         Match* to;
     } edges[];
 } ListOfEdgeToMatch;
+// The returned object is only _borrowed_ from the DB and should not
+// be freed or mutated by the caller.
 ListOfEdgeToMatch* statementEdges(Statement* stmt);
 
 typedef struct Clause Clause;

@@ -2,26 +2,13 @@ Assert C is a programming language
 Assert Java is a programming language
 Assert JavaScript is a programming language
 
-Assert when C is a programming language {{} {
-    Claim Mac is an OS
-    Claim Linux is an OS
-    Claim Windows is an OS
-
-    When /x/ is an OS {
-        sleep 1
-        Claim $x really is an OS
-    }
-
-    When Mac really is an OS &\
-         Linux really is an OS &\
-         Windows really is an OS {
-        puts "Passed"
-        __exit 0
-    }
-}} with environment {}
-
 Assert when /pl/ is a programming language {{pl} {
-    puts "language ($pl)"
+    puts "On thread [__threadId]: $pl"
 }} with environment {}
 
-Assert TypeScript is a programming language
+Assert we are done
+Assert when we are done {{} {
+    sleep 1
+#    Retract /any/ is a programming language
+    sleep 1; __exit 0
+}} with environment {}
