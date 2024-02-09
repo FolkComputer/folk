@@ -5,20 +5,34 @@
 
 typedef struct Statement Statement;
 Clause* statementClause(Statement* stmt);
+void statementFree(Statement* stmt);
 
 typedef struct Match Match;
+void matchFree(Match* match);
+
 typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
-typedef struct ListOfEdgeToMatch {
-    size_t capacityEdges;
-    size_t nEdges; // This is an estimate.
-    struct {
-        EdgeType type;
-        Match* to;
-    } edges[];
-} ListOfEdgeToMatch;
-// The returned object is only _borrowed_ from the DB and should not
-// be freed or mutated by the caller.
-ListOfEdgeToMatch* statementEdges(Statement* stmt);
+
+typedef struct StatementEdgeIterator {
+    Statement* stmt;
+    int idx;
+} StatementEdgeIterator;
+StatementEdgeIterator statementEdgesBegin(Statement* stmt);
+StatementEdgeIterator statementEdgesNext(StatementEdgeIterator it);
+bool statementEdgesIsEnd(StatementEdgeIterator it);
+EdgeType statementEdgeType(StatementEdgeIterator it);
+Match* statementEdgeMatch(StatementEdgeIterator it);
+
+int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, Match* to);
+
+typedef struct MatchEdgeIterator {
+    Match* match;
+    int idx;
+} MatchEdgeIterator;
+MatchEdgeIterator matchEdgesBegin(Match* match);
+MatchEdgeIterator matchEdgesNext(MatchEdgeIterator it);
+bool matchEdgesIsEnd(MatchEdgeIterator it);
+EdgeType matchEdgeType(MatchEdgeIterator it);
+Statement* matchEdgeStatement(MatchEdgeIterator it);
 
 typedef struct Clause Clause;
 typedef struct Db Db;
@@ -44,7 +58,7 @@ void dbInsertMatch(Db* db,
                    size_t nParents, Statement* parents[],
                    Match** outMatch);
 
-ResultSet* dbRemoveStatements(Db* db, Clause* pattern);
+ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern);
 
 // Assert creates a statement without parents, a premise.
 Statement* dbAssert(Db* db, Clause* clause);

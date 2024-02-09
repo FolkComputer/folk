@@ -126,8 +126,11 @@ static void eval(const char* code) {
     }
 }
 
-////// Evaluator //////////////
+//////////////////////////////////////////////////////////
+// Evaluator
+//////////////////////////////////////////////////////////
 
+// Must be called with the database lock held.
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
     /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
@@ -164,12 +167,12 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
                            env->nBindings, envArgs);
     free(env);
 
-    pthread_mutex_lock(&dbMutex);
     Statement* parents[] = { when, stmt };
     dbInsertMatch(db, 2, parents, &currentMatch);
-    pthread_mutex_unlock(&dbMutex);
 
+    pthread_mutex_unlock(&dbMutex);
     int error = Jim_EvalObj(interp, expr);
+    pthread_mutex_lock(&dbMutex);
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
@@ -238,6 +241,7 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 // React to the addition of a new statement (fire any relevant
 // existing Whens & if the new statement is a When, then fire it with
 // respect to any relevant existing statements).
+// Must be called with the database lock held.
 static void reactToNewStatement(Statement* stmt) {
     Clause* clause = statementClause(stmt);
 
@@ -249,10 +253,8 @@ static void reactToNewStatement(Statement* stmt) {
 
         // Scan the existing statement set for any already-existing
         // matching statements.
-        pthread_mutex_lock(&dbMutex);
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
         // TODO: lease result statements so they don't get freed? hazard pointer?
-        pthread_mutex_unlock(&dbMutex);
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
             runWhenBlock(stmt, pattern,
                          existingMatchingStatements->results[i]);
@@ -261,14 +263,13 @@ static void reactToNewStatement(Statement* stmt) {
 
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern) {
-            pthread_mutex_lock(&dbMutex);
             existingMatchingStatements = dbQuery(db, claimizedPattern);
             // TODO: lease result statements so they don't get freed? hazard pointer?
-            pthread_mutex_unlock(&dbMutex);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
                 runWhenBlock(stmt, claimizedPattern,
                              existingMatchingStatements->results[i]);
             }
+
             free(existingMatchingStatements);
             free(claimizedPattern);
         }
@@ -282,11 +283,9 @@ static void reactToNewStatement(Statement* stmt) {
         //   -> when the time is 3 /__lambda/ with environment /__env/
         Clause* whenizedClause = whenizeClause(clause);
 
-        pthread_mutex_lock(&dbMutex);
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         // TODO: lease result statements so they don't get freed?
         // hazard pointer?
-        pthread_mutex_unlock(&dbMutex);
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             // when the time is /t/ /__lambda/ with environment /__env/
             //   -> the time is /t/
@@ -305,11 +304,9 @@ static void reactToNewStatement(Statement* stmt) {
         Clause* unclaimizedClause = unclaimizeClause(clause);
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
-        pthread_mutex_lock(&dbMutex);
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
         // TODO: lease result statements so they don't get freed?
         // hazard pointer?
-        pthread_mutex_unlock(&dbMutex);
         free(unclaimizedClause);
         free(whenizedUnclaimizedClause);
 
@@ -327,14 +324,62 @@ static void reactToNewStatement(Statement* stmt) {
     // TODO: look for collects in the db
     
 }
-static void reactToRemovedStatement(Statement* stmt) {
-    // walk through edges to matches
-    /* ListOfEdgeToMatch */
-    // for each parent match: remove edge from it to stmt
 
-    // for each child match:
-    //   react to removed match
-    //   remove match
+static void reactToRemovedStatement(Statement* stmt);
+
+// Must be called with the database lock held.
+static void reactToRemovedMatch(Match* match) {
+    // Walk through edges to statements:
+    for (MatchEdgeIterator it = matchEdgesBegin(match);
+         !matchEdgesIsEnd(it);
+         it = matchEdgesNext(it)) {
+
+        switch (matchEdgeType(it)) {
+        case EDGE_EMPTY: break;
+        case EDGE_PARENT: {
+            // This match is dead, so remove edges to the match from
+            // all of its co-parent statements.
+            Statement* parent = matchEdgeStatement(it);
+            statementRemoveEdgeToMatch(parent, EDGE_CHILD, match);
+            break;
+        }
+        case EDGE_CHILD: {
+            Statement* child = matchEdgeStatement(it);
+            if (statementRemoveEdgeToMatch(child, EDGE_PARENT, match) == 0) {
+                // This child statement is out of parent matches. It's
+                // dead.
+                reactToRemovedStatement(child);
+                statementFree(child);
+            }
+        } }
+    }
+}
+
+// Must be called with the database lock held.
+static void reactToRemovedStatement(Statement* stmt) {
+    // Walk through edges to matches:
+    for (StatementEdgeIterator it = statementEdgesBegin(stmt);
+         !statementEdgesIsEnd(it);
+         it = statementEdgesNext(it)) {
+
+        switch (statementEdgeType(it)) {
+        case EDGE_EMPTY: break;
+        case EDGE_PARENT: {
+            // remove edge from parent match to stmt?
+            // do we need this? when is a statement removed that has a parent match?
+            printf("reactToRemovedStatement: Remove edge from parent match to me\n");
+            // lock and retry?
+            break;
+        }
+        case EDGE_CHILD: {
+            // A child match is removed if _any_ of its parent
+            // statements is removed, so this match must be removed.
+            Match* child = statementEdgeMatch(it);
+            reactToRemovedMatch(child);
+            matchFree(child);
+            break;
+        } }
+    }
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
@@ -344,9 +389,9 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_lock(&dbMutex);
         dbInsertStatement(db, item.assert.clause, 0, NULL, &stmt, &isNewStmt);
         // TODO: lease stmt / stmt's clause so it doesn't get freed? hazard pointer?
-        pthread_mutex_unlock(&dbMutex);
 
         if (isNewStmt) { reactToNewStatement(stmt); }
+        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
         printf("retract\n");
@@ -355,12 +400,12 @@ void workerRun(WorkQueueItem item) {
         // This removes the statements from the lookup index, so they
         // won't appear as query results, but it doesn't disconnect
         // them or free them.
-        ResultSet* retractStmts = dbRemoveStatements(db, item.retract.pattern);
-        pthread_mutex_unlock(&dbMutex);
+        ResultSet* retractStmts = dbQueryAndDeindexStatements(db, item.retract.pattern);
 
         for (int i = 0; i < retractStmts->nResults; i++) {
             reactToRemovedStatement(retractStmts->results[i]);
         }
+        pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
 
     } else if (item.op == SAY) {
@@ -372,9 +417,9 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_lock(&dbMutex);
         dbInsertStatement(db, item.say.clause, 1, &item.say.parent,
                           &stmt, &isNewStmt);
-        pthread_mutex_unlock(&dbMutex);
 
         if (isNewStmt) { reactToNewStatement(stmt); }
+        pthread_mutex_unlock(&dbMutex);
 
     } else {
         printf("other\n");

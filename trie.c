@@ -43,13 +43,13 @@ Trie* trieNew() {
     return ret;
 }
 
-static Trie* trieAddImpl(Trie* trie, int32_t nTerms, const char* terms[], uint64_t value) {
+static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t value) {
     if (nTerms == 0) {
         trie->value = value;
         trie->hasValue = true;
         return trie;
     }
-    const char* term = terms[0];
+    char* term = terms[0];
 
     Trie* match = NULL;
 

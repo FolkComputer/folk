@@ -19,7 +19,7 @@ typedef struct {
 } EdgeTo;
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
-    size_t nEdges; // This is an estimate.
+    size_t nEdges; // This is an upper bound.
     EdgeTo edges[];
 } ListOfEdgeTo;
 #define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(EdgeTo))
@@ -95,10 +95,14 @@ typedef struct Match Match;
 typedef struct ListOfEdgeTo ListOfEdgeTo;
 typedef struct Statement {
     Clause* clause;
-    bool collectNeedsRecollect;
 
     // List of edges to parent & child Matches:
     ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+
+    // TODO: Cache of Jim-local clause objects?
+
+    // TODO: Lock? Refcount?
+    // Retracter will ???
 } Statement;
 
 // Creates a new statement. Internal helper for the DB, not callable
@@ -122,8 +126,35 @@ static Statement* statementNew(Clause* clause,
     return ret;
 }
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
-ListOfEdgeToMatch* statementEdges(Statement* stmt) {
-    return (ListOfEdgeToMatch*) stmt->edges;
+
+StatementEdgeIterator statementEdgesBegin(Statement* stmt) {
+    return (StatementEdgeIterator) { .stmt = stmt, .idx = 0 };
+}
+bool statementEdgesIsEnd(StatementEdgeIterator it) {
+    return it.idx == it.stmt->edges->nEdges;
+}
+StatementEdgeIterator statementEdgesNext(StatementEdgeIterator it) {
+    return (StatementEdgeIterator) { .stmt = it.stmt, .idx = it.idx + 1 };
+}
+EdgeType statementEdgeType(StatementEdgeIterator it) {
+    return it.stmt->edges->edges[it.idx].type;
+}
+Match* statementEdgeMatch(StatementEdgeIterator it) {
+    return (Match*) it.stmt->edges->edges[it.idx].to;
+}
+
+int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, Match* to) {
+    return listOfEdgeToRemove(stmt->edges, type, to);
+}
+
+void statementFree(Statement* stmt) {
+    Clause* stmtClause = statementClause(stmt);
+    for (int i = 0; i < stmtClause->nTerms; i++) {
+        free(stmtClause->terms[i]);
+    }
+    free(stmtClause);
+    free(stmt->edges);
+    free(stmt);
 }
 
 void statementAddChildMatch(Statement* stmt, Match* child) {
@@ -155,6 +186,28 @@ Match* matchNew(size_t nParents, Statement* parents[]) {
     }
     return ret;
 }
+
+void matchFree(Match* match) {
+    free(match->edges);
+    free(match);
+}
+
+MatchEdgeIterator matchEdgesBegin(Match* match) {
+    return (MatchEdgeIterator) { .match = match, .idx = 0 };
+}
+bool matchEdgesIsEnd(MatchEdgeIterator it) {
+    return it.idx == it.match->edges->nEdges;
+}
+MatchEdgeIterator matchEdgesNext(MatchEdgeIterator it) {
+    return (MatchEdgeIterator) { .match = it.match, .idx = it.idx + 1 };
+}
+EdgeType matchEdgeType(MatchEdgeIterator it) {
+    return it.match->edges->edges[it.idx].type;
+}
+Statement* matchEdgeStatement(MatchEdgeIterator it) {
+    return (Statement*) it.match->edges->edges[it.idx].to;
+}
+
 void matchAddChildStatement(Match* match, Statement* child) {
     listOfEdgeToAdd(&match->edges, EDGE_CHILD, child);
 }
@@ -251,14 +304,11 @@ void dbInsertMatch(Db* db,
     if (outMatch) { *outMatch = match; }
 }
 
-// Remove
-ResultSet* dbRemoveStatements(Db* db, Clause* pattern) {
+ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern) {
     uint64_t results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
     size_t nResults = trieRemove(db->clauseToStatementId, pattern,
                                  results, maxResults);
-    // REMOVE
-    // FREE CLAUSE & TERMS
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?

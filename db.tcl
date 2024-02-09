@@ -59,7 +59,6 @@ typedef struct ListOfEdgeTo {
 } ListOfEdgeTo;
 typedef struct Statement {
     Clause* clause;
-    bool collectNeedsRecollect;
 
     // List of edges to parent & child Matches:
     ListOfEdgeTo* edges; // Allocated separately so it can be resized.

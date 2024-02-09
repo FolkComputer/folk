@@ -7,7 +7,7 @@
 
 typedef struct Clause {
     int32_t nTerms;
-    const char* terms[];
+    char* terms[];
 } Clause;
 #define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
 
