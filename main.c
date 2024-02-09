@@ -348,6 +348,8 @@ static void reactToRemovedMatch(Match* match) {
             if (statementRemoveEdgeToMatch(child, EDGE_PARENT, match) == 0) {
                 // This child statement is out of parent matches. It's
                 // dead.
+                /* printf("reactToRemovedMatch: dead statement: %p (%d terms: %s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child))); */
+                free(dbQueryAndDeindexStatements(db, statementClause(child)));
                 reactToRemovedStatement(child);
                 statementFree(child);
             }
@@ -404,7 +406,7 @@ void workerRun(WorkQueueItem item) {
 
         for (int i = 0; i < retractStmts->nResults; i++) {
             reactToRemovedStatement(retractStmts->results[i]);
-            /* statementFree(retractStmts->results[i])); */
+            statementFree(retractStmts->results[i]);
         }
         pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
