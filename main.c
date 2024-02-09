@@ -210,7 +210,7 @@ static Clause* unclaimizeClause(Clause* clause) {
     for (int i = 2; i < clause->nTerms; i++) {
         ret->terms[ret->nTerms++] = clause->terms[i];
     }
-    return clause;
+    return ret;
 }
 static Clause* whenizeClause(Clause* clause) {
     // the time is /t/
@@ -404,6 +404,7 @@ void workerRun(WorkQueueItem item) {
 
         for (int i = 0; i < retractStmts->nResults; i++) {
             reactToRemovedStatement(retractStmts->results[i]);
+            /* statementFree(retractStmts->results[i])); */
         }
         pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
