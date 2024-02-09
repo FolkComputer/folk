@@ -396,8 +396,6 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
-        printf("retract\n");
-
         pthread_mutex_lock(&dbMutex);
         // This removes the statements from the lookup index, so they
         // won't appear as query results, but it doesn't disconnect
