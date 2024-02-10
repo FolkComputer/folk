@@ -1,6 +1,6 @@
 source "lib/c.tcl"
 
-set cc [c create]
+set cc [C]
 $cc cflags -I. trie.c
 $cc include <stdlib.h>
 $cc include "trie.h"
@@ -112,7 +112,7 @@ $cc proc trieTest {} Trie* {
 }
 try {
     $cc compile
-} on error e { puts stderr $e }
+} on error e { puts stderr [errorInfo $e [info stacktrace]] }
 
 proc trieWriteToPdf {trie pdf} {
     exec dot -Tpdf <<[trieDotify $trie] >$pdf

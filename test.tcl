@@ -1,15 +1,17 @@
-Assert C is a programming language
-Assert Java is a programming language
-Assert JavaScript is a programming language
-
-Assert when /pl/ is a programming language {{pl} {
-    puts "On thread [__threadId]: $pl"
-    Claim $pl really is a PL
+Assert when /someone/ wishes to run program /prog/ {{prog} {
+    eval $prog
 }} with environment {}
 
-Assert we are done
-Assert when we are done {{} {
-    sleep 1
-    Retract /any/ is a programming language
-    sleep 1; __exit 0
-}} with environment {}
+Assert test.tcl wishes to run program {
+    When the tick count is /n/ {
+        puts "Thread [__threadId]: Tick: $n"
+    }
+
+    set n 0
+    while true {
+        incr n
+        Assert the tick count is $n
+        Retract the tick count is [expr {$n - 1}]
+        sleep 1
+    }
+}

@@ -14,7 +14,7 @@ proc assert condition {
 source "trie.tcl"
 set trieCc $cc
 
-set cc [c create]
+set cc [C]
 $cc cflags -I. trie.c db.c
 $cc include <stdlib.h>
 $cc include <assert.h>
@@ -87,11 +87,14 @@ typedef struct Statement {
         }
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
+    foreach fn {clause parentMatches childMatches} {
+        proc $fn {args} [subst {::$fn {*}\$args}]
+    }
     namespace ensemble create
 }
 try {
     $cc compile
-} on error e { puts stderr $e }
+} on error e { puts stderr [errorInfo $e [info stacktrace]] }
 
 proc dbDotify {db} {
     set dot [list]
