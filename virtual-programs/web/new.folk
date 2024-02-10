@@ -89,7 +89,6 @@ Wish the web server handles route "/new" with handler {
 	const program = "web-program-" + uuidv4();
 
         async function send(s) {
-           // TODO: Make POST request to Folk.
            console.log('send', s);
            const response = await fetch(window.location.origin + "/eval", {
              method: "POST",
@@ -99,12 +98,12 @@ Wish the web server handles route "/new" with handler {
            return response.text();
         }
 
-        handleDrag();
-
         window.onbeforeunload = () => {
-	  send(`Retract web claims {${program}} has region /something/`);
-          send(`Retract web claims {${program}} has program code /something/`);
-        };
+           send(`
+Retract web claims {${program}} has region /something/
+Retract web claims {${program}} has program code /something/
+           `);
+         };
 	let ws;
 
 	function handleDrag() {
@@ -122,7 +121,6 @@ Wish the web server handles route "/new" with handler {
 		Assert web claims $program has region [region create $vertices $edges]
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
-	    if {$::isLaptop} { Step }
 	`);
 	}
 	function handleSave() {
