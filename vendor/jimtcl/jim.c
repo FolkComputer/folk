@@ -12018,7 +12018,7 @@ static int JimInfoFrame(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objP
             for (p = targetEvalFrame->parent; p ; p = p->parent) {
                 if (p->cmd && p->cmd->isproc) {
                     Jim_ListAppendElement(interp, listObj, Jim_NewStringObj(interp, "proc", -1));
-                    Jim_ListAppendElement(interp, listObj, p->cmd->cmdNameObj);
+                    Jim_ListAppendElement(interp, listObj, p->cmd->cmdNameObj ? p->cmd->cmdNameObj : Jim_NewEmptyStringObj(interp));
                     break;
                 }
             }
