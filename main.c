@@ -68,6 +68,24 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
+static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* pattern = jimArgsToClause(argc, argv);
+
+    pthread_mutex_lock(&dbMutex);
+    ResultSet* rs = dbQuery(db, pattern);
+
+    int nResults = (int) rs->nResults;
+    Jim_Obj* resultObjs[nResults];
+    for (size_t i = 0; i < rs->nResults; i++) {
+        Statement* result = rs->results[i];
+        resultObjs[i] = Jim_NewStringObj(interp, clauseToString(statementClause(result)), -1);
+    }
+    pthread_mutex_unlock(&dbMutex);
+    free(pattern);
+    free(rs);
+    Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, nResults));
+    return JIM_OK;
+}
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     char varName[100];
@@ -107,6 +125,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "dbQuery", dbQueryFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
@@ -412,7 +431,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == SAY) {
         // TODO: Check if match still exists
 
-        printf("Say (%p) (%s)\n", item.say.parent, clauseToString(item.say.clause));
+        /* printf("Say (%p) (%s)\n", item.say.parent, clauseToString(item.say.clause)); */
 
         Statement* stmt; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);

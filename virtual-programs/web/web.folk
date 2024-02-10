@@ -1,0 +1,203 @@
+puts Web
+
+proc handleConnect {chan addr} {
+    fileevent $chan readable [list handleRead $chan $addr]
+}
+
+proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
+proc readFile {filename contentTypeVar} {
+    upvar $contentTypeVar contentType
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set response [read $fd]; close $fd; return $response
+}
+
+proc getDotAsPdf {dot contentTypeVar} {
+    upvar $contentTypeVar contentType
+    set contentType "application/pdf"
+    set fd [open |[list dot -Tpdf <<$dot] r]
+    fconfigure $fd -encoding binary -translation binary
+    set response [read $fd]; close $fd; return $response
+}
+
+proc handlePage {path httpStatusVar contentTypeVar} {
+    upvar $contentTypeVar contentType
+    switch -exact -- $path {
+        "/" {
+            set l [list]
+            foreach stmt [dbQuery /...anything/] {
+                lappend l [subst {
+                    <li>
+                    <details>
+                    <summary style="[expr {
+                    [lsearch -exact $stmt error] != -1
+                    ? "color: red"
+                    : ""}]">
+                    : [htmlEscape $stmt]</summary>
+                    <pre>[htmlEscape $stmt]</pre>
+                    </details>
+                    </li>
+                }]
+            }
+            subst {
+                <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Statements</title>
+                </head>
+                <nav>
+                <a href="/new"><button>New program</button></a>
+                <a href="/programs">Running programs</a>
+                <a href="/timings">Timings</a>
+                <a href="/keyboards">Keyboards</a>
+                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                <a href="/statements.pdf">statements graph</a>
+                </nav>
+                <h1>Statements</h1>
+                <ul>[join $l "\n"]</ul>
+                </html>
+            }
+        }
+        "/programs" {
+            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+            subst {
+                <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Running programs</title>
+                </head>
+                <body>
+                [join [lmap p $programs { dict with p {subst {
+                    <h2>$programName</h2>
+                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
+                }} }] "\n"]
+                </body>
+                </html>
+            }
+        }
+        "/timings" {
+            set totalTimes [list]
+            dict for {body totalTime} $Evaluator::totalTimesMap {
+                dict with totalTime {
+                    lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
+                }
+            }
+            set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+
+            set totalFrameTime 0
+            set l [list]
+            foreach {body totalTime} $totalTimes {
+                set runs [dict get $Evaluator::runsMap $body]
+                set totalFrameTime [expr {$totalFrameTime + $totalTime/$::stepCount}]
+                lappend l [subst {
+                    <li>
+                    <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                    </li>
+                }]
+            }
+            subst {
+                <html>
+                <head>
+                <link rel="stylesheet" href="/style.css">
+                <title>Timings</title>
+                </head>
+                <nav>
+                <a href="/new"><button>New program</button></a>
+                <a href="/">Statements</a>
+                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                <a href="/statements.pdf">statements graph</a>
+                </nav>
+                <h1>Timings (sum per-frame time $totalFrameTime us)</h1>
+                <ul>[join $l "\n"]</ul>
+                </html>
+            }
+        }
+        "/favicon.ico" {
+            set contentType "image/x-icon"
+            readFile "assets/favicon.ico" contentType
+        }
+        "/style.css" {
+            set contentType "text/css"
+            readFile "assets/style.css" contentType
+        }
+        "/statementClauseToId.pdf" {
+            getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
+        }
+        "/statements.pdf" {
+            getDotAsPdf [Statements::dot] contentType
+        }
+        default {
+            upvar $httpStatusVar httpStatus
+            set httpStatus "HTTP/1.1 404 Not Found"
+            subst {
+                <html>
+                <b>$path</b> Not found.
+                </html>
+            }
+        }
+    }
+}
+
+proc handleRead {chan addr} {
+    gets $chan line; set firstline $line
+    # puts "Http: $chan $addr $port: $line"
+    set headers [list]
+    while {[gets $chan line] >= 0 && $line ne ""} {
+        if {[regexp {^( [^\s:]+ ) \s* : \s* (.+)} $line -> k v]} {
+            lappend headers $k $v
+        } else { break }
+    }
+
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
+        set response {}
+        # set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
+        set matches [list]
+        try {
+            foreach match $matches {
+                set route [dict get $match route]
+                set handler [dict get $match handler]
+                if {[regexp -all $route $path whole_match]} {
+                    fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body $body}
+                    fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body $body}
+                    set response [apply [list {path ^html ^json} $handler] $path ${^html} ${^json}]
+                }
+            }
+            if {$response eq ""} {
+                set httpStatus "HTTP/1.1 200 OK"
+                set contentType "text/html; charset=utf-8"
+                set body [handlePage $path httpStatus contentType]
+                set response [dict create statusAndHeaders "$httpStatus\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+            }
+            if {![dict exists $response statusAndHeaders]} {
+                error "Response not generated"
+            }
+        } on error e {
+            set contentType "text-html; charset=utf-8"
+            set body [subst {
+                <html>
+                <head>
+                <title>folk: 500 Internal Server Error</title>
+                </head>
+                <body>
+                <pre>[htmlEscape $e]:
+[htmlEscape [errorInfo $e [info stacktrace]]]</pre>
+                </body>
+                </html>
+            }]
+            set response [dict create statusAndHeaders "HTTP/1.1 500 Internal Server Error\nConnection: close\nContent-Type: $contentType\n\n" body $body]
+        }
+        puts -nonewline $chan [dict get $response statusAndHeaders]
+        if {[dict exists $response body]} {
+            puts -nonewline $chan [dict get $response body]
+        }
+        close $chan
+    } else { puts "Closing: $chan $addr $headers"; close $chan }
+}
+
+set f [socket stream.server 4273]
+$f readable [lambda {} {f} {
+    set client [$f accept addr]
+    handleConnect $client $addr
+}]
+vwait forever

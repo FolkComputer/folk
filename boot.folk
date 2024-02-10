@@ -3,17 +3,13 @@ puts Boot
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }} with environment {}
-# For backward compat(?):
-Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
-    Claim $__this has program [list {this} $__programCode]
-}} with environment {}
 
-foreach programFilename [list {*}[glob virtual-programs/*.folk] \
+foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
                              {*}[glob -nocomplain virtual-programs/*/*.folk] \
                              {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename]} { continue }
 
     set fp [open $programFilename r]
-    Assert boot.folk claims $programFilename has program code [read $fp]
+    Assert boot.folk claims $programFilename has program [list {this} [read $fp]]
     close $fp
 }
