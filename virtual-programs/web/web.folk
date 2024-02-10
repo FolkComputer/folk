@@ -83,7 +83,6 @@ proc handleRead {chan addr} {
                 error "Response not generated"
             }
         } on error e {
-            puts Eoaoasa
             set contentType "text-html; charset=utf-8"
             set body [subst {
                 <html>

@@ -1,15 +1,16 @@
 Wish the web server handles route "/" with handler {
     set l [list]
-    foreach stmt [dbQuery /...anything/] {
+    foreach result [dbQuery /...terms/] {
+        set terms [dict get $result terms]
         lappend l [subst {
             <li>
             <details>
             <summary style="[expr {
-              [lsearch -exact $stmt error] != -1
+              [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            : [htmlEscape $stmt]</summary>
-            <pre>[htmlEscape $stmt]</pre>
+            : [htmlEscape [string range [join $terms " "] 0 100]]</summary>
+            <pre>[htmlEscape [join $terms " "]]</pre>
             </details>
             </li>
         }]
