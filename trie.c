@@ -258,31 +258,3 @@ int trieRemove(Trie* trie, Clause* pattern,
                    results, maxResults, &resultCount);
     return resultCount;
 }
-
-Environment* clauseUnify(Clause* a, Clause* b) {
-    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
-
-    for (int i = 0; i < a->nTerms; i++) {
-        char aVarName[100] = {0}; char bVarName[100] = {0};
-        if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
-            if (!trieVariableNameIsNonCapturing(aVarName)) {
-                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
-                memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = b->terms[i];
-            }
-        } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
-            if (!trieVariableNameIsNonCapturing(bVarName)) {
-                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
-                memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = a->terms[i];
-            }
-        } else if (!(a->terms[i] == b->terms[i] ||
-                     strcmp(a->terms[i], b->terms[i]) == 0)) {
-            free(env);
-            fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
-                    clauseToString(a), clauseToString(b));
-            return NULL;
-        }
-    }
-    return env;
-}

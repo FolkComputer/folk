@@ -19,6 +19,8 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
+__thread int threadId = -1;
+
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
     clause->nTerms = argc - 1;
@@ -27,6 +29,64 @@ static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     }
     return clause;
 }
+static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
+    Jim_Obj* termObjs[nTerms];
+    for (int i = 0; i < nTerms; i++) {
+        termObjs[i] = Jim_NewStringObj(interp, terms[i], -1);
+    }
+    return Jim_NewListObj(interp, termObjs, nTerms);
+}
+
+typedef struct EnvironmentBinding {
+    char name[100];
+    Jim_Obj* value;
+} EnvironmentBinding;
+typedef struct Environment {
+    int nBindings;
+    EnvironmentBinding bindings[];
+} Environment;
+
+// This function lives in main.c and not trie.c (where most
+// Clause/matching logic lives) because it operates at the Tcl level,
+// building up a Tcl value which may be a singleton or a list. Caller
+// must free the returned Environment*.
+Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
+    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
+    env->nBindings = 0;
+
+    for (int i = 0; i < a->nTerms; i++) {
+        char aVarName[100] = {0}; char bVarName[100] = {0};
+        if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
+            if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
+                binding->value = termsToJimObj(interp, b->nTerms - i, &b->terms[i]);
+            } else if (!trieVariableNameIsNonCapturing(aVarName)) {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, aVarName, sizeof(binding->name));
+                binding->value = Jim_NewStringObj(interp, b->terms[i], -1);
+            }
+        } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
+            if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
+                binding->value = termsToJimObj(interp, a->nTerms - i, &a->terms[i]);
+            } else if (!trieVariableNameIsNonCapturing(bVarName)) {
+                EnvironmentBinding* binding = &env->bindings[env->nBindings++];
+                memcpy(binding->name, bVarName, sizeof(binding->name));
+                binding->value = Jim_NewStringObj(interp, a->terms[i], -1);
+            }
+        } else if (!(a->terms[i] == b->terms[i] ||
+                     strcmp(a->terms[i], b->terms[i]) == 0)) {
+            free(env);
+            fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
+                    clauseToString(a), clauseToString(b));
+            return NULL;
+        }
+    }
+    return env;
+}
+
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
 
@@ -51,7 +111,7 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
-__thread int threadId = -1;
+
 __thread Match* currentMatch = NULL;
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
@@ -78,7 +138,16 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_Obj* resultObjs[nResults];
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = rs->results[i];
-        resultObjs[i] = Jim_NewStringObj(interp, clauseToString(statementClause(result)), -1);
+        Environment* env = clauseUnify(interp, pattern, statementClause(result));
+        assert(env != NULL);
+        Jim_Obj* envDict[env->nBindings * 2];
+        for (int j = 0; j < env->nBindings; j++) {
+            envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+            envDict[j*2+1] = env->bindings[j].value;
+        }
+
+        resultObjs[i] = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
+        free(env);
     }
     pthread_mutex_unlock(&dbMutex);
     free(pattern);
@@ -175,11 +244,11 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
                            applyLambda);
 
     // Postpend bound variables to expr:
-    Environment* env = clauseUnify(whenPattern, statementClause(stmt));
+    Environment* env = clauseUnify(interp, whenPattern, statementClause(stmt));
     assert(env != NULL);
     Jim_Obj* envArgs[env->nBindings];
     for (int i = 0; i < env->nBindings; i++) {
-        envArgs[i] = Jim_NewStringObj(interp, env->bindings[i].value, -1);
+        envArgs[i] = env->bindings[i].value;
     }
     Jim_ListInsertElements(interp, expr,
                            Jim_ListLength(interp, expr),
@@ -459,7 +528,7 @@ void* workerMain(void* arg) {
         // variable.
         if (item.op == NONE) { usleep(100000); continue; }
 
-        /* printf("Worker %d: ", id, item.op); */
+        /* printf("Worker %d: ", threadId, item.op); */
         workerRun(item);
     }
 }
@@ -499,14 +568,15 @@ int main() {
 
     eval("source boot.folk");
 
-    // Spawn NCPUS workers.
-    pthread_t th[4];
-    for (int i = 0; i < 4; i++) {
+    // Spawn NTHREADS workers.
+    const int NTHREADS = 2;
+    pthread_t th[NTHREADS];
+    for (int i = 0; i < NTHREADS; i++) {
         pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
     }
 
     atexit(exitHandler);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < NTHREADS; i++) {
         pthread_join(th[i], NULL);
     }
 }

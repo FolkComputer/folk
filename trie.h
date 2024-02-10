@@ -64,16 +64,4 @@ bool trieScanVariable(const char* term,
                       char* outVarName, size_t sizeOutVarName);
 bool trieVariableNameIsNonCapturing(const char* varName);
 
-typedef struct EnvironmentBinding {
-    char name[100];
-    const char* value;
-} EnvironmentBinding;
-typedef struct Environment {
-    int nBindings;
-    EnvironmentBinding bindings[];
-} Environment;
-
-// Caller must free the returned Environment*.
-Environment* clauseUnify(Clause* a, Clause* b);
-
 #endif
