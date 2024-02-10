@@ -112,7 +112,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
-    Jim_EvalFile(interp, "main.tcl");
+    Jim_EvalFile(interp, "prelude.tcl");
 }
 static void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
@@ -478,8 +478,7 @@ int main() {
     workQueue = workQueueNew();
     pthread_mutex_init(&workQueueMutex, NULL);
 
-    // Queue up some items (JUST FOR TESTING)
-    eval("puts {main: Main}; source test.tcl");
+    eval("source boot.folk");
 
     // Spawn NCPUS workers.
     pthread_t th[4];
