@@ -63,7 +63,7 @@ proc handleRead {chan addr} {
 
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
         set response {}
-        set handlers [dbQuery /someone/ wishes the web server handles route /route/ with handler /handler/]
+        set handlers [Query! /someone/ wishes the web server handles route /route/ with handler /handler/]
         try {
             foreach h $handlers {
                 set route [dict get $h route]

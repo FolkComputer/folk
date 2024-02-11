@@ -1,6 +1,6 @@
 Wish the web server handles route "/" with handler {
     set l [list]
-    foreach result [dbQuery /...terms/] {
+    foreach result [Query! /...terms/] {
         set terms [dict get $result terms]
         lappend l [subst {
             <li>
@@ -9,8 +9,8 @@ Wish the web server handles route "/" with handler {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            : [htmlEscape [string range [join $terms " "] 0 100]]</summary>
-            <pre>[htmlEscape [join $terms " "]]</pre>
+            : [htmlEscape [string range $terms 0 100]]</summary>
+            <pre>[htmlEscape $terms]</pre>
             </details>
             </li>
         }]

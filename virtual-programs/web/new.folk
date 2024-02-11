@@ -103,8 +103,7 @@ Wish the web server handles route "/new" with handler {
 Retract web claims {${program}} has region /something/
 Retract web claims {${program}} has program code /something/
            `);
-         };
-	let ws;
+        };
 
 	function handleDrag() {
 	  let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
@@ -132,7 +131,7 @@ Retract web claims {${program}} has program code /something/
            [500, 1000, 3000].forEach(timeout => {
              setTimeout(async () => {
                const errors = await send(`
-set errors [dbQuery {${program}} has error /err/ with info /errorInfo/]
+set errors [Query! {${program}} has error /err/ with info /errorInfo/]
 join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
                `);
 

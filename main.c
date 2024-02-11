@@ -194,7 +194,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "dbQuery", dbQueryFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Query!", dbQueryFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
