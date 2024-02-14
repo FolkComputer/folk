@@ -2,7 +2,11 @@
 #
 #     Hardware interface with the GPU (Vulkan). Provides the ability
 #     to run pixel shaders with image and numerical parameters (so you
-#     can draw images, shapes, etc from Display.)
+#     can draw images, shapes, etc.)
+
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    source lib/c.tcl
+}
 
 namespace eval ::Gpu {
     set macos [expr {$::tcl_platform(os) eq "darwin"}]
@@ -17,7 +21,7 @@ Try doing `sudo chmod 666 $renderFile`."
     }
     
     if {$macos} {
-        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
+        variable WIDTH [* 640 2]; variable HEIGHT [* 480 2]
     } else {
         regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
     }
@@ -875,7 +879,7 @@ Try doing `sudo chmod 666 $renderFile`."
 
         # Create a C subcompiler to create a fast routine to encode
         # the push constants on each draw call.
-        set cc [c create]
+        set cc [C]
         $cc typedef int sampler2D
         $cc struct vec2 { float x; float y; }
         $cc struct vec3 { float x; float y; float z; }
@@ -884,11 +888,11 @@ Try doing `sudo chmod 666 $renderFile`."
         $cc argtype vec2 {
             vec2 $argname;
             {
-                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
-                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
                 __ENSURE($[set argname]_objc == 2);
-                double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
-                double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
+                double x; double y;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
                 $argname = (vec2) { (float)x, (float)y };
             }
         }
@@ -928,9 +932,9 @@ Try doing `sudo chmod 666 $renderFile`."
         $cc proc getArgsSize {} int { return sizeof(Args); }
         variable nextPipelineId
         set pipelineId $nextPipelineId
-        $cc proc encodeArgs$pipelineId $pushConstants Tcl_Obj* {
+        $cc proc encodeArgs$pipelineId $pushConstants Jim_Obj* {
             Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
-            return Tcl_NewByteArrayObj((uint8_t *)&args, sizeof(args));
+            return Jim_NewStringObj(interp, (uint8_t *)&args, sizeof(args));
         }
         $cc compile
         incr nextPipelineId
@@ -957,7 +961,7 @@ Try doing `sudo chmod 666 $renderFile`."
 
             $pushConstantsCode
 
-            $[join [dict values [dict map {fnName fn} $vertFnDict {
+            $[join [dict values [lmap {fnName fn} $vertFnDict {
                 lassign $fn fnArgs _ fnRtype fnBody
                 subst {
                     $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
@@ -992,13 +996,13 @@ Try doing `sudo chmod 666 $renderFile`."
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            layout(set = 0, binding = 0) uniform sampler2D _samplers[$ImageManager::GPU_MAX_IMAGES];
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$::Gpu::ImageManager::GPU_MAX_IMAGES];
 
             $pushConstantsCode
 
             layout(location = 0) out vec4 outColor;
 
-            $[join [dict values [dict map {fnName fn} $fragFnDict {
+            $[join [dict values [lmap {fnName fn} $fragFnDict {
                 lassign $fn fnArgs _ fnRtype fnBody
                 subst {
                     $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
@@ -1027,7 +1031,7 @@ Try doing `sudo chmod 666 $renderFile`."
 
         # pipeline needs to contain a specification of push constants,
         # so they can be filled in at draw time.
-        set pipeline [Gpu::createPipeline $pipelineId $vertShaderModule $fragShaderModule \
+        set pipeline [::createPipeline $pipelineId $vertShaderModule $fragShaderModule \
                           $pushConstantsSize]
         return $pipeline
     }
@@ -1523,12 +1527,33 @@ Try doing `sudo chmod 666 $renderFile`."
 proc glslc {args} {
     set cmdargs [lreplace $args end end]
     set glsl [lindex $args end]
-    set glslfd [file tempfile glslfile glslfile.glsl]; puts $glslfd $glsl; close $glslfd
+    set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
+    set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
-if {[info exists ::argv0] && $::argv0 eq [info script] || \
-        ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
+# TODO: Fix the namespace situation
+::init
+::imageManagerInit
+
+
+set fullScreenVert {
+    vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
+    return vertices[gl_VertexIndex];
+}
+set circle [Gpu::pipeline {vec2 center float radius} $fullScreenVert {
+    float dist = length(gl_FragCoord.xy - center) - radius;
+    return dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
+}]
+
+while 1 {
+    ::drawStart
+    Gpu::draw $circle {200 50} 30
+    ::drawEnd
+    ::poll
+}
+
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
     Gpu::init
     Gpu::ImageManager::imageManagerInit
 
