@@ -1,3 +1,16 @@
+proc serializeEnvironment {} {
+    set argnames [list]
+    set argvalues [list]
+    # Get all variables and serialize them, to fake lexical scope.
+    foreach name [uplevel {info locals}] {
+        if {![string match "__*" $name]} {
+            lappend argnames $name
+            lappend argvalues [uplevel [list set $name]]
+        }
+    }
+    list $argnames $argvalues
+}
+
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
@@ -7,8 +20,7 @@ proc When {args} {
         set argNames [list]; set argValues [list]
         set pattern [lreplace $pattern 0 0]
     } else {
-        # lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-        set argNames [list]; set argValues [list]
+        lassign [uplevel serializeEnvironment] argNames argValues
     }
 
     set varNamesWillBeBound [list]

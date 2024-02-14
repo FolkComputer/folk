@@ -20,7 +20,7 @@ class Gpu C {
     HEIGHT 960
     nextPipelineId 0
 }
-variable gpu [Gpu]
+set gpu [Gpu]
 $gpu cflags -I./vendor
 
 set macos [expr {$::tcl_platform(os) eq "darwin"}]
@@ -1549,8 +1549,8 @@ When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
     try {
         dict set ::pipelines $name [$gpu pipeline {*}$source]
     } on error e {
-        puts stderr $::errorInfo
-        Say $wisher has error $e with info $::errorInfo
+        puts stderr "Error: GPU compiles pipeline: [errorInfo $e]"
+        Say $wisher has error $e with info [errorInfo $e]
     }
 }
 
