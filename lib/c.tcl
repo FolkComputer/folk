@@ -129,7 +129,7 @@ class C {
                     $basetype $argname[$[set argname]_objc];
                     {
                         for (int i = 0; i < $[set argname]_objc; i++) {
-                            $[arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
+                            $[$self arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
                             $argname[i] = $[set argname]_i;
                         }
                     }
@@ -207,11 +207,11 @@ C method ret {rtype robj rvalue} {
 }
 
 C method typedef {t newt} {
-    code "typedef $t $newt;"
+    $self code "typedef $t $newt;"
     set argtype $t; set rtype $t
 
-    argtype $newt [switch $argtype $argtypes]
-    rtype $newt [switch $rtype $rtypes]
+    $self argtype $newt [switch $argtype $argtypes]
+    $self rtype $newt [switch $rtype $rtypes]
 }
 
 C method include {h} {
@@ -269,7 +269,7 @@ C method struct {type fields} {
         lset fields $i+1 $fieldname
     }
 
-    include <string.h>
+    $self include <string.h>
     # ptrAndLongRep.value = 1 means the data is owned by
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
@@ -295,7 +295,7 @@ C method struct {type fields} {
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_Obj* robj_$fieldname;
-                    $[ret $fieldtype robj_$fieldname robj->$fieldname]
+                    $[$self ret $fieldtype robj_$fieldname robj->$fieldname]
                 }
             }] "\n"]
             objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
@@ -308,7 +308,7 @@ C method struct {type fields} {
                 csubst {
                     Jim_Obj* obj_$fieldname;
                     Jim_DictKey(interp, objPtr, Jim_ObjPrintf("%s", "$fieldname"), &obj_$fieldname, 0);
-                    $[arg $fieldtype robj_$fieldname obj_${fieldname}]
+                    $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
                     memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
                 }
             }] "\n"]
@@ -327,13 +327,13 @@ C method struct {type fields} {
         };
     }]
 
-    argtype $type [csubst {
+    $self argtype $type [csubst {
         __ENSURE_OK($[set type]_setFromAnyProc(interp, \$obj));
         \$argtype \$argname;
         \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
     }]
 
-    rtype $type {
+    $self rtype $type {
         $robj = Jim_NewObj(interp);
         $robj->bytes = NULL;
         $robj->typePtr = &$[set rtype]_ObjType;
@@ -350,24 +350,24 @@ C method struct {type fields} {
             if {$fieldtype ne "Jim_Obj*" &&
                 [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
                 if {$basefieldtype eq "char"} {
-                    proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                    $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
-                    proc ${ns}::${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                    $self proc ${ns}::${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $basefieldtype {
+                    $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $basefieldtype {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
             } else {
-                proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
                     __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                     return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
@@ -384,7 +384,7 @@ C method struct {type fields} {
 
 C method proc {name arguments rtype body} {
     set cname [string map {":" "_"} $name]
-    set body [uplevel [list csubst $body]]
+    set body [uplevel 2 [list csubst $body]]
 
     set arglist [list]
     set argnames [list]
