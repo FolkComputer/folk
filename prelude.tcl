@@ -55,3 +55,5 @@ proc When {args} {
         Say when {*}$pattern [list $argNames $body] with environment $argValues
     }
 }
+
+source "lib/c.tcl"

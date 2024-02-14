@@ -154,8 +154,8 @@ class C {
         uint8_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
         uint16_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
         uint32_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
-        uint64_t { expr {{ $robj = Jim_NewLongObj(interp, $rvalue); }}}
-        size_t { expr {{ $robj = Jim_NewLongObj(interp, $rvalue); }}}
+        uint64_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        size_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
         intptr_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
         char* { expr {{ $robj = Jim_NewStringObj(interp, $rvalue, -1); }} }
         Jim_Obj* { expr {{ $robj = $rvalue; }}}
