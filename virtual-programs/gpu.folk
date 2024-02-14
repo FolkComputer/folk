@@ -4,8 +4,12 @@
 #     to run pixel shaders with image and numerical parameters (so you
 #     can draw images, shapes, etc.)
 
-# FIXME: pin self onto thread 0
-return
+if {[__threadId] != 0} {
+    error "gpu.folk: Must run on thread 0"
+    # FIXME: reschedule self onto thread 0
+    puts [lindex [dict get [info frame -1] cmd] 1 1]
+    return
+}
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     source lib/c.tcl
