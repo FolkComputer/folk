@@ -500,7 +500,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == SAY) {
         // TODO: Check if match still exists
 
-        /* printf("Say (%p) (%s)\n", item.say.parent, clauseToString(item.say.clause)); */
+        /* printf("->Say (%p) (%.50s)\n", item.say.parent, clauseToString(item.say.clause)); */
 
         Statement* stmt; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
@@ -568,12 +568,15 @@ int main() {
 
     eval("source boot.folk");
 
-    // Spawn NTHREADS workers.
-    const int NTHREADS = 2;
+    // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
+    // which needs to be an active worker, in case we need to do
+    // things like GLFW that the OS forces to be on the main thread.)
+    const int NTHREADS = 3;
     pthread_t th[NTHREADS];
-    for (int i = 0; i < NTHREADS; i++) {
+    for (int i = 1; i < NTHREADS; i++) {
         pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
     }
+    workerMain(0);
 
     atexit(exitHandler);
     for (int i = 0; i < NTHREADS; i++) {

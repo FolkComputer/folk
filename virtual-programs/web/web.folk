@@ -55,7 +55,7 @@ proc handleRead {chan addr} {
     puts "Http: $chan $addr: [string range $line 0 end-1]"
     set headers [list]
     while {[gets $chan line] >= 0 && $line ne ""} {
-        puts "  Http: ([string range $line 0 end-1])"
+        # puts "  Http: ([string range $line 0 end-1])"
         if {[regexp {^([^\s:]+)\s*:\s*(.+)} $line -> k v]} {
             lappend headers $k $v
         } else { break }
