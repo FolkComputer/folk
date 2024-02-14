@@ -4,6 +4,9 @@
 #     to run pixel shaders with image and numerical parameters (so you
 #     can draw images, shapes, etc.)
 
+# FIXME: pin self onto thread 0
+return
+
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     source lib/c.tcl
 }
@@ -1534,149 +1537,52 @@ proc glslc {args} {
 ::imageManagerInit
 
 
-set fullScreenVert {
-    vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
-    return vertices[gl_VertexIndex];
+# TODO: this will require somehow wrapping up $gpu -- a C compiler
+# object -- and making methods on it callable from arbitrary threads
+# :-D
+When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+    # this interior can run from any thread
+    try {
+        dict set ::pipelines $name [$gpu pipeline {*}$source]
+    } on error e {
+        puts stderr $::errorInfo
+        Say $wisher has error $e with info $::errorInfo
+    }
 }
-set circle [$gpu pipeline {vec2 center float radius} $fullScreenVert {
-    float dist = length(gl_FragCoord.xy - center) - radius;
-    return dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-}]
+
 
 while 1 {
-    ::drawStart
-    $gpu draw $circle {200 50} 30
-    ::drawEnd
-    ::poll
-}
+    set displayList [dict create]
+    foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+        try {
+            set name [dict get $match name]
+            set pipeline [dict get $::pipelines [dict get $match name]]
 
-if {[info exists ::argv0] && $::argv0 eq [info script]} {
-    Gpu::init
-    Gpu::ImageManager::imageManagerInit
-
-    set fullScreenVert {
-        vec2 vertices[4] = vec2[4](vec2(0, 0), vec2(_resolution.x, 0), vec2(0, _resolution.y), _resolution);
-        return vertices[gl_VertexIndex];
-    }
-    set circle [$gpu pipeline {vec2 center float radius} $fullScreenVert {
-        float dist = length(gl_FragCoord.xy - center) - radius;
-        return dist < 0.0 ? vec4(gl_FragCoord.xy / 640, 0, 1.0) : vec4(0, 0, 0, 0);
-    }]
-
-    set line [Gpu::pipeline {vec2 from vec2 to float thickness} {
-        vec2 vertices[4] = vec2[4](
-             min(from, to) - thickness,
-             vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
-             vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
-             max(from, to) + thickness
-        );
-        return vertices[gl_VertexIndex];
-    } {
-        float l = length(to - from);
-        vec2 d = (to - from) / l;
-        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
-             q = mat2(d.x, -d.y, d.y, d.x) * q;
-             q = abs(q) - vec2(l, thickness)*0.5;
-        float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-
-        return dist < 0.0 ? vec4(1, 0, 1, 1) : vec4(0, 0, 0, 0);
-    }]
-
-    set redOnRight [Gpu::pipeline {} $fullScreenVert {
-        return gl_FragCoord.x > 640 ? vec4(gl_FragCoord.x / 4096.0, 0, 0, 1.0) : vec4(0, 0, 0, 0);
-    }]
-
-    # Inverse bilinear interpolation, based on
-    # https://www.shadertoy.com/view/lsBSDm
-    set cross2d [Gpu::fn {vec2 a vec2 b} float {
-        return a.x*b.y - a.y*b.x;
-    }]
-    set invBilinear [Gpu::fn {vec2 p vec2 a vec2 b vec2 c vec2 d fn cross2d} vec2 {
-        vec2 res = vec2(-1.0);
-
-        vec2 e = b-a;
-        vec2 f = d-a;
-        vec2 g = a-b+c-d;
-        vec2 h = p-a;
-        
-        float k2 = cross2d( g, f );
-        float k1 = cross2d( e, f ) + cross2d( h, g );
-        float k0 = cross2d( h, e );
-
-        // if edges are parallel, this is a linear equation
-        if( abs(k2)<0.001 )
-        {
-            res = vec2( (h.x*k1+f.x*k0)/(e.x*k1-g.x*k0), -k0/k1 );
-        }
-        // otherwise, it's a quadratic
-	else
-        {
-            float w = k1*k1 - 4.0*k0*k2;
-            if( w<0.0 ) return vec2(-1.0);
-            w = sqrt( w );
-
-            float ik2 = 0.5/k2;
-            float v = (-k1 - w)*ik2;
-            float u = (h.x - f.x*v)/(e.x + g.x*v);
-            
-            if( u<0.0 || u>1.0 || v<0.0 || v>1.0 )
-            {
-                v = (-k1 + w)*ik2;
-                u = (h.x - f.x*v)/(e.x + g.x*v);
+            set options [dict get $match options]
+            set layer [dict_getdef $options layer 0]
+            if {[dict exists $options instances]} {
+                set instances [dict get $options instances]
+            } else {
+                set instances [list [dict get $options arguments]]
             }
-            res = vec2( u, v );
+            foreach instance $instances {
+                dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
+            }
+        } on error e {
+            Assert gpu.folk claims [dict get $match wisher] has error $e with info $::errorInfo
+            # TODO: does this ever get disposed?
         }
-        return res;
-    }]
-
-    set image [Gpu::pipeline {sampler2D image vec2 a vec2 b vec2 c vec2 d} {
-        vec2 vertices[4] = vec2[4](a, b, d, c);
-        return vertices[gl_VertexIndex];
-    } {fn invBilinear} {
-        vec2 p = gl_FragCoord.xy;
-        vec2 uv = invBilinear(p, a, b, c, d);
-        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
-            return texture(image, uv);
-        }
-        return vec4(0.0, 0.0, 0.0, 0.0);
-    }]
-
-    if {[string match "scoriae*" $::thisNode]} {
-        set impath "/Users/osnr/Downloads/u9.jpg"
-        set impath2 "/Users/osnr/Downloads/793.jpg"
-    } elseif {$::thisNode eq "folk0" || $thisNode eq "folk-omar"} {
-        set impath "/home/folk/folk-images/html-energy-laptops.jpeg"
-        set impath2 "/home/folk/folk-images/megaman-sprites-5x2.jpg"
-    } else { error "Don't know what images to use." }
-    set im [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath]]
-    set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg $impath2]]
-    
-    set t 0
-    while 1 {
-        if {$t == 100} {
-            puts "Im2 is $im2"
-            Gpu::ImageManager::freeGpuImage $im2
-            set im2 [Gpu::ImageManager::copyImageToGpu [image loadJpeg "/Users/osnr/Downloads/IMG_5992.jpeg"]]
-            puts "New im2 is $im2"
-        }
-
-        Gpu::drawStart
-
-        Gpu::draw $circle {200 50} 30
-        Gpu::draw $circle {300 300} 20
-        Gpu::draw $line {0 0} {100 100} 10
-        Gpu::draw $redOnRight
-
-        Gpu::draw $image $im2 {100 0} {200 0} {200 200} {100 200}
-        Gpu::draw $image $im [list [expr {sin($t/300.0)*300}] 300] {400 300} {400 400} {200 400}
-
-        Gpu::draw $line {100 0} {200 0} 10
-        Gpu::draw $line {200 0} {200 200} 10
-        Gpu::draw $line {200 200} {100 200} 10
-        Gpu::draw $line {100 200} {100 0} 10
-
-        Gpu::drawEnd
-        Gpu::poll
-        incr t
     }
+
+    ::drawStart
+    foreach layer [lsort -real [dict keys $displayList]] {
+        set layerDisplayList [dict get $displayList $layer]
+        foreach displayCommand $layerDisplayList {
+            try { {*}$displayCommand } \
+                on error e { puts stderr $::errorInfo }
+        }
+    }
+    ::drawEnd
+
+    # TODO: sleep for 5ms or something?
 }
