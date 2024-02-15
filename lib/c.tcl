@@ -355,24 +355,24 @@ C method struct {type fields} {
             if {$fieldtype ne "Jim_Obj*" &&
                 [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
                 if {$basefieldtype eq "char"} {
-                    $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
-                    $self proc ${ns}::${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                    $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $basefieldtype {
+                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $basefieldtype {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
             } else {
-                $self proc ${ns}::$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
                     __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                     return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
