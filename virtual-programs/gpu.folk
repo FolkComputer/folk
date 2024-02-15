@@ -779,10 +779,10 @@ $gpu proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
 # Draw to the screen using pipeline `pipeline`. Each arg in `args`
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
-proc "$gpu draw" {pipeline args} {
+$gpu method draw {pipeline args} {
     set args [linsert $args 0 [list $WIDTH $HEIGHT]]
 
-    drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
+    $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
 }
 
 $gpu proc drawEnd {} void {
@@ -939,14 +939,19 @@ $gpu method pipeline {args} {
     $cc include <stddef.h>
     $cc proc getArgsSize {} int { return sizeof(Args); }
     set pipelineId $nextPipelineId
-    $cc proc encodeArgs$pipelineId $pushConstants Jim_Obj* {
+    $cc proc pipelineEncodeArgs$pipelineId $pushConstants Jim_Obj* {
         Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
         return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
+    }
+    $cc proc exportPipelineEncodeArgsToGlobal {} void {
+        Jim_CreateCommand(interp, "pipelineEncodeArgs$pipelineId",
+                          pipelineEncodeArgs${pipelineId}_Cmd, NULL, NULL);
     }
     $cc compile
     incr nextPipelineId
 
     set pushConstantsSize [$cc getArgsSize]
+    $cc exportPipelineEncodeArgsToGlobal
 
     set pushConstantsCode [if {[llength $pushConstants] > 0} {
         subst {
@@ -1563,10 +1568,10 @@ while 1 {
     foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
         try {
             set name [dict get $match name]
-            set pipeline [dict get $pipelines [dict get $match name]]
+            set pipeline [lindex [dict get $pipelines [dict get $match name]] 1]
 
             set options [dict get $match options]
-            set layer [dict_getdef $options layer 0]
+            set layer [dict getdef $options layer 0]
             if {[dict exists $options instances]} {
                 set instances [dict get $options instances]
             } else {
@@ -1576,7 +1581,8 @@ while 1 {
                 dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
             }
         } on error e {
-            Assert gpu.folk claims [dict get $match wisher] has error $e with info $::errorInfo
+            puts stderr [errorInfo $e]
+            Assert gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
             # TODO: does this ever get disposed?
         }
     }
@@ -1586,7 +1592,7 @@ while 1 {
         set layerDisplayList [dict get $displayList $layer]
         foreach displayCommand $layerDisplayList {
             try { {*}$displayCommand } \
-                on error e { puts stderr $::errorInfo }
+                on error e { puts stderr [errorInfo $e] }
         }
     }
     $gpu drawEnd
