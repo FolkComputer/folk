@@ -830,7 +830,7 @@ $gpu proc poll {} void {
 
 # Construct a reusable GLSL function that can be linked into and
 # called from a shader/pipeline.
-proc "$gpu fn" {args rtype body} {
+$gpu method fn {args rtype body} {
     set fnArgs [list]
     # We inline all dependent functions from the caller scope
     # immediately here, since we don't know if those dependencies
@@ -1539,14 +1539,21 @@ proc glslc {args} {
 $gpu init
 $gpu imageManagerInit
 
+# Dictionary where key is pipeline name and value is [list
+# $pipelineSource $compiledPipeline].
 set pipelines [dict create]
+
 while 1 {
     set displayList [dict create]
     foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
         dict with match {
             try {
-                puts [$gpu pipeline {*}$source]
-                # dict set pipelines $name [$gpu pipeline {*}$source]
+                if {[dict exists $pipelines $name] &&
+                    [lindex [dict get $pipelines $name] 0] eq $source} {
+                    # Already compiled this one.
+                    continue
+                }
+                dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
             } on error e {
                 puts stderr "Error: GPU compiles pipeline: [errorInfo $e]"
                 Say $wisher has error $e with info [errorInfo $e]
@@ -1583,6 +1590,7 @@ while 1 {
         }
     }
     $gpu drawEnd
+    $gpu poll
 
     # TODO: sleep for 5ms or something?
 }
