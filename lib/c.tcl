@@ -1,8 +1,13 @@
 # lib/c.tcl --
 #
 #     Implements the C 'FFI' that lets you embed arbitrary C code into
-#     a Tcl program.
+#     a Tcl program. Especially useful for calling existing C APIs and
+#     libraries (i.e., almost anything involving hardware or the OS --
+#     graphics, webcams, multithreading). Shells out to the C compiler
+#     to build a shared library and then uses Tcl `load` to load it
+#     immediately.
 #
+# Copyright (c) 2022-2024 Folk Computer, Inc.
 
 # Much like `subst`, but you invoke a Tcl fn with $[whatever] instead
 # of [whatever], so that the [] syntax is freed up to be used for C
@@ -455,8 +460,7 @@ C method compile {} {
                     snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
                     Jim_Eval(interp, script);
 
-                    // TODO: Create the command as a method on the C object
-                    Jim_CreateCommand(interp, "$tclname", $[set cname]_Cmd, NULL, NULL);
+                    Jim_CreateCommand(interp, "$[$self classname] $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
             return JIM_OK;
@@ -484,6 +488,9 @@ C method import {scc sname as dest} {
     set addr [dict get [$scc eval {set addrs}] $sname]
     $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
+
+# Dispatcher for calling compiled C functions off the C object.
+C method unknown {method args} { "$self $method" {*}$args }
 
 
     # set loader [create]

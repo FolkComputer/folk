@@ -5,9 +5,9 @@
 #     can draw images, shapes, etc.)
 
 if {[__threadId] != 0} {
-    error "gpu.folk: Must run on thread 0"
+    puts stderr "gpu.folk: Must run on thread 0. Aborting."
     # FIXME: reschedule self onto thread 0
-    puts [lindex [dict get [info frame -1] cmd] 1 1]
+    # puts [lindex [dict get [info frame -1] cmd] 1 1]
     return
 }
 
@@ -779,7 +779,7 @@ $gpu proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
 # Draw to the screen using pipeline `pipeline`. Each arg in `args`
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
-$gpu method draw {pipeline args} {
+proc "$gpu draw" {pipeline args} {
     set args [linsert $args 0 [list $WIDTH $HEIGHT]]
 
     drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
@@ -830,7 +830,7 @@ $gpu proc poll {} void {
 
 # Construct a reusable GLSL function that can be linked into and
 # called from a shader/pipeline.
-$gpu method fn {args rtype body} {
+proc "$gpu fn" {args rtype body} {
     set fnArgs [list]
     # We inline all dependent functions from the caller scope
     # immediately here, since we don't know if those dependencies
@@ -907,25 +907,25 @@ $gpu method pipeline {args} {
     $cc argtype vec3 {
         vec3 $argname;
         {
-            int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
-            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+            int $[set argname]_objc = Jim_ListLength(interp, $obj);
             __ENSURE($[set argname]_objc == 3);
-            double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
-            double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
-            double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
+            double x; double y; double z;
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
             $argname = (vec3) { (float)x, (float)y, (float)z };
         }
     }
     $cc argtype vec4 {
         vec4 $argname;
         {
-            int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
-            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+            int $[set argname]_objc = Jim_ListLength(interp, $obj);
             __ENSURE($[set argname]_objc == 4);
-            double x; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[0], &x));
-            double y; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[1], &y));
-            double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
-            double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[3], &w));
+            double x; double y; double z; double w;
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
             $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
         }
     }
@@ -941,12 +941,12 @@ $gpu method pipeline {args} {
     set pipelineId $nextPipelineId
     $cc proc encodeArgs$pipelineId $pushConstants Jim_Obj* {
         Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
-        return Jim_NewStringObj(interp, (uint8_t *)&args, sizeof(args));
+        return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
     }
     $cc compile
     incr nextPipelineId
 
-    set pushConstantsSize [getArgsSize]
+    set pushConstantsSize [$cc getArgsSize]
 
     set pushConstantsCode [if {[llength $pushConstants] > 0} {
         subst {
@@ -963,7 +963,7 @@ $gpu method pipeline {args} {
         }
     }]
 
-    set vertShaderModule [createShaderModule [glslc -fshader-stage=vert [csubst {
+    set vertShaderModule [$self createShaderModule [glslc -fshader-stage=vert [csubst {
         #version 450
 
         $pushConstantsCode
@@ -1000,7 +1000,7 @@ $gpu method pipeline {args} {
     # global sampler and multiple textures/images, because that's
     # the only way to allow each image to have its own dimensions
     # (dimensions are a property bound to the sampler).
-    set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
+    set fragShaderModule [$self createShaderModule [glslc -fshader-stage=frag [csubst {
         #version 450
 
         layout(set = 0, binding = 0) uniform sampler2D _samplers[$::GPU_MAX_IMAGES];
@@ -1038,7 +1038,7 @@ $gpu method pipeline {args} {
 
     # pipeline needs to contain a specification of push constants,
     # so they can be filled in at draw time.
-    set pipeline [::createPipeline $pipelineId \
+    set pipeline [$self createPipeline $pipelineId \
                       $vertShaderModule $fragShaderModule \
                       $pushConstantsSize]
     return $pipeline
@@ -1536,31 +1536,27 @@ proc glslc {args} {
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
-# TODO: Fix the namespace situation
-::init
-::imageManagerInit
+$gpu init
+$gpu imageManagerInit
 
-
-# TODO: this will require somehow wrapping up $gpu -- a C compiler
-# object -- and making methods on it callable from arbitrary threads
-# :-D
-When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
-    # this interior can run from any thread
-    try {
-        dict set ::pipelines $name [$gpu pipeline {*}$source]
-    } on error e {
-        puts stderr "Error: GPU compiles pipeline: [errorInfo $e]"
-        Say $wisher has error $e with info [errorInfo $e]
-    }
-}
-
-
+set pipelines [dict create]
 while 1 {
     set displayList [dict create]
+    foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
+        dict with match {
+            try {
+                puts [$gpu pipeline {*}$source]
+                # dict set pipelines $name [$gpu pipeline {*}$source]
+            } on error e {
+                puts stderr "Error: GPU compiles pipeline: [errorInfo $e]"
+                Say $wisher has error $e with info [errorInfo $e]
+            }
+        }
+    }
     foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
         try {
             set name [dict get $match name]
-            set pipeline [dict get $::pipelines [dict get $match name]]
+            set pipeline [dict get $pipelines [dict get $match name]]
 
             set options [dict get $match options]
             set layer [dict_getdef $options layer 0]
@@ -1578,7 +1574,7 @@ while 1 {
         }
     }
 
-    ::drawStart
+    $gpu drawStart
     foreach layer [lsort -real [dict keys $displayList]] {
         set layerDisplayList [dict get $displayList $layer]
         foreach displayCommand $layerDisplayList {
@@ -1586,7 +1582,7 @@ while 1 {
                 on error e { puts stderr $::errorInfo }
         }
     }
-    ::drawEnd
+    $gpu drawEnd
 
     # TODO: sleep for 5ms or something?
 }
