@@ -18,14 +18,19 @@ Wish the GPU compiles pipeline "circle" {
     }
 }
 
-When /someone/ wishes to draw a circle with /...options/ {
-    set center [dict_getdef $options center ""]
+When the color map is /colorMap/ &\
+     /someone/ wishes to draw a circle with /...options/ {
+    set center [dict getdef $options center ""]
     if {$center eq ""} { set center [list [dict get $options x] [dict get $options y]] }
     set radius [dict get $options radius]
     set thickness [dict get $options thickness]
-    set color [getColor [dict get $options color]]
-    set filled [dict_getdef $options filled false]
+    set color [dict get $options color]
+    set color [dict getdef $colorMap $color $color]
+    set filled [dict getdef $options filled false]
 
     Wish the GPU draws pipeline "circle" with arguments \
         [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
 }
+
+Wish to draw a circle with x 20 y 30 radius 20 thickness 2 color orange
+
