@@ -277,8 +277,8 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
         fprintf(stderr, "runWhenBlock: (%s) -> (%s)\n",
                 lambda,
                 Jim_GetString(Jim_GetResult(interp), NULL));
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
+        /* Jim_FreeInterp(interp); */
+        /* exit(EXIT_FAILURE); */
     }
 }
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
