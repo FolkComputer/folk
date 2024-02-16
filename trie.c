@@ -69,7 +69,7 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
             // We're out of room; need to grow trie.
             trie = realloc(trie, SIZEOF_TRIE(2*trie->nbranches));
             trie->nbranches *= 2;
-            memset(trie->branches[j], 0, (trie->nbranches/2)*sizeof(Trie*));
+            memset(&trie->branches[j], 0, (trie->nbranches/2)*sizeof(Trie*));
         }
 
         Trie* branch = calloc(SIZEOF_TRIE(10), 1);
