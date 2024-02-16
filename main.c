@@ -228,11 +228,25 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
     Clause* whenClause = statementClause(when);
     assert(whenClause->nTerms >= 6);
 
-    // when the time is /t/ /lambda/ with environment /builtinEnv/
-    const char* lambda = whenClause->terms[whenClause->nTerms - 4];
-    const char* builtinEnv = whenClause->terms[whenClause->nTerms - 1];
+    // when the time is /t/ /lambda/ with thread 2 environment /whenEnv/
+    int thread = -1;
+    const char* lambda = NULL;
+    const char* whenEnv = NULL;
+    int withIdx = -1;
+    for (int i = whenClause->nTerms - 1; i >= 0; i--) {
+        if (strcmp(whenClause->terms[i], "environment") == 0) {
+            whenEnv = whenClause->terms[i + 1];
+        } else if (strcmp(whenClause->terms[i], "thread") == 0) {
+            thread = atoi(whenClause->terms[i + 1]);
+        } else if (strcmp(whenClause->terms[i], "with") == 0) {
+            lambda = whenClause->terms[i - 1];
+            withIdx = i;
+            break;
+        }
+    }
+    assert(withIdx != -1);
 
-    Jim_Obj* expr = Jim_NewStringObj(interp, builtinEnv, -1);
+    Jim_Obj* expr = Jim_NewStringObj(interp, whenEnv, -1);
 
     // Prepend `apply $lambda` to expr:
     Jim_Obj* applyLambda[] = {
@@ -302,25 +316,37 @@ static Clause* unclaimizeClause(Clause* clause) {
 }
 static Clause* whenizeClause(Clause* clause) {
     // the time is /t/
-    //   -> when the time is /t/ /__lambda/ with environment /__env/
-    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms + 5));
-    ret->nTerms = clause->nTerms + 5;
+    //   -> when the time is /t/ /__lambda/ with /...anything/
+    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms + 4));
+    ret->nTerms = clause->nTerms + 4;
     ret->terms[0] = "when";
     for (int i = 0; i < clause->nTerms; i++) {
         ret->terms[1 + i] = clause->terms[i];
     }
     ret->terms[1 + clause->nTerms] = "/__lambda/";
     ret->terms[2 + clause->nTerms] = "with";
-    ret->terms[3 + clause->nTerms] = "environment";
-    ret->terms[4 + clause->nTerms] = "/__env/";
+    ret->terms[3 + clause->nTerms] = "/...anything/";
     return ret;
 }
 static Clause* unwhenizeClause(Clause* whenClause) {
-    // when the time is /t/ /lambda/ with environment /env/
+    // when the time is /t/ /lambda/ with environment {3} thread 2
     //   -> the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(whenClause->nTerms - 5));
+
+    // Walk backward until we find a `with`. Then chop that and
+    // everything afterward off, as well as chopping `when` off the
+    // front.
+    int withIdx = -1;
+    for (int i = whenClause->nTerms - 1; i >= 0; i--) {
+        if (strcmp(whenClause->terms[i], "with") == 0) {
+            withIdx = i;
+            break;
+        }
+    }
+    if (withIdx == -1) { return NULL; }
+
+    Clause* ret = malloc(SIZEOF_CLAUSE(withIdx - 2));
     ret->nTerms = 0;
-    for (int i = 1; i < whenClause->nTerms - 4; i++) {
+    for (int i = 1; i < withIdx - 1; i++) {
         ret->terms[ret->nTerms++] = whenClause->terms[i];
     }
     return ret;
@@ -368,14 +394,14 @@ static void reactToNewStatement(Statement* stmt) {
     // statement (look for Whens that are already in the database).
     {
         // the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/ with /...anything/
         Clause* whenizedClause = whenizeClause(clause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
         // TODO: lease result statements so they don't get freed?
         // hazard pointer?
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
-            // when the time is /t/ /__lambda/ with environment /__env/
+            // when the time is /t/ /__lambda/ with environment {}
             //   -> the time is /t/
             Statement* when = existingReactingWhens->results[i];
             Clause* whenPattern = unwhenizeClause(statementClause(when));
@@ -388,7 +414,7 @@ static void reactToNewStatement(Statement* stmt) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
-        //   -> when the time is 3 /__lambda/ with environment /__env/
+        //   -> when the time is 3 /__lambda/ with /...anything/
         Clause* unclaimizedClause = unclaimizeClause(clause);
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
