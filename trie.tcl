@@ -32,6 +32,10 @@ $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
     }
     return Jim_NewListObj(interp, termObjs, clause->nTerms);
 }
+$cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
+    Clause* pattern = jimObjToClause(patternObj);
+    return trieAdd(trie, pattern, value);
+}
 $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
     uint64_t results[50];
     Clause* pattern = jimObjToClause(patternObj);
@@ -101,7 +105,7 @@ proc trieDotify {trie} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot [trieTclify $trie]] }"
+    return "digraph { rankdir=LR; [subdot [$::trieCc trieTclify $trie]] }"
 }
 $cc proc trieTest {} Trie* {
     Trie* t = trieNew();
@@ -113,19 +117,29 @@ $cc proc trieTest {} Trie* {
 try {
     $cc compile
 } on error e { puts stderr [errorInfo $e [info stacktrace]] }
+set ::trieCc $cc
 
 proc trieWriteToPdf {trie pdf} {
     exec dot -Tpdf <<[trieDotify $trie] >$pdf
 }
 
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
-    set trie [trieTest]; puts $trie
+    set trie [$cc trieTest]; puts $trie
 
-    puts [lookup $trie [list This is a thing]]
-    puts [lookup $trie [list This is another thing]]
-    puts [lookup $trie [list This is another statement]]
-    puts [lookup $trie [list This is another /x/]]
-    puts [remove_ $trie [list This is another /x/]]
+    set trie [$cc add $trie [list OK OK cool] 101]
+    set trie [$cc add $trie [list OK OK nah] 101]
+    puts [$cc lookup $trie [list This is a thing]]
+    puts [$cc lookup $trie [list This is another thing]]
+    puts [$cc lookup $trie [list This is another statement]]
+    puts [$cc lookup $trie [list This is another /x/]]
+    puts [$cc remove_ $trie [list This is another /x/]]
+    $cc remove_ $trie [list OK OK nah]
+    $cc add $trie [list OK OK does this new addition work?] 102
+
+    for {set i 0} {$i < 100} {incr i} {
+        $cc add $trie [list the counter is $i] $i
+        $cc remove_ $trie [list the counter is [expr {$i - 1}]]
+    }
 
     trieWriteToPdf $trie trie.pdf
     puts trie.pdf
