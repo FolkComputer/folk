@@ -148,7 +148,7 @@ int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, Match* to) {
 }
 
 void statementFree(Statement* stmt) {
-    /* printf("statementFree: %p (%s)\n", stmt, clauseToString(stmt->clause)); */
+    printf("statementFree: %p (%s)\n", stmt, clauseToString(stmt->clause));
     Clause* stmtClause = statementClause(stmt);
     for (int i = 0; i < stmtClause->nTerms; i++) {
         free(stmtClause->terms[i]);
@@ -223,10 +223,7 @@ void matchAddParentStatement(Match* match, Statement* parent) {
 typedef struct Db {
     // This is the primary trie (index) used for queries.
     Trie* clauseToStatementId;
-
-    // TODO: Trie* clauseToReaction;
 } Db;
-// TODO: Implement locking.
 
 Db* dbNew() {
     Db* ret = malloc(sizeof(Db));

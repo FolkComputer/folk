@@ -449,7 +449,7 @@ static void reactToRemovedMatch(Match* match) {
                 /* printf("reactToRemovedMatch: dead statement: %p (%d terms: %s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child))); */
                 free(dbQueryAndDeindexStatements(db, statementClause(child)));
                 reactToRemovedStatement(child);
-                statementFree(child);
+                /* statementFree(child); */
             }
         } }
     }
@@ -476,7 +476,7 @@ static void reactToRemovedStatement(Statement* stmt) {
             // statements is removed, so this match must be removed.
             Match* child = statementEdgeMatch(it);
             reactToRemovedMatch(child);
-            matchFree(child);
+            /* matchFree(child); */
             break;
         } }
     }
@@ -502,7 +502,7 @@ void workerRun(WorkQueueItem item) {
 
         for (int i = 0; i < retractStmts->nResults; i++) {
             reactToRemovedStatement(retractStmts->results[i]);
-            statementFree(retractStmts->results[i]);
+            /* statementFree(retractStmts->results[i]); */
         }
         pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
@@ -513,6 +513,9 @@ void workerRun(WorkQueueItem item) {
         /* printf("->Say (%p) (%.50s)\n", item.say.parent, clauseToString(item.say.clause)); */
         /* printf("(on thread %d) (requested thread %d)\n", threadId, item.thread); */
 
+        // FIXME: Check if parent is invalidated. If so, then we
+        // should skip this SAY.
+        
         Statement* stmt; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
         dbInsertStatement(db, item.say.clause, 1, &item.say.parent,
