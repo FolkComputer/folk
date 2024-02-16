@@ -264,7 +264,7 @@ void dbInsertStatement(Db* db,
                                    ids, sizeof(ids)/sizeof(ids[0]));
     Statement* id;
     if (idslen == 1) {
-        id = (Statement *)&ids[0];
+        id = (Statement *) ids[0];
     } else if (idslen == 0) {
         id = NULL;
     } else {
