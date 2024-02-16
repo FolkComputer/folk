@@ -56,13 +56,13 @@ proc handleRead {chan addr} {
     gets $chan line; set line [string range $line 0 end-1]
     set firstline $line
 
-    puts "Http: $chan $addr: $line"
+    # puts "Http: $chan $addr: $line"
     set headers [list]
     while true {
         gets $chan line; set line [string range $line 0 end-1]
         if {$line eq ""} { break }
 
-        puts "  Http: ($line)"
+        # puts "  Http: ($line)"
         if {[regexp {^([^\s:]+)\s*:\s*(.+)} $line -> k v]} {
             lappend headers $k $v
         } else {
@@ -120,10 +120,11 @@ proc handleRead {chan addr} {
         puts -nonewline $chan "$httpStatus\r\nConnection: close\r\nContent-Type: $contentType\r\n\r\n"
 
         set body [$chan read [dict get $headers Content-Length]]
-        puts "  ($body)"
+        # puts "  ($body)"
         try {
             puts -nonewline $chan [eval $body]
         } on error e {
+            puts "Error: $e"
             puts -nonewline $chan "Error: $e"
         }
         close $chan
