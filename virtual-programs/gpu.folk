@@ -1585,7 +1585,7 @@ while 1 {
             }
         } on error e {
             puts stderr [errorInfo $e]
-            Assert gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
+            Assert! gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
             # TODO: does this ever get disposed?
         }
     }

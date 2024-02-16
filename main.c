@@ -201,8 +201,8 @@ static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
-    Jim_CreateCommand(interp, "Assert", AssertFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "Retract", RetractFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Query!", dbQueryFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);

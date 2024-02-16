@@ -100,8 +100,8 @@ Wish the web server handles route "/new" with handler {
 
         window.onbeforeunload = () => {
            send(`
-Retract web claims {${program}} has region /something/
-Retract web claims {${program}} has program code /something/
+Retract! web claims {${program}} has region /something/
+Retract! web claims {${program}} has program code /something/
            `);
         };
 
@@ -117,8 +117,8 @@ Retract web claims {${program}} has program code /something/
 				   [list $x [expr {$y+$h}]] \
 				   [list [expr {$x+$w}] [expr {$y+$h}]]]
 		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-		Retract web claims $program has region /something/
-		Assert web claims $program has region [region create $vertices $edges]
+		Retract! web claims $program has region /something/
+		Assert! web claims $program has region [region create $vertices $edges]
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	`);
@@ -126,8 +126,8 @@ Retract web claims {${program}} has program code /something/
 	function handleSave() {
 	  const code = document.getElementById("code").value;
 	  send(`
-	    Retract web claims {${program}} has program code /something/
-	    Assert web claims {${program}} has program code {${code}}
+	    Retract! web claims {${program}} has program code /something/
+	    Assert! web claims {${program}} has program code {${code}}
 	  `);
            [500, 1000, 3000].forEach(timeout => {
              setTimeout(async () => {
@@ -151,16 +151,16 @@ join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
 	function handlePrint() {
 	  const code = document.getElementById("code").value;
 	  jobid = String(Math.random());
-	  send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
+	  send(`Assert! web wishes to print {${code}} with job id {${jobid}}`);
 	  setTimeout(500, () => {
-	    send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
+	    send(`Retract! web wishes to print {${code}} with job id {${jobid}}`);
 	  });
 	  document.getElementById('printback').style.display = '';
 	}
 	function handlePrintBack() {
-	  send(`Assert web wishes to print the back of job id {${jobid}}`);
+	  send(`Assert! web wishes to print the back of job id {${jobid}}`);
 	  setTimeout(500, () => {
-	    send(`Retract web wishes to print the back of job id {${jobid}}`);
+	    send(`Retract! web wishes to print the back of job id {${jobid}}`);
 	  });
 	}
 
