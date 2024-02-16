@@ -192,8 +192,9 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
             if (!isLiteral && trieScanVariable(trie->branches[j]->key, keyVarName, 100)) {
                 // Is the trie node a rest variable?
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
-                    // FIXME: Fix rest variables in trie node
-                    /* lookupAll(results, resultsIdx, maxresults, trie->branches[j]); */
+                    trieLookupAll(trie->branches[j],
+                                  results, maxResults, resultsIdx);
+                    subtrieMatched = true;
 
                 } else { // Or is the trie node a normal variable?
                     subtrieMatched = trieLookupImpl(doRemove, isLiteral,
