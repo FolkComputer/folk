@@ -10,6 +10,8 @@ typedef struct WorkQueueItem {
     WorkQueueOp op;
     int seq;
 
+    int thread;
+
     union {
         struct { Clause* clause; } assert;
         struct { Clause* pattern; } retract;

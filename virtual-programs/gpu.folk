@@ -4,10 +4,13 @@
 #     to run pixel shaders with image and numerical parameters (so you
 #     can draw images, shapes, etc.)
 
-if {[__threadId] != 0} {
-    puts stderr "gpu.folk: Must run on thread 0. Aborting."
-    # FIXME: reschedule self onto thread 0
-    # puts [lindex [dict get [info frame -1] cmd] 1 1]
+if {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
+    puts stderr "gpu.folk: Must run on thread 0 on macOS. Rescheduling."
+
+    # Reschedule this program onto thread 0
+    Say @0 when $this has program /thisProgram/ {{this thisProgram} {
+        apply $thisProgram $this
+    }} with environment [list $this]
     return
 }
 

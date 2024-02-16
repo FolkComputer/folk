@@ -93,6 +93,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
        .op = ASSERT,
+       .thread = -1,
        .assert = { .clause = clause }
     });
     pthread_mutex_unlock(&workQueueMutex);
@@ -105,6 +106,7 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
        .op = RETRACT,
+       .thread = -1,
        .retract = { .pattern = pattern }
     });
     pthread_mutex_unlock(&workQueueMutex);
@@ -114,14 +116,22 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 __thread Match* currentMatch = NULL;
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc, argv);
+    Clause* clause;
+    int thread = -1;
+    if (Jim_String(argv[1])[0] == '@') {
+        clause = jimArgsToClause(argc - 1, argv + 1);
+        thread = atoi(Jim_String(argv[1]));
+    } else {
+        clause = jimArgsToClause(argc, argv);
+    }
 
     pthread_mutex_lock(&workQueueMutex);
     workQueuePush(workQueue, (WorkQueueItem) {
        .op = SAY,
+       .thread = thread,
        .say = {
            .parent = currentMatch,
-           .clause = clause
+           .clause = clause,
        }
     });
     pthread_mutex_unlock(&workQueueMutex);
@@ -501,6 +511,7 @@ void workerRun(WorkQueueItem item) {
         // TODO: Check if match still exists
 
         /* printf("->Say (%p) (%.50s)\n", item.say.parent, clauseToString(item.say.clause)); */
+        /* printf("(on thread %d) (requested thread %d)\n", threadId, item.thread); */
 
         Statement* stmt; bool isNewStmt;
         pthread_mutex_lock(&dbMutex);
@@ -522,6 +533,14 @@ void* workerMain(void* arg) {
     for (;;) {
         pthread_mutex_lock(&workQueueMutex);
         WorkQueueItem item = workQueuePop(workQueue);
+        if (item.op != NONE &&
+            item.thread != -1 &&
+            item.thread != threadId) {
+
+            // Skip and requeue.
+            workQueuePush(workQueue, item);
+            item.op = NONE;
+        }
         pthread_mutex_unlock(&workQueueMutex);
 
         // TODO: if item is none, then sleep or wait on condition
