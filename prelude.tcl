@@ -69,3 +69,4 @@ proc When {args} {
 }
 
 source "lib/c.tcl"
+source "lib/math.tcl"
