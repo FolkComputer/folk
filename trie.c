@@ -51,7 +51,9 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
     }
     char* term = terms[0];
 
-    Trie* match = NULL;
+    // This is a double-pointer in case we resize a node and want to
+    // re-point the trie to the new resized node.
+    Trie** match = NULL;
 
     int j;
     for (j = 0; j < trie->capacityBranches; j++) {
@@ -59,7 +61,7 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
         if (branch == NULL) { break; }
 
         if (branch->key == term || strcmp(branch->key, term) == 0) {
-            match = branch;
+            match = &trie->branches[j];
             break;
         }
     }
@@ -81,10 +83,10 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
         // TODO: Want to change trie if branch changes, so it's
         // immutable.
         trie->branches[j] = branch;
-        match = trie->branches[j];
+        match = &trie->branches[j];
     }
 
-    trieAddImpl(match, nTerms - 1, terms + 1, value);
+    *match = trieAddImpl(*match, nTerms - 1, terms + 1, value);
     return trie;
 }
 

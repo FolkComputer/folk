@@ -135,13 +135,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     puts [$cc lookup $trie [list This is another /x/]]
     puts [$cc remove_ $trie [list This is another /x/]]
     $cc remove_ $trie [list OK OK nah]
-    $cc add $trie [list OK OK does this new addition work?] 102
+    set trie [$cc add $trie [list OK OK does this new addition work?] 102]
 
-    for {set i 0} {$i < 4} {incr i} {
+    for {set i 0} {$i < 40} {incr i} {
         trieWriteToPdf $trie trie$i.pdf; puts trie$i.pdf
         puts "Round $i =================="
-        $cc add $trie [list the counter is $i] $i
-        $cc remove_ $trie [list the counter is [expr {$i - 1}]]
+        set trie [$cc add $trie [list the counter is $i] $i]
     }
 
 
