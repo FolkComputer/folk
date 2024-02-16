@@ -3,14 +3,15 @@ source "lib/c.tcl"
 set cc [C]
 $cc cflags -I. trie.c
 $cc include <stdlib.h>
+$cc include <string.h>
 $cc include "trie.h"
 $cc proc trieTclify {Trie* trie} Jim_Obj* {
-    int objc = 3 + trie->nbranches;
+    int objc = 3 + trie->capacityBranches;
     Jim_Obj* objv[objc];
     objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
     objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
     objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
-    for (int i = 0; i < trie->nbranches; i++) {
+    for (int i = 0; i < trie->capacityBranches; i++) {
         objv[3+i] = trie->branches[i] ? trieTclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
     }
     return Jim_NewListObj(interp, objv, objc);
@@ -21,7 +22,7 @@ $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
     clause->nTerms = nTerms;
     for (int i = 0; i < nTerms; i++) {
         Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
-        clause->terms[i] = Jim_GetString(termObj, NULL);
+        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
     }
     return clause;
 }
@@ -136,11 +137,12 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     $cc remove_ $trie [list OK OK nah]
     $cc add $trie [list OK OK does this new addition work?] 102
 
-    for {set i 0} {$i < 100} {incr i} {
+    for {set i 0} {$i < 4} {incr i} {
+        trieWriteToPdf $trie trie$i.pdf; puts trie$i.pdf
+        puts "Round $i =================="
         $cc add $trie [list the counter is $i] $i
         $cc remove_ $trie [list the counter is [expr {$i - 1}]]
     }
 
-    trieWriteToPdf $trie trie.pdf
-    puts trie.pdf
+
 }

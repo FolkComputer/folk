@@ -38,7 +38,7 @@ Trie* trieNew() {
         .key = NULL,
         .hasValue = false,
         .value = 0,
-        .nbranches = 10
+        .capacityBranches = 10
     };
     return ret;
 }
@@ -54,7 +54,7 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
     Trie* match = NULL;
 
     int j;
-    for (j = 0; j < trie->nbranches; j++) {
+    for (j = 0; j < trie->capacityBranches; j++) {
         Trie* branch = trie->branches[j];
         if (branch == NULL) { break; }
 
@@ -65,18 +65,18 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
     }
 
     if (match == NULL) { // add new branch
-        if (j == trie->nbranches) {
+        if (j == trie->capacityBranches) {
             // We're out of room; need to grow trie.
-            trie = realloc(trie, SIZEOF_TRIE(2*trie->nbranches));
-            trie->nbranches *= 2;
-            memset(&trie->branches[j], 0, (trie->nbranches/2)*sizeof(Trie*));
+            trie = realloc(trie, SIZEOF_TRIE(2*trie->capacityBranches));
+            trie->capacityBranches *= 2;
+            memset(&trie->branches[j], 0, (trie->capacityBranches/2)*sizeof(Trie*));
         }
 
         Trie* branch = calloc(SIZEOF_TRIE(10), 1);
         branch->key = term;
         branch->value = 0;
         branch->hasValue = false;
-        branch->nbranches = 10;
+        branch->capacityBranches = 10;
 
         // TODO: Want to change trie if branch changes, so it's
         // immutable.
@@ -130,7 +130,7 @@ static void trieLookupAll(Trie* trie,
             results[(*resultsIdx)++] = trie->value;
         }
     }
-    for (int j = 0; j < trie->nbranches; j++) {
+    for (int j = 0; j < trie->capacityBranches; j++) {
         if (trie->branches[j] == NULL) { break; }
         trieLookupAll(trie->branches[j],
                       results, maxResults, resultsIdx);
@@ -167,9 +167,9 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
         } else { termType = TERM_TYPE_VARIABLE; }
     } else { termType = TERM_TYPE_LITERAL; }
 
-    bool subtriesMatched[trie->nbranches];
+    bool subtriesMatched[trie->capacityBranches];
     bool allSubtriesMatched = true;
-    for (int j = 0; j < trie->nbranches; j++) {
+    for (int j = 0; j < trie->capacityBranches; j++) {
         if (trie->branches[j] == NULL) { break; }
 
         // Easy cases:
@@ -219,9 +219,9 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
     if (doRemove) {
         // Recopy and compact the branches without the deleted
         // (matched) subtries.
-        Trie* newBranches[trie->nbranches];
+        Trie* newBranches[trie->capacityBranches];
         int newBranchesCount = 0;
-        for (int j = 0; j < trie->nbranches; j++) {
+        for (int j = 0; j < trie->capacityBranches; j++) {
             if (trie->branches[j] == NULL) { break; }
             if (subtriesMatched[j]) {
                 free(trie->branches[j]);
@@ -229,7 +229,7 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
                 newBranches[newBranchesCount++] = trie->branches[j];
             }
         }
-        memset(trie->branches, 0, trie->nbranches*sizeof(Trie*));
+        memset(trie->branches, 0, trie->capacityBranches*sizeof(Trie*));
         memcpy(trie->branches, newBranches, newBranchesCount*sizeof(Trie*));
     }
 

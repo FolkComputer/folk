@@ -26,10 +26,10 @@ struct Trie {
     bool hasValue;
     uint64_t value;
 
-    int32_t nbranches;
+    int32_t capacityBranches;
     Trie* branches[];
 };
-#define SIZEOF_TRIE(NBRANCHES) (sizeof(Trie) + (NBRANCHES)*sizeof(Trie*))
+#define SIZEOF_TRIE(CAPACITY_BRANCHES) (sizeof(Trie) + (CAPACITY_BRANCHES)*sizeof(Trie*))
 
 typedef struct Trie Trie;
 
