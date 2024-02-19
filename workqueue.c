@@ -8,9 +8,6 @@ typedef struct WorkQueue {
     pqueue_t q;
 } WorkQueue;
 
-// TODO: Lock the workQueue.
-// TODO: Allocate in shared memory.
-
 // Implementations of priority queue operations:
 
 int workQueueItemCompare(pqueue_pri_t next, pqueue_pri_t curr) {
@@ -21,7 +18,8 @@ pqueue_pri_t workQueueItemGetPriority(void* a) {
     switch (item->op) {
     case NONE: return 0;
     case ASSERT:
-    case RETRACT: return 80000 - item->seq;
+    case RETRACT:
+    case HOLD: return 80000 - item->seq;
     case SAY: return 80000 + item->seq;
     }
     return 0;
@@ -29,6 +27,8 @@ pqueue_pri_t workQueueItemGetPriority(void* a) {
 void workQueueItemSetPriority(void* a, pqueue_pri_t pri) {}
 size_t workQueueItemGetPosition(void* a) { return 0; }
 void workQueueItemSetPosition(void* a, size_t pos) {}
+
+// External workqueue interface:
 
 WorkQueue* workQueueNew() {
     return (WorkQueue*) pqueue_init(16384,
