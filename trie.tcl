@@ -140,8 +140,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     for {set i 0} {$i < 40} {incr i} {
         trieWriteToPdf $trie trie$i.pdf; puts trie$i.pdf
         puts "Round $i =================="
+        $cc remove_ $trie [list the counter is [expr {$i - 1}]]
         set trie [$cc add $trie [list the counter is $i] $i]
     }
-
-
 }

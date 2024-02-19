@@ -106,7 +106,7 @@ Retract! web claims {${program}} has program code /something/
         };
 
 	function handleDrag() {
-	  let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+          let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
           send(`
             set WIDTH 1280; set HEIGHT 960 ;# TODO: Query! for these
 	    set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($HEIGHT) / ${window.innerHeight}))}]
@@ -117,17 +117,15 @@ Retract! web claims {${program}} has program code /something/
 				   [list $x [expr {$y+$h}]] \
 				   [list [expr {$x+$w}] [expr {$y+$h}]]]
 		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-		Retract! web claims $program has region /something/
-		Assert! web claims $program has region [region create $vertices $edges]
+		Hold! "$program region" "web claims $program has region [region create $vertices $edges]"
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	`);
 	}
 	function handleSave() {
 	  const code = document.getElementById("code").value;
-	  send(`
-	    Retract! web claims {${program}} has program code /something/
-	    Assert! web claims {${program}} has program code {${code}}
+          send(`
+            Hold! {${program} code} {web claims ${program} has program code {${code}}}
 	  `);
            [500, 1000, 3000].forEach(timeout => {
              setTimeout(async () => {
@@ -170,3 +168,4 @@ join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
 </html>
     }
 }
+

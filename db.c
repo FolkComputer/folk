@@ -94,7 +94,7 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 typedef struct Match Match;
 typedef struct ListOfEdgeTo ListOfEdgeTo;
 typedef struct Statement {
-    Clause* clause;
+    Clause* clause; // Owned by the DB.
 
     // List of edges to parent & child Matches:
     ListOfEdgeTo* edges; // Allocated separately so it can be resized.
@@ -107,14 +107,13 @@ typedef struct Statement {
 
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
-// operation).
+// operation). Note: clause ownership transfers to the DB, which then
+// becomes responsible for freeing it.
 static Statement* statementNew(Clause* clause,
                                size_t nParents, Match* parents[],
                                size_t nChildren, Match* children[]) {
     Statement* ret = malloc(sizeof(Statement));
-    // Make a DB-owned copy of the clause. Also makes DB-owned copies
-    // of all the term strings inside the Clause.
-    ret->clause = clauseDup(clause);
+    ret->clause = clause;
     ret->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
                                  8 : (nParents + nChildren) * 2 < 8);
     for (size_t i = 0; i < nParents; i++) {
@@ -220,13 +219,29 @@ void matchAddParentStatement(Match* match, Statement* parent) {
 // Database:
 ////////////////////////////////////////////////////////////
 
+typedef struct Hold {
+    // If key == NULL, then this Hold is an empty slot that can be
+    // used for a new hold key.
+    const char* key; // Owned by the DB.
+    int64_t version;
+
+    Statement* statement;
+} Hold;
+
 typedef struct Db {
     // This is the primary trie (index) used for queries.
     Trie* clauseToStatementId;
+
+    // One for each Hold key, which always stores the highest-version
+    // held statement for that key. We keep this map so that we can
+    // overwrite out-of-date Holds for a key as soon as a newer one
+    // comes in, without having to actually emit and react to the
+    // statement.
+    Hold holds[256];
 } Db;
 
 Db* dbNew() {
-    Db* ret = malloc(sizeof(Db));
+    Db* ret = calloc(sizeof(Db), 1);
     ret->clauseToStatementId = trieNew();
     return ret;
 }
@@ -319,6 +334,60 @@ ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern) {
         ret->results[i] = (Statement*) results[i];
     }
     return ret;
+}
+
+void dbHoldStatement(Db* db,
+                     const char* key, int64_t version,
+                     Clause* clause,
+                     Statement** outStatement, bool* outIsNewStatement,
+                     Statement** outOldStatement) {
+    *outOldStatement = NULL;
+
+    Hold* hold = NULL;
+    for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
+        if (db->holds[i].key != NULL && strcmp(db->holds[i].key, key) == 0) {
+            hold = &db->holds[i];
+            break;
+        }
+    }
+    if (hold == NULL) {
+        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
+            if (db->holds[i].key == NULL) {
+                hold = &db->holds[i];
+                hold->key = key;
+                break;
+            }
+        }
+    }
+    if (hold == NULL) {
+        fprintf(stderr, "dbHoldStatement: Ran out of hold slots\n");
+        exit(1);
+    }
+
+    if (version < 0) {
+        version = hold->version + 1;
+    }
+    if (version > hold->version) {
+        Statement* oldStmt = hold->statement;
+
+        hold->version = version;
+
+        bool isNewStmt;
+        dbInsertStatement(db, clause, 0, NULL,
+                          &hold->statement, &isNewStmt);
+
+        if (outStatement) { *outStatement = hold->statement; }
+        if (outIsNewStatement) { *outIsNewStatement = isNewStmt; }
+
+        if (oldStmt) {
+            uint64_t results[10];
+            size_t maxResults = sizeof(results)/sizeof(results[0]);
+            trieRemove(db->clauseToStatementId, statementClause(oldStmt),
+                       results, maxResults);
+
+            if (outOldStatement) { *outOldStatement = oldStmt; }
+        }
+    }
 }
 
 // Test:

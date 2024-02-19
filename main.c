@@ -29,6 +29,15 @@ static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     }
     return clause;
 }
+static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
+    int objc = Jim_ListLength(interp, obj);
+    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
+    clause->nTerms = objc;
+    for (int i = 0; i < objc; i++) {
+        clause->terms[i] = strdup(Jim_GetString(Jim_ListGetIndex(interp, obj, i), NULL));
+    }
+    return clause;
+}
 static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
     Jim_Obj* termObjs[nTerms];
     for (int i = 0; i < nTerms; i++) {
@@ -87,6 +96,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
     return env;
 }
 
+// Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
 
@@ -100,6 +110,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
+// Retract! the time is /t/
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
@@ -108,6 +119,24 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .op = RETRACT,
        .thread = -1,
        .retract = { .pattern = pattern }
+    });
+    pthread_mutex_unlock(&workQueueMutex);
+
+    return (JIM_OK);
+}
+// Hold! {Omar's time} {the time is 3}
+__thread int64_t latestVersion = 0; // TODO: split by key?
+static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 3);
+    const char* key = strdup(Jim_GetString(argv[1], NULL));
+    Clause* clause = jimObjToClause(interp, argv[2]);
+
+    pthread_mutex_lock(&workQueueMutex);
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = HOLD,
+       .thread = -1,
+       .hold = { .key = key, .version = ++latestVersion,
+                 .clause = clause, }
     });
     pthread_mutex_unlock(&workQueueMutex);
 
@@ -203,6 +232,7 @@ static void interpBoot() {
     Jim_InitStaticExtensions(interp);
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Hold!", HoldFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Query!", dbQueryFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
@@ -457,6 +487,7 @@ static void reactToRemovedMatch(Match* match) {
 
 // Must be called with the database lock held.
 static void reactToRemovedStatement(Statement* stmt) {
+    printf("reactToRemovedStatement (%s)\n", clauseToString(statementClause(stmt)));
     // Walk through edges to matches:
     for (StatementEdgeIterator it = statementEdgesBegin(stmt);
          !statementEdgesIsEnd(it);
@@ -494,6 +525,7 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
+        /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
         pthread_mutex_lock(&dbMutex);
         // This removes the statements from the lookup index, so they
         // won't appear as query results, but it doesn't disconnect
@@ -506,6 +538,20 @@ void workerRun(WorkQueueItem item) {
         }
         pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
+
+    } else if (item.op == HOLD) {
+        printf("Hold (%s)\n", clauseToString(item.hold.clause));
+
+        Statement* oldStmt;
+        Statement* stmt; bool isNewStmt;
+        pthread_mutex_lock(&dbMutex);
+        dbHoldStatement(db, item.hold.key, item.hold.version, item.hold.clause,
+                        &stmt, &isNewStmt, &oldStmt);
+
+        if (isNewStmt) { reactToNewStatement(stmt); }
+        if (oldStmt) { reactToRemovedStatement(oldStmt); }
+        // TODO: free oldStmt
+        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == SAY) {
         // TODO: Check if match still exists
@@ -525,7 +571,9 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else {
-        printf("other\n");
+        fprintf(stderr, "workerRun: Unknown work item op: %d\n",
+                item.op);
+        exit(1);
     }
 }
 void* workerMain(void* arg) {
