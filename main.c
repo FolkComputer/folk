@@ -179,13 +179,16 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         Statement* result = rs->results[i];
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
-        Jim_Obj* envDict[env->nBindings * 2];
+        Jim_Obj* envDict[(env->nBindings + 1) * 2];
+        envDict[0] = Jim_NewStringObj(interp, "__stmt", -1);
+        char buf[100]; snprintf(buf, 100,  "(Statement*) 0x%p", result);
+        envDict[1] = Jim_NewStringObj(interp, buf, -1);
         for (int j = 0; j < env->nBindings; j++) {
-            envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
-            envDict[j*2+1] = env->bindings[j].value;
+            envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+            envDict[(j+1)*2+1] = env->bindings[j].value;
         }
 
-        resultObjs[i] = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
+        resultObjs[i] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         free(env);
     }
     pthread_mutex_unlock(&dbMutex);
@@ -214,6 +217,19 @@ static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *con
     Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
     return JIM_OK;
 }
+static int __dbLockFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    pthread_mutex_lock(&dbMutex);
+    return JIM_OK;
+}
+static int __dbUnlockFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    pthread_mutex_unlock(&dbMutex);
+    return JIM_OK;
+}
+static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    char ret[100]; snprintf(ret, 100, "(Db*) 0x%p", db);
+    Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
+}
 static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_SetResultInt(interp, threadId);
     return JIM_OK;
@@ -238,6 +254,9 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__dbLock", __dbLockFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__dbUnlock", __dbUnlockFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
     Jim_EvalFile(interp, "prelude.tcl");

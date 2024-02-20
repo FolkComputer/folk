@@ -13,14 +13,6 @@ proc readFile {filename contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
-proc getDotAsPdf {dot contentTypeVar} {
-    upvar $contentTypeVar contentType
-    set contentType "application/pdf"
-    set fd [open |[list dot -Tpdf <<$dot] r]
-    fconfigure $fd -encoding binary -translation binary
-    set response [read $fd]; close $fd; return $response
-}
-
 proc handlePage {path httpStatusVar contentTypeVar} {
     upvar $contentTypeVar contentType
     switch -exact -- $path {
