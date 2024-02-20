@@ -649,7 +649,12 @@ int main() {
 
     // Set up database.
     db = dbNew();
-    pthread_mutex_init(&dbMutex, NULL);
+    // TODO: This is ugly, we use it so we can call Query! while the
+    // lock is held.
+    pthread_mutexattr_t mta;
+    pthread_mutexattr_init(&mta);
+    pthread_mutexattr_settype(&mta, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&dbMutex, &mta);
 
     // Set up workqueue.
     workQueue = workQueueNew();

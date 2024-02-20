@@ -51,9 +51,6 @@ set getCc {{} {
         }
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
-    foreach fn {clause parentMatches childMatches} {
-        proc $fn {args} [subst {::$fn {*}\$args}]
-    }
 
     $cc compile
     set ::depGraphCc $cc
@@ -64,6 +61,7 @@ set dbDotify {{getCc db} {
     set cc [apply $getCc]
     set dot [list]
     foreach stmt [Query! /...anything/] {
+        set stmt [dict get $stmt __stmt]
         set label [$cc clause $stmt]
         set label [join [lmap line [split $label "\n"] {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
@@ -87,10 +85,8 @@ set dbDotify {{getCc db} {
 }}
 
 set getDotAsPdf {{dot} {
-    upvar $contentTypeVar contentType
-    set contentType "application/pdf"
     set fd [open |[list dot -Tpdf <<$dot] r]
-    fconfigure $fd -encoding binary -translation binary
+    fconfigure $fd -translation binary
     set response [read $fd]; close $fd; return $response
 }}
 
@@ -101,6 +97,8 @@ Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{ge
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
-Content-Type: application/pdf" \
+Content-Type: application/pdf
+
+" \
         body [apply $getDotAsPdf $dot]
 }} $getCc $dbDotify $getDotAsPdf]
