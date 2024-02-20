@@ -117,7 +117,7 @@ Retract! web claims {${program}} has program code /something/
 				   [list $x [expr {$y+$h}]] \
 				   [list [expr {$x+$w}] [expr {$y+$h}]]]
 		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-		Hold! "$program region" "web claims $program has region [region create $vertices $edges]"
+		Hold! [list $program region] [list web claims $program has region [region create $vertices $edges]]
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	`);

@@ -487,7 +487,7 @@ static void reactToRemovedMatch(Match* match) {
 
 // Must be called with the database lock held.
 static void reactToRemovedStatement(Statement* stmt) {
-    printf("reactToRemovedStatement (%s)\n", clauseToString(statementClause(stmt)));
+    /* printf("reactToRemovedStatement (%s)\n", clauseToString(statementClause(stmt))); */
     // Walk through edges to matches:
     for (StatementEdgeIterator it = statementEdgesBegin(stmt);
          !statementEdgesIsEnd(it);
@@ -556,7 +556,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == SAY) {
         // TODO: Check if match still exists
 
-        /* printf("->Say (%p) (%.50s)\n", item.say.parent, clauseToString(item.say.clause)); */
+        /* printf("->Say (%p) (%.80s)\n", item.say.parent, clauseToString(item.say.clause)); */
         /* printf("(on thread %d) (requested thread %d)\n", threadId, item.thread); */
 
         // FIXME: Check if parent is invalidated. If so, then we
