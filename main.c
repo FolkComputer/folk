@@ -675,7 +675,7 @@ int main() {
     // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
     // which needs to be an active worker, in case we need to do
     // things like GLFW that the OS forces to be on the main thread.)
-    const int NTHREADS = 3;
+    const int NTHREADS = 5;
     pthread_t th[NTHREADS];
     for (int i = 1; i < NTHREADS; i++) {
         pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
