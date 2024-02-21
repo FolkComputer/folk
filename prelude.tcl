@@ -68,5 +68,6 @@ proc When {args} {
     }
 }
 
+lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"

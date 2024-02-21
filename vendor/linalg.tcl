@@ -22,7 +22,7 @@
 #      \ a31 a32 a33 /
 #
 
-package require Tcl 8.5 ; # conforming uses 8.5+ features (`x ni list`).
+# package require Tcl 8.5 ; # conforming uses 8.5+ features (`x ni list`).
 
 namespace eval ::math::linearalgebra {
     # Define the namespace
