@@ -6840,7 +6840,7 @@ struct lsort_info {
     int (*subfn)(Jim_Obj **, Jim_Obj **);
 };
 
-static struct lsort_info *sort_info;
+static __thread struct lsort_info *sort_info;
 
 static int ListSortIndexHelper(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
