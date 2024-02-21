@@ -1,0 +1,84 @@
+class AprilTagDetector {
+    cc {}
+}
+AprilTagDetector method constructor {TAG_FAMILY} {
+    set cc [c create]
+    $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+    $cc include <apriltag.h>
+    $cc include <$TAG_FAMILY.h>
+    $cc include <math.h>
+    $cc include <assert.h>
+    $cc code {
+        apriltag_detector_t *td;
+        apriltag_family_t *tf;
+    }
+    # ::defineImageType $cc
+
+    $cc proc detectInit {} void {
+        td = apriltag_detector_create();
+        tf = ${TAG_FAMILY}_create();
+        apriltag_detector_add_family_bits(td, tf, 1);
+        td->nthreads = 2;
+    }
+    $cc proc detect {Image gray} Jim_Obj* {
+        assert(gray.components == 1);
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
+
+        zarray_t *detections = apriltag_detector_detect(td, &im);
+        int detectionCount = zarray_size(detections);
+
+        Jim_Obj* detectionObjs[detectionCount];
+        for (int i = 0; i < detectionCount; i++) {
+            apriltag_detection_t *det;
+            zarray_get(detections, i, &det);
+
+            int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
+            detectionObjs[i] = Jim_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
+                                             det->id,
+                                             det->c[0], det->c[1],
+                                             det->p[0][0], det->p[0][1],
+                                             det->p[1][0], det->p[1][1],
+                                             det->p[2][0], det->p[2][1],
+                                             det->p[3][0], det->p[3][1],
+                                             size, angle);
+        }
+
+        zarray_destroy(detections);
+        Jim_Obj* result = Jim_NewListObj(detectionCount, detectionObjs);
+        return result;
+    }
+    $cc proc detectCleanup {} void {
+        ${TAG_FAMILY}_destroy(tf);
+        apriltag_detector_destroy(td);
+    }
+
+    c loadlib $::env(HOME)/apriltag/libapriltag.so
+    $cc compile
+
+    $cc detectInit
+}
+
+When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+    dict for {id tag} $tagsSeen {
+        Claim tag $id has center [dict get $tag center] size [dict get $tag size]
+        Claim tag $id has corners [dict get $tag corners]
+    }
+    set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
+    Claim the AprilTag time is $::aprilTime
+}
+
+set tagFamily "tagStandard52h13"
+
+# Plain detector. Runs on entire camera frame.
+set detector [AprilTagDetector new $tagFamily]
+while 1 {
+    foreach match [Query! /someone/ claims the camera frame is /grayFrame/] {
+        dict with match {
+            set aprilTime [time {
+                set tags [$detector detect $grayFrame]
+            }]
+            Hold! apriltags [list virtual-program/apriltags.folk claims $::thisProcess detects tags $tags in time $aprilTime]
+        }
+    }
+}
