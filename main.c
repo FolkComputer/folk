@@ -226,7 +226,7 @@ static int __dbUnlockFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    char ret[100]; snprintf(ret, 100, "(Db*) 0x%p", db);
+    char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
     Jim_SetResultString(interp, ret, strlen(ret));
     return JIM_OK;
 }
