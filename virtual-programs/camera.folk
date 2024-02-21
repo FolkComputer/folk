@@ -2,6 +2,8 @@
 #
 #     Hardware interface with the webcam (v4l2).
 
+if {$::tcl_platform(os) eq "darwin"} { return }
+
 # For now, we only support 1 camera.
 class CameraManager C {
     width 0
@@ -52,7 +54,15 @@ $cam code {
         return -1;
     }
 }
-defineImageType $cam
+# TODO: Factor this out.
+$cam struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    uint8_t* data;
+}
 
 $cam proc cameraOpen {char* device int width int height} Camera* {
     printf("device [%s]\n", device);
@@ -268,9 +278,9 @@ $cam proc freeImage {Image image} void {
     free(image.data);
 }
 
-c loadlib [expr {$tcl_platform(os) eq "Darwin" ?
-                 "/opt/homebrew/lib/libjpeg.dylib" :
-                 [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+# c loadlib [expr {$::tcl_platform(os) eq "Darwin" ?
+#                  "/opt/homebrew/lib/libjpeg.dylib" :
+#                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
 $cam compile
 
 $cam method init {w h} {
