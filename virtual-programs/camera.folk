@@ -68,7 +68,7 @@ $cam proc cameraOpen {char* device int width int height} Camera* {
     printf("device [%s]\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
-    Camera* camera = ckalloc(sizeof (Camera));
+    Camera* camera = malloc(sizeof(Camera));
     camera->fd = fd;
     camera->width = width;
     camera->height = height;
@@ -142,7 +142,7 @@ $cam proc cameraInit {Camera* camera} void {
              camera->fd, buf.m.offset);
         if (camera->buffers[i].start == MAP_FAILED) quit("mmap");
     }
-    camera->head.start = ckalloc(buf_max);
+    camera->head.start = malloc(buf_max);
 
     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
@@ -281,6 +281,7 @@ $cam proc freeImage {Image image} void {
 # c loadlib [expr {$::tcl_platform(os) eq "Darwin" ?
 #                  "/opt/homebrew/lib/libjpeg.dylib" :
 #                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+$cam endcflags -ljpeg
 $cam compile
 
 $cam method init {w h} {

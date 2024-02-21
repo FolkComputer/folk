@@ -185,7 +185,8 @@ class C {
         }
     }
 
-    cflags {-I./vendor/jimtcl -Wl,-undefined,dynamic_lookup}
+    cflags {-I./vendor/jimtcl}
+    endcflags {}
 
     ___addrs_comment {
         # Used to store function pointers so you can import them
@@ -443,6 +444,7 @@ C method proc {name arguments rtype body} {
 }
 
 C method cflags {args} { lappend cflags {*}$args }
+C method endcflags {args} { lappend endcflags {*}$args }
 
 C method compile {} {
     set cfile [file tempfile /tmp/cfileXXXXXX].c
@@ -477,7 +479,14 @@ C method compile {} {
     # puts "=====================\n$sourcecode\n====================="
 
     set cfd [open $cfile w]; puts $cfd $sourcecode; close $cfd
-    exec cc -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile].so
+    set ignoreUnresolved {}; if {$::tcl_platform(os) eq "linux"} {
+        set ignoreUnresolved -Wl,--unresolved-symbols=ignore-all
+    } elseif {$::tcl_platform(os) eq "darwin"} {
+        set ignoreUnresolved -Wl,-undefined,dynamic_lookup
+    }
+    exec cc -Wall -g -shared -fno-omit-frame-pointer $ignoreUnresolved -fPIC \
+        {*}$cflags $cfile -o [file rootname $cfile].so \
+        {*}$endcflags
     load [file rootname $cfile].so cfile
 }
 

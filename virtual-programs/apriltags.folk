@@ -3,7 +3,8 @@ class AprilTagDetector {
 }
 AprilTagDetector method constructor {TAG_FAMILY} {
     set cc [C]
-    $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+    $cc cflags -I$::env(HOME)/apriltag
+    $cc endcflags $::env(HOME)/apriltag/libapriltag.a
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>
@@ -53,7 +54,7 @@ AprilTagDetector method constructor {TAG_FAMILY} {
         }
 
         zarray_destroy(detections);
-        Jim_Obj* result = Jim_NewListObj(interp, detectionCount, detectionObjs);
+        Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
         return result;
     }
     $cc proc detectCleanup {} void {

@@ -32,7 +32,8 @@ if {$macos} {
     $gpu cflags -lglfw
 } else {
     $gpu eval {
-        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
+        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] \
+            -> WIDTH HEIGHT
     }
     foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
         if {![file readable $renderFile]} {
@@ -281,7 +282,10 @@ $gpu proc init {} void {
         createInfo.planeIndex = 0;
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-        createInfo.imageExtent = (VkExtent2D) { .width = $WIDTH, .height = $HEIGHT }; // TODO: find out
+        createInfo.imageExtent = (VkExtent2D) {
+            .width = $[$gpu get WIDTH],
+            .height = $[$gpu get HEIGHT]
+        }; // TODO: find out resolution properly from Vulkan
         if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
             fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
         }
@@ -1529,10 +1533,10 @@ $gpu proc freeGpuImage {gpu_image_handle_t gim} void {
     vkDestroyImageView(device, block->textureImageView, NULL);
 }
 
-if {!$macos} {
-    # Needed on Raspberry Pi 4:
-    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
-}
+# if {!$macos} {
+#     # Needed on Raspberry Pi 4:
+#     c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
+# }
 
 $gpu compile
 
