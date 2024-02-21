@@ -20,6 +20,7 @@ WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
 __thread int threadId = -1;
+int getThreadId() { return threadId; }
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));

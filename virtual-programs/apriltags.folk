@@ -69,13 +69,13 @@ AprilTagDetector method constructor {TAG_FAMILY} {
 }
 AprilTagDetector method detect {grayFrame} { $cc detect $grayFrame }
 
-When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
-    dict for {id tag} $tagsSeen {
+When /someone/ detects tags /tags/ in time /aprilTime/ {
+    foreach tag $tags {
+        set id [dict get $tag id]
         Claim tag $id has center [dict get $tag center] size [dict get $tag size]
         Claim tag $id has corners [dict get $tag corners]
     }
-    set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
-    Claim the AprilTag time is $::aprilTime
+    # Claim the AprilTag time is $::aprilTime
 }
 
 set tagFamily "tagStandard52h13"

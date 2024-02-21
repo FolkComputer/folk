@@ -43,6 +43,8 @@ Try doing `sudo chmod 666 $renderFile`."
     }
 }
 
+Claim the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
+
 $gpu struct Image {
     uint32_t width;
     uint32_t height;
