@@ -477,11 +477,9 @@ static void reactToRemovedStatement(Statement* stmt);
 // Must be called with the database lock held.
 static void reactToRemovedMatch(Match* match) {
     // Walk through edges to statements:
-    printf("reactToRemovedMatch: %p\n", match);
     for (MatchEdgeIterator it = matchEdgesBegin(match);
          !matchEdgesIsEnd(it);
          it = matchEdgesNext(it)) {
-        printf("  Edge: %d\n", matchEdgeType(it));
 
         switch (matchEdgeType(it)) {
         case EDGE_EMPTY: break;
@@ -497,10 +495,10 @@ static void reactToRemovedMatch(Match* match) {
             if (statementRemoveEdgeToMatch(child, EDGE_PARENT, matchRef(db, match)) == 0) {
                 // This child statement is out of parent matches. It's
                 // dead.
-                printf("reactToRemovedMatch: dead statement: %p (%d terms: %.100s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child)));
+                /* printf("reactToRemovedMatch: dead statement: %p (%d terms: %.100s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child))); */
                 free(dbQueryAndDeindexStatements(db, statementClause(child)));
                 reactToRemovedStatement(child);
-                /* statementFree(child); */
+                statementFree(child);
             }
         } }
     }
@@ -508,7 +506,6 @@ static void reactToRemovedMatch(Match* match) {
 
 // Must be called with the database lock held.
 static void reactToRemovedStatement(Statement* stmt) {
-    printf("reactToRemovedStatement (%.100s)\n", clauseToString(statementClause(stmt)));
     // Walk through edges to matches:
     for (StatementEdgeIterator it = statementEdgesBegin(stmt);
          !statementEdgesIsEnd(it);
@@ -526,9 +523,9 @@ static void reactToRemovedStatement(Statement* stmt) {
         case EDGE_CHILD: {
             // A child match is removed if _any_ of its parent
             // statements is removed, so this match must be removed.
-            MatchRef child = statementEdgeMatch(it);
-            reactToRemovedMatch(matchAcquire(db, child));
-            /* matchFree(child); */
+            Match* child = matchAcquire(db, statementEdgeMatch(it));
+            reactToRemovedMatch(child);
+            matchFree(child);
             break;
         } }
     }
@@ -557,33 +554,32 @@ void workerRun(WorkQueueItem item) {
         ResultSet* retractStmts = dbQueryAndDeindexStatements(db, item.retract.pattern);
 
         for (int i = 0; i < retractStmts->nResults; i++) {
-            reactToRemovedStatement(statementAcquire(db, retractStmts->results[i]));
-            /* statementFree(retractStmts->results[i]); */
+            Statement* retractStmt = statementAcquire(db, retractStmts->results[i]);
+            reactToRemovedStatement(retractStmt);
+            statementFree(retractStmt);
         }
         pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
 
     } else if (item.op == HOLD) {
-        printf("Hold (%s)\n", clauseToString(item.hold.clause));
-
-        StatementRef oldStmt;
-        StatementRef stmt;
+        StatementRef oldRef;
+        StatementRef newRef;
         pthread_mutex_lock(&dbMutex);
-        stmt = dbHoldStatement(db, item.hold.key, item.hold.version,
-                               item.hold.clause,
-                               &oldStmt);
-        if (statementRefIsNonNull(stmt)) {
+        newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
+                                 item.hold.clause,
+                                 &oldRef);
+        if (statementRefIsNonNull(newRef)) {
             // There is a new statement, so we should react to its
             // addition.
-            reactToNewStatement(statementAcquire(db, stmt));
+            reactToNewStatement(statementAcquire(db, newRef));
         }
-        if (statementRefIsNonNull(oldStmt)) {
-            printf("Hold remove (%d:%d)\n", oldStmt.idx, oldStmt.gen);
+        if (statementRefIsNonNull(oldRef)) {
             // There was an old statement, so we should react to its
             // removal.
-            reactToRemovedStatement(statementAcquire(db, oldStmt));
+            Statement* oldStmt = statementAcquire(db, oldRef);
+            reactToRemovedStatement(oldStmt);
+            statementFree(oldStmt);
         }
-        // TODO: free oldStmt
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == SAY) {

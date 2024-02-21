@@ -218,7 +218,7 @@ int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, MatchRef to) {
 }
 
 void statementFree(Statement* stmt) {
-    printf("statementFree: %p (%s)\n", stmt, clauseToString(stmt->clause));
+    /* printf("statementFree: %p (%s)\n", stmt, clauseToString(stmt->clause)); */
     Clause* stmtClause = statementClause(stmt);
     for (int i = 0; i < stmtClause->nTerms; i++) {
         free(stmtClause->terms[i]);
