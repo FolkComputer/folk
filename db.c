@@ -218,7 +218,7 @@ int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, MatchRef to) {
 }
 
 void statementFree(Statement* stmt) {
-    /* printf("statementFree: %p (%s)\n", stmt, clauseToString(stmt->clause)); */
+    /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
     Clause* stmtClause = statementClause(stmt);
     for (int i = 0; i < stmtClause->nTerms; i++) {
         free(stmtClause->terms[i]);
@@ -459,6 +459,8 @@ StatementRef dbHoldStatement(Db* db,
             trieRemove(db->clauseToStatementId,
                        statementClause(statementAcquire(db, oldStmt)),
                        results, maxResults);
+            /* assert(nRemoved == 1); */
+            /* assert(results[0] == oldStmt.val); */
 
             if (outOldStatement) { *outOldStatement = oldStmt; }
         }

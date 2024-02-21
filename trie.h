@@ -11,15 +11,12 @@ typedef struct Clause {
 } Clause;
 #define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
 
-// Make a new copy of the original Clause that points to new copies of
-// all the term strings inside that Clause.
-Clause* clauseDup(Clause* c);
-
 char* clauseToString(Clause* c);
 
 typedef struct Trie Trie;
 struct Trie {
-    const char* key;
+    // This key string is owned by the trie.
+    char* key;
 
     // We generally store a pointer (for example, to a reaction thunk)
     // in this 64-bit value slot.

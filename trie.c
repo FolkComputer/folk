@@ -9,15 +9,6 @@
 
 #include "trie.h"
 
-Clause* clauseDup(Clause* c) {
-    Clause* ret = malloc(SIZEOF_CLAUSE(c->nTerms));
-    ret->nTerms = c->nTerms;
-    for (int i = 0; i < c->nTerms; i++) {
-        ret->terms[i] = strdup(c->terms[i]);
-    }
-    return ret;
-}
-
 char* clauseToString(Clause* c) {
     int totalLength = 0;
     for (int i = 0; i < c->nTerms; i++) {
@@ -75,7 +66,7 @@ static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t val
         }
 
         Trie* branch = calloc(SIZEOF_TRIE(10), 1);
-        branch->key = term;
+        branch->key = strdup(term);
         branch->value = 0;
         branch->hasValue = false;
         branch->capacityBranches = 10;
@@ -226,6 +217,7 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
         for (int j = 0; j < trie->capacityBranches; j++) {
             if (trie->branches[j] == NULL) { break; }
             if (subtriesMatched[j]) {
+                free(trie->branches[j]->key);
                 free(trie->branches[j]);
             } else {
                 newBranches[newBranchesCount++] = trie->branches[j];
