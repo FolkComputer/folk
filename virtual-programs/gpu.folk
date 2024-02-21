@@ -42,7 +42,7 @@ Try doing `sudo chmod 666 $renderFile`."
     }
 }
 
-$gpu struct image_t {
+$gpu struct Image {
     uint32_t width;
     uint32_t height;
     int components;
@@ -1284,11 +1284,11 @@ $gpu code [csubst {
 
 # Allocates(!) a copy of `im` with 4 channels, on the Tcl
 # local heap. Up to the caller to free it.
-$gpu proc copyImageToRgba {image_t im} image_t {
+$gpu proc copyImageToRgba {Image im} Image {
     if (im.components == 4) return im;
     if (im.components != 1 && im.components != 3) exit(2);
 
-    image_t ret = im;
+    Image ret = im;
     ret.components = 4;
     ret.bytesPerRow = ret.width * ret.components;
     ret.data = malloc(ret.bytesPerRow * ret.height);
@@ -1349,13 +1349,13 @@ $gpu code [csubst {
         fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
     }
 }]
-$gpu proc copyImageToGpu {image_t im0} gpu_image_handle_t {
+$gpu proc copyImageToGpu {Image im0} gpu_image_handle_t {
     gpu_image_handle_t imageId = allocateGpuImageHandle();
     gpu_image_block* block = &gpuImages[imageId];
     block->alive = true;
 
     // Image must be RGBA.
-    image_t im;
+    Image im;
     if (im0.components != 4) { im = copyImageToRgba(im0); }
     else { im = im0; }
 
