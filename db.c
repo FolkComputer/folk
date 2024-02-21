@@ -9,13 +9,11 @@
 #include "trie.h"
 #include "db.h"
 
-////////////////////////////////////////////////////////////
-// EdgeTo and ListOfEdgeTo:
-////////////////////////////////////////////////////////////
+// Ref datatypes:
 
-typedef struct {
+typedef struct EdgeTo {
     EdgeType type;
-    void* to;
+    uint64_t to;
 } EdgeTo;
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
@@ -23,6 +21,72 @@ typedef struct ListOfEdgeTo {
     EdgeTo edges[];
 } ListOfEdgeTo;
 #define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(EdgeTo))
+
+// Statement datatype:
+
+typedef struct Statement {
+    uint32_t gen;
+
+    Clause* clause; // Owned by the DB.
+
+    // List of edges to parent & child Matches:
+    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+
+    // TODO: Cache of Jim-local clause objects?
+
+    // TODO: Lock? Refcount?
+    // Retracter will ???
+} Statement;
+
+// Match datatype:
+
+struct Match {
+    uint32_t gen;
+
+    /* bool isFromCollect; */
+    /* Statement* collectId; */
+
+    // TODO: Add match destructors.
+
+    // List of edges to parent & child Statements:
+    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+};
+
+// Database datatypes:
+
+typedef struct Hold {
+    // If key == NULL, then this Hold is an empty slot that can be
+    // used for a new hold key.
+    const char* key; // Owned by the DB.
+    int64_t version;
+
+    StatementRef statement;
+} Hold;
+
+typedef struct Db {
+    // Memory pool used to allocate statements.
+    Statement statementPool[32768]; // slot 0 is reserved.
+    uint16_t statementPoolNextIdx;
+
+    // Memory pool used to allocate matches.
+    Match matchPool[32768]; // slot 0 is reserved.
+    uint16_t matchPoolNextIdx;
+
+    // Primary trie (index) used for queries.
+    Trie* clauseToStatementId;
+
+    // One for each Hold key, which always stores the highest-version
+    // held statement for that key. We keep this map so that we can
+    // overwrite out-of-date Holds for a key as soon as a newer one
+    // comes in, without having to actually emit and react to the
+    // statement.
+    Hold holds[256];
+} Db;
+
+////////////////////////////////////////////////////////////
+// EdgeTo and ListOfEdgeTo:
+////////////////////////////////////////////////////////////
+
 ListOfEdgeTo* listOfEdgeToNew(size_t capacityEdges) {
     ListOfEdgeTo* ret = calloc(SIZEOF_LIST_OF_EDGE_TO(capacityEdges), 1);
     ret->capacityEdges = capacityEdges;
@@ -33,7 +97,7 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr);
 // Takes a double pointer to list because it may move the list to grow
 // it (requiring replacement of the original pointer).
 void listOfEdgeToAdd(ListOfEdgeTo** listPtr,
-                     EdgeType type, void* to) {
+                     EdgeType type, uint64_t to) {
     if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
         // We've run out of edge slots at the end of the
         // list. Try defragmenting the list.
@@ -52,14 +116,14 @@ void listOfEdgeToAdd(ListOfEdgeTo** listPtr,
     (*listPtr)->edges[(*listPtr)->nEdges++] = (EdgeTo) { .type = type, .to = to };
 }
 int listOfEdgeToRemove(ListOfEdgeTo* list,
-                       EdgeType type, void* to) {
+                       EdgeType type, uint64_t to) {
     assert(list != NULL);
     int parentEdges = 0;
     for (size_t i = 0; i < list->nEdges; i++) {
         EdgeTo* edge = &list->edges[i];
         if (edge->type == type && edge->to == to) {
             edge->type = EDGE_EMPTY;
-            edge->to = NULL;
+            edge->to = 0;
         }
         if (edge->type == EDGE_PARENT) { parentEdges++; }
     }
@@ -91,36 +155,43 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 // Statement:
 ////////////////////////////////////////////////////////////
 
-typedef struct Match Match;
-typedef struct ListOfEdgeTo ListOfEdgeTo;
-typedef struct Statement {
-    Clause* clause; // Owned by the DB.
-
-    // List of edges to parent & child Matches:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
-
-    // TODO: Cache of Jim-local clause objects?
-
-    // TODO: Lock? Refcount?
-    // Retracter will ???
-} Statement;
+Statement* statementAcquire(Db* db, StatementRef stmt) {
+    if (stmt.gen >= 0 && stmt.gen == db->statementPool[stmt.idx].gen) {
+        return &db->statementPool[stmt.idx];
+    }
+    return NULL;
+}
+StatementRef statementRef(Db* db, Statement* stmt) {
+    return (StatementRef) {
+        .gen = stmt->gen,
+        .idx = stmt - &db->statementPool[0]
+    };
+}
 
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it.
-static Statement* statementNew(Clause* clause,
-                               size_t nParents, Match* parents[],
-                               size_t nChildren, Match* children[]) {
-    Statement* ret = malloc(sizeof(Statement));
-    ret->clause = clause;
-    ret->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
+static StatementRef statementNew(Db* db,
+                                 Clause* clause,
+                                 size_t nParents, MatchRef parents[],
+                                 size_t nChildren, MatchRef children[]) {
+    StatementRef ret;
+    Statement* stmt;
+    do {
+        int32_t idx = db->statementPoolNextIdx++;
+        stmt = &db->statementPool[idx];
+        ret = (StatementRef) { .gen = stmt->gen, .idx = idx };
+    } while (stmt->clause != NULL || ret.idx == 0);
+
+    stmt->clause = clause;
+    stmt->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
                                  8 : (nParents + nChildren) * 2 < 8);
     for (size_t i = 0; i < nParents; i++) {
-        listOfEdgeToAdd(&ret->edges, EDGE_PARENT, parents[i]);
+        listOfEdgeToAdd(&stmt->edges, EDGE_PARENT, parents[i].val);
     }
     for (size_t i = 0; i < nChildren; i++) {
-        listOfEdgeToAdd(&ret->edges, EDGE_CHILD, children[i]);
+        listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, children[i].val);
     }
     return ret;
 }
@@ -138,12 +209,12 @@ StatementEdgeIterator statementEdgesNext(StatementEdgeIterator it) {
 EdgeType statementEdgeType(StatementEdgeIterator it) {
     return it.stmt->edges->edges[it.idx].type;
 }
-Match* statementEdgeMatch(StatementEdgeIterator it) {
-    return (Match*) it.stmt->edges->edges[it.idx].to;
+MatchRef statementEdgeMatch(StatementEdgeIterator it) {
+    return *(MatchRef*) &it.stmt->edges->edges[it.idx].to;
 }
 
-int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, Match* to) {
-    return listOfEdgeToRemove(stmt->edges, type, to);
+int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, MatchRef to) {
+    return listOfEdgeToRemove(stmt->edges, type, to.val);
 }
 
 void statementFree(Statement* stmt) {
@@ -154,42 +225,57 @@ void statementFree(Statement* stmt) {
     }
     free(stmtClause);
     free(stmt->edges);
-    free(stmt);
+    stmt->clause = NULL;
+    stmt->edges = NULL;
+    stmt->gen++;
 }
 
-void statementAddChildMatch(Statement* stmt, Match* child) {
-    listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, child);
+void statementAddChildMatch(Statement* stmt, MatchRef child) {
+    listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, child.val);
 }
-void statementAddParentMatch(Statement* stmt, Match* parent) {
-    listOfEdgeToAdd(&stmt->edges, EDGE_PARENT, parent);
+void statementAddParentMatch(Statement* stmt, MatchRef parent) {
+    listOfEdgeToAdd(&stmt->edges, EDGE_PARENT, parent.val);
 }
 
 ////////////////////////////////////////////////////////////
 // Match:
 ////////////////////////////////////////////////////////////
 
-struct Match {
-    /* bool isFromCollect; */
-    /* Statement* collectId; */
+Match* matchAcquire(Db* db, MatchRef match) {
+    if (match.gen >= 0 && match.gen == db->matchPool[match.idx].gen) {
+        return &db->matchPool[match.idx];
+    }
+    return NULL;
+}
+MatchRef matchRef(Db* db, Match* match) {
+    return (MatchRef) {
+        .gen = match->gen,
+        .idx = match - &db->matchPool[0]
+    };
+}
 
-    // TODO: Add match destructors.
+static MatchRef matchNew(Db* db,
+                         size_t nParents, StatementRef parents[]) {
+    MatchRef ret;
+    Match* match;
+    do {
+        int32_t idx = db->matchPoolNextIdx++;
+        match = &db->matchPool[idx];
+        ret = (MatchRef) { .gen = match->gen, .idx = idx };
+    } while (match->edges != NULL || ret.idx == 0);
 
-    // List of edges to parent & child Statements:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
-};
-
-Match* matchNew(size_t nParents, Statement* parents[]) {
-    Match* ret = malloc(sizeof(Match));
-    ret->edges = listOfEdgeToNew(nParents * 2);
+    match->edges = listOfEdgeToNew(nParents * 2);
     for (size_t i = 0; i < nParents; i++) {
-        listOfEdgeToAdd(&ret->edges, EDGE_PARENT, parents[i]);
+        listOfEdgeToAdd(&match->edges, EDGE_PARENT,
+                        parents[i].val);
     }
     return ret;
 }
 
 void matchFree(Match* match) {
     free(match->edges);
-    free(match);
+    match->edges = NULL;
+    match->gen = (match->gen + 1) % INT32_MAX;
 }
 
 MatchEdgeIterator matchEdgesBegin(Match* match) {
@@ -204,44 +290,27 @@ MatchEdgeIterator matchEdgesNext(MatchEdgeIterator it) {
 EdgeType matchEdgeType(MatchEdgeIterator it) {
     return it.match->edges->edges[it.idx].type;
 }
-Statement* matchEdgeStatement(MatchEdgeIterator it) {
-    return (Statement*) it.match->edges->edges[it.idx].to;
+StatementRef matchEdgeStatement(MatchEdgeIterator it) {
+    return (StatementRef) { .val = it.match->edges->edges[it.idx].to };
 }
 
-void matchAddChildStatement(Match* match, Statement* child) {
-    listOfEdgeToAdd(&match->edges, EDGE_CHILD, child);
+void matchAddChildStatement(Match* match, StatementRef child) {
+    listOfEdgeToAdd(&match->edges, EDGE_CHILD, child.val);
 }
-void matchAddParentStatement(Match* match, Statement* parent) {
-    listOfEdgeToAdd(&match->edges, EDGE_PARENT, parent);
+void matchAddParentStatement(Match* match, StatementRef parent) {
+    listOfEdgeToAdd(&match->edges, EDGE_PARENT, parent.val);
 }
 
 ////////////////////////////////////////////////////////////
 // Database:
 ////////////////////////////////////////////////////////////
 
-typedef struct Hold {
-    // If key == NULL, then this Hold is an empty slot that can be
-    // used for a new hold key.
-    const char* key; // Owned by the DB.
-    int64_t version;
-
-    Statement* statement;
-} Hold;
-
-typedef struct Db {
-    // This is the primary trie (index) used for queries.
-    Trie* clauseToStatementId;
-
-    // One for each Hold key, which always stores the highest-version
-    // held statement for that key. We keep this map so that we can
-    // overwrite out-of-date Holds for a key as soon as a newer one
-    // comes in, without having to actually emit and react to the
-    // statement.
-    Hold holds[256];
-} Db;
-
 Db* dbNew() {
     Db* ret = calloc(sizeof(Db), 1);
+    ret->statementPool[0].gen = 0xFFFFFFFF;
+    ret->statementPoolNextIdx = 1;
+    ret->matchPool[0].gen = 0xFFFFFFFF;
+    ret->matchPoolNextIdx = 1;
     ret->clauseToStatementId = trieNew();
     return ret;
 }
@@ -249,10 +318,10 @@ Trie* dbGetClauseToStatementId(Db* db) { return db->clauseToStatementId; }
 
 // Query
 ResultSet* dbQuery(Db* db, Clause* pattern) {
-    uint64_t results[500];
+    StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
-                                    results, maxResults);
+                                 (uint64_t*) results, maxResults);
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
         fprintf(stderr, "dbQuery: Hit max results\n"); exit(1);
@@ -261,60 +330,70 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
     ret->nResults = nResults;
     for (size_t i = 0; i < nResults; i++) {
-        ret->results[i] = (Statement*) results[i];
+        ret->results[i] = results[i];
     }
     return ret;
 }
 
-void dbInsertStatement(Db* db,
-                       Clause* clause,
-                       size_t nParents, Match* parents[],
-                       Statement** outStatement, bool* outIsNewStatement) {
+StatementRef dbInsertStatement(Db* db, Clause* clause,
+                               size_t nParents, MatchRef parents[]) {
     // Is this clause already present among the existing statements?
     uint64_t ids[10];
     int idslen = trieLookupLiteral(db->clauseToStatementId, clause,
-                                   ids, sizeof(ids)/sizeof(ids[0]));
-    Statement* id;
+                                   (uint64_t*) ids, sizeof(ids)/sizeof(ids[0]));
+    StatementRef ref = {0};
+    Statement* stmt;
+    bool needNewStatement;
     if (idslen == 1) {
-        id = (Statement *) ids[0];
+        ref = (StatementRef) { .val = ids[0] };
+        stmt = statementAcquire(db, ref);
+
+        needNewStatement = false;
     } else if (idslen == 0) {
-        id = NULL;
+        needNewStatement = true;
     } else {
         // Invariant has been violated: somehow we have 2+ copies of
         // the same clause already in the db?
         fprintf(stderr, "Error: Clause duplicate\n"); exit(1);
     }
 
-    bool isNewStatement = id == NULL;
-    if (isNewStatement) {
-        id = statementNew(clause, nParents, parents, 0, NULL);
-        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, (uint64_t) id);
+    if (needNewStatement) {
+        ref = statementNew(db, clause, nParents, parents, 0, NULL);
+        stmt = statementAcquire(db, ref);
+        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
 
     } else {
         // The clause already exists. We'll add the parents to the
         // existing statement instead of making a new statement.
         for (size_t i = 0; i < nParents; i++) {
-            statementAddParentMatch(id, parents[i]);
+            statementAddParentMatch(stmt, parents[i]);
         }
     }
 
     for (size_t i = 0; i < nParents; i++) {
-        if (parents[i] == NULL) { continue; } // ?
-        matchAddChildStatement(parents[i], id);
+        Match* parent = matchAcquire(db, parents[i]);
+        if (parent) {
+            matchAddChildStatement(parent, ref);
+        }
     }
 
-    if (outStatement) { *outStatement = id; }
-    if (outIsNewStatement) { *outIsNewStatement = isNewStatement; }
+    if (needNewStatement) {
+        return ref;
+    } else {
+        return STATEMENT_REF_NULL;
+    }
 }
 
-void dbInsertMatch(Db* db,
-                   size_t nParents, Statement* parents[],
-                   Match** outMatch) {
-    Match* match = matchNew(nParents, parents);
+MatchRef dbInsertMatch(Db* db,
+                       size_t nParents, StatementRef parents[]) {
+    MatchRef match = matchNew(db, nParents, parents);
     for (size_t i = 0; i < nParents; i++) {
-        statementAddChildMatch(parents[i], match);
+        Statement* parent = statementAcquire(db, parents[i]);
+        if (parent) {
+            statementAddChildMatch(parent, match);
+        }
     }
-    if (outMatch) { *outMatch = match; }
+    return match;
 }
 
 ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern) {
@@ -331,17 +410,16 @@ ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern) {
     ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
     ret->nResults = nResults;
     for (size_t i = 0; i < nResults; i++) {
-        ret->results[i] = (Statement*) results[i];
+        ret->results[i] = (StatementRef) { .val = results[i] };
     }
     return ret;
 }
 
-void dbHoldStatement(Db* db,
-                     const char* key, int64_t version,
-                     Clause* clause,
-                     Statement** outStatement, bool* outIsNewStatement,
-                     Statement** outOldStatement) {
-    *outOldStatement = NULL;
+StatementRef dbHoldStatement(Db* db,
+                             const char* key, int64_t version,
+                             Clause* clause,
+                             StatementRef* outOldStatement) {
+    *outOldStatement = STATEMENT_REF_NULL;
 
     Hold* hold = NULL;
     for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
@@ -368,26 +446,27 @@ void dbHoldStatement(Db* db,
         version = hold->version + 1;
     }
     if (version > hold->version) {
-        Statement* oldStmt = hold->statement;
+        StatementRef oldStmt = hold->statement;
 
         hold->version = version;
 
-        bool isNewStmt;
-        dbInsertStatement(db, clause, 0, NULL,
-                          &hold->statement, &isNewStmt);
+        StatementRef newStmt = dbInsertStatement(db, clause, 0, NULL);
+        hold->statement = newStmt;
 
-        if (outStatement) { *outStatement = hold->statement; }
-        if (outIsNewStatement) { *outIsNewStatement = isNewStmt; }
-
-        if (oldStmt) {
+        if (statementRefIsNonNull(oldStmt)) {
             uint64_t results[10];
             size_t maxResults = sizeof(results)/sizeof(results[0]);
-            trieRemove(db->clauseToStatementId, statementClause(oldStmt),
+            trieRemove(db->clauseToStatementId,
+                       statementClause(statementAcquire(db, oldStmt)),
                        results, maxResults);
 
             if (outOldStatement) { *outOldStatement = oldStmt; }
         }
+
+        return newStmt;
     }
+
+    return STATEMENT_REF_NULL;
 }
 
 // Test:
@@ -407,12 +486,3 @@ Clause* clause(char* first, ...) {
     c->nTerms = i;
     return c;
 }
-
-Statement* dbAssert(Db* db, Clause* clause) {
-    Statement* ret; bool isNewStmt;
-    dbInsertStatement(db, clause, 0, NULL, &ret, &isNewStmt);
-    assert(isNewStmt);
-    return ret;
-}
-
-

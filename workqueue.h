@@ -15,8 +15,9 @@ typedef struct WorkQueueItem {
     int thread;
 
     // Clause pointers are the responsibility of the user of the
-    // workqueue to keep alive. The workqueue does not copy or own or
-    // free the Clause* you give it.
+    // workqueue to keep alive (and to free once a work item is
+    // processed). The workqueue does not itself copy or own or free
+    // the Clause* you give it.
     union {
         struct { Clause* clause; } assert;
         struct { Clause* pattern; } retract;
@@ -29,7 +30,11 @@ typedef struct WorkQueueItem {
             Clause* clause;
         } hold;
         struct {
-            Match* parent;
+            // This MatchRef may be invalidated while this Say is
+            // still in the workqueue -- we detect that when we
+            // process the Say and invalidate the Say in that case.
+            MatchRef parent;
+
             Clause* clause;
         } say;
     };
