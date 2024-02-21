@@ -286,7 +286,7 @@ $cam compile
 
 $cam method init {w h} {
     set width $w; set height $h
-    set camera [$cam cameraOpen "/dev/video0" $width $height]
+    set camera [$self cameraOpen "/dev/video0" $width $height]
     $self cameraInit $camera
     $self cameraStart $camera
     # skip 5 frames for booting a cam
