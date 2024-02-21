@@ -7,7 +7,7 @@ set getCc {{} {
     $cc code {
         typedef struct {
             EdgeType type;
-            void* to;
+            uint64_t to;
         } EdgeTo;
         typedef struct ListOfEdgeTo {
             size_t capacityEdges;
@@ -15,6 +15,8 @@ set getCc {{} {
             EdgeTo edges[];
         } ListOfEdgeTo;
         typedef struct Statement {
+            uint32_t gen;
+
             Clause* clause;
 
             // List of edges to parent & child Matches:
@@ -36,7 +38,8 @@ set getCc {{} {
         Jim_Obj* parentObjs[stmt->edges->nEdges];
         for (int i = 0; i < stmt->edges->nEdges; i++) {
             if (stmt->edges->edges[i].type == EDGE_PARENT) {
-                parentObjs[nParents++] = Jim_ObjPrintf("(Match*) %p", stmt->edges->edges[i].to);
+                MatchRef parent = { .val = stmt->edges->edges[i].to };
+                parentObjs[nParents++] = Jim_ObjPrintf("m%d:%d", parent.idx, parent.gen);
             }
         }
         return Jim_NewListObj(interp, parentObjs, nParents);
@@ -46,7 +49,8 @@ set getCc {{} {
         Jim_Obj* childObjs[stmt->edges->nEdges];
         for (int i = 0; i < stmt->edges->nEdges; i++) {
             if (stmt->edges->edges[i].type == EDGE_CHILD) {
-                childObjs[nChildren++] = Jim_ObjPrintf("(Match*) %p", stmt->edges->edges[i].to);
+                MatchRef child = { .val = stmt->edges->edges[i].to };
+                childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
             }
         }
         return Jim_NewListObj(interp, childObjs, nChildren);
