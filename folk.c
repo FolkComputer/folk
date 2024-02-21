@@ -323,7 +323,7 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "runWhenBlock: (%s) -> (%s)\n",
+        fprintf(stderr, "runWhenBlock: (%.100s) -> (%s)\n",
                 lambda,
                 Jim_GetString(Jim_GetResult(interp), NULL));
         /* Jim_FreeInterp(interp); */
@@ -654,7 +654,7 @@ static void exitHandler() {
     dbWriteToPdf(db);
     pthread_mutex_unlock(&dbMutex);
 }
-int main() {
+int main(int argc, char** argv) {
     // Do all setup.
 
     // Set up database.
@@ -670,7 +670,12 @@ int main() {
     workQueue = workQueueNew();
     pthread_mutex_init(&workQueueMutex, NULL);
 
-    eval("source boot.folk");
+    if (argc == 1) {
+        eval("source boot.folk");
+    } else {
+        char code[100]; snprintf(code, 100, "source %s", argv[1]);
+        eval(code);
+    }
 
     // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
     // which needs to be an active worker, in case we need to do

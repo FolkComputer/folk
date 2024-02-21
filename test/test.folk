@@ -1,0 +1,7 @@
+puts Hello
+
+Assert! we are on
+Assert! when we are on {{} {
+    puts Done!
+    __exit 0
+}} with environment {}
