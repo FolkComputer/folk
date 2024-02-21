@@ -88,7 +88,7 @@ while 1 {
             set aprilTime [time {
                 set tags [$detector detect $grayFrame]
             }]
-            Hold! apriltags [list virtual-program/apriltags.folk claims $::thisProcess detects tags $tags in time $aprilTime]
+            Hold! apriltags [list virtual-program/apriltags.folk claims $this detects tags $tags in time $aprilTime]
         }
     }
 }
