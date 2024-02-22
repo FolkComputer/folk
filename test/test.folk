@@ -10,6 +10,7 @@ Assert! when we are on {{} {
     }
 
     When we are on {
+        puts "RUNNING HOLDS"
         for {set i 0} {$i < 200} {incr i} {
             Hold! counter [list X claims the counter is $i]
         }

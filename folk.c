@@ -265,7 +265,8 @@ static void eval(const char* code) {
 // Evaluator
 //////////////////////////////////////////////////////////
 
-// Releases when and stmt before doing the Tcl evaluation.
+// Releases when and stmt before doing the Tcl evaluation.  Rule: you
+// should never be holding a lock while doing a Tcl evaluation.
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
     /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
@@ -586,6 +587,11 @@ void workerRun(WorkQueueItem item) {
         // Run statement
         Statement* when = statementAcquire(db, item.run.when);
         Statement* stmt = statementAcquire(db, item.run.stmt);
+        if (when == NULL || stmt == NULL) {
+            printf("Run failed\n");
+        } else {
+            printf("@%d: Run (%.100s)\n", threadId, clauseToString(statementClause(when)));
+        }
 
         runWhenBlock(when, item.run.whenPattern, stmt);
 
