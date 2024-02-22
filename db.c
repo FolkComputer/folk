@@ -550,16 +550,22 @@ StatementRef dbHoldStatement(Db* db,
 
         pthread_mutex_unlock(&hold->mutex);
 
-        if (statementRefIsNonNull(oldStmt)) {
+        {
             uint64_t results[10];
             size_t maxResults = sizeof(results)/sizeof(results[0]);
 
             pthread_mutex_lock(&db->clauseToStatementIdMutex);
             // TODO: Should we accept a StatementRef and enforce that
             // is what gets removed?
-            trieRemove(db->clauseToStatementId,
-                       statementClause(statementAcquire(db, oldStmt)),
-                       results, maxResults);
+            Statement* oldStmtPtr = statementAcquire(db, oldStmt);
+            if (oldStmtPtr) {
+                trieRemove(db->clauseToStatementId,
+                           statementClause(oldStmtPtr),
+                           results, maxResults);
+                statementRelease(oldStmtPtr);
+            } else {
+                printf("Somehow old statement from Hold was already removed?\n");
+            }
             pthread_mutex_unlock(&db->clauseToStatementIdMutex);
             /* assert(nRemoved == 1); */
             /* assert(results[0] == oldStmt.val); */
