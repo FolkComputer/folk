@@ -28,15 +28,19 @@ typedef union MatchRef {
 #define matchRefIsNonNull(ref) ((ref).idx != 0)
 
 // The acquire function validates the ref and gives you a valid
-// pointer, or NULL if the ref is invalid.
+// pointer, or NULL if the ref is invalid. It also acquires the
+// statement lock.
 Statement* statementAcquire(Db* db, StatementRef stmt);
-// TODO: Make release functions. I want to introduce per-object
-// locking that uses those.
+void statementRelease(Statement* stmt);
+
 StatementRef statementRef(Db* db, Statement* stmt);
 
 // The acquire function validates the ref and gives you a valid
-// pointer, or NULL if the ref is invalid.
+// pointer, or NULL if the ref is invalid. It also acquires the match
+// lock.
 Match* matchAcquire(Db* db, MatchRef match);
+void matchRelease(Match* m);
+
 MatchRef matchRef(Db* db, Match* m);
 
 Clause* statementClause(Statement* stmt);
@@ -78,7 +82,11 @@ typedef struct ResultSet {
     StatementRef results[];
 } ResultSet;
 #define SIZEOF_RESULTSET(NRESULTS) (sizeof(ResultSet) + (NRESULTS)*sizeof(Statement*))
-// Caller must free the returned ResultSet*.
+// dbQuery only temporarily locks the trie while doing the query, so
+// you're getting a snapshot of whatever statements happened to be in
+// there in the moment. The StatementRefs in it may already be invalid
+// by the time dbQuery returns. Caller must free the returned
+// ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
 // Note: once you call this, clause ownership transfers to the DB,

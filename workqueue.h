@@ -5,7 +5,7 @@
 #include "trie.h"
 
 typedef struct WorkQueue WorkQueue;
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
     int seq;
@@ -37,6 +37,14 @@ typedef struct WorkQueueItem {
 
             Clause* clause;
         } say;
+        struct {
+            // The StatementRefs may be invalidated while this Run is
+            // still in the workqueue -- if either is invalidated,
+            // then the Run is invalidated.
+            StatementRef when;
+            Clause* whenPattern;
+            StatementRef stmt;
+        } run;
     };
 } WorkQueueItem;
 

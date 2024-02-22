@@ -20,7 +20,8 @@ pqueue_pri_t workQueueItemGetPriority(void* a) {
     case ASSERT:
     case RETRACT:
     case HOLD: return 80000 - item->seq;
-    case SAY: return 80000 + item->seq;
+    case SAY:
+    case RUN: return 80000 + item->seq;
     }
     return 0;
 }

@@ -14,7 +14,6 @@
 #include "workqueue.h"
 
 Db* db;
-pthread_mutex_t dbMutex;
 
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
@@ -171,7 +170,6 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
-    pthread_mutex_lock(&dbMutex);
     ResultSet* rs = dbQuery(db, pattern);
 
     int nResults = (int) rs->nResults;
@@ -192,7 +190,6 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         resultObjs[i] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         free(env);
     }
-    pthread_mutex_unlock(&dbMutex);
     free(pattern);
     free(rs);
     Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, nResults));
@@ -216,14 +213,6 @@ static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Ob
 static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
-    return JIM_OK;
-}
-static int __dbLockFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    pthread_mutex_lock(&dbMutex);
-    return JIM_OK;
-}
-static int __dbUnlockFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    pthread_mutex_unlock(&dbMutex);
     return JIM_OK;
 }
 static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -255,8 +244,6 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__dbLock", __dbLockFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__dbUnlock", __dbUnlockFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
@@ -278,7 +265,7 @@ static void eval(const char* code) {
 // Evaluator
 //////////////////////////////////////////////////////////
 
-// Must be called with the database lock held.
+// Releases when and stmt before doing the Tcl evaluation.
 static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
     // TODO: Free clauseToString
     /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
@@ -316,11 +303,12 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
     free(env);
 
     StatementRef parents[] = { statementRef(db, when), statementRef(db, stmt) };
+    statementRelease(when);
+    statementRelease(stmt);
+
     currentMatch = dbInsertMatch(db, 2, parents);
 
-    pthread_mutex_unlock(&dbMutex);
     int error = Jim_EvalObj(interp, expr);
-    pthread_mutex_lock(&dbMutex);
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
@@ -331,6 +319,16 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
         /* exit(EXIT_FAILURE); */
     }
 }
+static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
+    pthread_mutex_lock(&workQueueMutex);
+    workQueuePush(workQueue, (WorkQueueItem) {
+       .op = RUN,
+       .thread = -1,
+       .run = { .when = when, .whenPattern = whenPattern, .stmt = stmt }
+    });
+    pthread_mutex_unlock(&workQueueMutex);
+}
+
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
@@ -386,42 +384,41 @@ static Clause* unwhenizeClause(Clause* whenClause) {
     return ret;
 }
 
-// React to the addition of a new statement (fire any relevant
+// React to the addition of a new statement: fire any pertinent
 // existing Whens & if the new statement is a When, then fire it with
-// respect to any relevant existing statements).
-// Must be called with the database lock held.
-static void reactToNewStatement(Statement* stmt) {
+// respect to any pertinent existing statements.
+static void reactToNewStatement(StatementRef ref) {
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) { return; }
+
     Clause* clause = statementClause(stmt);
+    printf("@%d: reactToNewStatement (%.100s)\n", threadId, clauseToString(clause));
 
     // TODO: implement collected matches
 
-    if (strcmp(clause->terms[0], "when") == 0) {
+    if (strcmp(clause->terms[0], "when") == 0)  {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
 
         // Scan the existing statement set for any already-existing
         // matching statements.
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
-        // TODO: lease result statements so they don't get freed? hazard pointer?
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-            runWhenBlock(stmt, pattern,
-                         statementAcquire(db, existingMatchingStatements->results[i]));
+            pushRunWhenBlock(ref, pattern,
+                             existingMatchingStatements->results[i]);
         }
         free(existingMatchingStatements);
 
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern) {
             existingMatchingStatements = dbQuery(db, claimizedPattern);
-            // TODO: lease result statements so they don't get freed? hazard pointer?
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                runWhenBlock(stmt, claimizedPattern,
-                             statementAcquire(db, existingMatchingStatements->results[i]));
+                pushRunWhenBlock(ref, claimizedPattern,
+                                 existingMatchingStatements->results[i]);
             }
-
             free(existingMatchingStatements);
-            free(claimizedPattern);
         }
-        free(pattern);
+        // free(pattern);
     }
 
     // Trigger any already-existing reactions to the addition of this
@@ -435,12 +432,14 @@ static void reactToNewStatement(Statement* stmt) {
         // TODO: lease result statements so they don't get freed?
         // hazard pointer?
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
+            StatementRef whenRef = existingReactingWhens->results[i];
             // when the time is /t/ /__lambda/ with environment /__env/
             //   -> the time is /t/
-            Statement* when = statementAcquire(db, existingReactingWhens->results[i]);
+            Statement* when = statementAcquire(db, whenRef);
             Clause* whenPattern = unwhenizeClause(statementClause(when));
-            runWhenBlock(when, whenPattern, stmt);
-            free(whenPattern);
+            statementRelease(when);
+
+            pushRunWhenBlock(whenRef, whenPattern, ref);
         }
         free(existingReactingWhens);
     }
@@ -459,24 +458,29 @@ static void reactToNewStatement(Statement* stmt) {
         free(whenizedUnclaimizedClause);
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
+            StatementRef whenRef = existingReactingWhens->results[i];
             // when the time is /t/ /__lambda/ with environment /__env/
             //   -> /someone/ claims the time is /t/
-            Statement* when = statementAcquire(db, existingReactingWhens->results[i]);
-            Clause* claimizedWhenPattern = claimizeClause(unwhenizeClause(statementClause(when)));
-            runWhenBlock(when, claimizedWhenPattern, stmt);
-            free(claimizedWhenPattern);
+            Statement* when = statementAcquire(db, whenRef);
+            Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
+            Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
+            statementRelease(when);
+
+            pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
+            free(unwhenizedWhenPattern);
         }
         free(existingReactingWhens);
     }
 
-    // TODO: look for collects in the db
-    
+    statementRelease(stmt);
 }
 
-static void reactToRemovedStatement(Statement* stmt);
+static void reactToRemovedStatement(StatementRef ref);
 
-// Must be called with the database lock held.
-static void reactToRemovedMatch(Match* match) {
+static void reactToRemovedMatch(MatchRef ref) {
+    Match* match = matchAcquire(db, ref);
+    if (match == NULL) { return; }
+
     // Walk through edges to statements:
     for (MatchEdgeIterator it = matchEdgesBegin(match);
          !matchEdgesIsEnd(it);
@@ -494,19 +498,27 @@ static void reactToRemovedMatch(Match* match) {
         case EDGE_CHILD: {
             Statement* child = statementAcquire(db, matchEdgeStatement(it));
             if (statementRemoveEdgeToMatch(child, EDGE_PARENT, matchRef(db, match)) == 0) {
-                // This child statement is out of parent matches. It's
-                // dead.
+                // This child statement now has no remaining parent
+                // matches to prop it up, so it's dead and should be
+                // deindexed, its removal reacted to, and then freed.
+
                 /* printf("reactToRemovedMatch: dead statement: %p (%d terms: %.100s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child))); */
                 free(dbQueryAndDeindexStatements(db, statementClause(child)));
-                reactToRemovedStatement(child);
-                statementFree(child);
+                statementRelease(child);
+                reactToRemovedStatement(matchEdgeStatement(it));
             }
         } }
     }
+
+    matchFree(match);
+    matchRelease(match);
 }
 
 // Must be called with the database lock held.
-static void reactToRemovedStatement(Statement* stmt) {
+static void reactToRemovedStatement(StatementRef ref) {
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) { return; }
+
     // Walk through edges to matches:
     for (StatementEdgeIterator it = statementEdgesBegin(stmt);
          !statementEdgesIsEnd(it);
@@ -524,82 +536,64 @@ static void reactToRemovedStatement(Statement* stmt) {
         case EDGE_CHILD: {
             // A child match is removed if _any_ of its parent
             // statements is removed, so this match must be removed.
-            Match* child = matchAcquire(db, statementEdgeMatch(it));
-            reactToRemovedMatch(child);
-            matchFree(child);
+            reactToRemovedMatch(statementEdgeMatch(it));
             break;
         } }
     }
+
+    statementFree(stmt);
+    statementRelease(stmt);
 }
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
-        pthread_mutex_lock(&dbMutex);
         ref = dbInsertStatement(db, item.assert.clause, 0, NULL);
-
-        if (statementRefIsNonNull(ref)) {
-            // It's actually a new statement, so we should react to
-            // it.
-            reactToNewStatement(statementAcquire(db, ref));
-        }
-        pthread_mutex_unlock(&dbMutex);
+        reactToNewStatement(ref);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
-        pthread_mutex_lock(&dbMutex);
+
         // This removes the statements from the lookup index, so they
         // won't appear as query results, but it doesn't disconnect
         // them or free them.
         ResultSet* retractStmts = dbQueryAndDeindexStatements(db, item.retract.pattern);
 
         for (int i = 0; i < retractStmts->nResults; i++) {
-            Statement* retractStmt = statementAcquire(db, retractStmts->results[i]);
-            reactToRemovedStatement(retractStmt);
-            statementFree(retractStmt);
+            reactToRemovedStatement(retractStmts->results[i]);
         }
-        pthread_mutex_unlock(&dbMutex);
         free(retractStmts);
 
     } else if (item.op == HOLD) {
         StatementRef oldRef;
         StatementRef newRef;
-        pthread_mutex_lock(&dbMutex);
         newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
                                  item.hold.clause,
                                  &oldRef);
-        if (statementRefIsNonNull(newRef)) {
-            // There is a new statement, so we should react to its
-            // addition.
-            reactToNewStatement(statementAcquire(db, newRef));
-        }
-        if (statementRefIsNonNull(oldRef)) {
-            // There was an old statement, so we should react to its
-            // removal.
-            Statement* oldStmt = statementAcquire(db, oldRef);
-            reactToRemovedStatement(oldStmt);
-            statementFree(oldStmt);
-        }
-        pthread_mutex_unlock(&dbMutex);
+        reactToNewStatement(newRef);
+        reactToRemovedStatement(oldRef);
 
     } else if (item.op == SAY) {
-        pthread_mutex_lock(&dbMutex);
-        if (matchAcquire(db, item.say.parent)) {
-            // The parent match still exists, so we should proceed
-            // with Saying this new statement.
+        printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause));
 
-            StatementRef stmt;
-            stmt = dbInsertStatement(db, item.say.clause, 1, &item.say.parent);
+        StatementRef ref;
+        ref = dbInsertStatement(db, item.say.clause, 1, &item.say.parent);
+        reactToNewStatement(ref);
 
-            if (statementRefIsNonNull(stmt)) {
-                // It's actually a new statement, so we should react
-                // to it.
-                reactToNewStatement(statementAcquire(db, stmt));
-            }
-        }
-        pthread_mutex_unlock(&dbMutex);
+    } else if (item.op == RUN) {
+        // TODO: dereference refs. if any fail, then die
+        // Run statement
+        Statement* when = statementAcquire(db, item.run.when);
+        Statement* stmt = statementAcquire(db, item.run.stmt);
 
+        runWhenBlock(when, item.run.whenPattern, stmt);
+
+        /* dbRelease(when); */
+        /* dbRelease(stmt); */
+
+        // TODO: free whenPattern
+        
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
                 item.op);
@@ -650,22 +644,14 @@ static void dbWriteToPdf(Db* db) {
     eval(code);
 }
 static void exitHandler() {
-    pthread_mutex_lock(&dbMutex);
     trieWriteToPdf(dbGetClauseToStatementId(db));
     dbWriteToPdf(db);
-    pthread_mutex_unlock(&dbMutex);
 }
 int main(int argc, char** argv) {
     // Do all setup.
 
     // Set up database.
     db = dbNew();
-    // TODO: This is ugly, we use it so we can call Query! while the
-    // lock is held.
-    pthread_mutexattr_t mta;
-    pthread_mutexattr_init(&mta);
-    pthread_mutexattr_settype(&mta, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&dbMutex, &mta);
 
     // Set up workqueue.
     workQueue = workQueueNew();
