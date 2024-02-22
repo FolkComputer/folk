@@ -433,12 +433,17 @@ StatementRef dbInsertStatement(Db* db, Clause* clause,
         ref = statementNew(db, clause, nParents, parents, 0, NULL);
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
 
+        // Notice how we do the lookup and add in one section while
+        // holding the trie mutex, so that any parallel threads won't
+        // have a chance to double-add the same clause at the same
+        // time.
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
         for (size_t i = 0; i < nParents; i++) {
             Match* parent = matchAcquire(db, parents[i]);
             if (parent) {
                 matchAddChildStatement(parent, ref);
+                matchRelease(parent);
             } else {
                 // TODO: Acquire statement, check if statement has any
                 // other valid parents besides this one? If not, then
@@ -462,6 +467,7 @@ MatchRef dbInsertMatch(Db* db,
         Statement* parent = statementAcquire(db, parents[i]);
         if (parent) {
             statementAddChildMatch(parent, match);
+            statementRelease(parent);
         } else {
             // TODO: The parent is dead; we should abort/reverse this
             // whole thing.

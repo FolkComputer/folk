@@ -3,6 +3,7 @@ puts Hello
 Assert! we are on
 Assert! when we are on {{} {
     When the counter is /t/ {
+        puts $t
         Claim the counter is running
     }
     When the counter is running {
@@ -14,5 +15,6 @@ Assert! when we are on {{} {
         for {set i 0} {$i < 200} {incr i} {
             Hold! counter [list X claims the counter is $i]
         }
+        puts DONE
     }
 }} with environment {}

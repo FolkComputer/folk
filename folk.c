@@ -189,6 +189,7 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
         resultObjs[i] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         free(env);
+        statementRelease(result);
     }
     free(pattern);
     free(rs);
@@ -393,7 +394,6 @@ static void reactToNewStatement(StatementRef ref) {
     if (stmt == NULL) { return; }
 
     Clause* clause = statementClause(stmt);
-    printf("@%d: reactToNewStatement (%.100s)\n", threadId, clauseToString(clause));
 
     // TODO: implement collected matches
 
@@ -405,6 +405,7 @@ static void reactToNewStatement(StatementRef ref) {
         // matching statements.
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
+            printf("push-run-when-block\n");
             pushRunWhenBlock(ref, pattern,
                              existingMatchingStatements->results[i]);
         }
@@ -494,6 +495,7 @@ static void reactToRemovedMatch(MatchRef ref) {
             // all of its co-parent statements.
             Statement* parent = statementAcquire(db, matchEdgeStatement(it));
             statementRemoveEdgeToMatch(parent, EDGE_CHILD, matchRef(db, match));
+            statementRelease(parent);
             break;
         }
         case EDGE_CHILD: {
@@ -507,6 +509,8 @@ static void reactToRemovedMatch(MatchRef ref) {
                 free(dbQueryAndDeindexStatements(db, statementClause(child)));
                 statementRelease(child);
                 reactToRemovedStatement(matchEdgeStatement(it));
+            } else {
+                statementRelease(child);
             }
         } }
     }
@@ -583,6 +587,8 @@ void workerRun(WorkQueueItem item) {
         reactToNewStatement(ref);
 
     } else if (item.op == RUN) {
+        printf("RUNRUNRUN\n");
+
         // TODO: dereference refs. if any fail, then die
         // Run statement
         Statement* when = statementAcquire(db, item.run.when);
@@ -591,9 +597,8 @@ void workerRun(WorkQueueItem item) {
             printf("Run failed\n");
         } else {
             printf("@%d: Run (%.100s)\n", threadId, clauseToString(statementClause(when)));
+            runWhenBlock(when, item.run.whenPattern, stmt);
         }
-
-        runWhenBlock(when, item.run.whenPattern, stmt);
 
         /* dbRelease(when); */
         /* dbRelease(stmt); */
