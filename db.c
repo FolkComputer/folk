@@ -563,8 +563,9 @@ StatementRef dbHoldStatement(Db* db,
                            statementClause(oldStmtPtr),
                            results, maxResults);
                 statementRelease(oldStmtPtr);
-            } else {
-                printf("Somehow old statement from Hold was already removed?\n");
+            } else if (oldStmt.idx != 0) {
+                fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",
+                        oldStmt.idx, oldStmt.gen);
             }
             pthread_mutex_unlock(&db->clauseToStatementIdMutex);
             /* assert(nRemoved == 1); */

@@ -405,7 +405,6 @@ static void reactToNewStatement(StatementRef ref) {
         // matching statements.
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-            printf("push-run-when-block\n");
             pushRunWhenBlock(ref, pattern,
                              existingMatchingStatements->results[i]);
         }
@@ -580,23 +579,20 @@ void workerRun(WorkQueueItem item) {
         reactToRemovedStatement(oldRef);
 
     } else if (item.op == SAY) {
-        printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause));
+        /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
 
         StatementRef ref;
         ref = dbInsertStatement(db, item.say.clause, 1, &item.say.parent);
         reactToNewStatement(ref);
 
     } else if (item.op == RUN) {
-        printf("RUNRUNRUN\n");
-
-        // TODO: dereference refs. if any fail, then die
-        // Run statement
+        // Dereference refs. if any fail, then skip this work item.
         Statement* when = statementAcquire(db, item.run.when);
         Statement* stmt = statementAcquire(db, item.run.stmt);
         if (when == NULL || stmt == NULL) {
-            printf("Run failed\n");
+            /* printf("Run preempted\n"); */
         } else {
-            printf("@%d: Run (%.100s)\n", threadId, clauseToString(statementClause(when)));
+            /* printf("@%d: Run (%.100s)\n", threadId, clauseToString(statementClause(when))); */
             runWhenBlock(when, item.run.whenPattern, stmt);
         }
 
