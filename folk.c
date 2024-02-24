@@ -14,6 +14,7 @@
 #include "workqueue.h"
 
 Db* db;
+pthread_mutex_t dbMutex;
 
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
@@ -266,15 +267,24 @@ static void eval(const char* code) {
 // Evaluator
 //////////////////////////////////////////////////////////
 
-// Releases when and stmt before doing the Tcl evaluation.  Rule: you
-// should never be holding a lock while doing a Tcl evaluation.
-static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) {
+static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+    // Dereference refs. if any fail, then skip this work item.
+    Statement* when = statementAcquire(db, whenRef);
+    Statement* stmt = statementAcquire(db, stmtRef);
+    if (when == NULL || stmt == NULL) {
+        if (when != NULL) { statementRelease(when); }
+        if (stmt != NULL) { statementRelease(stmt); }
+        return;
+    }
+
+    Clause* whenClause = statementClause(when);
+    Clause* stmtClause = statementClause(stmt);
+
     // TODO: Free clauseToString
     /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
     /*        clauseToString(statementClause(when)), */
     /*        clauseToString(statementClause(stmt))); */
 
-    Clause* whenClause = statementClause(when);
     assert(whenClause->nTerms >= 6);
 
     // when the time is /t/ /lambda/ with environment /builtinEnv/
@@ -293,7 +303,7 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
                            applyLambda);
 
     // Postpend bound variables to expr:
-    Environment* env = clauseUnify(interp, whenPattern, statementClause(stmt));
+    Environment* env = clauseUnify(interp, whenPattern, stmtClause);
     assert(env != NULL);
     Jim_Obj* envArgs[env->nBindings];
     for (int i = 0; i < env->nBindings; i++) {
@@ -304,12 +314,15 @@ static void runWhenBlock(Statement* when, Clause* whenPattern, Statement* stmt) 
                            env->nBindings, envArgs);
     free(env);
 
-    StatementRef parents[] = { statementRef(db, when), statementRef(db, stmt) };
-    statementRelease(when);
     statementRelease(stmt);
+    statementRelease(when);
+
+    StatementRef parents[] = { whenRef, stmtRef };
 
     currentMatch = dbInsertMatch(db, 2, parents);
 
+    // Rule: you should never be holding a lock while doing a Tcl
+    // evaluation.
     int error = Jim_EvalObj(interp, expr);
 
     if (error == JIM_ERR) {
@@ -389,15 +402,10 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 // React to the addition of a new statement: fire any pertinent
 // existing Whens & if the new statement is a When, then fire it with
 // respect to any pertinent existing statements.
-static void reactToNewStatement(StatementRef ref) {
-    Statement* stmt = statementAcquire(db, ref);
-    if (stmt == NULL) { return; }
-
-    Clause* clause = statementClause(stmt);
-
+static void reactToNewStatement(StatementRef ref, Clause* clause) {
     // TODO: implement collected matches
 
-    if (strcmp(clause->terms[0], "when") == 0)  {
+    if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
 
@@ -472,8 +480,6 @@ static void reactToNewStatement(StatementRef ref) {
         }
         free(existingReactingWhens);
     }
-
-    statementRelease(stmt);
 }
 
 static void reactToRemovedStatement(StatementRef ref);
@@ -553,8 +559,11 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
+
+        pthread_mutex_lock(&dbMutex);
         ref = dbInsertStatement(db, item.assert.clause, 0, NULL);
-        reactToNewStatement(ref);
+        reactToNewStatement(ref, item.assert.clause);
+        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
@@ -562,7 +571,9 @@ void workerRun(WorkQueueItem item) {
         // This removes the statements from the lookup index, so they
         // won't appear as query results, but it doesn't disconnect
         // them or free them.
+        pthread_mutex_lock(&dbMutex);
         ResultSet* retractStmts = dbQueryAndDeindexStatements(db, item.retract.pattern);
+        pthread_mutex_unlock(&dbMutex);
 
         for (int i = 0; i < retractStmts->nResults; i++) {
             reactToRemovedStatement(retractStmts->results[i]);
@@ -570,37 +581,30 @@ void workerRun(WorkQueueItem item) {
         free(retractStmts);
 
     } else if (item.op == HOLD) {
-        StatementRef oldRef;
-        StatementRef newRef;
+        StatementRef oldRef; StatementRef newRef;
+
+        pthread_mutex_lock(&dbMutex);
         newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
                                  item.hold.clause,
                                  &oldRef);
-        reactToNewStatement(newRef);
+        reactToNewStatement(newRef, item.hold.clause);
+        pthread_mutex_unlock(&dbMutex);
+
         reactToRemovedStatement(oldRef);
 
     } else if (item.op == SAY) {
         /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
 
         StatementRef ref;
+        pthread_mutex_lock(&dbMutex);
         ref = dbInsertStatement(db, item.say.clause, 1, &item.say.parent);
-        reactToNewStatement(ref);
+        reactToNewStatement(ref, item.say.clause);
+        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RUN) {
-        // Dereference refs. if any fail, then skip this work item.
-        Statement* when = statementAcquire(db, item.run.when);
-        Statement* stmt = statementAcquire(db, item.run.stmt);
-        if (when == NULL || stmt == NULL) {
-            /* printf("Run preempted\n"); */
-        } else {
-            /* printf("@%d: Run (%.100s)\n", threadId, clauseToString(statementClause(when))); */
-            runWhenBlock(when, item.run.whenPattern, stmt);
-        }
+        /* printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern)); */
+        runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
 
-        /* dbRelease(when); */
-        /* dbRelease(stmt); */
-
-        // TODO: free whenPattern
-        
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
                 item.op);
@@ -651,14 +655,17 @@ static void dbWriteToPdf(Db* db) {
     eval(code);
 }
 static void exitHandler() {
+    pthread_mutex_lock(&dbMutex);
     trieWriteToPdf(dbGetClauseToStatementId(db));
     dbWriteToPdf(db);
+    pthread_mutex_unlock(&dbMutex);
 }
 int main(int argc, char** argv) {
     // Do all setup.
 
     // Set up database.
     db = dbNew();
+    pthread_mutex_init(&dbMutex, NULL);
 
     // Set up workqueue.
     workQueue = workQueueNew();
