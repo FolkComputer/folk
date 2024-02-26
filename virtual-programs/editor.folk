@@ -1,4 +1,3 @@
-set ::debug_print false
 set baseCode "Wish \$this is outlined green"
 
 # This makes all keyboards into editors automatically, so a keyboard
@@ -302,24 +301,20 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
           }
           default {
             if {$modifier == "ctrl" & $currentCharacter == "p"} {
-              # TODO: Save time instead and prevent printing the same code within the same ... second?
-              When $id has printed /lastPrintedCode/ {
-                if {$lastPrintedCode == $code} {
-                  Claim the $kbPath cursor is $cursor
-                  if {$::debug_print} {
-                    puts "Not printing the same code twice"
+              When $id has printed /lastPrintedCode/ at /previousTime/ {
+                if {($timestamp - $previousTime) < 1000} {
+                  Commit "code$kbPath" {
+                    Claim $id has program code $code
+                    Claim $id has editor code $editorCode
                   }
+                  Claim the $kbPath cursor is $cursor
                   return
                 }
               }
-              When /nobody/ has printed /lastPrintedCode/ {
-                if {$::debug_print} {
-                  puts "Printing $code"
-                }
-                Commit print { Claim $id has printed $code}
-                Wish to print $code with job id [expr {rand()}]
-                return
-              }
+
+              Commit print { Claim $id has printed $code at $timestamp}
+              Wish to print $code with job id [expr {rand()}]
+
               Commit "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
