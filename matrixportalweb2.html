@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Art Painter</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+#palette {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.color {
+    width: 20px;
+    height: 20px;
+    margin: 2px;
+    border: 1px solid #000;
+    cursor: pointer;
+}
+
+.selected {
+    border: 3px solid #000;
+}
+
+#grid {
+    display: grid;
+    grid-template-columns: repeat(64, 15px);
+    grid-gap: 1px;
+}
+
+.pixel {
+    width: 15px;
+    height: 15px;
+    background-color: #fff;
+    /* border: 1px solid #ddd; */
+    cursor: pointer;
+}
+
+    </style>
+</head>
+<body>
+    <div id="palette"></div>
+    <div id="grid"></div>
+    <div>
+        <button id="save">Save</button>
+        <button id="clear">Clear</button>
+    </div>
+    <script>
+
+var lastMessage = "";
+
+const clientId = 'mqttjs_' + Math.random().toString(16).substr(2, 8)
+
+const host = 'ws://192.168.1.10:8080'
+
+const options = {
+  keepalive: 60,
+  clientId: clientId,
+  protocolId: 'MQTT',
+  protocolVersion: 4,
+  clean: true,
+  reconnectPeriod: 1000,
+  connectTimeout: 30 * 1000,
+  will: {
+    topic: 'WillMsg',
+    payload: 'Connection Closed abnormally..!',
+    qos: 0,
+    retain: false
+  },
+}
+
+console.log('Connecting mqtt client')
+const client = mqtt.connect(host, options)
+
+client.on('error', (err) => {
+  console.log('Connection error: ', err)
+  client.end()
+})
+
+client.on('reconnect', () => {
+  console.log('Reconnecting...')
+})
+
+client.on('connect', () => {
+  console.log('Client connected:' + clientId)
+  // Subscribe
+//   client.subscribe('testtopic', { qos: 0 })
+//   client.subscribe('/home/slider', { qos: 0 })
+});
+
+// Received
+// client.on('message', (topic, message, packet) => {
+//   console.log('Received Message: ' + message.toString() + '\nOn topic: ' + topic)
+//   if (topic === '/home/slider') {
+//     document.getElementById('slider').style.width = `${100 * +message.toString() / 4900}%`;
+//   } else {
+//     client.publish('othertopic', 'ws connection demo...!', { qos: 0, retain: false })
+//   }
+// });
+
+// // Publish
+// client.publish('/home/matrixportal', '0000000000', { qos: 0, retain: false })
+
+// // Unsubscribe
+// client.unubscribe('testtopic', () => {
+//   console.log('Unsubscribed')
+// })
+
+// listen to mouse moves
+// document.addEventListener('mousemove', (event) => {
+//   const x = event.clientX;
+//   const y = event.clientY;
+//   const xAsPercentageOfScreenWidth = x / window.innerWidth;
+//   const yAsPercentageOfScreenHeight = y / window.innerHeight;
+// //   const message = `${x},${y}`;
+//   // variable mssage is a list of 10 characters, each character is either 0 or 1
+//   // The character is only 1 if matches xAsPercentageOfScreenWidth;
+//   let message = '0000000000';
+//   let index = Math.floor(xAsPercentageOfScreenWidth * 10);
+//   message = message.substring(0, index) + '1' + message.substring(index + 1);
+//   if (message !== lastMessage) {
+//     lastMessage = message;
+//     client.publish('/home/matrixportal', message, { qos: 0, retain: false });
+//     console.log('Published: ' + message);
+//   }
+// });
+
+function debounce(func, timeout = 300){
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { func.apply(this, args); }, timeout);
+  };
+}
+
+function mqttSendPixels() {
+    const pixels = Array.from(document.querySelectorAll('.pixel')).map(p => {
+            let v = p.getAttribute('data-palette-index') || 0;
+            v = +v;
+            console.log(v, v.toString(16));
+            return (v).toString(16);
+        });
+        let pixelsStr = pixels.join("");
+        // pixelsStr = pixelsStr.substring(0, 64*4-32);
+        console.log(pixelsStr);
+        if (pixelsStr !== lastMessage) {
+            lastMessage = pixelsStr;
+            client.publish('/home/matrixportal', pixelsStr, { qos: 0, retain: false });
+            console.log('Published: ' + pixelsStr);
+        }
+}
+
+const deouncedMqttSendPixels = debounce(() => mqttSendPixels(), 200);
+
+
+
+document.addEventListener('DOMContentLoaded', function() {
+    // const colors = ['#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#800000', '#808000', '#008000', '#800080', '#008080', '#000080', '#808080', '#C0C0C0'];
+    const colors = ["rgb(0, 0, 0)",
+    "rgb(157, 157, 157)",
+    "rgb(255, 255, 255)",
+    "rgb(190, 38, 51)",
+    "rgb(224, 111, 139)",
+    "rgb(73, 60, 43)",
+    "rgb(164, 100, 34)",
+    "rgb(235, 137, 49)",
+    "rgb(247, 226, 107)",
+    "rgb(47, 72, 78)",
+    "rgb(68, 137, 26)",
+    "rgb(163, 206, 39)",
+    "rgb(27, 38, 50)",
+    "rgb(0, 87, 132)",
+    "rgb(49, 162, 242)",
+    "rgb(178, 220, 239)",
+    // "rgb(255, 0, 255)",
+];
+    const palette = document.getElementById('palette');
+    const grid = document.getElementById('grid');
+    let selectedColor = colors[0]; // Default color
+    let mouseDown = false; // Track if the mouse is pressed
+
+    document.body.addEventListener('mousedown', () => (mouseDown = true));
+    document.body.addEventListener('mouseup', () => (mouseDown = false));
+
+    // Create color palette
+    colors.forEach(color => {
+        const colorDiv = document.createElement('div');
+        colorDiv.className = 'color';
+        colorDiv.style.backgroundColor = color;
+        colorDiv.addEventListener('click', () => {
+            document.querySelectorAll('.color').forEach(c => c.classList.remove('selected'));
+            colorDiv.classList.add('selected');
+            selectedColor = color;
+        });
+        palette.appendChild(colorDiv);
+    });
+
+    // Create the grid
+    for (let i = 0; i < 64 * 32; i++) {
+        const pixel = document.createElement('div');
+        pixel.className = 'pixel';
+        pixel.style.backgroundColor = selectedColor;
+        pixel.setAttribute('data-palette-index', colors.indexOf(selectedColor));
+        pixel.addEventListener('mousedown', function() {
+            this.style.backgroundColor = selectedColor;
+            // set pixel data-palette-index to the index of the selected color in the palette
+            this.setAttribute('data-palette-index', colors.indexOf(selectedColor));
+            deouncedMqttSendPixels();
+        });
+        pixel.addEventListener('mouseenter', function() {
+            if (mouseDown) {
+                this.style.backgroundColor = selectedColor;
+                this.setAttribute('data-palette-index', colors.indexOf(selectedColor));
+                deouncedMqttSendPixels();
+            }
+        });
+        grid.appendChild(pixel);
+    }
+
+    
+
+    // Save button
+    document.getElementById('save').addEventListener('click', () => {
+        mqttSendPixels();
+    });
+
+    // Clear button
+    document.getElementById('clear').addEventListener('click', () => {
+        document.querySelectorAll('.pixel').forEach(p => {
+            p.style.backgroundColor = '#fff'
+            p.removeAttribute('data-palette-index');
+            deouncedMqttSendPixels();
+        });
+    });
+});
+
+    </script>
+</body>
+</html>

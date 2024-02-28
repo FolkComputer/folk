@@ -1,0 +1,90 @@
+<html>
+    <head>
+        <title>Websocket client</title>
+    </head>
+    <body>
+        <h1>Websocket client</h1>
+        <p>Open the console to see the output</p>
+        <!-- <div id="slider" style="background-color: #4CAF50; height: 30px;"></div> -->
+        <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+const clientId = 'mqttjs_' + Math.random().toString(16).substr(2, 8)
+
+const host = 'ws://192.168.1.10:8080'
+
+const options = {
+  keepalive: 60,
+  clientId: clientId,
+  protocolId: 'MQTT',
+  protocolVersion: 4,
+  clean: true,
+  reconnectPeriod: 1000,
+  connectTimeout: 30 * 1000,
+  will: {
+    topic: 'WillMsg',
+    payload: 'Connection Closed abnormally..!',
+    qos: 0,
+    retain: false
+  },
+}
+
+console.log('Connecting mqtt client')
+const client = mqtt.connect(host, options)
+
+client.on('error', (err) => {
+  console.log('Connection error: ', err)
+  client.end()
+})
+
+client.on('reconnect', () => {
+  console.log('Reconnecting...')
+})
+
+client.on('connect', () => {
+  console.log('Client connected:' + clientId)
+  // Subscribe
+//   client.subscribe('testtopic', { qos: 0 })
+//   client.subscribe('/home/slider', { qos: 0 })
+});
+
+// Received
+// client.on('message', (topic, message, packet) => {
+//   console.log('Received Message: ' + message.toString() + '\nOn topic: ' + topic)
+//   if (topic === '/home/slider') {
+//     document.getElementById('slider').style.width = `${100 * +message.toString() / 4900}%`;
+//   } else {
+//     client.publish('othertopic', 'ws connection demo...!', { qos: 0, retain: false })
+//   }
+// });
+
+// // Publish
+// client.publish('/home/matrixportal', '0000000000', { qos: 0, retain: false })
+
+// // Unsubscribe
+// client.unubscribe('testtopic', () => {
+//   console.log('Unsubscribed')
+// })
+
+var lastMessage = "";
+
+// listen to mouse moves
+document.addEventListener('mousemove', (event) => {
+  const x = event.clientX;
+  const y = event.clientY;
+  const xAsPercentageOfScreenWidth = x / window.innerWidth;
+  const yAsPercentageOfScreenHeight = y / window.innerHeight;
+//   const message = `${x},${y}`;
+  // variable mssage is a list of 10 characters, each character is either 0 or 1
+  // The character is only 1 if matches xAsPercentageOfScreenWidth;
+  let message = '0000000000';
+  let index = Math.floor(xAsPercentageOfScreenWidth * 10);
+  message = message.substring(0, index) + '1' + message.substring(index + 1);
+  if (message !== lastMessage) {
+    lastMessage = message;
+    client.publish('/home/matrixportal', message, { qos: 0, retain: false });
+    console.log('Published: ' + message);
+  }
+});
+</script>
+    </body>
+</html>
