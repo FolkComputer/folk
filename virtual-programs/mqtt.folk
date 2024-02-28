@@ -1,0 +1,31 @@
+Start process mqtt {
+    ::tcl::tm::path add /home/folk/mqtt
+    package require mqtt
+
+    set client [mqtt new]
+    set ::mqttclient $client
+
+    proc cb {topic content status} {
+        # upvar 1 client client
+        puts "$topic: [encoding convertfrom utf-8 $content]"
+        # $client publish "test" "echo"
+        if {$topic eq "/home/slider"} {
+            set val [encoding convertfrom utf-8 $content]
+            puts "Got val: $val"
+            if {$val > 1000} {
+                puts "Too hot!"
+                $::mqttclient publish "testtopic" "too hot!"
+            }
+        }
+    }
+    $client connect test-client localhost 1883
+    $client subscribe "home/#" cb
+    $client subscribe "/home/slider" cb
+
+    After 2000 milliseconds {
+        puts "about to send!"
+        $client publish "test" "echo"
+    }
+
+    vwait forever
+}
