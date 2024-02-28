@@ -1,0 +1,165 @@
+proc webProgramRuningUpdate {step} {
+	set directoryPath "$::env(HOME)/folk-printed-programs"
+	set fileList [glob -nocomplain -directory $directoryPath *.folk]
+	Commit {
+		foreach file $fileList {
+			set fileNameWithExtension [file tail $file]
+			set fileNameWithoutExtension [string range $fileNameWithExtension 0 [expr {[string last "." $fileNameWithExtension] - 1}]]
+			set fd [open $file r]
+			set code [read $fd]
+        	close $fd
+			Claim program $fileNameWithoutExtension could have a program $code at $step
+		}
+	}
+	puts "Claimed updated programs. Count of [llength $fileList]"
+}
+
+Every time /nobody/ claims program /p/ could have a program /c/ at /step/ {
+	puts "nobody claimed"
+	webProgramRuningUpdate 0
+}
+
+Every time /someone/ wishes potential programs would be updated at step count /step/ {
+	webProgramRuningUpdate $step
+}
+
+When the collected matches for [list program /obj/ could have a program /code/ at /step/] are /potentialMatches/ {
+When the collected matches for [list /type/ /obj/ has a program] are /matches/ {
+	set runningPrograms [list]
+	foreach match $matches {
+		lappend runningPrograms [dict get $match obj]
+	}
+	set possiblePrograms [list]
+	foreach match $potentialMatches {
+		lappend possiblePrograms [dict get $match obj]
+	}
+	set possibleProgramsCode ""
+	foreach match $potentialMatches {
+		set escapedValue [htmlEscape [dict get $match code]]
+		append possibleProgramsCode "`$escapedValue`, "
+	}
+
+	puts "Running programs: $runningPrograms"
+	puts "Possible programs: $possiblePrograms"
+	puts "Possible programs code: $possibleProgramsCode"
+	
+  Wish the web server handles route "/web-toggle-programs/$" with handler [list apply {{__runningPrograms __possiblePrograms __possibleProgramsCode} {
+
+	puts "Running programs INSIDE: $__runningPrograms"
+	puts "Possible programs INSIDE: $__possiblePrograms"
+	puts "Possible programs code INSIDE: $__possibleProgramsCode"
+
+    upvar ^html ^html
+	html [string map [list RUNNING_PROGRAMS $__runningPrograms POSSIBLE_PROGRAMS $__possiblePrograms POSSIBLE_CODE_PROGRAMS $__possibleProgramsCode] {
+        <html><head>
+		<style>
+			.program-container {
+				margin: 1rem;
+				display: flex;
+    			gap: 1rem;
+			}
+			.program-container button {
+				font-size: 2rem;
+				padding: 1rem;
+				border: none;
+				border-radius: 0.5rem;
+				cursor: pointer;
+				transition: background-color 0.3s;
+			}
+			.program-container button:hover {
+				background-color: #f0f0f0;
+			}
+			.program-container pre {
+				max-height: 100px;
+				overflow-y: scroll;
+				margin: 0;
+				border: 1px solid #ccc;
+				padding: 1rem;
+				font-size: 1rem;
+				white-space: pre-wrap;
+			}
+
+			::-webkit-scrollbar {
+			-webkit-appearance: none;
+			width: 7px;
+			}
+
+			::-webkit-scrollbar-thumb {
+			border-radius: 4px;
+			background-color: rgba(0, 0, 0, .5);
+			box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+			}
+		</style>
+		</head>
+        <body>
+          <span id="status">Status</span>
+          <div id="log"></div>
+		  <button id="refresh">Refresh</button>
+<script>
+const rawRunningPrograms = "RUNNING_PROGRAMS";
+const possiblePrograms = "POSSIBLE_PROGRAMS";
+const runningProgramsMap = rawRunningPrograms.split(' ').reduce((acc, program) => {
+	acc[program] = true;
+	return acc;
+}, {});
+const possibleProgramsCode = [POSSIBLE_CODE_PROGRAMS];
+const thisProgramId = "web-toggle-programs";
+const log = document.getElementById('log');
+let ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+
+const moveHandler = ({offsetX, offsetY}) => {
+    ws.send(`Retract web claims {${thisProgramId}} is /blah/;Assert web claims {${thisProgramId}} is "0,0,${offsetX},${offsetY}"`);
+    log.innerHTML = `<div style="font-size: 10rem; font-family: monospace">x: ${offsetX} y: ${offsetY}</div>`;
+};
+
+const refreshList = () => {
+	ws.send(`Retract web wishes potential programs would be updated at step count /c/;Assert web wishes potential programs would be updated at step count ${(new Date()).getTime()}`);
+}
+
+ws.onopen = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
+	document.getElementById('refresh').addEventListener('click', refreshList);
+	possiblePrograms.split(' ').forEach((program, i) => {
+		const container = document.createElement('div');
+		container.className = 'program-container';
+		const button = document.createElement('button');
+		button.innerText = program;
+		if (runningProgramsMap[program]) {
+			button.style.backgroundColor = 'seagreen';
+		}
+		button.addEventListener('click', () => {
+			if (runningProgramsMap[program]) {
+				ws.send(`Retract web claims program ${program} has a program`);
+			} else {
+				ws.send(`Assert web claims program ${program} has a program`);
+			}
+		});
+		container.appendChild(button);
+
+		const pre = document.createElement('pre');
+		pre.innerText = possibleProgramsCode[i];
+		container.appendChild(pre);
+		document.body.appendChild(container);
+	});
+};
+ws.onclose = window.onbeforeunload = () => {
+    document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
+    ws.send(`Retract web claims {${thisProgramId}} is /blah/`);
+};
+ws.onerror = (err) => {
+    document.getElementById('status').innerText = "Error";
+    console.error('Socket encountered error: ', err.message, 'Closing socket');
+    ws.close();
+}
+ws.onmessage = (msg) => {
+    console.log(msg.data);
+}
+</script>
+        </body>
+        </html>
+    }]
+
+
+  }} $runningPrograms $possiblePrograms $possibleProgramsCode]
+}
+}
