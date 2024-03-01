@@ -306,7 +306,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
         m->ptrCount--;
         return NULL;
     }
-    if (ref.gen <= 0 || ref.gen != m->gen) {
+    if (ref.gen < 0 || ref.gen != m->gen) {
         m->ptrCount--; // TODO: what if this zeroes it?
         return NULL;
     }
