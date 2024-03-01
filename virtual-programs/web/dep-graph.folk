@@ -66,6 +66,7 @@ set getCc {{} {
 set dbDotify {{getCc db} {
     set cc [apply $getCc]
     set dot [list]
+    set matchRefs [dict create]
     foreach stmt [Query! /...anything/] {
         set stmtRef [dict get $stmt __ref]
         set label [$cc clause $db $stmtRef]
@@ -75,19 +76,14 @@ set dbDotify {{getCc db} {
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
         lappend dot "<$stmtRef> \[label=\"$stmtRef: $label\"\];"
 
-        # foreach matchId [$cc parentMatches $stmt] {
-        #     # set parents [lmap edge [matchEdges $matchId] {expr {
-        #     #     [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
-        #     # }}]
-        #     # lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
-        #     lappend dot "<$matchId> -> <$stmt>;"
-        # }
-
         foreach childMatchRef [$cc childMatches $db $stmtRef] {
             lappend dot "<$stmtRef> -> <$childMatchRef>;"
-            foreach childStatementRef [$cc childStatements $db $childMatchRef] {
-                lappend dot "<$childMatchRef> -> <$childStatementRef>;"
-            }
+            dict set matchRefs $childMatchRef true
+        }
+    }
+    foreach {matchRef _} $matchRefs {
+        foreach childStatementRef [$cc childStatements $db $matchRef] {
+            lappend dot "<$matchRef> -> <$childStatementRef>;"
         }
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
@@ -100,9 +96,7 @@ set getDotAsPdf {{dot} {
 }}
 
 Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{getCc dbDotify getDotAsPdf} {
-    __dbLock
     set dot [apply $dbDotify $getCc [__db]]
-    __dbUnlock
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close

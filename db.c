@@ -22,20 +22,19 @@ typedef struct ListOfEdgeTo {
 // Statement datatype:
 
 typedef struct Statement {
-    // How many active raw pointers to this statement exist?
-    // (incl. any that have been acquired from weak refs) This is used
-    // to determine whether the statement can be freed. You must
-    // increment ptrCount before accessing any other field in a
-    // Statement slot.
+    // How many acquired raw pointers to this statement exist? The
+    // statement cannot be freed/invalidated as long as ptrCount >
+    // 0. You must increment ptrCount before accessing any other field
+    // in a Statement slot.
     _Atomic int ptrCount;
 
     // Immutable statement properties:
 
     // statementAcquire needs to increment the ptrCount _first_, then
-    // check gen. gen cannot be mutated while ptrCount >= 1.
+    // check gen. gen cannot be mutated while ptrCount > 0.
     uint32_t gen;
     // Owned by the DB. clause cannot be mutated or invalidated while
-    // ptrCount >= 1.
+    // ptrCount > 0.
     Clause* clause;
 
     // Mutable statement properties:
