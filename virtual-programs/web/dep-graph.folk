@@ -4,25 +4,20 @@ set getCc {{} {
     set cc [C]
     $cc cflags -I.
     $cc include "db.h"
+
     $cc code {
-        typedef struct {
-            EdgeType type;
-            uint64_t to;
-        } EdgeTo;
         typedef struct ListOfEdgeTo {
             size_t capacityEdges;
             size_t nEdges; // This is an estimate.
-            EdgeTo edges[];
+            uint64_t edges[];
         } ListOfEdgeTo;
-        typedef struct Statement {
-            uint32_t gen;
 
-            Clause* clause;
-
-            // List of edges to parent & child Matches:
-            ListOfEdgeTo* edges; // Allocated separately so it can be resized.
-        } Statement;
+        #include <pthread.h>
     }
+    set dbCFd [open "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
+    $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
+    $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
+
     $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];
         for (int i = 0; i < clause->nTerms; i++) {
@@ -33,25 +28,21 @@ set getCc {{} {
     $cc proc clause {Statement* stmt} Jim_Obj* {
         return clauseToJimObj(statementClause(stmt));
     }
-    $cc proc parentMatches {Statement* stmt} Jim_Obj* {
-        int nParents = 0;
-        Jim_Obj* parentObjs[stmt->edges->nEdges];
-        for (int i = 0; i < stmt->edges->nEdges; i++) {
-            if (stmt->edges->edges[i].type == EDGE_PARENT) {
-                MatchRef parent = { .val = stmt->edges->edges[i].to };
-                parentObjs[nParents++] = Jim_ObjPrintf("m%d:%d", parent.idx, parent.gen);
-            }
-        }
-        return Jim_NewListObj(interp, parentObjs, nParents);
-    }
     $cc proc childMatches {Statement* stmt} Jim_Obj* {
         int nChildren = 0;
-        Jim_Obj* childObjs[stmt->edges->nEdges];
-        for (int i = 0; i < stmt->edges->nEdges; i++) {
-            if (stmt->edges->edges[i].type == EDGE_CHILD) {
-                MatchRef child = { .val = stmt->edges->edges[i].to };
-                childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
-            }
+        Jim_Obj* childObjs[stmt->childMatches->nEdges];
+        for (int i = 0; i < stmt->childMatches->nEdges; i++) {
+            MatchRef child = { .val = stmt->childMatches->edges[i] };
+            childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
+        }
+        return Jim_NewListObj(interp, childObjs, nChildren);
+    }
+    $cc proc childStatements {Match* match} Jim_Obj* {
+        int nChildren = 0;
+        Jim_Obj* childObjs[match->childStatements->nEdges];
+        for (int i = 0; i < match->childStatements->nEdges; i++) {
+            StatementRef child = { .val = match->childStatements->edges[i] };
+            childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
         }
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
@@ -73,13 +64,13 @@ set dbDotify {{getCc db} {
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
         lappend dot "<$stmt> \[label=\"$stmt: $label\"\];"
 
-        foreach matchId [$cc parentMatches $stmt] {
-            # set parents [lmap edge [matchEdges $matchId] {expr {
-            #     [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
-            # }}]
-            # lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
-            lappend dot "<$matchId> -> <$stmt>;"
-        }
+        # foreach matchId [$cc parentMatches $stmt] {
+        #     # set parents [lmap edge [matchEdges $matchId] {expr {
+        #     #     [dict get $edge type] == 1 ? "[dict get $edge statement]" : [continue]
+        #     # }}]
+        #     # lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
+        #     lappend dot "<$matchId> -> <$stmt>;"
+        # }
         
         foreach childMatchId [$cc childMatches $stmt] {
             lappend dot "<$stmt> -> <$childMatchId>;"

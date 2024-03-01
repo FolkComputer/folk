@@ -55,7 +55,7 @@ typedef struct Statement {
 
 // Match datatype:
 
-struct Match {
+typedef struct Match {
     _Atomic int ptrCount;
 
     // Immutable match properties:
@@ -69,7 +69,7 @@ struct Match {
     // ListOfEdgeTo StatementRef. Used for removal.
     ListOfEdgeTo* childStatements;
     pthread_mutex_t childStatementsMutex;
-};
+} Match;
 
 // Database datatypes:
 
