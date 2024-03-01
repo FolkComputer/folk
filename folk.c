@@ -14,6 +14,9 @@
 #include "workqueue.h"
 
 Db* db;
+// This mutex is used to create an atomic section where a statement
+// can add a statement, then react to the addition, without worrying
+// that new reactors are added in the middle.
 pthread_mutex_t dbMutex;
 
 WorkQueue* workQueue;
@@ -171,7 +174,13 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
+    printf("dbquery\n");
+
+    pthread_mutex_lock(&dbMutex);
     ResultSet* rs = dbQuery(db, pattern);
+    pthread_mutex_unlock(&dbMutex);
+
+    printf("dbquerydone\n");
 
     int nResults = (int) rs->nResults;
     Jim_Obj* resultObjs[nResults];
@@ -320,6 +329,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     StatementRef parents[] = { whenRef, stmtRef };
 
     currentMatch = dbInsertMatch(db, 2, parents);
+    if (matchRefIsNull(currentMatch)) {
+        // A parent is gone. Abort.
+        return;
+    }
 
     // Rule: you should never be holding a lock while doing a Tcl
     // evaluation.
@@ -401,7 +414,8 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 
 // React to the addition of a new statement: fire any pertinent
 // existing Whens & if the new statement is a When, then fire it with
-// respect to any pertinent existing statements.
+// respect to any pertinent existing statements. Should be called with
+// the database lock held.
 static void reactToNewStatement(StatementRef ref, Clause* clause) {
     // TODO: implement collected matches
 
@@ -482,78 +496,6 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
     }
 }
 
-static void reactToRemovedStatement(StatementRef ref);
-
-static void reactToRemovedMatch(MatchRef ref) {
-    Match* match = matchAcquire(db, ref);
-    if (match == NULL) { return; }
-
-    // Walk through edges to statements:
-    for (MatchEdgeIterator it = matchEdgesBegin(match);
-         !matchEdgesIsEnd(it);
-         it = matchEdgesNext(it)) {
-
-        switch (matchEdgeType(it)) {
-        case EDGE_EMPTY: break;
-        case EDGE_PARENT: {
-            // This match is dead, so remove edges to the match from
-            // all of its co-parent statements.
-            Statement* parent = statementAcquire(db, matchEdgeStatement(it));
-            statementRemoveEdgeToMatch(parent, EDGE_CHILD, matchRef(db, match));
-            statementRelease(parent);
-            break;
-        }
-        case EDGE_CHILD: {
-            Statement* child = statementAcquire(db, matchEdgeStatement(it));
-            if (statementRemoveEdgeToMatch(child, EDGE_PARENT, matchRef(db, match)) == 0) {
-                // This child statement now has no remaining parent
-                // matches to prop it up, so it's dead and should be
-                // deindexed, its removal reacted to, and then freed.
-
-                /* printf("reactToRemovedMatch: dead statement: %p (%d terms: %.100s)\n", child, statementClause(child)->nTerms, clauseToString(statementClause(child))); */
-                free(dbQueryAndDeindexStatements(db, statementClause(child)));
-                statementRelease(child);
-                reactToRemovedStatement(matchEdgeStatement(it));
-            } else {
-                statementRelease(child);
-            }
-        } }
-    }
-
-    matchFree(match);
-    matchRelease(match);
-}
-
-// Must be called with the database lock held.
-static void reactToRemovedStatement(StatementRef ref) {
-    Statement* stmt = statementAcquire(db, ref);
-    if (stmt == NULL) { return; }
-
-    // Walk through edges to matches:
-    for (StatementEdgeIterator it = statementEdgesBegin(stmt);
-         !statementEdgesIsEnd(it);
-         it = statementEdgesNext(it)) {
-
-        switch (statementEdgeType(it)) {
-        case EDGE_EMPTY: break;
-        case EDGE_PARENT: {
-            // remove edge from parent match to stmt?
-            // do we need this? when is a statement removed that has a parent match?
-            printf("reactToRemovedStatement: Remove edge from parent match to me\n");
-            // lock and retry?
-            break;
-        }
-        case EDGE_CHILD: {
-            // A child match is removed if _any_ of its parent
-            // statements is removed, so this match must be removed.
-            reactToRemovedMatch(statementEdgeMatch(it));
-            break;
-        } }
-    }
-
-    statementFree(stmt);
-    statementRelease(stmt);
-}
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
@@ -561,24 +503,16 @@ void workerRun(WorkQueueItem item) {
         StatementRef ref;
 
         pthread_mutex_lock(&dbMutex);
-        ref = dbInsertStatement(db, item.assert.clause, 0, NULL);
+        ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
         reactToNewStatement(ref, item.assert.clause);
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
 
-        // This removes the statements from the lookup index, so they
-        // won't appear as query results, but it doesn't disconnect
-        // them or free them.
         pthread_mutex_lock(&dbMutex);
-        ResultSet* retractStmts = dbQueryAndDeindexStatements(db, item.retract.pattern);
+        dbRetractStatements(db, item.retract.pattern);
         pthread_mutex_unlock(&dbMutex);
-
-        for (int i = 0; i < retractStmts->nResults; i++) {
-            reactToRemovedStatement(retractStmts->results[i]);
-        }
-        free(retractStmts);
 
     } else if (item.op == HOLD) {
         StatementRef oldRef; StatementRef newRef;
@@ -588,18 +522,19 @@ void workerRun(WorkQueueItem item) {
                                  item.hold.clause,
                                  &oldRef);
         reactToNewStatement(newRef, item.hold.clause);
+        // TODO: We need to delay the react to removed statement until
+        // full subconvergence of the addition of the new statement.
         pthread_mutex_unlock(&dbMutex);
-
-        reactToRemovedStatement(oldRef);
 
     } else if (item.op == SAY) {
-        /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
+        printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause));
 
         StatementRef ref;
-        pthread_mutex_lock(&dbMutex);
-        ref = dbInsertStatement(db, item.say.clause, 1, &item.say.parent);
+        pthread_mutex_lock(&dbMutex); printf("@%d: Say acq\n", threadId);
+        ref = dbInsertOrReuseStatement(db, item.say.clause, item.say.parent);
+        printf("@%d: done insert, now react\n", threadId);
         reactToNewStatement(ref, item.say.clause);
-        pthread_mutex_unlock(&dbMutex);
+        pthread_mutex_unlock(&dbMutex); printf("@%d: Say rel\n", threadId);
 
     } else if (item.op == RUN) {
         /* printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern)); */
@@ -640,25 +575,29 @@ void* workerMain(void* arg) {
 
 
 
-static void trieWriteToPdf(Trie* trie) {
+static void trieWriteToPdf() {
     char code[500];
     snprintf(code, 500,
-             "source db.tcl; "
-             "trieWriteToPdf {(Trie*) %p} trie.pdf; puts trie.pdf", trie);
+             "proc Wish {args} {}; source virtual-programs/web/trie-graph.folk; "
+             "set dot [apply $trieDotify $getCc [__db]]; "
+             "set fd [open trie.pdf w]; puts $fd [apply $getDotAsPdf $dot]; close $fd; "
+             "puts trie.pdf");
     eval(code);
 }
-static void dbWriteToPdf(Db* db) {
+static void dbWriteToPdf() {
     char code[500];
     snprintf(code, 500,
-             "source db.tcl; "
-             "dbWriteToPdf {(Db*) %p} db.pdf; puts db.pdf", db);
+             "proc Wish {args} {}; source virtual-programs/web/dep-graph.folk; "
+             "set dot [apply $dbDotify $getCc [__db]]; "
+             "set fd [open db.pdf w]; puts $fd [apply $getDotAsPdf $dot]; close $fd; "
+             "puts db.pdf");
     eval(code);
 }
 static void exitHandler() {
-    pthread_mutex_lock(&dbMutex);
-    trieWriteToPdf(dbGetClauseToStatementId(db));
-    dbWriteToPdf(db);
-    pthread_mutex_unlock(&dbMutex);
+    printf("exitHandler\n----------\n");
+
+    trieWriteToPdf();
+    dbWriteToPdf();
 }
 int main(int argc, char** argv) {
     // Do all setup.
@@ -678,6 +617,8 @@ int main(int argc, char** argv) {
         eval(code);
     }
 
+    atexit(exitHandler);
+
     // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
     // which needs to be an active worker, in case we need to do
     // things like GLFW that the OS forces to be on the main thread.)
@@ -688,7 +629,6 @@ int main(int argc, char** argv) {
     }
     workerMain(0);
 
-    atexit(exitHandler);
     for (int i = 0; i < NTHREADS; i++) {
         pthread_join(th[i], NULL);
     }

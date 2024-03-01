@@ -16,5 +16,6 @@ Assert! when we are on {{} {
             Hold! counter [list X claims the counter is $i]
         }
         puts DONE
+        __exit 0
     }
 }} with environment {}

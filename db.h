@@ -18,59 +18,48 @@ typedef union StatementRef {
     uint64_t val;
 } StatementRef;
 #define STATEMENT_REF_NULL ((StatementRef) { .gen = 0, .idx = 0 })
-#define statementRefIsNonNull(ref) ((ref).idx != 0)
+#define statementRefIsNull(ref) ((ref).idx == 0)
 
 typedef union MatchRef {
     struct { int32_t gen; uint32_t idx; };
     uint64_t val;
 } MatchRef;
 #define MATCH_REF_NULL ((MatchRef) { .gen = 0, .idx = 0 })
-#define matchRefIsNonNull(ref) ((ref).idx != 0)
+#define matchRefIsNull(ref) ((ref).idx == 0)
+
+// Statement
+// ---------
 
 // The acquire function validates the ref and gives you a valid
-// pointer, or NULL if the ref is invalid. It also acquires the
-// statement lock.
+// pointer, or NULL if the ref is invalid. It increments the
+// statement's internal pointer counter so that it cannot be freed &
+// its gen and clause remain immutable.
 Statement* statementAcquire(Db* db, StatementRef stmt);
 void statementRelease(Statement* stmt);
 
 StatementRef statementRef(Db* db, Statement* stmt);
 
+Clause* statementClause(Statement* stmt);
+
+void statementRemoveChildMatch(Statement* stmt, MatchRef to);
+void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
+
+// Match
+// -----
+
 // The acquire function validates the ref and gives you a valid
-// pointer, or NULL if the ref is invalid. It also acquires the match
-// lock.
+// pointer, or NULL if the ref is invalid. It increments the match's
+// internal pointer counter so that it cannot be freed & its gen
+// remains immutable.
 Match* matchAcquire(Db* db, MatchRef match);
 void matchRelease(Match* m);
 
+void matchRemoveSelf(Db* db, Match* m);
+
 MatchRef matchRef(Db* db, Match* m);
 
-Clause* statementClause(Statement* stmt);
-void statementFree(Statement* stmt);
-
-void matchFree(Match* match);
-
-typedef enum { EDGE_EMPTY, EDGE_PARENT, EDGE_CHILD } EdgeType;
-
-typedef struct StatementEdgeIterator {
-    Statement* stmt;
-    int idx;
-} StatementEdgeIterator;
-StatementEdgeIterator statementEdgesBegin(Statement* stmt);
-StatementEdgeIterator statementEdgesNext(StatementEdgeIterator it);
-bool statementEdgesIsEnd(StatementEdgeIterator it);
-EdgeType statementEdgeType(StatementEdgeIterator it);
-MatchRef statementEdgeMatch(StatementEdgeIterator it);
-
-int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, MatchRef to);
-
-typedef struct MatchEdgeIterator {
-    Match* match;
-    int idx;
-} MatchEdgeIterator;
-MatchEdgeIterator matchEdgesBegin(Match* match);
-MatchEdgeIterator matchEdgesNext(MatchEdgeIterator it);
-bool matchEdgesIsEnd(MatchEdgeIterator it);
-EdgeType matchEdgeType(MatchEdgeIterator it);
-StatementRef matchEdgeStatement(MatchEdgeIterator it);
+// Db
+// --
 
 typedef struct Clause Clause;
 
@@ -90,15 +79,19 @@ typedef struct ResultSet {
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
 // Note: once you call this, clause ownership transfers to the DB,
-// which then becomes responsible for freeing it later.  Returns a
-// StatementRef with gen -1 if no new statement was created.
-StatementRef dbInsertStatement(Db* db, Clause* clause,
-                               size_t nParents, MatchRef parents[]);
-MatchRef dbInsertMatch(Db* db,
-                       size_t nParents, StatementRef parents[]);
+// which then becomes responsible for freeing it later. Pass a null
+// MatchRef if this is an assertion. Returns a null StatementRef if no
+// new statement was created. 
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parent);
 
-// Caller must free the returned ResultSet*.
-ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern);
+// Call when you're about to begin a match (i.e., evaluating the
+// body of a When) -- creates the Match object that you'll attach any
+// emitted Statements to. The Match is guaranteed to have ptrCount ==
+// 1 when returned (in other words, the Match is returned already
+// acquired).
+MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]);
+
+void dbRetractStatements(Db* db, Clause* pattern);
 
 // If version is negative, then this statement will always stomp the
 // previous version. Note: once you call this, clause and key

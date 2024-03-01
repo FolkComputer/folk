@@ -7,53 +7,68 @@
 #include <string.h>
 
 #include <pthread.h>
+#include <stdatomic.h>
 
 #include "trie.h"
 #include "db.h"
 
-// Ref datatypes:
-
-typedef struct EdgeTo {
-    EdgeType type;
-    uint64_t to;
-} EdgeTo;
 typedef struct ListOfEdgeTo {
     size_t capacityEdges;
     size_t nEdges; // This is an upper bound.
-    EdgeTo edges[];
+    uint64_t edges[];
 } ListOfEdgeTo;
-#define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(EdgeTo))
+#define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(uint64_t))
 
 // Statement datatype:
 
 typedef struct Statement {
+    // How many active raw pointers to this statement exist?
+    // (incl. any that have been acquired from weak refs) This is used
+    // to determine whether the statement can be freed. You must
+    // increment ptrCount before accessing any other field in a
+    // Statement slot.
+    _Atomic int ptrCount;
+
+    // Immutable statement properties:
+
+    // statementAcquire needs to increment the ptrCount _first_, then
+    // check gen. gen cannot be mutated while ptrCount >= 1.
     uint32_t gen;
-    pthread_mutex_t mutex;
+    // Owned by the DB. clause cannot be mutated or invalidated while
+    // ptrCount >= 1.
+    Clause* clause;
 
-    Clause* clause; // Owned by the DB.
+    // Mutable statement properties:
 
-    // List of edges to parent & child Matches:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+    // How many living Matches (or Holds or Asserts) are supporting
+    // this statement? When parentCount hits 0, we deindex the
+    // statement.
+    _Atomic int parentCount;
+
+    // ListOfEdgeTo MatchRef. Used for removal.
+    ListOfEdgeTo* childMatches;
+    pthread_mutex_t childMatchesMutex;
 
     // TODO: Cache of Jim-local clause objects?
 
-    // TODO: Lock? Refcount?
-    // Retracter will ???
 } Statement;
 
 // Match datatype:
 
 struct Match {
-    uint32_t gen;
-    pthread_mutex_t mutex;
+    _Atomic int ptrCount;
 
-    /* bool isFromCollect; */
-    /* Statement* collectId; */
+    // Immutable match properties:
+
+    uint32_t gen;
+
+    // Mutable match properties:
 
     // TODO: Add match destructors.
 
-    // List of edges to parent & child Statements:
-    ListOfEdgeTo* edges; // Allocated separately so it can be resized.
+    // ListOfEdgeTo StatementRef. Used for removal.
+    ListOfEdgeTo* childStatements;
+    pthread_mutex_t childStatementsMutex;
 };
 
 // Database datatypes:
@@ -102,8 +117,7 @@ ListOfEdgeTo* listOfEdgeToNew(size_t capacityEdges) {
 static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr);
 // Takes a double pointer to list because it may move the list to grow
 // it (requiring replacement of the original pointer).
-void listOfEdgeToAdd(ListOfEdgeTo** listPtr,
-                     EdgeType type, uint64_t to) {
+void listOfEdgeToAdd(ListOfEdgeTo** listPtr, uint64_t to) {
     if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
         // We've run out of edge slots at the end of the
         // list. Try defragmenting the list.
@@ -119,21 +133,15 @@ void listOfEdgeToAdd(ListOfEdgeTo** listPtr,
     assert((*listPtr)->nEdges < (*listPtr)->capacityEdges);
     // There's a free slot at the end of the edgelist in
     // the statement. Use it.
-    (*listPtr)->edges[(*listPtr)->nEdges++] = (EdgeTo) { .type = type, .to = to };
+    (*listPtr)->edges[(*listPtr)->nEdges++] = to;
 }
-int listOfEdgeToRemove(ListOfEdgeTo* list,
-                       EdgeType type, uint64_t to) {
+void listOfEdgeToRemove(ListOfEdgeTo* list, uint64_t to) {
     assert(list != NULL);
-    int parentEdges = 0;
     for (size_t i = 0; i < list->nEdges; i++) {
-        EdgeTo* edge = &list->edges[i];
-        if (edge->type == type && edge->to == to) {
-            edge->type = EDGE_EMPTY;
-            edge->to = 0;
+        if (list->edges[i] == to) {
+            list->edges[i] = to;
         }
-        if (edge->type == EDGE_PARENT) { parentEdges++; }
     }
-    return parentEdges;
 }
 
 // Given listPtr, moves all non-EMPTY edges to the front, then updates
@@ -147,8 +155,8 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
     ListOfEdgeTo* list = calloc(SIZEOF_LIST_OF_EDGE_TO((*listPtr)->capacityEdges), 1);
     size_t nEdges = 0;
     for (size_t i = 0; i < (*listPtr)->nEdges; i++) {
-        EdgeTo* edge = &(*listPtr)->edges[i];
-        if (edge->type != EDGE_EMPTY) { list->edges[nEdges++] = *edge; }
+        uint64_t edge = (*listPtr)->edges[i];
+        if (edge != 0) { list->edges[nEdges++] = edge; }
     }
     list->nEdges = nEdges;
     list->capacityEdges = (*listPtr)->capacityEdges;
@@ -158,19 +166,64 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 }
 
 ////////////////////////////////////////////////////////////
+// Removal:
+////////////////////////////////////////////////////////////
+
+static void reactToRemovedStatement(Db* db, Statement* stmt) {
+    for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
+        MatchRef childRef = { .val = stmt->childMatches->edges[i] };
+        Match* child = matchAcquire(db, childRef);
+        if (child != NULL) {
+            // The removal of _any_ of a Match's statement parents
+            // means the removal of that Match.
+            matchRemoveSelf(db, child);
+            matchRelease(child);
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////
 // Statement:
 ////////////////////////////////////////////////////////////
 
-Statement* statementAcquire(Db* db, StatementRef stmt) {
-    Statement* s = &db->statementPool[stmt.idx];
-    pthread_mutex_lock(&s->mutex);
-    if (stmt.gen >= 0 && stmt.gen == s->gen) { return s; }
+Statement* statementAcquire(Db* db, StatementRef ref) {
+    if (ref.idx == 0) { return NULL; }
 
-    pthread_mutex_unlock(&s->mutex);
-    return NULL;
+    Statement* s = &db->statementPool[ref.idx];
+    // statementAcquire needs to increment the ptrCount _first_, then
+    // check gen. (It's only guaranteed that no one can change gen or
+    // otherwise invalidate the statement once ptrCount is
+    // incremented.)
+    if (s->ptrCount++ == 0) {
+        // It is being freed, so we should stop.
+        s->ptrCount--;
+        return NULL;
+    }
+    if (ref.gen <= 0 || ref.gen != s->gen) {
+        s->ptrCount--; // TODO: what if this zeroes it?
+        return NULL;
+    }
+    return s;
 }
-void statementRelease(Statement* s) {
-    pthread_mutex_unlock(&s->mutex);
+void statementRelease(Statement* stmt) {
+    if (--stmt->ptrCount == 0) {
+        stmt->gen++; // Guard the rest of the freeing process.
+
+        /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
+        /* Clause* stmtClause = statementClause(stmt); */
+        /* for (int i = 0; i < stmtClause->nTerms; i++) { */
+        /*     free(stmtClause->terms[i]); */
+        /* } */
+        /* free(stmtClause); */
+
+        stmt->parentCount = 0;
+        free(stmt->childMatches);
+        stmt->childMatches = NULL;
+
+        // How do we mark this statement slot as being fully free and
+        // ready for reuse?
+        stmt->clause = NULL;
+    }
 }
 StatementRef statementRef(Db* db, Statement* stmt) {
     return (StatementRef) {
@@ -182,91 +235,90 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
-// becomes responsible for freeing it.
-static StatementRef statementNew(Db* db,
-                                 Clause* clause,
-                                 size_t nParents, MatchRef parents[],
-                                 size_t nChildren, MatchRef children[]) {
+// becomes responsible for freeing it. Note: returns an acquired
+// (ptrCount-incremented) statement pointer so it's safe to store in
+// the index.
+static StatementRef statementNew(Db* db, Clause* clause) {
     StatementRef ret;
     Statement* stmt = NULL;
-    do {
-        if (stmt != NULL) { pthread_mutex_unlock(&stmt->mutex); }
-
+    // Look for a free statement slot to use:
+    while (1) {
         int32_t idx = db->statementPoolNextIdx++;
+        if (idx == 0) { continue; }
         stmt = &db->statementPool[idx];
-        pthread_mutex_lock(&stmt->mutex);
 
         ret = (StatementRef) { .gen = stmt->gen, .idx = idx };
-    } while (stmt->clause != NULL || ret.idx == 0);
+
+        if (stmt->ptrCount == 0 && stmt->clause == NULL) {
+            int expectedPtrCount = 0;
+            if (atomic_compare_exchange_weak(&stmt->ptrCount, 
+                                             &expectedPtrCount, 1)) {
+                break;
+            }
+        }
+    }
 
     stmt->clause = clause;
-    stmt->edges = listOfEdgeToNew((nParents + nChildren) * 2 < 8 ?
-                                 8 : (nParents + nChildren) * 2 < 8);
-    for (size_t i = 0; i < nParents; i++) {
-        listOfEdgeToAdd(&stmt->edges, EDGE_PARENT, parents[i].val);
-    }
-    for (size_t i = 0; i < nChildren; i++) {
-        listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, children[i].val);
-    }
-    pthread_mutex_unlock(&stmt->mutex);
+
+    stmt->parentCount = 1;
+    stmt->childMatches = listOfEdgeToNew(8);
+    pthread_mutex_init(&stmt->childMatchesMutex, NULL);
+
     return ret;
 }
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
 
-StatementEdgeIterator statementEdgesBegin(Statement* stmt) {
-    return (StatementEdgeIterator) { .stmt = stmt, .idx = 0 };
-}
-bool statementEdgesIsEnd(StatementEdgeIterator it) {
-    return it.idx == it.stmt->edges->nEdges;
-}
-StatementEdgeIterator statementEdgesNext(StatementEdgeIterator it) {
-    return (StatementEdgeIterator) { .stmt = it.stmt, .idx = it.idx + 1 };
-}
-EdgeType statementEdgeType(StatementEdgeIterator it) {
-    return it.stmt->edges->edges[it.idx].type;
-}
-MatchRef statementEdgeMatch(StatementEdgeIterator it) {
-    return *(MatchRef*) &it.stmt->edges->edges[it.idx].to;
-}
-
-int statementRemoveEdgeToMatch(Statement* stmt, EdgeType type, MatchRef to) {
-    return listOfEdgeToRemove(stmt->edges, type, to.val);
-}
-
-void statementFree(Statement* stmt) {
-    /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
-    /* Clause* stmtClause = statementClause(stmt); */
-    /* for (int i = 0; i < stmtClause->nTerms; i++) { */
-    /*     free(stmtClause->terms[i]); */
-    /* } */
-    /* free(stmtClause); */
-    free(stmt->edges);
-    stmt->clause = NULL;
-    stmt->edges = NULL;
-    stmt->gen++;
+void statementRemoveChildMatch(Statement* stmt, MatchRef to) {
+    listOfEdgeToRemove(stmt->childMatches, to.val);
 }
 
 void statementAddChildMatch(Statement* stmt, MatchRef child) {
-    listOfEdgeToAdd(&stmt->edges, EDGE_CHILD, child.val);
+    listOfEdgeToAdd(&stmt->childMatches, child.val);
 }
-void statementAddParentMatch(Statement* stmt, MatchRef parent) {
-    listOfEdgeToAdd(&stmt->edges, EDGE_PARENT, parent.val);
+void statementAddParent(Statement* stmt) { stmt->parentCount++; }
+void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
+    if (--stmt->parentCount == 0) {
+        // Deindex the statement:
+        uint64_t results[100];
+        int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
+                                  (uint64_t*) results, sizeof(results)/sizeof(results[0]));
+        if (nResults != 1) {
+            fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: warning: trieRemove nResults != 1\n");
+        }
+
+        reactToRemovedStatement(db, stmt);
+    }
 }
 
 ////////////////////////////////////////////////////////////
 // Match:
 ////////////////////////////////////////////////////////////
 
-Match* matchAcquire(Db* db, MatchRef match) {
-    Match* m = &db->matchPool[match.idx];
-    pthread_mutex_lock(&m->mutex);
-    if (match.gen == m->gen) { return m; }
+Match* matchAcquire(Db* db, MatchRef ref) {
+    if (ref.idx == 0) { return NULL; }
 
-    pthread_mutex_unlock(&m->mutex);
-    return NULL;
+    Match* m = &db->matchPool[ref.idx];
+    // matchAcquire needs to increment the ptrCount _first_, then
+    // check gen. (It's only guaranteed that no one can change gen or
+    // otherwise invalidate the match once ptrCount is incremented.)
+    if (m->ptrCount++ == 0) {
+        // It is being freed, so we should stop.
+        m->ptrCount--;
+        return NULL;
+    }
+    if (ref.gen <= 0 || ref.gen != m->gen) {
+        m->ptrCount--; // TODO: what if this zeroes it?
+        return NULL;
+    }
+    return m;
 }
-void matchRelease(Match* m) {
-    pthread_mutex_unlock(&m->mutex);
+void matchRelease(Match* match) {
+    if (--match->ptrCount == 0) {
+        match->gen++; // Guard the rest of the freeing process.
+
+        free(match->childStatements);
+        match->childStatements = NULL;
+    }
 }
 MatchRef matchRef(Db* db, Match* match) {
     return (MatchRef) {
@@ -275,56 +327,44 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db,
-                         size_t nParents, StatementRef parents[]) {
+static MatchRef matchNew(Db* db) {
     MatchRef ret;
     Match* match = NULL;
-    do {
-        if (match != NULL) { pthread_mutex_unlock(&match->mutex); }
-
+    // Look for a free match slot to use:
+    while (1) {
         int32_t idx = db->matchPoolNextIdx++;
+        if (idx == 0) { continue; }
         match = &db->matchPool[idx];
-        pthread_mutex_lock(&match->mutex);
 
         ret = (MatchRef) { .gen = match->gen, .idx = idx };
-    } while (match->edges != NULL || ret.idx == 0);
 
-    match->edges = listOfEdgeToNew(nParents * 2);
-    for (size_t i = 0; i < nParents; i++) {
-        listOfEdgeToAdd(&match->edges, EDGE_PARENT,
-                        parents[i].val);
+        if (match->ptrCount == 0 && match->childStatements == NULL) {
+            int expectedPtrCount = 0;
+            if (atomic_compare_exchange_weak(&match->ptrCount,
+                                             &expectedPtrCount, 1)) {
+                break;
+            }
+        }
     }
-    pthread_mutex_unlock(&match->mutex);
+
+    match->childStatements = listOfEdgeToNew(8);
+    pthread_mutex_init(&match->childStatementsMutex, NULL);
+
     return ret;
 }
 
-void matchFree(Match* match) {
-    free(match->edges);
-    match->edges = NULL;
-    match->gen = (match->gen + 1) % INT32_MAX;
-}
-
-MatchEdgeIterator matchEdgesBegin(Match* match) {
-    return (MatchEdgeIterator) { .match = match, .idx = 0 };
-}
-bool matchEdgesIsEnd(MatchEdgeIterator it) {
-    return it.idx == it.match->edges->nEdges;
-}
-MatchEdgeIterator matchEdgesNext(MatchEdgeIterator it) {
-    return (MatchEdgeIterator) { .match = it.match, .idx = it.idx + 1 };
-}
-EdgeType matchEdgeType(MatchEdgeIterator it) {
-    return it.match->edges->edges[it.idx].type;
-}
-StatementRef matchEdgeStatement(MatchEdgeIterator it) {
-    return (StatementRef) { .val = it.match->edges->edges[it.idx].to };
-}
-
 void matchAddChildStatement(Match* match, StatementRef child) {
-    listOfEdgeToAdd(&match->edges, EDGE_CHILD, child.val);
+    listOfEdgeToAdd(&match->childStatements, child.val);
 }
-void matchAddParentStatement(Match* match, StatementRef parent) {
-    listOfEdgeToAdd(&match->edges, EDGE_PARENT, parent.val);
+void matchRemoveSelf(Db* db, Match* match) {
+    for (size_t i = 0; i < match->childStatements->nEdges; i++) {
+        StatementRef childRef = { .val = match->childStatements->edges[i] };
+        Statement* child = statementAcquire(db, childRef);
+        if (child != NULL) {
+            statementRemoveParentAndMaybeRemoveSelf(db, child);
+            statementRelease(child);
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////
@@ -334,15 +374,9 @@ void matchAddParentStatement(Match* match, StatementRef parent) {
 Db* dbNew() {
     Db* ret = calloc(sizeof(Db), 1);
 
-    for (int i = 0; i < sizeof(ret->statementPool)/sizeof(ret->statementPool[0]); i++) {
-        pthread_mutex_init(&ret->statementPool[i].mutex, NULL);
-    }
     ret->statementPool[0].gen = 0xFFFFFFFF;
     ret->statementPoolNextIdx = 1;
 
-    for (int i = 0; i < sizeof(ret->matchPool)/sizeof(ret->matchPool[0]); i++) {
-        pthread_mutex_init(&ret->matchPool[i].mutex, NULL);
-    }
     ret->matchPool[0].gen = 0xFFFFFFFF;
     ret->matchPoolNextIdx = 1;
 
@@ -377,65 +411,46 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
-StatementRef dbInsertStatement(Db* db, Clause* clause,
-                               size_t nParents, MatchRef parents[]) {
+// Assumption: the db (statement addition) mutex is held by the
+// caller. What happens if the parent match is removed at some point?
+// How do we ensure that either this statement is retracted or it
+// never appears?
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMatchRef) {
     // Is this clause already present among the existing statements?
-    uint64_t ids[10];
+    StatementRef existingRefs[10];
+    int existingRefsCount = trieLookupLiteral(db->clauseToStatementId, clause,
+                                              (uint64_t*) existingRefs,
+                                              sizeof(existingRefs)/sizeof(existingRefs[0]));
 
-    // What if I run 2 insert statements in parallel that both have
-    // the same clause? Desired outcome: get one statement in DB with
-    // merged set of parents.
-    int idslen = trieLookupLiteral(db->clauseToStatementId, clause,
-                                   (uint64_t*) ids, sizeof(ids)/sizeof(ids[0]));
+    Match* parent = matchAcquire(db, parentMatchRef);
+    if (!matchRefIsNull(parentMatchRef) && parent == NULL) {
+        // Parent match has been invalidated -- abort!
+        return STATEMENT_REF_NULL;
+    }
 
-    StatementRef ref = {0};
     Statement* stmt;
-    bool needNewStatement;
-    if (idslen == 1) {
+    if (existingRefsCount == 1 && (stmt = statementAcquire(db, existingRefs[0]))) {
         // The clause already exists. We'll add the parents to the
         // existing statement instead of making a new statement.
-        printf("Reuse: (%s)\n", clauseToString(clause));
+        /* printf("Reuse: (%s)\n", clauseToString(clause)); */
 
-        ref = (StatementRef) { .val = ids[0] };
-        stmt = statementAcquire(db, ref);
-
-        for (size_t i = 0; i < nParents; i++) {
-            statementAddParentMatch(stmt, parents[i]);
-        }
-        statementRelease(stmt);
-
-        for (size_t i = 0; i < nParents; i++) {
-            Match* parent = matchAcquire(db, parents[i]);
-            if (parent) {
-                matchAddChildStatement(parent, ref);
-                matchRelease(parent);
-            } else {
-                // TODO: Acquire statement, check if statement has any
-                // other valid parents besides this one? If not, then
-                // destroy the statement.
-                printf("dbInsertStatement: parent match was invalidated\n");
-            }
+        statementAddParent(stmt);
+        if (parent) {
+            matchAddChildStatement(parent, existingRefs[0]);
+            matchRelease(parent);
         }
         return STATEMENT_REF_NULL;
 
-    } else if (idslen == 0) {
+    } else if (existingRefsCount == 0) {
         // The clause doesn't exist in a statement yet. Make the new
         // statement.
 
-        ref = statementNew(db, clause, nParents, parents, 0, NULL);
+        StatementRef ref = statementNew(db, clause);
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
 
-        for (size_t i = 0; i < nParents; i++) {
-            Match* parent = matchAcquire(db, parents[i]);
-            if (parent) {
-                matchAddChildStatement(parent, ref);
-                matchRelease(parent);
-            } else {
-                // TODO: Acquire statement, check if statement has any
-                // other valid parents besides this one? If not, then
-                // destroy the statement.
-                printf("dbInsertStatement: parent match was invalidated\n");
-            }
+        if (parent) {
+            matchAddChildStatement(parent, ref);
+            matchRelease(parent);
         }
         return ref;
 
@@ -446,43 +461,47 @@ StatementRef dbInsertStatement(Db* db, Clause* clause,
     }
 }
 
-MatchRef dbInsertMatch(Db* db,
-                       size_t nParents, StatementRef parents[]) {
-    MatchRef match = matchNew(db, nParents, parents);
+MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
+    MatchRef ref = matchNew(db);
+    Match* match = matchAcquire(db, ref);
     for (size_t i = 0; i < nParents; i++) {
         Statement* parent = statementAcquire(db, parents[i]);
         if (parent) {
-            statementAddChildMatch(parent, match);
+            pthread_mutex_lock(&parent->childMatchesMutex);
+            statementAddChildMatch(parent, ref);
+            pthread_mutex_unlock(&parent->childMatchesMutex);
+
             statementRelease(parent);
         } else {
             // TODO: The parent is dead; we should abort/reverse this
             // whole thing.
             printf("dbInsertMatch: parent stmt was invalidated\n");
+            return MATCH_REF_NULL;
         }
     }
-    return match;
+    matchRelease(match);
+    return ref;
 }
 
-ResultSet* dbQueryAndDeindexStatements(Db* db, Clause* pattern) {
-    uint64_t results[500];
+void dbRetractStatements(Db* db, Clause* pattern) {
+    StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
     // TODO: Should we accept a StatementRef and enforce that is what
     // gets removed?
-    size_t nResults = trieRemove(db->clauseToStatementId, pattern,
-                                 results, maxResults);
+    size_t nResults = trieLookup(db->clauseToStatementId, pattern,
+                                 (uint64_t*) results, maxResults);
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
         fprintf(stderr, "dbQuery: Hit max results\n"); exit(1);
     }
 
-    ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
-    ret->nResults = nResults;
     for (size_t i = 0; i < nResults; i++) {
-        ret->results[i] = (StatementRef) { .val = results[i] };
+        Statement* stmt = statementAcquire(db, results[i]);
+        statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+        statementRelease(stmt);
     }
-    return ret;
 }
 
 StatementRef dbHoldStatement(Db* db,
@@ -529,7 +548,7 @@ StatementRef dbHoldStatement(Db* db,
 
         hold->version = version;
 
-        StatementRef newStmt = dbInsertStatement(db, clause, 0, NULL);
+        StatementRef newStmt = dbInsertOrReuseStatement(db, clause, MATCH_REF_NULL);
         hold->statement = newStmt;
 
         pthread_mutex_unlock(&hold->mutex);
@@ -584,3 +603,4 @@ Clause* clause(char* first, ...) {
     c->nTerms = i;
     return c;
 }
+
