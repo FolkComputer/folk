@@ -199,7 +199,7 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
         s->ptrCount--;
         return NULL;
     }
-    if (ref.gen <= 0 || ref.gen != s->gen) {
+    if (ref.gen < 0 || ref.gen != s->gen) {
         s->ptrCount--; // TODO: what if this zeroes it?
         return NULL;
     }

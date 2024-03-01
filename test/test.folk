@@ -2,6 +2,8 @@ puts Hello
 
 Assert! we are on
 Assert! when we are on {{} {
+    puts "In --"
+
     When the counter is /t/ {
         puts $t
         Claim the counter is now running

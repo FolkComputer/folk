@@ -498,7 +498,7 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
 
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
+        printf("Assert (%s)\n", clauseToString(item.assert.clause));
 
         StatementRef ref;
 
@@ -537,7 +537,7 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex); printf("@%d: Say rel\n", threadId);
 
     } else if (item.op == RUN) {
-        /* printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern)); */
+        printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern));
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
 
     } else {
