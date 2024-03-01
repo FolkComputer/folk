@@ -185,8 +185,8 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
-        envDict[0] = Jim_NewStringObj(interp, "__stmt", -1);
-        char buf[100]; snprintf(buf, 100,  "(Statement*) 0x%p", result);
+        envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
+        char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
         envDict[1] = Jim_NewStringObj(interp, buf, -1);
         for (int j = 0; j < env->nBindings; j++) {
             envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);

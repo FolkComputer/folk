@@ -17,6 +17,8 @@ set getCc {{} {
     set dbCFd [open "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
     $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
+    $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
+    $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];
@@ -25,25 +27,34 @@ set getCc {{} {
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
-    $cc proc clause {Statement* stmt} Jim_Obj* {
-        return clauseToJimObj(statementClause(stmt));
+    $cc proc clause {Db* db StatementRef stmtRef} Jim_Obj* {
+        Statement* stmt = statementAcquire(db, stmtRef);
+        Jim_Obj* ret = clauseToJimObj(statementClause(stmt));
+        statementRelease(stmt);
+        return ret;
     }
-    $cc proc childMatches {Statement* stmt} Jim_Obj* {
+    $cc proc childMatches {Db* db StatementRef stmtRef} Jim_Obj* {
+        Statement* stmt = statementAcquire(db, stmtRef);
+
         int nChildren = 0;
         Jim_Obj* childObjs[stmt->childMatches->nEdges];
         for (int i = 0; i < stmt->childMatches->nEdges; i++) {
             MatchRef child = { .val = stmt->childMatches->edges[i] };
             childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
         }
+        statementRelease(stmt);
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
-    $cc proc childStatements {Match* match} Jim_Obj* {
+    $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
+        Match* match = matchAcquire(db, matchRef);
+
         int nChildren = 0;
         Jim_Obj* childObjs[match->childStatements->nEdges];
         for (int i = 0; i < match->childStatements->nEdges; i++) {
             StatementRef child = { .val = match->childStatements->edges[i] };
             childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
         }
+        matchRelease(match);
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
 
@@ -56,13 +67,13 @@ set dbDotify {{getCc db} {
     set cc [apply $getCc]
     set dot [list]
     foreach stmt [Query! /...anything/] {
-        set stmt [dict get $stmt __stmt]
-        set label [$cc clause $stmt]
+        set stmtRef [dict get $stmt __ref]
+        set label [$cc clause $db $stmtRef]
         set label [join [lmap line [split $label "\n"] {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
         }] "\n"]
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-        lappend dot "<$stmt> \[label=\"$stmt: $label\"\];"
+        lappend dot "<$stmtRef> \[label=\"$stmtRef: $label\"\];"
 
         # foreach matchId [$cc parentMatches $stmt] {
         #     # set parents [lmap edge [matchEdges $matchId] {expr {
@@ -71,9 +82,12 @@ set dbDotify {{getCc db} {
         #     # lappend dot "<$matchId> \[label=\"$matchId <- $parents\"\];"
         #     lappend dot "<$matchId> -> <$stmt>;"
         # }
-        
-        foreach childMatchId [$cc childMatches $stmt] {
-            lappend dot "<$stmt> -> <$childMatchId>;"
+
+        foreach childMatchRef [$cc childMatches $db $stmtRef] {
+            lappend dot "<$stmtRef> -> <$childMatchRef>;"
+            foreach childStatementRef [$cc childStatements $db $childMatchRef] {
+                lappend dot "<$childMatchRef> -> <$childStatementRef>;"
+            }
         }
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
