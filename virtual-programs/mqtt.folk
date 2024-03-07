@@ -1,4 +1,11 @@
 Start process mqtt {
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes MQTT publish /...anything/]
+    Wish $::thisProcess receives statements like \
+        [list $::thisNode has step count /...anything/]
+    Wish $::thisProcess shares statements like \
+        [list MQTT claims message /message/ topic /topic/ timestamp /timestamp/]
+
     ::tcl::tm::path add /home/folk/mqtt
     package require mqtt
 
@@ -7,25 +14,69 @@ Start process mqtt {
 
     proc cb {topic content status} {
         # upvar 1 client client
-        puts "$topic: [encoding convertfrom utf-8 $content]"
-        # $client publish "test" "echo"
-        if {$topic eq "/home/slider"} {
-            set val [encoding convertfrom utf-8 $content]
-            puts "Got val: $val"
-            if {$val > 1000} {
-                puts "Too hot!"
-                $::mqttclient publish "testtopic" "too hot!"
+        set message [encoding convertfrom utf-8 $content]
+        puts "MQTT CALLBACK: $topic: $message"
+        set now [clock milliseconds]
+        Assert MQTT claims message $message topic $topic timestamp $now
+
+        # Retract all events that are more than 5 seconds old.
+        set events [Statements::findMatches [list MQTT claims message /message/ topic /topic/ timestamp /timestamp/]]
+        foreach event $events {
+            dict with event {
+                if {$now - $timestamp > 5000} {
+                    Retract MQTT claims message $message topic $topic timestamp $timestamp
+                }
             }
         }
+        
+        # puts "claimed!"
     }
     $client connect test-client localhost 1883
-    $client subscribe "home/#" cb
-    $client subscribe "/home/slider" cb
 
-    After 2000 milliseconds {
-        puts "about to send!"
-        $client publish "test" "echo"
+    $client subscribe "/#" cb
+
+    # When /node/ has step count /c/ {
+    #     if {[expr {int($c) % 1000}] == 0} {
+    #         puts "Got matching inside! $c $::thisNode"
+    #     }
+    # }
+
+    # When /someone/ wishes MQTT publish /m/ on topic /t/ at step count /c/ & $::thisNode has step count /c/ {
+    #     puts "publishing $m on $t"
+    #     $::mqttclient publish "$t" "$m"
+    # }
+
+    When /someone/ wishes MQTT publish /m/ on topic /t/ at timestamp /ts/ {
+        puts "publishing $m on $t at $ts"
+        $::mqttclient publish "$t" "$m"
     }
 
-    vwait forever
+    while true {
+        # Step for folk, update for TCL and MQTT
+        Step
+        update
+    }
 }
+
+# Example programs
+
+# When /node/ has step count /c/ {
+#   if {[expr {int($c) % 1000}] == 0} {
+#     puts "Wishing! $c"
+#     set ts [clock milliseconds]
+#     Wish MQTT publish "hello!" on topic /hello at timestamp $ts
+#   }
+# }
+
+# Every time MQTT claims message /message/ topic "/home/sensors/temp/kitchen" timestamp /any/ {
+#   puts "SAW BUTTON PRESS!"
+#   # & $::thisNode has step count /c/
+#   set c [clock milliseconds]
+#   Commit { Wish MQTT publish "11111111111" on topic /home/matrixportal at timestamp $c }
+# }
+
+# Every time MQTT claims message /message/ topic "/hello" timestamp /any/ {
+#   puts "CLEARING SCREEN"
+#   set c [clock milliseconds]
+#   Commit { Wish MQTT publish "0000" on topic /home/matrixportal at timestamp $c }
+# }
