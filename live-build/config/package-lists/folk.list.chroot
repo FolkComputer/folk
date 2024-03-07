@@ -15,3 +15,5 @@ meson
 libgbm-dev
 glslc
 vulkan-validationlayers
+cups
+cups-bsd

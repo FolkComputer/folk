@@ -1,3 +1,6 @@
 [submodule "config/includes.chroot_after_packages/etc/skel/folk"]
 	path = config/includes.chroot_after_packages/etc/skel/folk
 	url = https://git.folk.computer/folk
+[submodule "config/includes.chroot_after_packages/etc/skel/apriltag"]
+	path = config/includes.chroot_after_packages/etc/skel/apriltag
+	url = https://github.com/FolkComputer/apriltag
