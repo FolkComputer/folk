@@ -92,7 +92,7 @@ if flashing from a Mac])
    control --reload-rules && sudo udevadm trigger`
 
 1. Get AprilTags: `cd ~ && git clone
-   https://github.com/AprilRobotics/apriltag.git && cd apriltag && make`
+   https://github.com/FolkComputer/apriltag.git && cd apriltag && make`
    (you can probably ignore errors at the end of this if they're just
    for the OpenCV demo)
 
