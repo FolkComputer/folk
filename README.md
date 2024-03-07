@@ -514,18 +514,15 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On
+#### On and Start
 
-General note: the `On` block is used for weird non-reactive
-behavior.
+FIXME: General note: the `On` and `Start` blocks are used for weird
+non-reactive behavior. Need to fill this out more.
 
-You should _not_ use `When`, `Claim`, or `Wish` directly inside an
-`On` block; those only make sense inside a normal reactive context.
-
-##### On process
+##### Start process
 
 ```
-On process A {
+Start process A {
   while true {
     puts "Hello! Another second has passed"
     exec sleep 1
@@ -535,12 +532,17 @@ On process A {
 
 ##### On unmatch
 
+You should _not_ use `When`, `Claim`, or `Wish` directly inside an
+`On unmatch` block; those only make sense inside a normal reactive
+context.
+
 ```
 set pid [exec python3]
 On unmatch {
     kill $pid
 }
 ```
+
 
 #### Non-capturing
 
