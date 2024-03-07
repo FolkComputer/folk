@@ -1,0 +1,3 @@
+[submodule "config/includes.chroot_after_packages/etc/skel/folk"]
+	path = config/includes.chroot_after_packages/etc/skel/folk
+	url = https://git.folk.computer/folk

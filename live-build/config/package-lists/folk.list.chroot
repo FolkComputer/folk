@@ -1,0 +1,17 @@
+build-essential
+tcl8.6-dev
+git
+libjpeg-dev
+libpng-dev
+fbset
+libdrm-dev
+pkg-config
+v4l-utils
+mesa-vulkan-drivers
+vulkan-tools
+libvulkan-dev
+libvulkan1
+meson
+libgbm-dev
+glslc
+vulkan-validationlayers
