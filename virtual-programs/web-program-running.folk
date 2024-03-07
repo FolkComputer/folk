@@ -114,6 +114,7 @@ const moveHandler = ({offsetX, offsetY}) => {
 
 const refreshList = () => {
 	ws.send(`Retract web wishes potential programs would be updated at step count /c/;Assert web wishes potential programs would be updated at step count ${(new Date()).getTime()}`);
+	location.reload();
 }
 
 ws.onopen = () => {
@@ -133,12 +134,20 @@ ws.onopen = () => {
 			} else {
 				ws.send(`Assert web claims program ${program} has a program`);
 			}
+			location.reload();
 		});
 		container.appendChild(button);
 
 		const pre = document.createElement('pre');
 		pre.innerText = possibleProgramsCode[i];
 		container.appendChild(pre);
+
+		const editLink = document.createElement('a');
+		editLink.href = `/page/${program}`;
+		editLink.innerText = 'Edit';
+		editLink.target = '_blank';
+		container.appendChild(editLink);
+		
 		document.body.appendChild(container);
 	});
 };
