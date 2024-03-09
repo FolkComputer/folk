@@ -41,13 +41,13 @@ $cc proc ::tagImageForId {int id} char* {
 }
 $cc compile
 
-proc ::programToPs {id text {format "letter"} {side "front"}} {
+proc ::programToPs {id text {format "letter"} {side "front"} {fontsize 12} {tagsize 150}} {
     set margin 36
     set PageWidth 612; set PageHeight 792
 
     if {$format eq "indexcard"} {
         # front in portrait, back in landscape
-        set tagwidth 150; set tagheight 150
+        set tagsize 150
         set fontsize 8; set lineheight [expr $fontsize*1.5]
         set margin 36
         if {$side eq "front"} {
@@ -59,8 +59,8 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
                 90 rotate
 
                 gsave
-                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
-                $tagwidth $tagheight scale
+                [expr $PageHeight-$tagsize-$margin] [expr -$margin-$tagsize] translate
+                $tagsize $tagsize scale
                 $image
                 grestore
 
@@ -68,7 +68,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
                 10 scalefont
                 setfont
                 newpath
-                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth-16] moveto
+                [expr $PageHeight-$tagsize-$margin] [expr -$margin-$tagsize-16] moveto
                 ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
 
             }]
@@ -92,26 +92,35 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         }
     }
 
-    set tagwidth 150; set tagheight 150
-    set fontsize 12; set lineheight [expr $fontsize*1.5]
-
-    set image [::tagImageForId $id]
-
+    # tag each line with its 1-indexed line number
     set lines [split $text "\n"]
     for {set i 0} {$i < [llength $lines]} {incr i} {
-        # tag each line with its 1-indexed line number
         lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
     }
-    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
+
+    set fontwidth [expr $fontsize * 0.8]
+    set lineheight [expr $fontsize * 1.5]
+
+    # Constants for line-breaking
+    set numlineshort [expr {int(ceil($tagsize / $lineheight) + 1)}]
+    set numcharshort [expr {int(($PageWidth - $tagsize) / $fontwidth)}]
+    set numcharlong [expr {int($PageWidth / $fontwidth)}]
+
+    # Hard-wrap lines
+    for {set i 0} {$i < [llength $lines]} {incr i} {
         lassign [lindex $lines $i] linenum line
-        if {$i < 9 && [string length $line] > 50} {
-            lset lines $i 1 [string range $line 0 50]
-            set lines [linsert $lines $i+1 [list "" [string range $line 51 end]]]
-        } elseif {[string length $line] > 73} {
-            lset lines $i 1 [string range $line 0 73]
-            set lines [linsert $lines $i+1 [list "" [string range $line 74 end]]]
-        }
+
+   	if {$i < $numlineshort && [string length $line] > $numcharshort} {
+            lset lines $i 1 [string range $line 0 $numcharshort]
+            set lines [linsert $lines $i+1 [list "" [string range $line [+ $numcharshort 1] end]]]
+
+	} elseif {[string length $line] > $numcharlong} {
+            lset lines $i 1 [string range $line 0 $numcharlong]
+            set lines [linsert $lines $i+1 [list "" [string range $line [+ $numcharlong 1] end]]]
+	}
     }
+
+    set image [::tagImageForId $id]
 
     set lineidx 0
     subst {
@@ -136,8 +145,8 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
         [expr { $side eq "back" ? {} : [subst {
           gsave
-          [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
-          $tagwidth $tagheight scale
+          [expr $PageWidth-$tagsize-$margin] [expr $PageHeight-$tagsize-$margin] translate
+          $tagsize $tagsize scale
           $image
           grestore
         }] }]
@@ -146,7 +155,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         10 scalefont
         setfont
         newpath
-        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
+        [expr $PageWidth-$tagsize-$margin] [expr $PageHeight-$tagsize-16-$margin] moveto
         ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
     }
 }
@@ -188,17 +197,28 @@ proc remotePrintRequest {remoteNode clause} {
 }
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
-When /someone/ wishes to print /code/ with job id /jobid/ {
+
+When /someone/ wishes to print program /p/ with code /code/ with job id /jobid/ & \
+  the collected matches for [list /someone/ wishes /p/ prints with fontsize /s/] are /fontsizes/ & \
+  the collected matches for [list /someone/ wishes /p/ prints with tagsize /s/] are /tagsizes/ \
+{
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with job id $jobid]
+        remotePrintRequest "folk0" [list $::thisNode wishes to print program $p with code $code with job id $jobid]
         return
     }
 
     puts "Wish to print jobid $jobid"
     if {[dict exists $::printjobs $jobid]} {return}
 
-    set id [nextId]
+
+    # NB: for web-programs, we create a new program with a concrete id
+    set id $p
+    set isWebProgram [expr {[string first "web-program" $p] != -1}]
+    if {$isWebProgram} {
+        set id [nextId]
+    }
+
     dict set ::printjobs $jobid [list $id $code]
 
     set format "letter"
@@ -206,49 +226,36 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
        set format "indexcard"
     }
 
-    set ps [programToPs $id $code $format front]
+    set fontsize 12
+    if {[llength $fontsizes] > 0} {
+        set fontsize [dict get [lindex $fontsizes 0] s]
+    }
+
+    set tagsize 150
+    if {[llength $tagsizes] > 0} {
+        set tagsize [dict get [lindex $tagsizes 0] s]
+    }
+
+    set ps [programToPs $id $code $format front $fontsize $tagsize]
 
     # save code and ps to disk
-    if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
-        error "Program $id already exists on disk. Aborting print."
+    if {$isWebProgram} {
+        if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+            error "Program $id already exists on disk. Aborting print."
+        }
+        set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+        puts $fp $code
+        close $fp
     }
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
-    puts $fp $code
-    close $fp
 
     set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
     puts $fp $ps
     close $fp
 
     exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
-    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
+    # exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
 }
-When /someone/ wishes to print program /id/ with code /code/ with job id /jobid/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
-        # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print program $id with code $code with job id $jobid]
-        return
-    }
 
-    puts "Wish to print jobid $jobid"
-    if {[dict exists $::printjobs $jobid]} {return}
-
-    dict set ::printjobs $jobid [list $id $code]
-
-    set format "letter"
-    if {[string first {Wish $this prints on an index card} $code] != -1} {
-       set format "indexcard"
-    }
-
-    set ps [programToPs $id $code $format front]
-
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
-    puts $fp $ps
-    close $fp
-
-    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
-    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
-}
 When /someone/ wishes to print the back of job id /jobid/ {
     lassign [dict get $::printjobs $jobid] id code
 
