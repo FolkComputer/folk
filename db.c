@@ -62,6 +62,7 @@ typedef struct Match {
     uint32_t gen;
 
     // Mutable match properties:
+    _Atomic bool shouldFree;
 
     // TODO: Add match destructors.
 
@@ -193,22 +194,18 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     // check gen. (It's only guaranteed that no one can change gen or
     // otherwise invalidate the statement once ptrCount is
     // incremented.)
-    if (s->ptrCount++ == 0) {
-        // It is being freed, so we should stop.
-        s->ptrCount--;
-        return NULL;
-    }
+    s->ptrCount++;
     if (ref.gen < 0 || ref.gen != s->gen) {
-        s->ptrCount--; // TODO: what if this zeroes it?
+        s->ptrCount--;
         return NULL;
     }
     return s;
 }
 void statementRelease(Statement* stmt) {
-    if (--stmt->ptrCount == 0) {
+    if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
         stmt->gen++; // Guard the rest of the freeing process.
 
-        /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
+        printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause));
         /* Clause* stmtClause = statementClause(stmt); */
         /* for (int i = 0; i < stmtClause->nTerms; i++) { */
         /*     free(stmtClause->terms[i]); */
@@ -256,12 +253,18 @@ static StatementRef statementNew(Db* db, Clause* clause) {
             }
         }
     }
+    // We should have exclusive access to stmt right now, because its
+    // ptrCount is 1 but it's not pointed to by any ref or pointer
+    // other than the one we have.
 
     stmt->clause = clause;
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
     pthread_mutex_init(&stmt->childMatchesMutex, NULL);
+
+    // This won't free stmt until its parentCount is 0.
+    stmt->ptrCount = 0;
 
     return ret;
 }
@@ -300,11 +303,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
     // matchAcquire needs to increment the ptrCount _first_, then
     // check gen. (It's only guaranteed that no one can change gen or
     // otherwise invalidate the match once ptrCount is incremented.)
-    if (m->ptrCount++ == 0) {
-        // It is being freed, so we should stop.
-        m->ptrCount--;
-        return NULL;
-    }
+    m->ptrCount++;
     if (ref.gen < 0 || ref.gen != m->gen) {
         m->ptrCount--; // TODO: what if this zeroes it?
         return NULL;
@@ -312,7 +311,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
     return m;
 }
 void matchRelease(Match* match) {
-    if (--match->ptrCount == 0) {
+    if (--match->ptrCount == 0 && match->shouldFree) {
         match->gen++; // Guard the rest of the freeing process.
 
         free(match->childStatements);
@@ -346,8 +345,14 @@ static MatchRef matchNew(Db* db) {
         }
     }
 
+    // We should have exclusive access to match right now.
+
     match->childStatements = listOfEdgeToNew(8);
     pthread_mutex_init(&match->childStatementsMutex, NULL);
+    match->shouldFree = false;
+
+    // This won't free match until it's explicitly destroyed.
+    match->ptrCount = 0;
 
     return ret;
 }
@@ -364,6 +369,7 @@ void matchRemoveSelf(Db* db, Match* match) {
             statementRelease(child);
         }
     }
+    match->shouldFree = true;
 }
 
 ////////////////////////////////////////////////////////////
@@ -475,6 +481,7 @@ MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
             // TODO: The parent is dead; we should abort/reverse this
             // whole thing.
             printf("dbInsertMatch: parent stmt was invalidated\n");
+            matchRelease(match);
             return MATCH_REF_NULL;
         }
     }

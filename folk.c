@@ -279,6 +279,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     if (when == NULL || stmt == NULL) {
         if (when != NULL) { statementRelease(when); }
         if (stmt != NULL) { statementRelease(stmt); }
+        /* printf("Dead: when %p, stmt %p\n", when, stmt); */
         return;
     }
 
@@ -494,17 +495,18 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
 
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
+        printf("Assert (%s)\n", clauseToString(item.assert.clause));
 
         StatementRef ref;
 
         pthread_mutex_lock(&dbMutex);
         ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
+        printf("  Added: %d:%d\n", ref.idx, ref.gen);
         reactToNewStatement(ref, item.assert.clause);
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
-        /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
+        printf("Retract (%s)\n", clauseToString(item.retract.pattern));
 
         pthread_mutex_lock(&dbMutex);
         dbRetractStatements(db, item.retract.pattern);
@@ -533,6 +535,8 @@ void workerRun(WorkQueueItem item) {
 
     } else if (item.op == RUN) {
         /* printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern)); */
+        /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
+        /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
 
     } else {
