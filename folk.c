@@ -519,8 +519,14 @@ void workerRun(WorkQueueItem item) {
                                  item.hold.clause,
                                  &oldRef);
         reactToNewStatement(newRef, item.hold.clause);
+
         // TODO: We need to delay the react to removed statement until
         // full subconvergence of the addition of the new statement.
+        Statement* oldStmt;
+        if ((oldStmt = statementAcquire(db, oldRef))) {
+            statementRemoveParentAndMaybeRemoveSelf(db, oldStmt);
+            statementRelease(oldStmt);
+        }
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == SAY) {
