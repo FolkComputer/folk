@@ -369,6 +369,7 @@ void matchRemoveSelf(Db* db, Match* match) {
             statementRelease(child);
         }
     }
+    printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen);
     match->shouldFree = true;
 }
 

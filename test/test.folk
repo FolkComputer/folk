@@ -6,6 +6,7 @@ Assert! when we are on {{} {
 
     When the counter is /t/ {
         puts $t
+        Claim the counter is now $t
         Claim the counter is now running
     }
     When the counter is now running {

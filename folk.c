@@ -495,18 +495,17 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
 
 void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
-        printf("Assert (%s)\n", clauseToString(item.assert.clause));
+        /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
 
         pthread_mutex_lock(&dbMutex);
         ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
-        printf("  Added: %d:%d\n", ref.idx, ref.gen);
         reactToNewStatement(ref, item.assert.clause);
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
-        printf("Retract (%s)\n", clauseToString(item.retract.pattern));
+        /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
 
         pthread_mutex_lock(&dbMutex);
         dbRetractStatements(db, item.retract.pattern);
