@@ -18,6 +18,8 @@ Assert! when we are on {{} {
         for {set i 0} {$i < 200} {incr i} {
             Hold! counter [list X claims the counter is $i]
         }
+
+        exec sleep 1
         puts DONE
         __exit 0
     }

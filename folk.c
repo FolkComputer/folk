@@ -600,15 +600,21 @@ static void dbWriteToPdf() {
 static void exitHandler() {
     printf("exitHandler\n----------\n");
 
+    pthread_mutex_lock(&dbMutex);    
     trieWriteToPdf();
     dbWriteToPdf();
+    pthread_mutex_unlock(&dbMutex);
 }
 int main(int argc, char** argv) {
     // Do all setup.
 
     // Set up database.
     db = dbNew();
-    pthread_mutex_init(&dbMutex, NULL);
+    // TODO: hack
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&dbMutex, &attr);
 
     // Set up workqueue.
     workQueue = workQueueNew();
