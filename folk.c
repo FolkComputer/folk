@@ -512,6 +512,8 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == HOLD) {
+        /* printf("@%d: Hold (%s)\n", threadId, clauseToString(item.hold.clause)); */
+
         StatementRef oldRef; StatementRef newRef;
 
         pthread_mutex_lock(&dbMutex);

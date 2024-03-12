@@ -285,7 +285,10 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
                                   (uint64_t*) results, sizeof(results)/sizeof(results[0]));
         if (nResults != 1) {
-            fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: warning: trieRemove nResults != 1\n");
+            fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: "
+                    "warning: trieRemove (%s) nResults != 1 (%d)\n",
+                    clauseToString(stmt->clause),
+                    nResults);
         }
 
         reactToRemovedStatement(db, stmt);
@@ -568,6 +571,9 @@ StatementRef dbHoldStatement(Db* db,
             // is what gets removed?
             Statement* oldStmtPtr = statementAcquire(db, oldStmt);
             if (oldStmtPtr) {
+                // We deindex the old statement immediately, but we
+                // leave it to the caller to actually remove it (and
+                // pull out all its dependencies).
                 trieRemove(db->clauseToStatementId,
                            statementClause(oldStmtPtr),
                            results, maxResults);
