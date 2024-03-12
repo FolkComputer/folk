@@ -53,6 +53,12 @@ set getCc {{} {
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
 
+    $cc proc matchAcq {Db* db MatchRef matchRef} Match* {
+        return matchAcquire(db, matchRef);
+    }
+    $cc proc matchRel {Match* match} void {
+        matchRelease(match);
+    }
     $cc proc matchPtrCount {Db* db MatchRef matchRef} int {
         Match* match = matchAcquire(db, matchRef);
         int ret = match->ptrCount - 1;
@@ -97,11 +103,16 @@ set dbDotify {{getCc db} {
         }
     }
     foreach {matchRef _} $matchRefs {
+        set match [$cc matchAcq $db $matchRef]
+        if {$match eq "(Match*) 0x0"} { continue }
+
         set matchPtrCount [$cc matchPtrCount $db $matchRef]
         lappend dot "<$matchRef> \[label=\"$matchRef ($matchPtrCount)\"\];"
         foreach childStatementRef [$cc childStatements $db $matchRef] {
             lappend dot "<$matchRef> -> <$childStatementRef>;"
         }
+
+        $cc matchRel $match
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
 }}
