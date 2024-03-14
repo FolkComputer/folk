@@ -28,6 +28,12 @@ set getCc {{} {
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
 
+    $cc proc statementParentCount {Db* db StatementRef stmtRef} int {
+        Statement* stmt = statementAcquire(db, stmtRef);
+        int ret = stmt->parentCount;
+        statementRelease(stmt);
+        return ret;
+    }
     $cc proc statementPtrCount {Db* db StatementRef stmtRef} int {
         Statement* stmt = statementAcquire(db, stmtRef);
         int ret = stmt->ptrCount - 1;
@@ -94,8 +100,9 @@ set dbDotify {{getCc db} {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
         }] "\n"]
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+        set stmtParentCount [$cc statementParentCount $db $stmtRef]
         set stmtPtrCount [$cc statementPtrCount $db $stmtRef]
-        lappend dot "<$stmtRef> \[label=\"$stmtRef ($stmtPtrCount): $label\"\];"
+        lappend dot "<$stmtRef> \[label=\"$stmtRef ($stmtParentCount parents) ($stmtPtrCount ptrs): $label\"\];"
 
         foreach childMatchRef [$cc childMatches $db $stmtRef] {
             lappend dot "<$stmtRef> -> <$childMatchRef>;"
