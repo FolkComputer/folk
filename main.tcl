@@ -184,7 +184,11 @@ proc After {n unit body} {
 set ::committed [dict create]
 set ::toCommit [dict create]
 proc Commit {args} {
-    upvar this this
+    if {[llength $args] == 3} {
+      set this [lindex $args 0]
+    } else {
+      upvar this this
+    }
     set body [lindex $args end]
     set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
     if {$body eq ""} {
