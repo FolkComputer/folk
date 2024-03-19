@@ -5,11 +5,6 @@ if {$::thisNode eq "folk-interact"} {
         variable WIDTH 1920
         variable HEIGHT 1080
     }
-} elseif {$::thisNode eq "folk0"} {
-    namespace eval ::Camera {
-        variable WIDTH 3840
-        variable HEIGHT 2160
-    }
 } else {
     namespace eval ::Camera {
         variable WIDTH 1280
