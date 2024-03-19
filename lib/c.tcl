@@ -524,8 +524,18 @@ namespace eval c {
     $loader compile
     proc loadlib {filename} {
         if {[loadlibImpl $filename] == "(void*) 0x0"} {
-            error "Failed to dlopen $filename: [loadlibError]"
+            error "c loadlib: Failed to dlopen $filename: [loadlibError]"
         }
+    }
+    proc loadlibLd {libname} {
+        set candidates [split [exec /usr/sbin/ldconfig -p | grep $libname] "\n"]
+        if {[llength $candidates] == 0} {
+            error "c loadlibLd: Could not find library $libname"
+        } elseif {[llength $candidates] > 1} {
+            # Is it greater than 1? if so, filter by arch
+            set candidates [lsearch -all -inline $candidates *$::tcl_platform(machine)*]
+        }
+        loadlib [lindex $candidates 0 end]
     }
 
     namespace export *

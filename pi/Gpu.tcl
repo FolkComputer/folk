@@ -1514,7 +1514,7 @@ Try doing `sudo chmod 666 $renderFile`."
 
     if {!$macos} {
         # Needed on Raspberry Pi 4:
-        c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
+        c loadlibLd libatomic.so
     }
 
     dc compile

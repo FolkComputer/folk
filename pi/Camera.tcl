@@ -272,9 +272,11 @@ namespace eval Camera {
         folkHeapFree(image.data);
     }
 
-    c loadlib [expr {$tcl_platform(os) eq "Darwin" ?
-                     "/opt/homebrew/lib/libjpeg.dylib" :
-                     [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
+    if {$tcl_platform(os) eq "Darwin"} {
+        c loadlib "/opt/homebrew/lib/libjpeg.dylib"
+    } else {
+        c loadlibLd libjpeg.so
+    }
     camc compile
 
     variable camera

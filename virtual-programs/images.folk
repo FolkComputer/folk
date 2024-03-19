@@ -23,10 +23,13 @@ namespace eval ::image {
     }
 
     set cc [c create]
-    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libjpeg.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
-    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libpng.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libpng] end]}]
     if {$tcl_platform(os) eq "Darwin"} {
+        c loadlib "/opt/homebrew/lib/libjpeg.dylib"
+        c loadlib "/opt/homebrew/lib/libpng.dylib"
         $cc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    } else {
+        c loadlibLd libjpeg.so
+        c loadlibLd libpng
     }
 
     $cc cflags -ljpeg -lpng
