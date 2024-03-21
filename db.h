@@ -52,7 +52,7 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
 // internal pointer counter so that it cannot be freed & its gen
 // remains immutable.
 Match* matchAcquire(Db* db, MatchRef match);
-void matchRelease(Match* m);
+void matchRelease(Db* db, Match* m);
 
 void matchRemoveSelf(Db* db, Match* m);
 
