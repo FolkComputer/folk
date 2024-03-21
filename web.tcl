@@ -51,6 +51,7 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 <a href="/new"><button>New program</button></a>
                 <a href="/programs">Running programs</a>
                 <a href="/timings">Timings</a>
+                <a href="/keyboards">Keyboards</a>
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>

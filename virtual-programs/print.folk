@@ -189,8 +189,27 @@ proc nextId {} {
     set id
 }
 
+proc remotePrintRequest {remoteNode clause} {
+    ::websocket::open "ws://$remoteNode.local:4273/ws" [list apply {{clause sock type msg} {
+        if {$type eq "connect"} {
+            ::websocket::send $sock text [list apply {{clause} {
+                Assert {*}$clause
+                after 5000 [list Retract {*}$clause]
+                Step
+            }} $clause]
+            after 10000 [list ::websocket::close $sock]
+        }
+    }} $clause]
+}
+
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with job id /jobid/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk0.
+        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with job id $jobid]
+        return
+    }
+
     puts "Wish to print jobid $jobid"
     if {[dict exists $::printjobs $jobid]} {return}
 
@@ -220,6 +239,12 @@ When /someone/ wishes to print /code/ with job id /jobid/ {
     exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
 }
 When /someone/ wishes to print program /id/ with code /code/ with job id /jobid/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk0.
+        remotePrintRequest "folk0" [list $::thisNode wishes to print program $id with code $code with job id $jobid]
+        return
+    }
+
     puts "Wish to print jobid $jobid"
     if {[dict exists $::printjobs $jobid]} {return}
 

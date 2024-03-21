@@ -77,7 +77,7 @@ When /anyone/ wishes /thing/ is a terminal spawning /cmd/ {
   }
 
   When /anyone/ claims $thing has keyboard input \
-    & /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ {
+    & keyboard /anyone/ claims key /key/ is /direction/ with modifiers /modifiers/ timestamp /timestamp/ {
     if {$direction != "up"} {
       set ctrlPressed [expr {"ctrl" in $modifiers}]
       Terminal::write $term $key $ctrlPressed

@@ -1,0 +1,385 @@
+set baseCode "Wish \$this is outlined green"
+
+# This makes all keyboards into editors automatically, so a keyboard
+# doesn't need an extra printed claim to be an editor. May choose to
+# change later, or exclude keyboards that opt out.
+When /page/ is a keyboard with path /anything/ {
+    Claim $page is an editor
+}
+
+When /page/ is a keyboard with path /kbPath/ &\
+  /page/ is an editor &\
+  /page/ has region /r/ &\
+  the clock time is /t/ {
+  set id "$page$kbPath"
+  Claim $id has region [region move $r up 210%]
+  When /nobody/ claims $id has program code /c/ {
+    Commit "code$kbPath" {
+      Claim $id has program code $baseCode 
+      Claim $id has editor code $baseCode 
+    }
+  }
+
+  When /nobody/ claims $id has start time /startTime/ {
+    Commit "time$kbPath" {
+      Claim $id has start time $t
+    }
+  }
+}
+
+When /page/ is a keyboard with path /kbPath/ {
+  On unmatch {
+    Commit "time$kbPath" {}
+  }
+}
+
+proc updateCursor {oldCursor updates} {
+  set newCursor $oldCursor
+  if {[dict exists $updates x]} {
+    lset newCursor 0 [expr {max(0, [dict get $updates x] + [x $oldCursor])}]
+  }
+  if {[dict exists $updates y]} {
+    lset newCursor 1 [expr {max(0, [dict get $updates y] + [y $oldCursor])}]
+  }
+  return $newCursor
+}
+
+# NOTE: Should this go into a common-functions file?
+proc x {vector} { lindex $vector 0 }
+proc y {vector} { lindex $vector 1 }
+
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+  set id "$page$kbPath"
+  When /nobody/ claims $id has program code /c/ {
+    Commit "cursor$kbPath" {
+      Claim the $kbPath cursor is [list 0 0]
+    }
+  }
+}
+
+proc insertCharacter {code newCharacter cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set x [- $x 1]
+  set line [lindex $lines $y]
+
+  if {$x < 0} {
+    lset lines $y [string cat $newCharacter $line]
+    return [join $lines "\n"]
+  } else {
+    set character [string cat [string index $line $x] $newCharacter]
+    set line [string replace $line $x $x $character]
+    lset lines $y $line
+    return [join $lines "\n"]
+  }
+}
+
+proc deleteCharacter {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  if {$x == 0 && $y > 0} {
+    set previousLine [lindex $lines [expr {$y - 1}]]
+    set thisLine [lindex $lines $y]
+    set mergedLine [string cat $previousLine $thisLine]
+    lset lines [expr {$y - 1}] $mergedLine
+    lset lines $y ""
+    set newLines {}
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+      if {$i != $y} {
+        lappend newLines [lindex $lines $i]
+      }
+    }
+    set lines $newLines
+  } else {
+    set line [lindex $lines $y]
+    set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+    lset lines $y $line
+  }
+  return [join $lines "\n"]
+}
+
+proc deleteToBeginning {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set newLine [string range $line $x end]
+  lset lines $y $newLine
+  return [join $lines "\n"]
+}
+
+proc insertNewline {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set beforeCursor [string range $line 0 [expr {$x - 1}]]
+  set afterCursor [string range $line $x end]
+  set newLines [list $beforeCursor $afterCursor]
+  lset lines $y [join $newLines "\n"]
+  return [join $lines "\n"]
+}
+
+proc getLineLength {code cursor} {
+  set lines [split $code "\n"]
+  set line [lindex $lines [lindex $cursor 1]]
+  set ll [string length $line]
+  return $ll
+}
+
+proc lineNumberView {ystart linecount} {
+  set yend [expr {$ystart + $linecount}]
+  set numbers [list]
+  for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
+    lappend numbers $i
+  }
+  join $numbers "\n"
+}
+
+proc debug {position color} {
+  Display::circle {*}$position 5 2 $color true
+}
+
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+  set id "$page$kbPath"
+  When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
+    set intTime [expr {int($t * 10)}]
+    set scale 0.60
+
+    set relativeRegion [region move $r down 105%]
+    Claim $id' has region $relativeRegion
+    Wish $id' is outlined white
+    lassign [region topleft $r] xstart ystart
+    set em [expr {$scale * 25}]
+    # From NeomatrixCode.csv
+    set advance [expr {0.5859375 * $em}]
+    set margin [expr {$advance * 3 + 10}]
+
+    set p [region topleft [region move $relativeRegion right ${margin}px down 10px]]
+    set lp [region topleft [region move $relativeRegion right 5px down 10px]]
+    set height [expr {[region height $relativeRegion] - 25}]
+    set width [expr {[region width $relativeRegion] - ($margin + 20)}]
+    set radians [region angle $relativeRegion]
+
+    set curs [vec2 scale $cursor $advance $em]
+
+    set x1 [vec2 sub $p $curs]
+    set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+
+    set theta [expr {$radians + 3.14159}]
+    set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
+    set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
+    set s [expr {$scale * 4}]
+
+    # Draw text
+    Wish to draw text with position $p text $editorCode scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
+
+    # Draw line numbers
+    set linecount [llength [split $editorCode "\n"]]
+    set linenumbers [lineNumberView 0 $linecount]
+    Wish to draw text with position $lp text $linenumbers scale $scale anchor topleft radians $radians font NeomatrixCode
+
+    # Draw cursor
+    Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
+    Wish to draw a stroke with points [list $x1 $x2] width $s color green
+  }
+}
+
+proc getCurrentLineLength {lines cursor} {
+  set splitLines [split $lines "\n"]
+  set currentLine [lindex $splitLines [y $cursor]]
+  string length $currentLine
+}
+
+When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+  set id "$page$kbPath"
+  Every time keyboard $kbPath claims key /currentCharacter/ is /keyState/ with modifiers /modifier/ timestamp /timestamp/ &\
+             the $kbPath cursor is /cursor/ &\
+             $id has program code /code/ &\
+             $id has editor code /editorCode/ &\
+             $id has start time /startTime/ {
+    if {($keyState == "down" || $keyState == "repeat") & $timestamp > ($startTime * 1000) } {
+      Commit "cursor$kbPath" {
+        switch $currentCharacter {
+          UP {
+            set updatedCursor [updateCursor $cursor {y -1}]
+            set currentLineLength  [getCurrentLineLength $editorCode $updatedCursor]
+            if {[x $updatedCursor] > $currentLineLength} {
+              Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+            } else {
+              Claim the $kbPath cursor is $updatedCursor
+            }
+          }
+          DOWN {
+            set linecount [llength [split $editorCode "\n"]]
+            set updatedCursor [updateCursor $cursor {y 1}]
+            set currentLineLength [getCurrentLineLength $editorCode $updatedCursor]
+
+            if {[y $updatedCursor] == $linecount} {
+              Claim the $kbPath cursor is $cursor
+              return
+            } elseif {[x $updatedCursor] > $currentLineLength} {
+              Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+            } else {
+              Claim the $kbPath cursor is $updatedCursor
+            }
+          }
+          RIGHT {
+            set currentLineLength [getCurrentLineLength $editorCode $cursor]
+            if {[x $cursor] == $currentLineLength} {
+              if {[y $cursor] == [expr {[llength [split $editorCode "\n"]] - 1}]} {
+                Claim the $kbPath cursor is $cursor
+              } else {
+                set newCursor [updateCursor $cursor {y 1}]
+                Claim the $kbPath cursor is [list 0 [y $newCursor]]
+              }
+            } else {
+              Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+            }
+          }
+          LEFT {
+            if {[x $cursor] == 0 && [y $cursor] == 0} {
+              Claim the $kbPath cursor is $cursor
+            } elseif {[x $cursor] == 0} {
+              set newCursor [updateCursor $cursor {y -1}]
+              set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
+              set newCursor [list $previousLineLength [y $newCursor]]
+              Claim the $kbPath cursor is $newCursor
+            } else {
+              Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+            }
+          }
+          BACKSPACE {
+            # if cursor is at the beginning of the line, delete the newline
+            if {[x $cursor] == 0 && [y $cursor] > 0} {
+              set newCursor [updateCursor $cursor {y -1}]
+              set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
+              set newCursor [list $previousLineLength [y $newCursor]]
+              Claim the $kbPath cursor is $newCursor
+            } else {
+              Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+            }
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code [deleteCharacter $editorCode $cursor]
+            }
+          }
+          SPACE {
+            Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code [insertCharacter $editorCode " " $cursor]
+            }
+          }
+          ENTER {
+            set updatedCursor [updateCursor $cursor {y 1}]
+            Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code [insertNewline $editorCode $cursor]
+            }
+          }
+          DELETE -
+          INSERT -
+          MUTE -
+          VOLUMEUP -
+          VOLUMEDOWN -
+          ESC -
+          TAB -
+          CAPSLOCK -
+          LEFTSHIFT -
+          RIGHTSHIFT -
+          LEFTALT -
+          RIGHTALT -
+          LEFTCTRL -
+          RIGHTCTRL {
+            # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
+            # TODO: MUTE VOLUMEUP VOLUMEDOWN
+            #       implement sound.folk that allows a system-wide 
+            #       volume setting to be adjusted.
+            #       Perhaps `Wish $system volume is 0.5` or something
+
+            Claim the $kbPath cursor is $cursor
+          }
+          default {
+            if {$modifier == "ctrl" & $currentCharacter == "p"} {
+              When $id has printed /lastPrintedCode/ at /previousTime/ {
+                if {($timestamp - $previousTime) < 1000} {
+                  Commit "code$kbPath" {
+                    Claim $id has program code $code
+                    Claim $id has editor code $editorCode
+                  }
+                  Claim the $kbPath cursor is $cursor
+                  return
+                }
+              }
+
+              Commit print { Claim $id has printed $code at $timestamp}
+              Wish to print $code with job id [expr {rand()}]
+
+              Commit "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              Claim the $kbPath cursor is $cursor
+              return
+            }
+            if {$modifier == "ctrl" & $currentCharacter == "r"} {
+              Commit "code$kbPath" {
+                Claim $id has program code $baseCode 
+                Claim $id has editor code $baseCode 
+              }
+              Claim the $kbPath cursor is [list 0 0]
+              return
+            }
+            if {$modifier == "ctrl" & $currentCharacter == "s"} {
+              Commit "code$kbPath" {
+                Claim $id has program code $editorCode
+                Claim $id has editor code $editorCode
+              }
+              Claim the $kbPath cursor is $cursor
+              return
+            }
+            if {$modifier == "ctrl" & $currentCharacter == "a"} {
+              Commit "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list 0 $y]
+              return
+            }
+            if {$modifier == "ctrl" & $currentCharacter == "e"} {
+              Commit "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list [getLineLength $editorCode $cursor] $y]
+              return
+            }
+            if {$modifier == "ctrl" & $currentCharacter == "u"} {
+              # delete from cursor back to 0 and move cursor to 0
+              Commit "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code [deleteToBeginning $editorCode $cursor]
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list 0 $y]
+              return
+            }
+            Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+            Commit "code$kbPath" {
+              Claim $id has program code $code
+              Claim $id has editor code [insertCharacter $editorCode $currentCharacter $cursor]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+Claim $this has demo {
+  # Find your keyboard path with the script in this guide: https://folk.computer/guides/keyboard
+  Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse
+  Claim $this is an editor
+}

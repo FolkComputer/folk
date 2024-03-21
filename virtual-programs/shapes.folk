@@ -54,6 +54,7 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   set radius [dict_getdef $options radius 50]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
+  set thickness [dict_getdef $options thickness 5]
  
   if {$offsetX != 0} {
     set x [expr {$x + $offsetX}]
@@ -66,7 +67,7 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   set p [list $x $y]
 
   if {$shape eq "circle"} {
-      Wish to draw a circle with center $p radius $radius thickness 5 color $color filled $filled
+      Wish to draw a circle with center $p radius $radius thickness $thickness color $color filled $filled
   } elseif {[dict exists $shapes $shape]} {
       Wish to draw a shape with sides [dict get $shapes $shape] \
           center $p radius $radius radians $angle color $color filled $filled

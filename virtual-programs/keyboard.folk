@@ -1,36 +1,112 @@
-return
-if {!$::isLaptop} { return }
-Wish $this is outlined skyblue
+set ::debug_keyboard true
 
-Wish $this has neighbors
-
-global pageOrigin neighborAbove
-
-set ::neighborAbove none
-
-When $this has region /r/ {
-	lassign [lindex $r 0] one
-        set ::pageOrigin $one
+proc establishKeyPressListener {keyboard} {
+    set kb [open $keyboard r]
+    fconfigure $kb -translation binary
+    return $kb
 }
 
+# Function to check if the device is a keyboard
+proc isKeyboard {device} {
+    set properties [exec udevadm info --query=property --name=$device]
+    if {$properties eq ""} {
+        return false
+    }
+    set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
+    return $isKeyboard
+    # TODO: Excluding mice would nice to keey the list of keyboard devices short
+    #       Alas, including mice is necessary for the Logitech K400R keyboard
+    # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
+    # return [expr {$isKeyboard && !$isMouse}]
+}
 
-When $this has neighbor /n/ {
-    Wish $n is outlined thick papayawhip
-    # Wish $this is labelled $::pageOrigin
-    When $n has region /r/ {
-      set neighborOrigin [lindex [lindex $r 0] 0]
-      lassign $neighborOrigin _ nOriginY
-      lassign $pageOrigin _ pageOriginY
-      if {$nOriginY < $pageOriginY} {
-        set ::neighborAbove $n
-        variable neighborCode none
-        When $neighborAbove has program code /c/ {
-          set neighborCode $c
-          Wish $neighborAbove is labelled "$neighborCode"
+####
+# /dev/input/event* addresses are the ground truth for keyboard devices
+#
+# This function goes through each of them and checks if they are keyboards
+proc walkInputEventPaths {} {
+    # set allDevices [glob -nocomplain "/dev/input/event*"]
+    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set keyboards [list]
+    foreach device $allDevices {
+        if {[isKeyboard $device]} {
+            if {[file readable $device] == 0} {
+                puts "Device $device is not readable. Attempting to change permissions."
+                # Attempt to change permissions so that the file can be read
+                exec sudo chmod +r $device
+            }
+            lappend keyboards $device
         }
-        When the keyboard character log is /k/ {
-          Wish $this is labelled $k
+    }
+    return $keyboards
+}
+
+set keyboardDevices [walkInputEventPaths]
+
+# go through each keyboard device and start a process that 
+foreach keyboard $keyboardDevices {
+    Claim the keyboards are $keyboardDevices
+    Start process "keyboard-$keyboard" {
+        source "pi/KeyCodes.tcl"
+        set KEY_STATES [list up down repeat]
+
+        Wish $::thisProcess shares statements like \
+            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /timestamp/]
+        variable evtBytes 16
+        variable evtFormat iissi
+        if {[exec getconf LONG_BIT] == 64} {
+            set evtBytes 24
+            set evtFormat wwssi
         }
-      }
+        set keyboardSpecifier $keyboard
+
+        variable keyboardChannel [open $keyboard r]
+        chan configure $keyboardChannel -translation binary
+
+        set modifiers [dict create \
+            shift 0 \
+            ctrl 0 \
+            alt 0 \
+        ]
+        while 1 {
+            binary scan [read $keyboardChannel $evtBytes] $evtFormat \
+                tvSec tvUsec type code value
+
+            if {$type == 0x01} { ;# EV_KEY
+                set shift [dict get $modifiers shift]
+                set key [keyFromCode $code $shift]
+                if {$key eq ""} { continue }
+
+                set keyState [lindex $KEY_STATES $value]
+
+                set isDown [expr {$keyState != "up"}]
+                if {[string match *SHIFT $key]} {
+                    dict set modifiers shift $isDown
+                }
+                if {[string match *CTRL $key]} {
+                    dict set modifiers ctrl $isDown
+                }
+                if {[string match *ALT $key]} {
+                    dict set modifiers alt $isDown
+                }
+
+                set heldModifiers [dict keys [dict filter $modifiers value 1]]
+                set now [clock milliseconds]
+                Assert keyboard $keyboardSpecifier claims key $key is $keyState with \
+                                     modifiers $heldModifiers timestamp $now
+
+                # Retract all key events that are more than 5 seconds old.
+                set events [Statements::findMatches [list keyboard $keyboardSpecifier claims key /key/ is /keyState/ with modifiers /ms/ timestamp /timestamp/]]
+                foreach event $events {
+                    dict with event {
+                        if {$now - $timestamp > 5000} {
+                            Retract keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $ms timestamp $timestamp
+                        }
+                    }
+                }
+
+                Step
+            }
+        }
     }
 }

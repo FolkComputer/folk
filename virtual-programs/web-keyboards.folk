@@ -1,0 +1,54 @@
+When the keyboards are /keyboards/ {
+  Wish the web server handles route "/keyboards$" with handler [list apply {{keyboards} {
+    upvar ^html ^html
+    html [subst {
+      <html>
+      <body>
+        <span id="status">Status</span>
+        <dl>
+        [join [lmap kb $keyboards { subst {
+            <dt>$kb</dt>
+            <dd>
+              <code id="$kb-presses"></code><br>
+              <button onclick="send(`Assert web-keyboards wishes to print {Claim \$this is a keyboard with path $kb} with job id ` + String(Math.random()))">Print</button>
+            </dd>
+        } }] "\n"]
+        </dl>
+
+        <script>
+        function wsConnect() {
+          ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+          send = function(s) { ws.send(s); }
+
+          ws.onopen = () => {
+            document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
+            send(`
+              Assert when keyboard /kb/ claims key /k/ is down with modifiers /m/ timestamp /ts/ {{chan kb k m ts} {
+                if {\$ts > [clock milliseconds]} {
+                  ::websocket::send \$chan text "\$kb||\$k"
+                }
+              }} with environment \[list \$chan]
+            `);
+          };
+          ws.onclose = window.onbeforeunload = () => {
+            document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
+            send(`Retract when keyboard /kb/ claims key /k/ is down with modifiers /m/ timestamp /ts/ /anything/ with environment \[list \$chan]`)
+            setTimeout(() => { wsConnect(); }, 1000);
+          };
+          ws.onerror = (err) => {
+            document.getElementById('status').innerText = "Error";
+            console.error('Socket encountered error: ', err.message, 'Closing socket');
+            ws.close();
+          }
+          ws.onmessage = (msg) => {
+            const \[kb, key] = msg.data.split("||");
+            document.getElementById(kb + "-presses").innerText += key + " ";
+          }
+        };
+        wsConnect();
+      </script>
+      </body>
+      </html>
+    }]
+  }} $keyboards]
+}

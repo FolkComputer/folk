@@ -171,7 +171,7 @@ Try doing `sudo adduser folk render`."
             if (physicalDeviceCount == 0) {
                 fprintf(stderr, "Failed to find Vulkan physical device\n"); exit(1);
             }
-            printf("Found %d Vulkan devices\n", physicalDeviceCount);
+            printf("Gpu: Found %d Vulkan devices\n", physicalDeviceCount);
             VkPhysicalDevice physicalDevices[physicalDeviceCount];
             vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
 
@@ -251,16 +251,23 @@ Try doing `sudo adduser folk render`."
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
             if (glfwCreateWindowSurface(instance, window, NULL, &surface) != VK_SUCCESS) {
-                fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
+                fprintf(stderr, "Gpu: Failed to create GLFW window surface\n"); exit(1);
             }
         } : [csubst {
             // TODO: support multiple displays, pick best display mode
 
-            uint32_t displayCount = 1; VkDisplayPropertiesKHR displayProps;
-            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, &displayProps);
+            uint32_t displayCount;
+            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+            printf("Gpu: Found %d displays\n", displayCount);
+            if (displayCount == 0) {
+                fprintf(stderr, "Gpu: No displays found\n"); exit(1);
+            }
+
+            VkDisplayPropertiesKHR displayProps[displayCount];
+            vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
             uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
-            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps.display, &modeCount, &modeProps);
+            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[0].display, &modeCount, &modeProps);
 
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
@@ -1533,7 +1540,7 @@ Try doing `sudo adduser folk render`."
 
     if {!$macos} {
         # Needed on Raspberry Pi 4:
-        c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
+        c loadlibLd libatomic.so
     }
 
     dc compile

@@ -63,7 +63,7 @@ set cc [c create]
 $cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
 
 if {$::tcl_platform(os) ne "Darwin"} {
-    c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libutil.so | head -1] end]
+    c loadlibLd libutil
 }
 $cc cflags -lutil
 
