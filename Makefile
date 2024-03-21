@@ -11,3 +11,6 @@ folk: workqueue.c db.c trie.c folk.c vendor/jimtcl/libjim.a
 .PHONY: test
 test: folk
 	./folk test/test.folk
+
+debug-attach:
+	lldb --attach-name folk

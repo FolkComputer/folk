@@ -71,6 +71,12 @@ set getCc {{} {
         matchRelease(match);
         return ret;
     }
+    $cc proc matchShouldFree {Db* db MatchRef matchRef} int {
+        Match* match = matchAcquire(db, matchRef);
+        int shouldFree = match->shouldFree;
+        matchRelease(match);
+        return shouldFree;
+    }
     $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
         Match* match = matchAcquire(db, matchRef);
 
@@ -114,7 +120,8 @@ set dbDotify {{getCc db} {
         if {$match eq "(Match*) 0x0"} { continue }
 
         set matchPtrCount [$cc matchPtrCount $db $matchRef]
-        lappend dot "<$matchRef> \[label=\"$matchRef ($matchPtrCount)\"\];"
+        set matchShouldFree [$cc matchShouldFree $db $matchRef]
+        lappend dot "<$matchRef> \[label=\"$matchRef (shouldFree $matchShouldFree) ($matchPtrCount)\"\];"
         foreach childStatementRef [$cc childStatements $db $matchRef] {
             lappend dot "<$matchRef> -> <$childStatementRef>;"
         }

@@ -195,7 +195,7 @@ static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
         resultObjs[i] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         free(env);
-        statementRelease(result);
+        statementRelease(db, result);
     }
     free(pattern);
     free(rs);
@@ -277,8 +277,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Statement* when = statementAcquire(db, whenRef);
     Statement* stmt = statementAcquire(db, stmtRef);
     if (when == NULL || stmt == NULL) {
-        if (when != NULL) { statementRelease(when); }
-        if (stmt != NULL) { statementRelease(stmt); }
+        if (when != NULL) { statementRelease(db, when); }
+        if (stmt != NULL) { statementRelease(db, stmt); }
         /* printf("Dead: when %p, stmt %p\n", when, stmt); */
         return;
     }
@@ -320,8 +320,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                            env->nBindings, envArgs);
     free(env);
 
-    statementRelease(stmt);
-    statementRelease(when);
+    statementRelease(db, stmt);
+    statementRelease(db, when);
 
     StatementRef parents[] = { whenRef, stmtRef };
 
@@ -457,7 +457,7 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             Clause* whenPattern = unwhenizeClause(statementClause(when));
-            statementRelease(when);
+            statementRelease(db, when);
 
             pushRunWhenBlock(whenRef, whenPattern, ref);
         }
@@ -484,7 +484,7 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
             Statement* when = statementAcquire(db, whenRef);
             Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
             Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-            statementRelease(when);
+            statementRelease(db, when);
 
             pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
             free(unwhenizedWhenPattern);
@@ -527,7 +527,7 @@ void workerRun(WorkQueueItem item) {
         Statement* oldStmt;
         if ((oldStmt = statementAcquire(db, oldRef))) {
             statementRemoveParentAndMaybeRemoveSelf(db, oldStmt);
-            statementRelease(oldStmt);
+            statementRelease(db, oldStmt);
         }
         pthread_mutex_unlock(&dbMutex);
 

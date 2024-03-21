@@ -170,6 +170,8 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 ////////////////////////////////////////////////////////////
 
 static void reactToRemovedStatement(Db* db, Statement* stmt) {
+    printf("reactToRemovedStatement: s%d:%d\n", stmt - &db->statementPool[0], stmt->gen);
+    pthread_mutex_lock(&stmt->childMatchesMutex);
     for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
         MatchRef childRef = { .val = stmt->childMatches->edges[i] };
         Match* child = matchAcquire(db, childRef);
@@ -180,6 +182,7 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
             matchRelease(child);
         }
     }
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 
 ////////////////////////////////////////////////////////////
@@ -201,9 +204,11 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     }
     return s;
 }
-void statementRelease(Statement* stmt) {
+void statementRelease(Db* db, Statement* stmt) {
     if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
         stmt->gen++; // Guard the rest of the freeing process.
+
+        reactToRemovedStatement(db, stmt);
 
         printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause));
         /* Clause* stmtClause = statementClause(stmt); */
@@ -369,7 +374,7 @@ void matchRemoveSelf(Db* db, Match* match) {
         Statement* child = statementAcquire(db, childRef);
         if (child != NULL) {
             statementRemoveParentAndMaybeRemoveSelf(db, child);
-            statementRelease(child);
+            statementRelease(db, child);
         }
     }
     printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen);
@@ -480,7 +485,7 @@ MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
             statementAddChildMatch(parent, ref);
             pthread_mutex_unlock(&parent->childMatchesMutex);
 
-            statementRelease(parent);
+            statementRelease(db, parent);
         } else {
             // TODO: The parent is dead; we should abort/reverse this
             // whole thing.
@@ -510,7 +515,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     for (size_t i = 0; i < nResults; i++) {
         Statement* stmt = statementAcquire(db, results[i]);
         statementRemoveParentAndMaybeRemoveSelf(db, stmt);
-        statementRelease(stmt);
+        statementRelease(db, stmt);
     }
 }
 
@@ -577,7 +582,7 @@ StatementRef dbHoldStatement(Db* db,
                 trieRemove(db->clauseToStatementId,
                            statementClause(oldStmtPtr),
                            results, maxResults);
-                statementRelease(oldStmtPtr);
+                statementRelease(db, oldStmtPtr);
             } else if (oldStmt.idx != 0) {
                 fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",
                         oldStmt.idx, oldStmt.gen);

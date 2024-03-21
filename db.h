@@ -35,7 +35,7 @@ typedef union MatchRef {
 // statement's internal pointer counter so that it cannot be freed &
 // its gen and clause remain immutable.
 Statement* statementAcquire(Db* db, StatementRef stmt);
-void statementRelease(Statement* stmt);
+void statementRelease(Db* db, Statement* stmt);
 
 StatementRef statementRef(Db* db, Statement* stmt);
 

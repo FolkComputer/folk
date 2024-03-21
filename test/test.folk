@@ -19,7 +19,6 @@ Assert! when we are on {{} {
             Hold! counter [list X claims the counter is $i]
         }
 
-        exec sleep 1
         puts DONE
         __exit 0
     }
