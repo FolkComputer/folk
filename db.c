@@ -170,8 +170,8 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
 ////////////////////////////////////////////////////////////
 
 static void reactToRemovedStatement(Db* db, Statement* stmt) {
-    printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen,
-           clauseToString(stmt->clause));
+    /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
+    /*        clauseToString(stmt->clause)); */
     pthread_mutex_lock(&stmt->childMatchesMutex);
     for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
         MatchRef childRef = { .val = stmt->childMatches->edges[i] };
@@ -223,7 +223,7 @@ void statementRelease(Db* db, Statement* stmt) {
 
         reactToRemovedStatement(db, stmt);
 
-        printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause));
+        /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
         /* Clause* stmtClause = statementClause(stmt); */
         /* for (int i = 0; i < stmtClause->nTerms; i++) { */
         /*     free(stmtClause->terms[i]); */
@@ -297,18 +297,18 @@ void statementAddChildMatch(Statement* stmt, MatchRef child) {
 }
 void statementAddParent(Statement* stmt) { stmt->parentCount++; }
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
-    printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n",
-           stmt - &db->statementPool[0], stmt->gen);
+    /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
+    /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
         // Deindex the statement:
         uint64_t results[100];
         int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
                                   (uint64_t*) results, sizeof(results)/sizeof(results[0]));
         if (nResults != 1) {
-            fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: "
-                    "warning: trieRemove (%s) nResults != 1 (%d)\n",
-                    clauseToString(stmt->clause),
-                    nResults);
+            /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
+            /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
+            /*         clauseToString(stmt->clause), */
+            /*         nResults); */
         }
 
         reactToRemovedStatement(db, stmt);
@@ -386,7 +386,7 @@ void matchAddChildStatement(Match* match, StatementRef child) {
     listOfEdgeToAdd(&match->childStatements, child.val);
 }
 void matchRemoveSelf(Db* db, Match* match) {
-    printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen);
+    /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
     match->shouldFree = true;
 }
 
@@ -488,10 +488,10 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
 
 MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
     MatchRef ref = matchNew(db);
-    printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen);
+    /* printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen); */
     Match* match = matchAcquire(db, ref);
     for (size_t i = 0; i < nParents; i++) {
-        printf("s%d:%d ", parents[i].idx, parents[i].gen);
+        /* printf("s%d:%d ", parents[i].idx, parents[i].gen); */
         Statement* parent = statementAcquire(db, parents[i]);
         if (parent) {
             pthread_mutex_lock(&parent->childMatchesMutex);
@@ -502,12 +502,12 @@ MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
         } else {
             // TODO: The parent is dead; we should abort/reverse this
             // whole thing.
-            printf("dbInsertMatch: parent stmt was invalidated\n");
+            /* printf("dbInsertMatch: parent stmt was invalidated\n"); */
             matchRelease(db, match);
             return MATCH_REF_NULL;
         }
     }
-    printf("\n");
+    /* printf("\n"); */
     matchRelease(db, match);
     return ref;
 }
