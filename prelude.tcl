@@ -68,6 +68,8 @@ proc When {args} {
     }
 }
 
+set ::thisNode [info hostname]
+
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"

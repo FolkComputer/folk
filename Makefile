@@ -16,5 +16,5 @@ debug-attach:
 	lldb --attach-name folk
 
 remote:
-	rsync --delete --exclude vendor/jimtcl --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk-convivial:/home/folk/folk2
-	ssh folk-convivial -- 'cd folk2; make && ./folk'
+	rsync --delete --exclude vendor/jimtcl --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk-convivial:/home/folk/folk2
+	ssh folk-convivial -- 'cd folk2; killall folk; make && ./folk'
