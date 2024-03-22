@@ -521,15 +521,19 @@ void workerRun(WorkQueueItem item) {
                                  item.hold.clause,
                                  &oldRef);
         reactToNewStatement(newRef, item.hold.clause);
-
-        // TODO: We need to delay the react to removed statement until
-        // full subconvergence of the addition of the new statement.
-        Statement* oldStmt;
-        if ((oldStmt = statementAcquire(db, oldRef))) {
-            statementRemoveParentAndMaybeRemoveSelf(db, oldStmt);
-            statementRelease(db, oldStmt);
-        }
         pthread_mutex_unlock(&dbMutex);
+        
+        // We need to delay the react to removed statement until
+        // full subconvergence of the addition of the new statement.
+        // or just mess with priorities so that the react to removed
+        // statement usually gets delayed?
+        pthread_mutex_lock(&workQueueMutex);
+        workQueuePush(workQueue, (WorkQueueItem) {
+                .op = REMOVE_PARENT,
+                .thread = -1,
+                .removeParent = { .stmt = oldRef }
+            });
+        pthread_mutex_unlock(&workQueueMutex);
 
     } else if (item.op == SAY) {
         /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
@@ -545,6 +549,16 @@ void workerRun(WorkQueueItem item) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
+
+    } else if (item.op == REMOVE_PARENT) {
+        Statement* stmt;
+        if ((stmt = statementAcquire(db, item.removeParent.stmt))) {
+            pthread_mutex_lock(&dbMutex);
+            statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+            pthread_mutex_unlock(&dbMutex);
+
+            statementRelease(db, stmt);
+        }
 
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",

@@ -5,7 +5,7 @@
 #include "trie.h"
 
 typedef struct WorkQueue WorkQueue;
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN, REMOVE_PARENT } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
     int seq;
@@ -45,6 +45,7 @@ typedef struct WorkQueueItem {
             Clause* whenPattern;
             StatementRef stmt;
         } run;
+        struct { StatementRef stmt; } removeParent;
     };
 } WorkQueueItem;
 

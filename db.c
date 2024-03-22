@@ -95,6 +95,7 @@ typedef struct Db {
 
     // Primary trie (index) used for queries.
     Trie* clauseToStatementId;
+    pthread_mutex_t clauseToStatementIdMutex;
 
     // One for each Hold key, which always stores the highest-version
     // held statement for that key. We keep this map so that we can
@@ -302,8 +303,10 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     if (--stmt->parentCount == 0) {
         // Deindex the statement:
         uint64_t results[100];
+        pthread_mutex_lock(&db->clauseToStatementIdMutex);
         int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
                                   (uint64_t*) results, sizeof(results)/sizeof(results[0]));
+        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
         if (nResults != 1) {
             /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
             /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
@@ -404,6 +407,7 @@ Db* dbNew() {
     ret->matchPoolNextIdx = 1;
 
     ret->clauseToStatementId = trieNew();
+    pthread_mutex_init(&ret->clauseToStatementIdMutex, NULL);
 
     for (int i = 0; i < sizeof(ret->holds)/sizeof(ret->holds[0]); i++) {
         pthread_mutex_init(&ret->holds[i].mutex, NULL);
@@ -418,8 +422,10 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
+    pthread_mutex_lock(&db->clauseToStatementIdMutex);
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
                                  (uint64_t*) results, maxResults);
+    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -441,9 +447,11 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMatchRef) {
     // Is this clause already present among the existing statements?
     StatementRef existingRefs[10];
+    pthread_mutex_lock(&db->clauseToStatementIdMutex);
     int existingRefsCount = trieLookupLiteral(db->clauseToStatementId, clause,
                                               (uint64_t*) existingRefs,
                                               sizeof(existingRefs)/sizeof(existingRefs[0]));
+    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
     Match* parent = matchAcquire(db, parentMatchRef);
     if (!matchRefIsNull(parentMatchRef) && parent == NULL) {
@@ -471,7 +479,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
         // statement.
 
         StatementRef ref = statementNew(db, clause);
+        pthread_mutex_lock(&db->clauseToStatementIdMutex);
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
+        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
         if (parent) {
             matchAddChildStatement(parent, ref);
@@ -518,8 +528,10 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 
     // TODO: Should we accept a StatementRef and enforce that is what
     // gets removed?
+    pthread_mutex_lock(&db->clauseToStatementIdMutex);
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
                                  (uint64_t*) results, maxResults);
+    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -592,10 +604,13 @@ StatementRef dbHoldStatement(Db* db,
             if (oldStmtPtr) {
                 // We deindex the old statement immediately, but we
                 // leave it to the caller to actually remove it (and
-                // pull out all its dependencies).
+                // therefore remove all its children).
+                pthread_mutex_lock(&db->clauseToStatementIdMutex);
                 trieRemove(db->clauseToStatementId,
                            statementClause(oldStmtPtr),
                            results, maxResults);
+                pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+
                 statementRelease(db, oldStmtPtr);
             } else if (oldStmt.idx != 0) {
                 fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",

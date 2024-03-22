@@ -16,12 +16,18 @@ int workQueueItemCompare(pqueue_pri_t next, pqueue_pri_t curr) {
 pqueue_pri_t workQueueItemGetPriority(void* a) {
     WorkQueueItem* item = a;
     switch (item->op) {
+
     case NONE: return 0;
+
     case ASSERT:
     case RETRACT:
-    case HOLD: return 80000 - item->seq;
+    case HOLD: return 80000;
+
     case SAY:
-    case RUN: return 80000 + item->seq;
+    case RUN: return 80001;
+
+    case REMOVE_PARENT: return 79999;
+
     }
     return 0;
 }
