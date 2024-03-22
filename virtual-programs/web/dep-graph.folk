@@ -62,19 +62,19 @@ set getCc {{} {
     $cc proc matchAcq {Db* db MatchRef matchRef} Match* {
         return matchAcquire(db, matchRef);
     }
-    $cc proc matchRel {Match* match} void {
-        matchRelease(match);
+    $cc proc matchRel {Db* db Match* match} void {
+        matchRelease(db, match);
     }
     $cc proc matchPtrCount {Db* db MatchRef matchRef} int {
         Match* match = matchAcquire(db, matchRef);
         int ret = match->ptrCount - 1;
-        matchRelease(match);
+        matchRelease(db, match);
         return ret;
     }
     $cc proc matchShouldFree {Db* db MatchRef matchRef} int {
         Match* match = matchAcquire(db, matchRef);
         int shouldFree = match->shouldFree;
-        matchRelease(match);
+        matchRelease(db, match);
         return shouldFree;
     }
     $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
@@ -86,7 +86,7 @@ set getCc {{} {
             StatementRef child = { .val = match->childStatements->edges[i] };
             childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
         }
-        matchRelease(match);
+        matchRelease(db, match);
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
 
@@ -126,7 +126,7 @@ set dbDotify {{getCc db} {
             lappend dot "<$matchRef> -> <$childStatementRef>;"
         }
 
-        $cc matchRel $match
+        $cc matchRel $db $match
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
 }}
