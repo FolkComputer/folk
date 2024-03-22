@@ -79,7 +79,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
 
             double cx, cy;
             __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, cameraPoint, 0), &cx));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, cameraPoint, 0), &cy));
+            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, cameraPoint, 1), &cy));
 
             double Hx, Hy, Hz;
             Hx = H[0][0] * cx + H[0][1] * cy + H[0][2] * 1.0;

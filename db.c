@@ -157,6 +157,7 @@ static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
     size_t nEdges = 0;
     for (size_t i = 0; i < (*listPtr)->nEdges; i++) {
         uint64_t edge = (*listPtr)->edges[i];
+        // TODO: Also validate edge (is it a valid match / statement?)
         if (edge != 0) { list->edges[nEdges++] = edge; }
     }
     list->nEdges = nEdges;
