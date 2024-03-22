@@ -463,6 +463,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
             matchAddChildStatement(parent, existingRefs[0]);
             matchRelease(db, parent);
         }
+        statementRelease(db, stmt);
         return STATEMENT_REF_NULL;
 
     } else if (existingRefsCount == 0) {
