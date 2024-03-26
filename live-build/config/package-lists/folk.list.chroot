@@ -17,3 +17,6 @@ glslc
 vulkan-validationlayers
 cups
 cups-bsd
+isc-dhcp-client
+curl
+iwd
