@@ -86,11 +86,11 @@ typedef struct Hold {
 
 typedef struct Db {
     // Memory pool used to allocate statements.
-    Statement statementPool[32768]; // slot 0 is reserved.
+    Statement statementPool[65536]; // slot 0 is reserved.
     _Atomic uint16_t statementPoolNextIdx;
 
     // Memory pool used to allocate matches.
-    Match matchPool[32768]; // slot 0 is reserved.
+    Match matchPool[65536]; // slot 0 is reserved.
     _Atomic uint16_t matchPoolNextIdx;
 
     // Primary trie (index) used for queries.
