@@ -17,14 +17,8 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     puts "Evaluating calibration for $camera ($cameraWidth x $cameraHeight)"
     # camera (tag) point -> projection point
     # calibration for Hex
-    if [catch {source "/home/folk/generated-calibration.tcl"}] {
-        set points {
-            {622 404 1706 1051}
-            {624 650 1661 51}
-            {1031 669 8 44}
-            {1024 403 13 1146}
-        }
-    } else {
+    try {
+        source "/home/folk/generated-calibration.tcl"
         set points [list]
         foreach correspondence $generatedCalibration::points {
             lassign $correspondence cx cy dx dy
@@ -33,6 +27,13 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
                                 [expr {double($dx)/$generatedCalibration::displayWidth*$displayWidth}] \
                                 [expr {double($dy)/$generatedCalibration::displayHeight*$displayHeight}]]
         }
+    } on error e {
+        set points [subst {
+            {0 0                        0 0}
+            {$cameraWidth 0             $displayWidth 0}
+            {0 $cameraHeight            0 $displayHeight}
+            {$cameraWidth $cameraHeight $displayWidth $displayHeight}
+        }]
     }
     if {[llength $points] < 4} {
         puts stderr "tags-and-calibration: Calibration isn't valid (not enough points). Stopping Folk."
