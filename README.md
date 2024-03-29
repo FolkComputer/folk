@@ -18,8 +18,12 @@ $ make && ./folk
   - inculcate ref with thread id? lock ref hashtable in foreign
     process, make proxy with C functions? this is so weird
   - make ref ids bigger?
-- implement Collect
+- implement Collect -> labels
   - use some sort of timer?
+- thread monitoring (what threads are running what? what threads are blocked?)
 - spin up new threads if most/all existing threads are OS-blocked
 - event statements
 - ~~transactions, causality, or Commit~~ Hold!
+- fix segfault (memory leak?) after a while
+- performance analysis
+
