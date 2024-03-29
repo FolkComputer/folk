@@ -98,8 +98,6 @@ int Jim_execInit(Jim_Interp *interp)
 struct WaitInfoTable;
 
 static char **JimOriginalEnviron(void);
-static char **JimSaveEnv(char **env);
-static void JimRestoreEnv(char **env);
 static int JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv,
     phandle_t **pidArrayPtr, int *inPipePtr, int *outPipePtr, int *errFilePtr);
 static void JimDetachPids(struct WaitInfoTable *table, int numPids, const phandle_t *pidPtr);
@@ -733,9 +731,14 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
     int lastBar;
     int i;
     phandle_t phandle;
-    char **save_environ;
+
+    // osnr: We require HAVE_EXECVPE so we don't need to globally set
+    // the environment before launching the subprocess, which is what
+    // jim did before and which is not thread-safe.
+    _Static_assert(HAVE_EXECVPE);
+
 #if defined(HAVE_EXECVPE) && !defined(__MINGW32__)
-    char **child_environ;
+    char **child_environ = JimBuildEnv(interp);
 #endif
     struct WaitInfoTable *table = Jim_CmdPrivData(interp);
 
@@ -852,9 +855,6 @@ badargs:
         Jim_Free(arg_array);
         return -1;
     }
-
-    /* Must do this before vfork(), so do it now */
-    save_environ = JimSaveEnv(JimBuildEnv(interp));
 
     /*
      * Set up the redirected input source for the pipeline, if
@@ -1044,9 +1044,6 @@ badargs:
 #else
         i = strlen(arg_array[firstArg]);
 
-#ifdef HAVE_EXECVPE
-        child_environ = Jim_GetEnviron();
-#endif
         /*
          * Make a new process and enter it into the table if the vfork
          * is successful.
@@ -1161,7 +1158,7 @@ badargs:
     }
     Jim_Free(arg_array);
 
-    JimRestoreEnv(save_environ);
+    JimFreeEnv(child_environ, Jim_GetEnviron());
 
     return numPids;
 
@@ -1500,19 +1497,6 @@ JimStartWinProcess(Jim_Interp *interp, char **argv, char **env, int inputId, int
 static char **JimOriginalEnviron(void)
 {
     return Jim_GetEnviron();
-}
-
-static char **JimSaveEnv(char **env)
-{
-    char **saveenv = Jim_GetEnviron();
-    Jim_SetEnviron(env);
-    return saveenv;
-}
-
-static void JimRestoreEnv(char **env)
-{
-    JimFreeEnv(Jim_GetEnviron(), env);
-    Jim_SetEnviron(env);
 }
 #endif
 #endif
