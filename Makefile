@@ -17,8 +17,8 @@ debug-attach:
 
 FOLK_REMOTE_NODE := folk-convivial
 remote:
-	rsync --delete --exclude vendor/jimtcl --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make && ./folk'
+	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make -C vendor/jimtcl && make && ./folk'
 debug-remote:
-	rsync --delete --exclude vendor/jimtcl --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make && gdb ./folk -ex=run'
+	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
