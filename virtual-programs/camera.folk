@@ -318,7 +318,7 @@ while 1 {
     set frame [$cam grayFrame]
     Hold! camera [list $this claims the camera frame is $frame]
     lappend oldFrames $frame
-    if {[llength $oldFrames] >= 10} {
+    if {[llength $oldFrames] >= 100} {
         set oldFrames [lassign $oldFrames oldestFrame]
         $cam freeImage $oldestFrame
     }
