@@ -33,7 +33,7 @@ Start process mqtt {
     }
     $client connect test-client localhost 1883
 
-    $client subscribe "/#" cb
+    $client subscribe "#" cb
 
     # When /node/ has step count /c/ {
     #     if {[expr {int($c) % 1000}] == 0} {

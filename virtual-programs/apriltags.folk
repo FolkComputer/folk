@@ -1,5 +1,9 @@
 if {$::isLaptop} return
 
+if {$::thisNode eq "folk-haip-nuc" || $::thisNode eq "folk-haip-nuc.local"} {
+    return
+}
+
 set tagfamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.

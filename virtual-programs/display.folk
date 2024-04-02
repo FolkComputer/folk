@@ -4,6 +4,10 @@ proc ::getColor {color} {
         else { return $Colors::white }
 }
 
+if {$::thisNode eq "folk-haip-nuc" || $::thisNode eq "folk-haip-nuc.local"} {
+    return
+}
+
 Start process "display" {
     puts "Display pid: [pid]"
 
