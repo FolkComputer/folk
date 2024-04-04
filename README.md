@@ -68,10 +68,12 @@ if flashing from a Mac])
 
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
-          1. On a Pi 4, if vulkaninfo reports "Failed to detect any valid GPUs
-             in the current config", add `dtoverlay=vc4-fkms-v3d` to
-             the bottom of `/boot/firmware/config.txt` or
-             `/boot/config.txt`, whichever exists
+          1. On a Pi 4, if vulkaninfo reports "Failed to detect any
+             valid GPUs in the current config", add
+             `dtoverlay=vc4-fkms-v3d` or `dtoverlay=vc4-kms-v3d` (I
+             think this one is more recommended now?) to the bottom of
+             `/boot/firmware/config.txt` or `/boot/config.txt`,
+             whichever exists
              (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
      1. Try `vkcube`:
 
