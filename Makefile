@@ -11,7 +11,7 @@ sync:
 	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
 
 sync-restart: sync
-	ssh folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl restart folk'
+	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl restart folk'
 
 test:
 	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
