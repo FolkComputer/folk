@@ -313,3 +313,13 @@ namespace eval Camera {
         return $image
     }
 }
+
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    puts Hello
+    
+    namespace eval ::Camera {
+        variable WIDTH 1280
+        variable HEIGHT 720
+    }
+    Camera::init 1280 720
+}
