@@ -25,8 +25,12 @@ namespace eval Camera {
     }
     camc struct camera_t {
         int fd;
+
         uint32_t width;
         uint32_t height;
+
+        int uses_jpeg_format;
+
         size_t buffer_count;
         buffer_t* buffers;
         buffer_t head;
@@ -49,14 +53,15 @@ namespace eval Camera {
     }
     defineImageType camc
 
-    camc proc cameraOpen {char* device int width int height} camera_t* {
+    camc proc cameraOpen {char* device int width int height int uses_jpeg_format} camera_t* {
         printf("device [%s]\n", device);
-        int fd = open(device, O_RDWR | O_NONBLOCK, 0);
+        int fd = open(device, O_RDWR, 0);
         if (fd == -1) quit("open");
         camera_t* camera = ckalloc(sizeof (camera_t));
         camera->fd = fd;
         camera->width = width;
         camera->height = height;
+        camera->uses_jpeg_format = uses_jpeg_format;
         camera->buffer_count = 0;
         camera->buffers = NULL;
         camera->head.length = 0;
@@ -74,13 +79,27 @@ namespace eval Camera {
         format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         format.fmt.pix.width = camera->width;
         format.fmt.pix.height = camera->height;
-        format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+        if (camera->uses_jpeg_format) {
+            // All(?) USB webcams we've encountered use this format.
+            format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+        } else {
+            // Implementing this just for Pi camera via libcamerify.
+            format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUV420;
+        }
         format.fmt.pix.field = V4L2_FIELD_NONE;
         int ret;
         do {
             ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
         } while (ret == EBUSY);
         if (ret == -1) quit("VIDIOC_S_FMT");
+
+        if (!camera->uses_jpeg_format && format.fmt.pix.bytesperline != camera->width) {
+            fprintf(stderr, "cameraInit: interline padding not supported "
+                    "(bytesperline = %u, camera->width = %u)\n",
+                    format.fmt.pix.bytesperline,
+                    camera->width);
+            exit(1);
+        }
 
         struct v4l2_requestbuffers req = {0};
         req.count = 4;
@@ -90,24 +109,29 @@ namespace eval Camera {
         camera->buffer_count = req.count;
         camera->buffers = calloc(req.count, sizeof (buffer_t));
 
-        struct v4l2_streamparm streamparm = {0};
-        streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        if (xioctl(camera->fd, VIDIOC_G_PARM, &streamparm) == -1) quit("VIDIOC_G_PARM");
-        if (streamparm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
-            int req_rate_numerator = 1;
-            int req_rate_denominator = 60;
-            streamparm.parm.capture.timeperframe.numerator = req_rate_numerator;
-            streamparm.parm.capture.timeperframe.denominator = req_rate_denominator;
-            if (xioctl(camera->fd, VIDIOC_S_PARM, &streamparm) == -1) { quit("VIDIOC_S_PARM"); }
+        if (camera->uses_jpeg_format) {
+            // VIDIOC_G_PARM and VIDIOC_S_PARM are not supported by
+            // libcamerify.
 
-            if (streamparm.parm.capture.timeperframe.numerator != req_rate_denominator ||
-                streamparm.parm.capture.timeperframe.denominator != req_rate_numerator) {
-                fprintf(stderr,
-                        "the driver changed the time per frame from "
-                        "%d/%d to %d/%d\n",
-                        req_rate_denominator, req_rate_numerator,
-                        streamparm.parm.capture.timeperframe.numerator,
-                        streamparm.parm.capture.timeperframe.denominator);
+            struct v4l2_streamparm streamparm = {0};
+            streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            if (xioctl(camera->fd, VIDIOC_G_PARM, &streamparm) == -1) quit("VIDIOC_G_PARM");
+            if (streamparm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME) {
+                int req_rate_numerator = 1;
+                int req_rate_denominator = 60;
+                streamparm.parm.capture.timeperframe.numerator = req_rate_numerator;
+                streamparm.parm.capture.timeperframe.denominator = req_rate_denominator;
+                if (xioctl(camera->fd, VIDIOC_S_PARM, &streamparm) == -1) { quit("VIDIOC_S_PARM"); }
+
+                if (streamparm.parm.capture.timeperframe.numerator != req_rate_denominator ||
+                    streamparm.parm.capture.timeperframe.denominator != req_rate_numerator) {
+                    fprintf(stderr,
+                            "the driver changed the time per frame from "
+                            "%d/%d to %d/%d\n",
+                            req_rate_denominator, req_rate_numerator,
+                            streamparm.parm.capture.timeperframe.numerator,
+                            streamparm.parm.capture.timeperframe.denominator);
+                }
             }
         }
 
@@ -186,6 +210,8 @@ namespace eval Camera {
     }
 
     camc proc cameraDecompressRgb {camera_t* camera image_t dest} void {
+        if (!camera->uses_jpeg_format) { fprintf(stderr, "cameraDecompressRgb: non-jpeg not supported\n"); exit(1); }
+
         struct jpeg_decompress_struct cinfo;
         struct jpeg_error_mgr jerr;
         cinfo.err = jpeg_std_error(&jerr);
@@ -205,7 +231,7 @@ namespace eval Camera {
         jpeg_finish_decompress(&cinfo);
         jpeg_destroy_decompress(&cinfo);
     }
-    camc proc cameraDecompressGray {camera_t* camera image_t dest} void {
+    camc proc cameraDecompressGrayJpeg {camera_t* camera image_t dest} void {
         struct jpeg_decompress_struct cinfo;
         struct jpeg_error_mgr jerr;
         cinfo.err = jpeg_std_error(&jerr);
@@ -225,6 +251,14 @@ namespace eval Camera {
         }
         jpeg_finish_decompress(&cinfo);
         jpeg_destroy_decompress(&cinfo);
+    }
+    camc proc cameraDecompressGray {camera_t* camera image_t dest} void {
+        if (camera->uses_jpeg_format) {
+            cameraDecompressGrayJpeg(camera, dest);
+        } else {
+            // Planar Y:U:V 4:2:0 format. Just copy the Y plane.
+            memcpy(dest.data, camera->head.start, camera->width * camera->height);
+        }
     }
     camc proc rgbToGray {image_t rgb} image_t {
         uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
@@ -280,11 +314,11 @@ namespace eval Camera {
     camc compile
 
     variable camera
-    proc init {width height} {
+    proc init {width height {usesJpegFormat 1}} {
         variable camera
         variable WIDTH; variable HEIGHT
         set WIDTH $width; set HEIGHT $height
-        set camera [Camera::cameraOpen "/dev/video0" $width $height]
+        set camera [Camera::cameraOpen "/dev/video0" $width $height $usesJpegFormat]
         Camera::cameraInit $camera
         Camera::cameraStart $camera
         # skip 5 frames for booting a cam
@@ -321,5 +355,5 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
         variable WIDTH 1280
         variable HEIGHT 720
     }
-    Camera::init 1280 720
+    Camera::init 1280 720 0
 }

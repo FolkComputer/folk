@@ -20,7 +20,11 @@ Start process "camera" {
 
     source pi/Camera.tcl
 
-    Camera::init $width $height
+    if {[string match "gadget-*" $::thisNode]} {
+        Camera::init $width $height 0
+    } else {
+        Camera::init $width $height 1
+    }
 
     puts "Camera tid: [getTid] booted at [clock milliseconds]"
 
