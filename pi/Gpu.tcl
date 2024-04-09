@@ -116,7 +116,7 @@ Try doing `sudo chmod 666 $renderFile`."
         VkSemaphore renderFinishedSemaphore;
         VkFence inFlightFence;
     }
-    dc proc init {} void [csubst {
+    dc proc init {int displayIdx} void [csubst {
         $[vktry volkInitialize()]
         $[if {$macos} { expr {"glfwInit();"} }]
 
@@ -263,7 +263,7 @@ Try doing `sudo chmod 666 $renderFile`."
             vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
             uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
-            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[0].display, &modeCount, &modeProps);
+            vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display, &modeCount, &modeProps);
 
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
@@ -1536,7 +1536,7 @@ proc glslc {args} {
 
 if {[info exists ::argv0] && $::argv0 eq [info script] || \
         ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
-    Gpu::init
+    Gpu::init 0
     Gpu::ImageManager::imageManagerInit
 
     set fullScreenVert {

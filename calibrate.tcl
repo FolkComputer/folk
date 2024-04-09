@@ -33,7 +33,12 @@ source "pi/cUtils.tcl"
 Camera::init 1920 1080
 set tagfamily "tagStandard52h13"
 
-Gpu::init
+if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
+    # HACK: we use HDMI1 instead of HDMI0 on these
+    Gpu::init 1
+} else {
+    Gpu::init 0
+}
 Gpu::ImageManager::imageManagerInit
 
 set cc [c create]

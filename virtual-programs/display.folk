@@ -8,7 +8,12 @@ Start process "display" {
     puts "Display pid: [pid]"
 
     source pi/Gpu.tcl
-    Gpu::init
+    if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
+        # HACK: we use HDMI1 instead of HDMI0 on these
+        Gpu::init 1
+    } else {
+        Gpu::init 0
+    }
     Gpu::ImageManager::imageManagerInit
 
     # TODO: Share these functions through the database somehow,
