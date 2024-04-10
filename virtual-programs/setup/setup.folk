@@ -1,0 +1,21 @@
+When the display /disp/ has width /displayWidth/ height /displayHeight/ {
+    set cx [/ $displayWidth 2.0]; set cy [/ $displayHeight 2.0]
+    Wish to draw text with x $cx y [/ $cy 2.0] text "Welcome to Folk"
+
+    # TODO: a terminal
+    set terminalWidth [/ $displayWidth 2.0]
+    set terminalHeight [/ $displayHeight 2.0]
+    set terminalRegion [region fromRect \
+                            [/ $displayWidth 5.0] [/ $displayHeight 5.0] \
+                            $terminalWidth $terminalHeight]
+    Claim $this has terminal region $terminalRegion
+    Claim $this has keyboard input
+
+    # TODO: internet status
+    # TODO: document how to set up wifi
+
+
+    # TODO: git status
+
+    # TODO: calibrate instructions
+}
