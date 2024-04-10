@@ -206,7 +206,7 @@ On process "display" {
         set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
         set anchor [dict_getdef $options anchor "center"]
-        set radians [dict get $options radians]
+        set radians [dict_getdef $options radians 0]
         set color [getColor [dict_getdef $options color white]]
 
         if {$anchor == "topleft"} {
