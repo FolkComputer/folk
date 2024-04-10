@@ -95,6 +95,7 @@ When the collected matches for [list /type/ /obj/ has a program] are /matches/ {
           <span id="status">Status</span>
           <div id="log"></div>
 		  <button id="refresh">Refresh</button>
+		  <button id="new">New Program</button>
 <script>
 const rawRunningPrograms = "RUNNING_PROGRAMS";
 const possiblePrograms = "POSSIBLE_PROGRAMS";
@@ -117,9 +118,25 @@ const refreshList = () => {
 	location.reload();
 }
 
+const createNewProgram = () => {
+	const code = "";
+	jobid = String(Math.random());
+	ws.send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
+	setTimeout(() => {
+	  console.log("sending retract message");
+	  ws.send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
+		setTimeout(() => {
+			console.log("sending refresh message");
+			ws.send(`Retract web wishes potential programs would be updated at step count /c/;Assert web wishes potential programs would be updated at step count ${(new Date()).getTime()}`);
+			location.reload();
+		}, 500);
+	}, 500);
+}
+
 ws.onopen = () => {
     document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
 	document.getElementById('refresh').addEventListener('click', refreshList);
+	document.getElementById('new').addEventListener('click', createNewProgram);
 	possiblePrograms.split(' ').forEach((program, i) => {
 		const container = document.createElement('div');
 		container.className = 'program-container';
