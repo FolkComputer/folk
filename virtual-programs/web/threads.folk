@@ -1,0 +1,18 @@
+Wish the web server handles route "/threads" with handler {
+    # TODO: query Linux or us for all running threads
+    set tasks [glob -directory /proc/[pid]/task *]
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Threads</title>
+        </head>
+
+        <body>
+        <ul>
+        [lmap task $tasks {subst {<li>$task</li>}}]
+        </ul>
+        </body>
+        </html>
+    }]
+}

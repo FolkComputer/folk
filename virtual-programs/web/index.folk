@@ -23,9 +23,10 @@ Wish the web server handles route "/" with handler {
         </head>
         <nav>
           <a href="/new"><button>New program</button></a>
-          <a href="/programs">Running programs</a>
-          <a href="/timings">Timings</a>
-          <a href="/keyboards">Keyboards</a>
+          <!-- <a href="/programs">Running programs</a> -->
+          <!-- <a href="/timings">Timings</a> -->
+          <!-- <a href="/keyboards">Keyboards</a> -->
+          <a href="/threads">Threads</a>
           <a href="/trie-graph.pdf">Trie graph</a>
           <a href="/dep-graph.pdf">Dep graph</a>
         </nav>
