@@ -8,6 +8,7 @@ set getCc {{} {
         #define NTHREADS 5
         extern pid_t threadsTid[NTHREADS];
         extern WorkQueueItem threadsCurrentItem[NTHREADS];
+        extern Db* db;
     }
     $cc proc threadCurrentItem {int tid} char* {
         static char buf[1000];
@@ -24,7 +25,13 @@ set getCc {{} {
             } else if (item.op == SAY) {
                 snprintf(buf, sizeof(buf), "Say");
             } else if (item.op == RUN) {
-                snprintf(buf, sizeof(buf), "Run");
+                Statement* stmt = statementAcquire(db, item.run.stmt);
+                if (stmt != NULL) {
+                    snprintf(buf, sizeof(buf), "Run when (%.100s) (%.100s)",
+                             clauseToString(item.run.whenPattern),
+                             clauseToString(statementClause(stmt)));
+                    statementRelease(db, stmt);
+                }
             } else if (item.op == REMOVE_PARENT) {
                 snprintf(buf, sizeof(buf), "Remove Parent");
             } else {
@@ -63,7 +70,7 @@ Wish the web server handles route "/threads" with handler [list apply {{getCc} {
             subst {<li>
                 $taskdir:
                   [regexp -inline {State:[^\n]*\n} $status]
-                [$cc threadCurrentItem $tid]
+                [htmlEscape [$cc threadCurrentItem $tid]]
             </li>}
         }] "\n"]
         </ol>
