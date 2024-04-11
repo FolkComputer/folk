@@ -1,6 +1,7 @@
+#define _GNU_SOURCE
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <string.h>
 #include <assert.h>
@@ -13,6 +14,8 @@
 #include "db.h"
 #include "workqueue.h"
 
+#define NTHREADS 5
+
 Db* db;
 // This mutex is used to create an atomic section where a statement
 // can add a statement, then react to the addition, without worrying
@@ -22,8 +25,10 @@ pthread_mutex_t dbMutex;
 WorkQueue* workQueue;
 pthread_mutex_t workQueueMutex;
 
-__thread int threadId = -1;
-int getThreadId() { return threadId; }
+__thread int _threadIndex = -1;
+int getThreadIndex() { return _threadIndex; }
+__thread pid_t _threadTid = 0;
+pid_t getThreadTid() { return _threadTid; }
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
@@ -228,7 +233,7 @@ static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_SetResultInt(interp, threadId);
+    Jim_SetResultInt(interp, getThreadIndex());
     return JIM_OK;
 }
 static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -493,7 +498,16 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
     }
 }
 
+// Used for diagnostics/profiling.
+WorkQueueItem threadsCurrentItem[NTHREADS];
+pthread_mutex_t threadsCurrentItemMutex[NTHREADS];
+
 void workerRun(WorkQueueItem item) {
+    int threadIndex = getThreadIndex();
+    pthread_mutex_lock(&threadsCurrentItemMutex[threadIndex]);
+    threadsCurrentItem[threadIndex] = item;
+    pthread_mutex_unlock(&threadsCurrentItemMutex[threadIndex]);
+
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
@@ -566,8 +580,12 @@ void workerRun(WorkQueueItem item) {
         exit(1);
     }
 }
+pid_t threadsTid[NTHREADS];
 void* workerMain(void* arg) {
-    threadId = (int) (intptr_t) arg;
+    _threadIndex = (int) (intptr_t) arg;
+    _threadTid = gettid();
+    threadsTid[_threadIndex] = _threadTid;
+    pthread_mutex_init(&threadsCurrentItemMutex[_threadIndex], NULL);
 
     interpBoot();
 
@@ -576,7 +594,7 @@ void* workerMain(void* arg) {
         WorkQueueItem item = workQueuePop(workQueue);
         if (item.op != NONE &&
             item.thread != -1 &&
-            item.thread != threadId) {
+            item.thread != _threadIndex) {
 
             // Skip and requeue.
             workQueuePush(workQueue, item);
@@ -648,7 +666,6 @@ int main(int argc, char** argv) {
     // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
     // which needs to be an active worker, in case we need to do
     // things like GLFW that the OS forces to be on the main thread.)
-    const int NTHREADS = 5;
     pthread_t th[NTHREADS];
     for (int i = 1; i < NTHREADS; i++) {
         pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);

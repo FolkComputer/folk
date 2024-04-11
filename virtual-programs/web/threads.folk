@@ -1,6 +1,49 @@
-Wish the web server handles route "/threads" with handler {
+set getCc {{} {
+    if {[info exists ::threadsCc]} { return $::threadsCc }
+
+    set cc [C]
+    $cc cflags -I.
+    $cc include "workqueue.h"
+    $cc code {
+        #define NTHREADS 5
+        extern pid_t threadsTid[NTHREADS];
+        extern WorkQueueItem threadsCurrentItem[NTHREADS];
+    }
+    $cc proc threadCurrentItem {int tid} char* {
+        static char buf[1000];
+        for (int i = 0; i < NTHREADS; i++) {
+            if (threadsTid[i] != tid) { continue; }
+
+            WorkQueueItem item = threadsCurrentItem[i];
+            if (item.op == ASSERT) {
+                snprintf(buf, sizeof(buf), "Assert");
+            } else if (item.op == RETRACT) {
+                snprintf(buf, sizeof(buf), "Retract");
+            } else if (item.op == HOLD) {
+                snprintf(buf, sizeof(buf), "Hold");
+            } else if (item.op == SAY) {
+                snprintf(buf, sizeof(buf), "Say");
+            } else if (item.op == RUN) {
+                snprintf(buf, sizeof(buf), "Run");
+            } else if (item.op == REMOVE_PARENT) {
+                snprintf(buf, sizeof(buf), "Remove Parent");
+            } else {
+                snprintf(buf, sizeof(buf), "???");
+            }
+            return buf;
+        }
+        return "nope";
+    }
+    $cc compile
+    return $cc
+}}
+
+Wish the web server handles route "/threads" with handler [list apply {{getCc} {
+    set cc [apply $getCc]
+
     # TODO: query Linux or us for all running threads
-    set taskdirs [glob -directory /proc/[pid]/task *]
+    set pid [pid]
+    set tids [glob -tails -directory /proc/$pid/task *]
     html [subst {
         <html>
         <head>
@@ -13,11 +56,14 @@ Wish the web server handles route "/threads" with handler {
         <h2>Threads</h2>
 
         <ol>
-        [join [lmap taskdir $taskdirs {
+        [join [lmap tid $tids {
+            set taskdir /proc/$pid/task/$tid
             set statusFd [open $taskdir/status r]
             set status [read $statusFd]; close $statusFd
             subst {<li>
-                $taskdir: [regexp -inline {State:[^\n]*\n} $status]
+                $taskdir:
+                  [regexp -inline {State:[^\n]*\n} $status]
+                [$cc threadCurrentItem $tid]
             </li>}
         }] "\n"]
         </ol>
@@ -25,4 +71,4 @@ Wish the web server handles route "/threads" with handler {
         </body>
         </html>
     }]
-}
+}} $getCc]
