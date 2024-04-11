@@ -1,6 +1,6 @@
 Wish the web server handles route "/threads" with handler {
     # TODO: query Linux or us for all running threads
-    set tasks [glob -directory /proc/[pid]/task *]
+    set taskdirs [glob -directory /proc/[pid]/task *]
     html [subst {
         <html>
         <head>
@@ -9,9 +9,19 @@ Wish the web server handles route "/threads" with handler {
         </head>
 
         <body>
-        <ul>
-        [lmap task $tasks {subst {<li>$task</li>}}]
-        </ul>
+
+        <h2>Threads</h2>
+
+        <ol>
+        [join [lmap taskdir $taskdirs {
+            set statusFd [open $taskdir/status r]
+            set status [read $statusFd]; close $statusFd
+            subst {<li>
+                $taskdir: [regexp -inline {State:[^\n]*\n} $status]
+            </li>}
+        }] "\n"]
+        </ol>
+
         </body>
         </html>
     }]
