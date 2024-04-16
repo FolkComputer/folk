@@ -20,3 +20,6 @@ cups-bsd
 isc-dhcp-client
 curl
 iwd
+openssh-server
+nano
+elfutils
