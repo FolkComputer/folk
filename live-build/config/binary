@@ -1,7 +1,7 @@
 # config/binary - options for live-build(7), binary stage
 
 # Set image type
-LB_IMAGE_TYPE="iso-hybrid"
+LB_IMAGE_TYPE="hdd"
 
 # Set image filesystem
 LB_BINARY_FILESYSTEM="fat32"
@@ -62,16 +62,16 @@ LB_DEBIAN_INSTALLER_PRESEEDFILE=""
 LB_DEBIAN_INSTALLER_GUI="true"
 
 # Set hdd label
-LB_HDD_LABEL="DEBIAN_LIVE"
+LB_HDD_LABEL="FOLK_LIVE"
 
 # Set hdd filesystem size
-LB_HDD_SIZE="auto"
+LB_HDD_SIZE="2000"
 
 # Set start of partition for the hdd target for BIOSes that expect a specific boot partition start (e.g. "63s"). If empty, use optimal layout.
 LB_HDD_PARTITION_START=""
 
 # Set iso author
-LB_ISO_APPLICATION="Debian Live"
+LB_ISO_APPLICATION="Folk Computer Live"
 
 # Set iso preparer
 LB_ISO_PREPARER="live-build @LB_VERSION@; https://salsa.debian.org/live-team/live-build"
