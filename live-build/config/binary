@@ -1,14 +1,10 @@
 # config/binary - options for live-build(7), binary stage
 
 # Set image type
-# osnr: HDD because we only target USB sticks anyway, and we need an
-# actually-valid Master Boot Record that we can add a writable
-# partition to.
-LB_IMAGE_TYPE="hdd"
+LB_IMAGE_TYPE="iso-hybrid"
 
 # Set image filesystem
-# osnr: ext4 is better-supported in practice than fat32.
-LB_BINARY_FILESYSTEM="ext4"
+LB_BINARY_FILESYSTEM="fat32"
 
 # Set apt/aptitude generic indices
 LB_APT_INDICES="true"
