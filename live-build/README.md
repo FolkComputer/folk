@@ -14,29 +14,32 @@ somewhere).
 
 ## How to build
 
+TODO: get Folk submodule
+
 You need to build on a computer running amd64 Debian Bookworm. (Use a
 virtual machine if you need to. A Folk system built by folk-live-build
 itself should work, though, whether on a virtual or physical machine.)
 
 ```
-# apt install live-build parted
+# apt install live-build parted dosfstools
 $ make
 ```
 
 emits `folk.amd64.img`.
 
-(It runs from scratch each time -- can take 30 minutes-ish.)
+(It runs from scratch each time -- can take 30 minutes or more.)
 
 ## How it works
 
 Image (-> USB drive) contains Master Boot Record with:
 
-1. EFI system partition (~1MB? ~100MB?)
+1. 'Binary' partition (~1.3GB) (may be fat32, iso9660, or ext4, doesn't matter)
+   - Contains a bunch of stuff (?), including the SquashFS file for
+     the root filesystem image, which ultimately maps to / in the
+     running system
 
-2. 'Binary' partition (~1.3GB) (may be fat32, iso9660, or ext4, doesn't matter)
-   - Contains a bunch of stuff, including the SquashFS file for the
-     root filesystem image, which ultimately maps to / in the running
-     system
+2. EFI system partition (5MB)
+   - GRUB bootloader
 
 3. Writable FAT32 partition (~1GB)
    - Contains /folk with Folk evaluator code and virtual programs,
@@ -52,10 +55,21 @@ efi partition.
 
 #### Build process
 
-1. Run live-build, emit a bootable disk image (with MBR with EFI &
-   binary partition)
+The build process uses Debian live-build to build a live image, then
+appends writable partition and EFI. (live-build can make an
+EFI-bootable image on its own, but only in iso-hybrid mode, which
+doesn't let you modify the partition table to add the writable
+partition, so we instead use hdd mode and modify the partition table
+ourselves.)
 
-2. Use parted to mutate the disk image to add the writable FAT32 partition
+1. Run live-build, emit a disk image (with MBR with only a binary
+   partition. not bootable on many modern systems)
+
+2. Use parted to mutate the disk image to add EFI system partition
+
+3. Use grub-install to install grub-efi
+
+4. Use parted to mutate the disk image to add the writable FAT32 partition
 
 ## References
 
