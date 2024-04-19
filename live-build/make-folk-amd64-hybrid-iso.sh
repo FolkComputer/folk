@@ -25,15 +25,15 @@ dd if=/dev/zero bs=1M count=$WRITABLE_PART_SIZE_MIB >> $FOLK_IMG
 # <https://unix.stackexchange.com/questions/618615/create-another-partition-on-free-space-of-usb-after-dd-installing-debian>.
 # I don't trust sfdisk or parted.)
 
-START_SECTOR=$(fdisk --wipe=never --type dos --list folk.iso | grep 'W95 FAT32' | tr -s ' ' | cut -d' ' -f2)
+START_SECTOR=$(fdisk --wipe=never --type dos --list $FOLK_IMG | grep 'W95 FAT32' | tr -s ' ' | cut -d' ' -f2)
 START_BYTES=$(($START_SECTOR * 512))
 mkdosfs -F 32 --offset $START_SECTOR $FOLK_IMG
 
 sudo mkdir -p /mnt/folk-img-writable
-sudo mount -t vfat -o loop,offset=$START_BYTES,rw $FOLK_IMG /mnt/folk-img-writable
+sudo mount -t vfat -o uid=$USER,gid=$USER -o loop,offset=$START_BYTES,rw $FOLK_IMG /mnt/folk-img-writable
 
-# TODO: clone Folk into mounted FAT32 filesystem
+# Copy Folk into mounted FAT32 filesystem
+cp -r $(dirname "$0")/folk /mnt/folk-img-writable
 # TODO: make base config file in FAT32 filesystem?
-
 
 sudo umount /mnt/folk-img-writable
