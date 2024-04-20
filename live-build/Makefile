@@ -1,5 +1,5 @@
-folk-amd64.hybrid.iso: live-image-amd64.hybrid.iso
-	./make-folk-amd64-hybrid-iso.sh $< $@
+folk-amd64.img: live-image-amd64.img
+	./make-folk-amd64-img.sh $< $@
 
-live-image-amd64.hybrid.iso:
+live-image-amd64.img:
 	sudo sh -c 'lb clean && lb config && lb build'
