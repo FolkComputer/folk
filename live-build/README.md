@@ -14,14 +14,13 @@ somewhere).
 
 ## How to build
 
-TODO: get Folk submodule
-
 You need to build on a computer running amd64 Debian Bookworm. (Use a
 virtual machine if you need to. A Folk system built by folk-live-build
 itself should work, though, whether on a virtual or physical machine.)
 
 ```
 # apt install live-build parted dosfstools
+$ git submodule update --init
 $ make
 ```
 
