@@ -1,5 +1,5 @@
 [submodule "config/includes.chroot_after_packages/etc/skel/apriltag"]
-	path = config/includes.chroot_after_packages/etc/skel/apriltag
+	path = config/includes.chroot_after_packages/home/folk/apriltag
 	url = https://github.com/FolkComputer/apriltag
 [submodule "folk"]
 	path = folk-live/folk
