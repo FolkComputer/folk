@@ -10,7 +10,7 @@ LB_BINARY_FILESYSTEM="ext4"
 LB_APT_INDICES="true"
 
 # Set boot parameters
-LB_BOOTAPPEND_LIVE="boot=live components hostname=folk-live username=folk live-config.user-default-groups=adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi,lpadmin"
+LB_BOOTAPPEND_LIVE="boot=live components hostname=folk-live username=folk live-config.user-default-groups=adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi,lpadmin persistence persistence-label=FOLK-LIVE"
 
 # Set boot parameters
 LB_BOOTAPPEND_INSTALL=""

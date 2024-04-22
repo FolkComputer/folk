@@ -3,11 +3,12 @@
 Builds a bootable Folk OS image.
 
 You don't want this repo if you're just trying to install Folk -- you
-should just download the pre-built `folk.amd64.img` from (TODO:
+should just download the pre-built `folk-amd64.img` from (TODO:
 somewhere).
 
 ## Key files
 
+- `folk-live/`: becomes writable partition on disk, including Folk repo
 - `config/package-lists/folk.list.chroot`: apt packages
 - `config/includes.chroot_after_packages/etc/skel`: copied into `/home/folk` at boot
 - `config/includes.chroot_after_packages/`: copied into `/` at boot
@@ -38,12 +39,12 @@ Image (-> USB drive) contains Master Boot Record with:
      running system
    - Could be fat32 or iso9660 I think but ext4 is reliable
 
-2. EFI system partition (5MB)
+2. EFI system partition (100MB)
    - syslinux-efi bootloader
    - Linux kernel image (annoying if you update kernel but this is a
      sealed live USB so that shouldn't be an issue)
 
-3. Writable FAT32 partition (~1GB)
+3. Writable FAT32 partition (~500MB)
    - Contains /folk with Folk evaluator code and virtual programs,
      /folk-printed-programs, etc.
    - TODO: Contains config.tcl
@@ -85,9 +86,10 @@ modify the partition table ourselves.)
 
 ## TODO
 
-- Replace "NO NAME" title of FAT32 writable partition with Folk name
+- ~~Replace "NO NAME" title of FAT32 writable partition with Folk name~~
 - Test MBR+EFI on various systems (BIOS, UEFI, Chromebook, Beelink,
   NUC, UTM)
 - Make fstab automount the writable partition (how do we know it's
   /dev/sdb2?)
 - Put Wi-Fi config on writable partition
+- Figure out disk installation process

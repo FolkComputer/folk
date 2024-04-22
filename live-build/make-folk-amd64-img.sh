@@ -40,7 +40,7 @@ sudo umount /mnt/folk-img-efi
 EFI_START_MIB=$(($ORIG_SIZE_MIB + $EFI_PART_SIZE_MIB))
 parted -s $FOLK_IMG mkpart primary fat32 \
 	${EFI_START_MIB}MiB 100%
-mkdosfs --offset $(($EFI_START_MIB * 1024 * 1024 / 512)) -F32 $FOLK_IMG
+mkdosfs --offset $(($EFI_START_MIB * 1024 * 1024 / 512)) -F32 -n "FOLK-LIVE" $FOLK_IMG
 
 # Mount the writable FAT32 partition:
 sudo mkdir -p /mnt/folk-img-writable
@@ -48,8 +48,9 @@ sudo mount -t vfat -o uid=$USER,gid=$USER \
      -o loop,offset=$(($EFI_START_MIB * 1024 * 1024)),rw \
      $FOLK_IMG /mnt/folk-img-writable
 
-# Copy Folk into mounted FAT32 filesystem:
-cp -r $(dirname "$0")/folk /mnt/folk-img-writable
+# Copy writable partition content (including Folk repo) into mounted
+# FAT32 filesystem:
+cp -r folk-live/* /mnt/folk-img-writable
 # TODO: make base config file in FAT32 filesystem?
 
 sudo umount /mnt/folk-img-writable
