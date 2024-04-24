@@ -594,7 +594,9 @@ if {[info exists ::entry]} {
         }
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
-                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
+                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
             if {[string match "*/_archive/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
