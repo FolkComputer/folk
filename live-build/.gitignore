@@ -1,0 +1,13 @@
+folk-amd64.img
+live-image-amd64.img
+chroot
+binary
+cache
+.build
+binary.modified_timestamps
+chroot.files
+chroot.packages.install
+chroot.packages.live
+live-image-amd64.contents
+live-image-amd64.files
+live-image-amd64.packages
