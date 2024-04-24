@@ -1,0 +1,26 @@
+# This Folk program will run automatically when Folk starts up.
+
+# Set these if you want Folk to connect to your Wi-Fi:
+set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
+set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
+
+###########################
+
+set errs [list]
+try {
+    exec iwctl --passphrase $WIFI_PASSWORD station wlan0 connect $WIFI_SSID
+} on error wifierr { lappend errs $wifierr }
+
+try { exec sudo dhclient } on error dherr { lappend errs $dherr }
+
+When the display /disp/ has width /displayWidth/ height /displayHeight/ {
+    set cx [/ $displayWidth 2.0]; set cy [/ $displayHeight 2.0]
+    Wish to draw text with x $cx y [/ $cy 2.0] text "Welcome to Folk"
+    if {[llength $errs] > 0} {
+        Wish to draw text with x $cx y [+ [/ $cy 2.0] 30] \
+            text "Network errors:\n---\n[join $errs "\n"]"
+    }
+}
+
+# In fact, any .folk file on this flash drive in / or in a
+# subdirectory of / will automatically get run by Folk.

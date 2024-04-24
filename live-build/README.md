@@ -47,7 +47,8 @@ Image (-> USB drive) contains Master Boot Record with:
 3. Writable FAT32 partition (~500MB)
    - Contains /folk with Folk evaluator code and virtual programs,
      /folk-printed-programs, etc.
-   - TODO: Contains config.tcl
+   - Contains setup.folk which you can edit to set runtime settings
+     (Wi-Fi credentials)
    - Designed to automount on all operating systems when the USB is
      plugged in, to make it easy to configure Wi-Fi and other stuff
      before boot
@@ -95,5 +96,6 @@ Apache 2.0
   NUC, UTM)
 - ~~Make fstab automount the writable partition (how do we know it's
   /dev/sdb2?)~~
-- Put Wi-Fi config on writable partition
+- ~~Put Wi-Fi config on writable partition~~
+- Allow setting display and webcam from setup.folk
 - Figure out disk installation process
