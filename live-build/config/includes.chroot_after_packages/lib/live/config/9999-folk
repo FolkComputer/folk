@@ -1,0 +1,11 @@
+#!/bin/sh
+
+udevadm control --reload-rules && udevadm trigger
+
+# Why not use the built-in live persistence, with persistence.conf?
+# Answer: FAT32 permissions issues make it not writable without being
+# root all the time. So we just mount it ourselves.
+MEDIUM_PART=$(findmnt --target /run/live/medium --output SOURCE --raw --noheadings)
+WRITABLE_PART=${MEDIUM_PART%?}3
+mkdir -p /home/folk/folk-live
+mount -t vfat $WRITABLE_PART /home/folk/folk-live -o rw,uid=folk,gid=folk || true

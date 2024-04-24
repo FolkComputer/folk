@@ -1,2 +1,7 @@
 exec iwctl --passphrase "REPLACE_ME_WITH_WIFI_PASSWORD" station wlan0 connect "REPLACE_ME_WITH_WIFI_SSID"
-# exec sudo dhclient
+exec sudo dhclient
+
+When the display /disp/ has width /displayWidth/ height /displayHeight/ {
+    set cx [/ $displayWidth 2.0]; set cy [/ $displayHeight 2.0]
+    Wish to draw text with x $cx y [/ $cy 2.0] text "Welcome to Folk"
+}

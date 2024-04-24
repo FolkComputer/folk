@@ -1,0 +1,3 @@
+#!/bin/sh
+systemctl enable iwd
+systemctl enable folk

@@ -1,7 +1,0 @@
-#!/bin/sh
-
-udevadm control --reload-rules && udevadm trigger
-
-systemctl start folk
-systemctl enable folk
-
