@@ -84,12 +84,16 @@ modify the partition table ourselves.)
 - <https://manpages.debian.org/testing/live-build/lb_config.1.en.html>
 - <https://live-team.pages.debian.net/live-manual/html/live-manual/index.en.html>
 
+## License
+
+Apache 2.0
+
 ## TODO
 
 - ~~Replace "NO NAME" title of FAT32 writable partition with Folk name~~
 - Test MBR+EFI on various systems (BIOS, UEFI, Chromebook, Beelink,
   NUC, UTM)
-- Make fstab automount the writable partition (how do we know it's
-  /dev/sdb2?)
+- ~~Make fstab automount the writable partition (how do we know it's
+  /dev/sdb2?)~~
 - Put Wi-Fi config on writable partition
 - Figure out disk installation process

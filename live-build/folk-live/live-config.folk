@@ -1,0 +1,2 @@
+exec iwctl --passphrase "REPLACE_ME_WITH_WIFI_PASSWORD" station wlan0 connect "REPLACE_ME_WITH_WIFI_SSID"
+# exec sudo dhclient
