@@ -1,1 +1,9 @@
-/usr/share/live/build/hooks/normal/5040-update-nvidia-alternative.hook.chroot
+#!/bin/sh
+
+set -e
+
+# Use newest nvidia version by default
+if [ -e /etc/alternatives/nvidia ] && [ -e /usr/lib/nvidia/current ]
+then
+	update-alternatives --quiet --set nvidia /usr/lib/nvidia/current
+fi
