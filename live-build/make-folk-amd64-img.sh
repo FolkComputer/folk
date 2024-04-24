@@ -52,6 +52,6 @@ sudo mount -t vfat -o uid=$USER,gid=$USER \
 # FAT32 filesystem:
 cp -r folk-live/* /mnt/folk-img-writable
 rm /mnt/folk-img-writable/folk/.git
-cp -r ../.git/modules/folk /mnt/folk-img-writable/folk/.git
+cp -r .git/modules/folk /mnt/folk-img-writable/folk/.git
 
 sudo umount /mnt/folk-img-writable
