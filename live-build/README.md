@@ -2,18 +2,28 @@
 
 Builds a bootable Folk OS image.
 
-You don't want this repo if you're just trying to install Folk -- you
-should just download the pre-built `folk-amd64.img` from (TODO:
-somewhere).
+To run Folk on a PC, [download the latest pre-built Folk image for USB
+stick from the Releases
+page.](https://github.com/FolkComputer/folk-live-build/releases)
+Follow the instructions there.
+
+---
+
+Below are details on how the Folk OS image is constructed; **you don't
+need to worry about any of the below if you're just trying to install
+Folk.**
 
 ## Key files
 
 - `folk-live/`: becomes writable partition on disk, including Folk repo
 - `config/package-lists/folk.list.chroot`: apt packages
-- `config/includes.chroot_after_packages/etc/skel`: copied into `/home/folk` at boot
+- `config/hooks/normal/9999-setup-folk.hook.chroot`: executed in
+  `/` chroot at image construction time
 - `config/includes.chroot_after_packages/`: copied into `/` at boot
+- `config/includes.chroot_after_packages/lib/live/config/9999-folk`:
+  executed at boot
 
-## How to build
+## How to build folk-amd64.img from scratch
 
 You need to build on a computer running amd64 Debian Bookworm. (Use a
 virtual machine if you need to. A Folk system built by folk-live-build
