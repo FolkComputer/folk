@@ -15,13 +15,13 @@ test: folk
 debug-attach:
 	lldb --attach-name folk
 
-FOLK_REMOTE_NODE := folk-convivial
+FOLK_REMOTE_NODE := folk-omar-mini
 remote:
 	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make -C vendor/jimtcl && make && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && ./folk'
 debug-remote:
 	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
 
 
 flamegraph:
