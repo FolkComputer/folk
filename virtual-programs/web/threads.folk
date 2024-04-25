@@ -48,9 +48,24 @@ set getCc {{} {
 Wish the web server handles route "/threads" with handler [list apply {{getCc} {
     set cc [apply $getCc]
 
-    # TODO: query Linux or us for all running threads
     set pid [pid]
     set tids [glob -tails -directory /proc/$pid/task *]
+
+    set userStacks [dict create]
+    try {
+        set euStackOutput [exec eu-stack --pid=[pid] --verbose]
+        set currentTid none
+        foreach line [split $euStackOutput "\n"] {
+            if {[regexp {TID ([0-9]+):} $line -> tid]} {
+                dict set userStacks $currentTid \
+                    [join [dict get $userStacks $currentTid] "\n"]
+                set currentTid $tid
+            } else {
+                dict lappend userStacks $currentTid $line
+            }
+        }
+    } on error e {}
+
     html [subst {
         <html>
         <head>
@@ -65,12 +80,29 @@ Wish the web server handles route "/threads" with handler [list apply {{getCc} {
         <ol>
         [join [lmap tid $tids {
             set taskdir /proc/$pid/task/$tid
+
             set statusFd [open $taskdir/status r]
             set status [read $statusFd]; close $statusFd
+
+            try {
+                set userStack [dict get $userStacks $tid]
+            } on error e {
+                set userStack "<not found>"
+            }
+            try {
+                set stackFd [open $taskdir/stack r]
+                set kernelStack [read $stackFd]; close $stackFd
+            } on error e {
+                set kernelStack "<not permitted>"
+            }
+
             subst {<li>
-                $taskdir:
-                  [regexp -inline {State:[^\n]*\n} $status]
-                [htmlEscape [$cc threadCurrentItem $tid]]
+                $taskdir:<br>
+                  [regexp -inline {State:[^\n]*\n} $status]<br>
+                [htmlEscape [$cc threadCurrentItem $tid]]<br>
+
+                User stack:<br><pre>[htmlEscape $userStack]</pre><br>
+                Kernel stack:<br><pre>[htmlEscape $kernelStack]</pre>
             </li>}
         }] "\n"]
         </ol>
