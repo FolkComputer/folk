@@ -73,3 +73,17 @@ set ::thisNode [info hostname]
 lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
+
+set ::perfEvents [dict create]
+proc perfEvent {name} {
+    if {![dict exists $::perfEvents $name]} {
+        set perfEventCc [C]
+        $perfEventCc proc $name {} void {}
+        $perfEventCc compile
+        puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
+        dict set ::perfEvents $name $perfEventCc
+    }
+    [dict get $::perfEvents $name] $name
+}
+set perf [C]
+$perf compile

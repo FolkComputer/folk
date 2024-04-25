@@ -20,10 +20,13 @@ $ make && ./folk
   - make ref ids bigger?
 - implement Collect -> labels
   - use some sort of timer?
-- thread monitoring (what threads are running what? what threads are blocked?)
+- ~~thread monitoring (what threads are running what? what threads are blocked?)~~
 - spin up new threads if most/all existing threads are OS-blocked
 - event statements
 - ~~transactions, causality, or Commit~~ Hold!
 - fix segfault (memory leak?) after a while
+  - garbage collect on list resize
 - performance analysis
+  - perf/speedscope
+  - have some kind of label-based, cross-thread fps counter
 

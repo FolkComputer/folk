@@ -188,6 +188,8 @@ class C {
     cflags {-I./vendor/jimtcl}
     endcflags {}
 
+    cfile {}
+
     ___addrs_comment {
         # Used to store function pointers so you can import them
         # across modules.
