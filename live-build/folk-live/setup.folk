@@ -8,6 +8,7 @@ set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
 
 set errs [list]
 try {
+    exec iwctl station wlan0 scan
     exec iwctl --passphrase $WIFI_PASSWORD station wlan0 connect $WIFI_SSID
 } on error wifierr { lappend errs $wifierr }
 
