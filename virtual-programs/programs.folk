@@ -10,7 +10,7 @@ When (non-capturing) /type/ /obj/ has a program {
         } else {
             # HACK: localhost is folk-live for now. idk why.
             if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
-                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "localhost")} {
+                ($::thisNode in [list "folk-beads" "folk-convivial" "localhost" "gadget-red" "gadget-blue"])} {
                 # HACK: 'Page fault' to folk0, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local
