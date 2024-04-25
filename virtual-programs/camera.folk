@@ -315,7 +315,7 @@ $cam init 1280 720
 
 set oldFrames [list]
 while 1 {
-    perfEvent camera
+    # perfEvent camera
 
     set frame [$cam grayFrame]
     Hold! camera [list $this claims the camera frame is $frame]
