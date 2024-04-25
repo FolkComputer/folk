@@ -57,11 +57,10 @@ Wish the web server handles route "/threads" with handler [list apply {{getCc} {
         set currentTid none
         foreach line [split $euStackOutput "\n"] {
             if {[regexp {TID ([0-9]+):} $line -> tid]} {
-                dict set userStacks $currentTid \
-                    [join [dict get $userStacks $currentTid] "\n"]
                 set currentTid $tid
             } else {
-                dict lappend userStacks $currentTid $line
+                dict set userStacks $currentTid \
+                    "[dict getdef $userStacks $currentTid {}]\n$line"
             }
         }
     } on error e {}
