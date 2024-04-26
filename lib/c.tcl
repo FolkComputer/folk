@@ -468,7 +468,7 @@ C method compile {} {
                     snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
                     Jim_Eval(interp, script);
 
-                    Jim_CreateCommand(interp, "$cid $tclname", $[set cname]_Cmd, NULL, NULL);
+                    Jim_CreateCommand(interp, "<$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
             return JIM_OK;
@@ -496,7 +496,7 @@ C method compile {} {
         -o [file rootname $cfile].so [file rootname $cfile].o \
         {*}$endcflags
 
-    return $cid
+    return <$cid>
 }
 
 C method import {scc sname as dest} {
@@ -510,28 +510,13 @@ C method import {scc sname as dest} {
 # Allows C libraries to be callable from any thread, because we load
 # the library into the Tcl interpreter for a given thread on demand.
 proc unknown {cmdName args} {
-    puts "Unknown $cmdName"
-
-    # is it a C file? load it now
-    load [file rootname $cfile].so
-    proc $cmdName {procName args} {
-        
+    if {[string match "<cfile*" $cmdName]} {
+        # Is it a C file? load it now.
+        set cid [string range $cmdName 1 end-1]
+        load /tmp/$cid.so
+        proc $cmdName {procName args} {cmdName} {
+            "$cmdName $procName" {*}$args
+        }
+        $cmdName {*}$args
     }
 }
-
-
-    # set loader [create]
-    # $loader include <dlfcn.h>
-    # $loader proc loadlibImpl {char* filename} void* {
-    #     // TODO: report dlerror error
-    #     // TODO: better shadowing handling
-    #     return dlopen(filename, RTLD_NOW | RTLD_GLOBAL);
-    # }
-    # $loader proc loadlibError {} char* { return dlerror(); }
-    # $loader compile
-    # proc loadlib {filename} {
-    #     if {[loadlibImpl $filename] == "(void*) 0x0"} {
-    #         error "Failed to dlopen $filename: [loadlibError]"
-    #     }
-    # }
-
