@@ -583,7 +583,11 @@ void workerRun(WorkQueueItem item) {
 pid_t threadsTid[NTHREADS];
 void* workerMain(void* arg) {
     _threadIndex = (int) (intptr_t) arg;
+#ifdef __APPLE__
+    _threadTid = pthread_mach_thread_np(pthread_self());
+#else
     _threadTid = gettid();
+#endif
     threadsTid[_threadIndex] = _threadTid;
     pthread_mutex_init(&threadsCurrentItemMutex[_threadIndex], NULL);
 
