@@ -732,12 +732,7 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
     int i;
     phandle_t phandle;
 
-    // osnr: We require HAVE_EXECVPE so we don't need to globally set
-    // the environment before launching the subprocess, which is what
-    // jim did before and which is not thread-safe.
-    _Static_assert(HAVE_EXECVPE);
-
-#if defined(HAVE_EXECVPE) && !defined(__MINGW32__)
+#if !defined(__MINGW32__)
     char **child_environ = JimBuildEnv(interp);
 #endif
     struct WaitInfoTable *table = Jim_CmdPrivData(interp);
