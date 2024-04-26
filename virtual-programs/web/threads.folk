@@ -1,6 +1,4 @@
-set getCc {{} {
-    if {[info exists ::threadsCc]} { return $::threadsCc }
-
+set threadMonitorLib [apply {{} {
     set cc [C]
     $cc cflags -I.
     $cc include "workqueue.h"
@@ -39,15 +37,12 @@ set getCc {{} {
             }
             return buf;
         }
-        return "nope";
+        return "<Not a Folk worker thread>";
     }
-    $cc compile
-    return $cc
-}}
+    return [$cc compile]
+}}]
 
-Wish the web server handles route "/threads" with handler [list apply {{getCc} {
-    set cc [apply $getCc]
-
+Wish the web server handles route "/threads" with handler [list apply {{threadMonitorLib} {
     set pid [pid]
     set tids [glob -tails -directory /proc/$pid/task *]
 
@@ -98,7 +93,7 @@ Wish the web server handles route "/threads" with handler [list apply {{getCc} {
             subst {<li>
                 $taskdir:<br>
                   [regexp -inline {State:[^\n]*\n} $status]<br>
-                [htmlEscape [$cc threadCurrentItem $tid]]<br>
+                [htmlEscape [$threadMonitorLib threadCurrentItem $tid]]<br>
 
                 User stack:<br><pre>[htmlEscape $userStack]</pre><br>
                 Kernel stack:<br><pre>[htmlEscape $kernelStack]</pre>
@@ -109,4 +104,4 @@ Wish the web server handles route "/threads" with handler [list apply {{getCc} {
         </body>
         </html>
     }]
-}} $getCc]
+}} $threadMonitorLib]

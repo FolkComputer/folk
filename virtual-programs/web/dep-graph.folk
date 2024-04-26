@@ -1,4 +1,4 @@
-set getCc {{} {
+set dbLib [apply {{} {
     if {[info exists ::depGraphCc]} { return $::depGraphCc }
 
     set cc [C]
@@ -90,43 +90,40 @@ set getCc {{} {
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
 
-    $cc compile
-    set ::depGraphCc $cc
-    return $cc
-}}
+    return [$cc compile]
+}}]
 
-set dbDotify {{getCc db} {
-    set cc [apply $getCc]
+set dbDotify {{dbLib db} {
     set dot [list]
     set matchRefs [dict create]
     foreach stmt [Query! /...anything/] {
         set stmtRef [dict get $stmt __ref]
-        set label [$cc clause $db $stmtRef]
+        set label [$dbLib clause $db $stmtRef]
         set label [join [lmap line [split $label "\n"] {
             expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
         }] "\n"]
         set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
-        set stmtParentCount [$cc statementParentCount $db $stmtRef]
-        set stmtPtrCount [$cc statementPtrCount $db $stmtRef]
+        set stmtParentCount [$dbLib statementParentCount $db $stmtRef]
+        set stmtPtrCount [$dbLib statementPtrCount $db $stmtRef]
         lappend dot "<$stmtRef> \[label=\"$stmtRef ($stmtParentCount parents) ($stmtPtrCount ptrs): $label\"\];"
 
-        foreach childMatchRef [$cc childMatches $db $stmtRef] {
+        foreach childMatchRef [$dbLib childMatches $db $stmtRef] {
             lappend dot "<$stmtRef> -> <$childMatchRef>;"
             dict set matchRefs $childMatchRef true
         }
     }
     foreach {matchRef _} $matchRefs {
-        set match [$cc matchAcq $db $matchRef]
+        set match [$dbLib matchAcq $db $matchRef]
         if {$match eq "(Match*) 0x0"} { continue }
 
-        set matchPtrCount [$cc matchPtrCount $db $matchRef]
-        set matchShouldFree [$cc matchShouldFree $db $matchRef]
+        set matchPtrCount [$dbLib matchPtrCount $db $matchRef]
+        set matchShouldFree [$dbLib matchShouldFree $db $matchRef]
         lappend dot "<$matchRef> \[label=\"$matchRef (shouldFree $matchShouldFree) ($matchPtrCount)\"\];"
-        foreach childStatementRef [$cc childStatements $db $matchRef] {
+        foreach childStatementRef [$dbLib childStatements $db $matchRef] {
             lappend dot "<$matchRef> -> <$childStatementRef>;"
         }
 
-        $cc matchRel $db $match
+        $dbLib matchRel $db $match
     }
     return "digraph { rankdir=LR; [join $dot "\n"] }"
 }}
@@ -137,8 +134,8 @@ set getDotAsPdf {{dot} {
     set response [read $fd]; close $fd; return $response
 }}
 
-Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{getCc dbDotify getDotAsPdf} {
-    set dot [apply $dbDotify $getCc [__db]]
+Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{dbLib dbDotify getDotAsPdf} {
+    set dot [apply $dbDotify $dbLib [__db]]
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
@@ -146,4 +143,4 @@ Content-Type: application/pdf
 
 " \
         body [apply $getDotAsPdf $dot]
-}} $getCc $dbDotify $getDotAsPdf]
+}} $dbLib $dbDotify $getDotAsPdf]
