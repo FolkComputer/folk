@@ -451,8 +451,12 @@ C method endcflags {args} { lappend endcflags {*}$args }
 C method compile {} {
     set cfile [file tempfile /tmp/cfileXXXXXX].c
 
+    # A universally unique id that can be used as a global proc name
+    # in every thread.
+    set cid [file rootname [file tail $cfile]]
+
     set init [subst {
-        int Jim_[file rootname [file tail $cfile]]Init(Jim_Interp* intp) {
+        int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
 
             [join [lmap name [dict keys $procs] {
@@ -464,7 +468,7 @@ C method compile {} {
                     snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
                     Jim_Eval(interp, script);
 
-                    Jim_CreateCommand(interp, "$[$self classname] $tclname", $[set cname]_Cmd, NULL, NULL);
+                    Jim_CreateCommand(interp, "$cid $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
             return JIM_OK;
@@ -486,10 +490,13 @@ C method compile {} {
     } elseif {$::tcl_platform(os) eq "darwin"} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
-    exec cc -Wall -g -shared -fno-omit-frame-pointer $ignoreUnresolved -fPIC \
-        {*}$cflags $cfile -o [file rootname $cfile].so \
+    exec cc -Wall -g -fno-omit-frame-pointer -fPIC \
+        {*}$cflags $cfile -c -o [file rootname $cfile].o
+    exec cc -shared $ignoreUnresolved \
+        -o [file rootname $cfile].so [file rootname $cfile].o \
         {*}$endcflags
-    load [file rootname $cfile].so cfile
+
+    return $cid
 }
 
 C method import {scc sname as dest} {
@@ -500,8 +507,17 @@ C method import {scc sname as dest} {
     $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
-# Dispatcher for calling compiled C functions off the C object.
-C method unknown {method args} { "$self $method" {*}$args }
+# Allows C libraries to be callable from any thread, because we load
+# the library into the Tcl interpreter for a given thread on demand.
+proc unknown {cmdName args} {
+    puts "Unknown $cmdName"
+
+    # is it a C file? load it now
+    load [file rootname $cfile].so
+    proc $cmdName {procName args} {
+        
+    }
+}
 
 
     # set loader [create]
