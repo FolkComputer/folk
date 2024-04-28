@@ -1,11 +1,10 @@
-set getCc {{} {
-    if {[info exists ::trieGraphCc]} { return $::trieGraphCc }
-
+set trieLib [apply {{} {
     set cc [C]
-    $cc cflags -I. trie.c
+    $cc cflags -I.
     $cc include <stdlib.h>
     $cc include <string.h>
     $cc include "trie.h"
+    $cc include "trie.c"
     $cc code {
         typedef struct Db Db;
         extern Trie* dbGetClauseToStatementId(Db* db);
@@ -91,12 +90,10 @@ set getCc {{} {
         }
     }
 
-    $cc compile
-    set ::trieGraphCc $cc
-    return $cc
-}}
+    return [$cc compile]
+}}]
 
-set trieDotify {{getCc db} {
+set trieDotify {{trieLib db} {
     local proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
         regsub -all {\W+} $word "_"
@@ -121,7 +118,7 @@ set trieDotify {{getCc db} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot [[apply $getCc] dbTrieTclify $db]] }"
+    return "digraph { rankdir=LR; [subdot [$trieLib dbTrieTclify $db]] }"
 }}
 
 set getDotAsPdf {{dot} {
@@ -130,9 +127,9 @@ set getDotAsPdf {{dot} {
     set response [read $fd]; close $fd; return $response
 }}
 
-Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{getCc trieDotify getDotAsPdf} {
+Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{trieLib trieDotify getDotAsPdf} {
     __dbLock
-    set dot [apply $trieDotify $getCc [__db]]
+    set dot [apply $trieDotify $trieLib [__db]]
     __dbUnlock
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
@@ -141,4 +138,4 @@ Content-Type: application/pdf
 
 " \
         body [apply $getDotAsPdf $dot]
-}} $getCc $trieDotify $getDotAsPdf]
+}} $trieLib $trieDotify $getDotAsPdf]

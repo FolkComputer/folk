@@ -1,6 +1,4 @@
 set dbLib [apply {{} {
-    if {[info exists ::depGraphCc]} { return $::depGraphCc }
-
     set cc [C]
     $cc cflags -I.
     $cc include "db.h"
