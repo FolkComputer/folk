@@ -4,33 +4,27 @@
 
 if {$::tcl_platform(os) eq "darwin"} { return }
 
-# For now, we only support 1 camera.
-class CameraManager C {
-    width 0
-    height 0
-    camera {}
-}
-set cam [CameraManager]
-$cam include <string.h>
-$cam include <math.h>
+set camc [C]
+$camc include <string.h>
+$camc include <math.h>
 
-$cam include <errno.h>
-$cam include <fcntl.h>
-$cam include <sys/ioctl.h>
-$cam include <sys/mman.h>
-$cam include <asm/types.h>
-$cam include <linux/videodev2.h>
+$camc include <errno.h>
+$camc include <fcntl.h>
+$camc include <sys/ioctl.h>
+$camc include <sys/mman.h>
+$camc include <asm/types.h>
+$camc include <linux/videodev2.h>
 
-$cam include <stdint.h>
-$cam include <stdlib.h>
+$camc include <stdint.h>
+$camc include <stdlib.h>
 
-$cam include <jpeglib.h>
+$camc include <jpeglib.h>
 
-$cam struct CameraBuffer {
+$camc struct CameraBuffer {
     uint8_t* start;
     size_t length;
 }
-$cam struct Camera {
+$camc struct Camera {
     int fd;
     uint32_t width;
     uint32_t height;
@@ -39,7 +33,7 @@ $cam struct Camera {
     CameraBuffer head;
 }
 
-$cam code {
+$camc code {
     void quit(const char* msg) {
         fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
         exit(1);
@@ -55,7 +49,7 @@ $cam code {
     }
 }
 # TODO: Factor this out.
-$cam struct Image {
+$camc struct Image {
     uint32_t width;
     uint32_t height;
     int components;
@@ -64,7 +58,7 @@ $cam struct Image {
     uint8_t* data;
 }
 
-$cam proc cameraOpen {char* device int width int height} Camera* {
+$camc proc cameraOpen {char* device int width int height} Camera* {
     printf("device [%s]\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
@@ -79,7 +73,7 @@ $cam proc cameraOpen {char* device int width int height} Camera* {
     return camera;
 }
 
-$cam proc cameraInit {Camera* camera} void {
+$camc proc cameraInit {Camera* camera} void {
     struct v4l2_capability cap;
     if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -147,7 +141,7 @@ $cam proc cameraInit {Camera* camera} void {
     printf("camera %d; bufcount %zu\n", camera->fd, camera->buffer_count);
 }
 
-$cam proc cameraStart {Camera* camera} void {
+$camc proc cameraStart {Camera* camera} void {
     for (size_t i = 0; i < camera->buffer_count; i++) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -163,7 +157,7 @@ $cam proc cameraStart {Camera* camera} void {
     quit("VIDIOC_STREAMON");
 }
 
-$cam code {
+$camc code {
     int camera_capture(Camera* camera) {
         struct v4l2_buffer buf;
         memset(&buf, 0, sizeof buf);
@@ -183,7 +177,7 @@ $cam code {
     }
 }
 
-$cam proc cameraFrame {Camera* camera} int {
+$camc proc cameraFrame {Camera* camera} int {
     struct timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
@@ -200,14 +194,14 @@ $cam proc cameraFrame {Camera* camera} int {
     return camera_capture(camera);
 }
 
-$cam proc cameraDecompressRgb {Camera* camera Image dest} void {
+$camc proc cameraDecompressRgb {Camera* camera Image dest} void {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
     cinfo.err = jpeg_std_error(&jerr);
     jpeg_create_decompress(&cinfo);
     jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
     if (jpeg_read_header(&cinfo, TRUE) != 1) {
-        printf("Fail\n");
+        fprintf(stderr, "cameraDecompressRgb: Fail\n");
         exit(1);
     }
     jpeg_start_decompress(&cinfo);
@@ -220,14 +214,14 @@ $cam proc cameraDecompressRgb {Camera* camera Image dest} void {
     jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
 }
-$cam proc cameraDecompressGray {Camera* camera Image dest} void {
+$camc proc cameraDecompressGray {Camera* camera Image dest} void {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
     cinfo.err = jpeg_std_error(&jerr);
     jpeg_create_decompress(&cinfo);
     jpeg_mem_src(&cinfo, camera->head.start, camera->head.length);
     if (jpeg_read_header(&cinfo, TRUE) != 1) {
-        printf("Fail\n");
+        fprintf(stderr, "cameraDecompressGray: Fail\n");
         exit(1);
     }
     cinfo.out_color_space = JCS_GRAYSCALE;
@@ -241,7 +235,7 @@ $cam proc cameraDecompressGray {Camera* camera Image dest} void {
     jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
 }
-$cam proc rgbToGray {Image rgb} Image {
+$camc proc rgbToGray {Image rgb} Image {
     uint8_t* gray = calloc(rgb.width * rgb.height, sizeof (uint8_t));
     for (int y = 0; y < rgb.height; y++) {
         for (int x = 0; x < rgb.width; x++) {
@@ -264,7 +258,7 @@ $cam proc rgbToGray {Image rgb} Image {
     };
 }
 
-$cam proc newImage {int width int height int components} Image {
+$camc proc newImage {int width int height int components} Image {
     uint8_t* data = malloc(width*components*height);
     return (Image) {
         .width = width,
@@ -274,17 +268,27 @@ $cam proc newImage {int width int height int components} Image {
         .data = data
     };
 }
-$cam proc freeImage {Image image} void {
+$camc proc freeImage {Image image} void {
     free(image.data);
 }
 
 # c loadlib [expr {$::tcl_platform(os) eq "Darwin" ?
 #                  "/opt/homebrew/lib/libjpeg.dylib" :
 #                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
-$cam endcflags -ljpeg
-$cam compile
+$camc endcflags -ljpeg
 
-$cam method init {w h} {
+# For now, we only support 1 camera.
+class CameraManager {
+    camLib {}
+    width 0
+    height 0
+    camera {}
+}
+CameraManager method unknown {procName args} {
+    "$camLib $procName" {*}$args
+}
+
+CameraManager method init {w h} {
     set width $w; set height $h
     set camera [$self cameraOpen "/dev/video0" $width $height]
     $self cameraInit $camera
@@ -294,7 +298,7 @@ $cam method init {w h} {
         $self cameraFrame $camera
     }
 }
-$cam method frame {} {
+CameraManager method frame {} {
     if {![$self cameraFrame $camera]} {
         error "Failed to capture from camera"
     }
@@ -302,7 +306,7 @@ $cam method frame {} {
     $self cameraDecompressRgb $camera $image
     return $image
 }
-$cam method grayFrame {} {
+CameraManager method grayFrame {} {
     if {![$self cameraFrame $camera]} {
         error "Failed to capture from camera"
     }
@@ -310,6 +314,8 @@ $cam method grayFrame {} {
     $self cameraDecompressGray $camera $image
     return $image
 }
+
+set cam [CameraManager new [list camLib [$camc compile]]]
 
 $cam init 1280 720
 

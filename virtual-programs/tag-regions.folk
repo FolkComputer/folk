@@ -62,8 +62,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     # }]
     # set Hinv [solvePGauss $H [math::linearalgebra::mkIdentity 3]]
 
-    set getCc [list apply {{a0 a1 a2 b0 b1 b2 c0 c1} {
-        if {[info exists ::cameraToProjectorCc]} { return $::cameraToProjectorCc }
+    set cameraToProjectorLib [list apply {{a0 a1 a2 b0 b1 b2 c0 c1} {
         set cc [C]
         $cc include <stdlib.h>
         $cc code [csubst {
@@ -97,9 +96,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
             Jim_Obj* projectorPoint = Jim_NewListObj(interp, projectorPoint_v, 2);
             return projectorPoint;
         }
-        $cc compile
-        set ::cameraToProjectorCc $cc
-        return $cc
+        return [$cc compile]
     }} $a0 $a1 $a2 $b0 $b1 $b2 $c0 $c1]
 
     # proc ::projectorToCamera {projectorPoint} {
@@ -109,9 +106,8 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     #     return [list $Hinvx $Hinvy]
     # }
 
-    apply {{this getCc} {
+    apply {{cameraToProjectorLib} {
         When tag /tag/ has corners /corners/ {
-
             package require linalg
             namespace import ::math::linearalgebra::add \
                 ::math::linearalgebra::sub \
@@ -120,8 +116,9 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
                 ::math::linearalgebra::angle \
                 ::math::linearalgebra::solvePGauss
 
-            set cc [{*}$getCc]
-            set tagCorners [lmap p $corners {$cc cameraToProjector $p}]
+            set tagCorners [lmap p $corners {
+                $cameraToProjectorLib cameraToProjector $p
+            }]
 
             set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
             set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
@@ -143,5 +140,5 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
             Claim tag $tag has a program
             Claim tag $tag is a tag
         }
-    }} $this $getCc
+    }} $cameraToProjectorLib
 }

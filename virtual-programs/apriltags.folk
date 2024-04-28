@@ -1,7 +1,4 @@
-class AprilTagDetector {
-    cc {}
-}
-AprilTagDetector method constructor {TAG_FAMILY} {
+proc makeAprilTagDetector {TAG_FAMILY} {
     set cc [C]
     $cc cflags -I$::env(HOME)/apriltag
     $cc endcflags $::env(HOME)/apriltag/libapriltag.a
@@ -63,12 +60,39 @@ AprilTagDetector method constructor {TAG_FAMILY} {
     }
 
     # c loadlib $::env(HOME)/apriltag/libapriltag.so
-    $cc compile
-
-    $cc detectInit
+    set detector [$cc compile]
+    $detector detectInit
+    return $detector
 }
-AprilTagDetector method detect {grayFrame} { $cc detect $grayFrame }
 
+set tagFamily "tagStandard52h13"
+
+# Plain detector. Runs on entire camera frame.
+set detector [makeAprilTagDetector $tagFamily]
+
+When the camera frame is /grayFrame/ {
+    # need to have a `detector` object available from all threads,
+    # inside this scope.
+
+    # ::<reference.<AprilTa>.00000000000000000002> command name want
+    # to fault and deep-copy the lambda to current thread?  or: have
+    # special 'copyable class' system where it stores thunks to
+    # recreate the class and can recreate it on any thread.
+
+    # 'multithread C object' which can be lexically inherited and
+    # knows how to rebuild itself on any thread. can be slow on first
+    # run as it self-compiles.
+
+    set aprilTime [time {
+        set tags [$detector detect $grayFrame]
+    }]
+    perfEvent didDetect
+    Hold! apriltags [list virtual-program/apriltags.folk claims $this detects tags $tags in time $aprilTime]
+}
+
+########
+
+# Split detection into individual tag claims:
 When /someone/ detects tags /tags/ in time /aprilTime/ {
     foreach tag $tags {
         set id [dict get $tag id]
@@ -76,19 +100,4 @@ When /someone/ detects tags /tags/ in time /aprilTime/ {
         Claim tag $id has corners [dict get $tag corners]
     }
     # Claim the AprilTag time is $::aprilTime
-}
-
-set tagFamily "tagStandard52h13"
-
-# Plain detector. Runs on entire camera frame.
-set detector [AprilTagDetector new $tagFamily]
-while 1 {
-    foreach match [Query! /someone/ claims the camera frame is /grayFrame/] {
-        dict with match {
-            set aprilTime [time {
-                set tags [$detector detect $grayFrame]
-            }]
-            Hold! apriltags [list virtual-program/apriltags.folk claims $this detects tags $tags in time $aprilTime]
-        }
-    }
 }
