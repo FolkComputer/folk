@@ -5,6 +5,13 @@ $ cd vendor/jimtcl && ./configure CFLAGS=-g && make && cd -
 $ make && ./folk
 ```
 
+## requirements
+
+on Debian bookworm arm64: `psmisc`, `build-essential`, `git`,
+`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`
+
+Clone & build apriltag in home folder
+
 ## todo
 
 - preserve stack traces
