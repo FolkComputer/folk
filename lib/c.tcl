@@ -510,12 +510,11 @@ C method import {scc sname as dest} {
 # Allows C libraries to be callable from any thread, because we load
 # the library into the Tcl interpreter for a given thread on demand.
 proc unknown {cmdName args} {
-    if {[string match "<cfile*" $cmdName]} {
+    if {[regexp {<(cfile[^ ]+)>} $cmdName -> cid]} {
         # Is it a C file? load it now.
-        set cid [string range $cmdName 1 end-1]
         load /tmp/$cid.so
-        proc $cmdName {procName args} {cmdName} {
-            "$cmdName $procName" {*}$args
+        proc <$cid> {procName args} {cid} {
+            "<$cid> $procName" {*}$args
         }
         $cmdName {*}$args
     }

@@ -4,7 +4,10 @@
 #     to run pixel shaders with image and numerical parameters (so you
 #     can draw images, shapes, etc.)
 
-if {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
+if {[info exists ::argv0] && $::argv0 eq [info script]} {
+    source lib/c.tcl
+
+} elseif {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
     puts stderr "gpu.folk: Must run on thread 0 on macOS. Rescheduling."
 
     # Reschedule this program onto thread 0
@@ -14,24 +17,20 @@ if {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
     return
 }
 
-if {[info exists ::argv0] && $::argv0 eq [info script]} {
-    source lib/c.tcl
-}
 
-class Gpu C {
-    WIDTH 1280
-    HEIGHT 960
-    nextPipelineId 0
-}
-set gpu [Gpu]
-$gpu cflags -I./vendor
+# First, we build the C GPU library, which can make direct calls into
+# Vulkan -- this library then exposes functions that we can call from
+# Tcl.
+
+set gpuc [C]
+$gpuc cflags -I./vendor
 
 set macos [expr {$::tcl_platform(os) eq "darwin"}]
 if {$macos} {
-    $gpu cflags -I/opt/homebrew/include -L/opt/homebrew/lib
-    $gpu cflags -lglfw
+    $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    $gpuc endcflags -lglfw
 } else {
-    $gpu eval {
+    $gpuc eval {
         regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] \
             -> WIDTH HEIGHT
     }
@@ -43,9 +42,7 @@ Try doing `sudo chmod 666 $renderFile`."
     }
 }
 
-Claim the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
-
-$gpu struct Image {
+$gpuc struct Image {
     uint32_t width;
     uint32_t height;
     int components;
@@ -53,8 +50,8 @@ $gpu struct Image {
 
     uint8_t* data;
 }
-$gpu include <stdlib.h>
-$gpu code {
+$gpuc include <stdlib.h>
+$gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
@@ -109,7 +106,7 @@ proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$gpu code {
+$gpuc code {
     VkInstance instance;
     VkPhysicalDevice physicalDevice;
     VkDevice device;
@@ -136,7 +133,7 @@ $gpu code {
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
 }
-$gpu proc init {} void {
+$gpuc proc init {} void {
     $[vktry volkInitialize()]
     $[if {$macos} { expr {"glfwInit();"} }]
 
@@ -285,9 +282,9 @@ $gpu proc init {} void {
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
         createInfo.imageExtent = (VkExtent2D) {
-            .width = $[$gpu get WIDTH],
-            .height = $[$gpu get HEIGHT]
-        }; // TODO: find out resolution properly from Vulkan
+            .width = modeProps.parameters.visibleRegion.width,
+            .height = modeProps.parameters.visibleRegion.height
+        };
         if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
             fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
         }
@@ -535,10 +532,10 @@ proc defineVulkanHandleType {cc type} {
 }
 
 # Shader compilation:
-defineVulkanHandleType $gpu VkShaderModule
+defineVulkanHandleType $gpuc VkShaderModule
 # createShaderModule takes a Tcl list of integers (the compiled shader
 # bytecode).
-$gpu proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
+$gpuc proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
     int codeObjc = Jim_ListLength(interp, codeObj);
     uint32_t code[codeObjc];
     for (int i = 0; i < codeObjc; i++) {
@@ -557,24 +554,24 @@ $gpu proc createShaderModule {Jim_Obj* codeObj} VkShaderModule {
 }
 
 # Pipeline creation:
-defineVulkanHandleType $gpu VkPipeline
-defineVulkanHandleType $gpu VkPipelineLayout
-defineVulkanHandleType $gpu VkDescriptorSet
-defineVulkanHandleType $gpu VkDescriptorSetLayout
-$gpu typedef uint64_t VkDeviceSize
-$gpu argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
-$gpu rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
-$gpu struct Pipeline {
+defineVulkanHandleType $gpuc VkPipeline
+defineVulkanHandleType $gpuc VkPipelineLayout
+defineVulkanHandleType $gpuc VkDescriptorSet
+defineVulkanHandleType $gpuc VkDescriptorSetLayout
+$gpuc typedef uint64_t VkDeviceSize
+$gpuc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
+$gpuc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
+$gpuc struct Pipeline {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
     int id;
     size_t pushConstantsSize;
 }
-$gpu proc createPipeline {int id
-                          VkShaderModule vertShaderModule
-                          VkShaderModule fragShaderModule
-                          size_t pushConstantsSize} Pipeline {
+$gpuc proc createPipeline {int id
+                           VkShaderModule vertShaderModule
+                           VkShaderModule fragShaderModule
+                           size_t pushConstantsSize} Pipeline {
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
         VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
         vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -719,11 +716,11 @@ $gpu proc createPipeline {int id
     };
 }
     
-$gpu code {
+$gpuc code {
     static VkPipeline boundPipeline;
     static VkDescriptorSet boundDescriptorSet;
 }
-$gpu proc drawStart {} void {
+$gpuc proc drawStart {} void {
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
 
     vkResetFences(device, 1, &inFlightFence);
@@ -756,7 +753,7 @@ $gpu proc drawStart {} void {
     boundPipeline = VK_NULL_HANDLE;
     boundDescriptorSet = VK_NULL_HANDLE;
 }
-$gpu proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
+$gpuc proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         boundPipeline = pipeline.pipeline;
@@ -785,16 +782,7 @@ $gpu proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
     vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 }
 
-# Draw to the screen using pipeline `pipeline`. Each arg in `args`
-# should be a push-constant parameter of the pipeline. Can only be
-# called between `drawStart` and `drawEnd`.
-$gpu method draw {pipeline args} {
-    set args [linsert $args 0 [list $WIDTH $HEIGHT]]
-
-    $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
-}
-
-$gpu proc drawEnd {} void {
+$gpuc proc drawEnd {} void {
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
@@ -833,13 +821,32 @@ $gpu proc drawEnd {} void {
     }
 }
 
-$gpu proc poll {} void {
+$gpuc proc poll {} void {
     $[expr { $macos ? { glfwPollEvents(); } : {} }]
+}
+
+class Gpu {
+    gpuLib none
+    WIDTH 1280
+    HEIGHT 960
+    nextPipelineId 0
+}
+Gpu method unknown {procName args} {
+    "$gpuLib $procName" {*}$args
+}
+
+# Draw to the screen using pipeline `pipeline`. Each arg in `args`
+# should be a push-constant parameter of the pipeline. Can only be
+# called between `drawStart` and `drawEnd`.
+Gpu method draw {pipeline args} {
+    set args [linsert $args 0 [list $WIDTH $HEIGHT]]
+
+    $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
 }
 
 # Construct a reusable GLSL function that can be linked into and
 # called from a shader/pipeline.
-$gpu method fn {args rtype body} {
+Gpu method fn {args rtype body} {
     set fnArgs [list]
     # We inline all dependent functions from the caller scope
     # immediately here, since we don't know if those dependencies
@@ -859,7 +866,7 @@ $gpu method fn {args rtype body} {
 
 # Construct a shader pipeline that can be used to draw to the
 # screen.
-$gpu method pipeline {args} {
+Gpu method pipeline {args} {
     if {[llength $args] == 3} {
         lassign $args vertArgs vertBody fragBody
         set fragArgs [list]
@@ -956,11 +963,11 @@ $gpu method pipeline {args} {
         Jim_CreateCommand(interp, "pipelineEncodeArgs$pipelineId",
                           pipelineEncodeArgs${pipelineId}_Cmd, NULL, NULL);
     }
-    $cc compile
+    set lib [$cc compile]
     incr nextPipelineId
 
-    set pushConstantsSize [$cc getArgsSize]
-    $cc exportPipelineEncodeArgsToGlobal
+    set pushConstantsSize [$lib getArgsSize]
+    $lib exportPipelineEncodeArgsToGlobal
 
     set pushConstantsCode [if {[llength $pushConstants] > 0} {
         subst {
@@ -1084,11 +1091,11 @@ set ::GPU_MAX_IMAGES 16
 # - https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
 # - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
-$gpu code {
+$gpuc code {
     VkDescriptorSetLayout imageDescriptorSetLayout;
     VkDescriptorSet imageDescriptorSet;
 }
-$gpu proc imageManagerInit {} void {
+$gpuc proc imageManagerInit {} void {
     // Set up imageDescriptorSetLayout:
     {
         /* VkDescriptorBindingFlags flags[1]; */
@@ -1141,7 +1148,7 @@ $gpu proc imageManagerInit {} void {
 }
 
 # Buffer allocation:
-$gpu code [csubst {
+$gpuc code [csubst {
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
         vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
@@ -1179,7 +1186,7 @@ $gpu code [csubst {
 }]
 
 # Image allocation:
-$gpu code [csubst {
+$gpuc code [csubst {
     void createImage(uint32_t width, uint32_t height,
                      VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
                      VkImage* image, VkDeviceMemory* imageMemory) {
@@ -1290,7 +1297,7 @@ $gpu code [csubst {
 
 # Allocates(!) a copy of `im` with 4 channels, on the Tcl
 # local heap. Up to the caller to free it.
-$gpu proc copyImageToRgba {Image im} Image {
+$gpuc proc copyImageToRgba {Image im} Image {
     if (im.components == 4) return im;
     if (im.components != 1 && im.components != 3) exit(2);
 
@@ -1333,8 +1340,8 @@ $gpu proc copyImageToRgba {Image im} Image {
     return ret;
 }
 
-$gpu typedef int gpu_image_handle_t
-$gpu code [csubst {
+$gpuc typedef int gpu_image_handle_t
+$gpuc code [csubst {
     // Points to all GPU-side data structures associated with
     // an image (that we will destroy when we evict that
     // image).
@@ -1355,7 +1362,7 @@ $gpu code [csubst {
         fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
     }
 }]
-$gpu proc copyImageToGpu {Image im0} gpu_image_handle_t {
+$gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
     gpu_image_handle_t imageId = allocateGpuImageHandle();
     gpu_image_block* block = &gpuImages[imageId];
     block->alive = true;
@@ -1504,7 +1511,7 @@ $gpu proc copyImageToGpu {Image im0} gpu_image_handle_t {
     if (im0.components != 4) { free(im.data); }
     return imageId;
 }
-$gpu proc freeGpuImage {gpu_image_handle_t gim} void {
+$gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
     gpu_image_block* block = &gpuImages[gim];
     block->alive = false;
 
@@ -1540,8 +1547,6 @@ $gpu proc freeGpuImage {gpu_image_handle_t gim} void {
 #     c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
 # }
 
-$gpu compile
-
 proc glslc {args} {
     set cmdargs [lreplace $args end end]
     set glsl [lindex $args end]
@@ -1550,8 +1555,11 @@ proc glslc {args} {
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
+set gpu [Gpu new [list gpuLib [$gpuc compile]]]
 $gpu init
 $gpu imageManagerInit
+
+Claim the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
 
 # Dictionary where key is pipeline name and value is [list
 # $pipelineSource $compiledPipeline].
