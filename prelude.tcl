@@ -74,16 +74,16 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 
-set ::perfEvents [dict create]
+set ::perfEventLibs [dict create]
 proc perfEvent {name} {
-    if {![dict exists $::perfEvents $name]} {
+    if {![dict exists $::perfEventLibs $name]} {
         set perfEventCc [C]
         $perfEventCc proc $name {} void {}
-        $perfEventCc compile
+        set perfEventLib [$perfEventCc compile]
         puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
-        dict set ::perfEvents $name $perfEventCc
+        dict set ::perfEventLibs $name $perfEventLib
     }
-    [dict get $::perfEvents $name] $name
+    [dict get $::perfEventLibs $name] $name
 }
 set perf [C]
 $perf compile
