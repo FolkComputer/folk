@@ -4,8 +4,18 @@ proc ::getColor {color} {
         else { return $Colors::white }
 }
 
-Start process "display" {
+proc Start-display-process {code} {
+    if {$tcl_platform(os) eq "Darwin"} {
+        # On macOS, you must talk to the GPU on the main thread.
+        uplevel $code
+    } else {
+        uplevel [list Start process "display" $code]
+    }
+}
+
+Start-display-process {
     puts "Display pid: [pid]"
+    set macos [expr {$tcl_platform(os) eq "Darwin"}]
 
     source pi/Gpu.tcl
     if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
@@ -94,6 +104,7 @@ Start process "display" {
     while true {
         set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
         Step
+        if {$macos} { update }
         foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
             try {
                 set name [dict get $match name]
@@ -125,6 +136,7 @@ Start process "display" {
             }
             Gpu::drawEnd
         }]
+        if {$macos} { Gpu::poll }
 
         Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
     }
