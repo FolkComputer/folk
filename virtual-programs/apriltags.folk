@@ -7,8 +7,9 @@ proc makeAprilTagDetector {TAG_FAMILY} {
     $cc include <math.h>
     $cc include <assert.h>
     $cc code {
-        apriltag_detector_t *td;
-        apriltag_family_t *tf;
+        static apriltag_detector_t *td;
+        static apriltag_family_t *tf;
+        static pthread_mutex_t tmutex;
     }
     # TODO: Factor this out.
     $cc struct Image {
@@ -25,8 +26,11 @@ proc makeAprilTagDetector {TAG_FAMILY} {
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 1);
         td->nthreads = 2;
+        pthread_mutex_init(&tmutex, NULL);
     }
     $cc proc detect {Image gray} Jim_Obj* {
+        pthread_mutex_lock(&tmutex);
+
         assert(gray.components == 1);
         image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
@@ -51,6 +55,9 @@ proc makeAprilTagDetector {TAG_FAMILY} {
         }
 
         zarray_destroy(detections);
+
+        pthread_mutex_unlock(&tmutex);
+
         Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
         return result;
     }
@@ -71,17 +78,8 @@ set tagFamily "tagStandard52h13"
 set detector [makeAprilTagDetector $tagFamily]
 
 When the camera frame is /grayFrame/ {
-    # need to have a `detector` object available from all threads,
+    # Need to have a `detector` object available from all threads,
     # inside this scope.
-
-    # ::<reference.<AprilTa>.00000000000000000002> command name want
-    # to fault and deep-copy the lambda to current thread?  or: have
-    # special 'copyable class' system where it stores thunks to
-    # recreate the class and can recreate it on any thread.
-
-    # 'multithread C object' which can be lexically inherited and
-    # knows how to rebuild itself on any thread. can be slow on first
-    # run as it self-compiles.
 
     set aprilTime [time {
         set tags [$detector detect $grayFrame]
