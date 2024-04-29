@@ -5,9 +5,12 @@ proc ::getColor {color} {
 }
 
 proc Start-display-process {code} {
-    if {$tcl_platform(os) eq "Darwin"} {
-        # On macOS, you must talk to the GPU on the main thread.
-        uplevel $code
+    if {$::tcl_platform(os) eq "Darwin"} {
+        # On macOS, you must talk to the GPU on the main thread, so we
+        # don't Start a subprocess here. We trampoline this code into
+        # a claim so we can run the rest of display.folk before
+        # getting caught in its infinite loop.
+        Claim "fake-display-process" has program code $code
     } else {
         uplevel [list Start process "display" $code]
     }
@@ -15,7 +18,7 @@ proc Start-display-process {code} {
 
 Start-display-process {
     puts "Display pid: [pid]"
-    set macos [expr {$tcl_platform(os) eq "Darwin"}]
+    set macos [expr {$::tcl_platform(os) eq "Darwin"}]
 
     source pi/Gpu.tcl
     if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
@@ -154,8 +157,8 @@ namespace eval ::Display {
     variable WIDTH
     variable HEIGHT
     variable LAYER 0
-    if {$::isLaptop} {
-        set WIDTH 640; set HEIGHT 480
+    if {$::tcl_platform(os) eq "Darwin"} {
+        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
     } else {
         regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
     }
