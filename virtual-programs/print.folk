@@ -3,6 +3,7 @@ source "pi/cUtils.tcl"
 set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
 c loadlib $::env(HOME)/apriltag/libapriltag.so
+::defineImageType $cc
 
 $cc code {
     #include <apriltag.h>
@@ -11,7 +12,21 @@ $cc code {
 
     #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
 }
-$cc proc ::tagImageForId {int id} char* {
+
+# HACK (osnr): This is used when someone wants to draw an AprilTag
+# (often for calibration/cnc preview purposes); I put it here because
+# we already have a whole AprilTag family and C compiler object setup
+# here. The returned image_t's data needs to be freed by the caller.
+$cc proc ::tagImageForId {int id} image_t {
+    if (tf == NULL) tf = tagStandard52h13_create();
+
+    image_u8_t* image = apriltag_to_image(tf, id);
+    image_t ret = (image_t) { .width = image->width, .height = image->height, .components = 1, .bytesPerRow = image->stride, .data = image->buf };
+    free(image); // doesn't free data
+    return ret;
+}
+
+$cc proc ::tagPsForId {int id} char* {
     if (tf == NULL) tf = tagStandard52h13_create();
 
     image_u8_t* image = apriltag_to_image(tf, id);
@@ -51,7 +66,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
         set fontsize 8; set lineheight [expr $fontsize*1.5]
         set margin 36
         if {$side eq "front"} {
-            set image [::tagImageForId $id]
+            set tagPs [::tagPsForId $id]
             return [subst {
                 %!PS
                 << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
@@ -61,7 +76,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
                 gsave
                 [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
                 $tagwidth $tagheight scale
-                $image
+                $tagPs
                 grestore
 
                 /Helvetica-Narrow findfont

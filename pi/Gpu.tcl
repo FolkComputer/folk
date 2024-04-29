@@ -18,7 +18,7 @@ namespace eval ::Gpu {
         foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
             if {![file readable $renderFile]} {
                 puts stderr "Gpu: Warning: $renderFile is not readable by current user; Vulkan device may not appear.
-Try doing `sudo chmod 666 $renderFile`."
+Try doing `sudo adduser folk render`."
             }
         }
     }
@@ -863,7 +863,7 @@ Try doing `sudo chmod 666 $renderFile`."
                 # TODO: Support fn being a list {name fn}.
                 set fn [uplevel [list set $argname]]
                 set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
-                dict set vertFnDict $argname $fn
+                dict set vertFnDict [string map {: ""} $argname] $fn
                 continue
             }
             lappend pushConstants $argtype $argname
@@ -873,7 +873,7 @@ Try doing `sudo chmod 666 $renderFile`."
                 # TODO: Support fn being a list {name fn}.
                 set fn [uplevel [list set $argname]]
                 set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
-                dict set fragFnDict $argname $fn
+                dict set fragFnDict [string map {: ""} $argname] $fn
                 continue
             } else {
                 error "Fragment arguments not supported"
@@ -887,6 +887,7 @@ Try doing `sudo chmod 666 $renderFile`."
         $cc struct vec2 { float x; float y; }
         $cc struct vec3 { float x; float y; float z; }
         $cc struct vec4 { float x; float y; float z; float w; }
+        $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
 
         $cc argtype vec2 {
             vec2 $argname;
@@ -922,6 +923,19 @@ Try doing `sudo chmod 666 $renderFile`."
                 double z; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[2], &z));
                 double w; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $[set argname]_objv[3], &w));
                 $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+            }
+        }
+        $cc argtype uvec4 {
+            uvec4 $argname;
+            {
+                int $[set argname]_objc; Tcl_Obj** $[set argname]_objv;
+                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
+                __ENSURE($[set argname]_objc == 4);
+                uint32_t x; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[0], (int*) &x));
+                uint32_t y; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[1], (int*) &y));
+                uint32_t z; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[2], (int*) &z));
+                uint32_t w; __ENSURE_OK(Tcl_GetIntFromObj(interp, $[set argname]_objv[3], (int*) &w));
+                $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
             }
         }
         $cc code [csubst {

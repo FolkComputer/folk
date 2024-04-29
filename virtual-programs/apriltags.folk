@@ -108,6 +108,9 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
         set timestamp [dict get $match timestamp]
         foreach tag [dict get $match tags] {
             set id [dict get $tag id]
+            # Setting aside this tag space (48600 to 48713) for calibration.
+            if {$id >= 48600} { continue }
+
             dict set tag timestamp $timestamp
 
             if {[dict exists $::tagsCache $id] &&
