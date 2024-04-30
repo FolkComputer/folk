@@ -18,15 +18,29 @@ to wait for that release.
 
 # [Folk](https://folk.computer)
 
-## Hardware/setup info
-
-<https://folk.computer/pilot/>
-
-## Linux tabletop installation
+## Hardware
 
 You'll need to set up a dedicated PC to run Folk and connect to
-webcam+projector+printer+etc. We tend to recommend a Beelink mini-PC
-(or _maybe_ a Pi 4), where you set up [Ubuntu **Server** 23.04 Lunar
+webcam+projector+printer+etc.
+
+We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 4).
+
+See <https://folk.computer/pilot/>
+
+## Linux tabletop installation using live USB
+
+**Experimental:** If you have an amd64 PC, you can use the live USB
+image which has Folk and all dependencies pre-installed.
+
+**See <https://github.com/FolkComputer/folk-live-build/releases> to
+get the Linux live USB image.**
+
+You can update Folk by running `git pull` in the `folk` subfolder of
+the FOLK-LIVE partition once you've flashed the live USB.
+
+## Manual Linux tabletop installation
+
+Set up [Ubuntu **Server** 23.04 Lunar
 Lobster](https://ubuntu.com/download/server#releases).
 
 (for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
