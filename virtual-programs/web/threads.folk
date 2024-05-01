@@ -95,8 +95,8 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                   [regexp -inline {State:[^\n]*\n} $status]<br>
                 [htmlEscape [$threadMonitorLib threadCurrentItem $tid]]<br>
 
-                User stack:<br><pre>[htmlEscape $userStack]</pre><br>
-                Kernel stack:<br><pre>[htmlEscape $kernelStack]</pre>
+                <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
+                <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>
             </li>}
         }] "\n"]
         </ol>
