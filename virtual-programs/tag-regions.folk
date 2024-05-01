@@ -62,7 +62,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     # }]
     # set Hinv [solvePGauss $H [math::linearalgebra::mkIdentity 3]]
 
-    set cameraToProjectorLib [list apply {{a0 a1 a2 b0 b1 b2 c0 c1} {
+    set cameraToProjectorLib [apply {{a0 a1 a2 b0 b1 b2 c0 c1} {
         set cc [C]
         $cc include <stdlib.h>
         $cc code [csubst {
