@@ -123,6 +123,7 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
 
     dict for {id tag} $tagsSeen {
         Claim tag $id has center [dict get $tag center] size [dict get $tag size]
+        # Corners are in order {bottomleft bottomright topright topleft}.
         Claim tag $id has corners [dict get $tag corners]
     }
     set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
