@@ -1,7 +1,9 @@
 Wish the web server handles route "/new" with handler {
     html {
-<html>
+<html lang="en">
     <head>
+	<meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<style>
 	    body { overflow: hidden; }
 	</style>
@@ -14,6 +16,9 @@ Wish the web server handles route "/new" with handler {
 	      <button onclick="handleSave()">Save</button>
 	      <button onclick="handlePrint()">Print</button>
 	      <button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button>
+
+		  <input id="regionAngleRange" type="range" value="0" min="0" max="360" step="0.1" oninput="this.nextElementSibling.value = `angle: ${this.value}&deg;`; regionAngle = this.value; handleDrag();">
+          <output>angle: 0&deg;</output>
 	    </p>
 	    <pre id="error"></pre>
 	</div>
@@ -26,11 +31,14 @@ Wish the web server handles route "/new" with handler {
 	// Query the element
 	const ele = document.getElementById('dragme');
 	const codeEle = document.getElementById("code");
+	const angleEle = document.getElementById("regionAngleRange");
+	
 
 	// Handle the mousedown event
 	// that's triggered when user drags the element
 	const mouseDownHandler = function (e) {
 	  if (e.target == codeEle) return;
+	  if (e.target == angleEle) return;
 
 	  // Get the current mouse position
 	  x = e.clientX;
@@ -91,6 +99,7 @@ Wish the web server handles route "/new" with handler {
 
 	let ws;
 	let send;
+	let regionAngle = 0;
 	function wsConnect() {
 	  ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
 	  send = function(s) { ws.send(s); }
@@ -133,13 +142,15 @@ Wish the web server handles route "/new" with handler {
 	    set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
 	    set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
 	    proc handleConfigure {program x y w h} {
-		set vertices [list [list [expr {$x+$w}] $y] \
-				   [list $x $y] \
-				   [list $x [expr {$y+$h}]] \
-				   [list [expr {$x+$w}] [expr {$y+$h}]]]
-		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-		Retract web claims $program has region /something/
-		Assert web claims $program has region [region create $vertices $edges]
+			set vertices [list [list [expr {$x+$w}] $y] \
+					[list $x $y] \
+					[list $x [expr {$y+$h}]] \
+					[list [expr {$x+$w}] [expr {$y+$h}]]]
+			set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+			Retract web claims $program has region /something/
+			set basicRegion [region create $vertices $edges]
+			set rotatedRegion [region rotate $basicRegion ${regionAngle * (3.1415 / 180)}]
+			Assert web claims $program has region $rotatedRegion
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	    if {$::isLaptop} { Step }
