@@ -29,6 +29,7 @@ Try doing `sudo adduser folk render`."
         regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
     }
 
+    catch {rename dc ""}
     rename [c create] dc
     defineImageType dc
     dc cflags -I./vendor

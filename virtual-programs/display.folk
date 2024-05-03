@@ -11,6 +11,10 @@ proc Start-display-process {code} {
         # a claim so we can run the rest of display.folk before
         # getting caught in its infinite loop.
         Claim "fake-display-process" has program code $code
+
+        When the GPU is ready & /someone/ wishes program code /co/ runs on "display" {
+            eval $co
+        }
     } else {
         uplevel [list Start process "display" $code]
     }
@@ -103,6 +107,8 @@ Start-display-process {
             Say $wisher has error $e with info $::errorInfo
         }
     }
+
+    Claim the GPU is ready
 
     while true {
         set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
