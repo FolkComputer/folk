@@ -14,7 +14,7 @@
 #include "db.h"
 #include "workqueue.h"
 
-#define NTHREADS 8
+#define NTHREADS 5
 
 int threadsN = NTHREADS; // for sharing to monitor
 
