@@ -14,7 +14,9 @@
 #include "db.h"
 #include "workqueue.h"
 
-#define NTHREADS 5
+#define NTHREADS 8
+
+int threadsN = NTHREADS; // for sharing to monitor
 
 Db* db;
 // This mutex is used to create an atomic section where a statement
@@ -580,6 +582,7 @@ void workerRun(WorkQueueItem item) {
         exit(1);
     }
 }
+
 pid_t threadsTid[NTHREADS];
 void* workerMain(void* arg) {
     _threadIndex = (int) (intptr_t) arg;
