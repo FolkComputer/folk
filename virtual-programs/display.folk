@@ -1,7 +1,6 @@
-namespace eval Colors { source "pi/Colors.tcl" }
+source "pi/Colors.tcl"
 proc ::getColor {color} {
-    if {[info exists Colors::$color]} { return [set Colors::$color] } \
-        else { return $Colors::white }
+    globalColorFunction $color
 }
 
 proc Start-display-process {code} {
@@ -85,10 +84,9 @@ Start-display-process {
         return res;
     }]
 
-    namespace eval Colors { source "pi/Colors.tcl" }
+    source "pi/Colors.tcl"
     proc ::getColor {color} {
-        if {[info exists Colors::$color]} { return [set Colors::$color] } \
-            else { return $Colors::white }
+        globalColorFunction $color
     }
 
     Wish $::thisProcess receives statements like \
