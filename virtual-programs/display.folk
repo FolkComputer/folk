@@ -1,8 +1,4 @@
-namespace eval Colors { source "pi/Colors.tcl" }
-proc ::getColor {color} {
-    if {[info exists Colors::$color]} { return [set Colors::$color] } \
-        else { return $Colors::white }
-}
+source "pi/Colors.tcl"
 
 proc Start-display-process {code} {
     if {$::tcl_platform(os) eq "Darwin"} {
@@ -85,11 +81,7 @@ Start-display-process {
         return res;
     }]
 
-    namespace eval Colors { source "pi/Colors.tcl" }
-    proc ::getColor {color} {
-        if {[info exists Colors::$color]} { return [set Colors::$color] } \
-            else { return $Colors::white }
-    }
+    source "pi/Colors.tcl"
 
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
