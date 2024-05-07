@@ -7,7 +7,7 @@ $ make && ./folk
 
 ## requirements
 
-on Debian bookworm arm64: `psmisc`, `build-essential`, `git`,
+on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
 `libssl-dev`, `zlib1g-dev`, `libjpeg-dev`
 
 Clone & build apriltag in home folder
@@ -20,11 +20,14 @@ Clone & build apriltag in home folder
 - ~~port webcam~~
 - ~~port apriltag~~
 - ~~port display~~
-- C objects accessible across When boundary?
-  - plan: use unknown to catch calls to refs?
-  - inculcate ref with thread id? lock ref hashtable in foreign
-    process, make proxy with C functions? this is so weird
-  - make ref ids bigger?
+- thread-local workqueues & work stealing
+- clock time?
+- When priorities? deadlines?
+- ~~C objects accessible across When boundary?~~
+  - ~~plan: use unknown to catch calls to refs?~~
+  - ~~inculcate ref with thread id? lock ref hashtable in foreign
+    process, make proxy with C functions? this is so weird~~
+  - ~~make ref ids bigger?~~
 - implement Collect -> labels
   - use some sort of timer?
 - ~~thread monitoring (what threads are running what? what threads are blocked?)~~
@@ -36,4 +39,3 @@ Clone & build apriltag in home folder
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
-
