@@ -204,7 +204,7 @@ proc hslToRgb {h s l} {
     return [list $r $g $b]
 }
 
-proc globalColorFunction {color} {
+proc ::getColor {color} {
     if {[info exists Colors::$color]} { return [set Colors::$color] }
     
     if {[regexp {hsl\((\d+),(\d+)%,(\d+)%\)} $color -> h s l]} {

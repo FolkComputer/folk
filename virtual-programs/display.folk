@@ -1,7 +1,4 @@
 source "pi/Colors.tcl"
-proc ::getColor {color} {
-    globalColorFunction $color
-}
 
 proc Start-display-process {code} {
     if {$::tcl_platform(os) eq "Darwin"} {
@@ -85,9 +82,6 @@ Start-display-process {
     }]
 
     source "pi/Colors.tcl"
-    proc ::getColor {color} {
-        globalColorFunction $color
-    }
 
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
