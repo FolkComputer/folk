@@ -107,8 +107,6 @@ $gpuc code {
     VkPhysicalDevice physicalDevice;
     VkDevice device;
 
-    VkExtent2D imageExtent;
-
     uint32_t computeQueueFamilyIndex;
 
     VkQueue graphicsQueue;
@@ -274,7 +272,6 @@ $gpuc proc init {} void {
         vkGetDisplayModePropertiesKHR(physicalDevice, displayProps.display, &modeCount, &modeProps);
         // modeProps is now the 0th display mode, which is probably
         // the best one (and we default to it for now).
-        imageExtent = modeProps.parameters.visibleRegion;
 
         VkDisplaySurfaceCreateInfoKHR createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
@@ -282,7 +279,7 @@ $gpuc proc init {} void {
         createInfo.planeIndex = 0;
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-        createInfo.imageExtent = imageExtent;
+        createInfo.imageExtent = modeProps.parameters.visibleRegion;
         if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
             fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
         }
@@ -506,8 +503,8 @@ $gpuc proc init {} void {
         $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
     }
 }
-$gpuc proc getWidth {} uint32_t { return imageExtent.width; }
-$gpuc proc getHeight {} uint32_t { return imageExtent.height; }
+$gpuc proc getWidth {} uint32_t { return swapchainExtent.width; }
+$gpuc proc getHeight {} uint32_t { return swapchainExtent.height; }
 
 proc defineVulkanHandleType {cc type} {
     $cc argtype $type [format {

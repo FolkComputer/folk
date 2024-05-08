@@ -108,9 +108,10 @@ Retract! web claims {${program}} has program code /something/
 	function handleDrag() {
           let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
           send(`
-            set WIDTH 1280; set HEIGHT 960 ;# TODO: Query! for these
-	    set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($HEIGHT) / ${window.innerHeight}))}]
-	    set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($WIDTH) / ${window.innerWidth}))}]
+            set dims [lindex [Query! /someone/ claims the display /disp/ has width /displayWidth/ height /displayHeight/] 0]
+            set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
+	    set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
+	    set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
 	    proc handleConfigure {program x y w h} {
 		set vertices [list [list [expr {$x+$w}] $y] \
 				   [list $x $y] \
