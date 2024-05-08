@@ -517,5 +517,7 @@ proc unknown {cmdName args} {
             "<$cid> $procName" {*}$args
         }
         $cmdName {*}$args
+    } else {
+        error "Unknown: $cmdName"
     }
 }
