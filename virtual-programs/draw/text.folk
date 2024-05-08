@@ -1,0 +1,244 @@
+On process "display" {
+    namespace eval font {
+        set cc [c create]
+        $cc include <math.h>
+        defineImageType $cc
+        $cc struct Font {
+            image_t atlasImage;
+            int gpuAtlasImage;
+            // TODO: This only handles ASCII, obviously.
+            Tcl_Obj* glyphInfos[128];
+        }
+
+        proc load {name} {
+            set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+            set fields [list ]
+            # HACK: Create list of null glyphs to initialize.
+            set glyphInfos [list]
+            for {set i 0} {$i < 128} {incr i} {
+                lappend glyphInfos {}
+            }
+
+            foreach line [split $csv "\n"] {
+                set values [lassign [split $line ,] glyph]
+                if {![string is integer -strict $glyph]} { continue }
+
+                lassign $values advance \
+                    planeLeft planeBottom planeRight planeTop \
+                    atlasLeft atlasBottom atlasRight atlasTop
+                lset glyphInfos $glyph \
+                    [list $advance \
+                         [list $planeLeft $planeBottom $planeRight $planeTop] \
+                         [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+            }
+
+            set im [image load "[pwd]/vendor/fonts/$name.png"]
+            set gim [Gpu::ImageManager::copyImageToGpu $im]
+
+            return [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
+        }
+        $cc struct vec2f { float x; float y; }
+        $cc proc vec2f_add {vec2f a vec2f b} vec2f {
+            return (vec2f) { a.x + b.x, a.y + b.y };
+        }
+        $cc proc vec2f_rotate {vec2f a float radians} vec2f {
+            return (vec2f) {
+                a.x*cosf(radians) + a.y*sinf(radians),
+                -a.x*sinf(radians) + a.y*cosf(radians)
+            };
+        }
+        $cc proc textExtent {Font* font char* text float scale} vec2f {
+            float em = scale * 25.0;
+            float x = 0; float y = 0;
+            float width = 0;
+            for (int i = 0; text[i] != 0; i++) {
+                int ch = text[i];
+                if (ch == '\n') {
+                    y = y + em; x = 0; continue;
+                }
+                if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+                    ch = '?';
+                }
+                Tcl_Obj* glyphInfo = font->glyphInfos[ch];
+                Tcl_Obj* advanceObj; Tcl_ListObjIndex(NULL, glyphInfo, 0, &advanceObj);
+                double advance; Tcl_GetDoubleFromObj(NULL, advanceObj, &advance);
+                x = x + advance * em;
+                if (x > width) { width = x; }
+            }
+            return (vec2f) { width, y };
+        }
+        $cc proc textShape {Font* font char* text
+                            float x0 float y0 float scale float anchorx float anchory float radians Tcl_Obj* color} Tcl_Obj* {
+            Tcl_Obj* gpuAtlasImageSize = Tcl_ObjPrintf("%d %d", font->atlasImage.width, font->atlasImage.height);
+
+            vec2f extent = textExtent(font, text, scale);
+            float em = scale * 25.0;
+
+            // The anchor origin is the top left of the text
+            float x = anchorx * extent.x;
+            float y = anchory * extent.y;
+            
+            // Text rendering starts from the baseline
+            if (anchory == 0) { y = -em; }
+
+            vec2f offset = vec2f_rotate((vec2f){x, y}, radians);
+            vec2f p0 = (vec2f) { x0 - offset.x, y0 - offset.y };
+            vec2f p = p0;
+
+            int lineNum = 0;
+            Tcl_Obj* instances = Tcl_NewListObj(0, NULL); // List of instances.
+            for (int i = 0; text[i] != 0; i++) {
+                int ch = text[i];
+                if (ch == '\n') {
+                    lineNum++;
+                    p = vec2f_add(p0, vec2f_rotate((vec2f) {0, lineNum * em}, radians));
+                    continue;
+                }
+                if (ch >= sizeof(font->glyphInfos)/sizeof(font->glyphInfos[0])) {
+                    ch = '?';
+                }
+                Tcl_Obj* glyphInfo = font->glyphInfos[ch];
+                Tcl_Obj* advanceObj; Tcl_ListObjIndex(NULL, glyphInfo, 0, &advanceObj);
+                double advance; Tcl_GetDoubleFromObj(NULL, advanceObj, &advance);
+                if (ch != ' ') {
+                    // Append to list of instances.
+                    Tcl_Obj* planeBounds; Tcl_ListObjIndex(NULL, glyphInfo, 1, &planeBounds);
+                    Tcl_Obj* atlasBounds; Tcl_ListObjIndex(NULL, glyphInfo, 2, &atlasBounds);
+                    Tcl_Obj* pv[] = {Tcl_NewDoubleObj(p.x), Tcl_NewDoubleObj(p.y)};
+                    Tcl_Obj* pObj = Tcl_NewListObj(2, pv);
+                    Tcl_Obj* args[] = {
+                        Tcl_NewIntObj(font->gpuAtlasImage),
+                        gpuAtlasImageSize,
+                        atlasBounds,
+                        planeBounds,
+                        pObj, Tcl_NewDoubleObj(radians), Tcl_NewDoubleObj(em), color
+                    };
+                    Tcl_Obj* instance = Tcl_NewListObj(sizeof(args)/sizeof(args[0]), args);
+                    Tcl_ListObjAppendElement(NULL, instances, instance);
+                }
+                p = vec2f_add(p, vec2f_rotate((vec2f) {advance * em, 0}, radians));
+            }
+            return instances;
+        }
+        $cc compile
+
+        namespace export *
+        namespace ensemble create
+    }
+    set ::FontCache [dict create]
+    # load all fonts into the fontCache
+    foreach fontPath [list {*}[glob vendor/fonts/*.png]] {
+        set fontName ""
+        regexp {vendor/fonts/(.*).png} $fontPath -> fontName
+        if {!($fontName eq "")} {
+            puts "Loaded $fontName into font cache"
+            set fontdata [font load $fontName]
+            dict set ::FontCache $fontName $fontdata
+        }
+    }
+    Claim the GPU has loaded [dict size $::FontCache] fonts
+
+    set rotate $::rotate
+    set invBilinear $::invBilinear
+    set glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+        vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
+        return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
+    }]
+    set median [Gpu::fn {float r float g float b} float {
+        return max(min(r, g), min(max(r, g), b));
+    }]
+    # TODO: Do this with a wish, instead of hard-coding the global dict.
+    dict set ::pipelines "glyph" [Gpu::pipeline \
+                   {sampler2D atlas vec2 atlasSize
+                       vec4 atlasGlyphBounds
+                       vec4 planeGlyphBounds
+                       vec2 pos float radians float em
+                       vec4 color
+                       fn rotate} {
+         float left = planeGlyphBounds[0] * em;
+         float bottom = planeGlyphBounds[1] * em;
+         float right = planeGlyphBounds[2] * em;
+         float top = planeGlyphBounds[3] * em;
+         vec2 a = pos + rotate(vec2(left, -top), -radians);
+         vec2 b = pos + rotate(vec2(right, -top), -radians);
+         vec2 c = pos + rotate(vec2(right, -bottom), -radians);
+         vec2 d = pos + rotate(vec2(left, -bottom), -radians);
+
+         vec2 vertices[4] = vec2[4](a, b, d, c);
+         return vertices[gl_VertexIndex];
+    } {fn rotate fn invBilinear fn glyphMsd fn median} {
+        float left = planeGlyphBounds[0] * em;
+        float bottom = planeGlyphBounds[1] * em;
+        float right = planeGlyphBounds[2] * em;
+        float top = planeGlyphBounds[3] * em;
+        vec2 a = pos + rotate(vec2(left, -top), -radians);
+        vec2 b = pos + rotate(vec2(right, -top), -radians);
+        vec2 c = pos + rotate(vec2(right, -bottom), -radians);
+        vec2 d = pos + rotate(vec2(left, -bottom), -radians);
+
+        vec2 glyphUv = invBilinear(gl_FragCoord.xy, a, b, c, d);
+        if( max( abs(glyphUv.x-0.5), abs(glyphUv.y-0.5))>=0.5 ) {
+            return vec4(0, 0, 0, 0);
+        }
+        vec3 msd = glyphMsd(atlas, atlasGlyphBounds/atlasSize.xyxy, glyphUv).rgb;
+        // https://blog.mapbox.com/drawing-text-with-signed-distance-fields-in-mapbox-gl-b0933af6f817
+        float sd = median(msd.r, msd.g, msd.b);
+        float uBuffer = 0.2;
+        float uGamma = 0.2;
+        float opacity = smoothstep(uBuffer - uGamma, uBuffer + uGamma, sd);
+        return vec4(color.rgb, opacity * color.a);
+    }]
+
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes to draw text with /...options/]
+
+    When (non-capturing) /someone/ wishes to draw text with /...options/ {
+        if {[dict exists $options center]} {
+            # This is deprecated
+            lassign [dict get $options center] x0 y0
+        } elseif {[dict exists $options position]} {
+            lassign [dict get $options position] x0 y0
+        } else {
+            set x0 [dict get $options x]
+            set y0 [dict get $options y]
+        }
+        set scale [dict_getdef $options scale 1.0]
+        set font [dict_getdef $options font "PTSans-Regular"]
+        set text [dict get $options text]
+        set anchor [dict_getdef $options anchor "center"]
+        set radians [dict_getdef $options radians 0]
+        set color [getColor [dict_getdef $options color white]]
+        set layer [dict_getdef $options layer 0]
+
+        if {$anchor == "topleft"} {
+            set anchor [list 0 0]
+        } elseif {$anchor == "top"} {
+            set anchor [list 0.5 0]
+        } elseif {$anchor == "topright"} {
+            set anchor [list 1.0 0]
+        } elseif {$anchor == "left"} {
+            set anchor [list 0 0.5]
+        } elseif {$anchor == "center"} {
+            set anchor [list 0.5 0.5]
+        } elseif {$anchor == "right"} {
+            set anchor [list 1.0 0.5]
+        } elseif {$anchor == "bottomleft"} {
+            set anchor [list 0 1]
+        } elseif {$anchor == "bottom"} {
+            set anchor [list 0.5 1]
+        } elseif {$anchor == "bottomright"} {
+            set anchor [list 1 1]
+        }
+
+        if {!([dict exists $::FontCache $font])} {
+            throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
+        }
+        set font [dict get $::FontCache $font]
+
+        set instances [font textShape $font $text $x0 $y0 $scale {*}$anchor $radians $color]
+
+        # We need to batch into one wish so we don't deal with n^2
+        # checks for existing statements for n glyphs.
+        Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
+    }
+}
