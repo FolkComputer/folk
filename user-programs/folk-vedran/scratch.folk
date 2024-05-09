@@ -1,0 +1,59 @@
+When /program1/ has region /r1/ & /program2/ has region /r2/ {
+    # Calculate the centroids of each region
+    lassign [region centroid $r1] x1 y1
+    lassign [region centroid $r2] x2 y2
+
+    # Check if program1 is to the right of program2 and approximately on the same horizontal plane
+    # Reverse it because camera is upside down
+    if {$program1 != $program2 && $x1 < $x2 && abs($y1 - $y2) < 50} {
+        Claim $program1 is on the right of $program2
+    }
+}
+
+
+set ACTIONS_PER_SECOND 1
+
+When /playButton/ is a SCRATCH_PLAY_BUTTON {
+    When /actor/ is a scratch action START_CHARACTER /character/ & /actor/ is on the right of $playButton {
+        Claim $playButton has scratch character $character
+    }
+
+    When the collected matches for [list /actor/ is a scratch action /action/ /arg/ & /actor/ is on the right of $playButton] are /matches/ {
+        puts "matches $matches"
+        set numActions [llength $matches]
+        for {set i 0} {$i < $numActions} {incr i} {
+            # Each match is in the format "actor 11 action START_CHARACTER <arg>"
+            # When an action gets its 1 second slice of the clock, consider
+            # it and all matched actions "before" it to be active
+            When the clock time is /t/ {
+                if {round($t * $ACTIONS_PER_SECOND) % $numActions == $i} {
+                    set activeActions {}
+                    for {set j 0} {$j <= $i} {incr j} {
+                        set match [lindex $matches $j] 
+                        set id [lindex $match 1]
+                        Wish $id is outlined green
+                        lappend activeActions [lindex $match 3]
+                    }
+                    Commit $playButton { Claim $playButton has active actions $activeActions }
+                }
+            }
+        }
+    }
+
+
+    # Reducer that takes the actions and turns them into the character current state.
+    When $playButton has active actions /actions/ & $playButton has scratch character /character/ {
+        set x 0
+        set y 20
+        set state BASE
+        foreach action $actions {
+            if { $action == "MOVE_RIGHT" } {
+                set x [expr {$x+40}]
+            } elseif { $action == "SPECIAL" || $action == "STANDING" } {
+                set state $action
+            }
+        }
+
+        Claim $playButton is a scratch character $character with position $x $y state $state
+    }
+}

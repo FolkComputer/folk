@@ -345,18 +345,21 @@ When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
     Wish to draw an image with center $center image $slice radians 0 scale 1
 }
 
-When /someone/ wishes /p/ displays image /im/ with scale /s/ {
+When /someone/ wishes /p/ displays image /im/ with /...options/ {
+    set scale [dict_getdef $options scale 1]
+    set offset [dict_getdef $options offset [list 0 0]]
     set im [image load $im]
     When $p has region /r/ {
         # Compute a scale for im that will fit in the region width/height
         # Draw im with scale and rotation
-        set center [region centroid $r]
+        set center [vec2 add [region centroid $r] $offset]
+        set radius [dict_getdef $options radius 50]
         # set width [region width $r]
         # set height [region height $r]
         # set scale [expr {min($width / [image width $im],
         #                      $height / [image height $im])}]
         # Wish $p is labelled $im
-        Wish to draw an image with center $center image $im radians [region angle $r] scale $s
+        Wish to draw an image with center $center image $im radians [region angle $r] scale $scale
     }
     # On unmatch {
     #     # HACK: Leaves time for the display to finish trying to display this.
