@@ -110,7 +110,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
     set tagwidth 150; set tagheight 150
     set fontsize 12; set lineheight [expr $fontsize*1.5]
 
-    set image [::tagImageForId $id]
+    set image [::tagPsForId $id]
 
     set lines [split $text "\n"]
     for {set i 0} {$i < [llength $lines]} {incr i} {
