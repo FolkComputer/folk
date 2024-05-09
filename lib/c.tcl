@@ -121,10 +121,23 @@ class C {
         Jim_Obj* { expr {{ Jim_Obj* $argname = $obj; }}}
         default {
             if {[string index $argtype end] == "*"} {
-                expr {{
-                    $argtype $argname;
-                    __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
-                }}
+                set basetype [string range $argtype 0 end-1]
+                if {[dict exists $argtypes $basetype]} {
+                    expr {{
+                        $argtype $argname;
+                        // First, try to read the obj as a raw pointer.
+                        if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
+                            // Now try to coerce to a Tcl object.
+                            __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
+                            $argname = $obj->internalRep.ptrIntValue.ptr;
+                        }
+                    }}
+                } else {
+                    expr {{
+                        $argtype $argname;
+                        __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
+                    }}
+                }
             } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be ""
                 if {$basetype eq "char"} { expr {{
@@ -315,7 +328,7 @@ C method struct {type fields} {
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_Obj* obj_$fieldname;
-                    Jim_DictKey(interp, objPtr, Jim_ObjPrintf("%s", "$fieldname"), &obj_$fieldname, 0);
+                    __ENSURE_OK(Jim_DictKey(interp, objPtr, Jim_ObjPrintf("%s", "$fieldname"), &obj_$fieldname, JIM_ERRMSG));
                     $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
                     memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
                 }
@@ -330,8 +343,8 @@ C method struct {type fields} {
             .name = "$type",
             .freeIntRepProc = $[set type]_freeIntRepProc,
             .dupIntRepProc = $[set type]_dupIntRepProc,
-            .updateStringProc = $[set type]_updateStringProc,
-//                        .setFromAnyProc = $[set type]_setFromAnyProc
+            .updateStringProc = $[set type]_updateStringProc
+            // .setFromAnyProc = $[set type]_setFromAnyProc
         };
     }]
 

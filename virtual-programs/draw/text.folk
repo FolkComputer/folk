@@ -22,33 +22,6 @@ $cc struct Font {
     GlyphInfo glyphInfos[128];
 }
 
-proc loadFont {imageLib gpuLib name} {
-    set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
-    set fields [list ]
-    # HACK: Create list of null glyphs to initialize.
-    set glyphInfos [list]
-    for {set i 0} {$i < 128} {incr i} {
-        lappend glyphInfos {}
-    }
-
-    foreach line [split $csv "\n"] {
-        set values [lassign [split $line ,] glyphIdx]
-        if {![string is integer -strict $glyphIdx]} { continue }
-
-        lassign $values advance \
-            planeLeft planeBottom planeRight planeTop \
-            atlasLeft atlasBottom atlasRight atlasTop
-        lset glyphInfos $glyphIdx \
-            [dict create advance $advance \
-                 planeBounds [list $planeLeft $planeBottom $planeRight $planeTop] \
-                 atlasBounds [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
-    }
-
-    set im [$imageLib load "[pwd]/vendor/fonts/$name.png"]
-    set gim [$gpuLib copyImageToGpu $im]
-
-    return [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
-}
 $cc struct vec2f { float x; float y; }
 $cc proc vec2f_add {vec2f a vec2f b} vec2f {
     return (vec2f) { a.x + b.x, a.y + b.y };
@@ -128,19 +101,52 @@ $cc proc textShape {Font* font char* text
 }
 set fontLib [$cc compile]
 
-When the image library is /imageLib/ {
-    set fontCache [dict create]
-    # load all fonts into the fontCache
+When the image loader is /loadImage/ {
+    proc loadFont {name} {loadImage} {
+        set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
+        set fields [list ]
+        # HACK: Create list of null glyphs to initialize.
+        set glyphInfos [list]
+        for {set i 0} {$i < 128} {incr i} {
+            lappend glyphInfos {}
+        }
+
+        foreach line [split $csv "\n"] {
+            set values [lassign [split $line ,] glyphIdx]
+            if {![string is integer -strict $glyphIdx]} { continue }
+
+            lassign $values advance \
+                planeLeft planeBottom planeRight planeTop \
+                atlasLeft atlasBottom atlasRight atlasTop
+            lset glyphInfos $glyphIdx \
+                [dict create advance $advance \
+                     planeBounds [list $planeLeft $planeBottom $planeRight $planeTop] \
+                     atlasBounds [list $atlasLeft $atlasBottom $atlasRight $atlasTop]]
+        }
+
+        set defaultGlyphInfo [lindex $glyphInfos 63] ;# '?'
+        for {set i 0} {$i < [llength $glyphInfos]} {incr i} {
+            if {[lindex $glyphInfos $i] eq {}} {
+                lset glyphInfos $i $defaultGlyphInfo
+            }
+        }
+
+        set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
+        Wish the GPU loads image $im
+        When the GPU has loaded image $im as /gim/ {
+            Claim the GPU has font $name with data \
+                [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
+        }
+    }
+
     foreach fontPath [list {*}[glob vendor/fonts/*.png]] {
         set fontName ""
         regexp {vendor/fonts/(.*).png} $fontPath -> fontName
         if {!($fontName eq "")} {
             puts "Loaded $fontName into font cache"
-            set fontdata [loadFont $imageLib $gpuLib $fontName]
-            dict set fontCache $fontName $fontdata
+            set fontdata [loadFont $fontName]
         }
     }
-    Claim the font cache is $fontCache
 }
 
 Wish the GPU compiles function "glyphMsd" {
@@ -196,12 +202,9 @@ Wish the GPU compiles pipeline "glyph" {
     return vec4(color.rgb, opacity * color.a);
 }}
 
-When the font cache is /fontCache/ &\
+When the color map is /colorMap/ &\
      /someone/ wishes to draw text with /...options/ {
-    if {[dict exists $options center]} {
-        # This is deprecated
-        lassign [dict get $options center] x0 y0
-    } elseif {[dict exists $options position]} {
+    if {[dict exists $options position]} {
         lassign [dict get $options position] x0 y0
     } else {
         set x0 [dict get $options x]
@@ -212,7 +215,8 @@ When the font cache is /fontCache/ &\
     set text [dict get $options text]
     set anchor [dict getdef $options anchor "center"]
     set radians [dict getdef $options radians 0]
-    set color [getColor [dict getdef $options color white]]
+    set color [dict getdef $options color white]
+    set color [dict getdef $colorMap $color $color]
     set layer [dict getdef $options layer 0]
 
     if {$anchor == "topleft"} {
@@ -235,15 +239,15 @@ When the font cache is /fontCache/ &\
         set anchor [list 1 1]
     }
 
-    if {!([dict exists $fontCache $font])} {
+    set fontResults [Query! /someone/ claims the GPU has font $font with data /fontData/]
+    if {[llength $fontResults] == 0} {
         throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
     }
-    set font [dict get $fontCache $font]
+    set fontData [dict get [lindex $fontResults 0] fontData]
 
-    set instances [$fontLib textShape $font $text $x0 $y0 $scale {*}$anchor $radians $color]
+    set instances [$fontLib textShape $fontData $text $x0 $y0 $scale {*}$anchor $radians $color]
 
     # We need to batch into one wish so we don't deal with n^2
     # checks for existing statements for n glyphs.
     Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
 }
-

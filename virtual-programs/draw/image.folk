@@ -199,49 +199,80 @@ $cc proc loadPng {char* filename} Image {
 }
 
 $cc code {
-    
+    #include <pthread.h>
+
+    typedef struct ImageCacheEntry {
+        char* name;
+        Image im;
+    } ImageCacheEntry;
+
+    ImageCacheEntry imageCache[1000];
+    pthread_rwlock_t imageCacheLock;
+}
+$cc proc cacheInit {} void {
+    pthread_rwlock_init(&imageCacheLock, NULL);
 }
 $cc proc cacheExists {char* name} bool {
-    
+    pthread_rwlock_rdlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (imageCache[i].name == NULL) break;
+        if (strcmp(imageCache[i].name, name) == 0) {
+            pthread_rwlock_unlock(&imageCacheLock);
+            return true;
+        }
+    }
+    pthread_rwlock_unlock(&imageCacheLock);
+    return false;
 }
 $cc proc cacheGet {char* name} Image {
-    
+    pthread_rwlock_rdlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (strcmp(imageCache[i].name, name) == 0) {
+            Image im = imageCache[i].im;
+            pthread_rwlock_unlock(&imageCacheLock);
+            return im;
+        }
+    }
+    fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
 }
 $cc proc cachePut {char* name Image im} void {
-    
+    pthread_rwlock_wrlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (imageCache[i].name == NULL) {
+            imageCache[i].name = strdup(name);
+            imageCache[i].im = im;
+            break;
+        }
+    }
+    pthread_rwlock_unlock(&imageCacheLock);
 }
 
-set imageLib [library create [$cc compile] {
-    proc load {im} {
-        if {[$self cacheExists $impath]} {
-            set im [$self cacheGet $impath]
-        } else {
-            set impath $im
-            if {[string match "http*://*" $impath]} {
-                set im /tmp/[regsub -all {\W+} $impath "_"]
-                exec -ignorestderr curl -o$im $impath
-            }
-            if {[string match "*jpg" $im] ||
-                [string match "*jpeg" $im] ||
-                [string match "*png" $im]} {
-                set path [expr {[file pathtype $im] eq "relative" ?
-                                "$::env(HOME)/folk-images/$im" :
-                                $im}]
-                if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
-                    set im [$self loadJpeg $path]
-                } else {
-                    set im [$self loadPng $path]
-                }
-                $self cachePut $impath $im
-            }
-        }
-        return $im
+set imageLib [$cc compile]
+$imageLib cacheInit
+
+Claim the image loader is [list apply {{imageLib im} {
+    if {[$imageLib cacheExists $im]} {
+        return [$imageLib cacheGet $im]
     }
 
-    proc width {im} { dict get $im width }
-    proc height {im} { dict get $im height }
-}]
-
-Claim the image library is $imageLib
+    set impath $im
+    if {[string match "http*://*" $impath]} {
+        set im /tmp/[regsub -all {\W+} $impath "_"]
+        exec -ignorestderr curl -o$im $impath
+    }
+    if {[string match "*jpg" $im] ||
+        [string match "*jpeg" $im] ||
+        [string match "*png" $im]} {
+        set path [expr {[string index $im 0] eq "/" ?
+                        $im : "$::env(HOME)/folk-images/$im"}]
+        if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
+            set im [$imageLib loadJpeg $path]
+        } else {
+            set im [$imageLib loadPng $path]
+        }
+        $imageLib cachePut $impath $im
+    }
+    return $im
+}} $imageLib]
 
 

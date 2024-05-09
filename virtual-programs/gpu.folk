@@ -1554,7 +1554,8 @@ proc glslc {args} {
     split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
 }
 
-set gpu [Gpu new [list gpuLib [$gpuc compile]]]
+set gpuLib [$gpuc compile]
+set gpu [Gpu new [list gpuLib $gpuLib]]
 $gpu init
 $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
 $gpu imageManagerInit
@@ -1567,19 +1568,32 @@ set pipelines [dict create]
 # Dictionary where key is function name and value is function source
 # object.
 set functions [dict create]
+# Dictionary where key is image object and value is GPU image handle.
+set gpuImages [dict create]
 
 while 1 {
     set displayList [dict create]
+    foreach match [Query! /wisher/ wishes the GPU loads image /im/] {
+        dict with match {
+            if {![dict exists $gpuImages $im]} {
+                set gim [$gpu copyImageToGpu $im]
+                dict set gpuImages $im $gim
+                Assert! gpu.folk claims the GPU has loaded image $im as $gim
+            }
+        }
+    }
     foreach match [Query! /wisher/ wishes the GPU compiles function /name/ /source/] {
         dict with match {
-            try {
-                dict with functions {
-                    set fn [$gpu fn {*}$source]
+            if {![dict exists $functions $name]} {
+                try {
+                    dict with functions {
+                        set fn [$gpu fn {*}$source]
+                    }
+                    dict set functions $name $fn
+                } on error e {
+                    puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+                    Say $wisher has error $e with info [errorInfo $e]
                 }
-                dict set functions $name $fn
-            } on error e {
-                puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
-                Say $wisher has error $e with info [errorInfo $e]
             }
         }
     }
