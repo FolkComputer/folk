@@ -10,6 +10,11 @@ proc serializeEnvironment {} {
     }
     list $argnames $argvalues
 }
+proc assert condition {
+    if {![uplevel 1 expr $condition]} {
+        return -code error "assertion failed: $condition"
+    }
+}
 
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
