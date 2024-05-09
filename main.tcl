@@ -23,6 +23,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 }
 
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 source "lib/trie.tcl"
 source "lib/evaluator.tcl"
 namespace eval Evaluator {

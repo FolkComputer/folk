@@ -1,5 +1,3 @@
-source "pi/cUtils.tcl"
-
 package require TclOO
 namespace import oo::*
 catch {AprilTags destroy}

@@ -1,5 +1,6 @@
 source "lib/language.tcl"
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 
 exec sudo systemctl stop folk
 # TODO: Fix this hack.
@@ -26,7 +27,6 @@ source "pi/AprilTags.tcl"
 source "pi/Gpu.tcl"
 
 source "virtual-programs/images.folk"
-source "pi/cUtils.tcl"
 
 # FIXME: adapt to camera spec
 # Camera::init 3840 2160

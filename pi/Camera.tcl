@@ -1,6 +1,3 @@
-source "lib/c.tcl"
-source "pi/cUtils.tcl"
-
 namespace eval Camera {
     rename [c create] camc
 

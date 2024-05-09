@@ -4,7 +4,6 @@
 #     to run pixel shaders with image and numerical parameters (so you
 #     can draw images, shapes, etc from Display.)
 
-source "pi/cUtils.tcl"
 if {[info exists ::argv0] && $::argv0 eq [info script] || \
         ([info exists ::entry] && $::entry == "pi/Gpu.tcl")} {
     proc When {args} {}
