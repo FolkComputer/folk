@@ -492,9 +492,14 @@ C method compile {} {
     }
     exec cc -Wall -g -fno-omit-frame-pointer -fPIC \
         {*}$cflags $cfile -c -o [file rootname $cfile].o
+    # HACK: Why do we need this / only when running in lldb?
+    while {![file exists [file rootname $cfile].o]} { sleep 0.0001 }
+
     exec cc -shared $ignoreUnresolved \
         -o [file rootname $cfile].so [file rootname $cfile].o \
         {*}$endcflags
+    # HACK: Why do we need this / only when running in lldb?
+    while {![file exists [file rootname $cfile].so]} { sleep 0.0001 }
 
     return <$cid>
 }
