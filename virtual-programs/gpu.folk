@@ -10,6 +10,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 } elseif {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
     puts stderr "gpu.folk: Must run on thread 0 on macOS. Rescheduling."
 
+    # TODO: Just hard-code this into thread 0 and abort here.
     # Reschedule this program onto thread 0
     Say @0 when $this has program /thisProgram/ {{this thisProgram} {
         apply $thisProgram $this
@@ -843,17 +844,18 @@ Gpu method draw {pipeline args} {
 
 # Construct a reusable GLSL function that can be linked into and
 # called from a shader/pipeline.
-Gpu method fn {args rtype body} {
+Gpu method fn {arguments rtype body} {
     set fnArgs [list]
     # We inline all dependent functions from the caller scope
     # immediately here, since we don't know if those dependencies
     # would be accessible/in scope at all when this function gets
     # actually compiled into a shader.
     set depFnDict [dict create]
-    foreach {argtype argname} $args {
+    foreach {argtype argname} $arguments {
         if {$argtype eq "fn"} {
             # TODO: Support fn being a list {fnName fn}.
-            dict set depFnDict [string map {: ""} $argname] [uplevel [list set $argname]]
+            dict set depFnDict [string map {: ""} $argname] \
+                [uplevel 2 [list set $argname]]
         } else {
             lappend fnArgs $argtype $argname
         }
@@ -879,7 +881,7 @@ Gpu method pipeline {args} {
     foreach {argtype argname} $vertArgs {
         if {$argtype eq "fn"} {
             # TODO: Support fn being a list {name fn}.
-            set fn [uplevel [list set $argname]]
+            set fn [uplevel 2 [list set $argname]]
             set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
             dict set vertFnDict $argname $fn
             continue
@@ -889,7 +891,7 @@ Gpu method pipeline {args} {
     foreach {argtype argname} $fragArgs {
         if {$argtype eq "fn"} {
             # TODO: Support fn being a list {name fn}.
-            set fn [uplevel [list set $argname]]
+            set fn [uplevel 2 [list set $argname]]
             set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
             dict set fragFnDict $argname $fn
             continue
@@ -986,14 +988,14 @@ Gpu method pipeline {args} {
 
         $pushConstantsCode
 
-        $[join [dict values [lmap {fnName fn} $vertFnDict {
+        $[join [lmap {fnName fn} $vertFnDict {
             lassign $fn fnArgs _ fnRtype fnBody
             subst {
                 $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
                     $fnBody
                 }
             }
-        }]] "\n"]
+        }] "\n"]
 
         vec2 vert() {
             $[join [lmap {argtype argname} $pushConstants {
@@ -1027,14 +1029,14 @@ Gpu method pipeline {args} {
 
         layout(location = 0) out vec4 outColor;
 
-        $[join [dict values [lmap {fnName fn} $fragFnDict {
+        $[join [lmap {fnName fn} $fragFnDict {
             lassign $fn fnArgs _ fnRtype fnBody
             subst {
                 $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
                     $fnBody
                 }
             }
-        }]] "\n"]
+        }] "\n"]
 
         $[join [lmap {argtype argname} $pushConstants {
             if {$argtype eq "sampler2D"} {
@@ -1562,9 +1564,25 @@ Claim the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
 # Dictionary where key is pipeline name and value is [list
 # $pipelineSource $compiledPipeline].
 set pipelines [dict create]
+# Dictionary where key is function name and value is function source
+# object.
+set functions [dict create]
 
 while 1 {
     set displayList [dict create]
+    foreach match [Query! /wisher/ wishes the GPU compiles function /name/ /source/] {
+        dict with match {
+            try {
+                dict with functions {
+                    set fn [$gpu fn {*}$source]
+                }
+                dict set functions $name $fn
+            } on error e {
+                puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+                Say $wisher has error $e with info [errorInfo $e]
+            }
+        }
+    }
     foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
         dict with match {
             try {
@@ -1573,9 +1591,11 @@ while 1 {
                     # Already compiled this one.
                     continue
                 }
-                dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
+                dict with functions {
+                    dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
+                }
             } on error e {
-                puts stderr "Error: GPU compiles pipeline: [errorInfo $e]"
+                puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
                 Say $wisher has error $e with info [errorInfo $e]
             }
         }
