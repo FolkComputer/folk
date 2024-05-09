@@ -21,6 +21,7 @@ Clone & build apriltag in home folder
 - ~~port apriltag~~
 - ~~port display~~
 - thread-local workqueues & work stealing
+- fix printing to stdout
 - clock time?
 - When priorities? deadlines?
 - ~~C objects accessible across When boundary?~~

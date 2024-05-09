@@ -174,9 +174,9 @@ class C {
                     {
                         Jim_Obj* objv[$arraylen];
                         for (int i = 0; i < $arraylen; i++) {
-                            $[ret $basetype objv\[i\] $rvalue\[i\]]
+                            $[$self ret $basetype objv\[i\] $rvalue\[i\]]
                         }
-                        $robj = Jim_NewListObj(interp, $arraylen, objv);
+                        $robj = Jim_NewListObj(interp, objv, $arraylen);
                     }
                 }} }
             } else {
