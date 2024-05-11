@@ -344,7 +344,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "runWhenBlock: (%.100s) -> (%s)\n",
+        fprintf(stderr, "Error: runWhenBlock: (%.100s) -> (%s)\n",
                 lambda,
                 Jim_GetString(Jim_GetResult(interp), NULL));
         /* Jim_FreeInterp(interp); */

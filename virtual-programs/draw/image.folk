@@ -317,4 +317,4 @@ When /someone/ wishes to draw an image with /...options/ {
                  $center $radians $scale]
     }
 }
-Wish to draw an image with center {200 200} image [{*}$loadImage "[pwd]/vendor/fonts/CourierPrimeCode.png"]
+# Wish to draw an image with center {200 200} image [{*}$loadImage "[pwd]/vendor/fonts/CourierPrimeCode.png"]
