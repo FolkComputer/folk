@@ -1,6 +1,8 @@
 #ifndef DB_H
 #define DB_H
 
+#include <pthread.h>
+
 #include "trie.h"
 
 typedef struct Statement Statement;
@@ -54,6 +56,7 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
 Match* matchAcquire(Db* db, MatchRef match);
 void matchRelease(Db* db, Match* m);
 
+void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
 
 MatchRef matchRef(Db* db, Match* m);
@@ -84,12 +87,14 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // new statement was created. 
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parent);
 
-// Call when you're about to begin a match (i.e., evaluating the
-// body of a When) -- creates the Match object that you'll attach any
+// Call when you're about to begin a match (i.e., evaluating the body
+// of a When) -- creates the Match object that you'll attach any
 // emitted Statements to. The Match is guaranteed to have ptrCount ==
 // 1 when returned (in other words, the Match is returned already
-// acquired).
-MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]);
+// acquired). The worker thread is also attached so that it can be
+// interrupted if the match is destroyed.
+MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
+                       pthread_t workerThread);
 
 void dbRetractStatements(Db* db, Clause* pattern);
 

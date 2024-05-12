@@ -61,7 +61,16 @@ typedef struct Match {
 
     uint32_t gen;
 
+    pthread_t workerThread;
+
     // Mutable match properties:
+
+    // isCompleted is set to true once the Tcl evaluation that builds
+    // the match is completed. As long as isCompleted is false,
+    // workerThread is subject to termination signal (SIGUSR1) if the
+    // match is removed.
+    _Atomic bool isCompleted;
+
     _Atomic bool shouldFree;
 
     // TODO: Add match destructors.
@@ -378,6 +387,7 @@ static MatchRef matchNew(Db* db) {
 
     match->childStatements = listOfEdgeToNew(8);
     pthread_mutex_init(&match->childStatementsMutex, NULL);
+    match->isCompleted = false;
     match->shouldFree = false;
 
     // This won't free match until it's explicitly destroyed.
@@ -389,9 +399,17 @@ static MatchRef matchNew(Db* db) {
 void matchAddChildStatement(Match* match, StatementRef child) {
     listOfEdgeToAdd(&match->childStatements, child.val);
 }
+void matchCompleted(Match* match) {
+    match->isCompleted = true;
+}
 void matchRemoveSelf(Db* db, Match* match) {
     /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
     match->shouldFree = true;
+    if (!match->isCompleted) {
+        // Signal the match worker thread to terminate the match
+        // execution.
+        pthread_kill(match->workerThread, SIGUSR1);
+    }
 }
 
 ////////////////////////////////////////////////////////////
@@ -497,7 +515,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
     }
 }
 
-MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[]) {
+MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
+                       pthread_t workerThread) {
     MatchRef ref = matchNew(db);
     /* printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen); */
     Match* match = matchAcquire(db, ref);

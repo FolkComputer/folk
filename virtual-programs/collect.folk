@@ -98,19 +98,32 @@ When /someone/ wishes to collect matches for /clause/ {
     }}]
 
     set collect [$collectLib collectNew]
-    # On unmatch { $collectLib collectDestroy $collect }
+    # On unmatch {
+    #     # TODO: how to run this on thread cancellation?
+    #     $collectLib collectDestroy $collect
+    # }
 
     When {*}$clause {
         set match [dict create]
         foreach varName $varNames { dict set match $varName [set $varName] }
 
         $collectLib collectMatch $collect $match
+        # TODO: decrement some kind of refcount?
         # On unmatch {
         #     $collectLib collectUnmatch $collect $match
         # }
     }
 
     set prevMatches {}
+    # TODO: how to cancel this blocking loop if the collect is
+    # revoked? could check refcount, but it would be nice to have a
+    # more general mechanism so that nonterminating loops are safe to
+    # write in general.
+
+    # we can use Jim signal handling for jim loops (and even run the
+    # unmatch handler safely!) -- we can't use it for C infinite
+    # loops, though (unless we send a secondary signal a few
+    # milliseconds later, but then how do we run the unmatch handler?)
     while true {
         set matches [$collectLib collectGet $collect]
         if {$matches ne $prevMatches} {

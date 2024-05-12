@@ -92,3 +92,6 @@ proc perfEvent {name} {
 }
 set perf [C]
 $perf compile
+
+signal handle SIGUSR1
+puts stderr "sigs: [signal handle]"

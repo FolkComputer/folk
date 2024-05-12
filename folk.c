@@ -332,8 +332,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     StatementRef parents[] = { whenRef, stmtRef };
 
-    currentMatch = dbInsertMatch(db, 2, parents);
-    if (matchRefIsNull(currentMatch)) {
+    currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+
+    Match* currentMatchPtr = matchAcquire(db, currentMatch);
+    if (!currentMatchPtr) {
         // A parent is gone. Abort.
         return;
     }
@@ -342,6 +344,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // evaluation.
     int error = Jim_EvalObj(interp, expr);
 
+    matchCompleted(currentMatchPtr);
+    matchRelease(db, currentMatchPtr);
+
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         fprintf(stderr, "Error: runWhenBlock: (%.100s) -> (%s)\n",
@@ -349,6 +354,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                 Jim_GetString(Jim_GetResult(interp), NULL));
         /* Jim_FreeInterp(interp); */
         /* exit(EXIT_FAILURE); */
+    } else if (error == JIM_SIGNAL) {
+        fprintf(stderr, "Signal\n");
     }
 }
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
