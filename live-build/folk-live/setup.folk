@@ -4,6 +4,9 @@
 # set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
 # set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
 
+# Uncomment and set this to set a different hostname:
+# set HOSTNAME "folk-live"
+
 # Uncomment set this to register a network printer (using IPP-Everywhere):
 # set PRINTER_URL "ipp://the-printers-ip.local/ipp/print"
 
@@ -18,7 +21,13 @@ try {
     }
 } on error wifierr { lappend errs $wifierr }
 
-try { exec sudo dhclient } on error dherr { lappend errs $dherr }
+try {
+    if [info exists HOSTNAME] {
+        exec sudo sed -i "s/folk-live/folk-live $HOSTNAME/" /etc/hosts
+        exec sudo hostnamectl set-hostname $HOSTNAME
+    }
+    exec sudo dhclient
+} on error dherr { lappend errs $dherr }
 
 try {
     if [info exists PRINTER_URL] {
@@ -32,7 +41,7 @@ When the display /disp/ has width /displayWidth/ height /displayHeight/ {
     Wish to draw text with x $cx y [/ $cy 2.0] text "Welcome to Folk"
     if {[llength $errs] > 0} {
         Wish to draw text with x $cx y [+ [/ $cy 2.0] 30] \
-            text "Network errors:\n---\n[join $errs "\n"]"
+            text "Setup errors:\n---\n[join $errs "\n"]"
     }
 }
 
