@@ -30,7 +30,7 @@ virtual machine if you need to. A Folk system built by folk-live-build
 itself should work, though, whether on a virtual or physical machine.)
 
 ```
-# apt install live-build parted dosfstools
+# apt install live-build parted dosfstools zip
 $ git submodule update --init
 $ make
 ```
