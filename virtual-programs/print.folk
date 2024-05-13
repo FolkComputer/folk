@@ -1,5 +1,3 @@
-source "pi/cUtils.tcl"
-
 set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
 c loadlib $::env(HOME)/apriltag/libapriltag.so

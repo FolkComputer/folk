@@ -33,7 +33,6 @@ namespace eval ::image {
     }
 
     $cc cflags -ljpeg -lpng
-    source "pi/cUtils.tcl"
     defineImageType $cc
     $cc include <stdlib.h>
     $cc include <string.h>
