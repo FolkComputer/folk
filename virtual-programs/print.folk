@@ -168,7 +168,9 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
 if {$::isLaptop} { return }
 
-exec mkdir -p "$::env(HOME)/folk-printed-programs"
+if {![file exists "$::env(HOME)/folk-printed-programs"]} {
+    exec mkdir -p "$::env(HOME)/folk-printed-programs"
+}
 proc nextId {} {
     try {
         set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
