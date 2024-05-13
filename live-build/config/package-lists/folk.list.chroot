@@ -9,6 +9,8 @@ libdrm-dev
 pkg-config
 v4l-utils
 mesa-vulkan-drivers
+nvidia-driver
+firmware-misc-nonfree
 vulkan-tools
 libvulkan-dev
 libvulkan1
