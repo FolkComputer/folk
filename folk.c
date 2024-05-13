@@ -342,7 +342,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     // Rule: you should never be holding a lock while doing a Tcl
     // evaluation.
+    interp->signal_level++;
     int error = Jim_EvalObj(interp, expr);
+    interp->signal_level--;
 
     matchCompleted(currentMatchPtr);
     matchRelease(db, currentMatchPtr);
@@ -356,6 +358,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         /* exit(EXIT_FAILURE); */
     } else if (error == JIM_SIGNAL) {
         fprintf(stderr, "Signal\n");
+        interp->sigmask = 0;
     }
 }
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {

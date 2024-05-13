@@ -21,10 +21,10 @@
     #define MAX_SIGNALS (int)MAX_SIGNALS_WIDE
 #endif
 
-static jim_wide *sigloc;
-static jim_wide sigsignored;
-static struct sigaction *sa_old;
-static struct {
+static __thread jim_wide *sigloc;
+static __thread jim_wide sigsignored;
+static __thread struct sigaction *sa_old;
+static __thread struct {
     int status;
     const char *name;
 } siginfo[MAX_SIGNALS];

@@ -363,7 +363,7 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db) {
+static MatchRef matchNew(Db* db, pthread_t workerThread) {
     MatchRef ret;
     Match* match = NULL;
     // Look for a free match slot to use:
@@ -387,6 +387,7 @@ static MatchRef matchNew(Db* db) {
 
     match->childStatements = listOfEdgeToNew(8);
     pthread_mutex_init(&match->childStatementsMutex, NULL);
+    match->workerThread = workerThread;
     match->isCompleted = false;
     match->shouldFree = false;
 
@@ -517,7 +518,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
 
 MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
                        pthread_t workerThread) {
-    MatchRef ref = matchNew(db);
+    MatchRef ref = matchNew(db, workerThread);
     /* printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen); */
     Match* match = matchAcquire(db, ref);
     for (size_t i = 0; i < nParents; i++) {

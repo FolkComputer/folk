@@ -67,6 +67,10 @@ $cc proc collectAwait {Collect* collect} void {
 
     int originalVersion = collect->version;
     while (collect->version == originalVersion) {
+        if (Jim_CheckSignal(interp)) {
+            pthread_mutex_unlock(&collect->mutex);
+            __ENSURE(0 /* collectAwait: interrupted by signal */);
+        }
         pthread_cond_wait(&collect->cv, &collect->mutex);
     }
 
