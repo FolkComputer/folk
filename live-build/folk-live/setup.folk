@@ -4,6 +4,9 @@
 # set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
 # set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
 
+# Uncomment set this to register a network printer (using IPP-Everywhere):
+# set PRINTER_URL "ipp://the-printers-ip.local/ipp/print"
+
 ###########################
 
 set errs [list]
@@ -16,6 +19,13 @@ try {
 } on error wifierr { lappend errs $wifierr }
 
 try { exec sudo dhclient } on error dherr { lappend errs $dherr }
+
+try {
+    if [info exists PRINTER_URL] {
+        exec /usr/sbin/lpadmin -E -p default-printer -v $PRINTER_URL -m everywhere
+        exec lpoptions -d default-printer
+    }
+} on error printererr { lappend errs $printererr }
 
 When the display /disp/ has width /displayWidth/ height /displayHeight/ {
     set cx [/ $displayWidth 2.0]; set cy [/ $displayHeight 2.0]
