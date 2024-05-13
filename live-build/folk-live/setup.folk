@@ -1,15 +1,18 @@
 # This Folk program will run automatically when Folk starts up.
 
-# Set these if you want Folk to connect to your Wi-Fi:
-set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
-set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
+# Uncomment and set these if you want Folk to connect to your Wi-Fi:
+# set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
+# set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
 
 ###########################
 
 set errs [list]
+
 try {
-    exec iwctl station wlan0 scan
-    exec iwctl --passphrase $WIFI_PASSWORD station wlan0 connect $WIFI_SSID
+    if [info exists WIFI_SSID] {
+        exec iwctl station wlan0 scan
+        exec iwctl --passphrase $WIFI_PASSWORD station wlan0 connect $WIFI_SSID
+    }
 } on error wifierr { lappend errs $wifierr }
 
 try { exec sudo dhclient } on error dherr { lappend errs $dherr }
