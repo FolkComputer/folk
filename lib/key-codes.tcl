@@ -140,4 +140,3 @@ keydef 117		{KPEQUAL}
 keydef 118		{KPPLUSMINUS}
 keydef 119		{PAUSE}
 keydef 120		{SCALE}
-
