@@ -430,7 +430,11 @@ if {[llength $keyCorrespondences] >= 4} {
 
     set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
-    set fd [open "/home/folk/generated-calibration.tcl" w]
+    if {[file exists "$::env(HOME)/folk-live"]} {
+        set fd [open "$::env(HOME)/folk-live/generated-calibration.tcl" w]
+    } else {
+        set fd [open "$::env(HOME)/generated-calibration.tcl" w]
+    }
     puts $fd [subst {
         namespace eval generatedCalibration {
             variable cameraWidth $Camera::WIDTH

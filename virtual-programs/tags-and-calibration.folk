@@ -18,7 +18,11 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     # camera (tag) point -> projection point
     # calibration for Hex
     try {
-        source "/home/folk/generated-calibration.tcl"
+        if {[file exists "$::env(HOME)/folk-live/generated-calibration.tcl"]} {
+            source "$::env(HOME)/folk-live/generated-calibration.tcl"
+        } else {
+            source "$::env(HOME)/generated-calibration.tcl"
+        }
         set points [list]
         foreach correspondence $generatedCalibration::points {
             lassign $correspondence cx cy dx dy
