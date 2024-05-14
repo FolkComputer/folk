@@ -109,5 +109,5 @@ Apache 2.0
 - ~~Put Wi-Fi config on writable partition~~
 - Allow setting display and webcam from setup.folk
 - Figure out disk installation process
-- Handle printed programs, calibration (make folk prefix that goes to folk-live?)
+- ~~Handle printed programs~~, ~~calibration (make folk prefix that goes to folk-live?)~~
 
