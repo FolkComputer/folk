@@ -14,7 +14,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
                            $::env(XDG_SESSION_TYPE) ne "tty")}]
     if {[info exists ::env(FOLK_ENTRY)]} {
-        set ::entry $::env(FOLK_ENTRY)
+        set ::entry [list source $::env(FOLK_ENTRY)]
     } else {
         set ::entry {
             loadVirtualPrograms
