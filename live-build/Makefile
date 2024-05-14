@@ -1,4 +1,4 @@
-IMG_FILENAME := folk-$(shell date -I)-$(shell git rev-parse HEAD | head -c 7)-amd64.img
+IMG_FILENAME := folk-$(shell date -I)-$(shell git rev-parse HEAD | head -c 7)-live-amd64.img
 
 $(IMG_FILENAME).zip: $(IMG_FILENAME)
 	 zip $@ $<
