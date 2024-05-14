@@ -597,7 +597,8 @@ if {[info exists ::entry]} {
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
-            if {[string match "*/_archive/*" $programFilename]} { continue }
+            if {[string match "*/_archive/*" $programFilename] ||
+                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
