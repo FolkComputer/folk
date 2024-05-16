@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <pthread.h>
+#include <signal.h>
 #include <stdatomic.h>
 
 #include "trie.h"
