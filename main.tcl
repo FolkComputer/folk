@@ -14,15 +14,17 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
                            $::env(XDG_SESSION_TYPE) ne "tty")}]
     if {[info exists ::env(FOLK_ENTRY)]} {
-        set ::entry $::env(FOLK_ENTRY)
-    } elseif {$::isLaptop} {
-        set ::entry "laptop.tcl"
+        set ::entry [list source $::env(FOLK_ENTRY)]
     } else {
-        set ::entry "pi/pi.tcl"
+        set ::entry {
+            loadVirtualPrograms
+            forever { Step }
+        }
     }
 }
 
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 source "lib/trie.tcl"
 source "lib/evaluator.tcl"
 namespace eval Evaluator {
@@ -667,5 +669,5 @@ if {[info exists ::entry]} {
     }
 
     source "./web.tcl"
-    source $::entry
+    eval $::entry
 }
