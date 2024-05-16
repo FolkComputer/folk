@@ -6,19 +6,34 @@
 namespace eval Terminal {
   # From `man console_codes`
   variable keymap [dict create \
-    BACKSPACE "\x08" \
-    TAB       "\x09" \
-    ENTER     "\x0d" \
-    DELETE    "\x7f" \
-    ESC       "\x1b" \
-    UP        "\x1b\[A" \
-    DOWN      "\x1b\[B" \
-    RIGHT     "\x1b\[C" \
-    LEFT      "\x1b\[D" \
+    Remove               "\x08" \
+    Tab                  "\x09" \
+    Linefeed             "\x0a" \
+    Return               "\x0d" \
+    nul                  "\x00" \
+    Delete               "\x7f" \
+    Escape               "\x1b" \
+    Control_backslash    "\x1c" \
+    Control_bracketright "\x1d" \
+    Control_asciicircum  "\x1e" \
+    Control_underscore   "\x1f" \
+    Up                   "\x1b\[A" \
+    Down                 "\x1b\[B" \
+    Right                "\x1b\[C" \
+    Left                 "\x1b\[D" \
   ]
 
-  proc _remap {key ctrlPressed} {
+  for {set i [scan a %c]} {$i <= [scan z %c]} {incr i} {
+      set char [format %c $i]
+      set charCode [expr {$i - 32 - 64}]
+      set charCode [format %c $charCode]
+
+      dict append keymap "Control_$char" $charCode
+  }
+
+  proc _remap {key} {
     variable keymap
+
     if {[string length $key] == 1} {
       # Convert ctrl-A through ctrl-Z and others to terminal control characters
       if {$ctrlPressed} {
@@ -31,6 +46,7 @@ namespace eval Terminal {
       # All other single char keys can be passed through
       return $key
     }
+
     if {[dict exists $keymap $key]} {
       return [dict get $keymap $key]
     }
@@ -45,10 +61,13 @@ namespace eval Terminal {
     termDestroy $term
   }
 
-  # Writes a keyboard key to the terminal, handling control codes
-  proc write {term key ctrlPressed} {
-    set key [_remap $key $ctrlPressed]
-    if {[string length $key] > 0} {
+  proc write {term char} {
+    termWrite $term $char
+  }
+
+  proc handleKey {term key} {
+    set key [_remap $key]
+    if {$key ne ""} {
       termWrite $term $key
     }
   }

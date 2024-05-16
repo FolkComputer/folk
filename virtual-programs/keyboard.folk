@@ -1,4 +1,5 @@
 set ::debug_keyboard true
+source "lib/keymap.tcl"
 
 proc establishKeyPressListener {keyboard} {
     set kb [open $keyboard r]
@@ -42,68 +43,87 @@ proc walkInputEventPaths {} {
 }
 
 set keyboardDevices [walkInputEventPaths]
+set globalKeymap [keymap load "us"]
 
-# go through each keyboard device and start a process that 
+When /page/ is a keyboard with path /keyboard/ locale /locale/ {
+    Claim $page is a keyboard with path $keyboard
+}
+
+# go through each keyboard device and start a process that
 foreach keyboard $keyboardDevices {
     Claim the keyboards are $keyboardDevices
     Start process "keyboard-$keyboard" {
-        source "lib/key-codes.tcl"
+        source "lib/keymap.tcl"
         set KEY_STATES [list up down repeat]
 
         Wish $::thisProcess shares statements like \
-            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /timestamp/]
+            [list keyboard /kb/ claims key /k/ is /t/ with /...options/]
+        Wish $::thisProcess receives statements like \
+            [list /someone/ claims /page/ is a keyboard with path $keyboard locale /locale/]
+
+        set ::localKeymap ""
+        When /page/ is a keyboard with path $keyboard locale /locale/ {
+            if {$::localKeymap ne ""} {keymap destroy $::localKeymap}
+            set ::localKeymap [keymap load $locale]
+            # @TODO: this races different locale on change
+            # On unmatch {
+            #     puts "KEYB LOCALE RESET"
+            #     keymap destroy $::localKeymap
+            #     set ::localKeymap ""
+            # }
+        }
+
+        Step
+
         variable evtBytes 16
         variable evtFormat iissi
         if {[exec getconf LONG_BIT] == 64} {
             set evtBytes 24
             set evtFormat wwssi
         }
-        set keyboardSpecifier $keyboard
 
         variable keyboardChannel [open $keyboard r]
         chan configure $keyboardChannel -translation binary
 
-        set modifiers [dict create \
-            shift 0 \
-            ctrl 0 \
-            alt 0 \
-        ]
+        set modifiers [dict map {k v} $keymap::modWeights {set v 0}]
         while 1 {
             binary scan [read $keyboardChannel $evtBytes] $evtFormat \
                 tvSec tvUsec type code value
 
             if {$type == 0x01} { ;# EV_KEY
-                set shift [dict get $modifiers shift]
-                set key [keyFromCode $code $shift]
+                Step
+
+                set activeKeymap [expr {$::localKeymap eq "" ? $globalKeymap : $::localKeymap}]
+                set mods [+ {*}[dict values $modifiers]]
+                lassign [keymap resolve $activeKeymap $code $mods] key keychar
                 if {$key eq ""} { continue }
 
                 set keyState [lindex $KEY_STATES $value]
 
                 set isDown [expr {$keyState != "up"}]
-                if {[string match *SHIFT $key]} {
-                    dict set modifiers shift $isDown
-                }
-                if {[string match *CTRL $key]} {
-                    dict set modifiers ctrl $isDown
-                }
-                if {[string match *ALT $key]} {
-                    dict set modifiers alt $isDown
+                if {[dict exists $keymap::modWeights $key]} {
+                    set weight [dict get $keymap::modWeights $key]
+                    dict set modifiers $key [expr {$isDown * $weight}]
                 }
 
-                set heldModifiers [dict keys [dict filter $modifiers value 1]]
                 set now [clock milliseconds]
-                Assert keyboard $keyboardSpecifier claims key $key is $keyState with \
-                                     modifiers $heldModifiers timestamp $now
+                if {$keychar eq ""} {
+                    Assert keyboard $keyboard claims key $key is $keyState with timestamp $now
+                } else {
+                    Assert keyboard $keyboard claims key $key is $keyState with timestamp $now printable $keychar
+                }
 
                 # Retract all key events that are more than 5 seconds old.
-                set events [Statements::findMatches [list keyboard $keyboardSpecifier claims key /key/ is /keyState/ with modifiers /ms/ timestamp /timestamp/]]
+                set events [Statements::findMatches [list keyboard $keyboard claims key /key/ is /keyState/ with /...options/]]
                 foreach event $events {
                     dict with event {
+                        set timestamp [dict get $options timestamp]
                         if {$now - $timestamp > 5000} {
-                            Retract keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $ms timestamp $timestamp
+                            Retract keyboard $keyboard claims key $key is $keyState with {*}$options
                         }
                     }
                 }
+
 
                 Step
             }
