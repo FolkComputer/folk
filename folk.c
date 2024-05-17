@@ -663,7 +663,7 @@ int main(int argc, char** argv) {
 
     atexit(exitHandler);
 
-    int NTHREADS = 3;
+    int NTHREADS = 5;
     threadCount = NTHREADS;
 
     // Spawn NTHREADS-1 workers. 
