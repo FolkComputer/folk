@@ -4,11 +4,9 @@
 #include "db.h"
 #include "trie.h"
 
-typedef struct WorkQueue WorkQueue;
 typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN, REMOVE_PARENT } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
-    int seq;
 
     // Thread constraint: if thread is >= 0, then this work item will
     // only be processed on the thread with that thread ID.
@@ -49,12 +47,17 @@ typedef struct WorkQueueItem {
     };
 } WorkQueueItem;
 
+typedef struct WorkQueue WorkQueue;
+
 WorkQueue* workQueueNew();
 
-// Adds an item to work queue.
-void workQueuePush(WorkQueue* q, WorkQueueItem item);
+// Removes the top item from work queue:
+WorkQueueItem* workQueueTake(WorkQueue* q);
 
-// Removes the highest-priority item from work queue:
-WorkQueueItem workQueuePop(WorkQueue* q);
+// Adds an item to the top of work queue:
+void workQueuePush(WorkQueue* q, WorkQueueItem* item);
+
+// Removes the bottom item from work queue:
+WorkQueueItem* workQueueSteal(WorkQueue* q);
 
 #endif
