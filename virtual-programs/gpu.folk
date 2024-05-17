@@ -7,17 +7,10 @@
 if {[info exists ::argv0] && $::argv0 eq [info script]} {
     source lib/c.tcl
 
-} elseif {$::tcl_platform(os) eq "darwin" && [__threadId] != 0} {
-    puts stderr "gpu.folk: Must run on thread 0 on macOS. Rescheduling."
-
-    # TODO: Just hard-code this into thread 0 and abort here.
-    # Reschedule this program onto thread 0
-    Say @0 when $this has program /thisProgram/ {{this thisProgram} {
-        apply $thisProgram $this
-    }} with environment [list $this]
+} elseif {[info exists this] && $::tcl_platform(os) eq "darwin"} {
+    # Just hard-code this into thread 0 and abort here.
     return
 }
-
 
 # First, we build the C GPU library, which can make direct calls into
 # Vulkan -- this library then exposes functions that we can call from

@@ -16,8 +16,6 @@
 
 
 typedef struct ThreadControlBlock {
-    pthread_t th;
-
     int index;
     pid_t tid;
 
@@ -29,6 +27,7 @@ typedef struct ThreadControlBlock {
 } ThreadControlBlock;
 
 ThreadControlBlock threads[100];
+int _Atomic threadCount;
 __thread ThreadControlBlock* self;
 
 Db* db;
@@ -528,7 +527,7 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == HOLD) {
-        /* printf("@%d: Hold (%s)\n", threadId, clauseToString(item.hold.clause)); */
+        /* printf("@%d: Hold (%s)\n", self->index, clauseToString(item.hold.clause)); */
 
         StatementRef oldRef; StatementRef newRef;
 
@@ -550,7 +549,7 @@ void workerRun(WorkQueueItem item) {
             });
 
     } else if (item.op == SAY) {
-        /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
+        /* printf("@%d: Say (%.100s)\n", self->index, clauseToString(item.say.clause)); */
 
         StatementRef ref;
         pthread_mutex_lock(&dbMutex);
@@ -559,7 +558,7 @@ void workerRun(WorkQueueItem item) {
         pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RUN) {
-        /* printf("@%d: Run when (%.100s)\n", threadId, clauseToString(item.run.whenPattern)); */
+        /* printf("@%d: Run when (%.100s)\n", self->index, clauseToString(item.run.whenPattern)); */
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
@@ -582,6 +581,8 @@ void workerRun(WorkQueueItem item) {
 }
 
 void workerInit(int index) {
+    srand(time(NULL) + index);
+
     self = &threads[index];
     self->index = index;
 #ifdef __APPLE__
@@ -598,25 +599,29 @@ void workerInit(int index) {
 void workerLoop() {
     for (;;) {
         WorkQueueItem item = workQueueTake(self->workQueue);
-        if (item.op != NONE &&
-            item.thread != -1 &&
-            item.thread != self->index) {
-
-            // Skip and requeue.
-            workQueuePush(self->workQueue, item);
-            item.op = NONE;
+        while (item.op == NONE) {
+            // If item is none, then steal from another thread's
+            // workqueue:
+            int stealee = rand() % threadCount;
+            item = workQueueSteal(threads[stealee].workQueue);
         }
 
-        // TODO: if item is none, then steal?
-        if (item.op == NONE) { usleep(100000); continue; }
+        /* if (item.op != NONE && */
+        /*     item.thread != -1 && */
+        /*     item.thread != self->index) { */
 
-        /* printf("Worker %d: ", threadId, item.op); */
+        /*     // Skip and requeue. */
+        /*     workQueuePush(self->workQueue, item); */
+        /*     item.op = NONE; */
+        /* } */
+
         workerRun(item);
     }
 }
 void* workerMain(void* arg) {
     workerInit((int) (intptr_t) arg);
     workerLoop();
+    return NULL;
 }
 
 static void trieWriteToPdf() {
@@ -659,8 +664,9 @@ int main(int argc, char** argv) {
     atexit(exitHandler);
 
     int NTHREADS = 3;
+    threadCount = NTHREADS;
 
-    // Spawn NTHREADS - 1 workers. 
+    // Spawn NTHREADS-1 workers. 
     pthread_t th[NTHREADS];
     for (int i = 1; i < NTHREADS; i++) {
         pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
@@ -678,6 +684,10 @@ int main(int argc, char** argv) {
         char code[100]; snprintf(code, 100, "source %s", argv[1]);
         eval(code);
     }
+
+#ifdef __APPLE__
+    eval("source virtual-programs/gpu.folk");
+#endif
     
     workerLoop();
 }
