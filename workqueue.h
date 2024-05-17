@@ -51,13 +51,13 @@ typedef struct WorkQueue WorkQueue;
 
 WorkQueue* workQueueNew();
 
-// Removes the top item from work queue:
+// Removes the bottom item from work queue:
 WorkQueueItem workQueueTake(WorkQueue* q);
 
-// Adds an item to the top of work queue:
+// Adds an item to the bottom of work queue:
 void workQueuePush(WorkQueue* q, WorkQueueItem item);
 
-// Removes the bottom item from work queue:
+// Removes the top item from work queue:
 WorkQueueItem workQueueSteal(WorkQueue* q);
 
 #endif

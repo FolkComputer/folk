@@ -28,30 +28,32 @@ WorkQueue* workQueueNew() {
     return q;
 }
 
+#include <stdio.h>
 WorkQueueItem workQueueTake(WorkQueue* q) {
-    size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed) - 1;
+    size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
-    atomic_store_explicit(&q->bottom, b, memory_order_relaxed);
+    atomic_store_explicit(&q->bottom, b - 1, memory_order_relaxed);
     atomic_thread_fence(memory_order_seq_cst);
     size_t t = atomic_load_explicit(&q->top, memory_order_relaxed);
     WorkQueueItem* x;
-    if (t <= b) {
+    ssize_t size = b - t;
+    if (size > 0) {
         /* Non-empty queue. */
-        x = atomic_load_explicit(&a->buffer[b %
+        x = atomic_load_explicit(&a->buffer[(b - 1) %
                                             atomic_load_explicit(&a->size, memory_order_relaxed)],
                                  memory_order_relaxed);
-        if (t == b) {
+        if (size == 1) {
             /* Single last element in queue. */
             if (!atomic_compare_exchange_strong_explicit(&q->top, &t, t + 1,
                                                          memory_order_seq_cst, memory_order_relaxed)) {
                 /* Failed race. */
                 x = NULL;
             }
-            atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
+            atomic_store_explicit(&q->bottom, b, memory_order_relaxed);
         }
     } else { /* Empty queue. */
         x = NULL;
-        atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
+        atomic_store_explicit(&q->bottom, b, memory_order_relaxed);
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
@@ -83,8 +85,9 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item) {
 
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
+    ssize_t size = b - t;
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
-    if (b - t > atomic_load_explicit(&a->size, memory_order_relaxed) - 1) {
+    if (size > atomic_load_explicit(&a->size, memory_order_relaxed) - 1) {
         /* Full queue. */
         workQueueResize(q);
         // Bug in paper... should have next line...
