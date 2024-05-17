@@ -14,23 +14,28 @@
 #include "db.h"
 #include "workqueue.h"
 
-#define NTHREADS 5
 
-int threadsN = NTHREADS; // for sharing to monitor
+typedef struct ThreadControlBlock {
+    pthread_t th;
+
+    int index;
+    pid_t tid;
+
+    WorkQueue* workQueue;
+
+    // Used for diagnostics/profiling.
+    WorkQueueItem currentItem;
+    pthread_mutex_t currentItemMutex;
+} ThreadControlBlock;
+
+ThreadControlBlock threads[100];
+__thread ThreadControlBlock* self;
 
 Db* db;
 // This mutex is used to create an atomic section where a statement
 // can add a statement, then react to the addition, without worrying
 // that new reactors are added in the middle.
 pthread_mutex_t dbMutex;
-
-WorkQueue* workQueue;
-pthread_mutex_t workQueueMutex;
-
-__thread int _threadIndex = -1;
-int getThreadIndex() { return _threadIndex; }
-__thread pid_t _threadTid = 0;
-pid_t getThreadTid() { return _threadTid; }
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
@@ -111,13 +116,11 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
 
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
+    workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = ASSERT,
        .thread = -1,
        .assert = { .clause = clause }
     });
-    pthread_mutex_unlock(&workQueueMutex);
 
     return (JIM_OK);
 }
@@ -125,13 +128,11 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
+    workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = RETRACT,
        .thread = -1,
        .retract = { .pattern = pattern }
     });
-    pthread_mutex_unlock(&workQueueMutex);
 
     return (JIM_OK);
 }
@@ -142,14 +143,12 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     const char* key = strdup(Jim_GetString(argv[1], NULL));
     Clause* clause = jimObjToClause(interp, argv[2]);
 
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
+    workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = HOLD,
        .thread = -1,
        .hold = { .key = key, .version = ++latestVersion,
                  .clause = clause, }
     });
-    pthread_mutex_unlock(&workQueueMutex);
 
     return (JIM_OK);
 }
@@ -165,8 +164,7 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         clause = jimArgsToClause(argc, argv);
     }
 
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
+    workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = SAY,
        .thread = thread,
        .say = {
@@ -174,7 +172,6 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
            .clause = clause,
        }
     });
-    pthread_mutex_unlock(&workQueueMutex);
 
     return (JIM_OK);
 }
@@ -235,7 +232,7 @@ static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_SetResultInt(interp, getThreadIndex());
+    Jim_SetResultInt(interp, self->index);
     return JIM_OK;
 }
 static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -362,13 +359,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
 }
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
-    pthread_mutex_lock(&workQueueMutex);
-    workQueuePush(workQueue, (WorkQueueItem) {
+    workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = RUN,
        .thread = -1,
        .run = { .when = when, .whenPattern = whenPattern, .stmt = stmt }
     });
-    pthread_mutex_unlock(&workQueueMutex);
 }
 
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
@@ -510,15 +505,10 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
     }
 }
 
-// Used for diagnostics/profiling.
-WorkQueueItem threadsCurrentItem[NTHREADS];
-pthread_mutex_t threadsCurrentItemMutex[NTHREADS];
-
 void workerRun(WorkQueueItem item) {
-    int threadIndex = getThreadIndex();
-    pthread_mutex_lock(&threadsCurrentItemMutex[threadIndex]);
-    threadsCurrentItem[threadIndex] = item;
-    pthread_mutex_unlock(&threadsCurrentItemMutex[threadIndex]);
+    pthread_mutex_lock(&self->currentItemMutex);
+    self->currentItem = item;
+    pthread_mutex_unlock(&self->currentItemMutex);
 
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
@@ -553,13 +543,11 @@ void workerRun(WorkQueueItem item) {
         // full subconvergence of the addition of the new statement.
         // or just mess with priorities so that the react to removed
         // statement usually gets delayed?
-        pthread_mutex_lock(&workQueueMutex);
-        workQueuePush(workQueue, (WorkQueueItem) {
+        workQueuePush(self->workQueue, (WorkQueueItem) {
                 .op = REMOVE_PARENT,
                 .thread = -1,
                 .removeParent = { .stmt = oldRef }
             });
-        pthread_mutex_unlock(&workQueueMutex);
 
     } else if (item.op == SAY) {
         /* printf("@%d: Say (%.100s)\n", threadId, clauseToString(item.say.clause)); */
@@ -593,42 +581,43 @@ void workerRun(WorkQueueItem item) {
     }
 }
 
-pid_t threadsTid[NTHREADS];
-void* workerMain(void* arg) {
-    _threadIndex = (int) (intptr_t) arg;
+void workerInit(int index) {
+    self = &threads[index];
+    self->index = index;
 #ifdef __APPLE__
-    _threadTid = pthread_mach_thread_np(pthread_self());
+    self->tid = pthread_mach_thread_np(pthread_self());
 #else
-    _threadTid = gettid();
+    self->tid = gettid();
 #endif
-    threadsTid[_threadIndex] = _threadTid;
-    pthread_mutex_init(&threadsCurrentItemMutex[_threadIndex], NULL);
+    pthread_mutex_init(&self->currentItemMutex, NULL);
+
+    self->workQueue = workQueueNew();
 
     interpBoot();
-
+}
+void workerLoop() {
     for (;;) {
-        pthread_mutex_lock(&workQueueMutex);
-        WorkQueueItem item = workQueuePop(workQueue);
+        WorkQueueItem item = workQueueTake(self->workQueue);
         if (item.op != NONE &&
             item.thread != -1 &&
-            item.thread != _threadIndex) {
+            item.thread != self->index) {
 
             // Skip and requeue.
-            workQueuePush(workQueue, item);
+            workQueuePush(self->workQueue, item);
             item.op = NONE;
         }
-        pthread_mutex_unlock(&workQueueMutex);
 
-        // TODO: if item is none, then sleep or wait on condition
-        // variable.
+        // TODO: if item is none, then steal?
         if (item.op == NONE) { usleep(100000); continue; }
 
         /* printf("Worker %d: ", threadId, item.op); */
         workerRun(item);
     }
 }
-
-
+void* workerMain(void* arg) {
+    workerInit((int) (intptr_t) arg);
+    workerLoop();
+}
 
 static void trieWriteToPdf() {
     char code[500];
@@ -667,9 +656,21 @@ int main(int argc, char** argv) {
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&dbMutex, &attr);
 
-    // Set up workqueue.
-    workQueue = workQueueNew();
-    pthread_mutex_init(&workQueueMutex, NULL);
+    atexit(exitHandler);
+
+    int NTHREADS = 3;
+
+    // Spawn NTHREADS - 1 workers. 
+    pthread_t th[NTHREADS];
+    for (int i = 1; i < NTHREADS; i++) {
+        pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
+    }
+
+    // Now we set up worker 0, which is this main thread itself, which
+    // needs to be an active worker, in case we need to do things like
+    // GLFW that the OS forces to be on the main thread.
+
+    workerInit(0);
 
     if (argc == 1) {
         eval("source boot.folk");
@@ -677,19 +678,6 @@ int main(int argc, char** argv) {
         char code[100]; snprintf(code, 100, "source %s", argv[1]);
         eval(code);
     }
-
-    atexit(exitHandler);
-
-    // Spawn NTHREADS workers. (Worker 0 is this main thread itself,
-    // which needs to be an active worker, in case we need to do
-    // things like GLFW that the OS forces to be on the main thread.)
-    pthread_t th[NTHREADS];
-    for (int i = 1; i < NTHREADS; i++) {
-        pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
-    }
-    workerMain(0);
-
-    for (int i = 0; i < NTHREADS; i++) {
-        pthread_join(th[i], NULL);
-    }
+    
+    workerLoop();
 }

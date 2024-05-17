@@ -28,7 +28,7 @@ WorkQueue* workQueueNew() {
     return q;
 }
 
-WorkQueueItem* workQueueTake(WorkQueue* q) {
+WorkQueueItem workQueueTake(WorkQueue* q) {
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed) - 1;
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
     atomic_store_explicit(&q->bottom, b, memory_order_relaxed);
@@ -53,7 +53,10 @@ WorkQueueItem* workQueueTake(WorkQueue* q) {
         x = NULL;
         atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
     }
-    return x;
+
+    if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
+    WorkQueueItem item = *x; free(x);
+    return item;
 }
 
 static void workQueueResize(WorkQueue* q) {
@@ -74,7 +77,10 @@ static void workQueueResize(WorkQueue* q) {
     /* printf("resize\n"); */
 }
 
-void workQueuePush(WorkQueue* q, WorkQueueItem* x) {
+void workQueuePush(WorkQueue* q, WorkQueueItem item) {
+    WorkQueueItem* x = (WorkQueueItem*) malloc(sizeof(WorkQueueItem));
+    *x = item;
+
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
@@ -90,7 +96,7 @@ void workQueuePush(WorkQueue* q, WorkQueueItem* x) {
     atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
 }
 
-WorkQueueItem* workQueueSteal(WorkQueue* q) {
+WorkQueueItem workQueueSteal(WorkQueue* q) {
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
     atomic_thread_fence(memory_order_seq_cst);
     size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
@@ -101,8 +107,11 @@ WorkQueueItem* workQueueSteal(WorkQueue* q) {
         x = atomic_load_explicit(&a->buffer[t % atomic_load_explicit(&a->size, memory_order_relaxed)], memory_order_relaxed);
         if (!atomic_compare_exchange_strong_explicit(&q->top, &t, t + 1, memory_order_seq_cst, memory_order_relaxed)) {
             /* Failed race. */
-            return NULL;
+            x = NULL;
         }
     }
-    return x;
+
+    if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
+    WorkQueueItem item = *x; free(x);
+    return item;
 }
