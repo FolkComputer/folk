@@ -313,7 +313,7 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
               }
 
               Commit print { Claim $id has printed $code at $timestamp}
-              Wish to print $code with job id [expr {rand()}]
+              Wish to print $code with job-id [expr {rand()}]
 
               Commit "code$kbPath" {
                 Claim $id has program code $code

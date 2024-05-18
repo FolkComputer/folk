@@ -1,3 +1,22 @@
+# Configuring printers
+#
+# Start by adding a printer to CUPS. You can do this from the Web UI, or declare it using Folk:
+#
+#     Assert $::thisNode claims printer "printer-name" is a cups printer with url "http://url/ipp/print" driver "everywhere"
+#
+# Whether the printer was added via Folk or not, you need to let Folk know which formats your printer supports:
+#
+#     Claim printer my-printer can print double-sided a4 paper
+#     Claim printer alt-printer can print single-sided indexcard paper
+#
+# Use "two-sided" if the printer supports printing on both sides of the paper in a single printing operation.
+#
+# Lastly, you need to declare a default printer and default paper format:
+# (make sure that the default printer supports the default paper format)
+#
+#     Claim printer my-printer is the default printer
+#     Claim paper format a4 is the default paper format
+
 set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
 c loadlib $::env(HOME)/apriltag/libapriltag.so
@@ -54,9 +73,12 @@ $cc proc ::tagPsForId {int id} char* {
 }
 $cc compile
 
-proc ::programToPs {id text {format "letter"} {side "front"}} {
+proc ::programToPs {id text {format "letter"}} {
     set margin 36
     set PageWidth 612; set PageHeight 792
+
+    # @TODO: always output as many pages as necessary
+    set side "front"
 
     if {$format eq "indexcard"} {
         # front in portrait, back in landscape
@@ -202,81 +224,89 @@ proc remotePrintRequest {remoteNode clause} {
     }} $clause]
 }
 
-if {![info exists ::printjobs]} {set ::printjobs [dict create]}
-When /someone/ wishes to print /code/ with job id /jobid/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
-        # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with job id $jobid]
-        return
-    }
-
-    puts "Wish to print jobid $jobid"
-    if {[dict exists $::printjobs $jobid]} {return}
-
-    set id [nextId]
-    dict set ::printjobs $jobid [list $id $code]
-
-    set format "letter"
-    if {[string first {Wish $this prints on an index card} $code] != -1} {
-       set format "indexcard"
-    }
-
-    set ps [programToPs $id $code $format front]
-
-    # save code and ps to disk
-    if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
-        error "Program $id already exists on disk. Aborting print."
-    }
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
-    puts $fp $code
-    close $fp
-
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
-    puts $fp $ps
-    close $fp
-
-    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
-    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
+When $::thisNode claims printer /name/ is a cups printer with url /url/ driver /driver/ {
+    puts "lpadmin -E -p $name -v $url -m $driver"
 }
-When /someone/ wishes to print program /id/ with code /code/ with job id /jobid/ {
+
+if {![info exists ::printjobs]} {set ::printjobs [dict create]}
+When /someone/ wishes to print /code/ with /...options/ {
+    set id [nextId]
+    Say $::thisNode wishes to print program $id with code $code {*}$options
+}
+When /someone/ wishes to print program /id/ with /...options/ {
     if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
         # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print program $id with code $code with job id $jobid]
+        remotePrintRequest "folk0" [list $::thisNode wishes to print progam $id with {*}$options]
         return
     }
 
-    puts "Wish to print jobid $jobid"
+    set jobid [dict get $options job-id]
     if {[dict exists $::printjobs $jobid]} {return}
+    puts "Wish to print jobid $jobid"
 
-    dict set ::printjobs $jobid [list $id $code]
-
-    set format "letter"
-    if {[string first {Wish $this prints on an index card} $code] != -1} {
-       set format "indexcard"
+    # find printer & format
+    set defaultStatements ""
+    if {![dict exists $options printer]} {
+        lappend defaultStatements & /someone/ claims printer /printer/ is the default printer
     }
 
-    set ps [programToPs $id $code $format front]
+    if {![dict exists $options format]} {
+        lappend defaultStatements & /someone/ claims paper format /format/ is the default paper format
+    }
+    set query {/someone/ claims printer /printer/ can print /sided/ /format/ paper}
 
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
-    puts $fp $ps
-    close $fp
+    # first try to satisfy given constraints and any remaining defaults
+    set results [Statements::findMatchesJoining [list $query $defaultStatements] $options]
+    if {$results eq ""} {
+        # fall back to solving only for explicit constraints
+        set results [Statements::findMatchesJoining [list $query] $options]
+    }
+    if {$results eq ""} {
+        error "Couldn't find a matching printer"
+    }
 
-    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
-    exec lpr $::env(HOME)/folk-printed-programs/$id.pdf
+    set results [lindex $results 0]
+    dict with results {
+        set args [list -P $printer -o media=$format]
+        dict set ::printjobs $jobid [list $id $args]
+
+        set code [dict get $options code]
+        set ps [programToPs $id $code $format]
+
+        if {$sided eq "single-sided"} {
+            lappend args -o page-ranges=1
+        }
+
+        # save code and ps to disk
+        if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+            error "Program $id already exists on disk. Aborting print."
+        }
+        set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+        puts $fp $code
+        close $fp
+
+        set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
+        puts $fp $ps
+        close $fp
+
+        exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
+        puts [list lpr {*}$args $::env(HOME)/folk-printed-programs/$id.pdf]
+    }
+}
+
+When /someone/ wishes to print the back of job-id /jobid/ {
+    lassign [dict get $::printjobs $jobid] id args
+
+    puts [list lpr {*}$args -o page-ranges=2 $::env(HOME)/folk-printed-programs/$id.pdf]
+}
+
+# legacy syntax
+When /someone/ wishes to print /code/ with job id /id/ {
+    Say $::thisNode wishes to print $code with job-id $id
+}
+When /someone/ wishes to print program /id/ with /code/ with job id /id/ {
+    Say $::thisNode wishes to print program $id with $code with job-id $id
 }
 When /someone/ wishes to print the back of job id /jobid/ {
-    lassign [dict get $::printjobs $jobid] id code
-
-    set format "letter"
-    if {[string first {Wish $this prints on an index card} $code] != -1} {
-       set format "indexcard"
-    }
-
-    set ps [programToPs $id $code $format back]
-    set fp [open "$::env(HOME)/folk-printed-programs/$id-back.ps" w]
-    puts $fp $ps
-    close $fp
-
-    exec ps2pdf $::env(HOME)/folk-printed-programs/$id-back.ps $::env(HOME)/folk-printed-programs/$id-back.pdf
-    exec lpr $::env(HOME)/folk-printed-programs/$id-back.pdf
+    Say $::thisNode wishes to print the back of job-id $id
 }
