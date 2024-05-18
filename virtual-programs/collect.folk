@@ -112,10 +112,9 @@ When /someone/ wishes to collect matches for /clause/ {
         foreach varName $varNames { dict set match $varName [set $varName] }
 
         $collectLib collectMatch $collect $match
-        # TODO: decrement some kind of refcount?
-        # On unmatch {
-        #     $collectLib collectUnmatch $collect $match
-        # }
+        On unmatch {
+            $collectLib collectUnmatch $collect $match
+        }
     }
 
     set prevMatches {}

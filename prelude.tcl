@@ -1,14 +1,14 @@
 proc serializeEnvironment {} {
-    set argnames [list]
-    set argvalues [list]
+    set argNames [list]
+    set argValues [list]
     # Get all variables and serialize them, to fake lexical scope.
     foreach name [uplevel {info locals}] {
         if {![string match "__*" $name]} {
-            lappend argnames $name
-            lappend argvalues [uplevel [list set $name]]
+            lappend argNames $name
+            lappend argValues [uplevel [list set $name]]
         }
     }
-    list $argnames $argvalues
+    list $argNames $argValues
 }
 proc assert condition {
     if {![uplevel 1 expr $condition]} {
@@ -75,8 +75,8 @@ proc When {args} {
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-        Destructor [list apply [list $argNames $body] $argValues]
+        lassign [uplevel serializeEnvironment] argNames argValues
+        Destructor [list apply [list $argNames $body] {*}$argValues]
     } else {
         error "On: Unknown $event (called with: $args)"
     }

@@ -180,7 +180,11 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 static void destructorHelper(void* arg) {
     char* code = (char*) arg;
-    Jim_Eval(interp, code);
+    int error = Jim_Eval(interp, code);
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "destructorHelper: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+    }
     free(code);
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -368,7 +372,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         /* Jim_FreeInterp(interp); */
         /* exit(EXIT_FAILURE); */
     } else if (error == JIM_SIGNAL) {
-        fprintf(stderr, "Signal\n");
+        /* fprintf(stderr, "Signal\n"); */
         interp->sigmask = 0;
     }
 }
