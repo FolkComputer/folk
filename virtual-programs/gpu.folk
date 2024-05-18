@@ -1553,7 +1553,7 @@ $gpu init
 $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
 $gpu imageManagerInit
 
-Claim the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
+Assert! gpu.folk claims the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
 
 # Dictionary where key is pipeline name and value is [list
 # $pipelineSource $compiledPipeline].
@@ -1585,7 +1585,7 @@ while 1 {
                     dict set functions $name $fn
                 } on error e {
                     puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
-                    Say $wisher has error $e with info [errorInfo $e]
+                    Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
                 }
             }
         }
@@ -1603,7 +1603,7 @@ while 1 {
                 }
             } on error e {
                 puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
-                Say $wisher has error $e with info [errorInfo $e]
+                Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
             }
         }
     }

@@ -56,6 +56,8 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
 Match* matchAcquire(Db* db, MatchRef match);
 void matchRelease(Db* db, Match* m);
 
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg);
+
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
 
@@ -89,11 +91,11 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parent);
 
 // Call when you're about to begin a match (i.e., evaluating the body
 // of a When) -- creates the Match object that you'll attach any
-// emitted Statements to. The Match is guaranteed to have ptrCount ==
-// 1 when returned (in other words, the Match is returned already
-// acquired). The worker thread is also attached so that it can be
-// interrupted if the match is destroyed.
-MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
+// emitted Statements to. The worker thread is stored with the Match
+// so that the thread can be interrupted if the match is
+// destroyed. The Match is returned acquired and needs to be released
+// by the caller.
+Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
                        pthread_t workerThread);
 
 void dbRetractStatements(Db* db, Clause* pattern);

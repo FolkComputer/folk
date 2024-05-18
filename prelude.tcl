@@ -72,6 +72,15 @@ proc When {args} {
         Say when {*}$pattern [list $argNames $body] with environment $argValues
     }
 }
+proc On {event args} {
+    if {$event eq "unmatch"} {
+        set body [lindex $args 0]
+        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        Destructor [list apply [list $argNames $body] $argValues]
+    } else {
+        error "On: Unknown $event (called with: $args)"
+    }
+}
 
 set ::thisNode [info hostname]
 

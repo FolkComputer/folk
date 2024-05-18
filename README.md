@@ -20,7 +20,8 @@ Clone & build apriltag in home folder
 - ~~port webcam~~
 - ~~port apriltag~~
 - ~~port display~~
-- thread-local workqueues & work stealing
+- ~~thread-local workqueues & work stealing~~
+  - dependencies? transactions?
 - fix printing to stdout
 - clock time?
 - When priorities? deadlines?
@@ -33,6 +34,7 @@ Clone & build apriltag in home folder
   - use some sort of timer?
 - ~~thread monitoring (what threads are running what? what threads are blocked?)~~
 - spin up new threads if most/all existing threads are OS-blocked
+- destructors
 - event statements
 - ~~transactions, causality, or Commit~~ Hold!
 - fix segfault (memory leak?) after a while

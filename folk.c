@@ -24,11 +24,16 @@ typedef struct ThreadControlBlock {
     // Used for diagnostics/profiling.
     WorkQueueItem currentItem;
     pthread_mutex_t currentItemMutex;
+
+    // Current match being constructed (if applicable).
+    Match* currentMatch;
 } ThreadControlBlock;
 
 ThreadControlBlock threads[100];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
+
+__thread Jim_Interp* interp = NULL;
 
 Db* db;
 // This mutex is used to create an atomic section where a statement
@@ -152,7 +157,6 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 
-__thread MatchRef currentMatch = MATCH_REF_NULL;
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause;
     int thread = -1;
@@ -167,14 +171,26 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .op = SAY,
        .thread = thread,
        .say = {
-           .parent = currentMatch,
+           .parent = matchRef(db, self->currentMatch),
            .clause = clause,
        }
     });
 
     return (JIM_OK);
 }
-static int dbQueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static void destructorHelper(void* arg) {
+    char* code = (char*) arg;
+    Jim_Eval(interp, code);
+    free(code);
+}
+static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    matchAddDestructor(self->currentMatch,
+                       destructorHelper,
+                       strdup(Jim_GetString(argv[1], NULL)));
+    return JIM_OK;
+}
+static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
     pthread_mutex_lock(&dbMutex);
@@ -241,7 +257,6 @@ static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-__thread Jim_Interp* interp = NULL;
 static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
@@ -250,7 +265,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Hold!", HoldFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "Query!", dbQueryFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Query!", QueryFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
@@ -328,10 +344,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     StatementRef parents[] = { whenRef, stmtRef };
 
-    currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
-
-    Match* currentMatchPtr = matchAcquire(db, currentMatch);
-    if (!currentMatchPtr) {
+    self->currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+    if (!self->currentMatch) {
         // A parent is gone. Abort.
         return;
     }
@@ -342,8 +356,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     int error = Jim_EvalObj(interp, expr);
     interp->signal_level--;
 
-    matchCompleted(currentMatchPtr);
-    matchRelease(db, currentMatchPtr);
+    matchCompleted(self->currentMatch);
+    matchRelease(db, self->currentMatch);
+    self->currentMatch = NULL;
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);

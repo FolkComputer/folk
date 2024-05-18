@@ -75,6 +75,10 @@ typedef struct Match {
     _Atomic bool shouldFree;
 
     // TODO: Add match destructors.
+    struct {
+        void (*fn)(void*);
+        void* arg;
+    } destructors[10];
 
     // ListOfEdgeTo StatementRef. Used for removal.
     ListOfEdgeTo* childStatements;
@@ -198,6 +202,8 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
+    // Walk through each child statement and remove this match as a
+    // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
     for (size_t i = 0; i < match->childStatements->nEdges; i++) {
         StatementRef childRef = { .val = match->childStatements->edges[i] };
@@ -208,6 +214,13 @@ static void reactToRemovedMatch(Db* db, Match* match) {
         }
     }
     pthread_mutex_unlock(&match->childStatementsMutex);
+
+    // Fire any destructors.
+    for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+        if (match->destructors[i].fn != NULL) {
+            match->destructors[i].fn(match->destructors[i].arg);
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////
@@ -391,6 +404,9 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     match->workerThread = workerThread;
     match->isCompleted = false;
     match->shouldFree = false;
+    for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+        match->destructors[i].fn = NULL;
+    }
 
     // This won't free match until it's explicitly destroyed.
     match->ptrCount = 0;
@@ -401,6 +417,20 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
 void matchAddChildStatement(Match* match, StatementRef child) {
     listOfEdgeToAdd(&match->childStatements, child.val);
 }
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
+    int i;
+    for (i = 0; i < sizeof(m->destructors)/sizeof(m->destructors[0]); i++) {
+        if (m->destructors[i].fn == NULL) {
+            m->destructors[i].fn = fn;
+            m->destructors[i].arg = arg;
+            break;
+        }
+    }
+    if (i == 10) {
+        fprintf(stderr, "matchAddDestructor: Failed\n"); exit(1);
+    }
+}
+
 void matchCompleted(Match* match) {
     match->isCompleted = true;
 }
@@ -517,8 +547,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
     }
 }
 
-MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
-                       pthread_t workerThread) {
+Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
+                     pthread_t workerThread) {
     MatchRef ref = matchNew(db, workerThread);
     /* printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen); */
     Match* match = matchAcquire(db, ref);
@@ -536,12 +566,11 @@ MatchRef dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
             // whole thing.
             /* printf("dbInsertMatch: parent stmt was invalidated\n"); */
             matchRelease(db, match);
-            return MATCH_REF_NULL;
+            return NULL;
         }
     }
     /* printf("\n"); */
-    matchRelease(db, match);
-    return ref;
+    return match;
 }
 
 void dbRetractStatements(Db* db, Clause* pattern) {
