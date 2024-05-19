@@ -1,6 +1,6 @@
 if {$::isLaptop} return
 
-set makeAprilTagDetector {{TAG_FAMILY} {
+set ::makeAprilTagDetector {{TAG_FAMILY} {
     set detector AprilTagDetector_${TAG_FAMILY}
     namespace eval $detector {
         set TAG_FAMILY [uplevel {set TAG_FAMILY}]
@@ -73,7 +73,7 @@ set tagFamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.
 set mainDetectorProcess [Start process {
-    set detector [apply $makeAprilTagDetector $tagFamily]
+    set detector [apply $::makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
         [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
@@ -91,7 +91,7 @@ set mainDetectorProcess [Start process {
 # Incremental detector. Looks at regions where there were tags in the
 # old camera frame.
 Start process {
-    set detector [apply $makeAprilTagDetector $tagFamily]
+    set detector [apply $::makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
         [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
