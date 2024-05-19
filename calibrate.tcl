@@ -368,7 +368,7 @@ puts "camera: $Camera::camera"
 set dense [findDenseCorrespondence]
 displayDenseCorrespondence $dense
 
-set detector [apply $makeAprilTagDetector $tagFamily]
+set detector [apply $::makeAprilTagDetector $tagFamily]
 set grayFrame [Camera::grayFrame]
 set tags [$detector detect $grayFrame]
 Camera::freeImage $grayFrame
