@@ -39,8 +39,8 @@ Db* db;
 #define TRACE 1
 
 #ifdef TRACE
-WorkQueueItem trace[1000];
-int traceThreadIndex[1000];
+WorkQueueItem trace[50000];
+int traceThreadIndex[50000];
 int _Atomic traceNextIdx = 0;
 #endif
 
@@ -618,7 +618,7 @@ void workerLoop() {
 
 #ifdef TRACE
         int traceIdx = traceNextIdx++;
-        if (traceIdx >= 1000) {
+        if (traceIdx >= sizeof(trace)/sizeof(trace[0])) {
             fprintf(stderr, "workerLoop: trace exhausted\n");
             exit(1);
         }

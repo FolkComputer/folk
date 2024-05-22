@@ -14,32 +14,38 @@ set traceLib [apply {{} {
 
         static char buf[1000];
         for (int i = 0; i < traceMaxIdx; i++) {
+            int threadIndex = traceThreadIndex[i];
             WorkQueueItem item = trace[i];
             if (item.op == ASSERT) {
-                snprintf(buf, sizeof(buf), "Assert (%.100s)",
+                snprintf(buf, sizeof(buf), "%d: Assert (%.100s)",
+                         threadIndex,
                          clauseToString(item.assert.clause));
             } else if (item.op == RETRACT) {
-                snprintf(buf, sizeof(buf), "Retract (%.100s)",
+                snprintf(buf, sizeof(buf), "%d: Retract (%.100s)",
+                         threadIndex,
                          clauseToString(item.retract.pattern));
             } else if (item.op == HOLD) {
-                snprintf(buf, sizeof(buf), "Hold (%.100s) (%lld) (%.100s)",
+                snprintf(buf, sizeof(buf), "%d: Hold (%.100s) (%lld) (%.100s)",
+                         threadIndex,
                          item.hold.key, item.hold.version,
                          clauseToString(item.hold.clause));
             } else if (item.op == SAY) {
-                snprintf(buf, sizeof(buf), "Say (%.100s)",
+                snprintf(buf, sizeof(buf), "%d: Say (%.100s)",
+                         threadIndex,
                          clauseToString(item.say.clause));
             } else if (item.op == RUN) {
                 Statement* stmt = statementAcquire(db, item.run.stmt);
                 if (stmt != NULL) {
-                    snprintf(buf, sizeof(buf), "Run when (%.100s) (%.100s)",
+                    snprintf(buf, sizeof(buf), "%d: Run when (%.100s) (%.100s)",
+                             threadIndex,
                              clauseToString(item.run.whenPattern),
                              clauseToString(statementClause(stmt)));
                     statementRelease(db, stmt);
                 }
             } else if (item.op == REMOVE_PARENT) {
-                snprintf(buf, sizeof(buf), "Remove Parent");
+                snprintf(buf, sizeof(buf), "%d: Remove Parent", threadIndex);
             } else {
-                snprintf(buf, sizeof(buf), "???");
+                snprintf(buf, sizeof(buf), "%d: ???", threadIndex);
             }
             Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, buf, -1));
         }
