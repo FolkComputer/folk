@@ -1,140 +1,21 @@
-set cc [C]
-$cc code {
-    #include <pthread.h>
-    #include <string.h>
-
-    typedef struct Collect {
-        pthread_mutex_t mutex;
-        pthread_cond_t cv;
-
-        int version;
-        char* matches[100];
-    } Collect;
-}
-$cc proc collectNew {} Collect* {
-    Collect* collect = calloc(sizeof(Collect), 1);
-    pthread_mutex_init(&collect->mutex, NULL);
-    pthread_cond_init(&collect->cv, NULL);
-    return collect;
-}
-$cc proc collectDestroy {} Collect* {
-    // FIXME: how to do this safely
-}
-$cc proc collectMatch {Collect* collect char* match} void {
-    pthread_mutex_lock(&collect->mutex);
-
-    int i;
-    for (i = 0; i < 100; i++) {
-        if (collect->matches[i] == NULL) {
-            collect->matches[i] = strdup(match);
-            break;
-        }
-    }
-    if (i == 100) {
-        fprintf(stderr, "collectMatch: ran out of match slots\n");
-        exit(1);
-    }
-
-    collect->version++;
-    pthread_cond_signal(&collect->cv);
-
-    pthread_mutex_unlock(&collect->mutex);
-}
-$cc proc collectUnmatch {Collect* collect char* match} void {
-    pthread_mutex_lock(&collect->mutex);
-
-    int i;
-    for (i = 0; i < 100; i++) {
-        if (collect->matches[i] != NULL &&
-            strcmp(collect->matches[i], match) == 0) {
-
-            collect->matches[i] = NULL;
-            break;
-        }
-    }
-    if (i == 100) {
-        fprintf(stderr, "collectMatch: could not find match\n");
-        exit(1);
-    }
-    
-    collect->version++;
-    pthread_cond_signal(&collect->cv);
-
-    pthread_mutex_unlock(&collect->mutex);
-}
-$cc proc collectAwait {Collect* collect} void {
-    pthread_mutex_lock(&collect->mutex);
-
-    int originalVersion = collect->version;
-    while (collect->version == originalVersion) {
-        if (Jim_CheckSignal(interp)) {
-            pthread_mutex_unlock(&collect->mutex);
-            __ENSURE(0 /* collectAwait: interrupted by signal */);
-        }
-        pthread_cond_wait(&collect->cv, &collect->mutex);
-    }
-
-    pthread_mutex_unlock(&collect->mutex);
-}
-$cc proc collectGet {Collect* collect} Jim_Obj* {
-    Jim_Obj* matches = Jim_NewListObj(interp, NULL, 0);
-
-    pthread_mutex_lock(&collect->mutex);
-    for (int i = 0; i < 100; i++) {
-        if (collect->matches[i] != NULL) {
-            Jim_Obj* matchObj = Jim_NewStringObj(interp, collect->matches[i], -1);
-            Jim_ListAppendElement(interp, matches, matchObj);
-        }
-    }
-    pthread_mutex_unlock(&collect->mutex);
-    return matches;
-}
-set collectLib [$cc compile]
-
 When when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
     Wish to collect matches for $clause
 }
 When /someone/ wishes to collect matches for /clause/ {
-    puts "collect $clause"
-    set varNames [lmap term $clause {expr {
-        ([regexp {^/([^/ ]+)/$} $term -> varName] && 
-        ![__variableNameIsNonCapturing $varName]) ? $varName : [continue]
-    }}]
+    When /someone/ wishes to recollect matches for /clause/ with timestamp /ts/ {
+        set matches [Query! {*}$clause]
+        Say the collected matches for $clause are $matches
+    }
 
-    set collect [$collectLib collectNew]
-    # On unmatch {
-    #     # TODO: how to run this on thread cancellation?
-    #     $collectLib collectDestroy $collect
-    # }
+    # the Hold! should hopefully dedupe
+    set Recollect! [list apply {{clause} {
+        Hold! [list recollect $clause] \
+            [list virtual-programs/collect.folk wishes to recollect matches for $clause with timestamp [clock milliseconds]]
+    }} $clause]
 
     When {*}$clause {
-        set match [dict create]
-        foreach varName $varNames { dict set match $varName [set $varName] }
-
-        $collectLib collectMatch $collect $match
-        On unmatch {
-            $collectLib collectUnmatch $collect $match
-        }
+        {*}${Recollect!}
+        On unmatch ${Recollect!}
     }
-
-    set prevMatches {}
-    # TODO: how to cancel this blocking loop if the collect is
-    # revoked? could check refcount, but it would be nice to have a
-    # more general mechanism so that nonterminating loops are safe to
-    # write in general.
-
-    # we can use Jim signal handling for jim loops (and even run the
-    # unmatch handler safely!) -- we can't use it for C infinite
-    # loops, though (unless we send a secondary signal a few
-    # milliseconds later, but then how do we run the unmatch handler?)
-    while true {
-        set matches [$collectLib collectGet $collect]
-        if {$matches ne $prevMatches} {
-            Assert! the collected matches for $clause are $matches
-            Retract! the collected matches for $clause are $prevMatches
-        }
-        set prevMatches $matches
-
-        $collectLib collectAwait $collect
-    }
+    On unmatch ${Recollect!}
 }
