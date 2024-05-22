@@ -28,6 +28,7 @@ WorkQueue* workQueueNew() {
     return q;
 }
 
+#include <stdio.h>
 WorkQueueItem workQueueTake(WorkQueue* q) {
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
