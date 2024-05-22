@@ -141,7 +141,7 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 // Hold! {Omar's time} {the time is 3}
-__thread int64_t latestVersion = 0; // TODO: split by key?
+int64_t _Atomic latestVersion = 0; // TODO: split by key?
 static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 3);
     const char* key = strdup(Jim_GetString(argv[1], NULL));
@@ -532,30 +532,26 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
-
-        pthread_mutex_lock(&dbMutex);
         ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
         reactToNewStatement(ref, item.assert.clause);
-        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
 
-        pthread_mutex_lock(&dbMutex);
         dbRetractStatements(db, item.retract.pattern);
-        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == HOLD) {
         /* printf("@%d: Hold (%s)\n", self->index, clauseToString(item.hold.clause)); */
 
         StatementRef oldRef; StatementRef newRef;
 
-        pthread_mutex_lock(&dbMutex);
         newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
                                  item.hold.clause,
                                  &oldRef);
         reactToNewStatement(newRef, item.hold.clause);
-        pthread_mutex_unlock(&dbMutex);
+
+        // TODO: Impose a hop limit after which we should carry out the removal.
+
         
         // We need to delay the react to removed statement until
         // full subconvergence of the addition of the new statement.
@@ -571,10 +567,8 @@ void workerRun(WorkQueueItem item) {
         /* printf("@%d: Say (%.100s)\n", self->index, clauseToString(item.say.clause)); */
 
         StatementRef ref;
-        pthread_mutex_lock(&dbMutex);
         ref = dbInsertOrReuseStatement(db, item.say.clause, item.say.parent);
         reactToNewStatement(ref, item.say.clause);
-        pthread_mutex_unlock(&dbMutex);
 
     } else if (item.op == RUN) {
         /* printf("@%d: Run when (%.100s)\n", self->index, clauseToString(item.run.whenPattern)); */
@@ -585,10 +579,7 @@ void workerRun(WorkQueueItem item) {
     } else if (item.op == REMOVE_PARENT) {
         Statement* stmt;
         if ((stmt = statementAcquire(db, item.removeParent.stmt))) {
-            pthread_mutex_lock(&dbMutex);
             statementRemoveParentAndMaybeRemoveSelf(db, stmt);
-            pthread_mutex_unlock(&dbMutex);
-
             statementRelease(db, stmt);
         }
 
