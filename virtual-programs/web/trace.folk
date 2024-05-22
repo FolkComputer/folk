@@ -41,6 +41,8 @@ set traceLib [apply {{} {
                              clauseToString(item.run.whenPattern),
                              clauseToString(statementClause(stmt)));
                     statementRelease(db, stmt);
+                } else {
+                    snprintf(buf, sizeof(buf), "");
                 }
             } else if (item.op == REMOVE_PARENT) {
                 snprintf(buf, sizeof(buf), "%d: Remove Parent", threadIndex);
@@ -66,7 +68,7 @@ Wish the web server handles route "/trace" with handler [list apply {{traceLib} 
 
         <h2>Trace</h2>
 
-        <ol>
+        <ol start="0">
         [join [lmap traceItem [$traceLib getTrace] {
             subst {<li>
                 <pre>[htmlEscape $traceItem]</pre>
