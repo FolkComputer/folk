@@ -16,13 +16,18 @@ set traceLib [apply {{} {
         for (int i = 0; i < traceMaxIdx; i++) {
             WorkQueueItem item = trace[i];
             if (item.op == ASSERT) {
-                snprintf(buf, sizeof(buf), "Assert");
+                snprintf(buf, sizeof(buf), "Assert (%.100s)",
+                         clauseToString(item.assert.clause));
             } else if (item.op == RETRACT) {
-                snprintf(buf, sizeof(buf), "Retract");
+                snprintf(buf, sizeof(buf), "Retract (%.100s)",
+                         clauseToString(item.retract.pattern));
             } else if (item.op == HOLD) {
-                snprintf(buf, sizeof(buf), "Hold");
+                snprintf(buf, sizeof(buf), "Hold (%.100s) (%lld) (%.100s)",
+                         item.hold.key, item.hold.version,
+                         clauseToString(item.hold.clause));
             } else if (item.op == SAY) {
-                snprintf(buf, sizeof(buf), "Say");
+                snprintf(buf, sizeof(buf), "Say (%.100s)",
+                         clauseToString(item.say.clause));
             } else if (item.op == RUN) {
                 Statement* stmt = statementAcquire(db, item.run.stmt);
                 if (stmt != NULL) {
@@ -58,7 +63,7 @@ Wish the web server handles route "/trace" with handler [list apply {{traceLib} 
         <ol>
         [join [lmap traceItem [$traceLib getTrace] {
             subst {<li>
-                <pre>$traceItem</pre>
+                <pre>[htmlEscape $traceItem]</pre>
             </li>}
         }] "\n"]
         </ol>
