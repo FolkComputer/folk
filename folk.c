@@ -14,7 +14,6 @@
 #include "db.h"
 #include "workqueue.h"
 
-
 typedef struct ThreadControlBlock {
     int index;
     pid_t tid;
@@ -36,10 +35,14 @@ __thread ThreadControlBlock* self;
 __thread Jim_Interp* interp = NULL;
 
 Db* db;
-// This mutex is used to create an atomic section where a statement
-// can add a statement, then react to the addition, without worrying
-// that new reactors are added in the middle.
-pthread_mutex_t dbMutex;
+
+#define TRACE 1
+
+#ifdef TRACE
+WorkQueueItem trace[1000];
+int traceThreadIndex[1000];
+int _Atomic traceNextIdx = 0;
+#endif
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
@@ -197,9 +200,7 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
-    pthread_mutex_lock(&dbMutex);
     ResultSet* rs = dbQuery(db, pattern);
-    pthread_mutex_unlock(&dbMutex);
 
     int nResults = (int) rs->nResults;
     Jim_Obj* resultObjs[nResults];
@@ -468,7 +469,6 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
             }
             free(existingMatchingStatements);
         }
-        // free(pattern);
     }
 
     // Trigger any already-existing reactions to the addition of this
@@ -616,6 +616,16 @@ void workerLoop() {
             item = workQueueSteal(threads[stealee].workQueue);
         }
 
+#ifdef TRACE
+        int traceIdx = traceNextIdx++;
+        if (traceIdx >= 1000) {
+            fprintf(stderr, "workerLoop: trace exhausted\n");
+            exit(1);
+        }
+        trace[traceIdx] = item;
+        traceThreadIndex[traceIdx] = self->index;
+#endif
+
         /* if (item.op != NONE && */
         /*     item.thread != -1 && */
         /*     item.thread != self->index) { */
@@ -655,10 +665,8 @@ static void dbWriteToPdf() {
 static void exitHandler() {
     printf("exitHandler\n----------\n");
 
-    pthread_mutex_lock(&dbMutex);    
     trieWriteToPdf();
     dbWriteToPdf();
-    pthread_mutex_unlock(&dbMutex);
 }
 int main(int argc, char** argv) {
     // Do all setup.
@@ -669,7 +677,6 @@ int main(int argc, char** argv) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&dbMutex, &attr);
 
     atexit(exitHandler);
 

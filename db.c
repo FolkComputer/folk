@@ -244,6 +244,10 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
 }
 void statementRelease(Db* db, Statement* stmt) {
     if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
+#ifdef TRACE
+        return; // FIXME: disable statement invalidation for trace
+#endif
+
         stmt->gen++; // Guard the rest of the freeing process.
 
         reactToRemovedStatement(db, stmt);

@@ -1,0 +1,69 @@
+set traceLib [apply {{} {
+    set cc [C]
+    $cc cflags -I.
+    $cc include "workqueue.h"
+    $cc code {
+        extern WorkQueueItem trace[];
+        extern int traceThreadIndex[];
+        extern int _Atomic traceNextIdx;
+        extern Db* db;
+    }
+    $cc proc getTrace {} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        int traceMaxIdx = traceNextIdx;
+
+        static char buf[1000];
+        for (int i = 0; i < traceMaxIdx; i++) {
+            WorkQueueItem item = trace[i];
+            if (item.op == ASSERT) {
+                snprintf(buf, sizeof(buf), "Assert");
+            } else if (item.op == RETRACT) {
+                snprintf(buf, sizeof(buf), "Retract");
+            } else if (item.op == HOLD) {
+                snprintf(buf, sizeof(buf), "Hold");
+            } else if (item.op == SAY) {
+                snprintf(buf, sizeof(buf), "Say");
+            } else if (item.op == RUN) {
+                Statement* stmt = statementAcquire(db, item.run.stmt);
+                if (stmt != NULL) {
+                    snprintf(buf, sizeof(buf), "Run when (%.100s) (%.100s)",
+                             clauseToString(item.run.whenPattern),
+                             clauseToString(statementClause(stmt)));
+                    statementRelease(db, stmt);
+                }
+            } else if (item.op == REMOVE_PARENT) {
+                snprintf(buf, sizeof(buf), "Remove Parent");
+            } else {
+                snprintf(buf, sizeof(buf), "???");
+            }
+            Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, buf, -1));
+        }
+        return ret;
+    }
+    return [$cc compile]
+}}]
+
+Wish the web server handles route "/trace" with handler [list apply {{traceLib} {
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Trace</title>
+        </head>
+
+        <body>
+
+        <h2>Trace</h2>
+
+        <ol>
+        [join [lmap traceItem [$traceLib getTrace] {
+            subst {<li>
+                <pre>$traceItem</pre>
+            </li>}
+        }] "\n"]
+        </ol>
+
+        </body>
+        </html>
+    }]
+}} $traceLib]
