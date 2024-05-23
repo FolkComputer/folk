@@ -221,7 +221,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
       </iframe>
 
       <p>
-        Print the above board, then measure the inner side length (6 blocks) of a tag in millimeters,
+        Print the above board, then measure the <strong>inner</strong> side length (6 blocks) of a tag in millimeters,
         <br>enter it here, and click Begin Calibration:
       <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Begin Calibration</button>
       </p>
@@ -290,26 +290,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             p [scale $printedSideLengthM [dict get $tag p]]
     }]
 
-    When /nobody/ claims the calibration model-to-display homography is /anything/ with \
-                         model /anything/ version /anything/ timestamp /anything/ {
-        # Default projection: just make the tags fill most of the projector area.
-        set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
-                                               $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
-
-        set H_modelToDisplay [estimateHomography [subst {
-            {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
-            {$printedSideLengthM 0 $tagSideLengthPixels 0}
-            {0 $printedSideLengthM 0 $tagSideLengthPixels}
-            {0 0 0 0}
-        }]]
-        Commit H_modelToDisplay {
-            # Default model and version: nothing rotated.
-            Claim the calibration model-to-display homography is $H_modelToDisplay with \
-                model $baseModel version -1 timestamp [clock milliseconds]
-        }
-    }
-    On unmatch { Commit H_modelToDisplay {} }
-
+    # Project calibration tags based on the current model-to-display
+    # homography (which gets dynamically updated as you move the board
+    # around):
     When the calibration model-to-display homography is /H_modelToDisplay/ with \
          model /model/ version /anything/ timestamp /anything/ {
 
@@ -317,6 +300,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             set r [sub $corner $center]
             return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
         }
+
+        # These are computed so we can draw user instructions around
+        # the outer perimeter of the projected tags.
+        set minX 10000; set minY 10000; set maxX 0; set maxY 0
 
         set instances [list]
         dict for {id modelTag} $model {
@@ -338,25 +325,61 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                 0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                                 0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
-            set modelInnerCorners [dict get $modelTag p]
+            set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
-            set modelOuterBottomLeft [innerToOuter $modelCenter [lindex $modelInnerCorners 0]]
-            set modelOuterBottomRight [innerToOuter $modelCenter [lindex $modelInnerCorners 1]]
-            set modelOuterTopRight [innerToOuter $modelCenter [lindex $modelInnerCorners 2]]
-            set modelOuterTopLeft [innerToOuter $modelCenter [lindex $modelInnerCorners 3]]
-            lappend instances \
-                [list $tagBitsVec \
-                     [applyHomography $H_modelToDisplay $modelOuterTopLeft]  \
-                     [applyHomography $H_modelToDisplay $modelOuterTopRight] \
-                     [applyHomography $H_modelToDisplay $modelOuterBottomRight] \
-                     [applyHomography $H_modelToDisplay $modelOuterBottomLeft]]
+
+            # {bottomleft bottomright topright topleft}
+            set projectorOuterCorners [lmap modelInnerCorner $modelInnerCorners {
+                lassign [applyHomography $H_modelToDisplay \
+                             [innerToOuter $modelCenter $modelInnerCorner]] \
+                    px py
+                if {$px < $minX} { set minX $px }
+                if {$px > $maxX} { set maxX $px }
+                if {$py < $minY} { set minY $py }
+                if {$py > $maxY} { set maxY $py }
+                list $px $py
+            }]
+            lappend instances [list $tagBitsVec {*}$projectorOuterCorners]
         }
+
+        # White backdrop to hopefully make the projected tags pop out more:
         Wish to draw a quad with \
             p0 [list 0 0] p1 [list $displayWidth 0] \
             p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
             color white layer 99
+
         Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
+
+        # Instructions for the user:
+        set offsetX [expr {($maxX - $minX)/$COLS}]
+        set offsetY [expr {($maxY - $minY)/$ROWS}]
+        set textX [expr {$minX - $offsetX}]
+        set textY [expr {$minY - $offsetY}]
+        Wish to draw text with text "Hello" \
+            position [list $textX $textY] anchor bottomright \
+            color black layer 100 scale 3.0
     }
+
+    When /nobody/ claims the calibration model-to-display homography is /anything/ with \
+                         model /anything/ version /anything/ timestamp /anything/ {
+        # Default model: just makes the tags fill most of the middle
+        # of the projector area.
+        set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
+                                               $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
+
+        set H_modelToDisplay [estimateHomography [subst {
+            {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
+            {$printedSideLengthM 0 $tagSideLengthPixels 0}
+            {0 $printedSideLengthM 0 $tagSideLengthPixels}
+            {0 0 0 0}
+        }]]
+        Commit H_modelToDisplay {
+            # Default model and version: nothing rotated.
+            Claim the calibration model-to-display homography is $H_modelToDisplay with \
+                model $baseModel version -1 timestamp [clock milliseconds]
+        }
+    }
+    On unmatch { Commit H_modelToDisplay {} }
 
     # A list of dictionaries. Each dictionary has entries `model` and
     # `H_modelToDisplay` ('prewarp' homography from model plane to
@@ -370,6 +393,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
+
+        # This runs every frame, looks at the detected tags (both
+        # projected and printed), and updates the H_modelToDisplay
+        # such that the projected tags should sit in the middle of the
+        # calibration board.
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -402,26 +430,15 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
 
+        # We only count projected tags that are inside the board.
         set projectedTags [dict create]
-        set outsideBoardProjectedTags [dict create]
         dict for {id tag} $allDetectedTags {
             if {![isProjectedTag $id]} { continue }
             if {[pointInsidePolygon [dict get $tag c] $printedCalibrationBoard]} {
                 # This is a projected tag that we detected.
                 dict set projectedTags $id $tag
-            } else {
-                dict set outsideBoardProjectedTags $id $tag
             }
         }
-        # puts "======\nHave board (version $version)"
-        # puts "Saw printed tags: [dict size $printedTags] ([expr {round(double([dict size $printedTags])/($ROWS*2 + 2*($COLS-2)) * 100)}]%)"
-        # puts "Saw projected tags: [dict size $projectedTags] ([expr {round(double([dict size $projectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
-        # dict for {id tag} $projectedTags {
-        #     set idx [- $id 48600]
-        #     set row [expr {$idx / $COLS}]; set col [expr {$idx % $COLS}]
-        #     puts "  Saw projected tag $id (row $row, col $col)"
-        # }
-        # puts "  Saw outside-board projected tags: [dict size $outsideBoardProjectedTags] ([expr {round(double([dict size $outsideBoardProjectedTags])/(($ROWS-2)*($COLS-2)) * 100)}]%)"
         if {[dict size $projectedTags] == 0} { return }
 
         # Check the rotation of a version tag to figure out the
@@ -481,8 +498,10 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             # and will break everything if we let it through. Skip.
             return
         }
+
+        # Update H_modelToDisplay to project the tags into the middle
+        # of the board next frame.
         set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
-        # puts "H_modelToDisplay {$H_modelToDisplay}"
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
@@ -490,9 +509,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 model $nextModel version $nextVersion timestamp [clock milliseconds]
         }
 
-        # return ;# ------------------------------------------------ deal with later
-
-        # Are we ready to record these points as a calibration pose?
+        # Should we record the points we just saw as a calibration
+        # pose?
 
         # We want to be seeing at least 50% of printed and projected tags.
         if {[dict size $printedTags] < $COLS + $ROWS ||
@@ -507,12 +525,14 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
 
-        # Check if projected tag corners have been pretty stable since
-        # the last frame.
+        # Next, we check if projected tag corners have been pretty
+        # stable since the previous frame.
         if {[info exists ::prevPose]} {
             set prevPose $::prevPose
             set ::prevPose $pose
         } else {
+            # We haven't seen a previous frame yet. We'll try again
+            # next frame.
             set ::prevPose $pose
             return
         }
@@ -525,12 +545,9 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # accuracy. TODO: Use an _older_ frame?
         puts "WOULD APPEND CALIBRATION..."
 
-        # FIXME: Quick hack so you can tell calibration went through.
-        # Retract /someone/ claims the printed tag side length is /anything/ mm
-
-        # If the corners have _not_ moved a lot since last calibration
-        # pose, this isn't different enough to be a good calibration
-        # pose to save.
+        # If the corners have _not_ moved a lot since last _saved_
+        # calibration pose, this isn't different enough to be a good
+        # calibration pose to save.
         if {[llength $::calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $::calibrationPoses end]
             if {[meanPoseDifference $pose $prevCalibrationPose] < 50} {
@@ -538,28 +555,14 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             }
         }
 
-        # Save the pose / camera image to a jpeg
+        # Save the pose / camera image to a jpeg (for debugging purposes)
         catch { exec mkdir "$::env(HOME)/folk-calibration-poses" }
         image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims the camera frame is /frame/]] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
+
+        # OK, let's save this calibration pose.
         lappend ::calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
-
-        # Default projection: just make the tags fill most of the projector area.
-        # set tagSideLengthPixels [expr {int(min($displayWidth/($COLS * ($tagOuterLength + $pad)),
-        #                                        $displayHeight/($ROWS * ($tagOuterLength + $pad))))}]
-
-        # set H_modelToDisplay [estimateHomography [subst {
-        #     {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
-        #     {$printedSideLengthM 0 $tagSideLengthPixels 0}
-        #     {0 $printedSideLengthM 0 $tagSideLengthPixels}
-        #     {0 0 0 0}
-        # }]]
-        # Commit H_modelToDisplay {
-        #     # Default model and version: nothing rotated.
-        #     Claim the calibration model-to-display homography is $H_modelToDisplay with \
-        #         model $baseModel version -1 timestamp [clock milliseconds]
-        # }
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)

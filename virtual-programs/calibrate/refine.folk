@@ -392,10 +392,7 @@ static matd_t* homography_compute2(double c[4][4]) {
     }
     $cc compile ;# takes about a half-second
 
-    # poses is a list of NUM_POSES pose-lists. Each pose-list is a
-    # list of up to MAX_POINTS_PER_POSE lists of 4 doubles
-    # (model-plane point pairs). These are used to measure error in
-    # the refinement process.
+    # tagSize is the inner side length of each tag in meters.
     set refineCalibration {{tagSize calibrationPoses calibration} {
         upvar ^isProjectedTag ^isProjectedTag
         upvar ^applyHomography ^applyHomography
