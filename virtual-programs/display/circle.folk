@@ -25,7 +25,9 @@ When /someone/ wishes to draw a circle with /...options/ {
     set thickness [dict get $options thickness]
     set color [getColor [dict get $options color]]
     set filled [dict_getdef $options filled false]
+    set layer [dict_getdef $options layer 0]
 
     Wish the GPU draws pipeline "circle" with arguments \
-        [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
+        [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]] \
+        layer $layer
 }

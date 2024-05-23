@@ -14,15 +14,17 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
                            $::env(XDG_SESSION_TYPE) ne "tty")}]
     if {[info exists ::env(FOLK_ENTRY)]} {
-        set ::entry $::env(FOLK_ENTRY)
-    } elseif {$::isLaptop} {
-        set ::entry "laptop.tcl"
+        set ::entry [list source $::env(FOLK_ENTRY)]
     } else {
-        set ::entry "pi/pi.tcl"
+        set ::entry {
+            loadVirtualPrograms
+            forever { Step }
+        }
     }
 }
 
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 source "lib/trie.tcl"
 source "lib/evaluator.tcl"
 namespace eval Evaluator {
@@ -594,8 +596,11 @@ if {[info exists ::entry]} {
         }
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
-                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
-            if {[string match "*/_archive/*" $programFilename]} { continue }
+                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
+                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
+            if {[string match "*/_archive/*" $programFilename] ||
+                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
@@ -665,5 +670,5 @@ if {[info exists ::entry]} {
     }
 
     source "./web.tcl"
-    source $::entry
+    eval $::entry
 }

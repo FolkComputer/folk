@@ -206,8 +206,9 @@ On process "display" {
         set font [dict_getdef $options font "PTSans-Regular"]
         set text [dict get $options text]
         set anchor [dict_getdef $options anchor "center"]
-        set radians [dict get $options radians]
+        set radians [dict_getdef $options radians 0]
         set color [getColor [dict_getdef $options color white]]
+        set layer [dict_getdef $options layer 0]
 
         if {$anchor == "topleft"} {
             set anchor [list 0 0]
@@ -238,6 +239,6 @@ On process "display" {
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
-        Wish the GPU draws pipeline "glyph" with instances $instances
+        Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
     }
 }

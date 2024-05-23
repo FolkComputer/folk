@@ -1,5 +1,3 @@
-source "pi/cUtils.tcl"
-
 set cc [c create]
 $cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
 c loadlib $::env(HOME)/apriltag/libapriltag.so
@@ -13,10 +11,10 @@ $cc code {
     #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
 }
 
-# HACK (osnr): This is used by calibrate.folk; I put it here because
+# HACK (osnr): This is used when someone wants to draw an AprilTag
+# (often for calibration/cnc preview purposes); I put it here because
 # we already have a whole AprilTag family and C compiler object setup
-# here.
-# The returned image_t's data needs to be freed by the caller.
+# here. The returned image_t's data needs to be freed by the caller.
 $cc proc ::tagImageForId {int id} image_t {
     if (tf == NULL) tf = tagStandard52h13_create();
 
@@ -110,7 +108,7 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
     set tagwidth 150; set tagheight 150
     set fontsize 12; set lineheight [expr $fontsize*1.5]
 
-    set image [::tagImageForId $id]
+    set image [::tagPsForId $id]
 
     set lines [split $text "\n"]
     for {set i 0} {$i < [llength $lines]} {incr i} {
@@ -168,7 +166,9 @@ proc ::programToPs {id text {format "letter"} {side "front"}} {
 
 if {$::isLaptop} { return }
 
-exec mkdir -p "$::env(HOME)/folk-printed-programs"
+if {![file exists "$::env(HOME)/folk-printed-programs"]} {
+    exec mkdir -p "$::env(HOME)/folk-printed-programs"
+}
 proc nextId {} {
     try {
         set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]

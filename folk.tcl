@@ -16,7 +16,7 @@ proc manage_folk {action} {
 }
 
 proc calibrate_folk {} {
-    exec tclsh8.6 ~/folk/calibrate.tcl
+    exec -ignorestderr tclsh8.6 ~/folk/calibrate.tcl >@stdout
 }
 
 if {$argc == 0} {

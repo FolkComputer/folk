@@ -8,8 +8,9 @@ When (non-capturing) /type/ /obj/ has a program {
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
         } else {
+            # HACK: localhost is folk-live for now. idk why.
             if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
-                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial")} {
+                ($::thisNode in [list "folk-beads" "folk-convivial" "localhost" "gadget-red" "gadget-blue"])} {
                 # HACK: 'Page fault' to folk0, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local
