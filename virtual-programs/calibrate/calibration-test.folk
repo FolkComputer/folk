@@ -173,7 +173,7 @@ When (non-capturing) the calibration is /calibration/ & \
     # }
     # dict set ::oldPointPairs $tag $pointPairs
 
-    set H [concat {*}[apply $::estimateSimpleHomography $pointPairs]]
+    set H [concat {*}[apply $::estimateHomography $pointPairs]]
     dict set det H $H
     
     set tagPose [estimateTagPose $det $tagSize \
