@@ -29,3 +29,7 @@ When (non-capturing) /type/ /obj/ has a program {
         puts stderr "No code for $type $obj"
     }
 }
+
+When /someone/ wishes /obj/ runs program /code/ {
+  Claim $obj has program code $code
+}
