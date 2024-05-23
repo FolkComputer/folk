@@ -73,6 +73,8 @@ set makeAprilTagDetector {{TAG_FAMILY} {
     return $detector
 }}
 
+Claim the AprilTag detector maker is $makeAprilTagDetector
+
 set tagFamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.
