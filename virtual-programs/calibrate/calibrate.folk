@@ -353,11 +353,24 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # Instructions for the user:
         set offsetX [expr {($maxX - $minX)/$COLS}]
         set offsetY [expr {($maxY - $minY)/$ROWS}]
-        set textX [expr {$minX - $offsetX}]
-        set textY [expr {$minY - $offsetY}]
-        Wish to draw text with text "Hello" \
-            position [list $textX $textY] anchor bottomright \
-            color black layer 100 scale 3.0
+        set minX [- $minX $offsetX]; set minY [- $minY $offsetY]
+        set maxX [+ $maxX $offsetX]; set maxY [+ $maxY $offsetY]
+        set anchors \
+            [list \
+                 [list $minX $minY bottomright] \
+                 [list $maxX $minY bottomleft] \
+                 [list $minX $maxY topright] \
+                 [list $maxX $maxY topleft] \
+                 \
+                 [list [expr {($minX + $maxX)/2}] $minY bottom] \
+                 [list [expr {($minX + $maxX)/2}] $maxY top] \
+                 [list $minX [expr {($minY + $maxY)/2}] right] \
+                 [list $maxX [expr {($minY + $maxY)/2}] left]]
+        foreach anchor $anchors {
+            Wish to draw text with text "Hello" \
+                position [lrange $anchor 0 1] anchor [lindex $anchor 2] \
+                color black layer 100 scale 3.0
+        }
     }
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
