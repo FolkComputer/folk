@@ -186,14 +186,16 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             gsave
             $marginLeft [- $marginTop 18] translate
             1 -1 scale
-            0 setgray /Helvetica findfont 12 scalefont setfont
+            0 setgray /Helvetica findfont 14 scalefont setfont
             newpath 0 0 moveto (Folk calibration board) show
             grestore
 
             $marginLeft $marginTop translate
 
+            [set tagIdx -1]
             [join [dict values [dict map {id modelTag} $MODEL {
                 if {![isPrintedTag $id]} { continue }
+                incr tagIdx
 
                 set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
                 set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
@@ -204,10 +206,26 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
                     $tagOuterLengthPs -$tagOuterLengthPs scale
                     [::tagPsForId $id]
                     grestore
+
+                    % Label the inner side length:
+                    [if {$tagIdx == 3} { subst {
+                        gsave
+                        [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
+                        [expr {$psY - 15}] translate
+                        1 -1 scale
+                        0.1 0.67 0.1 setrgbcolor
+                        newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
+                        newpath 0 0 moveto 0 -5 lineto stroke
+                        newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
+                        /Helvetica findfont 7 scalefont setfont
+                        newpath 0 5 moveto (inner side length) show
+                        grestore
+                    } }]
                 }
             }]] "\n"]
         }
     }} $MODEL ${^isPrintedTag} ${^estimateHomography} ${^applyHomography}]
+
     set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
     set calibrationBoardPdf [read $fp]; close $fp
 
@@ -221,7 +239,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
       </iframe>
 
       <p>
-        Print the above board, then measure the <strong>inner</strong> side length (6 blocks) of a tag in millimeters,
+        Print the above board, then measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters,
         <br>enter it here, and click Begin Calibration:
       <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Begin Calibration</button>
       </p>
