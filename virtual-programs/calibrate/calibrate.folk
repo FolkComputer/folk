@@ -851,5 +851,5 @@ When /nobody/ claims the calibration is /anything/ &\
     puts $fd $calibration; close $fd
 }
 
-# FIXME: for fast testing
-Claim the printed tag side length is 17 mm
+# HACK: for fast testing
+# Claim the printed tag side length is 17 mm
