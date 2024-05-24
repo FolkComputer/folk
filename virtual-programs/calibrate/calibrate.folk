@@ -290,6 +290,16 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             p [scale $printedSideLengthM [dict get $tag p]]
     }]
 
+    # A list of dictionaries. Each dictionary has entries `model` and
+    # `H_modelToDisplay` ('prewarp' homography from model plane to
+    # projector plane) and `tags` (tag ID => dictionary of tag
+    # detection info from camera and AprilTag detector).
+    #
+    # We'll want at least 10 poses to do ultimate
+    # calibration+refinement.
+    set ::calibrationPoses [list]
+    set CALIBRATION_POSES_MAX 10
+
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
@@ -357,20 +367,27 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set maxX [+ $maxX $offsetX]; set maxY [+ $maxY $offsetY]
         set anchors \
             [list \
-                 [list $minX $minY bottomright] \
-                 [list $maxX $minY bottomleft] \
-                 [list $minX $maxY topright] \
-                 [list $maxX $maxY topleft] \
+                 [list $minX $minY bottomright 0] \
+                 [list $maxX $minY bottomleft 0] \
+                 [list $minX $maxY topright 3.14159] \
+                 [list $maxX $maxY topleft 3.14159] \
                  \
-                 [list [expr {($minX + $maxX)/2}] $minY bottom] \
-                 [list [expr {($minX + $maxX)/2}] $maxY top] \
-                 [list $minX [expr {($minY + $maxY)/2}] right] \
-                 [list $maxX [expr {($minY + $maxY)/2}] left]]
-        foreach anchor $anchors {
-            Wish to draw text with text "Hello" \
-                position [lrange $anchor 0 1] anchor [lindex $anchor 2] \
-                color black layer 100 scale 3.0
-        }
+                 [list [expr {($minX + $maxX)/2}] $minY bottom 0] \
+                 [list [expr {($minX + $maxX)/2}] $maxY top 3.14159] \
+                 [list $minX [expr {($minY + $maxY)/2}] right [/ 3.14159 2.0]] \
+                 [list $maxX [expr {($minY + $maxY)/2}] left [/ -3.14159 2.0]]]
+        apply {{anchors CALIBRATION_POSES_MAX} {
+            When the clock time is /t/ {
+                # HACK: imperatively checks ::calibrationPoses every
+                # frame.
+                set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
+                foreach anchor $anchors {
+                    Wish to draw text with text $text \
+                        position [lrange $anchor 0 1] anchor center \
+                        color black layer 100 scale 3.0 radians [lindex $anchor 3]
+                }
+            }
+        }} $anchors $CALIBRATION_POSES_MAX
     }
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
@@ -393,15 +410,6 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         }
     }
     On unmatch { Commit H_modelToDisplay {} }
-
-    # A list of dictionaries. Each dictionary has entries `model` and
-    # `H_modelToDisplay` ('prewarp' homography from model plane to
-    # projector plane) and `tags` (tag ID => dictionary of tag
-    # detection info from camera and AprilTag detector).
-    #
-    # We'll want at least 10 poses to do ultimate
-    # calibration+refinement.
-    set ::calibrationPoses [list]
 
     When /someone/ detects tags /tags/ at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
@@ -579,7 +587,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
-        if {[llength $::calibrationPoses] >= 10} {
+        if {[llength $::calibrationPoses] >= $CALIBRATION_POSES_MAX} {
             puts "READY CALIBARTION POSES!"
 
             catch {exec rm "$::env(HOME)/folk-calibration-output.txt"}
@@ -824,3 +832,6 @@ When /nobody/ claims the calibration is /anything/ &\
     set fd [open "$::env(HOME)/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
 }
+
+# FIXME: for fast testing
+Claim the printed tag side length is 17 mm
