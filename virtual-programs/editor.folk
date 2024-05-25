@@ -3,11 +3,11 @@ set baseCode "Wish \$this is outlined green"
 # This makes all keyboards into editors automatically, so a keyboard
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
-When /page/ is a keyboard with path /anything/ {
+When /page/ is a keyboard with path /...anything/ {
     Claim $page is an editor
 }
 
-When /page/ is a keyboard with path /kbPath/ &\
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   /page/ is an editor &\
   /page/ has region /r/ &\
   the clock time is /t/ {
@@ -27,7 +27,7 @@ When /page/ is a keyboard with path /kbPath/ &\
   }
 }
 
-When /page/ is a keyboard with path /kbPath/ {
+When /page/ is a keyboard with path /kbPath/ /...anything/ {
   On unmatch {
     Commit "time$kbPath" {}
   }
@@ -48,7 +48,7 @@ proc updateCursor {oldCursor updates} {
 proc x {vector} { lindex $vector 0 }
 proc y {vector} { lindex $vector 1 }
 
-When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id "$page$kbPath"
   When /nobody/ claims $id has program code /c/ {
     Commit "cursor$kbPath" {
@@ -138,7 +138,7 @@ proc debug {position color} {
   Display::circle {*}$position 5 2 $color true
 }
 
-When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id "$page$kbPath"
   When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set intTime [expr {int($t * 10)}]
@@ -189,7 +189,7 @@ proc getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
-When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
+When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id "$page$kbPath"
 
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
@@ -366,6 +366,6 @@ When /page/ is a keyboard with path /kbPath/ & /page/ is an editor {
 
 Claim $this has demo {
   # Find your keyboard path with the script in this guide: https://folk.computer/guides/keyboard
-  Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse
+  Claim $this is a keyboard with path /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse locale us
   Claim $this is an editor
 }
