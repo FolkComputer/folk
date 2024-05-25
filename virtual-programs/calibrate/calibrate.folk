@@ -12,7 +12,7 @@ package require math::linearalgebra
 # rename ::scale scaleTk
 foreach p {add norm sub scale leastSquaresSVD matmul
     getelem transpose determineSVD shape mkIdentity
-    solvePGauss crossproduct getcol setcol
+    solvePGauss crossproduct getcol setcol unitLengthVector
 } {
     namespace import ::math::linearalgebra::$p
 }
@@ -382,19 +382,22 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
             [list \
                  [list $modelTopLeft $modelTopRight] \
                  [list $modelBottomRight $modelBottomLeft] \
-                 [list $modelTopLeft $modelBottomLeft] \
-                 [list $modelBottomRight $modelTopRight]]
+                 [list $modelBottomLeft $modelTopLeft] \
+                 [list $modelTopRight $modelBottomRight]]
         When the clock time is /t/ {
             # HACK: imperatively checks ::calibrationPoses every
             # frame.
             set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
             foreach side $sides {
                 lassign $side start end
-                set modelPosition [scale 0.5 [add $start $end]]
+                set segment [sub $end $start]
+                set normal [unitLengthVector [list [- [lindex $segment 1]] [lindex $segment 0]]]
+                set modelPosition [add [scale 0.5 [add $start $end]] \
+                                       [scale [* -1.0 $printedSideLengthM] $normal]]
 
-                set segment [sub [applyHomography $H_modelToDisplay $end] \
+                set dispSeg [sub [applyHomography $H_modelToDisplay $end] \
                                  [applyHomography $H_modelToDisplay $start]]
-                set radians [- [atan2 [lindex $segment 1] [lindex $segment 0]]]
+                set radians [- [atan2 [lindex $dispSeg 1] [lindex $dispSeg 0]]]
 
                 Wish to draw text with text $text radians $radians \
                     position [applyHomography $H_modelToDisplay $modelPosition] \
