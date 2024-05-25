@@ -73,117 +73,133 @@ $cc proc ::tagPsForId {int id} char* {
 }
 $cc compile
 
+proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
+    set lines [split $text "\n"]
+
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+        # tag each line with its 1-indexed line number
+        lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
+    }
+
+    set safeline 0
+    set firstline 0
+    set pages ""
+    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
+        if {$i - $firstline > $maxlines - 1} {
+            set pagelines [lrange $lines $firstline $safeline-1]
+            lappend pagelines [list "..." ""]
+            lappend pages $pagelines
+            set firstline $safeline
+        }
+
+        lassign [lindex $lines $i] linenum line
+        set max [dict_getdef $linelenOverrides $i $linelen]
+        if {[string length $line] > $max} {
+            lset lines $i 1 [string range $line 0 $max]
+            set lines [linsert $lines $i+1 [list "" [string range $line $max+1 end]]]
+        } elseif {$linenum ne ""} {
+            set safeline $i
+        }
+    }
+
+    lappend pages [lrange $lines $firstline end]
+
+    return $pages
+}
+
+proc rangeDict {from to val} {
+    set res ""
+    for {set i $from} {$i < $to} {incr i} {
+        lappend res $i $val
+    }
+    return $res
+}
+
 proc ::programToPs {id text {format "letter"}} {
-    set margin 36
-    set PageWidth 612; set PageHeight 792
+    set defaults {
+        margin 36
+        fontsize 12
+        tagsize {150 150}
+        maxcharsOverride {}
+    }
+    set formats [subst {
+        letter {
+            pagesize {612 792}
+            maxlines 40
+            maxchars 72
+            maxcharsOverride {[rangeDict 0 8 49]}
+        }
+        a4 {
+            pagesize {595 842}
+            maxlines 43
+            maxchars 68
+            maxcharsOverride {[rangeDict 0 8 46]}
+        }
+        indexcard {
+            fontsize 8
+            pagesize {612 792}
+            maxlines 44
+            maxchars 68
+        }
+    }]
 
-    # @TODO: always output as many pages as necessary
-    set side "front"
+    # TODO: indexcard layout exceptions
 
-    if {$format eq "indexcard"} {
-        # front in portrait, back in landscape
-        set tagwidth 150; set tagheight 150
-        set fontsize 8; set lineheight [expr $fontsize*1.5]
-        set margin 36
-        if {$side eq "front"} {
-            set tagPs [::tagPsForId $id]
-            return [subst {
+    set params [dict merge $defaults [dict get $formats $format]]
+    dict with params {
+        lassign $pagesize PageWidth PageHeight
+        lassign $tagsize tagwidth tagheight
+        set lineheight [expr $fontsize*1.5]
+
+        set image [::tagPsForId $id]
+
+        set pages [paginate $text $maxlines $maxchars $maxcharsOverride]
+
+        set out ""
+        set pageidx 0
+        foreach lines $pages {
+            set lineidx 0
+            append out [subst {
                 %!PS
                 << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-                90 rotate
-
-                gsave
-                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth] translate
-                $tagwidth $tagheight scale
-                $tagPs
-                grestore
-
-                /Helvetica-Narrow findfont
-                10 scalefont
-                setfont
-                newpath
-                [expr $PageHeight-$tagheight-$margin] [expr -$margin-$tagwidth-16] moveto
-                ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
-
-            }]
-        } elseif {$side eq "back"} {
-            set linenum 1
-            return [subst {
-                %!PS
-                << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+                /settextcolor {0 setgray} def
 
                 /Courier findfont
                 $fontsize scalefont
                 setfont
                 newpath
-                [join [lmap line [split $text "\n"] {
-                    set line [string map {"\\" "\\\\"} $line]
-                    set ret "$margin [expr $PageHeight-$margin-$linenum*$lineheight] moveto ($line) show"
-                    incr linenum
-                    set ret
+                [join [lmap lineinfo $lines {
+                    lassign $lineinfo linenum line
+                    set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
+                    incr lineidx
+                    subst {
+                        $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
+                        0.4 setgray ([format "%- 3s" $linenum]) show settextcolor ($line) show
+                    }
                 }] "\n"]
+
+                [expr {$pageidx ? {} : [subst {
+                  gsave
+                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
+                  $tagwidth $tagheight scale
+                  $image
+                  grestore
+
+                  /Helvetica-Narrow findfont
+                  10 scalefont
+                  setfont
+                  newpath
+                  [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
+                  ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+                }] }]
+                showpage
             }]
+            incr pageidx
         }
     }
 
-    set tagwidth 150; set tagheight 150
-    set fontsize 12; set lineheight [expr $fontsize*1.5]
-
-    set image [::tagPsForId $id]
-
-    set lines [split $text "\n"]
-    for {set i 0} {$i < [llength $lines]} {incr i} {
-        # tag each line with its 1-indexed line number
-        lset lines $i [list [expr {$i+1}] [lindex $lines $i]]
-    }
-    for {set i 0} {$i < [llength $lines]} {incr i} { # hard-wrap lines
-        lassign [lindex $lines $i] linenum line
-        if {$i < 9 && [string length $line] > 50} {
-            lset lines $i 1 [string range $line 0 50]
-            set lines [linsert $lines $i+1 [list "" [string range $line 51 end]]]
-        } elseif {[string length $line] > 73} {
-            lset lines $i 1 [string range $line 0 73]
-            set lines [linsert $lines $i+1 [list "" [string range $line 74 end]]]
-        }
-    }
-
-    set lineidx 0
-    subst {
-        %!PS
-        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
-
-        /settextcolor {[expr { $side eq "back" ? { 0.4 setgray } : { 0 setgray } }]} def
-
-        /Courier findfont
-        $fontsize scalefont
-        setfont
-        newpath
-        [join [lmap lineinfo $lines {
-            lassign $lineinfo linenum line
-            set line [string map {"\\" "\\\\" ")" "\\)" "(" "\\("} $line]
-            incr lineidx
-            subst {
-                $margin [expr $PageHeight-$margin-$lineidx*$lineheight] moveto
-                0.4 setgray ([format "%- 3s" $linenum]) show settextcolor ($line) show
-            }
-        }] "\n"]
-
-        [expr { $side eq "back" ? {} : [subst {
-          gsave
-          [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-$margin] translate
-          $tagwidth $tagheight scale
-          $image
-          grestore
-        }] }]
-
-        /Helvetica-Narrow findfont
-        10 scalefont
-        setfont
-        newpath
-        [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
-        ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
-    }
+    return $out
 }
 
 if {$::isLaptop} { return }
