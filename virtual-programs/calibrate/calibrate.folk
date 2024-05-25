@@ -358,14 +358,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
             # {bottomleft bottomright topright topleft}
             set projectorOuterCorners [lmap modelInnerCorner $modelInnerCorners {
-                lassign [applyHomography $H_modelToDisplay \
-                             [innerToOuter $modelCenter $modelInnerCorner]] \
-                    px py
-                if {$px < $minX} { set minX $px }
-                if {$px > $maxX} { set maxX $px }
-                if {$py < $minY} { set minY $py }
-                if {$py > $maxY} { set maxY $py }
-                list $px $py
+                applyHomography $H_modelToDisplay \
+                             [innerToOuter $modelCenter $modelInnerCorner]
             }]
             lappend instances [list $tagBitsVec {*}$projectorOuterCorners]
         }
@@ -379,29 +373,37 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
 
         # Instructions for the user:
-        set offsetX [expr {($maxX - $minX)/$COLS}]
-        set offsetY [expr {($maxY - $minY)/$ROWS}]
-        set minX [expr {$minX - $offsetX*2.5}]; set minY [expr {$minY - $offsetY*2.5}]
-        set maxX [expr {$maxX + $offsetX*2.5}]; set maxY [expr {$maxY + $offsetY*2.5}]
+        set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]
+        set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
+        set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
+        set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
+
+        set topCenter [scale 0.5 [add $modelTopLeft $modelTopRight]]
+        set bottomCenter [scale 0.5 [add $modelBottomLeft $modelBottomRight]]
+        set centerLeft [scale 0.5 [add $modelTopLeft $modelBottomLeft]]
+        set centerRight [scale 0.5 [add $modelTopRight $modelBottomRight]]
+
         # FIXME: Last 2 points' angle is screwed up.
         set anchors \
             [list \
-                 [list [expr {($minX + $maxX)/2}] $minY 0] \
-                 [list [expr {($minX + $maxX)/2}] $maxY 3.14159] \
-                 [list $minX [expr {($minY + $maxY)/2}] [/ 3.14159 2.0]] \
-                 [list $maxX [expr {($minY + $maxY)/2}] [/ -3.14159 2.0]]]
-        apply {{anchors CALIBRATION_POSES_MAX} {
-            When the clock time is /t/ {
-                # HACK: imperatively checks ::calibrationPoses every
-                # frame.
-                set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
-                foreach anchor $anchors {
-                    Wish to draw text with text $text \
-                        position [lrange $anchor 0 1] anchor center \
-                        color black layer 100 scale 3.0 radians [lindex $anchor 2]
-                }
+                 [list $topCenter {0 -1} 0] \
+                 [list $bottomCenter {0 1} 3.14159] \
+                 [list $centerLeft {-1 0} [/ 3.14159 2.0]] \
+                 [list $centerRight {1 0} [/ -3.14159 2.0]]]
+        When the clock time is /t/ {
+            # HACK: imperatively checks ::calibrationPoses every
+            # frame.
+            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
+            foreach anchor $anchors {
+                set modelPosition [lindex $anchor 0]
+                set unscaledOffset [lindex $anchor 1]
+                set modelPosition [add $modelPosition \
+                                       [scale $printedSideLengthM $unscaledOffset]]
+                Wish to draw text with text $text radians [lindex $anchor 2] \
+                    position [applyHomography $H_modelToDisplay $modelPosition] \
+                    anchor center color black layer 100 scale 3.0
             }
-        }} $anchors $CALIBRATION_POSES_MAX
+        }
     }
 
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
