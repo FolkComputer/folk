@@ -381,19 +381,15 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         # Instructions for the user:
         set offsetX [expr {($maxX - $minX)/$COLS}]
         set offsetY [expr {($maxY - $minY)/$ROWS}]
-        set minX [- $minX $offsetX]; set minY [- $minY $offsetY]
-        set maxX [+ $maxX $offsetX]; set maxY [+ $maxY $offsetY]
+        set minX [expr {$minX - $offsetX*2.5}]; set minY [expr {$minY - $offsetY*2.5}]
+        set maxX [expr {$maxX + $offsetX*2.5}]; set maxY [expr {$maxY + $offsetY*2.5}]
+        # FIXME: Last 2 points' angle is screwed up.
         set anchors \
             [list \
-                 [list $minX $minY bottomright 0] \
-                 [list $maxX $minY bottomleft 0] \
-                 [list $minX $maxY topright 3.14159] \
-                 [list $maxX $maxY topleft 3.14159] \
-                 \
-                 [list [expr {($minX + $maxX)/2}] $minY bottom 0] \
-                 [list [expr {($minX + $maxX)/2}] $maxY top 3.14159] \
-                 [list $minX [expr {($minY + $maxY)/2}] right [/ 3.14159 2.0]] \
-                 [list $maxX [expr {($minY + $maxY)/2}] left [/ -3.14159 2.0]]]
+                 [list [expr {($minX + $maxX)/2}] $minY 0] \
+                 [list [expr {($minX + $maxX)/2}] $maxY 3.14159] \
+                 [list $minX [expr {($minY + $maxY)/2}] [/ 3.14159 2.0]] \
+                 [list $maxX [expr {($minY + $maxY)/2}] [/ -3.14159 2.0]]]
         apply {{anchors CALIBRATION_POSES_MAX} {
             When the clock time is /t/ {
                 # HACK: imperatively checks ::calibrationPoses every
@@ -402,7 +398,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
                 foreach anchor $anchors {
                     Wish to draw text with text $text \
                         position [lrange $anchor 0 1] anchor center \
-                        color black layer 100 scale 3.0 radians [lindex $anchor 3]
+                        color black layer 100 scale 3.0 radians [lindex $anchor 2]
                 }
             }
         }} $anchors $CALIBRATION_POSES_MAX
@@ -840,6 +836,7 @@ When /nobody/ claims the calibration is /anything/ &\
         return
     }
 
+    # FIXME: don't hard-code side length mm
     set calibration [calibrate $calibrationPoses]
     set calibration [apply $refineCalibration \
                          [/ 17.5 1000] $calibrationPoses $calibration]
