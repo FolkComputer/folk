@@ -36,8 +36,6 @@ __thread Jim_Interp* interp = NULL;
 
 Db* db;
 
-#define TRACE 1
-
 #ifdef TRACE
 WorkQueueItem trace[50000];
 int traceThreadIndex[50000];

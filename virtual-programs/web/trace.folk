@@ -7,6 +7,8 @@ set traceLib [apply {{} {
         extern int traceThreadIndex[];
         extern int _Atomic traceNextIdx;
         extern Db* db;
+
+        extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
     }
     $cc proc getTrace {} Jim_Obj* {
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
@@ -34,16 +36,11 @@ set traceLib [apply {{} {
                          threadIndex,
                          clauseToString(item.say.clause));
             } else if (item.op == RUN) {
-                Statement* stmt = statementAcquire(db, item.run.stmt);
-                if (stmt != NULL) {
-                    snprintf(buf, sizeof(buf), "%d: Run when (%.100s) (%.100s)",
-                             threadIndex,
-                             clauseToString(item.run.whenPattern),
-                             clauseToString(statementClause(stmt)));
-                    statementRelease(db, stmt);
-                } else {
-                    snprintf(buf, sizeof(buf), "");
-                }
+                Statement* stmt = statementUnsafeGet(db, item.run.stmt);
+                snprintf(buf, sizeof(buf), "%d: Run when (%.100s) (%.100s)",
+                         threadIndex,
+                         clauseToString(item.run.whenPattern),
+                         stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
             } else if (item.op == REMOVE_PARENT) {
                 snprintf(buf, sizeof(buf), "%d: Remove Parent", threadIndex);
             } else {

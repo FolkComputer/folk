@@ -242,12 +242,14 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     }
     return s;
 }
+#ifdef TRACE
+Statement* statementUnsafeGet(Db* db, StatementRef ref) {
+    if (ref.idx == 0) { return NULL; }
+    return &db->statementPool[ref.idx];
+}
+#endif
 void statementRelease(Db* db, Statement* stmt) {
     if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
-#ifdef TRACE
-        return; // FIXME: disable statement invalidation for trace
-#endif
-
         stmt->gen++; // Guard the rest of the freeing process.
 
         reactToRemovedStatement(db, stmt);
@@ -263,9 +265,14 @@ void statementRelease(Db* db, Statement* stmt) {
         free(stmt->childMatches);
         stmt->childMatches = NULL;
 
+#ifdef TRACE
+        // Don't remove the clause; we want the trace to be able to
+        // find it, and we don't want to reuse the slot.
+#else
         // How do we mark this statement slot as being fully free and
         // ready for reuse?
         stmt->clause = NULL;
+#endif
     }
 }
 StatementRef statementRef(Db* db, Statement* stmt) {
