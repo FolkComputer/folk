@@ -42,7 +42,9 @@ set traceLib [apply {{} {
                          clauseToString(item.run.whenPattern),
                          stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
             } else if (item.op == REMOVE_PARENT) {
-                snprintf(buf, sizeof(buf), "%d: Remove Parent", threadIndex);
+                Statement* stmt = statementUnsafeGet(db, item.removeParent.stmt);
+                snprintf(buf, sizeof(buf), "%d: Remove Parent (%.100s)", threadIndex,
+                         stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
             } else {
                 snprintf(buf, sizeof(buf), "%d: ???", threadIndex);
             }
