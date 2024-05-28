@@ -557,11 +557,13 @@ void workerRun(WorkQueueItem item) {
             // full subconvergence of the addition of the new statement.
             // or just mess with priorities so that the react to removed
             // statement usually gets delayed?
-            workQueuePush(self->workQueue, (WorkQueueItem) {
-                    .op = REMOVE_PARENT,
-                    .thread = -1,
-                    .removeParent = { .stmt = oldRef }
-                });
+            if (!statementRefIsNull(oldRef)) {
+                workQueuePush(self->workQueue, (WorkQueueItem) {
+                        .op = REMOVE_PARENT,
+                        .thread = -1,
+                        .removeParent = { .stmt = oldRef }
+                    });
+            }
         }
 
     } else if (item.op == SAY) {
