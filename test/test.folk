@@ -19,7 +19,12 @@ Assert! when we are on {{} {
             Hold! counter [list X claims the counter is $i]
         }
 
-        puts DONE
-        __exit 0
+        sleep 0.5
+
+        puts "DONE: ([Query! /someone/ claims the counter is /t/])"
+
+        source virtual-programs/web/trace.folk
+        source virtual-programs/web/web.folk
+        # __exit 0
     }
 }} with environment {}

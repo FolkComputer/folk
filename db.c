@@ -88,8 +88,6 @@ typedef struct Match {
 // Database datatypes:
 
 typedef struct Hold {
-    pthread_mutex_t mutex;
-
     // If key == NULL, then this Hold is an empty slot that can be
     // used for a new hold key.
     const char* key; // Owned by the DB.
@@ -117,6 +115,7 @@ typedef struct Db {
     // comes in, without having to actually emit and react to the
     // statement.
     Hold holds[256];
+    pthread_mutex_t holdsMutex;
 } Db;
 
 ////////////////////////////////////////////////////////////
@@ -471,9 +470,7 @@ Db* dbNew() {
     ret->clauseToStatementId = trieNew();
     pthread_mutex_init(&ret->clauseToStatementIdMutex, NULL);
 
-    for (int i = 0; i < sizeof(ret->holds)/sizeof(ret->holds[0]); i++) {
-        pthread_mutex_init(&ret->holds[i].mutex, NULL);
-    }
+    pthread_mutex_init(&ret->holdsMutex, NULL);
 
     return ret;
 }
@@ -613,30 +610,24 @@ StatementRef dbHoldStatement(Db* db,
                              StatementRef* outOldStatement) {
     *outOldStatement = STATEMENT_REF_NULL;
 
+    pthread_mutex_lock(&db->holdsMutex);
+
     Hold* hold = NULL;
     for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
-        pthread_mutex_lock(&db->holds[i].mutex);
         if (db->holds[i].key != NULL && strcmp(db->holds[i].key, key) == 0) {
             hold = &db->holds[i];
             break;
-        } else {
-            pthread_mutex_unlock(&db->holds[i].mutex);
         }
     }
     if (hold == NULL) {
         for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
-            pthread_mutex_lock(&db->holds[i].mutex);
             if (db->holds[i].key == NULL) {
                 hold = &db->holds[i];
                 hold->key = key;
                 break;
-            } else {
-                pthread_mutex_unlock(&db->holds[i].mutex);
             }
         }
     }
-    // Note that we should be still holding the mutex for `hold` at
-    // this point.
 
     if (hold == NULL) {
         fprintf(stderr, "dbHoldStatement: Ran out of hold slots\n");
@@ -654,43 +645,40 @@ StatementRef dbHoldStatement(Db* db,
         StatementRef newStmt = dbInsertOrReuseStatement(db, clause, MATCH_REF_NULL);
         hold->statement = newStmt;
 
-        pthread_mutex_unlock(&hold->mutex);
+        uint64_t results[10];
+        size_t maxResults = sizeof(results)/sizeof(results[0]);
 
-        {
-            uint64_t results[10];
-            size_t maxResults = sizeof(results)/sizeof(results[0]);
+        // TODO: Should we accept a StatementRef and enforce that
+        // is what gets removed?
+        Statement* oldStmtPtr = statementAcquire(db, oldStmt);
+        if (oldStmtPtr) {
+            // We deindex the old statement immediately, but we
+            // leave it to the caller to actually remove it (and
+            // therefore remove all its children).
+            pthread_mutex_lock(&db->clauseToStatementIdMutex);
+            trieRemove(db->clauseToStatementId,
+                       statementClause(oldStmtPtr),
+                       results, maxResults);
+            pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
-            // TODO: Should we accept a StatementRef and enforce that
-            // is what gets removed?
-            Statement* oldStmtPtr = statementAcquire(db, oldStmt);
-            if (oldStmtPtr) {
-                // We deindex the old statement immediately, but we
-                // leave it to the caller to actually remove it (and
-                // therefore remove all its children).
-                pthread_mutex_lock(&db->clauseToStatementIdMutex);
-                trieRemove(db->clauseToStatementId,
-                           statementClause(oldStmtPtr),
-                           results, maxResults);
-                pthread_mutex_unlock(&db->clauseToStatementIdMutex);
-
-                statementRelease(db, oldStmtPtr);
-            } else if (oldStmt.idx != 0) {
-                fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",
-                        oldStmt.idx, oldStmt.gen);
-            }
-
-            /* assert(nRemoved == 1); */
-            /* assert(results[0] == oldStmt.val); */
-
-            if (outOldStatement) { *outOldStatement = oldStmt; }
+            statementRelease(db, oldStmtPtr);
+        } else if (oldStmt.idx != 0) {
+            fprintf(stderr, "Somehow old statement from Hold (%d:%d) was already removed?\n",
+                    oldStmt.idx, oldStmt.gen);
         }
 
+        /* assert(nRemoved == 1); */
+        /* assert(results[0] == oldStmt.val); */
+
+        if (outOldStatement) { *outOldStatement = oldStmt; }
+
+        pthread_mutex_unlock(&db->holdsMutex);
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
-        pthread_mutex_unlock(&hold->mutex);
+        pthread_mutex_unlock(&db->holdsMutex);
         return STATEMENT_REF_NULL;
     }
 }
