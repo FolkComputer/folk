@@ -531,7 +531,9 @@ void workerRun(WorkQueueItem item) {
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
-        reactToNewStatement(ref, item.assert.clause);
+        if (!statementRefIsNull(ref)) {
+            reactToNewStatement(ref, item.assert.clause);
+        }
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
@@ -568,7 +570,9 @@ void workerRun(WorkQueueItem item) {
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.say.clause, item.say.parent);
-        reactToNewStatement(ref, item.say.clause);
+        if (!statementRefIsNull(ref)) {
+            reactToNewStatement(ref, item.say.clause);
+        }
 
     } else if (item.op == RUN) {
         /* printf("@%d: Run when (%.100s)\n", self->index, clauseToString(item.run.whenPattern)); */
