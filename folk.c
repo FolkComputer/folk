@@ -546,7 +546,9 @@ void workerRun(WorkQueueItem item) {
         newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
                                  item.hold.clause,
                                  &oldRef);
-        reactToNewStatement(newRef, item.hold.clause);
+        if (!statementRefIsNull(newRef)) {
+            reactToNewStatement(newRef, item.hold.clause);
+        }
 
         // TODO: Impose a hop limit after which we should carry out the removal.
 
