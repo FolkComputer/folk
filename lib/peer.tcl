@@ -66,6 +66,6 @@ proc ::peer {process {dieOnDisconnect false}} {
             Mailbox::create $::thisProcess $process
             Mailbox::create $process $::thisProcess
         }
-        init
-    } $process $dieOnDisconnect
+    }
+    ::Peers::${process}::init $process $dieOnDisconnect
 }
