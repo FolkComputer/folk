@@ -594,13 +594,21 @@ if {[info exists ::entry]} {
             dict set ::rootVirtualPrograms $programFilename [read $fp]
             close $fp
         }
+
+        # Load the setup program -- setup.folk.default gets overridden
+        # if the user made their own setup.folk.
+        loadProgram [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                           "$::env(HOME)/folk-live/setup.folk" :
+                           "setup.folk.default"}]
+
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
             if {[string match "*/_archive/*" $programFilename] ||
-                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
+                [string match "*/folk-printed-programs/*" $programFilename] ||
+                [string match "*/setup.folk" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
