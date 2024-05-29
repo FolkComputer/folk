@@ -78,11 +78,11 @@ set mainDetectorProcess [Start process {
     set detector [apply $makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+        [list /someone/ claims camera /any/ has frame /grayFrame/ at /timestamp/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
 
-    When the camera frame is /grayFrame/ at /timestamp/ {
+    When camera /any/ has frame /grayFrame/ at /timestamp/ {
         set aprilTime [time {
             set tags [$detector detect $grayFrame]
         }]
@@ -96,7 +96,7 @@ Start process {
     set detector [apply $makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+        [list /someone/ claims camera /any/ has frame /grayFrame/ at /timestamp/]
     Wish $::thisProcess receives statements like \
         [list /someone/ claims $mainDetectorProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
@@ -120,7 +120,7 @@ Start process {
         }
     }
 
-    When the camera frame is /grayFrame/ at /timestamp/ & \
+    When camera /any/ has frame /grayFrame/ at /timestamp/ & \
          /process/ detects tags /prevTags/ at /something/ in time /something/ {
 
         if {$process eq $::thisProcess} { return }
