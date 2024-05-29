@@ -95,8 +95,8 @@ When (non-capturing) the calibration is /calibration/ &\
     set undistort {{calibrationCameraWidth calibrationCameraHeight
                     tagCameraWidth tagCameraHeight
                     fx fy cx cy k1 k2 x y} {
-        set x [expr {$x * ($calibrationCameraWidth / $tagCameraWidth)}]
-        set y [expr {$y * ($calibrationCameraHeight / $tagCameraHeight)}]
+        set x [expr {$x * $calibrationCameraWidth / $tagCameraWidth}]
+        set y [expr {$y * $calibrationCameraHeight / $tagCameraHeight}]
 
         set x [expr {($x - $cx)/$fx}]
         set y [expr {($y - $cy)/$fy}]
