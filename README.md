@@ -214,7 +214,7 @@ not the PS for it to work, probably)
    http://whatever.local:4273 and make a new program and save it:
    
    ```
-   When the camera frame is /im/ {
+   When camera /any/ has frame /f/ at timestamp /any/ {
      Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
        # set width [dict get $im width]
        # set height [dict get $im height]

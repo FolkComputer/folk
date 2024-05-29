@@ -8,12 +8,8 @@ namespace import ::math::linearalgebra::add \
 	::math::linearalgebra::angle \
 	::math::linearalgebra::solvePGauss
 
-When the camera frame is /f/ {
-  Claim the camera Camera has width [dict get $f width] height [dict get $f height]
-}
-
 When the display /display/ has width /displayWidth/ height /displayHeight/ &\
-     the camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
+     camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
     puts "Evaluating calibration for $camera ($cameraWidth x $cameraHeight)"
     # camera (tag) point -> projection point
     # calibration for Hex

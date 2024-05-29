@@ -312,7 +312,7 @@ namespace eval ::image {
 
 # Callback: extract out a camera slice
 When /someone/ wishes /p/ has camera slice & \
-     the camera frame is /f/ & \
+     camera /any/ has frame /f/ at /timestamp/ & \
      /p/ has region /r/ {
 
     # Convert region in projector coordinates to camera

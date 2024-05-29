@@ -311,7 +311,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # A list of dictionaries. Each dictionary has entries `model` and
     # `H_modelToDisplay` ('prewarp' homography from model plane to
     # projector plane) and `tags` (tag ID => dictionary of tag
-    # detection info from camera and AprilTag detector).
+    # detection info from camera and AprilTag detector) and
+    # `displayResolution` and `cameraResolution`.
     #
     # We'll want at least 10 poses to do ultimate
     # calibration+refinement.
@@ -401,7 +402,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
                 Wish to draw text with text $text radians $radians \
                     position [applyHomography $H_modelToDisplay $modelPosition] \
-                    anchor center color black layer 100 scale 3.0
+                    anchor center color black layer 100 scale 2.0
             }
         }
     }
@@ -594,7 +595,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
         catch { exec mkdir "$::env(HOME)/folk-calibration-poses" }
-        image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims the camera frame is /frame/]] 0] frame] \
+        image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at /any/]] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
 
         # OK, let's save this calibration pose.
@@ -851,4 +852,4 @@ When /nobody/ claims the calibration is /anything/ &\
 }
 
 # HACK: for fast testing
-Claim the printed tag side length is 17 mm
+# Claim the printed tag side length is 17 mm
