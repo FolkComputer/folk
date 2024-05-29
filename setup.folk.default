@@ -1,1 +1,4 @@
+# Copy this file to ~/folk-live/setup.folk and edit it to make
+# changes.
+
 Assert $this wishes to use camera "/dev/video0" with width 1280 height 720
