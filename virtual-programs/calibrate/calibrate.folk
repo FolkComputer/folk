@@ -619,9 +619,10 @@ When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[llength $::calibrationPoses] >= $CALIBRATION_POSES_MAX} {
             puts "READY CALIBARTION POSES!"
 
-            catch {exec rm "$::env(HOME)/folk-calibration-output.txt"}
+            catch { exec mkdir "$::env(HOME)/folk-live" }
+            catch {exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"}
 
-            set fd [open "$::env(HOME)/folk-calibration-poses.txt" w]
+            set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
             Commit calibration { Claim the calibration poses are $::calibrationPoses }
@@ -825,11 +826,11 @@ fn calibrate {calibrationPoses} {
     return $calibration
 }
 try {
-    set fd [open "$::env(HOME)/folk-calibration-poses.txt" r]
+    set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-calibration-output.txt"]} {
-        set fd [open "$::env(HOME)/folk-calibration-output.txt" r]
+    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+        set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
         set calibration [read $fd]; close $fd
         puts "READING CALIB"
         Commit calibration {
@@ -862,7 +863,7 @@ When /nobody/ claims the calibration is /anything/ &\
         Claim the calibration poses are $calibrationPoses
         Claim the calibration is $calibration
     }
-    set fd [open "$::env(HOME)/folk-calibration-output.txt" w]
+    set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
 }
 
