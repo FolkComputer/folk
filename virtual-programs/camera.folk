@@ -356,7 +356,7 @@ When /someone/ wishes to use camera /cameraPath/ with /...options/ {
         }
 
         # TODO: report actual width and height from v4l2
-        Claim camera $camera has width $width height $height
+        Claim camera $cameraPath has width $width height $height
 
         puts "camera.folk: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
