@@ -1,3 +1,5 @@
+# 2D planar calibration.
+
 if {$::isLaptop} { return }
 
 package require math::linearalgebra
@@ -17,6 +19,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
         if {[file exists "$::env(HOME)/folk-live/generated-calibration.tcl"]} {
             source "$::env(HOME)/folk-live/generated-calibration.tcl"
         } else {
+            # For backward compatibility:
             source "$::env(HOME)/generated-calibration.tcl"
         }
         set points [list]
@@ -120,11 +123,11 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     }
 }
 
-When (non-capturing) tag /tag/ has corners /corners/ {
+When (non-capturing) tag /tag/ has detection info /det/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 48600} { return }
 
-    set tagCorners [lmap p $corners {::cameraToProjector $p}]
+    set tagCorners [lmap p [dict get $det p] {::cameraToProjector $p}]
 
     set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
     set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
