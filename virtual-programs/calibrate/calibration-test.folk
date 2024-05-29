@@ -81,7 +81,8 @@ When (non-capturing) the calibration is /calibration/ {
 }
 
 set ::oldPointPairs [dict create]
-When (non-capturing) the calibration is /calibration/ & \
+When (non-capturing) the calibration is /calibration/ &\
+     camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      tag /tag/ has detection info /det/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     # And they're different sizes, so we don't want to use them.
@@ -91,7 +92,12 @@ When (non-capturing) the calibration is /calibration/ & \
     
     # https://yangyushi.github.io/code/2020/03/04/opencv-undistort.html
     # https://stackoverflow.com/questions/61798590/understanding-legacy-code-algorithm-to-remove-radial-lens-distortion
-    set undistort {{fx fy cx cy k1 k2 x y} {
+    set undistort {{calibrationCameraWidth calibrationCameraHeight
+                    tagCameraWidth tagCameraHeight
+                    fx fy cx cy k1 k2 x y} {
+        set x [expr {$x * ($calibrationCameraWidth / $tagCameraWidth)}]
+        set y [expr {$y * ($calibrationCameraHeight / $tagCameraHeight)}]
+
         set x [expr {($x - $cx)/$fx}]
         set y [expr {($y - $cy)/$fy}]
         for {set i 0} {$i < 3} {incr i} {
@@ -139,6 +145,8 @@ When (non-capturing) the calibration is /calibration/ & \
     set R_cameraToProjector [dict get $calibration R_cameraToProjector]
     set t_cameraToProjector [dict get $calibration t_cameraToProjector]
 
+    set calibrationCameraResolution [dict get $calibration cameraResolution]
+
     set p [dict get $det p]
     # for {set i 0} {$i < 4} {incr i} {
     #     puts "$tag-$i,[join [lindex $p $i] ,]"
@@ -149,7 +157,9 @@ When (non-capturing) the calibration is /calibration/ & \
     # Before estimating pose, undistort the corners of
     # cameraTag using the camera distortion coefficients.
     set p [lmap cameraCorner [dict get $det p] {
-        apply $undistort $cameraFx $cameraFy $cameraCx $cameraCy \
+        apply $undistort {*}$calibrationCameraResolution \
+            $cameraWidth $cameraHeight \
+            $cameraFx $cameraFy $cameraCx $cameraCy \
             $cameraK1 $cameraK2 \
             {*}$cameraCorner
     }]

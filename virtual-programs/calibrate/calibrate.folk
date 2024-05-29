@@ -291,10 +291,15 @@ Wish the GPU compiles pipeline "apriltag" {
         return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
     }
 }
-When the display Display has width /displayWidth/ height /displayHeight/ &\
+When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
+     the display Display has width /displayWidth/ height /displayHeight/ &\
      the printed tag side length is /printedSideLengthMm/ mm {
     # Project projected tags once the printed side length has been
     # dialed in.
+
+    puts "RETRET"
+    Retract /someone/ wishes to use camera "/dev/video0" with width 1280 height 720
+    Assert $this wishes to use camera "/dev/video0" with width 1920 height 1080
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -317,6 +322,7 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
     # We'll want at least 10 poses to do ultimate
     # calibration+refinement.
     set ::calibrationPoses [list]
+    set FLAT_POSES_MAX 2
     set CALIBRATION_POSES_MAX 10
 
     # Project calibration tags based on the current model-to-display
@@ -388,7 +394,11 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         When the clock time is /t/ {
             # HACK: imperatively checks ::calibrationPoses every
             # frame.
-            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
+            if {[llength $::calibrationPoses] < $FLAT_POSES_MAX} {
+                set text "[llength $::calibrationPoses]/$FLAT_POSES_MAX flat poses"
+            } else {
+                set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
+            }
             foreach side $sides {
                 lassign $side start end
                 set segment [sub $end $start]
@@ -559,6 +569,8 @@ When the display Display has width /displayWidth/ height /displayHeight/ &\
         set pose [dict create \
                       model $model \
                       version $version \
+                      cameraResolution [list $cameraWidth $cameraHeight] \
+                      displayResolution [list $displayWidth $displayHeight] \
                       H_cameraToDisplay $H_cameraToDisplay \
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
@@ -778,8 +790,11 @@ fn calibrate {calibrationPoses} {
     set projectorCalibration [zhangUnrefinedCalibrate $Hs_modelToDisplay]
     puts "\n======================\n"
 
-    set calibration [dict create camera $cameraCalibration \
-                         projector $projectorCalibration]
+    set calibration [dict create \
+                         camera $cameraCalibration \
+                         projector $projectorCalibration \
+                         cameraResolution [dict get [lindex $calibrationPoses 0] cameraResolution] \
+                         projectorResolution [dict get [lindex $calibrationPoses 0] displayResolution]]
 
     # What are R and t such that
     # R*cameraFramePoint + t = projectorFramePoint?
