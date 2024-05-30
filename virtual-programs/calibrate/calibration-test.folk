@@ -80,7 +80,6 @@ When (non-capturing) the calibration is /calibration/ {
     puts "======================"
 }
 
-set ::oldPointPairs [dict create]
 When (non-capturing) the calibration is /calibration/ &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      tag /tag/ has detection info /det/ {
@@ -119,7 +118,6 @@ When (non-capturing) the calibration is /calibration/ &\
 
     set tagSize [expr {31.5 / 1000}]; # 31.5 mm
     set tagOuterSize [expr {$tagSize * 10/6}]
-    # set tagOuterSize $tagSize
     set tagFrameCorners \
         [list [list [expr {-$tagOuterSize/2}] [expr {$tagOuterSize/2}]  0] \
               [list [expr {$tagOuterSize/2}]  [expr {$tagOuterSize/2}]  0] \
@@ -148,11 +146,6 @@ When (non-capturing) the calibration is /calibration/ &\
     set calibrationCameraResolution [dict get $calibration cameraResolution]
 
     set p [dict get $det p]
-    # for {set i 0} {$i < 4} {incr i} {
-    #     puts "$tag-$i,[join [lindex $p $i] ,]"
-    # }
-    # set H [dict get $det H]
-    # puts "$tag-H,[join [lmap row $H {join $row ,}] ,]"
 
     # Before estimating pose, undistort the corners of
     # cameraTag using the camera distortion coefficients.
@@ -169,19 +162,6 @@ When (non-capturing) the calibration is /calibration/ &\
                         [list 1 1 {*}[lindex $p 1]] \
                         [list 1 -1 {*}[lindex $p 2]] \
                         [list -1 -1 {*}[lindex $p 3]]]
-    # for {set i 0} {$i < 4} {incr i} {
-    #     puts "$tag-$i,[lindex $p $i]"
-    # }
-    # if {[dict exists $::oldPointPairs $tag]} {
-    #     set alpha 0.9
-    #     set pointPairs [lmap oldPt [dict get $::oldPointPairs $tag] pt $pointPairs {
-    #         lmap o $oldPt p $pt {
-    #             expr {$alpha * $p + (1 - $alpha) * $o}
-    #         }
-    #     }]
-    #     dict set det p [lmap pt $pointPairs {list [lindex $pt 2] [lindex $pt 3]}]
-    # }
-    # dict set ::oldPointPairs $tag $pointPairs
 
     set H [concat {*}[apply $::estimateHomography $pointPairs]]
     dict set det H $H
@@ -212,5 +192,9 @@ When (non-capturing) the calibration is /calibration/ &\
         lappend projectorCorners [list $distortedProjX $distortedProjY]
     }
     lappend projectorCorners [lindex $projectorCorners 0]
+
+    # TODO: establish directed quad
+    # Claim tag $tag has directed quad $projectorCorners
+
     Wish to draw a stroke with points $projectorCorners width 3 color white
 }
