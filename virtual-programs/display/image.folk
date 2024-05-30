@@ -1,10 +1,7 @@
 On process "display" {
-    set invBilinear $::invBilinear
-    set rotate $::rotate
-    # TODO: Do this with a wish, instead of hard-coding the global dict.
-    dict set ::pipelines "image" [Gpu::pipeline {sampler2D image vec2 imageSize
-                              vec2 pos float radians vec2 scale vec4 crop
-                              fn rotate} {
+    Wish the GPU compiles pipeline "image" {{sampler2D image vec2 imageSize
+                                             vec2 pos float radians vec2 scale vec4 crop
+                                             fn rotate} {
         vec2 a = pos + rotate(scale*-imageSize/2, -radians);
         vec2 b = pos + rotate(scale*vec2(imageSize.x, -imageSize.y)/2, -radians);
         vec2 c = pos + rotate(scale*imageSize/2, -radians);
@@ -25,7 +22,7 @@ On process "display" {
             }
         }
         return vec4(0.0, 0.0, 0.0, 0.0);
-    }]
+    }}
 
     When the GPU has loaded /nfonts/ fonts {
         namespace eval ::ImageCache {
