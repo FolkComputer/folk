@@ -188,7 +188,12 @@ set ::toCommit [dict create]
 proc Commit {args} {
     upvar this this
     set body [lindex $args end]
-    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    if {[lindex $args 0] eq "(globally)"} {
+        set args [lreplace $args 0 0]
+        set key [list Commit {*}[lreplace $args end end]]
+    } else {
+        set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    }
     if {$body eq ""} {
         dict set ::toCommit $key $body
     } else {
