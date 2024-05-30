@@ -158,76 +158,77 @@ fn meanPoseDifference {pose1 pose2} {
     return [mean {*}$differences]
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL ^isPrintedTag ^estimateHomography ^applyHomography} {
-    set calibrationBoardPs [apply {{MODEL ^isPrintedTag ^estimateHomography ^applyHomography} {
-        set marginTop 72; set marginLeft 36
-        set PageWidth 612; set PageHeight 792
+fn makeCalibrationBoardPdf {model tagSideLengthPs} {
+    set marginTop 72; set marginLeft 36
+    set PageWidth 612; set PageHeight 792
 
-        set innerToOuter 0.333333
+    set innerToOuter 0.333333
 
-        set tagSideLengthPs 50
-        set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
+    set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
 
-        set H_modelToPs [estimateHomography [subst {
-            {1 1 $tagSideLengthPs $tagSideLengthPs}
-            {1 0 $tagSideLengthPs 0}
-            {0 1 0 $tagSideLengthPs}
-            {0 0 0 0}
-        }]]
+    set H_modelToPs [estimateHomography [subst {
+        {1 1 $tagSideLengthPs $tagSideLengthPs}
+        {1 0 $tagSideLengthPs 0}
+        {0 1 0 $tagSideLengthPs}
+        {0 0 0 0}
+    }]]
 
-        subst {
-            %!PS
-            << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+    set ps [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
 
-            % (0, 0) is bottom-left of portrait page right now.
-            90 rotate 1 -1 scale
-            % Now (0, 0) is top-left of landscape page.
+        % (0, 0) is bottom-left of portrait page right now.
+        90 rotate 1 -1 scale
+        % Now (0, 0) is top-left of landscape page.
 
-            gsave
-            $marginLeft [- $marginTop 18] translate
-            1 -1 scale
-            0 setgray /Helvetica findfont 14 scalefont setfont
-            newpath 0 0 moveto (Folk calibration board) show
-            grestore
+        gsave
+        $marginLeft [- $marginTop 18] translate
+        1 -1 scale
+        0 setgray /Helvetica findfont 14 scalefont setfont
+        newpath 0 0 moveto (Folk calibration board) show
+        grestore
 
-            $marginLeft $marginTop translate
+        $marginLeft $marginTop translate
 
-            [set tagIdx -1]
-            [join [dict values [dict map {id modelTag} $MODEL {
-                if {![isPrintedTag $id]} { continue }
-                incr tagIdx
+        [set tagIdx -1]
+        [join [dict values [dict map {id modelTag} $model {
+            if {![isPrintedTag $id]} { continue }
+            incr tagIdx
 
-                set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
-                set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
-                lassign [applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
-                subst {
+            set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
+            set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
+            lassign [applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            subst {
+                gsave
+                $psX [+ $psY $tagOuterLengthPs] translate
+                $tagOuterLengthPs -$tagOuterLengthPs scale
+                [::tagPsForId $id]
+                grestore
+
+                % Label the inner side length:
+                [if {$tagIdx == 3} { subst {
                     gsave
-                    $psX [+ $psY $tagOuterLengthPs] translate
-                    $tagOuterLengthPs -$tagOuterLengthPs scale
-                    [::tagPsForId $id]
+                    [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
+                    [expr {$psY - 15}] translate
+                    1 -1 scale
+                    0.1 0.67 0.1 setrgbcolor
+                    newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
+                    newpath 0 0 moveto 0 -5 lineto stroke
+                    newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
+                    /Helvetica findfont 7 scalefont setfont
+                    newpath 0 5 moveto (inner side length) show
                     grestore
+                } }]
+            }
+        }]] "\n"]
+    }]
+    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set pdf [read $fp]; close $fp
+    return $pdf
+}
 
-                    % Label the inner side length:
-                    [if {$tagIdx == 3} { subst {
-                        gsave
-                        [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
-                        [expr {$psY - 15}] translate
-                        1 -1 scale
-                        0.1 0.67 0.1 setrgbcolor
-                        newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
-                        newpath 0 0 moveto 0 -5 lineto stroke
-                        newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
-                        /Helvetica findfont 7 scalefont setfont
-                        newpath 0 5 moveto (inner side length) show
-                        grestore
-                    } }]
-                }
-            }]] "\n"]
-        }
-    }} $MODEL ${^isPrintedTag} ${^estimateHomography} ${^applyHomography}]
-
-    set fp [open [list |ps2pdf - - <<$calibrationBoardPs] rb]
-    set calibrationBoardPdf [read $fp]; close $fp
+Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL ^makeCalibrationBoardPdf} {
+    set calibrationBoardPdf [makeCalibrationBoardPdf $MODEL 50]
 
     upvar ^html ^html
     html [csubst {
@@ -275,7 +276,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
       </body>
     </html>
   }]
-}} $MODEL ${^isPrintedTag} ${^estimateHomography} ${^applyHomography}]
+}} $MODEL ${^makeCalibrationBoardPdf}]
 
 Wish the GPU compiles pipeline "apriltag" {
     {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
@@ -297,7 +298,6 @@ When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project projected tags once the printed side length has been
     # dialed in.
 
-    puts "RETRET"
     Retract /someone/ wishes to use camera "/dev/video0" with width 1280 height 720
     Assert $this wishes to use camera "/dev/video0" with width 1920 height 1080
 
