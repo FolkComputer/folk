@@ -1596,7 +1596,9 @@ Start-display-process {
         [list /someone/ has error /err/ with info /errorInfo/]
 
     set ::pipelines [dict create]
+    set ::pipelineSources [dict create]
     set ::fns [dict create]
+    set ::fnSources [dict create]
 
     Claim the GPU is ready
 
@@ -1611,16 +1613,18 @@ Start-display-process {
         # compilation.
         foreach match [Statements::findMatches {/wisher/ wishes the GPU compiles function /name/ /source/}] {
             dict with match {
-                if {[dict exists $::fns $name]} { continue }
+                if {[dict exists $::fns $name] &&
+                    [dict get $::fnSources $name] eq $source} { continue }
 
                 try {
                     dict with ::fns {
                         set fn [Gpu::fn {*}$source]
                     }
                     dict set ::fns $name $fn
+                    dict set ::fnSources $name $source
 
                 } trap {FN_NOT_FOUND} {notFoundName} {
-                    puts stderr "GPU compiles function $name: Function not found: $notFoundName"
+                    # puts stderr "GPU compiles function $name: Function not found: $notFoundName"
                 } on error e {
                     puts stderr "Error: GPU compiles function $name: $::errorInfo"
                     Say $wisher has error $e with info $::errorInfo
@@ -1629,15 +1633,17 @@ Start-display-process {
         }
         foreach match [Statements::findMatches {/wisher/ wishes the GPU compiles pipeline /name/ /source/}] {
             dict with match {
-                if {[dict exists $::pipelines $name]} { continue }
+                if {[dict exists $::pipelines $name] &&
+                    [dict get $::pipelineSources $name] eq $source} { continue }
 
                 try {
                     dict with ::fns {
                         dict set ::pipelines $name [Gpu::pipeline {*}$source]
                     }
+                    dict set ::pipelineSources $name $source
 
                 } trap {FN_NOT_FOUND} {notFoundName} {
-                    puts stderr "GPU compiles pipeline $name: Function not found: $notFoundName"
+                    # puts stderr "GPU compiles pipeline $name: Function not found: $notFoundName"
                 } on error e {
                     puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
                     Say $wisher has error $e with info $::errorInfo
