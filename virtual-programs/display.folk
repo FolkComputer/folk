@@ -859,7 +859,7 @@ Try doing `sudo adduser folk render`."
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
                 if {![uplevel [list info exists $argname]]} {
-                    throw {FN_NOT_FOUND $argname} "Gpu::pipeline: $argname not found"
+                    throw [list FN_NOT_FOUND $argname] "Gpu::pipeline: $argname not found"
                 }
                 set fn [uplevel [list set $argname]]
                 set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
@@ -872,7 +872,7 @@ Try doing `sudo adduser folk render`."
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
                 if {![uplevel [list info exists $argname]]} {
-                    throw {FN_NOT_FOUND $argname} "Gpu::pipeline: $argname not found"
+                    throw [list FN_NOT_FOUND $argname] "Gpu::pipeline: $argname not found"
                 }
                 set fn [uplevel [list set $argname]]
                 set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
@@ -1595,10 +1595,51 @@ Start-display-process {
     Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
-    set ::pipelines [dict create]
-    set ::pipelineSources [dict create]
     set ::fns [dict create]
-    set ::fnSources [dict create]
+    proc ::tryCompileFn {wisher name source} {
+        try {
+            dict with ::fns {
+                set fn [Gpu::fn {*}$source]
+            }
+            dict set ::fns $name $fn
+
+            # Technically a misnomer: the function is just stored, not
+            # compiled until it's been inlined into a shader.
+            Claim the GPU compiles function $name to $fn
+
+        } trap {FN_NOT_FOUND} {} {
+            set notFoundName [lindex $::errorCode 1]
+            When the GPU compiles function $notFoundName to /anything/ {
+                ::tryCompileFn $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles function $name: $::errorInfo"
+            Say $wisher has error $e with info $::errorInfo
+        }
+    }
+    When /wisher/ wishes the GPU compiles function /name/ /source/ {
+        ::tryCompileFn $wisher $name $source
+    }
+
+    set ::pipelines [dict create]
+    proc ::tryCompilePipeline {wisher name source} {
+        try {
+            dict with ::fns {
+                dict set ::pipelines $name [Gpu::pipeline {*}$source]
+            }
+        } trap {FN_NOT_FOUND} {} {
+            set notFoundName [lindex $::errorCode 1]
+            When the GPU compiles function $notFoundName to /anything/ {
+                ::tryCompilePipeline $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
+            Say $wisher has error $e with info $::errorInfo
+        }
+    }
+    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+        ::tryCompilePipeline $wisher $name $source
+    }
 
     Claim the GPU is ready
 
@@ -1606,50 +1647,6 @@ Start-display-process {
         set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
         Step
         if {$macos} { update }
-
-        # HACK: we try to compile functions and pipelines every frame
-        # in case it takes a while for any dependency functions to
-        # show up, so eventually we get them all and can do
-        # compilation.
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU compiles function /name/ /source/}] {
-            dict with match {
-                if {[dict exists $::fns $name] &&
-                    [dict get $::fnSources $name] eq $source} { continue }
-
-                try {
-                    dict with ::fns {
-                        set fn [Gpu::fn {*}$source]
-                    }
-                    dict set ::fns $name $fn
-                    dict set ::fnSources $name $source
-
-                } trap {FN_NOT_FOUND} {notFoundName} {
-                    # puts stderr "GPU compiles function $name: Function not found: $notFoundName"
-                } on error e {
-                    puts stderr "Error: GPU compiles function $name: $::errorInfo"
-                    Say $wisher has error $e with info $::errorInfo
-                }
-            }
-        }
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU compiles pipeline /name/ /source/}] {
-            dict with match {
-                if {[dict exists $::pipelines $name] &&
-                    [dict get $::pipelineSources $name] eq $source} { continue }
-
-                try {
-                    dict with ::fns {
-                        dict set ::pipelines $name [Gpu::pipeline {*}$source]
-                    }
-                    dict set ::pipelineSources $name $source
-
-                } trap {FN_NOT_FOUND} {notFoundName} {
-                    # puts stderr "GPU compiles pipeline $name: Function not found: $notFoundName"
-                } on error e {
-                    puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
-                    Say $wisher has error $e with info $::errorInfo
-                }
-            }
-        }
 
         foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
             try {
@@ -1668,7 +1665,9 @@ Start-display-process {
                 }
 
             } on error e {
-                Say [dict get $match wisher] has error $e with info $::errorInfo
+                # FIXME: it's hard to report an error here, since this
+                # runs every frame.
+                puts stderr "display.folk: Error: [dict get $match wisher]: $e\n$::errorInfo"
             }
         }
 
