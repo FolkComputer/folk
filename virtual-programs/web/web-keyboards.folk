@@ -10,7 +10,7 @@ When the keyboards are /keyboards/ {
             <dt>$kb</dt>
             <dd>
               <code id="$kb-presses"></code><br>
-              <button onclick="send(`Assert web-keyboards wishes to print {Claim \$this is a keyboard with path $kb} with job id ` + String(Math.random()))">Print</button>
+              <button onclick="send(`Assert web-keyboards wishes to print {Claim \$this is a keyboard with path $kb} with job-id ` + String(Math.random()))">Print</button>
             </dd>
         } }] "\n"]
         </dl>
