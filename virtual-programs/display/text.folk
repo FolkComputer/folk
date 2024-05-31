@@ -138,23 +138,19 @@ On process "display" {
     }
     Claim the GPU has loaded [dict size $::FontCache] fonts
 
-    set rotate $::rotate
-    set invBilinear $::invBilinear
-    set glyphMsd [Gpu::fn {sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
+    Wish the GPU compiles function "glyphMsd" {{sampler2D atlas vec4 atlasGlyphBounds vec2 glyphUv} vec4 {
         vec2 atlasUv = mix(atlasGlyphBounds.xw, atlasGlyphBounds.zy, glyphUv);
         return texture(atlas, vec2(atlasUv.x, 1.0-atlasUv.y));
-    }]
-    set median [Gpu::fn {float r float g float b} float {
+    }}
+    Wish the GPU compiles function "median" {{float r float g float b} float {
         return max(min(r, g), min(max(r, g), b));
-    }]
-    # TODO: Do this with a wish, instead of hard-coding the global dict.
-    dict set ::pipelines "glyph" [Gpu::pipeline \
-                   {sampler2D atlas vec2 atlasSize
-                       vec4 atlasGlyphBounds
-                       vec4 planeGlyphBounds
-                       vec2 pos float radians float em
-                       vec4 color
-                       fn rotate} {
+    }}
+    Wish the GPU compiles pipeline "glyph" {{sampler2D atlas vec2 atlasSize
+                                             vec4 atlasGlyphBounds
+                                             vec4 planeGlyphBounds
+                                             vec2 pos float radians float em
+                                             vec4 color
+                                             fn rotate} {
          float left = planeGlyphBounds[0] * em;
          float bottom = planeGlyphBounds[1] * em;
          float right = planeGlyphBounds[2] * em;
@@ -187,7 +183,7 @@ On process "display" {
         float uGamma = 0.2;
         float opacity = smoothstep(uBuffer - uGamma, uBuffer + uGamma, sd);
         return vec4(color.rgb, opacity * color.a);
-    }]
+    }}
 
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes to draw text with /...options/]
