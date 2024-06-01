@@ -189,7 +189,7 @@ namespace eval statement {
     }
 
     variable negations [list nobody nothing]
-    variable blanks [list someone something anyone anything]
+    variable blanks [list someone something anyone anything any]
 
     # Splits a pattern by & into subpatterns, like
     #
