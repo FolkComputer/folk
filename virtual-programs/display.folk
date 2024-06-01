@@ -1578,16 +1578,10 @@ Start-display-process {
     source "virtual-programs/images.folk"
     namespace eval Gpu $makeGpu
 
-    if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
-        # HACK: we use HDMI1 instead of HDMI0 on these
-        Gpu::init 1
-    } else {
-        Gpu::init 0
-    }
-    Gpu::ImageManager::imageManagerInit
-
     source "lib/colors.tcl"
 
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes $::thisNode uses display /displayIdx/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
@@ -1595,96 +1589,99 @@ Start-display-process {
     Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
-    set ::fns [dict create]
-    proc ::tryCompileFn {wisher name source} {
-        try {
-            dict with ::fns {
-                set fn [Gpu::fn {*}$source]
-            }
-            dict set ::fns $name $fn
+    When /someone/ wishes $::thisNode uses display /displayIdx/ {
+        Gpu::init $displayIdx
+        Gpu::ImageManager::imageManagerInit
 
-            # Technically a misnomer: the function is just stored, not
-            # compiled until it's been inlined into a shader.
-            Claim the GPU compiles function $name to $fn
-
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
-            When the GPU compiles function $notFoundName to /anything/ {
-                ::tryCompileFn $wisher $name $source
-            }
-        } on error e {
-            puts stderr "Error: GPU compiles function $name: $::errorInfo"
-            Say $wisher has error $e with info $::errorInfo
-        }
-    }
-    When /wisher/ wishes the GPU compiles function /name/ /source/ {
-        ::tryCompileFn $wisher $name $source
-    }
-
-    set ::pipelines [dict create]
-    proc ::tryCompilePipeline {wisher name source} {
-        try {
-            dict with ::fns {
-                dict set ::pipelines $name [Gpu::pipeline {*}$source]
-            }
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
-            When the GPU compiles function $notFoundName to /anything/ {
-                ::tryCompilePipeline $wisher $name $source
-            }
-        } on error e {
-            puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
-            Say $wisher has error $e with info $::errorInfo
-        }
-    }
-    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
-        ::tryCompilePipeline $wisher $name $source
-    }
-
-    Claim the GPU is ready
-
-    while true {
-        set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
-        Step
-        if {$macos} { update }
-
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
+        set ::fns [dict create]
+        proc ::tryCompileFn {wisher name source} {
             try {
-                set name [dict get $match name]
-                set pipeline [dict get $::pipelines [dict get $match name]]
-
-                set options [dict get $match options]
-                set layer [dict_getdef $options layer 0]
-                if {[dict exists $options instances]} {
-                    set instances [dict get $options instances]
-                } else {
-                    set instances [list [dict get $options arguments]]
+                dict with ::fns {
+                    set fn [Gpu::fn {*}$source]
                 }
-                foreach instance $instances {
-                    dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
-                }
+                dict set ::fns $name $fn
 
+                # Technically a misnomer: the function is just stored, not
+                # compiled until it's been inlined into a shader.
+                Claim the GPU compiles function $name to $fn
+
+            } trap {FN_NOT_FOUND} {} {
+                set notFoundName [lindex $::errorCode 1]
+                When the GPU compiles function $notFoundName to /anything/ {
+                    ::tryCompileFn $wisher $name $source
+                }
             } on error e {
-                # FIXME: it's hard to report an error here, since this
-                # runs every frame.
-                puts stderr "display.folk: Error: [dict get $match wisher]: $e\n$::errorInfo"
+                puts stderr "Error: GPU compiles function $name: $::errorInfo"
+                Say $wisher has error $e with info $::errorInfo
             }
         }
+        When /wisher/ wishes the GPU compiles function /name/ /source/ {
+            ::tryCompileFn $wisher $name $source
+        }
 
-        set renderTime [baretime {
-            Gpu::drawStart
-            foreach layer [lsort -real [dict keys $::displayList]] {
-                set layerDisplayList [dict get $::displayList $layer]
-                foreach displayCommand $layerDisplayList {
-                    try { {*}$displayCommand } \
-                        on error e { puts stderr $::errorInfo }
+        set ::pipelines [dict create]
+        proc ::tryCompilePipeline {wisher name source} {
+            try {
+                dict with ::fns {
+                    dict set ::pipelines $name [Gpu::pipeline {*}$source]
+                }
+            } trap {FN_NOT_FOUND} {} {
+                set notFoundName [lindex $::errorCode 1]
+                When the GPU compiles function $notFoundName to /anything/ {
+                    ::tryCompilePipeline $wisher $name $source
+                }
+            } on error e {
+                puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
+                Say $wisher has error $e with info $::errorInfo
+            }
+        }
+        When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+            ::tryCompilePipeline $wisher $name $source
+        }
+
+        while true {
+            set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
+            Step
+            if {$macos} { update }
+
+            foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
+                try {
+                    set name [dict get $match name]
+                    set pipeline [dict get $::pipelines [dict get $match name]]
+
+                    set options [dict get $match options]
+                    set layer [dict_getdef $options layer 0]
+                    if {[dict exists $options instances]} {
+                        set instances [dict get $options instances]
+                    } else {
+                        set instances [list [dict get $options arguments]]
+                    }
+                    foreach instance $instances {
+                        dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
+                    }
+
+                } on error e {
+                    # FIXME: it's hard to report an error here, since this
+                    # runs every frame.
+                    puts stderr "display.folk: Error: [dict get $match wisher]: $e\n$::errorInfo"
                 }
             }
-            Gpu::drawEnd
-        }]
-        if {$macos} { Gpu::poll }
 
-        Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
+            set renderTime [baretime {
+                Gpu::drawStart
+                foreach layer [lsort -real [dict keys $::displayList]] {
+                    set layerDisplayList [dict get $::displayList $layer]
+                    foreach displayCommand $layerDisplayList {
+                        try { {*}$displayCommand } \
+                            on error e { puts stderr $::errorInfo }
+                    }
+                }
+                Gpu::drawEnd
+            }]
+            if {$macos} { Gpu::poll }
+
+            Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
+        }
     }
 }
 

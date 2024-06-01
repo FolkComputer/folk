@@ -340,7 +340,7 @@ set makeCamera {
     }
 }
 
-When /someone/ wishes to use camera /cameraPath/ with /...options/ {
+When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     set width [dict get $options width]
     set height [dict get $options height]
     Start process "camera $cameraPath $options" {

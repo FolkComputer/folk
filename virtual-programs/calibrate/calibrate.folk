@@ -298,8 +298,9 @@ When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project projected tags once the printed side length has been
     # dialed in.
 
-    Retract /someone/ wishes to use camera "/dev/video0" with width 1280 height 720
-    Assert $this wishes to use camera "/dev/video0" with width 1920 height 1080
+    # TODO: base it on the current camera
+    Retract /someone/ wishes $::thisNode uses camera "/dev/video0" with width 1280 height 720
+    Assert $this wishes $::thisNode uses camera "/dev/video0" with width 1920 height 1080
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
