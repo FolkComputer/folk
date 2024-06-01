@@ -222,6 +222,13 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
             }
         }]] "\n"]
     }]
+
+    # apply {{ps} {
+    #     set fp [open "/tmp/cali-[clock milliseconds].ps" w]
+    #     puts $fp $ps
+    #     close $fp
+    # }} $ps
+
     set fp [open [list |ps2pdf - - <<$ps] rb]
     set pdf [read $fp]; close $fp
     return $pdf
@@ -616,8 +623,11 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
         apply {{calibrationBoardPdf} {
             set fd [open "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]-model.pdf" w]
             puts $fd $calibrationBoardPdf; close $fd
-        }} [makeCalibrationBoardPdf $model [expr {1.0 / $printedSideLengthM * 50.0}] \
-                {{id} {return true}}]
+        }} [makeCalibrationBoardPdf \
+                [dict map {id tag} $model {
+                    dict create c [scale [/ 1.0 $printedSideLengthM] [dict get $tag c]] \
+                        p [scale [/ 1.0 $printedSideLengthM] [dict get $tag p]]
+                }] 50 {{id} {return true}}]
 
         # OK, let's save this calibration pose.
         lappend ::calibrationPoses $pose
