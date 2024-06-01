@@ -292,15 +292,17 @@ Wish the GPU compiles pipeline "apriltag" {
         return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
     }
 }
-When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
+When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
      display /any/ has width /displayWidth/ height /displayHeight/ &\
      the printed tag side length is /printedSideLengthMm/ mm {
     # Project projected tags once the printed side length has been
     # dialed in.
 
-    # TODO: base it on the current camera
-    Retract /someone/ wishes $::thisNode uses camera "/dev/video0" with width 1280 height 720
-    Assert $this wishes $::thisNode uses camera "/dev/video0" with width 1920 height 1080
+    if {$cameraWidth < 1920} {
+        Retract /someone/ wishes $::thisNode uses camera $cam with width $cameraWidth height $cameraHeight
+        Assert $this wishes $::thisNode uses camera $cam with width 1920 height 1080
+        # TODO: restore old camera resolution later
+    }
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
