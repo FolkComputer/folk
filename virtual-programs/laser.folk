@@ -2,7 +2,7 @@ return
 
 source vendor/blobdetect/blobdetect.tcl
 
-When camera /any/ has frame /grayFrame/ at /timestamp/ {
+When camera /any/ has frame /grayFrame/ at timestamp /timestamp/ {
     set blobTime [time {
         set threshold 250
         set blobs [::BlobDetect::detect $grayFrame $threshold]

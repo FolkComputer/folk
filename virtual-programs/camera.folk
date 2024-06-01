@@ -365,7 +365,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
             set frame [Camera::grayFrame $camera]
             Commit {
                 Claim camera $cameraPath has camera time $::stepTime
-                Claim camera $cameraPath has frame $frame at [clock milliseconds]
+                Claim camera $cameraPath has frame $frame at timestamp [clock milliseconds]
             }
             lappend ::oldFrames $frame
             if {[llength $::oldFrames] >= 10} {
