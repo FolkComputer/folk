@@ -406,9 +406,9 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
             # HACK: imperatively checks ::calibrationPoses every
             # frame.
             if {[llength $::calibrationPoses] < $FLAT_POSES_MAX} {
-                set text "[+ [llength $::calibrationPoses] 1]/$FLAT_POSES_MAX flat poses"
+                set text "[llength $::calibrationPoses]/$FLAT_POSES_MAX flat poses"
             } else {
-                set text "[+ [llength $::calibrationPoses] 1]/$CALIBRATION_POSES_MAX poses"
+                set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
             }
             foreach side $sides {
                 lassign $side start end
@@ -619,7 +619,7 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
         # Save the pose / camera image to a jpeg (for debugging purposes)
         catch { exec mkdir "$::env(HOME)/folk-calibration-poses" }
         image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at timestamp /any/]] 0] frame] \
-            "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]jpeg"
+            "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
         apply {{calibrationBoardPdf} {
             set fd [open "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]-model.pdf" w]
             puts $fd $calibrationBoardPdf; close $fd
