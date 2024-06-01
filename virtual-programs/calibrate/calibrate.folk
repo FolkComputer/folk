@@ -620,14 +620,14 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
         catch { exec mkdir "$::env(HOME)/folk-calibration-poses" }
         image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at timestamp /any/]] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
-        apply {{calibrationBoardPdf} {
-            set fd [open "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]-model.pdf" w]
-            puts $fd $calibrationBoardPdf; close $fd
-        }} [makeCalibrationBoardPdf \
-                [dict map {id tag} $model {
-                    dict create c [scale [/ 1.0 $printedSideLengthM] [dict get $tag c]] \
-                        p [scale [/ 1.0 $printedSideLengthM] [dict get $tag p]]
-                }] 50 {{id} {return true}}]
+        # apply {{calibrationBoardPdf} {
+        #     set fd [open "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]-model.pdf" w]
+        #     puts $fd $calibrationBoardPdf; close $fd
+        # }} [makeCalibrationBoardPdf \
+        #         [dict map {id tag} $model {
+        #             dict create c [scale [/ 1.0 $printedSideLengthM] [dict get $tag c]] \
+        #                 p [scale [/ 1.0 $printedSideLengthM] [dict get $tag p]]
+        #         }] 50 {{id} {return true}}]
 
         # OK, let's save this calibration pose.
         lappend ::calibrationPoses $pose
@@ -752,12 +752,6 @@ fn zhangUnrefinedCalibrate {Hs} {
     # out during nonlinear refinement.
     return [dict create intrinsics $A extrinsics $extrinsics \
                 k1 0 k2 0]
-}
-
-fn centroid {points} {
-    set sum {0 0 0}
-    foreach point $points { set sum [add $sum $point] }
-    return [scale [expr {1.0 / [llength $points]}] $sum]
 }
 
 # calibrationPoses is a list of N pose dictionaries. Each pose
