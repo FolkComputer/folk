@@ -1560,7 +1560,8 @@ proc Start-display-process {code} {
         Claim "fake-display-process" has program code \
             [list apply [list {makeGpu} $code] $makeGpu]
 
-        When the GPU is ready & /someone/ wishes program code /co/ runs on "display" {
+        When display /any/ has width /w/ height /h/ &\
+             /someone/ wishes program code /co/ runs on "display" {
             eval $co
         }
     } else {
