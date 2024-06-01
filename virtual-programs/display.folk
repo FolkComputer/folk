@@ -15,12 +15,6 @@ Try doing `sudo adduser folk render`."
             }
         }
     }
-    
-    if {$::isLaptop} {
-        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
-    } else {
-        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
-    }
 
     catch {rename dc ""}
     rename [c create] dc
@@ -244,7 +238,7 @@ Try doing `sudo adduser folk render`."
                 fprintf(stderr, "Gpu: Failed to create GLFW window surface\n"); exit(1);
             }
         } : [csubst {
-            // TODO: support multiple displays, pick best display mode
+            // TODO: support multiple displays
 
             uint32_t displayCount;
             vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
@@ -258,6 +252,8 @@ Try doing `sudo adduser folk render`."
 
             uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
             vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display, &modeCount, &modeProps);
+            // modeProps is now the 0th display mode, which is probably
+            // the best one (and we default to it for now).
 
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
@@ -265,7 +261,7 @@ Try doing `sudo adduser folk render`."
             createInfo.planeIndex = 0;
             createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
             createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-            createInfo.imageExtent = (VkExtent2D) { .width = $WIDTH, .height = $HEIGHT }; // TODO: find out
+            createInfo.imageExtent = modeProps.parameters.visibleRegion;
             if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
@@ -489,6 +485,8 @@ Try doing `sudo adduser folk render`."
             $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
         }
     }]
+    dc proc getWidth {} uint32_t { return swapchainExtent.width; }
+    dc proc getHeight {} uint32_t { return swapchainExtent.height; }
 
     proc defineVulkanHandleType {cc type} {
         set cc [uplevel {namespace current}]::$cc
@@ -767,8 +765,7 @@ Try doing `sudo adduser folk render`."
     # should be a push-constant parameter of the pipeline. Can only be
     # called between `drawStart` and `drawEnd`.
     proc draw {pipeline args} {
-        variable WIDTH; variable HEIGHT
-        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
+        set args [linsert $args 0 [list [getWidth] [getHeight]]]
 
         drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
     }
@@ -1587,11 +1584,15 @@ Start-display-process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
     Wish $::thisProcess shares statements like \
+        [list /someone/ claims display /any/ has width /w/ height /h/]
+    Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
     When /someone/ wishes $::thisNode uses display /displayIdx/ {
         Gpu::init $displayIdx
         Gpu::ImageManager::imageManagerInit
+
+        Claim display $displayIdx has width [Gpu::getWidth] height [Gpu::getHeight]
 
         set ::fns [dict create]
         proc ::tryCompileFn {wisher name source} {
@@ -1694,14 +1695,7 @@ When the display time is /displayTime/ {
 namespace eval ::Display {
     variable displayTime none
 
-    variable WIDTH
-    variable HEIGHT
     variable LAYER 0
-    if {$::tcl_platform(os) eq "Darwin"} {
-        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
-    } else {
-        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
-    }
 
     # TODO: Remove these / expel them to a shim page; these are only
     # for backward compatibility now.
@@ -1740,6 +1734,4 @@ namespace eval ::Display {
         warnDeprecated
         Wish to draw an image with x $x y $y image $im radians $radians scale $scale
     }
-
-    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
 }

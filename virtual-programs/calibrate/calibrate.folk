@@ -293,7 +293,7 @@ Wish the GPU compiles pipeline "apriltag" {
     }
 }
 When camera /any/ has width /cameraWidth/ height /cameraHeight/ &\
-     the display Display has width /displayWidth/ height /displayHeight/ &\
+     display /any/ has width /displayWidth/ height /displayHeight/ &\
      the printed tag side length is /printedSideLengthMm/ mm {
     # Project projected tags once the printed side length has been
     # dialed in.

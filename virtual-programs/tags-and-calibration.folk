@@ -10,7 +10,7 @@ namespace import ::math::linearalgebra::add \
 	::math::linearalgebra::angle \
 	::math::linearalgebra::solvePGauss
 
-When the display /display/ has width /displayWidth/ height /displayHeight/ &\
+When display /display/ has width /displayWidth/ height /displayHeight/ &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ {
     puts "Evaluating calibration for $camera ($cameraWidth x $cameraHeight)"
     # camera (tag) point -> projection point
