@@ -282,7 +282,7 @@ Wish the GPU compiles pipeline "apriltag" {
     {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[4] = vec2[4](a, b, d, c);
         return vertices[gl_VertexIndex];
-    } {fn ::invBilinear} {
+    } {fn invBilinear} {
         vec2 p = gl_FragCoord.xy;
         vec2 uv = invBilinear(p, a, b, c, d);
 
