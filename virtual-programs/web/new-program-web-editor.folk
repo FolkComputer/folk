@@ -15,7 +15,6 @@ Wish the web server handles route "/new" with handler {
 	    <p>
 	      <button onclick="handleSave()">Save</button>
 	      <button onclick="handlePrint()">Print</button>
-	      <button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button>
 
 		  <input id="regionAngleRange" type="range" value="0" min="0" max="360" step="0.1" oninput="this.nextElementSibling.value = `angle: ${this.value}&deg;`; regionAngle = this.value; handleDrag();">
           <output>angle: 0&deg;</output>
@@ -176,16 +175,9 @@ set errors [Statements::findMatches [list {${program}} has error /err/ with info
 	function handlePrint() {
 	  const code = document.getElementById("code").value;
 	  jobid = String(Math.random());
-	  send(`Assert web wishes to print {${code}} with job id {${jobid}}`);
+	  send(`Assert web wishes to print {${code}} with job-id {${jobid}}`);
 	  setTimeout(500, () => {
-	    send(`Retract web wishes to print {${code}} with job id {${jobid}}`);
-	  });
-	  document.getElementById('printback').style.display = '';
-	}
-	function handlePrintBack() {
-	  send(`Assert web wishes to print the back of job id {${jobid}}`);
-	  setTimeout(500, () => {
-	    send(`Retract web wishes to print the back of job id {${jobid}}`);
+	    send(`Retract web wishes to print {${code}} with job-id {${jobid}}`);
 	  });
 	}
 	</script>
