@@ -1,10 +1,11 @@
 source "lib/language.tcl"
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 
 exec sudo systemctl stop folk
 # TODO: Fix this hack.
 set thisPid [pid]
-foreach pid [try { exec pgrep tclsh8.6 } on error e { list }] {
+foreach pid [try { exec pgrep -f calibrate.tcl } on error e { list }] {
     if {$pid ne $thisPid} {
         try { exec kill -9 $pid } on error e { puts stderr $e }
     }
@@ -16,22 +17,24 @@ catch { exec v4l2-ctl --set-ctrl=focus_absolute=0 }
 catch { exec v4l2-ctl -c white_balance_automatic=0 }
 catch { exec v4l2-ctl -c auto_exposure=1 }
 
-# FIXME: These are hacks/stubs so we can just load images.folk
+# FIXME: These are hacks/stubs so we can just load Folk programs
 # without needing any other Folk stuff.
-proc When {args} {}
+proc When {args} {}; proc Start {args} {}; proc Claim {args} {}
 set ::isLaptop false
+set ::thisNode [info hostname]
 
-source "pi/Camera.tcl"
-source "pi/AprilTags.tcl"
-source "pi/Gpu.tcl"
+source "virtual-programs/camera.folk"
+namespace eval Camera $makeCamera
 
+source "virtual-programs/apriltags.folk"
+source "virtual-programs/display.folk"
+namespace eval Gpu $makeGpu
 source "virtual-programs/images.folk"
-source "pi/cUtils.tcl"
 
 # FIXME: adapt to camera spec
 # Camera::init 3840 2160
 Camera::init 1920 1080
-set tagfamily "tagStandard52h13"
+set tagFamily "tagStandard52h13"
 
 if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
     # HACK: we use HDMI1 instead of HDMI0 on these
@@ -365,7 +368,7 @@ puts "camera: $Camera::camera"
 set dense [findDenseCorrespondence]
 displayDenseCorrespondence $dense
 
-set detector [AprilTags new $tagfamily]
+set detector [apply $makeAprilTagDetector $tagFamily]
 set grayFrame [Camera::grayFrame]
 set tags [$detector detect $grayFrame]
 Camera::freeImage $grayFrame
@@ -430,7 +433,11 @@ if {[llength $keyCorrespondences] >= 4} {
 
     set keyCorrespondences [lrange $keyCorrespondences 0 3] ;# can only use 4 points
 
-    set fd [open "/home/folk/generated-calibration.tcl" w]
+    if {[file exists "$::env(HOME)/folk-live"]} {
+        set fd [open "$::env(HOME)/folk-live/generated-calibration.tcl" w]
+    } else {
+        set fd [open "$::env(HOME)/generated-calibration.tcl" w]
+    }
     puts $fd [subst {
         namespace eval generatedCalibration {
             variable cameraWidth $Camera::WIDTH

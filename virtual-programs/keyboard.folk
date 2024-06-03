@@ -47,7 +47,7 @@ set keyboardDevices [walkInputEventPaths]
 foreach keyboard $keyboardDevices {
     Claim the keyboards are $keyboardDevices
     Start process "keyboard-$keyboard" {
-        source "pi/KeyCodes.tcl"
+        source "lib/key-codes.tcl"
         set KEY_STATES [list up down repeat]
 
         Wish $::thisProcess shares statements like \

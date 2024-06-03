@@ -14,15 +14,17 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
                           ([info exists ::env(XDG_SESSION_TYPE)] &&
                            $::env(XDG_SESSION_TYPE) ne "tty")}]
     if {[info exists ::env(FOLK_ENTRY)]} {
-        set ::entry $::env(FOLK_ENTRY)
-    } elseif {$::isLaptop} {
-        set ::entry "laptop.tcl"
+        set ::entry [list source $::env(FOLK_ENTRY)]
     } else {
-        set ::entry "pi/pi.tcl"
+        set ::entry {
+            loadVirtualPrograms
+            forever { Step }
+        }
     }
 }
 
 source "lib/c.tcl"
+source "lib/c-utils.tcl"
 source "lib/trie.tcl"
 source "lib/evaluator.tcl"
 namespace eval Evaluator {
@@ -186,7 +188,13 @@ set ::toCommit [dict create]
 proc Commit {args} {
     upvar this this
     set body [lindex $args end]
-    set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    if {[lindex $args 0] eq "(on"} {
+        set userSpecifiedThis [string range [lindex $args 1] 0 end-1]
+        set args [lreplace $args 0 1]
+        set key [list Commit $userSpecifiedThis {*}[lreplace $args end end]]
+    } else {
+        set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    }
     if {$body eq ""} {
         dict set ::toCommit $key $body
     } else {
@@ -597,7 +605,8 @@ if {[info exists ::entry]} {
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
-            if {[string match "*/_archive/*" $programFilename]} { continue }
+            if {[string match "*/_archive/*" $programFilename] ||
+                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
@@ -666,5 +675,5 @@ if {[info exists ::entry]} {
     }
 
     source "./web.tcl"
-    source $::entry
+    eval $::entry
 }
