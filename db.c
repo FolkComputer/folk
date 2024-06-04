@@ -639,6 +639,14 @@ StatementRef dbHoldStatement(Db* db,
     }
     if (version > hold->version) {
         StatementRef oldStmt = hold->statement;
+        // TODO: Should we accept a StatementRef and enforce that
+        // is what gets removed?
+        Statement* oldStmtPtr = statementAcquire(db, oldStmt);
+        if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
+            statementRelease(db, oldStmtPtr);
+            pthread_mutex_unlock(&db->holdsMutex);
+            return STATEMENT_REF_NULL;
+        }
 
         hold->version = version;
 
@@ -648,9 +656,6 @@ StatementRef dbHoldStatement(Db* db,
         uint64_t results[10];
         size_t maxResults = sizeof(results)/sizeof(results[0]);
 
-        // TODO: Should we accept a StatementRef and enforce that
-        // is what gets removed?
-        Statement* oldStmtPtr = statementAcquire(db, oldStmt);
         if (oldStmtPtr) {
             // We deindex the old statement immediately, but we
             // leave it to the caller to actually remove it (and

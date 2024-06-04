@@ -11,7 +11,10 @@ typedef struct Clause {
 } Clause;
 #define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
 
+// Caller must free the string.
 char* clauseToString(Clause* c);
+
+bool clauseIsEqual(Clause* a, Clause* b);
 
 typedef struct Trie Trie;
 struct Trie {

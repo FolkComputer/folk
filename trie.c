@@ -21,6 +21,15 @@ char* clauseToString(Clause* c) {
     }
     return ret;
 }
+bool clauseIsEqual(Clause* a, Clause* b) {
+    if (a->nTerms != b->nTerms) { return false; }
+    for (int32_t i = 0; i < a->nTerms; i++) {
+        if (strcmp(a->terms[i], b->terms[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
 
 Trie* trieNew() {
     size_t size = sizeof(Trie) + 10*sizeof(Trie*);
