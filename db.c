@@ -479,7 +479,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
         // execution.
-        pthread_kill(match->workerThread, SIGUSR1);
+        // pthread_kill(match->workerThread, SIGUSR1);
     }
 }
 
