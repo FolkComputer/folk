@@ -270,11 +270,11 @@ void statementRelease(Db* db, Statement* stmt) {
         // Don't remove the clause; we want the trace to be able to
         // find it, and we don't want to reuse the slot.
 #else
-        Clause* stmtClause = statementClause(stmt);
-        for (int i = 0; i < stmtClause->nTerms; i++) {
-            free(stmtClause->terms[i]);
-        }
-        free(stmtClause);
+        /* Clause* stmtClause = statementClause(stmt); */
+        /* for (int i = 0; i < stmtClause->nTerms; i++) { */
+        /*     free(stmtClause->terms[i]); */
+        /* } */
+        /* free(stmtClause); */
 
         // How do we mark this statement slot as being fully free and
         // ready for reuse?
