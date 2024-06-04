@@ -504,7 +504,17 @@ Db* dbNew() {
 
     return ret;
 }
-Trie* dbGetClauseToStatementId(Db* db) { return db->clauseToStatementId; }
+
+// Used by trie-graph.folk. Avoid if you can.
+void dbLockClauseToStatementId(Db* db) {
+    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+}
+Trie* dbGetClauseToStatementId(Db* db) {
+    return db->clauseToStatementId;
+}
+void dbUnlockClauseToStatementId(Db* db) {
+    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+}
 
 // Query
 ResultSet* dbQuery(Db* db, Clause* pattern) {

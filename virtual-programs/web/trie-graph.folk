@@ -7,6 +7,10 @@ set trieLib [apply {{} {
     $cc include "trie.c"
     $cc code {
         typedef struct Db Db;
+        extern Db* db;
+
+        extern void dbLockClauseToStatementId(Db* db);
+        extern void dbUnlockClauseToStatementId(Db* db);
         extern Trie* dbGetClauseToStatementId(Db* db);
     }
     $cc proc trieTclify {Trie* trie} Jim_Obj* {
@@ -20,9 +24,12 @@ set trieLib [apply {{} {
         }
         return Jim_NewListObj(interp, objv, objc);
     }
-    $cc proc dbTrieTclify {Db* db} Jim_Obj* {
+    $cc proc dbTrieTclify {} Jim_Obj* {
+        dbLockClauseToStatementId(db);
         Trie* trie = dbGetClauseToStatementId(db);
-        return trieTclify(trie);
+        Jim_Obj* ret = trieTclify(trie);
+        dbUnlockClauseToStatementId(db);
+        return ret;
     }
     $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
         int nTerms = Jim_ListLength(interp, clauseObj);
@@ -93,7 +100,7 @@ set trieLib [apply {{} {
     return [$cc compile]
 }}]
 
-set trieDotify {{trieLib db} {
+set trieDotify {{trieLib} {
     local proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
         regsub -all {\W+} $word "_"
@@ -118,7 +125,7 @@ set trieDotify {{trieLib db} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot [$trieLib dbTrieTclify $db]] }"
+    return "digraph { rankdir=LR; [subdot [$trieLib dbTrieTclify]] }"
 }}
 
 set getDotAsPdf {{dot} {
@@ -128,9 +135,7 @@ set getDotAsPdf {{dot} {
 }}
 
 Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{trieLib trieDotify getDotAsPdf} {
-    __dbLock
-    set dot [apply $trieDotify $trieLib [__db]]
-    __dbUnlock
+    set dot [apply $trieDotify $trieLib]
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
