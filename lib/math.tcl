@@ -109,6 +109,18 @@ namespace eval ::region {
         expr { $maxYp - $minYp }
     }
 
+    proc lsort-indices {index itemL} {
+        set pairL [list]
+        foreach item $itemL {
+            lappend pairL [list $item [llength $pairL]]
+        }
+        set indexL [list]
+        foreach pair [lsort -index [list 0 $index] -real $pairL] {
+            lappend indexL [lindex $pair 1]
+        }
+        set indexL
+    } 
+
     proc top {r} {
         # Returns the vec2 point at the top of the region.
         set rp [rotate $r [- [angle $r]]]
@@ -118,7 +130,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the topmost midpoint y-coordinate?
-        set topEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] 0]
+        set topEdgeIndex [lindex [lsort-indices 1 $edgeMidpoints] 0]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $topEdgeIndex]]
     }
     proc left {r} {
@@ -130,7 +142,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the leftmost midpoint y-coordinate?
-        set leftEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] 0]
+        set leftEdgeIndex [lindex [lsort-indices 0 $edgeMidpoints] 0]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $leftEdgeIndex]]
     }
     proc right {r} {
@@ -142,7 +154,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the rightmost midpoint y-coordinate?
-        set rightEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] end]
+        set rightEdgeIndex [lindex [lsort-indices 0 $edgeMidpoints] end]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $rightEdgeIndex]]
     }
     proc bottom {r} {
@@ -154,7 +166,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the bottommost midpoint y-coordinate?
-        set bottomEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] end]
+        set bottomEdgeIndex [lindex [lsort-indices 1 $edgeMidpoints] end]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $bottomEdgeIndex]]
     }
     proc bottomleft {r} {
