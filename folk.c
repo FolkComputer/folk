@@ -553,18 +553,17 @@ void workerRun(WorkQueueItem item) {
 
             // TODO: Impose a hop limit after which we should carry
             // out the removal.
-        
-            // We need to delay the react to removed statement until
-            // full subconvergence of the addition of the new
-            // statement.  or just mess with priorities so that the
-            // react to removed statement usually gets delayed?
-            if (!statementRefIsNull(oldRef)) {
-                workQueuePush(self->workQueue, (WorkQueueItem) {
-                        .op = REMOVE_PARENT,
-                        .thread = -1,
-                        .removeParent = { .stmt = oldRef }
-                    });
-            }
+        }
+        // We need to delay the react to removed statement until
+        // full subconvergence of the addition of the new
+        // statement.  or just mess with priorities so that the
+        // react to removed statement usually gets delayed?
+        if (!statementRefIsNull(oldRef)) {
+            workQueuePush(self->workQueue, (WorkQueueItem) {
+                    .op = REMOVE_PARENT,
+                    .thread = -1,
+                    .removeParent = { .stmt = oldRef }
+                });
         }
 
     } else if (item.op == SAY) {
