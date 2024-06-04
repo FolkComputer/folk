@@ -202,8 +202,11 @@ static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     int nResults = (int) rs->nResults;
     Jim_Obj* resultObjs[nResults];
+    size_t resultObjsCount = 0;
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
+        if (result == NULL) { continue; }
+
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
@@ -215,13 +218,13 @@ static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
             envDict[(j+1)*2+1] = env->bindings[j].value;
         }
 
-        resultObjs[i] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
+        resultObjs[resultObjsCount++] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         free(env);
         statementRelease(db, result);
     }
     free(pattern);
     free(rs);
-    Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, nResults));
+    Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, resultObjsCount));
     return JIM_OK;
 }
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
