@@ -17,13 +17,15 @@ Assert! when we are on {{} {
         puts "RUNNING HOLDS"
         for {set i 0} {$i < 200} {incr i} {
             Hold! counter [list X claims the counter is $i]
+            Hold! counter [list X claims the counter is $i]
         }
 
-        sleep 0.5
+        sleep 2
 
         puts "DONE: ([Query! /someone/ claims the counter is /t/])"
 
         source virtual-programs/web/trace.folk
+        source virtual-programs/web/index.folk
         source virtual-programs/web/web.folk
         # __exit 0
     }
