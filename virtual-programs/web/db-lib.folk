@@ -28,14 +28,14 @@ Claim the db library is [apply {{} {
 
     $cc proc statementParentCount {Db* db StatementRef stmtRef} int {
         Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewIntObj(interp, -1); }
+        if (stmt == NULL) { return -1; }
         int ret = stmt->parentCount;
         statementRelease(db, stmt);
         return ret;
     }
     $cc proc statementPtrCount {Db* db StatementRef stmtRef} int {
         Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewIntObj(interp, -1); }
+        if (stmt == NULL) { return -1; }
         int ret = stmt->ptrCount - 1;
         statementRelease(db, stmt);
         return ret;
