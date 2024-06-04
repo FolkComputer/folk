@@ -36,8 +36,10 @@ typedef union MatchRef {
 // pointer, or NULL if the ref is invalid. It increments the
 // statement's internal pointer counter so that it cannot be freed &
 // its gen and clause remain immutable.
-Statement* statementAcquire(Db* db, StatementRef stmt);
+Statement* statementAcquire(Db* db, StatementRef ref);
 void statementRelease(Db* db, Statement* stmt);
+
+bool statementCheck(Db* db, StatementRef ref);
 
 StatementRef statementRef(Db* db, Statement* stmt);
 
@@ -55,6 +57,8 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
 // remains immutable.
 Match* matchAcquire(Db* db, MatchRef match);
 void matchRelease(Db* db, Match* m);
+
+bool matchCheck(Db* db, MatchRef ref);
 
 void matchAddDestructor(Match* m, void (*fn)(void*), void* arg);
 

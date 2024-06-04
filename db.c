@@ -19,6 +19,7 @@ typedef struct ListOfEdgeTo {
     uint64_t edges[];
 } ListOfEdgeTo;
 #define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(uint64_t))
+typedef bool (*ListEdgeCheckerFn)(void* arg, uint64_t edge);
 
 // Statement datatype:
 
@@ -128,14 +129,18 @@ ListOfEdgeTo* listOfEdgeToNew(size_t capacityEdges) {
     ret->nEdges = 0;
     return ret;
 }
-static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr);
+static void listOfEdgeToDefragment(ListEdgeCheckerFn checker, void* checkerArg,
+                                   ListOfEdgeTo** listPtr);
 // Takes a double pointer to list because it may move the list to grow
-// it (requiring replacement of the original pointer).
-void listOfEdgeToAdd(ListOfEdgeTo** listPtr, uint64_t to) {
+// it (requiring replacement of the original pointer). checker is used
+// to discard any edges that have been invalidated if we defragment
+// (to prevent unlimited growth of the edge list).
+void listOfEdgeToAdd(ListEdgeCheckerFn checker, void* checkerArg,
+                     ListOfEdgeTo** listPtr, uint64_t to) {
     if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
         // We've run out of edge slots at the end of the
         // list. Try defragmenting the list.
-        listOfEdgeToDefragment(listPtr);
+        listOfEdgeToDefragment(checker, checkerArg, listPtr);
         if ((*listPtr)->nEdges == (*listPtr)->capacityEdges) {
             // Still no slots? Grow the statement to
             // accommodate.
@@ -159,19 +164,23 @@ void listOfEdgeToRemove(ListOfEdgeTo* list, uint64_t to) {
 }
 
 // Given listPtr, moves all non-EMPTY edges to the front, then updates
-// nEdges accordingly.
+// nEdges accordingly. Discards any edges for which checker(edge) is
+// false.
 //
 // Defragmentation is necessary to prevent continual growth of
 // the statement edgelist if you keep adding and removing
 // edges on the same statement.
-static void listOfEdgeToDefragment(ListOfEdgeTo** listPtr) {
+static void listOfEdgeToDefragment(ListEdgeCheckerFn checker, void* checkerArg,
+                                   ListOfEdgeTo** listPtr) {
     // Copy all non-EMPTY edges into a new edgelist.
     ListOfEdgeTo* list = calloc(SIZEOF_LIST_OF_EDGE_TO((*listPtr)->capacityEdges), 1);
     size_t nEdges = 0;
     for (size_t i = 0; i < (*listPtr)->nEdges; i++) {
         uint64_t edge = (*listPtr)->edges[i];
         // TODO: Also validate edge (is it a valid match / statement?)
-        if (edge != 0) { list->edges[nEdges++] = edge; }
+        if (edge != 0 && checker(checkerArg, edge)) {
+            list->edges[nEdges++] = edge;
+        }
     }
     list->nEdges = nEdges;
     list->capacityEdges = (*listPtr)->capacityEdges;
@@ -274,6 +283,12 @@ void statementRelease(Db* db, Statement* stmt) {
 #endif
     }
 }
+
+bool statementCheck(Db* db, StatementRef ref) {
+    Statement* s = &db->statementPool[ref.idx];
+    return ref.gen >= 0 && ref.gen == s->gen;
+}
+
 StatementRef statementRef(Db* db, Statement* stmt) {
     return (StatementRef) {
         .gen = stmt->gen,
@@ -323,12 +338,17 @@ static StatementRef statementNew(Db* db, Clause* clause) {
 }
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
 
+// TODO: do we use this? remove?
 void statementRemoveChildMatch(Statement* stmt, MatchRef to) {
     listOfEdgeToRemove(stmt->childMatches, to.val);
 }
 
-void statementAddChildMatch(Statement* stmt, MatchRef child) {
-    listOfEdgeToAdd(&stmt->childMatches, child.val);
+static bool matchChecker(void* db, uint64_t ref) {
+    return matchCheck((Db*) db, (MatchRef) { .val = ref });
+}
+void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
+    listOfEdgeToAdd(&matchChecker, db,
+                    &stmt->childMatches, child.val);
 }
 void statementAddParent(Statement* stmt) { stmt->parentCount++; }
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
@@ -380,6 +400,12 @@ void matchRelease(Db* db, Match* match) {
         match->childStatements = NULL;
     }
 }
+
+bool matchCheck(Db* db, MatchRef ref) {
+    Match* m = &db->matchPool[ref.idx];
+    return ref.gen >= 0 && ref.gen == m->gen;
+}
+
 MatchRef matchRef(Db* db, Match* match) {
     return (MatchRef) {
         .gen = match->gen,
@@ -424,8 +450,12 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     return ret;
 }
 
-void matchAddChildStatement(Match* match, StatementRef child) {
-    listOfEdgeToAdd(&match->childStatements, child.val);
+static bool statementChecker(void* db, uint64_t ref) {
+    return statementCheck((Db*) db, (StatementRef) { .val = ref });
+}
+void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
+    listOfEdgeToAdd(statementChecker, db,
+                    &match->childStatements, child.val);
 }
 void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
     int i;
@@ -527,7 +557,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
         // FIXME: What if the parent has/will be destroyed?
         if (parent) {
             statementAddParent(stmt);
-            matchAddChildStatement(parent, existingRefs[0]);
+            matchAddChildStatement(db, parent, existingRefs[0]);
             matchRelease(db, parent);
         }
         statementRelease(db, stmt);
@@ -543,7 +573,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
         if (parent) {
-            matchAddChildStatement(parent, ref);
+            matchAddChildStatement(db, parent, ref);
             matchRelease(db, parent);
         }
         return ref;
@@ -565,7 +595,7 @@ Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
         Statement* parent = statementAcquire(db, parents[i]);
         if (parent) {
             pthread_mutex_lock(&parent->childMatchesMutex);
-            statementAddChildMatch(parent, ref);
+            statementAddChildMatch(db, parent, ref);
             pthread_mutex_unlock(&parent->childMatchesMutex);
 
             statementRelease(db, parent);
