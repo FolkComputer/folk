@@ -2,18 +2,24 @@ set threadMonitorLib [apply {{} {
     set cc [C]
     $cc cflags -I.
     $cc include "workqueue.h"
+    regexp {typedef struct ThreadControlBlock .* ThreadControlBlock;} [apply {{} {
+        set fd [open "folk.c" r]
+        set folkC [read $fd]; close $fd
+        return $folkC
+    }}] tcbStruct
+    $cc code $tcbStruct
     $cc code {
-        extern int threadsN;
-        extern pid_t threadsTid[];
-        extern WorkQueueItem threadsCurrentItem[];
+        extern ThreadControlBlock threads[];
+        extern int _Atomic threadCount;
+
         extern Db* db;
     }
     $cc proc threadCurrentItem {int tid} char* {
         static char buf[1000];
-        for (int i = 0; i < threadsN; i++) {
-            if (threadsTid[i] != tid) { continue; }
+        for (int i = 0; i < threadCount; i++) {
+            if (threads[i].tid != tid) { continue; }
 
-            WorkQueueItem item = threadsCurrentItem[i];
+            WorkQueueItem item = threads[i].currentItem;
             if (item.op == ASSERT) {
                 snprintf(buf, sizeof(buf), "Assert");
             } else if (item.op == RETRACT) {
