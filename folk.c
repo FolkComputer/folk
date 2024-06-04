@@ -36,7 +36,7 @@ __thread Jim_Interp* interp = NULL;
 
 Db* db;
 
-#ifdef TRACE
+#ifdef FOLK_TRACE
 WorkQueueItem trace[50000];
 int traceThreadIndex[50000];
 int _Atomic traceNextIdx = 0;
@@ -621,14 +621,16 @@ void workerLoop() {
             item = workQueueSteal(threads[stealee].workQueue);
         }
 
-#ifdef TRACE
+#ifdef FOLK_TRACE
         int traceIdx = traceNextIdx++;
-        if (traceIdx >= sizeof(trace)/sizeof(trace[0])) {
+        if (traceIdx == sizeof(trace)/sizeof(trace[0])) {
             fprintf(stderr, "workerLoop: trace exhausted\n");
-            exit(1);
+            /* exit(1); */
         }
-        trace[traceIdx] = item;
-        traceThreadIndex[traceIdx] = self->index;
+        if (traceIdx < sizeof(trace)/sizeof(trace[0])) {
+            trace[traceIdx] = item;
+            traceThreadIndex[traceIdx] = self->index;
+        }
 #endif
 
         /* if (item.op != NONE && */

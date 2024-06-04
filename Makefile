@@ -1,5 +1,5 @@
 ifeq ($(shell uname -s),Linux)
-	CFLAGS := -Wl,--export-dynamic
+	override CFLAGS += -Wl,--export-dynamic
 endif
 folk: workqueue.c db.c trie.c folk.c vendor/jimtcl/libjim.a
 	cc -g -o$@ $(CFLAGS) \
@@ -18,7 +18,7 @@ debug-attach:
 FOLK_REMOTE_NODE := folk-omar-mini
 remote:
 	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote:
 	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'

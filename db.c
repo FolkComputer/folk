@@ -250,7 +250,7 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     }
     return s;
 }
-#ifdef TRACE
+#ifdef FOLK_TRACE
 Statement* statementUnsafeGet(Db* db, StatementRef ref) {
     if (ref.idx == 0) { return NULL; }
     return &db->statementPool[ref.idx];
@@ -262,21 +262,20 @@ void statementRelease(Db* db, Statement* stmt) {
 
         reactToRemovedStatement(db, stmt);
 
-        /* printf("statementFree: %p (%.50s)\n", stmt, clauseToString(stmt->clause)); */
-        /* Clause* stmtClause = statementClause(stmt); */
-        /* for (int i = 0; i < stmtClause->nTerms; i++) { */
-        /*     free(stmtClause->terms[i]); */
-        /* } */
-        /* free(stmtClause); */
-
         stmt->parentCount = 0;
         free(stmt->childMatches);
         stmt->childMatches = NULL;
 
-#ifdef TRACE
+#ifdef FOLK_TRACE
         // Don't remove the clause; we want the trace to be able to
         // find it, and we don't want to reuse the slot.
 #else
+        Clause* stmtClause = statementClause(stmt);
+        for (int i = 0; i < stmtClause->nTerms; i++) {
+            free(stmtClause->terms[i]);
+        }
+        free(stmtClause);
+
         // How do we mark this statement slot as being fully free and
         // ready for reuse?
         stmt->clause = NULL;
