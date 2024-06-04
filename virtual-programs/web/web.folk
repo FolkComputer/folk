@@ -1,5 +1,8 @@
 puts Web
 
+# HACK
+signal block SIGPIPE
+
 proc handleConnect {chan addr} {
     fileevent $chan readable [list handleRead $chan $addr]
 }
