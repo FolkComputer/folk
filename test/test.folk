@@ -25,6 +25,7 @@ Assert! when we are on {{} {
         puts "DONE: ([Query! /someone/ claims the counter is /t/])"
 
         source virtual-programs/web/trace.folk
+        source virtual-programs/web/dep-graph.folk
         source virtual-programs/web/index.folk
         source virtual-programs/web/web.folk
         # __exit 0
