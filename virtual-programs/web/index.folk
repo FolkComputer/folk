@@ -1,7 +1,10 @@
-Wish the web server handles route "/" with handler {
+When the db library is /dbLib/ {
+  Wish the web server handles route "/" with handler [list apply {{db dbLib} {
     set l [list]
     foreach result [Query! /...terms/] {
+        set ref [dict get $result __ref]
         set terms [dict get $result terms]
+        set childMatchRefs [$dbLib childMatches $db $ref]
         lappend l [subst {
             <li>
             <details>
@@ -9,7 +12,7 @@ Wish the web server handles route "/" with handler {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            : [htmlEscape [string range $terms 0 100]]</summary>
+            ([$dbLib statementParentCount $db $ref] parents): <code>[htmlEscape [string range $terms 0 100]]</code> ([htmlEscape $childMatchRefs])</summary>
             <pre>[htmlEscape $terms]</pre>
             </details>
             </li>
@@ -35,4 +38,5 @@ Wish the web server handles route "/" with handler {
         <ul>[join $l "\n"]</ul>
         </html>
     }]
+  }} [__db] $dbLib]
 }

@@ -1,100 +1,3 @@
-set dbLib [apply {{} {
-    set cc [C]
-    $cc cflags -I.
-    $cc include "db.h"
-
-    $cc code {
-        typedef struct ListOfEdgeTo {
-            size_t capacityEdges;
-            size_t nEdges; // This is an estimate.
-            uint64_t edges[];
-        } ListOfEdgeTo;
-
-        #include <pthread.h>
-    }
-    set dbCFd [open "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
-    $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
-    $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
-    $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
-    $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
-
-    $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
-        Jim_Obj* termObjs[clause->nTerms];
-        for (int i = 0; i < clause->nTerms; i++) {
-            termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
-        }
-        return Jim_NewListObj(interp, termObjs, clause->nTerms);
-    }
-
-    $cc proc statementParentCount {Db* db StatementRef stmtRef} int {
-        Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewIntObj(interp, -1); }
-        int ret = stmt->parentCount;
-        statementRelease(db, stmt);
-        return ret;
-    }
-    $cc proc statementPtrCount {Db* db StatementRef stmtRef} int {
-        Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewIntObj(interp, -1); }
-        int ret = stmt->ptrCount - 1;
-        statementRelease(db, stmt);
-        return ret;
-    }
-    $cc proc clause {Db* db StatementRef stmtRef} Jim_Obj* {
-        Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewStringObj(interp, "(null)", -1); }
-        Jim_Obj* ret = clauseToJimObj(statementClause(stmt));
-        statementRelease(db, stmt);
-        return ret;
-    }
-    $cc proc childMatches {Db* db StatementRef stmtRef} Jim_Obj* {
-        Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewStringObj(interp, "", -1); }
-
-        int nChildren = 0;
-        Jim_Obj* childObjs[stmt->childMatches->nEdges];
-        for (int i = 0; i < stmt->childMatches->nEdges; i++) {
-            MatchRef child = { .val = stmt->childMatches->edges[i] };
-            childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
-        }
-        statementRelease(db, stmt);
-        return Jim_NewListObj(interp, childObjs, nChildren);
-    }
-
-    $cc proc matchAcq {Db* db MatchRef matchRef} Match* {
-        return matchAcquire(db, matchRef);
-    }
-    $cc proc matchRel {Db* db Match* match} void {
-        matchRelease(db, match);
-    }
-    $cc proc matchPtrCount {Db* db MatchRef matchRef} int {
-        Match* match = matchAcquire(db, matchRef);
-        int ret = match->ptrCount - 1;
-        matchRelease(db, match);
-        return ret;
-    }
-    $cc proc matchShouldFree {Db* db MatchRef matchRef} int {
-        Match* match = matchAcquire(db, matchRef);
-        int shouldFree = match->shouldFree;
-        matchRelease(db, match);
-        return shouldFree;
-    }
-    $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
-        Match* match = matchAcquire(db, matchRef);
-
-        int nChildren = 0;
-        Jim_Obj* childObjs[match->childStatements->nEdges];
-        for (int i = 0; i < match->childStatements->nEdges; i++) {
-            StatementRef child = { .val = match->childStatements->edges[i] };
-            childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
-        }
-        matchRelease(db, match);
-        return Jim_NewListObj(interp, childObjs, nChildren);
-    }
-
-    return [$cc compile]
-}}]
-
 set dbDotify {{dbLib db} {
     set dot [list]
     set matchRefs [dict create]
@@ -136,13 +39,15 @@ set getDotAsPdf {{dot} {
     set response [read $fd]; close $fd; return $response
 }}
 
-Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{dbLib dbDotify getDotAsPdf} {
-    set dot [apply $dbDotify $dbLib [__db]]
+When the db library is /dbLib/ {
+    Wish the web server handles route "/dep-graph.pdf" with handler [list apply {{dbLib dbDotify getDotAsPdf} {
+        set dot [apply $dbDotify $dbLib [__db]]
 
-    dict create statusAndHeaders "HTTP/1.1 200 OK
+        dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close
 Content-Type: application/pdf
 
 " \
-        body [apply $getDotAsPdf $dot]
-}} $dbLib $dbDotify $getDotAsPdf]
+            body [apply $getDotAsPdf $dot]
+    }} $dbLib $dbDotify $getDotAsPdf]
+}
