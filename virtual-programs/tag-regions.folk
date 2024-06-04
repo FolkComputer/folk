@@ -1,6 +1,7 @@
 When the camera frame is /f/ {
-    Claim the camera Camera has \
-        width [dict get $f width] height [dict get $f height]
+    # HACK: so the width and height stay in place even if frame
+    # changes ; ideally dedupe would do this automatically
+    Hold! [list camera dimensions] [list the camera Camera has width [dict get $f width] height [dict get $f height]]
 }
 
 When the display /display/ has width /displayWidth/ height /displayHeight/ &\
