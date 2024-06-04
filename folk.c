@@ -553,20 +553,23 @@ void workerRun(WorkQueueItem item) {
                                  &oldRef);
         if (!statementRefIsNull(newRef)) {
             reactToNewStatement(newRef, item.hold.clause);
-
-            // TODO: Impose a hop limit after which we should carry
-            // out the removal.
         }
         // We need to delay the react to removed statement until
         // full subconvergence of the addition of the new
         // statement.  or just mess with priorities so that the
         // react to removed statement usually gets delayed?
         if (!statementRefIsNull(oldRef)) {
+            // HACK: prevents flickering.
+            usleep(1000);
+            
             workQueuePush(self->workQueue, (WorkQueueItem) {
                     .op = REMOVE_PARENT,
                     .thread = -1,
                     .removeParent = { .stmt = oldRef }
                 });
+
+            // TODO: Impose a hop limit after which we should carry
+            // out the removal?
         }
 
     } else if (item.op == SAY) {
@@ -690,7 +693,7 @@ int main(int argc, char** argv) {
 
     atexit(exitHandler);
 
-    int NTHREADS = 5;
+    int NTHREADS = 8;
     threadCount = NTHREADS;
 
     // Spawn NTHREADS-1 workers. 
