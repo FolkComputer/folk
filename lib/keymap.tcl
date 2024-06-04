@@ -1,5 +1,3 @@
-# catch {exec sudo DEBIAN_FRONTEND=noninteractive apt-get install -y console-data}
-
 namespace eval keymap {
     try {
         # C implementation based on libkeymap
