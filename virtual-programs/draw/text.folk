@@ -206,6 +206,9 @@ When the color map is /colorMap/ &\
      /someone/ wishes to draw text with /...options/ {
     if {[dict exists $options position]} {
         lassign [dict get $options position] x0 y0
+    } elseif {[dict exists $options center]} {
+        # TODO: deprecate/remove this
+        lassign [dict get $options center] x0 y0
     } else {
         set x0 [dict get $options x]
         set y0 [dict get $options y]
