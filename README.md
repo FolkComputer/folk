@@ -30,15 +30,18 @@ Clone & build apriltag in home folder
   - ~~inculcate ref with thread id? lock ref hashtable in foreign
     process, make proxy with C functions? this is so weird~~
   - ~~make ref ids bigger?~~
-- implement Collect -> labels
+- ~~implement Collect -> labels~~
   - use some sort of timer?
 - ~~thread monitoring (what threads are running what? what threads are blocked?)~~
 - spin up new threads if most/all existing threads are OS-blocked
-- destructors
+- ~~destructors~~
 - event statements
 - ~~transactions, causality, or Commit~~ Hold!
 - fix segfault (memory leak?) after a while
-  - garbage collect on list resize
+  - ~~garbage collect on list resize~~
+  - free Clauses (lifetime tied to statements?)
+- cache statements on each interpreter
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
+  - RAM monitor
