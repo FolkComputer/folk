@@ -85,18 +85,18 @@ set mainDetectorProcess [Start process {
     Wish $::thisProcess shares statements like \
         [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
 
-    When camera /any/ has frame /grayFrame/ at timestamp /timestamp/ {
+    When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ {
         set aprilTime [time {
             set tags [$detector detect $grayFrame]
         }]
-        Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
+        Claim $::thisProcess detects tags $tags on $camera at $timestamp in time $aprilTime
     }
 }]
 
 
-When /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/ {
+When /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/ {
     foreach tag $tags {
-        Claim tag [dict get $tag id] has detection info $tag        
+        Claim tag [dict get $tag id] has detection $tag on $camera
     }
 }
 

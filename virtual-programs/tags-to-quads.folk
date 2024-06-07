@@ -1,0 +1,134 @@
+set cc [c create]
+$cc proc rescaleAndUndistort {Intrinsics intr
+                              double cameraWidth double cameraHeight
+                              double* in
+                              double* out} vec2d {
+    double x = in[0] * intr.width / cameraWidth;
+    double y = in[1] * intr.height / cameraHeight;
+
+    x = (x - intr.cx) / intr.fx;
+    y = (y - intr.cy) / intr.fy;
+    for (int i = 0; i < 3; i++) {
+        double r2 = x*x + y*y;
+        double rad = 1.0 + intr.k1 * r2 + intr.k2 * r2*r2;
+        x /= rad; y /= rad;
+    }
+    out[0] = x*intr.fx + intr.cx;
+    out[1] = y*intr.fy + intr.cy;
+}
+$cc proc estimateTagPose {Intrinsics cameraIntrinsics
+                          double cameraWidth double cameraHeight
+                          double tagSize
+                          double[4][2] p0} Tcl_Obj* {
+    // We'll fill this in with a new .p and .H with
+    // undistorted/rescaled coordinates.
+    apriltag_detection_t det;
+
+    // We'll fill in the right side of each correspondence in the
+    // loop.
+    float correspondences[4][4] = {
+        {-1.0f, 1.0f, 0, 0},
+        {1.0f, 1.0f, 0, 0},
+        {1.0f, -1.0f, 0, 0},
+        {-1.0f, -1.0f, 0, 0}
+    };
+    for (int i = 0; i < 4; i++) {
+        rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
+                            p0[i], det.p[i]);
+        correspondences[i][2] = det.p[i][0];
+        correspondences[i][3] = det.p[i][1];
+    }
+
+    zarray_t correspondencesArr = {
+        .el_sz = sizeof(float[4]), .size = 4, .alloc = 4,
+        .data = (char*) correspondences
+    }
+    det.H = homography_compute(&correspondencesArr,
+                               HOMOGRAPHY_COMPUTE_FLAG_SVD);
+    apriltag_detection_info_t info = {
+        .det = &det,
+        .tagsize = tagSize,
+        .fx = cameraIntrinsics.fx, .fy = cameraIntrinsics.fy,
+        .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
+    };
+    apriltag_pose_t pose;
+    estimate_tag_pose(&info, &pose);
+
+    zarray_destroy(H);
+
+    return Tcl_ObjPrintf(
+        "{%f %f %f %f}\n"
+        "{%f %f %f %f}\n"
+        "{%f %f %f %f}\n"
+        "{0   0  0  1}\n",
+        MATD_EL(pose.R, 0, 0), MATD_EL(pose.R, 0, 1), MATD_EL(pose.R, 0, 2), MATD_EL(pose.t, 0, 0),
+        MATD_EL(pose.R, 1, 0), MATD_EL(pose.R, 1, 1), MATD_EL(pose.R, 1, 2), MATD_EL(pose.t, 1, 0),
+        MATD_EL(pose.R, 2, 0), MATD_EL(pose.R, 2, 1), MATD_EL(pose.R, 2, 2), MATD_EL(pose.t, 2, 0)
+    );
+}
+
+namespace eval quad {
+    proc create {space vertices} { list $space $vertices }
+    proc space {q} { lindex $q 0 }
+    proc vertices {q} { lindex $q 1 }
+
+    proc reproject {q newSpace} {
+        if {$newSpace} 
+    }
+
+    proc scale {q s} {
+        quad create [space $q] [lmap v [vertices $q] {
+            lmap x $v {* $x $s}
+        }]
+    }
+    proc offset {q args} {
+        
+    }
+
+    namespace export *
+    namespace ensemble create
+}
+namespace eval space {
+    proc reprojectableTo {space fn} {
+        
+    }
+    namespace export *
+    namespace ensemble create
+}
+
+When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+     camera /camera/ has intrinsics /cameraIntrinsics/ {
+    When tag /tag/ has detection /det/ on $camera {
+        set tagSize [expr {31.5 / 1000}]; # 31.5 mm
+        set tagPose [estimateTagPose $cameraIntrinsics \
+                         $cameraWidth $cameraHeight \
+                         $tagSize $det]
+        set tagSpace [space reprojectableTo $camera $tagPose]
+
+        set r [expr {$tagSize / 2}]
+        set vertices \
+            [list [list [- $r]    $r  0] \
+                 [list     $r     $r  0] \
+                 [list     $r  [- $r] 0] \
+                 [list  [- $r] [- $r] 0]]
+
+        set quad [quad create $tagSpace $vertices]
+        Claim tag $tag has quad $quad
+    }
+}
+
+When tag /tag/ has quad /q/ {
+    Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
+}
+
+When display /proj/ has intrinsics /projectorIntrinsics/ {
+    When /someone/ wishes /p/ is outlined /color/ & /p/ has quad /quad/ {
+        set vertices [quad vertices [quad reproject $quad "display 0"]]
+        for {set i 0} {$i < [llength $vertices]} {incr $i} {
+            set from [lindex $vertices $i]
+            set to [lindex $vertices [expr {($i + 1) % 4}]]
+            lappend instances [list $from $to $width $color]
+        }
+        Wish the GPU draws pipeline "line" with instances $instances
+    }
+}
