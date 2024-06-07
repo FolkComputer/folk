@@ -52,8 +52,7 @@ set makeAprilTagDetector {{TAG_FAMILY} {
                                   det->p[3][0], det->p[3][1]);
             }
 
-
-            zarray_destroy(detections);
+            apriltag_detections_destroy(detections);
             Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
             return result;
         }
