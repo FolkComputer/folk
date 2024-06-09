@@ -1,32 +1,40 @@
 
 
-When (non-capturing) /type/ /obj/ has a program {
-    puts "Added $type $obj"
-    On unmatch { puts "Removed $type $obj" }
+When (non-capturing) /obj/ has a program {
+    puts "Added $obj"
+    On unmatch { puts "Removed $obj" }
+
+    # Backwards compatibility
+    if {[regexp {tag-(\d+)} $obj -> id]} {
+	set fname $id
+    } else {
+        set fname $obj
+    }
 
     try {
-        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
-            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
+        if {[file exists "$::env(HOME)/folk-printed-programs/$fname.folk.temp"]} {
+            set fd [open "$::env(HOME)/folk-printed-programs/$fname.folk.temp" r]
         } else {
             # HACK: localhost is folk-live for now. idk why.
-            if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
+            if {![file exists "$::env(HOME)/folk-printed-programs/$fname.folk"] &&
                 ($::thisNode in [list "folk-beads" "folk-convivial" "localhost" "gadget-red" "gadget-blue"])} {
                 # HACK: 'Page fault' to folk0, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local
                 # network, or broadcasting out, and getting pages from
                 # there.
-                exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
-                    "http://folk0.local:4273/printed-programs/$obj.folk"
+                exec curl --output "$::env(HOME)/folk-printed-programs/$fname.folk" \
+                    "http://folk0.local:4273/printed-programs/$fname.folk"
             }
-            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
+            set fd [open "$::env(HOME)/folk-printed-programs/$fname.folk" r]
         }
         set code [read $fd]
         close $fd
 
         Claim $obj has program code $code
     } on error error {
-        puts stderr "No code for $type $obj"
+        puts stderr "No code for $obj"
+        Claim $obj has program code ""
     }
 }
 

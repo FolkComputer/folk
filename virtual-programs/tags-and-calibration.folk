@@ -146,7 +146,8 @@ When (non-capturing) tag /tag/ has corners /corners/ {
     set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
     set region [region create $corners $edges $angle]
 
-    Claim $tag has region $region
-    Claim tag $tag has a program
-    Claim tag $tag is a tag
+    set id "tag-$tag"
+    Claim $id is a tag
+    Claim $id has region $region
+    Claim $id has a program
 }
