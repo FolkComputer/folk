@@ -2,14 +2,22 @@
 # for wishes of the form:
 # "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
 
-When /anyone/ wishes /source/ is connected to /sink/ & \
+When /anyone/ wishes /source/ is connected to /sink/ {
+  Wish $source is connected to $sink from centroid to centroid
+}
+
+When /anyone/ wishes /source/ is dynamically connected to /sink/ {
+  Wish $source is dynamically connected to $sink from centroid to centroid
+}
+
+When /anyone/ wishes /source/ is connected to /sink/ from /p1/ to /p2/ & \
   /source/ has region /source_region/ & \
   /sink/ has region /sink_region/ {
 
    if {$source == $sink} {return}
 
-   set source [region centroid $source_region]
-   set sink [region centroid $sink_region]
+   set source [region $p1 $source_region]
+   set sink [region $p2 $sink_region]
 
    set direction [vec2 sub $sink $source]
 
@@ -25,14 +33,14 @@ set speed 75
 set spacing 50
 set maxsize 25
 
-When /anyone/ wishes /source/ is dynamically connected to /sink/ & \
+When /anyone/ wishes /source/ is dynamically connected to /sink/ from /p1/ to /p2/ & \
   /source/ has region /source_region/ & \
   /sink/ has region /sink_region/ {
 
    if {$source == $sink} {return}
 
-   set source [region centroid $source_region]
-   set sink [region centroid $sink_region]
+   set source [region $p1 $source_region]
+   set sink [region $p2 $sink_region]
 
    set direction [vec2 normalize [vec2 sub $sink $source]]
    set distance [vec2 distance $sink $source]
