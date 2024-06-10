@@ -212,6 +212,8 @@ proc ::getColor {color} {
         return [list {*}$output 1.0]
     } elseif {[regexp {rgb\((\d+),(\d+),(\d+)\)} $color -> r g b]} {
         return [list [/ $r 255.0] [/ $g 255.0] [/ $b 255.0] 1.0]
+    } elseif {[regexp {rgba\((\d+),(\d+),(\d+),(\d+\.\d+)} $color -> r g b a]} {
+        return [list [/ $r 255.0] [/ $g 255.0] [/ $b 255.0] $a]
     } elseif {[regexp {0x([0-9A-Fa-f]{6})} $color -> hex]} {
         return [hexcolor $hex]
     } elseif {[regexp {0x([0-9A-Fa-f])([0-9A-Fa-f])([0-9A-Fa-f])} $color -> r g b]} {
