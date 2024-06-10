@@ -84,7 +84,7 @@ When the calibration model is /MODEL/ {
 
         double TagSize;
 
-static matd_t* homography_compute2(double c[4][4]) {
+        static matd_t* homography_compute2(double c[4][4]) {
     double A[] =  {
             c[0][0], c[0][1], 1,       0,       0, 0, -c[0][0]*c[0][2], -c[0][1]*c[0][2], c[0][2],
                   0,       0, 0, c[0][0], c[0][1], 1, -c[0][0]*c[0][3], -c[0][1]*c[0][3], c[0][3],
@@ -144,7 +144,7 @@ static matd_t* homography_compute2(double c[4][4]) {
         A[col*9 + 8] = (A[col*9 + 8] - sum)/A[col*9 + col];
     }
     return matd_create_data(3, 3, (double[]) { A[8], A[17], A[26], A[35], A[44], A[53], A[62], A[71], 1 });
-}
+        }
     }]
     $cc proc setTags {double tagSize
                       double[] cameraTagHs double[] cameraTagCorners
@@ -392,10 +392,13 @@ static matd_t* homography_compute2(double c[4][4]) {
     }
     $cc compile ;# takes about a half-second
 
-    # tagSize is the inner side length of each tag in meters.
-    set refineCalibration {{tagSize calibrationPoses calibration} {
+
+    set refineCalibration {{calibrationPoses calibration} {
         upvar ^isProjectedTag ^isProjectedTag
         upvar ^applyHomography ^applyHomography
+
+        # tagSize is the inner side length of each tag in meters.
+        set tagSize [dict get [lindex $calibrationPoses 0] tagSize]
 
         # Load the example data for fitting.
 
@@ -431,21 +434,13 @@ static matd_t* homography_compute2(double c[4][4]) {
             [llength $cameraTagHs]
 
         # Load the initial guesses for all parameters for fitting.
-
-        set cameraIntrinsics [dict get $calibration camera intrinsics]
-        lassign [getrow $cameraIntrinsics 0] cameraFx cameraS cameraCx
-        lassign [getrow $cameraIntrinsics 1] _ cameraFy cameraCy
-
-        set projectorIntrinsics [dict get $calibration projector intrinsics]
-        lassign [getrow $projectorIntrinsics 0] projectorFx projectorS projectorCx
-        lassign [getrow $projectorIntrinsics 1] _ projectorFy projectorCy
-
-        set params [list $cameraFx $cameraS $cameraCx $cameraFy $cameraCy \
-                        [dict get $calibration camera k1] \
-                        [dict get $calibration camera k2] \
-                        $projectorFx $projectorS $projectorCx $projectorFy $projectorCy \
-                        [dict get $calibration projector k1] \
-                        [dict get $calibration projector k2]]
+        set cameraParams [lmap param {fx s cx fy cy k1 k2} {
+            dict get $calibration camera intrinsics $param
+        }]
+        set projectorParams [lmap param {fx s cx fy cy k1 k2} {
+            dict get $calibration projector intrinsics $param
+        }]
+        set params [list {*}$cameraParams {*}$projectorParams]
 
         set R_cameraToProjector [dict get $calibration R_cameraToProjector]
         lappend params {*}[rotationMatrixToRotationVector $R_cameraToProjector]

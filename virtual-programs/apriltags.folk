@@ -83,7 +83,8 @@ set mainDetectorProcess [Start process {
     Wish $::thisProcess receives statements like \
         [list /someone/ claims camera /any/ has frame /grayFrame/ at timestamp /timestamp/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
+        [list /someone/ claims /process/ detects tags /tags/ on /camera/ \
+             at /timestamp/ in time /aprilTime/]
 
     When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ {
         set aprilTime [time {

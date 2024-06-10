@@ -300,15 +300,16 @@ Wish the GPU compiles pipeline "apriltag" {
         return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
     }
 }
-When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
-     display /any/ has width /displayWidth/ height /displayHeight/ &\
+When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+     display /display/ has width /displayWidth/ height /displayHeight/ &\
      the printed tag side length is /printedSideLengthMm/ mm {
     # Project projected tags once the printed side length has been
     # dialed in.
 
     if {$cameraWidth < 1920} {
-        Retract /someone/ wishes $::thisNode uses camera $cam with width $cameraWidth height $cameraHeight
-        Assert $this wishes $::thisNode uses camera $cam with width 1920 height 1080
+        Retract /someone/ wishes $::thisNode uses camera $camera \
+            with width $cameraWidth height $cameraHeight
+        Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
         # TODO: restore old camera resolution later
     }
 
@@ -328,7 +329,7 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
     # `H_modelToDisplay` ('prewarp' homography from model plane to
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
-    # `displayResolution` and `cameraResolution`.
+    # `displayResolution` and `cameraResolution` and `tagSize`.
     #
     # We'll want at least 10 poses to do ultimate
     # calibration+refinement.
@@ -449,7 +450,7 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
     }
     On unmatch { Commit H_modelToDisplay {} }
 
-    When /someone/ detects tags /tags/ at /timestamp/ in time /something/ & \
+    When /someone/ detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
 
@@ -578,10 +579,12 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         set pose [dict create \
-                      model $model \
-                      version $version \
-                      cameraResolution [list $cameraWidth $cameraHeight] \
-                      displayResolution [list $displayWidth $displayHeight] \
+                      model $model version $version \
+                      camera $camera \
+                      cameraWidth $cameraWidth cameraHeight $cameraHeight \
+                      display $display \
+                      displayWidth $displayWidth displayHeight $displayHeight \
+                      tagSize $printedSideLengthM \
                       H_cameraToDisplay $H_cameraToDisplay \
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
@@ -644,7 +647,9 @@ When camera /cam/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
-            Commit calibration { Claim the calibration poses are $::calibrationPoses }
+            Commit calibration {
+                Claim the calibration poses are $::calibrationPoses
+            }
             Retract /someone/ claims the printed tag side length is /anything/ mm
         }
     }
@@ -681,9 +686,11 @@ fn processHomography {H} {
 # detector to get real-world coordinates for each AprilTag.)
 #
 # Arguments:
-#         Hs   a list of N homographies from camera/projector image
-#              plane -> model plane (for N different poses).
-fn zhangUnrefinedCalibrate {Hs} {
+#         width  width of camera or projector in pixels
+#         height height of camera or projector in pixels
+#         Hs     a list of N homographies from camera/projector image
+#                plane -> model plane (for N different poses).
+fn zhangUnrefinedCalibrate {name width height Hs} {
     # Try to solve for the camera intrinsics:
 
     # Construct V:
@@ -750,14 +757,24 @@ fn zhangUnrefinedCalibrate {Hs} {
 
     # Initialize distortion terms k1 and k2 to 0 -- they get figured
     # out during nonlinear refinement.
-    return [dict create intrinsics $A extrinsics $extrinsics \
-                k1 0 k2 0]
+    set intrinsics [dict create \
+                        width $width height $height \
+                        fx $fx fy $fy cx $cx cy $cy s $s \
+                        k1 0 k2 0]
+    return [dict create \
+                name $name \
+                intrinsics $intrinsics \
+                extrinsics $extrinsics]
 }
 
-# calibrationPoses is a list of N pose dictionaries. Each pose
-# dictionary includes `tags` from a camera detection, `model` with
-# coordinates in meters, `H_modelToDisplay`.
-fn calibrate {calibrationPoses} {
+# End-to-end calibrates a camera-projector pair. calibrationPoses is
+# a list of N pose dictionaries. Each pose dictionary includes `tags`
+# from a camera detection, `model` with coordinates in meters,
+# `H_modelToDisplay`.
+fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
+    # Just used to get metadata about cam/proj:
+    set pose0 [lindex $calibrationPoses 0]
+
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
@@ -779,7 +796,12 @@ fn calibrate {calibrationPoses} {
     }]
     puts "Zhang calibrate camera:"
     puts "========"
-    set cameraCalibration [zhangUnrefinedCalibrate $Hs_modelToCamera]
+    set cameraName [dict get $pose0 camera]
+    set cameraWidth [dict get $pose0 cameraWidth]
+    set cameraHeight [dict get $pose0 cameraHeight]
+    set cameraCalibration [zhangUnrefinedCalibrate \
+                               $cameraName $cameraWidth $cameraHeight \
+                               $Hs_modelToCamera]
     puts "\n======================\n"
 
     # Second, calibrate the projector.
@@ -801,14 +823,18 @@ fn calibrate {calibrationPoses} {
     }]
     puts "Zhang calibrate projector:"
     puts "========"
-    set projectorCalibration [zhangUnrefinedCalibrate $Hs_modelToDisplay]
+    set projectorName [dict get $pose0 display]
+    set projectorWidth [dict get $pose0 displayWidth]
+    set projectorHeight [dict get $pose0 displayHeight]
+    set projectorCalibration [zhangUnrefinedCalibrate \
+                                  $projectorName \
+                                  $projectorWidth $projectorHeight \
+                                  $Hs_modelToDisplay]
     puts "\n======================\n"
 
     set calibration [dict create \
                          camera $cameraCalibration \
-                         projector $projectorCalibration \
-                         cameraResolution [dict get [lindex $calibrationPoses 0] cameraResolution] \
-                         projectorResolution [dict get [lindex $calibrationPoses 0] displayResolution]]
+                         projector $projectorCalibration]
 
     # What are R and t such that
     # R*cameraFramePoint + t = projectorFramePoint?
@@ -851,8 +877,8 @@ try {
             Claim the calibration is $calibration
         }
     } else {
+        puts "NO CALIBRATION, JUST CALIB POSES"
         Commit calibration {
-            puts "NO CALIBRATION, JUST CALIB POSES"
             Claim the calibration poses are $calibrationPoses
         }
     }
@@ -861,23 +887,31 @@ try {
     puts stderr "Failed to load calibration poses: $e"
 }
 
-When /nobody/ claims the calibration is /anything/ &\
-     the calibration poses are /calibrationPoses/ &\
+When the calibration poses are /calibrationPoses/ &\
+     /nobody/ claims the calibration is /anything/ &\
      the calibration refiner is /refineCalibration/ {
-    if {[llength [Statements::findMatches [list /someone/ claims the calibration is /i/]]] >= 1} {
-        return
-    }
 
-    # FIXME: don't hard-code side length mm
-    set calibration [calibrate $calibrationPoses]
+    set calibration [unrefinedCalibrateCameraAndProjector $calibrationPoses]
     set calibration [apply $refineCalibration \
-                         [/ 17.5 1000] $calibrationPoses $calibration]
-    Commit calibration {
-        Claim the calibration poses are $calibrationPoses
-        Claim the calibration is $calibration
-    }
+                         $calibrationPoses $calibration]
+    Commit calibration { Claim the calibration is $calibration }
+
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
+}
+
+When the calibration is /calibration/ {
+    set camera [dict get $calibration camera name]
+    set display [dict get $calibration projector name]
+    Claim camera $camera has intrinsics \
+        [dict get $calibration camera intrinsics]
+    Claim display $display has intrinsics \
+        [dict get $calibration projector intrinsics]
+
+    set extrinsics [dict create \
+                        R [dict get $calibration R_cameraToProjector] \
+                        t [dict get $calibration t_cameraToProjector]]
+    Claim camera $camera to display $display has extrinsics $extrinsics
 }
 
 # HACK: for fast testing

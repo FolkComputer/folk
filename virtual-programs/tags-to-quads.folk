@@ -1,4 +1,56 @@
 set cc [c create]
+
+# Represents camera or projector intrinsics, including the classic
+# intrinsic matrix but also dimensions at which the matrix was created
+# + distortion coefficients.
+#
+# Intrinsic matrix:
+#   fx  s   cx
+#   0   fy  cy
+#   0   0    1
+$cc struct Intrinsics {
+    double width;
+    double height;
+
+    double fx;
+    double fy;
+    double cx;
+    double cy;
+    double s;
+
+    double k1;
+    double k2;
+}
+
+namespace eval intrinsics {
+    set cc [uplevel {set cc}]
+    $cc proc distort {double fx double fy double cx double cy
+                      double k1 double k2
+                      double xy[2] double out[2]} void {
+        double x = (xy[0] - cx)/fx;
+        double y = (xy[1] - cy)/fy;
+        double r2 = x*x + y*y;
+        double D = k1 * r2 + k2 * r2*r2;
+        out[0] = (x * (1.0 + D))*fx + cx;
+        out[1] = (y * (1.0 + D))*fy + cy;
+    }
+    $cc proc project {Intrinsics intr double[3] v} Tcl_Obj* {
+        double out[3] = {
+            v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
+                       0 + v[1]*intr.fy + v[2]*intr.cy,
+                       0 +            0 + v[2]
+        };
+        out[0] /= out[2]; out[1] /= out[2];
+        distort(intr.fx, intr.fy, intr.cx, intr.cy,
+                intr.k1, intr.k2,
+                out, out);
+        Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
+        return Tcl_NewListObj(2, retObjs);
+    }
+    namespace export *
+    namespace ensemble create
+}
+
 $cc proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
                               double* in
@@ -67,34 +119,62 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
     );
 }
 
+namespace eval space {
+    set changers [dict create]
+
+    proc changeableTo {targetSpace changer} {
+        list changeableTo $targetSpace $changer
+    }
+    proc change {sourceSpace targetSpace v} {
+        if {$sourceSpace eq $targetSpace} {
+            return $v
+        }
+        if {[lindex $sourceSpace 0] eq "changeableTo"} {
+            set changedSpace [lindex $sourceSpace 1]
+            set changer [lindex $sourceSpace 2]
+            set v [{*}$changer $v]
+            return [change $changedSpace $targetSpace $v]
+        }
+        if {[dict exists $changers $sourceSpace $targetSpace]} {
+            set changer [dict get $changers $sourceSpace $targetSpace]
+            return [{*}$changer $v]
+        }
+        error "space change: Don't know how to change $sourceSpace to $targetSpace"
+    }
+    namespace export *
+    namespace ensemble create
+}
+When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
+    # HACK: doesn't use db
+    dict set space::changers $camera $display [list apply {{R t v} {
+        add [matmul $R $v] $t
+    }} [dict get $extrinsics R] [dict get $extrinsics t]]
+}
 namespace eval quad {
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
 
-    proc reproject {q newSpace} {
-        if {$newSpace} 
+    proc change {q targetSpace} {
+        set sourceSpace [space $q]
+        create $targetSpace [lmap v [vertices $q] {
+            space change $sourceSpace $targetSpace $v
+        }]
     }
-
     proc scale {q s} {
-        quad create [space $q] [lmap v [vertices $q] {
+        create [space $q] [lmap v [vertices $q] {
             lmap x $v {* $x $s}
         }]
     }
     proc offset {q args} {
-        
+        # TODO: implement
     }
 
     namespace export *
     namespace ensemble create
 }
-namespace eval space {
-    proc reprojectableTo {space fn} {
-        
-    }
-    namespace export *
-    namespace ensemble create
-}
+
+$cc compile
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
@@ -103,7 +183,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set tagPose [estimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
                          $tagSize $det]
-        set tagSpace [space reprojectableTo $camera $tagPose]
+        set tagSpace [space changeableTo $camera $tagPose]
 
         set r [expr {$tagSize / 2}]
         set vertices \
@@ -119,16 +199,4 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
 When tag /tag/ has quad /q/ {
     Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
-}
-
-When display /proj/ has intrinsics /projectorIntrinsics/ {
-    When /someone/ wishes /p/ is outlined /color/ & /p/ has quad /quad/ {
-        set vertices [quad vertices [quad reproject $quad "display 0"]]
-        for {set i 0} {$i < [llength $vertices]} {incr $i} {
-            set from [lindex $vertices $i]
-            set to [lindex $vertices [expr {($i + 1) % 4}]]
-            lappend instances [list $from $to $width $color]
-        }
-        Wish the GPU draws pipeline "line" with instances $instances
-    }
 }
