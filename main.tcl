@@ -199,7 +199,7 @@ proc Commit {args} {
         dict set ::toCommit $key $body
     } else {
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
-        set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
+        set lambda [list {this me} [list apply [list $argNames $body] {*}$argValues]]
         dict set ::toCommit $key $lambda
     }
 }
@@ -285,11 +285,11 @@ source "lib/math.tcl"
 # this defines $this in the contained scopes
 # it's also used to implement Commit
 Assert when /this/ has program /__program/ {{this __program} {
-    apply $__program $this
+    apply $__program $this [set me $this]
 }}
 # For backward compat(?):
 Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
-    Claim $__this has program [list {this} $__programCode]
+    Claim $__this has program [list {this me} $__programCode]
 }}
 
 Assert when /someone/ is sharing statements /statements/ {{statements} {
