@@ -433,12 +433,14 @@ When the calibration model is /MODEL/ {
             [concat {*}$projectorTagCorners] \
             [llength $cameraTagHs]
 
+        set paramNames {fx s cx fy cy k1 k2}
+
         # Load the initial guesses for all parameters for fitting.
-        set cameraParams [lmap param {fx s cx fy cy k1 k2} {
-            dict get $calibration camera intrinsics $param
+        set cameraParams [lmap paramName $paramNames {
+            dict get $calibration camera intrinsics $paramName
         }]
-        set projectorParams [lmap param {fx s cx fy cy k1 k2} {
-            dict get $calibration projector intrinsics $param
+        set projectorParams [lmap paramName $paramNames {
+            dict get $calibration projector intrinsics $paramName
         }]
         set params [list {*}$cameraParams {*}$projectorParams]
 
@@ -454,24 +456,14 @@ When the calibration model is /MODEL/ {
         # Unspool the optimization result into the calibration data
         # structure and return that.
 
-        set refined [lassign $refined cameraFx cameraS cameraCx cameraFy cameraCy \
-                        cameraK1 cameraK2]
-        dict set calibration camera intrinsics [subst {
-            {$cameraFx  $cameraS   $cameraCx}
-            {0          $cameraFy  $cameraCy}
-            {0          0                  1}
-        }]
-        dict set calibration camera k1 $cameraK1
-        dict set calibration camera k2 $cameraK2
-        set refined [lassign $refined projectorFx projectorS projectorCx projectorFy projectorCy \
-                        projectorK1 projectorK2]
-        dict set calibration projector intrinsics [subst {
-            {$projectorFx  $projectorS   $projectorCx}
-            {0             $projectorFy  $projectorCy}
-            {0             0                        1}
-        }]
-        dict set calibration projector k1 $projectorK1
-        dict set calibration projector k2 $projectorK2
+        set refined [lassign $refined {*}$paramNames]
+        foreach paramName $paramNames {
+            dict set calibration camera intrinsics $paramName [set $paramName]
+        }
+        set refined [lassign $refined {*}$paramNames]
+        foreach paramName $paramNames {
+            dict set calibration projector intrinsics $paramName [set $paramName]
+        }
 
         puts "Remaining refined: ($refined)"
         dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
