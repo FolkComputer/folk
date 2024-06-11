@@ -1,4 +1,4 @@
-# 2D planar calibration.
+# (Legacy) 2D planar calibration.
 
 if {$::isLaptop} { return }
 
@@ -123,10 +123,10 @@ When display /display/ has width /displayWidth/ height /displayHeight/ &\
     }
 }
 
-When (non-capturing) tag /tag/ has detection info /det/ {
+When (non-capturing) tag /tag/ has detection /det/ on /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 48600} { return }
-    if {[llength [info procs ::cameraToProjector]] == 0} { return }
+    if {[llength [info commands ::cameraToProjector]] == 0} { return }
 
     set tagCorners [lmap p [dict get $det p] {::cameraToProjector $p}]
 
