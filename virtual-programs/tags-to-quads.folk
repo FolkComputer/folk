@@ -54,7 +54,7 @@ namespace eval intrinsics {
 $cc proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
                               double* in
-                              double* out} vec2d {
+                              double* out} void {
     double x = in[0] * intr.width / cameraWidth;
     double y = in[1] * intr.height / cameraHeight;
 
@@ -68,6 +68,9 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     out[0] = x*intr.fx + intr.cx;
     out[1] = y*intr.fy + intr.cy;
 }
+$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+$cc include <apriltag_pose.h>
+$cc include <common/homography.h>
 $cc proc estimateTagPose {Intrinsics cameraIntrinsics
                           double cameraWidth double cameraHeight
                           double tagSize
@@ -94,7 +97,7 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
     zarray_t correspondencesArr = {
         .el_sz = sizeof(float[4]), .size = 4, .alloc = 4,
         .data = (char*) correspondences
-    }
+    };
     det.H = homography_compute(&correspondencesArr,
                                HOMOGRAPHY_COMPUTE_FLAG_SVD);
     apriltag_detection_info_t info = {
@@ -106,9 +109,9 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
     apriltag_pose_t pose;
     estimate_tag_pose(&info, &pose);
 
-    zarray_destroy(H);
+    matd_destroy(det.H);
 
-    return Tcl_ObjPrintf(
+    Tcl_Obj* poseObj = Tcl_ObjPrintf(
         "{%f %f %f %f}\n"
         "{%f %f %f %f}\n"
         "{%f %f %f %f}\n"
@@ -117,6 +120,9 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
         MATD_EL(pose.R, 1, 0), MATD_EL(pose.R, 1, 1), MATD_EL(pose.R, 1, 2), MATD_EL(pose.t, 1, 0),
         MATD_EL(pose.R, 2, 0), MATD_EL(pose.R, 2, 1), MATD_EL(pose.R, 2, 2), MATD_EL(pose.t, 2, 0)
     );
+    matd_destroy(pose.R);
+    matd_destroy(pose.t);
+    return poseObj;
 }
 
 namespace eval space {
@@ -180,6 +186,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
     When tag /tag/ has detection /det/ on $camera {
         set tagSize [expr {31.5 / 1000}]; # 31.5 mm
+        puts "cameraIntrinsics ($cameraIntrinsics)"
         set tagPose [estimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
                          $tagSize $det]
