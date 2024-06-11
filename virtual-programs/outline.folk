@@ -15,13 +15,15 @@ When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /re
     loopRegion $edges $vertices 6 $color
 }
 
-# Fall back to old-style 2D calibration when 3D calibration is not in place:
-When display /nobody/ has intrinsics /anything/ {
-    When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /region/ {
+# Fall back to old-style 2D regions/calibration when 3D calibration is
+# not in place:
+When /someone/ wishes /thing/ is outlined /color/ {
+    When /nobody/ claims $thing has quad /any/ & $thing has region /region/ {
         lassign $region vertices edges
         loopRegion $edges $vertices 3 $color
     }
 }
+
 # Use 3D calibration when 3D calibration exists:
 When display /proj/ has intrinsics /projectorIntrinsics/ {
     When /someone/ wishes /p/ is outlined /color/ & /p/ has quad /quad/ {
