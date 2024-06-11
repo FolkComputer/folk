@@ -18,13 +18,14 @@ proc unknown {name args} {
 }
 
 namespace eval dictset {
-    namespace export create add union difference entries size
+    namespace export create add remove union difference entries size
     proc create {args} {
         set kvs [list]
         foreach k $args { lappend kvs $k true }
         dict create {*}$kvs
     }
     proc add {sv entry} { upvar $sv s; dict set s $entry true }
+    proc remove {sv entry} { upvar $sv s; dict unset s $entry }
 
     proc union {s t} { dict merge $s $t }
     proc difference {s t} {

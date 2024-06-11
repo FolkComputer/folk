@@ -73,7 +73,9 @@ if flashing from a Mac])
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers`
+   libgbm-dev glslc vulkan-validationlayers console-data`
+
+   (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 
    (glslc may not be available if you're not on Ubuntu 23.04; on ARM
    like Pi 4 you need to build it from source; [binaries are

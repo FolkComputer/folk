@@ -1,11 +1,3 @@
-set ::debug_keyboard true
-
-proc establishKeyPressListener {keyboard} {
-    set kb [open $keyboard r]
-    fconfigure $kb -translation binary
-    return $kb
-}
-
 # Function to check if the device is a keyboard
 proc isKeyboard {device} {
     set properties [exec udevadm info --query=property --name=$device]
@@ -43,64 +35,106 @@ proc walkInputEventPaths {} {
 
 set keyboardDevices [walkInputEventPaths]
 
-# go through each keyboard device and start a process that 
+Claim the keyboards are $keyboardDevices
+
+# backwards compatibility
+When /page/ is a keyboard with path /keyboard/ {
+    Claim $page is a keyboard with path $keyboard locale us
+}
+
+# go through each keyboard device and start a process that
 foreach keyboard $keyboardDevices {
-    Claim the keyboards are $keyboardDevices
     Start process "keyboard-$keyboard" {
-        source "lib/key-codes.tcl"
+        source "lib/keymap.tcl"
+
+        set cc [c create]
+        $cc include <linux/input.h>
+        $cc include <sys/ioctl.h>
+        $cc include <stdio.h>
+        $cc include <string.h>
+
+        $cc proc ::setGrabDevice {Tcl_Interp* interp char* channelName bool grab} void {
+            FILE* fp;
+            if (Tcl_GetOpenFile(interp, channelName, 0, 1, (ClientData *) &fp) != TCL_OK) {
+                printf("unable to open channel '%s' as file\n'", channelName);
+                return;
+            }
+            ioctl(fileno(fp), EVIOCGRAB, (void*)grab);
+        }
+        $cc compile
+
         set KEY_STATES [list up down repeat]
 
+        variable ::keyboardChannel [open $keyboard r]
+        chan configure $::keyboardChannel -translation binary
+
         Wish $::thisProcess shares statements like \
-            [list keyboard /kb/ claims key /k/ is /t/ with modifiers /m/ timestamp /timestamp/]
+            [list keyboard /kb/ claims key /k/ is /t/ with /...options/]
+        Wish $::thisProcess receives statements like \
+            [list /someone/ claims /page/ is a keyboard with path $keyboard locale /locale/]
+
+        set ::localKeymaps [dictset create]
+        When /page/ is a keyboard with path $keyboard locale /locale/ {
+            set map [keymap load $locale]
+            dictset add ::localKeymaps $map
+            ::setGrabDevice $::keyboardChannel [dictset size $::localKeymaps]
+
+            On unmatch {
+                dictset remove ::localKeymaps $map
+                keymap destroy $map
+                ::setGrabDevice $::keyboardChannel [dictset size $::localKeymaps]
+            }
+        }
+        Step
+
         variable evtBytes 16
         variable evtFormat iissi
         if {[exec getconf LONG_BIT] == 64} {
             set evtBytes 24
             set evtFormat wwssi
         }
-        set keyboardSpecifier $keyboard
 
-        variable keyboardChannel [open $keyboard r]
-        chan configure $keyboardChannel -translation binary
-
-        set modifiers [dict create \
-            shift 0 \
-            ctrl 0 \
-            alt 0 \
-        ]
+        set modifiers [dict map {k v} $keymap::modWeights {set v 0}]
         while 1 {
-            binary scan [read $keyboardChannel $evtBytes] $evtFormat \
+            binary scan [read $::keyboardChannel $evtBytes] $evtFormat \
                 tvSec tvUsec type code value
 
             if {$type == 0x01} { ;# EV_KEY
-                set shift [dict get $modifiers shift]
-                set key [keyFromCode $code $shift]
-                if {$key eq ""} { continue }
+                Step
+
+                lassign [dictset entries $::localKeymaps] activeKeymap
+                if {$activeKeymap ne ""} {
+                    set mods [+ {*}[dict values $modifiers]]
+                    lassign [keymap resolve $activeKeymap $code $mods] key keychar
+                    if {$key eq ""} { continue }
+                } else {
+                    set key Unknown_$code
+                    set keychar "."
+                }
 
                 set keyState [lindex $KEY_STATES $value]
 
                 set isDown [expr {$keyState != "up"}]
-                if {[string match *SHIFT $key]} {
-                    dict set modifiers shift $isDown
-                }
-                if {[string match *CTRL $key]} {
-                    dict set modifiers ctrl $isDown
-                }
-                if {[string match *ALT $key]} {
-                    dict set modifiers alt $isDown
+                if {[dict exists $keymap::modWeights $key]} {
+                    set weight [dict get $keymap::modWeights $key]
+                    dict set modifiers $key [expr {$isDown * $weight}]
                 }
 
-                set heldModifiers [dict keys [dict filter $modifiers value 1]]
                 set now [clock milliseconds]
-                Assert keyboard $keyboardSpecifier claims key $key is $keyState with \
-                                     modifiers $heldModifiers timestamp $now
+                set options [dict create timestamp $now]
+                if {$keychar ne ""} {
+                    dict set options printable $keychar
+                }
+                Assert keyboard $keyboard claims key $key is $keyState with {*}$options
 
                 # Retract all key events that are more than 5 seconds old.
-                set events [Statements::findMatches [list keyboard $keyboardSpecifier claims key /key/ is /keyState/ with modifiers /ms/ timestamp /timestamp/]]
+                set events [Statements::findMatches \
+                    [list keyboard $keyboard claims key /key/ is /keyState/ with /...options/]]
                 foreach event $events {
                     dict with event {
+                        set timestamp [dict get $options timestamp]
                         if {$now - $timestamp > 5000} {
-                            Retract keyboard $keyboardSpecifier claims key $key is $keyState with modifiers $ms timestamp $timestamp
+                            Retract keyboard $keyboard claims key $key is $keyState with {*}$options
                         }
                     }
                 }
