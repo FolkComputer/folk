@@ -125,13 +125,15 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
     return poseObj;
 }
 
-namespace eval space {
+namespace eval ::space {
     set changers [dict create]
 
     proc changeableTo {targetSpace changer} {
         list changeableTo $targetSpace $changer
     }
     proc change {sourceSpace targetSpace v} {
+        # puts "change $sourceSpace -> $targetSpace ($v)"
+        variable changers
         if {$sourceSpace eq $targetSpace} {
             return $v
         }
@@ -152,11 +154,11 @@ namespace eval space {
 }
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
     # HACK: doesn't use db
-    dict set space::changers $camera $display [list apply {{R t v} {
+    dict set space::changers $camera "display $display" [list apply {{R t v} {
         add [matmul $R $v] $t
     }} [dict get $extrinsics R] [dict get $extrinsics t]]
 }
-namespace eval quad {
+namespace eval ::quad {
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
@@ -164,7 +166,7 @@ namespace eval quad {
     proc change {q targetSpace} {
         set sourceSpace [space $q]
         create $targetSpace [lmap v [vertices $q] {
-            space change $sourceSpace $targetSpace $v
+            ::space change $sourceSpace $targetSpace $v
         }]
     }
     proc scale {q s} {
@@ -191,7 +193,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set tagPose [estimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
                          $tagSize $p]
-        set tagSpace [space changeableTo $camera $tagPose]
+        set tagToCameraSpaceChanger [list apply {{tagPose v} {
+            lassign [matmul $tagPose [list {*}$v 1]] x y z w
+            list [/ $x $w] [/ $y $w] [/ $z $w]
+        }} $tagPose]
+        set tagSpace [space changeableTo $camera $tagToCameraSpaceChanger]
 
         set r [expr {$tagSize / 2}]
         set vertices \
