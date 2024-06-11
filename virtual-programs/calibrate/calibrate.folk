@@ -20,6 +20,9 @@ foreach p {add norm sub scale leastSquaresSVD matmul
 package require math::geometry
 namespace import ::math::geometry::pointInsidePolygon
 
+package require vectcl
+namespace import ::vectcl::vexpr
+
 set ROWS 4
 set COLS 5
 # The model is a dictionary whose keys are tag IDs and where each
@@ -97,12 +100,11 @@ set ::estimateHomography {{pointPairs} {
         lappend b $u $v
     }
 
-    lassign [leastSquaresSVD $A $b] a0 a1 a2 b0 b1 b2 c0 c1
-    set H [subst {
-        {$a0 $a1 $a2}
-        {$b0 $b1 $b2}
-        {$c0 $c1 1}
-    }]
+    vexpr {
+        x = A \ b
+        x = linsert(x, 8, 1.0)
+        H = reshape(x, 3, 3)
+    }
     return $H
 }}
 fn estimateHomography {pointPairs} {
