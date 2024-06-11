@@ -174,8 +174,45 @@ namespace eval ::quad {
             lmap x $v {* $x $s}
         }]
     }
-    proc offset {q args} {
+    proc buffer {q args} {
         # TODO: implement
+        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        foreach {direction distance} $args {
+            if {![regexp {([0-9\.]+)(mm|m)?} $distance -> distance unit]} {
+                error "quad buffer: Invalid distance $distance"
+            }
+
+            if {$unit eq "mm"} {
+                set distance [* $distance 0.001]
+                set unit "m"
+            }
+            if {$unit eq "cm"} {
+                set distance [* $distance 0.01]
+                set unit "m"
+            }
+            if {$unit ne "m"} { error "quad buffer: Invalid unit $unit" }
+
+            if {$direction eq "top"} {
+                set disp [list 0 [- $distance] 0]
+                set topLeft [add $topLeft $disp]
+                set topRight [add $topRight $disp]
+            } elseif {$direction eq "bottom"} {
+                set disp [list 0 $distance 0]
+                set bottomLeft [add $bottomLeft $disp]
+                set bottomRight [add $bottomRight $disp]
+            } elseif {$direction eq "left"} {
+                set disp [list [- $distance] 0 0]
+                set bottomLeft [add $bottomLeft $disp]
+                set topLeft [add $topLeft $disp]
+            } elseif {$direction eq "right"} {
+                set disp [list $distance 0 0]
+                set bottomRight [add $bottomRight $disp]
+                set topRight [add $topRight $disp]
+            } else {
+                error "quad buffer: Invalid direction $direction"
+            }
+        }
+        return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
     }
 
     namespace export *
@@ -200,6 +237,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set tagSpace [space changeableTo $camera $tagToCameraSpaceChanger]
 
         set r [expr {$tagSize / 2}]
+        # Vertex order is bottom-left, bottom-right, top-right,
+        # top-left.
         set vertices \
             [list [list [- $r]    $r  0] \
                  [list     $r     $r  0] \
@@ -212,5 +251,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 }
 
 When tag /tag/ has quad /q/ {
-    Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
+    # TODO: Store construction of program $tag so it can vary by
+    # program, instead of hard-coding.
+    Claim $tag has quad [quad buffer $q \
+                             top 28mm \
+                             right 28mm \
+                             left 157mm \
+                             bottom 80mm]
+    
+    # Just uses the outer edge of the tag:
+    # Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
 }
