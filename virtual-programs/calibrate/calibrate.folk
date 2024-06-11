@@ -10,7 +10,7 @@
 
 package require math::linearalgebra
 # rename ::scale scaleTk
-foreach p {add norm sub scale leastSquaresSVD matmul
+foreach p {add norm sub scale matmul
     getelem transpose determineSVD shape mkIdentity
     solvePGauss crossproduct getcol setcol unitLengthVector
 } {
@@ -110,9 +110,12 @@ set ::estimateHomography {{pointPairs} {
 fn estimateHomography {pointPairs} {
     apply $::estimateHomography $pointPairs
 }
-fn applyHomography {H xy} {
-    lassign [matmul $H [list {*}$xy 1]] u v w
-    return [list [/ $u $w] [/ $v $w]]
+proc ::applyHomography {H xy} {
+    lappend xy 1.0
+    return [vexpr {
+        uvw = H * reshape(xy, 3)
+        list(uvw[0]/uvw[2], uvw[1]/uvw[2])
+    }]
 }
 
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
@@ -491,12 +494,23 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                                          {*}[applyHomography $H_modelToCameraViaPs $modelTopRight] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
                                          {*}[applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
+        set boardMinX 100000; set boardMinY 100000
+        set boardMaxX -100000; set boardMaxY -100000
+        foreach {cornerX cornerY} $printedCalibrationBoard {
+            if {$cornerX < $boardMinX} { set boardMinX $cornerX }
+            if {$cornerY < $boardMinY} { set boardMinY $cornerY }
+            if {$cornerX > $boardMaxX} { set boardMaxX $cornerX }
+            if {$cornerY > $boardMaxY} { set boardMaxY $cornerY }
+        }
 
         # We only count projected tags that are inside the board.
         set projectedTags [dict create]
         dict for {id tag} $allDetectedTags {
             if {![isProjectedTag $id]} { continue }
-            if {[pointInsidePolygon [dict get $tag c] $printedCalibrationBoard]} {
+
+            lassign [dict get $tag c] x y
+            if {$x > $boardMinX && $x < $boardMaxX &&
+                $y > $boardMinY && $y < $boardMaxY} {
                 # This is a projected tag that we detected.
                 dict set projectedTags $id $tag
             }
@@ -563,7 +577,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
-        set H_modelToDisplay [matmul $H_cameraToDisplay $H_modelToCameraViaPs]
+        set H_modelToDisplay [vexpr { H_cameraToDisplay * H_modelToCameraViaPs }]
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
