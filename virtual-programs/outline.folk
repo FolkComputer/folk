@@ -38,6 +38,3 @@ When display /proj/ has intrinsics /projectorIntrinsics/ {
         Wish the GPU draws pipeline "line" with instances $instances
     }
 }
-
-# FIXME: just so we boot to something working
-Wish 853 is outlined green
