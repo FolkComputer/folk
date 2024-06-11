@@ -186,10 +186,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
     When tag /tag/ has detection /det/ on $camera {
         set tagSize [expr {31.5 / 1000}]; # 31.5 mm
-        puts "cameraIntrinsics ($cameraIntrinsics)"
+
+        set p [dict get $det p]
         set tagPose [estimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
-                         $tagSize $det]
+                         $tagSize $p]
         set tagSpace [space changeableTo $camera $tagPose]
 
         set r [expr {$tagSize / 2}]

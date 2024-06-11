@@ -63,20 +63,9 @@ When (non-capturing) the calibration is /calibration/ {
     puts "======================"
     puts "Using calibration:"
     set cameraIntrinsics [dict get $calibration camera intrinsics]
-    puts "cameraFx [getelem $cameraIntrinsics 0 0]"
-    puts "cameraFy [getelem $cameraIntrinsics 1 1]"
-    puts "cameraCx [getelem $cameraIntrinsics 0 2]"
-    puts "cameraCy [getelem $cameraIntrinsics 1 2]"
-    puts "cameraK1 [dict get $calibration camera k1]"
-    puts "cameraK2 [dict get $calibration camera k2]"
-    puts ""
+    puts "camera ($cameraIntrinsics)"
     set projectorIntrinsics [dict get $calibration projector intrinsics]
-    puts "projectorFx [getelem $projectorIntrinsics 0 0]"
-    puts "projectorFy [getelem $projectorIntrinsics 1 1]"
-    puts "projectorCx [getelem $projectorIntrinsics 0 2]"
-    puts "projectorCy [getelem $projectorIntrinsics 1 2]"
-    puts "projectorK1 [dict get $calibration projector k1]"
-    puts "projectorK2 [dict get $calibration projector k2]"
+    puts "projector ($projectorIntrinsics)"
     puts "======================"
 }
 
