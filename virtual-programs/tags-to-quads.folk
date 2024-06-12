@@ -175,7 +175,6 @@ namespace eval ::quad {
         }]
     }
     proc buffer {q args} {
-        # TODO: implement
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         foreach {direction distance} $args {
             if {![regexp {([0-9\.]+)(mm|m)?} $distance -> distance unit]} {
