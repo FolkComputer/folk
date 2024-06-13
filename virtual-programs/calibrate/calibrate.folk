@@ -908,8 +908,16 @@ When the calibration poses are /calibrationPoses/ &\
      the calibration refiner is /refineCalibration/ {
 
     set calibration [unrefinedCalibrateCameraAndProjector $calibrationPoses]
+    puts "======== Unrefined calibration ========="
+    puts $calibration
+    puts ""
+
     set calibration [apply $refineCalibration \
                          $calibrationPoses $calibration]
+    puts "======== Refined calibration ========="
+    puts $calibration
+    puts ""
+
     Commit calibration { Claim the calibration is $calibration }
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]

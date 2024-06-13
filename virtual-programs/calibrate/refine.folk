@@ -407,7 +407,6 @@ When the calibration model is /MODEL/ {
         set projectorTagCorners [list]
         set poseIdx 0
         foreach calibrationPose $calibrationPoses {
-            puts -nonewline "pose $poseIdx: tags [llength $cameraTagHs] "
             incr poseIdx
 
             set H_modelToProjector [dict get $calibrationPose H_modelToDisplay]
@@ -425,13 +424,15 @@ When the calibration model is /MODEL/ {
                     lappend projectorTagCorners $projectorCorner
                 }
             }
-
-            puts "to [- [llength $cameraTagHs] 1]"
         }
         setTags $tagSize \
             [concat {*}$cameraTagHs] [concat {*}$cameraTagCorners] \
             [concat {*}$projectorTagCorners] \
             [llength $cameraTagHs]
+
+        # HACK: Force camera skew to 0. AprilTag pose detector can't
+        # use it, and it should be 0 anyway.
+        dict set calibration camera intrinsics s 0.0
 
         set paramNames {fx s cx fy cy k1 k2}
 
@@ -465,7 +466,6 @@ When the calibration model is /MODEL/ {
             dict set calibration projector intrinsics $paramName [set $paramName]
         }
 
-        puts "Remaining refined: ($refined)"
         dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
         dict set calibration t_cameraToProjector [lrange $refined 3 5]
 
