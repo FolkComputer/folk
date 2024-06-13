@@ -1,0 +1,116 @@
+
+proc intersect {a1 b1 a2 b2} {
+    set as $a1
+    set ad [::vec2 sub $b1 $as]
+    set s [expr {sqrt(pow([lindex $ad 0], 2) + pow([lindex $ad 1], 2))}]
+    set ad [::vec2 scale $ad $s]
+
+    set bs $a2
+    set bd [::vec2 sub $b2 $bs]
+    set s [expr {sqrt(pow([lindex $bd 0], 2) + pow([lindex $bd 1], 2))}]
+    set bd [::vec2 scale $bd $s]
+
+    set det [expr {([lindex $bd 0] * [lindex $ad 1]) - ([lindex $bd 1] * [lindex $ad 0])}]
+    
+    lassign [::vec2 sub $bs $as] dx dy
+    set u [expr {(($dy * [lindex $bd 0]) - ($dx * [lindex $bd 1])) / $det}]
+
+    ::vec2 add $as [::vec2 scale $ad $u]
+}
+
+proc order_tags {x1 x2} {
+    lassign [dict get $x1 corners] a1 b1 c1 d1
+    lassign [dict get $x2 corners] a2 b2 c2 d2
+   
+    set as [::vec2 sub $a1 $a1]
+    #set ad [::vec2 sub $d1 $a1]
+    set bs [::vec2 sub $a2 $a1]
+    #set bd [::vec2 sub $d2 $a1]
+
+    set theta [dict get $x1 angle]
+    lassign [::vec2 sub $a2 $a1] x y
+    set bx [expr {$x*cos($theta) - $y*sin($theta)}]
+    set by [expr {$y*cos($theta) + $x*sin($theta)}]
+
+    if {$by > 0} {
+        return [list $x1 $x2]
+    } else {
+        return [list $x2 $x1]
+    }
+}
+
+proc shift_vec {vec p} {
+    set c [lindex $vec 0]
+    set shift [vec2 sub $p $c]
+    set r' [lmap v $vec {
+        set v [vec2 add $v $shift]
+        set v
+    }]
+    set r'
+}
+
+When /anyone/ detects tag36h11 tags /tags/ at /ts/ in time /t/ {
+    try {
+        for { set i 0 } { $i < [llength $tags] } { incr i 1 } {
+            set x1 [lindex $tags $i]
+            set x2 [lindex $tags [expr {$i + 1}]]
+            
+            set id1 [dict get $x1 id]
+
+            # Skip if we don't see this 2 tags with the same id
+            if {$x2 == ""} {
+                continue
+            } else {
+                set id2 [dict get $x2 id]
+                if {$id1 != $id2} {
+                    continue
+                } 
+            }
+
+            set i [expr {$i + 1}]
+
+            lassign [order_tags $x1 $x2] top bot
+
+            lassign [dict get $top corners] a1 b1 c1 d1
+            lassign [dict get $bot corners] a2 b2 c2 d2
+            set b $d2
+            set d $b1
+
+            # calculate opposite corners
+            lassign [shift_vec [list $b1 $c1] $a2] s1 e1
+            set c [intersect $a1 $b1 $s1 $e1]
+            
+            lassign [shift_vec [list $b1 $a1] $c2] s2 e2
+            set a [intersect $c1 $b1 $s2 $e2]
+            
+            set color "rgba(255,255,255,0.2)"
+            Wish to draw a stroke with points [lmap p [list $a1 $b1 $c1] {::cameraToProjector $p}] width 3 color $color
+            Wish to draw a stroke with points [lmap p [list $s1 $e1 $s2] {::cameraToProjector $p}] width 3 color $color
+
+            Claim page "page-[dict get $top id]" has corners [list $a $b $c $d]
+        }
+    } on error err {
+        puts stderr "Warning: tag-regions ($err)."
+    }
+}
+
+When (non-capturing) page /id/ has corners /corners/ {
+    set tagCorners [lmap p $corners {::cameraToProjector $p}]
+
+    set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
+    set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
+
+    set corners $tagCorners
+
+    set edges [list]
+    for {set i 0} {$i < [llength $corners]} {incr i} {
+        if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
+    }
+    lappend edges [list [expr {[llength $corners] - 1}] 0]
+
+    set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
+    set region [region create $corners $edges $angle]
+
+    Claim $id has region $region
+    Claim page $id has a program
+}

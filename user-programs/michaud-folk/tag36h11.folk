@@ -1,0 +1,26 @@
+set tagFamily "tag36h11"
+
+Wish $this is titled "$tagFamily detector"
+
+When the AprilTag detector maker is /makeAprilTagDetector/ {
+
+  # Plain detector. Runs on entire camera frame.
+  set detectorProcess [Start process {
+    
+    set detector [apply $makeAprilTagDetector $tagFamily]
+
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+    Wish $::thisProcess shares statements like \
+        [list /someone/ claims /process/ detects $tagFamily tags /tags/ at /timestamp/ in time /aprilTime/]
+
+    When the camera frame is /grayFrame/ at /timestamp/ {
+        set aprilTime [time {
+            set tags [$detector detect $grayFrame]
+        }]
+        Claim $this detects $tagFamily tags $tags at $timestamp in time $aprilTime
+        #Claim $::thisProcess detects $tagFamily tags $tags at $timestamp in time $aprilTime
+    }
+  }]
+}
+
