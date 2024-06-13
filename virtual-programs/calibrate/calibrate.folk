@@ -918,7 +918,9 @@ fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibra
         set points [list]
         dict for {id tag} [dict get $pose tags] {
             if {![isPrintedTag $id]} continue
-            lappend modelPoints {*}[dict get $pose model $id p]
+            lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
+                list {*}$corner 0.0
+            }]
             lappend points {*}[dict get $tag p]
         }
         dict create \
@@ -947,7 +949,9 @@ fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibra
         set points [list]
         dict for {id tag} [dict get $pose tags] {
             if {![isProjectedTag $id]} continue
-            lappend modelPoints {*}[dict get $pose model $id p]
+            lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
+                list {*}$corner 0.0
+            }]
             lappend points {*}[dict get $tag p]
         }
         dict create \
