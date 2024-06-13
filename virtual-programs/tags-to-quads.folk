@@ -71,10 +71,10 @@ $cc proc rescaleAndUndistort {Intrinsics intr
 $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
 $cc include <apriltag_pose.h>
 $cc include <common/homography.h>
-$cc proc estimateTagPose {Intrinsics cameraIntrinsics
-                          double cameraWidth double cameraHeight
-                          double tagSize
-                          double[4][2] p0} Tcl_Obj* {
+$cc proc estimateTagPoses {Intrinsics cameraIntrinsics
+                           double cameraWidth double cameraHeight
+                           double tagSize
+                           double[4][2] p0} Tcl_Obj* {
     // We'll fill this in with a new .p and .H with
     // undistorted/rescaled coordinates.
     apriltag_detection_t det;
@@ -106,23 +106,32 @@ $cc proc estimateTagPose {Intrinsics cameraIntrinsics
         .fx = cameraIntrinsics.fx, .fy = cameraIntrinsics.fy,
         .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
     };
-    apriltag_pose_t pose;
-    estimate_tag_pose(&info, &pose);
+    apriltag_pose_t poses[2]; double errs[2];
+    estimate_tag_pose_orthogonal_iteration(&info, &errs[0], &poses[0],
+                                           &errs[1], &poses[1], 4);
 
     matd_destroy(det.H);
 
-    Tcl_Obj* poseObj = Tcl_ObjPrintf(
-        "{%f %f %f %f}\n"
-        "{%f %f %f %f}\n"
-        "{%f %f %f %f}\n"
-        "{0   0  0  1}\n",
-        MATD_EL(pose.R, 0, 0), MATD_EL(pose.R, 0, 1), MATD_EL(pose.R, 0, 2), MATD_EL(pose.t, 0, 0),
-        MATD_EL(pose.R, 1, 0), MATD_EL(pose.R, 1, 1), MATD_EL(pose.R, 1, 2), MATD_EL(pose.t, 1, 0),
-        MATD_EL(pose.R, 2, 0), MATD_EL(pose.R, 2, 1), MATD_EL(pose.R, 2, 2), MATD_EL(pose.t, 2, 0)
-    );
-    matd_destroy(pose.R);
-    matd_destroy(pose.t);
-    return poseObj;
+    Tcl_Obj* ret = Tcl_NewListObj(0, NULL);
+    for (int i = 0; i < 2; i++) {
+        apriltag_pose_t* pose = &poses[i];
+        if (pose->R == NULL) { continue; }
+
+        Tcl_ListObjAppendElement(NULL, ret, Tcl_ObjPrintf(
+            "{%f %f %f %f}\n"
+            "{%f %f %f %f}\n"
+            "{%f %f %f %f}\n"
+            "{0   0  0  1}\n",
+            MATD_EL(pose->R, 0, 0), MATD_EL(pose->R, 0, 1), MATD_EL(pose->R, 0, 2), MATD_EL(pose->t, 0, 0),
+            MATD_EL(pose->R, 1, 0), MATD_EL(pose->R, 1, 1), MATD_EL(pose->R, 1, 2), MATD_EL(pose->t, 1, 0),
+            MATD_EL(pose->R, 2, 0), MATD_EL(pose->R, 2, 1), MATD_EL(pose->R, 2, 2), MATD_EL(pose->t, 2, 0)
+            ));
+        Tcl_ListObjAppendElement(NULL, ret, Tcl_NewDoubleObj(errs[i]));
+
+        matd_destroy(pose->R);
+        matd_destroy(pose->t);
+    }
+    return ret;
 }
 
 namespace eval ::space {
@@ -222,13 +231,40 @@ $cc compile
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
-    When tag /tag/ has detection /det/ on $camera {
+        
+    set ::prevTagPoses [dict create]
+    When tag /tag/ has detection /det/ on $camera at /timestamp/ {
         set tagSize [expr {31.5 / 1000}]; # 31.5 mm
 
-        set p [dict get $det p]
-        set tagPose [estimateTagPose $cameraIntrinsics \
-                         $cameraWidth $cameraHeight \
-                         $tagSize $p]
+        if {[dict exists $::prevTagPoses $tag]} {
+            set prevTimestamp [dict get $::prevTagPoses $tag timestamp]
+            # Consider previous tag pose if it's less than 50ms old:
+            if {$timestamp - $prevTimestamp < 0.05} {
+                set prevTagPose [dict get $::prevTagPoses $tag pose]
+            }
+        }
+
+        set estimatedTagPoses [estimateTagPoses $cameraIntrinsics \
+                                   $cameraWidth $cameraHeight \
+                                   $tagSize [dict get $det p]]
+        if {[info exists prevTagPose]} {
+            # Replace error values in tagPoses using distance from
+            # prev pose.
+            set tagPoses [list]
+            foreach {tagPose err} $estimatedTagPoses {
+                set err [::math::linearalgebra::normMatrix [::math::linearalgebra::sub $tagPose $prevTagPose]]
+                lappend tagPoses $tagPose $err
+            }
+        } else {
+            set tagPoses $estimatedTagPoses
+        }
+        # Re-sort tagPoses so lowest err is first.
+        set tagPoses [lsort -stride 2 -index 1 -real $tagPoses]
+        set tagPose [lindex $tagPoses 0]
+
+        dict set ::prevTagPoses $tag timestamp $timestamp
+        dict set ::prevTagPoses $tag pose $tagPose
+
         set tagToCameraSpaceChanger [list apply {{tagPose v} {
             lassign [matmul $tagPose [list {*}$v 1]] x y z w
             list [/ $x $w] [/ $y $w] [/ $z $w]
@@ -259,5 +295,5 @@ When tag /tag/ has quad /q/ {
                              bottom 80mm]
     
     # Just uses the outer edge of the tag:
-    # Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
+    Claim $tag has quad $q ;# [quad scale $q [expr {10.0 / 6.0}]]
 }

@@ -97,7 +97,7 @@ set mainDetectorProcess [Start process {
 
 When /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/ {
     foreach tag $tags {
-        Claim tag [dict get $tag id] has detection $tag on $camera
+        Claim tag [dict get $tag id] has detection $tag on $camera at $timestamp
     }
 }
 
