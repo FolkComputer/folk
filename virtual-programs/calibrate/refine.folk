@@ -72,101 +72,30 @@ When the calibration model is /MODEL/ {
         #define MAX_POINTS_PER_POSE $[* [dict size $MODEL] 4]
         #define NUM_POSES 10
 
-        // We need to store as example points for fit, for each tag:
-        // 1. camera detection homography (9 entries)
-        // 2. camera-plane corners (4 corners with x, y in each)
-        // 3. projector-plane corners (4 corners with x, y in each)
-        // They are grouped by tag so that you can do one pose estimate per tag.
-        double CameraTagHs[NUM_POSES * $[dict size $MODEL]][9];
-        double CameraTagCorners[NUM_POSES * $[dict size $MODEL]][4][2];
-        double ProjectorTagCorners[NUM_POSES * $[dict size $MODEL]][4][2];
-        int TagsCount;
-
-        double TagSize;
-
-        static matd_t* homography_compute2(double c[4][4]) {
-    double A[] =  {
-            c[0][0], c[0][1], 1,       0,       0, 0, -c[0][0]*c[0][2], -c[0][1]*c[0][2], c[0][2],
-                  0,       0, 0, c[0][0], c[0][1], 1, -c[0][0]*c[0][3], -c[0][1]*c[0][3], c[0][3],
-            c[1][0], c[1][1], 1,       0,       0, 0, -c[1][0]*c[1][2], -c[1][1]*c[1][2], c[1][2],
-                  0,       0, 0, c[1][0], c[1][1], 1, -c[1][0]*c[1][3], -c[1][1]*c[1][3], c[1][3],
-            c[2][0], c[2][1], 1,       0,       0, 0, -c[2][0]*c[2][2], -c[2][1]*c[2][2], c[2][2],
-                  0,       0, 0, c[2][0], c[2][1], 1, -c[2][0]*c[2][3], -c[2][1]*c[2][3], c[2][3],
-            c[3][0], c[3][1], 1,       0,       0, 0, -c[3][0]*c[3][2], -c[3][1]*c[3][2], c[3][2],
-                  0,       0, 0, c[3][0], c[3][1], 1, -c[3][0]*c[3][3], -c[3][1]*c[3][3], c[3][3],
-    };
-
-    double epsilon = 1e-10;
-
-    // Eliminate.
-    for (int col = 0; col < 8; col++) {
-        // Find best row to swap with.
-        double max_val = 0;
-        int max_val_idx = -1;
-        for (int row = col; row < 8; row++) {
-            double val = fabs(A[row*9 + col]);
-            if (val > max_val) {
-                max_val = val;
-                max_val_idx = row;
-            }
-        }
-
-        if (max_val < epsilon) {
-            /* debug_print("WRN: Matrix is singular.\n"); */
-            return NULL;
-        }
-
-        // Swap to get best row.
-        if (max_val_idx != col) {
-            for (int i = col; i < 9; i++) {
-                double tmp = A[col*9 + i];
-                A[col*9 + i] = A[max_val_idx*9 + i];
-                A[max_val_idx*9 + i] = tmp;
-            }
-        }
-
-        // Do eliminate.
-        for (int i = col + 1; i < 8; i++) {
-            double f = A[i*9 + col]/A[col*9 + col];
-            A[i*9 + col] = 0;
-            for (int j = col + 1; j < 9; j++) {
-                A[i*9 + j] -= f*A[col*9 + j];
-            }
-        }
-    }
-
-    // Back solve.
-    for (int col = 7; col >=0; col--) {
-        double sum = 0;
-        for (int i = col + 1; i < 8; i++) {
-            sum += A[col*9 + i]*A[i*9 + 8];
-        }
-        A[col*9 + 8] = (A[col*9 + 8] - sum)/A[col*9 + col];
-    }
-    return matd_create_data(3, 3, (double[]) { A[8], A[17], A[26], A[35], A[44], A[53], A[62], A[71], 1 });
-        }
+        int PointsCount;
+        int PosePointsCount[NUM_POSES];
+        double PoseModelPoints[NUM_POSES][MAX_POINTS_PER_POSE][3];
+        double PosePoints[NUM_POSES][MAX_POINTS_PER_POSE][2];
     }]
-    $cc proc setTags {double tagSize
-                      double[] cameraTagHs double[] cameraTagCorners
-                      double[] projectorTagCorners
-                      int tagsCount} void {
-        TagSize = tagSize;
-        int chi = 0; int cci = 0; int pi = 0;
-        // For each tag:
-        for (int i = 0; i < tagsCount; i++) {
-            for (int j = 0; j < 9; j++) {
-                CameraTagHs[i][j] = cameraTagHs[chi++];
-            }
-            // For each corner:
-            for (int j = 0; j < 4; j++) {
-                CameraTagCorners[i][j][0] = cameraTagCorners[cci++];
-                CameraTagCorners[i][j][1] = cameraTagCorners[cci++];
-                ProjectorTagCorners[i][j][0] = projectorTagCorners[pi++];
-                ProjectorTagCorners[i][j][1] = projectorTagCorners[pi++];
+    $cc proc setPoints {int[] posePointsCount
+                        double[] poseModelPoints
+                        double[] posePoints} void {
+        int mi = 0; int pi = 0;
+        PointsCount = 0;
+        for (int poseIdx = 0; poseIdx < NUM_POSES; poseIdx++) {
+            PosePointsCount[poseIdx] = posePointsCount[poseIdx];
+            PointsCount += PosePointsCount[poseIdx];
+            for (int i = 0; i < PosePointsCount[poseIdx]; i++) {
+                for (int j = 0; j < 3; j++) {
+                    PoseModelPoints[poseIdx][i][j] = poseModelPoints[mi++];
+                }
+                for (int j = 0; j < 2; j++) {
+                    PosePoints[poseIdx][i][j] = posePoints[pi++];
+                }
             }
         }
-        TagsCount = tagsCount;
     }
+
     $cc code {
         void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
             double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
@@ -243,124 +172,70 @@ When the calibration model is /MODEL/ {
         // Unwrap the parameters x[]:
         int k = 0;
 
-        // Camera intrinsics:
-        double cfx = x[k++];
-        double cs = x[k++]; (void)cs;
-        double ccx = x[k++];
-        double cfy = x[k++];
-        double ccy = x[k++];
-        double ck1 = x[k++];
-        double ck2 = x[k++];
-
-        // Projector intrinsics:
-        double pfx = x[k++];
-        double ps = x[k++];
-        double pcx = x[k++];
-        double pfy = x[k++];
-        double pcy = x[k++];
-        double projectorIntrinsics[3][3] = {
-            {pfx,   ps,  pcx},
-            {  0,  pfy,  pcy},
-            {  0,    0,    1}
+        // Intrinsics:
+        double fx = x[k++];
+        double s = x[k++]; (void)s;
+        double cx = x[k++];
+        double fy = x[k++];
+        double cy = x[k++];
+        double intrinsics[3][3] = {
+            {fx,    s,  cx},
+            {  0,  fy,  cy},
+            {  0,   0,   1}
         };
-        double pk1 = x[k++];
-        double pk2 = x[k++];
+        double k1 = x[k++];
+        double k2 = x[k++];
 
-        double r[3] = { x[k], x[k+1], x[k+2] }; k += 3;
-        double R_cameraToProjector[3][3];
-        rotationVectorToRotationMatrix(r, R_cameraToProjector);
-        double t_cameraToProjector[3];
-        for (int i = 0; i < 3; i++) { t_cameraToProjector[i] = x[k++]; }
-
-        assert(k == n);
-        int f = 0;
-        // For each tag:
-        for (int tagNum = 0; tagNum < TagsCount; tagNum++) {
-            apriltag_detection_t det; {
-                for (int i = 0; i < 4; i++) {
-                    // Undistort the tag corners into ideal camera
-                    // space.
-                    undistort(cfx, cfy, ccx, ccy, ck1, ck2,
-                              CameraTagCorners[tagNum][i],
-                              det.p[i]);
-                    /* det.p[i][0] = CameraTagCorners[tagNum][i][0]; */
-                    /* det.p[i][1] = CameraTagCorners[tagNum][i][1]; */
-                }
-
-                // Construct a new, undistorted homography.
-                double corners[4][4] = {
-                    {-1, 1, det.p[0][0], det.p[0][1]},
-                    {1, 1, det.p[1][0], det.p[1][1]},
-                    {1, -1, det.p[2][0], det.p[2][1]},
-                    {-1, -1, det.p[3][0], det.p[3][1]}
-                };
-                det.H = homography_compute2(corners);
-            }
-
-            apriltag_detection_info_t info = {
-                .det = &det,
-                .tagsize = TagSize,
-                .fx = cfx, .fy = cfy,
-                .cx = ccx, .cy = ccy
-            };
-            apriltag_pose_t pose;
-            double err = estimate_tag_pose(&info, &pose);
-            matd_destroy(det.H);
-            (void) err;
-            // Now we have pose.R and pose.t.
-
-            // For each corner:
-            for (int i = 0; i < 4; i++) {
-                // Get this corner in tag-frame space.
-                double tagFrameCorner[3] = {0};
-                if (i == 0)      { tagFrameCorner[0] = -TagSize/2; tagFrameCorner[1] = TagSize/2; }
-                else if (i == 1) { tagFrameCorner[0] = TagSize/2;  tagFrameCorner[1] = TagSize/2; }
-                else if (i == 2) { tagFrameCorner[0] = TagSize/2;  tagFrameCorner[1] = -TagSize/2; }
-                else if (i == 3) { tagFrameCorner[0] = -TagSize/2; tagFrameCorner[1] = -TagSize/2; }
-
-                // Use pose.R and pose.t to transform it into camera-frame space.
-                double cameraFrameCorner[3];
-                transformVec3((double(*)[3])pose.R->data, pose.t->data,
-                              tagFrameCorner, cameraFrameCorner);
-
-                // Use R and t to transform it into projector-frame space.
-                double projectorFrameCorner[3];
-                transformVec3((double(*)[3])R_cameraToProjector, t_cameraToProjector,
-                              cameraFrameCorner, projectorFrameCorner);
-
-                // Use projector intrinsics to downproject it to 2D coordinates.
-                double reprojCorner[3];
-                mulMat3Vec3(projectorIntrinsics, projectorFrameCorner,
-                            reprojCorner);
-                reprojCorner[0] /= reprojCorner[2];
-                reprojCorner[1] /= reprojCorner[2];
-                reprojCorner[2] = 1;
-
-                // Use projector distortion coefficients to distort
-                // the 2D coordinates.
-                /* (void)pk1; (void)pk2; */
-                distort(pfx, pfy, pcx, pcy, pk1, pk2,
-                        reprojCorner, reprojCorner);
-
-                double dx = reprojCorner[0] - ProjectorTagCorners[tagNum][i][0];
-                double dy = reprojCorner[1] - ProjectorTagCorners[tagNum][i][1];
-                /* printf("%d (%d): Orig (%f %f) -> Reproj (%f %f)\n", */
-                /*        tagNum, i, */
-                /*        ProjectorTagCorners[tagNum][i][0], ProjectorTagCorners[tagNum][i][1], */
-                /*        reprojCorner[0], reprojCorner[1]); */
-                fvec[f++] = sqrt(dx*dx + dy*dy);
-            }
-            free(pose.R); free(pose.t);
+        // Extrinsics:
+        double r_pose[NUM_POSES][3];
+        double t_pose[NUM_POSES][3];
+        for (int i = 0; i < NUM_POSES; i++) {
+            r_pose[i][0] = x[k]; r_pose[i][1] = x[k+1]; r_pose[i][2] = x[k+2]; k += 3;
+            t_pose[i][0] = x[k]; t_pose[i][1] = x[k+1]; t_pose[i][2] = x[k+2]; k += 3;
         }
 
+        assert(k == n);
+
+        int f = 0;
+        for (int poseIdx = 0; poseIdx < NUM_POSES; poseIdx++) {
+            // Pose extrinsics:
+            double t[3]; memcpy(t, t_pose[poseIdx], sizeof(double[3]));
+            double R[3][3]; rotationVectorToRotationMatrix(r_pose[poseIdx], R);
+
+            // For each point in the pose:
+            for (int pointIdx = 0; pointIdx < PosePointsCount[poseIdx]; pointIdx++) {
+                // Get the 3D position of the point in ideal
+                // camera-space using model & extrinsics.
+                double* modelPoint = (double*) &PoseModelPoints[poseIdx][pointIdx];
+                double idealPoint[3];
+                transformVec3(R, t, modelPoint, idealPoint);
+
+                // Use intrinsics to project down to ideal 2D
+                // position.
+                double idealPlanePoint[3];
+                mulMat3Vec3(intrinsics, idealPoint, idealPlanePoint);
+                idealPlanePoint[0] /= idealPlanePoint[2];
+                idealPlanePoint[1] /= idealPlanePoint[2];
+                idealPlanePoint[2] = 1.0;
+
+                double planePoint[2];
+                distort(fx, fy, cx, cy, k1, k2,
+                        idealPlanePoint, planePoint);
+
+                // Add an error term to fvec.
+                double dx = planePoint[0] - PosePoints[poseIdx][pointIdx][0];
+                double dy = planePoint[1] - PosePoints[poseIdx][pointIdx][1];
+                fvec[f++] = sqrt(dx*dx + dy*dy);
+            }
+        }
         return 0;
     }
     $cc proc computeError {double[] params int paramsCount} void {
-        double fvec[TagsCount * 4];
-        func(TagsCount * 4, paramsCount, params, fvec, NULL, NULL);
+        double fvec[PointsCount];
+        func(PointsCount, paramsCount, params, fvec, NULL, NULL);
         double totalError = 0;
-        for (int i = 0; i < TagsCount * 4; i++) {
-            printf("  Error Tag %d (%d): %f\n", i/4, i%4, fvec[i]);
+        for (int i = 0; i < PointsCount; i++) {
+            printf("  Error %d: %f\n", i, fvec[i]);
             totalError += fvec[i];
         }
         printf("Total Error: %f\n", totalError);
@@ -370,13 +245,13 @@ When the calibration model is /MODEL/ {
         
         mp_result result = {0};
 
-        assert(paramsCount == 7 + 7 + 3 + 3);
+        assert(paramsCount == 7 + NUM_POSES*6);
         printf("Unrefined -----------------\n");
         computeError(params, paramsCount);
 
         mpfit(func,
               // Number of example point pairs:
-              TagsCount * 4,
+              PointsCount,
               // Number of parameters to optimize:
               paramsCount,
               params, NULL,
@@ -392,66 +267,39 @@ When the calibration model is /MODEL/ {
     }
     $cc compile ;# takes about a half-second
 
-
-    set refineCalibration {{calibrationPoses calibration} {
-        upvar ^isProjectedTag ^isProjectedTag
-        upvar ^applyHomography ^applyHomography
-
-        # tagSize is the inner side length of each tag in meters.
-        set tagSize [dict get [lindex $calibrationPoses 0] tagSize]
-
-        # Load the example data for fitting.
-
-        set cameraTagHs [list]
-        set cameraTagCorners [list]
-        set projectorTagCorners [list]
-        set poseIdx 0
-        foreach calibrationPose $calibrationPoses {
-            incr poseIdx
-
-            set H_modelToProjector [dict get $calibrationPose H_modelToDisplay]
-            dict for {id cameraTag} [dict get $calibrationPose tags] {
-                if {![isProjectedTag $id]} continue
-
-                lappend cameraTagHs [concat {*}[dict get $cameraTag H]]
-                foreach cameraCorner [dict get $cameraTag p] {
-                    lappend cameraTagCorners $cameraCorner                    
-                }
-
-                set modelTag [dict get $calibrationPose model $id]
-                foreach modelCorner [dict get $modelTag p] {
-                    set projectorCorner [applyHomography $H_modelToProjector $modelCorner]
-                    lappend projectorTagCorners $projectorCorner
-                }
-            }
-        }
-        setTags $tagSize \
-            [concat {*}$cameraTagHs] [concat {*}$cameraTagCorners] \
-            [concat {*}$projectorTagCorners] \
-            [llength $cameraTagHs]
-
-        # HACK: Force camera skew to 0. AprilTag pose detector can't
-        # use it, and it should be 0 anyway.
-        dict set calibration camera intrinsics s 0.0
-
+    # Refines the calibration of an individual camera or
+    # projector. Takes a dict with intrinsics (dict of fx, s, cx, etc)
+    # and poses (list of pose dicts). Each pose dict should have
+    # modelPoints (list of 3D points) and points (list of 2D points)
+    # and R and t. Returns dict with updated intrinsics and poses.
+    set refineCalibration {{calibration} {
         set paramNames {fx s cx fy cy k1 k2}
 
         # Load the initial guesses for all parameters for fitting.
-        set cameraParams [lmap paramName $paramNames {
-            dict get $calibration camera intrinsics $paramName
+        set params [lmap paramName $paramNames {
+            dict get $calibration intrinsics $paramName
         }]
-        set projectorParams [lmap paramName $paramNames {
-            dict get $calibration projector intrinsics $paramName
-        }]
-        set params [list {*}$cameraParams {*}$projectorParams]
+        foreach pose [dict get $calibration poses] {
+            lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
+            lappend params {*}[dict get $pose t]
+        }
 
-        set R_cameraToProjector [dict get $calibration R_cameraToProjector]
-        lappend params {*}[rotationMatrixToRotationVector $R_cameraToProjector]
-        set t_cameraToProjector [dict get $calibration t_cameraToProjector]
-        lappend params {*}$t_cameraToProjector
+        # Load the example data for fitting.
+        set poseModelPoints [list]
+        set posePoints [list]
+        set posePointsCount [list]
+        foreach pose [dict get $calibration poses] {
+            set modelPoints [dict get $pose modelPoints]
+            lappend poseModelPoints {*}[concat {*}$modelPoints]
+
+            set points [dict get $pose points]
+            lappend posePoints {*}[concat {*}$points]
+
+            lappend posePointsCount [llength $points]
+        }
+        setPoints $posePointsCount $poseModelPoints $posePoints
 
         # Do the actual optimization:
-
         set refined [refineCalibrationOptimize $params [llength $params]]
 
         # Unspool the optimization result into the calibration data
@@ -459,18 +307,20 @@ When the calibration model is /MODEL/ {
 
         set refined [lassign $refined {*}$paramNames]
         foreach paramName $paramNames {
-            dict set calibration camera intrinsics $paramName [set $paramName]
-        }
-        set refined [lassign $refined {*}$paramNames]
-        foreach paramName $paramNames {
-            dict set calibration projector intrinsics $paramName [set $paramName]
+            dict set calibration intrinsics $paramName [set $paramName]
         }
 
-        dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
-        dict set calibration t_cameraToProjector [lrange $refined 3 5]
+        set poses [dict get $calibration poses]
+        for {set i 0} {$i < [llength $poses]} {incr i} {
+            set pose [lindex $poses $i]
+            dict set pose R [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+            dict set pose t [lrange $refined 3 5]
+            lset poses $i $pose
+            set refined [lrange $refined 6 end]
+        }
+        dict set calibration poses $poses
 
         return $calibration
     }}
-
     Claim the calibration refiner is $refineCalibration
 }
