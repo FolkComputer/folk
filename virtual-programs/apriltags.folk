@@ -95,7 +95,9 @@ set mainDetectorProcess [Start process {
 }]
 
 
+set ::aprilTime none
 When /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/ {
+    set ::aprilTime $aprilTime
     foreach tag $tags {
         Claim tag [dict get $tag id] has detection $tag on $camera at $timestamp
     }

@@ -375,3 +375,10 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         }
     }
 }
+
+# TODO: remove this; useful for compatibility with current metrics but
+# doesn't work for multicam
+set ::cameraTime none
+When camera /any/ has camera time /cameraTime/ {
+    set ::cameraTime $cameraTime
+}
