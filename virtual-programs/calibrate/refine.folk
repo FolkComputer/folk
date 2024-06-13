@@ -174,7 +174,8 @@ When the calibration model is /MODEL/ {
 
         // Intrinsics:
         double fx = x[k++];
-        double s = x[k++]; (void)s;
+        // HACK: zero out skew.
+        double s = x[k++]; s = 0.0;
         double cx = x[k++];
         double fy = x[k++];
         double cy = x[k++];
@@ -309,6 +310,8 @@ When the calibration model is /MODEL/ {
         foreach paramName $paramNames {
             dict set calibration intrinsics $paramName [set $paramName]
         }
+        # HACK: zero out skew.
+        dict set calibration intrinsics s 0.0
 
         set poses [dict get $calibration poses]
         for {set i 0} {$i < [llength $poses]} {incr i} {
