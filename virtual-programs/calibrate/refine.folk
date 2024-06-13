@@ -235,7 +235,7 @@ When the calibration model is /MODEL/ {
         func(PointsCount, paramsCount, params, fvec, NULL, NULL);
         double totalError = 0;
         for (int i = 0; i < PointsCount; i++) {
-            printf("  Error %d: %f\n", i, fvec[i]);
+            /* printf("  Error %d: %f\n", i, fvec[i]); */
             totalError += fvec[i];
         }
         printf("Total Error: %f\n", totalError);

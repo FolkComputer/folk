@@ -786,6 +786,36 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
                 extrinsics $extrinsics]
 }
 
+fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
+    upvar $calibrationVar calibration
+    # What are R and t such that
+    # R*cameraFramePoint + t = projectorFramePoint?
+    set Rsum {{0 0 0} {0 0 0} {0 0 0}}
+    set tsum {0 0 0}
+    for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
+        # For each checkerboard pose (model plane):
+        # Rc*modelFramePoint + tc = cameraFramePoint
+        # Rp*modelFramePoint + tp = projectorFramePoint
+
+        set calibrationPose [lindex $calibrationPoses $i]
+
+        set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
+        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
+
+        set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
+        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
+
+        set Rcinv [solvePGauss $Rc [mkIdentity 3]]
+        set R [matmul $Rp $Rcinv]; set Rsum [add $Rsum $R]
+        set t [sub $tp [matmul $R $tc]]; set tsum [add $tsum $t]
+    }
+    # Average R and t from all poses.
+    set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
+    set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
+    dict set calibration R_cameraToProjector $R
+    dict set calibration t_cameraToProjector $t
+}
+
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
 # a list of N pose dictionaries. Each pose dictionary includes `tags`
 # from a camera detection, `model` with coordinates in meters,
@@ -854,33 +884,7 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
     set calibration [dict create \
                          camera $cameraCalibration \
                          projector $projectorCalibration]
-
-    # What are R and t such that
-    # R*cameraFramePoint + t = projectorFramePoint?
-    set Rsum {{0 0 0} {0 0 0} {0 0 0}}
-    set tsum {0 0 0}
-    for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
-        # For each checkerboard pose (model plane):
-        # Rc*modelFramePoint + tc = cameraFramePoint
-        # Rp*modelFramePoint + tp = projectorFramePoint
-
-        set calibrationPose [lindex $calibrationPoses $i]
-
-        set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
-        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
-
-        set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
-        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
-
-        set Rcinv [solvePGauss $Rc [mkIdentity 3]]
-        set R [matmul $Rp $Rcinv]; set Rsum [add $Rsum $R]
-        set t [sub $tp [matmul $R $tc]]; set tsum [add $tsum $t]
-    }
-    # Average R and t from all poses.
-    set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
-    set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
-    dict set calibration R_cameraToProjector $R
-    dict set calibration t_cameraToProjector $t
+    setCameraToProjectorExtrinsics calibration $calibrationPoses
     return $calibration
 }
 try {
@@ -945,14 +949,16 @@ fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibra
         pose $calibrationPoses \
         extrinsics [dict get $calibration projector extrinsics] \
     {
+        set H_modelToProjector [dict get $pose H_modelToDisplay]
+
         set modelPoints [list]
         set points [list]
         dict for {id tag} [dict get $pose tags] {
             if {![isProjectedTag $id]} continue
-            lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
-                list {*}$corner 0.0
-            }]
-            lappend points {*}[dict get $tag p]
+            foreach modelCorner [dict get $pose model $id p] {
+                lappend modelPoints [list {*}$modelCorner 0.0]
+                lappend points [applyHomography $H_modelToProjector $modelCorner]
+            }
         }
         dict create \
             R [dict get $extrinsics R] \
@@ -969,6 +975,7 @@ fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibra
             dict create R [dict get $pose R] t [dict get $pose t]
         }]
 
+    setCameraToProjectorExtrinsics calibration $calibrationPoses
     return $calibration
 }
 
