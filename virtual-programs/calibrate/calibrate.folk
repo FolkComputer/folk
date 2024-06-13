@@ -311,6 +311,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project projected tags once the printed side length has been
     # dialed in.
 
+    # VERY IMPORTANT: disable autofocus forever.
+    catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
+
     if {$cameraWidth < 1920} {
         Retract /someone/ wishes $::thisNode uses camera $camera \
             with width $cameraWidth height $cameraHeight
