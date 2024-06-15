@@ -74,6 +74,7 @@ foreach keyboard $keyboardDevices {
             [list /someone/ claims /page/ is a keyboard with path $keyboard locale /locale/]
 
         set ::localKeymaps [dictset create]
+        set ::defaultKeymap [keymap load us]
         When /page/ is a keyboard with path $keyboard locale /locale/ {
             set map [keymap load $locale]
             dictset add ::localKeymaps $map
@@ -103,14 +104,13 @@ foreach keyboard $keyboardDevices {
                 Step
 
                 lassign [dictset entries $::localKeymaps] activeKeymap
-                if {$activeKeymap ne ""} {
-                    set mods [+ {*}[dict values $modifiers]]
-                    lassign [keymap resolve $activeKeymap $code $mods] key keychar
-                    if {$key eq ""} { continue }
-                } else {
-                    set key Unknown_$code
-                    set keychar "."
+                if {$activeKeymap eq ""} {
+                    set activeKeymap $::defaultKeymap
                 }
+
+                set mods [+ {*}[dict values $modifiers]]
+                lassign [keymap resolve $activeKeymap $code $mods] key keychar
+                if {$key eq ""} { continue }
 
                 set keyState [lindex $KEY_STATES $value]
 
