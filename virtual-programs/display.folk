@@ -766,11 +766,11 @@ Try doing `sudo adduser folk render`."
     # Draw to the screen using pipeline `pipeline`. Each arg in `args`
     # should be a push-constant parameter of the pipeline. Can only be
     # called between `drawStart` and `drawEnd`.
-    proc draw {pipeline args} {
+    proc draw {pipeline arguments} {
         variable WIDTH; variable HEIGHT
-        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
+        set arguments [linsert $arguments 0 [list $WIDTH $HEIGHT]]
 
-        drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
+        drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$arguments]
     }
 
     dc proc drawEnd {} void {
@@ -1643,7 +1643,7 @@ Start-display-process {
 
     Claim the GPU is ready
 
-    while true {
+    while true { set renderTime [baretime {
         set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
         Step
         if {$macos} { update }
@@ -1661,7 +1661,7 @@ Start-display-process {
                     set instances [list [dict get $options arguments]]
                 }
                 foreach instance $instances {
-                    dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
+                    dict lappend ::displayList $layer [list $pipeline $instance]
                 }
 
             } on error e {
@@ -1671,21 +1671,21 @@ Start-display-process {
             }
         }
 
-        set renderTime [baretime {
-            Gpu::drawStart
-            foreach layer [lsort -real [dict keys $::displayList]] {
-                set layerDisplayList [dict get $::displayList $layer]
-                foreach displayCommand $layerDisplayList {
-                    try { {*}$displayCommand } \
-                        on error e { puts stderr $::errorInfo }
-                }
+        Gpu::drawStart
+        foreach layer [lsort -real [dict keys $::displayList]] {
+            set layerDisplayList [dict get $::displayList $layer]
+            foreach displayCommand $layerDisplayList {
+                try { Gpu::draw {*}$displayCommand } \
+                    on error e { puts stderr $::errorInfo }
             }
-            Gpu::drawEnd
-        }]
+        }
+        Gpu::drawEnd
+
         if {$macos} { Gpu::poll }
 
-        Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
-    }
+    }]; Commit {
+        Claim the display time is "render $renderTime us ($::stepTime)"
+    } }
 }
 
 set ::displayTime none
