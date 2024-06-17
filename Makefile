@@ -71,6 +71,7 @@ enable-pubkey:
 
 install-deps:
 	sudo apt remove libtcl8.6 || true
+	sudo apt install console-data
 
 	cd ~ && \
 		curl -O https://netactuate.dl.sourceforge.net/project/tcl/Tcl/8.6.14/tcl8.6.14-src.tar.gz?viasf=1 && \
