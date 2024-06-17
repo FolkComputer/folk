@@ -167,7 +167,7 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
     MATD_VAR(xq, npoints*2, 1);
     MATD_VAR(xn, npoints*2, 1);
 
-    double residual = 0; double residual_prev = 0;
+    double residual = 0; double residual_prev;
 
     for (int i = 0; i < npoints; i++) {
         MATD_EL(xn, i*2, 0) = x[i][0];
@@ -447,8 +447,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         dict set ::prevTagPoses $tag pose $tagPose
 
         set tagToCameraSpaceChanger [list apply {{tagPose v} {
-            lassign [matmul $tagPose [list {*}$v 1]] x y z w
-            list [/ $x $w] [/ $y $w] [/ $z $w]
+            set R [dict get $tagPose R]; set t [dict get $tagPose t]
+            add [matmul $R $v] $t
         }} $tagPose]
         set tagSpace [space changeableTo $camera $tagToCameraSpaceChanger]
 
