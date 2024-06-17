@@ -70,7 +70,155 @@ $cc proc rescaleAndUndistort {Intrinsics intr
 }
 $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
 $cc include <apriltag_pose.h>
+$cc include <math.h>
+$cc include <common/matd.h>
 $cc include <common/homography.h>
+
+$cc proc pseudoInverse {matd_t* a} matd_t* {
+    matd_svd_t usv = matd_svd(a);
+    for (unsigned int i = 0; i < usv.S->nrows; i++) {
+        double el = MATD_EL(usv.S, i, i);
+        if (el > MATD_EPS) {
+            MATD_EL(usv.S, i, i) = 1.0 / el;
+        }
+    }
+    matd_t* pinv = matd_op("M*M*M", usv.V, usv.S, usv.U);
+    matd_destroy(usv.V); matd_destroy(usv.S); matd_destroy(usv.U);
+    return pinv;
+}
+
+$cc code { 
+#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + (nr*nc*sizeof(double))); name->nrows = nr; name->ncols = nc;
+void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
+    double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
+    if (fabs(theta) < 0.0001) {
+        double ret[3][3] = {
+            {1, 0, 0},
+            {0, 1, 0},
+            {0, 0, 1}
+        };
+        memcpy(out, ret, sizeof(ret));
+        return;
+    }
+    double u[3] = {r[0]/theta, r[1]/theta, r[2]/theta};
+    double ret[3][3] = {
+        {cos(theta) + u[0]*u[0]*(1 - cos(theta)),
+         u[0]*u[1]*(1 - cos(theta)) - u[2]*sin(theta),
+         u[0]*u[2]*(1 - cos(theta)) + u[1]*sin(theta)},
+        {u[0]*u[1]*(1 - cos(theta)) + u[2]*sin(theta),
+         cos(theta) + u[1]*u[1]*(1 - cos(theta)),
+         u[1]*u[2]*(1 - cos(theta)) - u[0]*sin(theta)},
+        {u[0]*u[2]*(1 - cos(theta)) - u[1]*sin(theta),
+         u[1]*u[2]*(1 - cos(theta)) + u[0]*sin(theta),
+         cos(theta) + u[2]*u[2]*(1 - cos(theta))}
+    };
+    memcpy(out, ret, sizeof(ret));
+} }
+
+# Based on: https://visp-doc.inria.fr/doxygen/camera_localization/tutorial-pose-gauss-newton-opencv.html
+
+# Outputs to dt and dR (which should have been allocated by the caller).
+$cc proc exponentialMap {matd_t* v matd_t* dt matd_t* dR} void {
+    double vx = MATD_EL(v, 0, 0);
+    double vy = MATD_EL(v, 1, 0);
+    double vz = MATD_EL(v, 2, 0);
+    double vtux = MATD_EL(v, 3, 0);
+    double vtuy = MATD_EL(v, 4, 0);
+    double vtuz = MATD_EL(v, 5, 0);
+    MATD_VAR(tu, 3, 1); // theta u
+    MATD_EL(tu, 0, 0) = vtux;
+    MATD_EL(tu, 1, 0) = vtuy;
+    MATD_EL(tu, 2, 0) = vtuz;
+    // Rodrigues from tu to dR
+    rotationVectorToRotationMatrix(tu->data, (double (*)[3]) dR->data);
+
+    double theta = sqrt(matd_vec_dot_product(tu, tu));
+    double sinc = (fabs(theta) < 1.0e-8) ? 1.0 : sin(theta) / theta;
+    double mcosc = (fabs(theta) < 2.5e-4) ? 0.5 : (1.-cos(theta)) / theta / theta;
+    double msinc = (fabs(theta) < 2.5e-4) ? (1./6.) : (1.-sin(theta)/theta) / theta / theta;
+
+    MATD_EL(dt, 0, 0) = vx*(sinc + vtux*vtux*msinc)
+        + vy*(vtux*vtuy*msinc - vtuz*mcosc)
+        + vz*(vtux*vtuz*msinc + vtuy*mcosc);
+    MATD_EL(dt, 1, 0) = vx*(vtux*vtuy*msinc + vtuz*mcosc)
+        + vy*(sinc + vtuy*vtuy*msinc)
+        + vz*(vtuy*vtuz*msinc - vtux*mcosc);
+    MATD_EL(dt, 2, 0) = vx*(vtux*vtuz*msinc - vtuy*mcosc)
+        + vy*(vtuy*vtuz*msinc + vtux*mcosc)
+        + vz*(sinc + vtuz*vtuz*msinc);
+}
+
+# wX is the model 3D coordinates (for all 4 tag corners). x is the 4
+# current detected tag corners in the image, in normalized
+# coordinates. cRw and ctw are pose estimates that get refined (and
+# mutated).
+$cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
+                          matd_t* cRw matd_t* ctw} void {
+    MATD_VAR(J, npoints*2, 6);
+    double lambda = 0.25;
+    MATD_VAR(xq, npoints*2, 1);
+    MATD_VAR(xn, npoints*2, 1);
+
+    double residual = 0; double residual_prev;
+
+    for (int i = 0; i < npoints; i++) {
+        MATD_EL(xn, i*2, 0) = x[i][0];
+        MATD_EL(xn, i*2+1, 0) = x[i][1];
+    }
+
+    MATD_VAR(wXi, 3, 1);
+    do {
+        for (int i = 0; i < npoints; i++) {
+            matd_set_data(wXi, wX[i]);
+            matd_t* cX = matd_op("(M*M)+M", cRw, wX[i], ctw);
+            double Xi = MATD_EL(cX, 0, 0);
+            double Yi = MATD_EL(cX, 1, 0);
+            double Zi = MATD_EL(cX, 2, 0);
+            matd_destroy(cX);
+
+            double xi = Xi/Zi;
+            double yi = Yi/Zi;
+
+            // Update x(q)
+            MATD_EL(xq, i*2, 0) = xi;   // x(q) = cX/cZ
+            MATD_EL(xq, i*2+1, 0) = yi; // y(q) = cY/cZ
+
+            // Update J using equation (11)
+            MATD_EL(J, i*2, 0) = -1 / Zi;
+            MATD_EL(J, i*2, 1) = 0;
+            MATD_EL(J, i*2, 2) = xi / Zi;
+            MATD_EL(J, i*2, 3) = xi * yi;
+            MATD_EL(J, i*2, 4) = -(1 + xi * xi);
+            MATD_EL(J, i*2, 5) = yi;
+
+            MATD_EL(J, i*2+1, 0) = 0;
+            MATD_EL(J, i*2+1, 1) = -1 / Zi;
+            MATD_EL(J, i*2+1, 2) = yi / Zi;
+            MATD_EL(J, i*2+1, 3) = 1 + yi * yi;
+            MATD_EL(J, i*2+1, 4) = -xi * yi;
+            MATD_EL(J, i*2+1, 5) = -xi;
+        }
+
+        matd_t* e_q = matd_op("M-M", xq, xn); // Equation (7)
+
+        matd_t* Jp = pseudoInverse(J);
+        matd_scale_inplace(Jp, -lambda);
+        matd_t* dq = matd_multiply(Jp, e_q);
+        MATD_VAR(dctw, 3, 1); MATD_VAR(dcRw, 3, 3);
+        exponentialMap(dq, dctw, dcRw);
+
+        cRw = matd_op("M'*M", dcRw, cRw);
+        ctw = matd_op("M'*(M-M)", dcRw, ctw, dctw);
+
+        residual_prev = residual;
+        residual = matd_vec_dot_product(e_q, e_q);
+
+        matd_destroy(e_q);
+        matd_destroy(Jp);
+        matd_destroy(dq);
+    } while (fabs(residual - residual_prev) > 0);
+}
+
 $cc proc estimateTagPoses {Intrinsics cameraIntrinsics
                            double cameraWidth double cameraHeight
                            double tagSize
