@@ -89,6 +89,7 @@ $cc proc pseudoInverse {matd_t* a} matd_t* {
             MATD_EL(Sinv, i, i) = 1.0 / el;
         }
     }
+
     matd_t* pinv = matd_op("M*M*(M')", usv.V, Sinv, usv.U);
     matd_destroy(usv.V); matd_destroy(usv.S); matd_destroy(usv.U);
     return pinv;
@@ -157,18 +158,16 @@ $cc proc exponentialMap {matd_t* v matd_t* dt matd_t* dR} void {
 # wX is the model 3D coordinates (for all 4 tag corners). x is the 4
 # current detected tag corners in the image, in normalized
 # coordinates. cRw and ctw are pose estimates that get refined (and
-# replaced). The caller has the responsibility to free them.
+# replaced; they may be destroyed by us). The caller has the
+# responsibility to free the returned cRw and ctw.
 $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
                           matd_t** cRw matd_t** ctw} void {
-    // We copy these so we can destroy them in the loop.
-    *cRw = matd_copy(*cRw); *ctw = matd_copy(*ctw);
-
     MATD_VAR(J, npoints*2, 6);
     double lambda = 0.25;
     MATD_VAR(xq, npoints*2, 1);
     MATD_VAR(xn, npoints*2, 1);
 
-    double residual = 0; double residual_prev;
+    double residual = 0; double residual_prev = 0;
 
     for (int i = 0; i < npoints; i++) {
         MATD_EL(xn, i*2, 0) = x[i][0];
@@ -176,6 +175,7 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
     }
 
     MATD_VAR(wXi, 3, 1);
+    int iters = 0;
     do {
         for (int i = 0; i < npoints; i++) {
             matd_set_data(wXi, wX[i]);
@@ -217,8 +217,8 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         exponentialMap(dq, dctw, dcRw);
 
         matd_t* old_cRw = *cRw; matd_t* old_ctw = *ctw;
-        *cRw = matd_op("M'*M", dcRw, *cRw);
-        *ctw = matd_op("M'*(M-M)", dcRw, *ctw, dctw);
+        *cRw = matd_op("(M')*M", dcRw, *cRw);
+        *ctw = matd_op("(M')*(M-M)", dcRw, *ctw, dctw);
         matd_destroy(old_cRw); matd_destroy(old_ctw);
 
         residual_prev = residual;
@@ -227,7 +227,11 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         matd_destroy(e_q);
         matd_destroy(Jp);
         matd_destroy(dq);
-    } while (fabs(residual - residual_prev) > 0);
+
+        if (iters++ > 10) { /* ok */ }
+    } while (fabs(residual - residual_prev) > MATD_EPS);
+
+    /* exit(1); */
 }
 
 $cc struct TagPose {
@@ -256,16 +260,17 @@ $cc proc servoingEstimateTagPose {Intrinsics cameraIntrinsics
         x[i][1] = (x[i][1] - cameraIntrinsics.cy) / cameraIntrinsics.fy;
     }
 
-    MATD_VAR(cRw, 3, 3);
-    memcpy(cRw->data, prevTagPose.R, sizeof(prevTagPose.R));
-    MATD_VAR(ctw, 3, 1);
-    memcpy(ctw->data, prevTagPose.t, sizeof(prevTagPose.t));
+    matd_t* cRw = matd_create_data(3, 3, (double*) prevTagPose.R);
+    matd_t* ctw = matd_create_data(3, 1, (double*) prevTagPose.t);
 
     poseGaussNewton(wX, x, 4, &cRw, &ctw);
 
     TagPose ret;
     memcpy(ret.R, cRw->data, sizeof(ret.R));
     memcpy(ret.t, ctw->data, sizeof(ret.t));
+
+    matd_destroy(cRw);
+    matd_destroy(ctw);
     return ret;
 }
 
