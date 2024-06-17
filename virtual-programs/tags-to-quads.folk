@@ -74,21 +74,27 @@ $cc include <math.h>
 $cc include <common/matd.h>
 $cc include <common/homography.h>
 
+$cc code {
+#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + (nr*nc*sizeof(double))); name->nrows = nr; name->ncols = nc;
+}
 $cc proc pseudoInverse {matd_t* a} matd_t* {
     matd_svd_t usv = matd_svd(a);
+
+    MATD_VAR(Sinv, usv.S->ncols, usv.S->nrows);
+    memset(Sinv->data, 0, sizeof(double)*Sinv->nrows*Sinv->ncols);
     for (unsigned int i = 0; i < usv.S->nrows; i++) {
+        if (i >= usv.S->ncols) { break; }
         double el = MATD_EL(usv.S, i, i);
         if (el > MATD_EPS) {
-            MATD_EL(usv.S, i, i) = 1.0 / el;
+            MATD_EL(Sinv, i, i) = 1.0 / el;
         }
     }
-    matd_t* pinv = matd_op("M*M*M", usv.V, usv.S, usv.U);
+    matd_t* pinv = matd_op("M*M*(M')", usv.V, Sinv, usv.U);
     matd_destroy(usv.V); matd_destroy(usv.S); matd_destroy(usv.U);
     return pinv;
 }
 
 $cc code { 
-#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + (nr*nc*sizeof(double))); name->nrows = nr; name->ncols = nc;
 void rotationVectorToRotationMatrix(double r[3], double out[3][3]) {
     double theta = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
     if (fabs(theta) < 0.0001) {
@@ -151,9 +157,12 @@ $cc proc exponentialMap {matd_t* v matd_t* dt matd_t* dR} void {
 # wX is the model 3D coordinates (for all 4 tag corners). x is the 4
 # current detected tag corners in the image, in normalized
 # coordinates. cRw and ctw are pose estimates that get refined (and
-# mutated).
+# replaced). The caller has the responsibility to free them.
 $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
-                          matd_t* cRw matd_t* ctw} void {
+                          matd_t** cRw matd_t** ctw} void {
+    // We copy these so we can destroy them in the loop.
+    *cRw = matd_copy(*cRw); *ctw = matd_copy(*ctw);
+
     MATD_VAR(J, npoints*2, 6);
     double lambda = 0.25;
     MATD_VAR(xq, npoints*2, 1);
@@ -170,7 +179,7 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
     do {
         for (int i = 0; i < npoints; i++) {
             matd_set_data(wXi, wX[i]);
-            matd_t* cX = matd_op("(M*M)+M", cRw, wX[i], ctw);
+            matd_t* cX = matd_op("(M*M)+M", *cRw, wXi, *ctw);
             double Xi = MATD_EL(cX, 0, 0);
             double Yi = MATD_EL(cX, 1, 0);
             double Zi = MATD_EL(cX, 2, 0);
@@ -207,8 +216,10 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         MATD_VAR(dctw, 3, 1); MATD_VAR(dcRw, 3, 3);
         exponentialMap(dq, dctw, dcRw);
 
-        cRw = matd_op("M'*M", dcRw, cRw);
-        ctw = matd_op("M'*(M-M)", dcRw, ctw, dctw);
+        matd_t* old_cRw = *cRw; matd_t* old_ctw = *ctw;
+        *cRw = matd_op("M'*M", dcRw, *cRw);
+        *ctw = matd_op("M'*(M-M)", dcRw, *ctw, dctw);
+        matd_destroy(old_cRw); matd_destroy(old_ctw);
 
         residual_prev = residual;
         residual = matd_vec_dot_product(e_q, e_q);
@@ -250,7 +261,7 @@ $cc proc servoingEstimateTagPose {Intrinsics cameraIntrinsics
     MATD_VAR(ctw, 3, 1);
     memcpy(ctw->data, prevTagPose.t, sizeof(prevTagPose.t));
 
-    poseGaussNewton(wX, x, 4, cRw, ctw);
+    poseGaussNewton(wX, x, 4, &cRw, &ctw);
 
     TagPose ret;
     memcpy(ret.R, cRw->data, sizeof(ret.R));
