@@ -423,6 +423,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         
     set ::prevTagPoses [dict create]
     When tag /tag/ has detection /det/ on $camera at /timestamp/ {
+        # Setting aside this tag space (48600 to 48713) for calibration.
+        if {$tag >= 48600} { return }
+
         set tagSize [expr {31.5 / 1000}]; # 31.5 mm
 
         if {[dict exists $::prevTagPoses $tag]} {
@@ -469,12 +472,37 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 When tag /tag/ has quad /q/ {
     # TODO: Store construction of program $tag so it can vary by
     # program, instead of hard-coding.
-    Claim $tag has quad [quad buffer $q \
-                             top 28mm \
-                             right 28mm \
-                             left 157mm \
-                             bottom 80mm]
-    
+    set pageQuad [quad buffer $q \
+                      top 28mm \
+                      right 28mm \
+                      left 157mm \
+                      bottom 80mm]
+    Claim $tag has quad $pageQuad
+
+    Claim tag $tag is a tag
+    Claim tag $tag has a program
+
+    # HACK:
+
     # Just uses the outer edge of the tag:
-    Claim $tag has quad $q ;# [quad scale $q [expr {10.0 / 6.0}]]
+    # Claim $tag has quad $q ;# [quad scale $q [expr {10.0 / 6.0}]]
+}
+
+# TODO: Remove this backward compatibility with 2D programs:
+# HACK: For backward compatibility:
+When display /proj/ has intrinsics /projectorIntrinsics/ &\
+     tag /tag/ is a tag & /tag/ has quad /q/ {
+    set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
+        intrinsics project $projectorIntrinsics $v
+    }]
+
+    set edges [list]
+    for {set i 0} {$i < [llength $vertices]} {incr i} {
+        if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
+    }
+
+    set vecBottom [sub [lindex $vertices 1] [lindex $vertices 0]]
+    set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
+
+    Claim $tag has region [region create $vertices $edges $angle]
 }

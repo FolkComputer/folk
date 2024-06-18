@@ -342,7 +342,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # We'll want at least 10 poses to do ultimate
     # calibration+refinement.
     set ::calibrationPoses [list]
-    set FLAT_POSES_MAX 2
     set CALIBRATION_POSES_MAX 10
 
     # Project calibration tags based on the current model-to-display
@@ -414,11 +413,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         When the clock time is /t/ {
             # HACK: imperatively checks ::calibrationPoses every
             # frame.
-            if {[llength $::calibrationPoses] < $FLAT_POSES_MAX} {
-                set text "[llength $::calibrationPoses]/$FLAT_POSES_MAX flat poses"
-            } else {
-                set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
-            }
+            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
             foreach side $sides {
                 lassign $side start end
                 set segment [sub $end $start]
