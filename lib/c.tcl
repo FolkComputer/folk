@@ -51,9 +51,14 @@ namespace eval c {
                 #include <setjmp.h>
 
                 jmp_buf __onError;
+                Tcl_Interp* __interp;
 
                 #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); longjmp(__onError, 0); }
                 #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { longjmp(__onError, 0); }
+
+                #define FOLK_ERROR(MSG) do { Tcl_SetResult(__interp, MSG, NULL); longjmp(__onError, 0); } while (0)
+                #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(__interp, "assertion failed: " #EXPR, NULL); longjmp(__onError, 0); }
+                #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
             }
             variable code [list]
             variable objtypes [list]
@@ -457,6 +462,7 @@ namespace eval c {
                             Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
                             return TCL_ERROR;
                         }
+                        __interp = interp;
                         int __r = setjmp(__onError);
                         if (__r != 0) { return TCL_ERROR; }
 
