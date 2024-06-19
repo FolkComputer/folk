@@ -430,8 +430,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         if {[dict exists $::prevTagPoses $tag]} {
             set prevTimestamp [dict get $::prevTagPoses $tag timestamp]
-            # Consider previous tag pose if it's less than 50ms old:
-            if {$timestamp - $prevTimestamp < 0.05} {
+            # Consider previous tag pose if it's less than 200ms old:
+            if {$timestamp - $prevTimestamp < 0.2} {
                 set prevTagPose [dict get $::prevTagPoses $tag pose]
             }
         }
@@ -501,6 +501,7 @@ When display /proj/ has intrinsics /projectorIntrinsics/ &\
     for {set i 0} {$i < [llength $vertices]} {incr i} {
         if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
     }
+    lappend edges [list [expr {[llength $vertices] - 1}] 0]
 
     set vecBottom [sub [lindex $vertices 1] [lindex $vertices 0]]
     set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
