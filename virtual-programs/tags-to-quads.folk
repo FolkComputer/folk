@@ -310,7 +310,7 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
         .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
     };
     apriltag_pose_t pose;
-    estimate_tag_pose(&info, &pose);
+    estimate_pose_for_tag_homography(&info, &pose);
 
     matd_destroy(det.H);
 
