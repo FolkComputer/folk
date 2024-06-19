@@ -484,8 +484,9 @@ When tag /tag/ has quad /q/ {
 
     # HACK:
 
+    # Claim $tag has quad $q
     # Just uses the outer edge of the tag:
-    # Claim $tag has quad $q ;# [quad scale $q [expr {10.0 / 6.0}]]
+    # Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
 }
 
 # TODO: Remove this backward compatibility with 2D programs:

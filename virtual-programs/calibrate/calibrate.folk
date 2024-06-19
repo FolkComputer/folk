@@ -873,10 +873,14 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
         set Rcinv [solvePGauss $Rc [mkIdentity 3]]
         set R [matmul $Rp $Rcinv]; set Rsum [add $Rsum $R]
         set t [sub $tp [matmul $R $tc]]; set tsum [add $tsum $t]
+
+        # HACK: actually works better if we just only use the first
+        # pose's R and t.
+        break
     }
     # Average R and t from all poses.
-    set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
-    set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
+    # set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
+    # set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
     dict set calibration R_cameraToProjector $R
     dict set calibration t_cameraToProjector $t
 }
