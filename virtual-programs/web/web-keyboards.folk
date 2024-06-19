@@ -7,46 +7,30 @@ When the keyboards are /keyboards/ {
         <span id="status">Status</span>
         <dl>
         [join [lmap kb $keyboards { subst {
-            <dt>$kb</dt>
-            <dd>
-              <code id="$kb-presses"></code><br>
-              <button onclick="send(`Assert web-keyboards wishes to print {Claim \$this is a keyboard with path $kb} with job-id ` + String(Math.random()))">Print</button>
-            </dd>
+          <dt>$kb</dt>
+          <dd>
+            <code id="$kb-presses"></code><br>
+            <button onclick="handlePrint('$kb')">Print</button>
+          </dd>
         } }] "\n"]
         </dl>
 
+        <script src="/lib/folk.js"></script>
         <script>
-        function wsConnect() {
-          ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-          send = function(s) { ws.send(s); }
+          const ws = new FolkWS(document.getElementById('status'));
 
-          ws.onopen = () => {
-            document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
-            send(`
-              Assert when keyboard /kb/ claims key /k/ is down with timestamp /ts/ printable /p/ {{chan kb k ts p} {
-                if {\$ts > [clock milliseconds]} {
-                  ::websocket::send \$chan text "\$kb||\$p"
-                }
-              }} with environment \[list \$chan]
-            `);
-          };
-          ws.onclose = window.onbeforeunload = () => {
-            document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
-            send(`Retract when keyboard /kb/ claims key /k/ is down with timestamp /ts/ printable /b/ /anything/ with environment \[list \$chan]`)
-            setTimeout(() => { wsConnect(); }, 1000);
-          };
-          ws.onerror = (err) => {
-            document.getElementById('status').innerText = "Error";
-            console.error('Socket encountered error: ', err.message, 'Closing socket');
-            ws.close();
+          ws.watch("keyboard /kb/ claims key /something/ is down with timestamp /something/ printable /p/", {
+            add: (\[kb, p]) => {
+              document.getElementById(kb + "-presses").innerText += p + " ";
+            },
+          });
+
+          function handlePrint(kb) {
+            ws.send(
+              tcl`Wish to print {Claim \$this is a keyboard with path \${kb}} with job-id \${String(Math.random())}`
+            );
           }
-          ws.onmessage = (msg) => {
-            const \[kb, p] = msg.data.split("||");
-            document.getElementById(kb + "-presses").innerText += p + " ";
-          }
-        };
-        wsConnect();
-      </script>
+        </script>
       </body>
       </html>
     }]

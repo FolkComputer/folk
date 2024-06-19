@@ -128,6 +128,14 @@ proc handlePage {path httpStatusVar contentTypeVar} {
         "/statements.pdf" {
             getDotAsPdf [Statements::dot] contentType
         }
+        "/lib/folk.js" {
+            set contentType "text/javascript"
+            readFile "lib/folk.js" contentType
+        }
+        "/vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" {
+            set contentType "text/javascript"
+            readFile "vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" contentType
+        }
         default {
             upvar $httpStatusVar httpStatus
             set httpStatus "HTTP/1.1 404 Not Found"
@@ -205,20 +213,16 @@ proc handleRead {chan addr port} {
 }
 
 proc handleWS {chan type msg} {
-    if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
-        # puts "Event $type from chan $chan"
+    if {$type eq "connect"} {
+        Assert websocket $chan is connected
+    } elseif {$type eq "close"} {
+        Retract websocket $chan is connected
+        Retract when websocket $chan is connected /...rest/
     } elseif {$type eq "text"} {
-        eval $msg
-    } elseif {$type eq "disconnect"} {
-        Commit $chan statements {}
-        foreach peerNs [namespace children ::Peers] {
-            apply [list {disconnectedChan} {
-                variable chan
-                if {$chan eq $disconnectedChan} {
-                    namespace delete [namespace current]
-                }
-            } $peerNs] $chan
-        }
+        set now [clock milliseconds]
+        Assert when websocket $chan is connected [list {this timestamp} $msg] with environment [list $chan $now]
+    } elseif {$type eq "ping" || $type eq "pong" || $type eq "disconnect"} {
+        # puts "Event $type from chan $chan"
     } else {
         puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }
