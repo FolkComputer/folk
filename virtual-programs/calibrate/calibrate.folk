@@ -329,7 +329,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             etc):</p>
             <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
-            <p>Try to keep it as flat and rigid as possible. (During
+            <p>Try to keep the board from bending or warping. (During
             calibration, Folk will want to project AprilTags in the
             central area of the board. Instead of printing, you can
             try just maximizing the board on your computer/tablet
@@ -345,7 +345,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
           then <strong>hold the board still for a few seconds until
           the pose is recorded.</strong>
           You'll need to record 10 different poses; try to slant the
-          board and move it around the projector/camera area as much
+          board and move it up and around the projector/camera area as much
             as possible.</p>
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
