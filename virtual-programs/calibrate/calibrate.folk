@@ -316,17 +316,41 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
     upvar ^html ^html
     html [csubst {
       <html>
-      <head><title>Folk: Calibrate</title></head>
+        <head>
+          <title>Folk: Calibrate</title>
+          <style>body { max-width: 600px; }</style>
+        </head>
       <body>
 
-      <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
-      </iframe>
+        <ol>
+          <li>
+            <p>Print this calibration board and glue/tape it to
+            something solid and flat (hardcover book, solid cardboard,
+            etc):</p>
+            <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+            </iframe>
+            <p>Try to keep it as flat and rigid as possible. (During
+            calibration, Folk will want to project AprilTags in the
+            central area of the board. Instead of printing, you can
+            try just maximizing the board on your computer/tablet
+            screen, but you'll need to cover the central
+            area with a sticky note or something else that Folk can project
+            tags on.)</p>
+          </li>
 
-      <p>
-        Print the above board, then measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters,
-        <br>enter it here, and click Begin Calibration:
-      <input id="tag-side-length-mm" type="text">mm <button id="tag-side-length-submit">Begin Calibration</button>
-      </p>
+          <li><p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p></li>
+
+          <li><p>Once you start calibration, you'll need to <strong>move the board so
+          that the projected AprilTags are in the center of the board</strong>,
+          then <strong>hold the board still for a few seconds until
+          the pose is recorded.</strong>
+          You'll need to record 10 different poses; try to slant the
+          board and move it around the projector/camera area as much
+            as possible.</p>
+            <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
+            <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
+          </li>
+        </ol>
 
       <script>
         function uuidv4() {
