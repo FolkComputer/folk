@@ -523,7 +523,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     }
     On unmatch { Commit H_modelToDisplay {} }
 
-    When /someone/ detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
+    When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
 
