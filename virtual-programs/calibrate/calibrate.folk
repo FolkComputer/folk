@@ -17,11 +17,120 @@ foreach p {add norm sub scale matmul
     namespace import ::math::linearalgebra::$p
 }
 
-package require math::geometry
-namespace import ::math::geometry::pointInsidePolygon
+# We try to use the AprilTag matrix library (instead of tcllib linalg)
+# to do matrix/homography operations in the live calibration inner
+# loop, to help with performance:
+set cc [c create]
+$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+$cc include <common/matd.h>
+$cc include <common/homography.h>
 
-package require vectcl
-namespace import ::vectcl::vexpr
+$cc code {
+    extern Tcl_ObjType matd_ObjType;
+    void matd_freeIntRepProc(Tcl_Obj *objPtr) {
+        matd_destroy((matd_t*) objPtr->internalRep.otherValuePtr);
+    }
+    void matd_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
+        dupPtr->internalRep.otherValuePtr = (void*) matd_copy((matd_t*) srcPtr->internalRep.otherValuePtr);
+    }
+    void matd_updateStringProc(Tcl_Obj *objPtr) {
+        matd_t* mat = (matd_t*) objPtr->internalRep.otherValuePtr;
+
+        Tcl_DString ds; Tcl_DStringInit(&ds);
+        for (unsigned int row = 0; row < mat->nrows; row++) {
+            Tcl_DStringStartSublist(&ds);
+            for (unsigned int col = 0; col < mat->ncols; col++) {
+                char el[16];
+                FOLK_ENSURE(snprintf(el, sizeof(el), "%f", MATD_EL(mat, row, col)) < 16);
+                Tcl_DStringAppendElement(&ds, el);
+            }
+            Tcl_DStringEndSublist(&ds);
+        }
+
+        objPtr->length = Tcl_DStringLength(&ds);
+        objPtr->bytes = ckalloc(objPtr->length + 1);
+        snprintf(objPtr->bytes, objPtr->length + 1, "%s", Tcl_DStringValue(&ds));
+        Tcl_DStringFree(&ds);
+    }
+    int matd_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+        // shimmer into a list, then iterate
+        int nrows; Tcl_Obj** rowObjs;
+        __ENSURE_OK(Tcl_ListObjGetElements(interp, objPtr, &nrows, &rowObjs));
+        __ENSURE(nrows > 0);
+        int ncols;
+        __ENSURE_OK(Tcl_ListObjLength(interp, rowObjs[0], &ncols));
+        __ENSURE(ncols > 0);
+
+        matd_t* mat = matd_create(nrows, ncols);
+        for (int row = 0; row < nrows; row++) {
+            int rowCols; Tcl_Obj** elObjs;
+            __ENSURE_OK(Tcl_ListObjGetElements(interp, rowObjs[row], &rowCols, &elObjs));
+            __ENSURE(rowCols == ncols);
+            for (int col = 0; col < ncols; col++) {
+                __ENSURE_OK(Tcl_GetDoubleFromObj(interp, elObjs[col], &MATD_EL(mat, row, col)));
+            }
+        }
+        objPtr->typePtr = &matd_ObjType;
+        objPtr->internalRep.otherValuePtr = mat;
+        return TCL_OK;
+    }
+    Tcl_ObjType matd_ObjType = (Tcl_ObjType) {
+        .name = "matd_t*",
+        .freeIntRepProc = matd_freeIntRepProc,
+        .dupIntRepProc = matd_dupIntRepProc,
+        .updateStringProc = matd_updateStringProc,
+        .setFromAnyProc = matd_setFromAnyProc,
+    };
+}
+$cc argtype matd_t* {
+    __ENSURE_OK(Tcl_ConvertToType(interp, $obj, &matd_ObjType));
+    matd_t* $argname;
+    $argname = (matd_t*) $obj->internalRep.otherValuePtr;
+}
+$cc rtype matd_t* {
+    $robj = Tcl_NewObj();
+    $robj->bytes = NULL;
+    $robj->typePtr = &matd_ObjType;
+    $robj->internalRep.otherValuePtr = $rvalue;
+}
+
+# Takes a list of at least 4 point pairs (model -> image) like
+#
+# [list \
+#   [list x0 y0 u0 v0]] \
+#   [list x1 y1 u1 v1] \
+#   [list x2 y2 u2 v2] \
+#   [list x3 y3 u3 v3]]
+#
+# Returns a 3x3 homography that maps model (x, y) to image (u, v)
+# (using homogeneous coordinates).
+$cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+    // HACK: (sort of) point to the existing data block.
+    zarray_t correspondencesArr = {
+        .el_sz = sizeof(float[4]),
+        .size = nPointPairs, .alloc = nPointPairs,
+        .data = (char*) pointPairs
+    };
+    return homography_compute(&correspondencesArr,
+                              HOMOGRAPHY_COMPUTE_FLAG_SVD);
+}
+# HACK: wrapper because we have to give the array length as a separate
+# arg (at least for now).
+proc estimateHomography {pointPairs} {
+    estimateHomographyImpl [llength $pointPairs] $pointPairs
+}
+$cc proc applyHomography {matd_t* H double[2] xy} Tcl_Obj* {
+    double out[2];
+    homography_project(H, xy[0], xy[1], &out[0], &out[1]);
+
+    Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
+    return Tcl_NewListObj(2, retObjs);
+}
+$cc proc matdMul {matd_t* a matd_t* b} matd_t* {
+    return matd_multiply(a, b);
+}
+c loadlib $::env(HOME)/apriltag/libapriltag.so
+$cc compile
 
 set ROWS 4
 set COLS 5
@@ -77,45 +186,6 @@ fn isPrintedTag {id} {
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
     ! [isPrintedTag $id]
-}
-
-# Takes a list of at least 4 point pairs (model -> image) like
-#
-# [list \
-#   [list x0 y0 u0 v0]] \
-#   [list x1 y1 u1 v1] \
-#   [list x2 y2 u2 v2] \
-#   [list x3 y3 u3 v3]]
-#
-# Returns a 3x3 homography that maps model (x, y) to image (u, v)
-# (using homogeneous coordinates).
-# HACK: to share with test
-set ::estimateHomography {{pointPairs} {
-    set A [list]
-    set b [list]
-    foreach pair $pointPairs {
-        lassign $pair x y u v
-        lappend A [list $x $y 1 0  0  0 [expr {-$x*$u}] [expr {-$y*$u}]]
-        lappend A [list 0  0  0 $x $y 1 [expr {-$x*$v}] [expr {-$y*$v}]]
-        lappend b $u $v
-    }
-
-    vexpr {
-        x = A \ b
-        x = linsert(x, 8, 1.0)
-        H = reshape(x, 3, 3)
-    }
-    return $H
-}}
-fn estimateHomography {pointPairs} {
-    apply $::estimateHomography $pointPairs
-}
-proc ::applyHomography {H xy} {
-    lappend xy 1.0
-    return [vexpr {
-        uvw = H * reshape(xy, 3)
-        list(uvw[0]/uvw[2], uvw[1]/uvw[2])
-    }]
 }
 
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
@@ -575,7 +645,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
-        set H_modelToDisplay [vexpr { H_cameraToDisplay * H_modelToCameraViaPs }]
+        set H_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
