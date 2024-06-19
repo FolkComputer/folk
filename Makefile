@@ -55,16 +55,7 @@ remote-flamegraph:
 backup-printed-programs:
 	cd ~/folk-printed-programs && timestamp=$$(date '+%Y-%m-%d_%H-%M-%S%z') && tar -zcvf ~/"folk-printed-programs_$$timestamp.tar.gz" . && echo "Saved to: ~/folk-printed-programs_$$timestamp.tar.gz"
 
-calibrate:
-	tclsh8.6 calibrate.tcl
-calibrate-debug:
-	gdb --args tclsh8.6 calibrate.tcl
-remote-calibrate: sync
-	ssh folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk calibrate
-remote-calibrate-debug: sync
-	ssh folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk calibrate-debug
-
-.PHONY: test sync start journal repl calibrate remote-calibrate enable-pubkey install-deps
+.PHONY: test sync start journal repl enable-pubkey install-deps
 
 enable-pubkey:
 	ssh folk-live -- 'sudo sed -i "s/.*PubkeyAuthentication.*/PubkeyAuthentication yes/g" /etc/ssh/sshd_config && sudo systemctl restart ssh'
