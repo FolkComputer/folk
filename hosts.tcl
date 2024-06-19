@@ -13,7 +13,8 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 } else {
     try {
         if {$::tcl_platform(os) eq "Darwin"} {
-            set wifi [exec sh -c {/Sy*/L*/Priv*/Apple8*/V*/C*/R*/airport -I | sed -n "s/^.*SSID: \(.*\)$/\1/p"}]
+            set networksetup_output [exec /usr/sbin/networksetup -getairportnetwork en0]
+            regexp {Current Wi-Fi Network: (.*)} $networksetup_output -> wifi
         } elseif {$::tcl_platform(os) eq "Linux"} {
             set wifi [exec iwgetid -r]
         }
