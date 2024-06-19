@@ -12,7 +12,7 @@ package require math::linearalgebra
 # rename ::scale scaleTk
 foreach p {add norm sub scale matmul
     getelem transpose determineSVD shape mkIdentity
-    solvePGauss crossproduct getcol setcol unitLengthVector
+    solvePGauss crossproduct getcol setcol unitLengthVector det
 } {
     namespace import ::math::linearalgebra::$p
 }
@@ -659,7 +659,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-        if {[abs [::math::linearalgebra::det $H_cameraToDisplay]] < 0.001} {
+        if {[abs [det $H_cameraToDisplay]] < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
@@ -812,8 +812,8 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
     assert {[::math::linearalgebra::shape $V] eq [list [* 2 [llength $Hs]] 6]}
 
     # Solve Vb = 0:
-    lassign [determineSVD [matmul [transpose $V] $V]] U S V'
-    set b [lindex [transpose ${V'}] [lindex [lsort -real -indices $S] 0]]
+    lassign [determineSVD [matmul [transpose $V] $V]] U S V
+    set b [lindex [transpose $V] [lindex [lsort -real -indices $S] 0]]
 
     # Compute camera intrinsic matrix A:
     lassign $b B11 B12 B22 B13 B23 B33
@@ -857,8 +857,8 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
 
         # Refine R into a better rotation matrix (reorthogonalize)
         # using SVD.
-        lassign [determineSVD $R] U S V'
-        set R [matmul $U [transpose ${V'}]]
+        lassign [determineSVD $R] U S V
+        set R [matmul $U [transpose $V]]
 
         dict create R $R t $t
     }]
@@ -877,36 +877,66 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
 
 fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
     upvar $calibrationVar calibration
-    # What are R and t such that
-    # R*cameraFramePoint + t = projectorFramePoint?
-    set Rsum {{0 0 0} {0 0 0} {0 0 0}}
-    set tsum {0 0 0}
+
+    puts SETCAMERATOPROJ
+
+    # Let's take all the points for which we have a corresponding
+    # camera frame point and projector frame point.
+    set cameraFramePoints [list]
+    set projectorFramePoints [list]
+
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
-        # For each checkerboard pose (model plane):
-        # Rc*modelFramePoint + tc = cameraFramePoint
-        # Rp*modelFramePoint + tp = projectorFramePoint
-
         set calibrationPose [lindex $calibrationPoses $i]
-
+        
         set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
         set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
 
         set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
         set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
 
-        set Rcinv [solvePGauss $Rc [mkIdentity 3]]
-        set R [matmul $Rp $Rcinv]; set Rsum [add $Rsum $R]
-        set t [sub $tp [matmul $R $tc]]; set tsum [add $tsum $t]
-
-        # HACK: actually works better if we just only use the first
-        # pose's R and t.
-        break
+        # TODO: Try using pose estimation instead?
+        dict for {id tag} [dict get $calibrationPose model] {
+            foreach v [dict get $tag p] {
+                lappend v 0.0
+                lappend cameraFramePoints [add [matmul $Rc $v] $tc]
+                lappend projectorFramePoints [add [matmul $Rp $v] $tp]
+            }
+        }
     }
-    # Average R and t from all poses.
-    # set R [scale [/ 1.0 [llength $calibrationPoses]] $Rsum]
-    # set t [scale [/ 1.0 [llength $calibrationPoses]] $tsum]
+
+    set n [llength $cameraFramePoints]
+
+    set vcsum {0 0 0}
+    foreach vc $cameraFramePoints {
+        set vcsum [add $vcsum $vc]
+    }
+    set cameraFramePointsCentroid [scale [/ 1.0 $n] $vcsum]
+
+    set vpsum {0 0 0}
+    foreach vp $projectorFramePoints {
+        set vpsum [add $vpsum $vp]
+    }
+    set projectorFramePointsCentroid [scale [/ 1.0 $n] $vpsum]
+
+    set H [matmul [sub $cameraFramePoints \
+                       [lrepeat $n $cameraFramePointsCentroid]] \
+               [transpose [sub $projectorFramePoints \
+                               [lrepeat $n $projectorFramePointsCentroid]]]]
+
+    puts DETSVD([::math::linearalgebra::shape $H])
+
+    lassign [determineSVD $H] U S V
+
+    puts DETSVD_DONE
+
+    set R [matmul V [transpose $U]]
+    set t [sub $cameraFramePointsCentroid \
+               [matmul $R $projectorFramePointsCentroid]]
+
     dict set calibration R_cameraToProjector $R
     dict set calibration t_cameraToProjector $t
+
+    puts SETCAMERATOPROJ_DONE
 }
 
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
@@ -984,7 +1014,7 @@ try {
     set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
         set calibration [read $fd]; close $fd
         puts "READING CALIB"
