@@ -898,9 +898,6 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
         set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
         set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
 
-        puts "$i: Rc:\n[show $Rc]"
-        puts "$i: tc:\n[show $tc]"
-
         set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
         set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
 
@@ -922,22 +919,12 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
                     lappend cameraFramePoints $vc
                     lappend projectorFramePoints $vp
                 }
-
-                puts "$i: vc: ($vc)" ;# vc.z MUST BE >0
-                puts "$i: reproject: ([intrinsics project [dict get $calibration camera intrinsics] $vc])"
-                catch {
-                puts "$i:  original: ([lindex [dict get $calibrationPose tags $id p] $k])"
-                }
-                puts "=="
-
-                # TODO: Check if z < 0.
-                # TODO: Try downprojecting using intrinsics & compare to detected corner
             }
         }
     }
 
-    puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
-    puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+    # puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+    # puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
 
     set n [llength $cameraFramePoints]
 
@@ -961,30 +948,6 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 
     dict set calibration R_cameraToProjector $R
     dict set calibration t_cameraToProjector $t
-
-    # puts "Rs = \[\]"
-    # for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
-    #     # For each checkerboard pose (model plane):
-    #     # Rc*modelFramePoint + tc = cameraFramePoint
-    #     # Rp*modelFramePoint + tp = projectorFramePoint
-
-    #     set calibrationPose [lindex $calibrationPoses $i]
-
-    #     set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
-    #     set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
-
-    #     set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
-    #     set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
-
-    #     set Rcinv [solvePGauss $Rc [mkIdentity 3]]
-    #     set R [matmul $Rp $Rcinv]
-    #     set t [sub $tp [matmul $R $tc]]
-
-    #     dict set calibration R_cameraToProjector $R
-    #     dict set calibration t_cameraToProjector $t
-
-    #     puts "Rs.append(\[[join [rotationMatrixToRotationVector $R] ,]\])"
-    # }
 }
 
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
@@ -1062,7 +1025,7 @@ try {
     set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
+    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
         set calibration [read $fd]; close $fd
         puts "READING CALIB"
