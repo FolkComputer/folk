@@ -519,14 +519,23 @@ def rigid_transform_3D(A, B, scale):
 
     return c, R, t
 
-import matplotlib.pyplot as plt
+
+Rs = []
+Rs.append([-0.4042246741385772,0.9935522042536341,0.15912509224974103])
+Rs.append([0.0012355792309395714,0.03861825649168494,-2.9698271109270076])
+Rs.append([-0.991559624833059,0.011240067548671321,0.2084819879862809])
+Rs.append([-0.4360318218393316,1.4896040306695348,0.14361073542569064])
+Rs.append([-0.9423080860442639,1.572388602357788,0.13161810550852363])
+Rs.append([-0.07444111728562512,-0.04346385943350699,-2.9582104710466828])
+Rs.append([-0.5959176738638186,1.0944733029581224,0.15129899201369634])
+Rs.append([-1.2172824288295951,0.300733746459368,0.18422468278286025])
+Rs.append([-0.107351276908202,-0.006163075995725883,-2.9687074105883156])
+Rs.append([-0.3097825609884466,1.1471716211499354,0.13860094592777986])
+
 import numpy as np
 
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
 print("Total", len(cameraFramePoints))
-LIMIT=24*2
+LIMIT=24*10
 
 cameraFramePoints = np.matrix(cameraFramePoints[0:LIMIT])
 projectorFramePoints = np.matrix(projectorFramePoints[0:LIMIT])
@@ -536,19 +545,46 @@ c, R, t = rigid_transform_3D(projectorFramePoints, cameraFramePoints, False)
 
 from PyQt5 import QtWidgets
 import pyqtgraph.opengl as gl
+from pyqtgraph.dockarea.Dock import Dock
+from pyqtgraph.dockarea.DockArea import DockArea
 app = QtWidgets.QApplication([])
-w = gl.GLViewWidget()
+win = QtWidgets.QMainWindow()
+area = DockArea()
+win.setCentralWidget(area)
+
+dc = Dock("camera")
+dp = Dock("projector")
+area.addDock(dc, "top")
+area.addDock(dp, "bottom")
+
+
+wc = gl.GLViewWidget()
+
+wc.addItem(gl.GLAxisItem())
+wc.addItem(gl.GLScatterPlotItem(pos=[0, 0, 0], size=0.05, color=[1, 1, 1, 1], pxMode=False))
 
 n = len(cameraFramePoints)
+
 color = np.tile([1, 0, 0, 0.5], (n, 1)) # Red
-w.addItem(gl.GLScatterPlotItem(pos=cameraFramePoints, size=0.02, color=color, pxMode=False))
+wc.addItem(gl.GLScatterPlotItem(pos=cameraFramePoints, size=0.02, color=color, pxMode=False))
+
+wp = gl.GLViewWidget()
+
+wp.addItem(gl.GLAxisItem())
+wp.addItem(gl.GLScatterPlotItem(pos=[0, 0, 0], size=0.05, color=[1, 1, 1, 1], pxMode=False))
 
 color = np.tile([0, 0, 1, 0.5], (n, 1)) # Blue
-w.addItem(gl.GLScatterPlotItem(pos=projectorFramePoints, size=0.02, color=color, pxMode=False))
+wp.addItem(gl.GLScatterPlotItem(pos=projectorFramePoints, size=0.02, color=color, pxMode=False))
+# color = np.tile([0, 1, 0, 0.5], (n, 1))
+# reprojectorFramePoints = np.concatenate([np.add(np.dot(R, vc.T), t).T for vc in cameraFramePoints])
+# w.addItem(gl.GLScatterPlotItem(pos=reprojectorFramePoints, size=0.02, color=color, pxMode=False))
 
-color = np.tile([0, 1, 0, 0.5], (n, 1))
-reprojectorFramePoints = np.concatenate([np.add(np.dot(R, vc.T), t).T for vc in cameraFramePoints])
-w.addItem(gl.GLScatterPlotItem(pos=reprojectorFramePoints, size=0.02, color=color, pxMode=False))
+# n = len(Rs)
+# color = np.tile([0, 1, 0, 0.5], (n, 1)) # Green
+# w.addItem(gl.GLScatterPlotItem(pos=Rs, size=0.05, color=color, pxMode=False))
 
-w.show()
+dc.addWidget(wc)
+dp.addWidget(wp)
+win.show()
+
 app.exec()
