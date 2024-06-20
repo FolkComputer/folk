@@ -1,0 +1,153 @@
+# Wish $this displays video "whatever.mp4"
+
+When /someone/ wishes /thing/ displays video /videoSrc/ {
+    Wish $thing draws a circle with filled true radius 100 color magenta
+}
+
+puts "=== hello video ==="
+namespace eval ::video {
+    set cc [c create]
+    ::defineImageType $cc
+    $cc cflags -lavcodec -lavformat -Wno-deprecated
+    # Ignoring deprecated declarations because of version differences across systems
+    # in libavcodec and libavformat as of June 20, 2024.
+    # $cc cflags -lavcodec -lavformat -Wno-deprecated-declarations
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavcodec.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavcodec] end]}]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavformat] end]}]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep swscale] end]}]
+    $cc include <libavcodec/avcodec.h>
+    $cc include <libavformat/avformat.h>
+    $cc include <libswscale/swscale.h>
+
+    $cc proc init {} void {}
+    
+    $cc proc video {char* filename} void {
+        AVFormatContext *pFormatContext = avformat_alloc_context();
+        if (!pFormatContext) { exit(1); }
+
+        fprintf(stdout, "pFC: %p | %s\n", &pFormatContext, filename);
+
+        if (avformat_open_input(&pFormatContext, filename, NULL, NULL) != 0) {
+            fprintf(stderr, "Could not open input file: %s\n", filename);
+            exit(1);
+        }
+
+        int ret = avformat_find_stream_info(pFormatContext, NULL);
+
+        fprintf(stderr, "pFC: %p | %s\n", &pFormatContext, filename);
+        fprintf(stderr, "Format: %s | Duration: %ld us | Bit rate: %ld \n", pFormatContext->iformat->long_name, pFormatContext->duration, pFormatContext->bit_rate);
+        fprintf(stderr, "URL: %s\n", pFormatContext->url);
+
+        if (ret < 0) {
+            char errbuf[128];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            fprintf(stderr, "Could not find stream info: %s\n", errbuf);
+            avformat_close_input(&pFormatContext);
+            avformat_free_context(pFormatContext);
+            exit(1);
+        }
+
+
+        const AVCodec *pCodec = NULL;
+        const AVCodecParameters *pCodecParameters =  NULL;
+        for (int i = 0; i < pFormatContext->nb_streams; i++) {
+            AVCodecParameters *pLocalCodecParameters = pFormatContext->streams[i]->codecpar;
+            const AVCodec *pLocalCodec = avcodec_find_decoder(pLocalCodecParameters->codec_id);
+            if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_VIDEO) {
+                fprintf(stderr, "Video Codec: resolution %d x %d\n", pLocalCodecParameters->width, pLocalCodecParameters->height);
+                pCodec = pLocalCodec;
+                pCodecParameters = pLocalCodecParameters;
+            } else if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_AUDIO) {
+                fprintf(stderr, "Audio Codec: sample rate %d\n", pLocalCodecParameters->sample_rate);
+            }
+        }
+
+        if (!pCodec) {
+            fprintf(stderr, "Codec not found\n");
+            avformat_close_input(&pFormatContext);
+            avformat_free_context(pFormatContext);
+            exit(1);
+        }
+
+        AVCodecContext *pCodecContext = avcodec_alloc_context3(pCodec);
+        avcodec_parameters_to_context(pCodecContext, pCodecParameters);
+        avcodec_open2(pCodecContext, pCodec, NULL);
+
+        AVPacket *pPacket = av_packet_alloc();
+        AVFrame *pFrame = av_frame_alloc();
+        while (av_read_frame(pFormatContext, pPacket) >= 0) {
+            ret = avcodec_send_packet(pCodecContext, pPacket);
+            if (ret < 0) {
+                char errbuf[128];
+                av_strerror(ret, errbuf, sizeof(errbuf));
+                fprintf(stderr, "Error sending packet for decoding: %s\n", errbuf);
+                continue;
+            }
+
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(pCodecContext, pFrame);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                    break;
+                } else if (ret < 0) {
+                    char errbuf[128];
+                    av_strerror(ret, errbuf, sizeof(errbuf));
+                    fprintf(stderr, "Error receiving frame from decoder: %s\n", errbuf);
+                    exit(1);
+                }
+
+                if (pCodecContext->frame_num == 1) {
+                    // 
+                    fprintf(stderr, "!!!!! On frame one ...\n");
+                    // convert frame data to image_t
+                    fprintf(stderr, "!!!!!! Before the image_t ...\n");
+
+                    AVFrame *pRGBFrame = av_frame_alloc();
+
+                    pRGBFrame->format = AV_PIX_FMT_RGB24;
+                    pRGBFrame->width = pFrame->width;
+                    pRGBFrame->height = pFrame->height;
+
+                    struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
+                                            pFrame->height,
+                                            pFrame->format,
+                                            pFrame->width,
+                                            pFrame->height,
+                                            AV_PIX_FMT_RGB24,
+                                            SWS_BICUBIC,
+                                            NULL,
+                                            NULL,
+                                            NULL);
+                    int sts = sws_scale(sws_ctx,
+                        (const uint8_t * const*)pFrame->data,
+                        pFrame->linesize,
+                        0,
+                        pFrame->height,
+                        pRGBFrame->data,
+                        pRGBFrame->linesize);
+                    // Hmmm, how to save this as an image_t?
+                    fprintf(stderr, "sts: %d\n", sts);
+
+                } else {
+                    continue;
+                }
+                fprintf(stderr, "======== After the continue  ... %d\n", pFrame->height);
+
+                fprintf(stderr, "Frame %jd (type=%c, format=%d) pts %ld key_frame %d\n",
+                        pCodecContext->frame_num,
+                        av_get_picture_type_char(pFrame->pict_type),
+                        pFrame->format,
+                        pFrame->pts,
+                        AV_FRAME_FLAG_KEY);
+
+                if (pFrame->format == AV_PIX_FMT_YUV420P) {
+                    // TODO: use libswscale to convert to RGB, make an image_t
+                }
+            }
+            av_packet_unref(pPacket);
+        }
+    }
+    $cc compile
+    init
+}
+
+video::video /home/folk/bunny_1s_mute.mp4
