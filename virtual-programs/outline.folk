@@ -9,34 +9,13 @@ proc loopRegion {edges vertices width color} {
     Wish the GPU draws pipeline "line" with instances $instances
 }
 
-When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
-    # FIXME: assumes path
+When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /region/ {
     lassign $region vertices edges
-    loopRegion $edges $vertices 6 $color
+    loopRegion $edges $vertices 3 $color
 }
 
-# Fall back to old-style 2D regions/calibration when 3D calibration is
-# not in place:
-When /someone/ wishes /thing/ is outlined /color/ {
-    When /nobody/ claims $thing has quad /any/ & $thing has region /region/ {
-        lassign $region vertices edges
-        loopRegion $edges $vertices 3 $color
-    }
-}
-
-# Use 3D calibration when 3D calibration exists:
-When display /proj/ has intrinsics /projectorIntrinsics/ {
-    When /someone/ wishes /p/ is outlined /color/ & /p/ has quad /quad/ {
-        set width 3
-        set color [getColor $color]
-        set vertices [lmap v [quad vertices [quad change $quad "display $proj"]] {
-            intrinsics project $projectorIntrinsics $v
-        }]
-        for {set i 0} {$i < [llength $vertices]} {incr i} {
-            set from [lindex $vertices $i]
-            set to [lindex $vertices [expr {($i + 1) % 4}]]
-            lappend instances [list $from $to $width $color]
-        }
-        Wish the GPU draws pipeline "line" with instances $instances
-    }
+When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
+	# FIXME: assumes path
+	lassign $region vertices edges
+	loopRegion $edges $vertices 6 $color
 }
