@@ -411,6 +411,14 @@ namespace eval ::quad {
         }
         return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
     }
+    proc left {q} {
+        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
+    }
+    proc right {q} {
+        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
+    }
 
     namespace export *
     namespace ensemble create
