@@ -76,9 +76,10 @@ set tagFamily "tagStandard52h13"
 # Plain detector. Runs on entire camera frame.
 set detector [makeAprilTagDetector $tagFamily]
 
-When the camera frame is /grayFrame/ {
+When camera /any/ has frame /grayFrame/ at timestamp /any/ {
     # Need to have a `detector` object available from all threads,
     # inside this scope.
+    puts stderr HElo
 
     set aprilTime [time {
         set tags [$detector detect $grayFrame]

@@ -11,14 +11,28 @@ Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
 }} with environment {}
 
-foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
-                             {*}[glob -nocomplain virtual-programs/*/*.folk] \
-                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
-    if {[string match "*/_archive/*" $programFilename]} { continue }
-
+proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]
     Assert! boot.folk claims $programFilename has program code [read $fp]
     close $fp
 
     # TODO: Detect edits
+}
+
+# Load the setup program -- setup.folk.default gets overridden
+# if the user made their own setup.folk.
+set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                         "$::env(HOME)/folk-live/setup.folk" :
+                         "setup.folk.default"}]
+LoadProgram! $setupFilename
+
+foreach programFilename [list $setupFilename \
+                             {*}[glob -nocomplain virtual-programs/*.folk] \
+                             {*}[glob -nocomplain virtual-programs/*/*.folk] \
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+    if {[string match "*/_archive/*" $programFilename] ||
+        [string match "*/folk-printed-programs/*" $programFilename] ||
+        [string match "*/setup.folk" $programFilename]} { continue }
+
+    LoadProgram! $programFilename
 }

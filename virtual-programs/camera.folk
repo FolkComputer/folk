@@ -258,13 +258,13 @@ $camc proc rgbToGray {Image rgb} Image {
     };
 }
 
-$camc proc newImage {int width int height int components} Image {
-    uint8_t* data = malloc(width*components*height);
+$camc proc newImage {Camera* camera int components} Image {
+    uint8_t* data = malloc(camera->width*components*camera->height);
     return (Image) {
-        .width = width,
-        .height = height,
+        .width = camera->width,
+        .height = camera->height,
         .components = components,
-        .bytesPerRow = width*components,
+        .bytesPerRow = camera->width*components,
         .data = data
     };
 }
@@ -276,58 +276,58 @@ $camc proc freeImage {Image image} void {
 #                  "/opt/homebrew/lib/libjpeg.dylib" :
 #                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
 $camc endcflags -ljpeg
+set camLib [$camc compile]
 
-# For now, we only support 1 camera.
-class CameraManager {
-    camLib {}
-    width 0
-    height 0
-    camera {}
-}
-CameraManager method unknown {procName args} {
-    "$camLib $procName" {*}$args
-}
-
-CameraManager method init {w h} {
-    set width $w; set height $h
-    set camera [$self cameraOpen "/dev/video0" $width $height]
-    $self cameraInit $camera
-    $self cameraStart $camera
-    # skip 5 frames for booting a cam
-    for {set i 0} {$i < 5} {incr i} {
-        $self cameraFrame $camera
+When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+    namespace eval Camera {
+        variable camLib [uplevel {set camLib}]
+        proc unknown {procName args} {
+            variable camLib; ::unknown $camLib $procName {*}$args
+        }
+        proc new {device width height {usesJpegFormat 1}} {
+            # TODO: re-add usesJpegFormat
+            set camera [cameraOpen $device $width $height]
+            puts stderr "Loaded $camera"
+            cameraInit $camera
+            cameraStart $camera
+            # skip 5 frames for booting a cam
+            for {set i 0} {$i < 5} {incr i} {
+                cameraFrame $camera
+            }
+            return $camera
+        }
+        proc frame {camera} {
+            if {![cameraFrame $camera]} {
+                error "Failed to capture from camera"
+            }
+            set image [newImage $camera 3]
+            cameraDecompressRgb $camera $image
+            return $image
+        }
+        proc grayFrame {camera} {
+            if {![cameraFrame $camera]} {
+                error "Failed to capture from camera"
+            }
+            set image [newImage $camera 1]
+            cameraDecompressGray $camera $image
+            return $image
+        }
     }
-}
-CameraManager method frame {} {
-    if {![$self cameraFrame $camera]} {
-        error "Failed to capture from camera"
-    }
-    set image [$self newImage $width $height 3]
-    $self cameraDecompressRgb $camera $image
-    return $image
-}
-CameraManager method grayFrame {} {
-    if {![$self cameraFrame $camera]} {
-        error "Failed to capture from camera"
-    }
-    set image [$self newImage $width $height 1]
-    $self cameraDecompressGray $camera $image
-    return $image
-}
 
-set cam [CameraManager new [list camLib [$camc compile]]]
+    set width [dict get $options width]
+    set height [dict get $options height]
+    set camObj [Camera::new $camera $width $height 1]
 
-$cam init 1280 720
+    set oldFrames [list]
+    while 1 {
+        # perfEvent camera
 
-set oldFrames [list]
-while 1 {
-    # perfEvent camera
-
-    set frame [$cam grayFrame]
-    Hold! camera [list $this claims the camera frame is $frame]
-    lappend oldFrames $frame
-    if {[llength $oldFrames] >= 100} {
-        set oldFrames [lassign $oldFrames oldestFrame]
-        $cam freeImage $oldestFrame
+        set frame [Camera::grayFrame $camObj]
+        Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]]
+        lappend oldFrames $frame
+        if {[llength $oldFrames] >= 50} {
+            set oldFrames [lassign $oldFrames oldestFrame]
+            $camLib freeImage $oldestFrame
+        }
     }
 }

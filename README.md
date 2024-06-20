@@ -45,3 +45,4 @@ Clone & build apriltag in home folder
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
   - RAM monitor
+- clean up shader reference errors (use trick from main?)
