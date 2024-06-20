@@ -15,12 +15,15 @@ test: folk
 debug-attach:
 	lldb --attach-name folk
 
-FOLK_REMOTE_NODE := folk-omar-mini
-remote:
-	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
+FOLK_REMOTE_NODE := folk-live
+sync:
+	rsync --timeout=5 -e "ssh -o StrictHostKeyChecking=no" --archive \
+		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
+		. $(FOLK_REMOTE_NODE):~/folk2 \
+		--delete-after
+remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make CFLAGS=$(CFLAGS) && ./folk'
-debug-remote:
-	rsync --delete  --include "vendor/jimtcl/*.c" --exclude "vendor/jimtcl/*" --exclude folk --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . $(FOLK_REMOTE_NODE):~/folk2
+debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
 
 
