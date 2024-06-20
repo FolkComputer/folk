@@ -427,14 +427,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             p [scale $printedSideLengthM [dict get $tag p]]
     }]
 
-    # A list of dictionaries. Each dictionary has entries `model` and
-    # `H_modelToDisplay` ('prewarp' homography from model plane to
+    # A list of pose dictionaries. Each dictionary has entries `model`
+    # and `H_modelToDisplay` ('prewarp' homography from model plane to
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagSize`.
-    #
-    # We'll want at least 10 poses to do ultimate
-    # calibration+refinement.
+    set ::seenPoses [list]
+    set SEEN_POSES_MAX 10
+
+    # The poses to use for actual calibration at the end. We'll want
+    # at least 10 poses to do ultimate calibration+refinement.
     set ::calibrationPoses [list]
     set CALIBRATION_POSES_MAX 10
 
@@ -696,23 +698,25 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       H_cameraToDisplay $H_cameraToDisplay \
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
+        lappend ::seenPoses $pose
+        if {[llength $::seenPoses] > $SEEN_POSES_MAX} {
+            set ::seenPoses [lreplace $::seenPoses 0 0]
+        }
 
         # Next, we check if projected tag corners have been pretty
-        # stable since the previous frame.
-        if {[info exists ::prevPose]} {
-            set prevPose $::prevPose
-            set ::prevPose $pose
-        } else {
-            # We haven't seen a previous frame yet. We'll try again
-            # next frame.
-            set ::prevPose $pose
+        # stable in the last few frames.
+
+        if {[llength $::seenPoses] < 3} {
             return
         }
 
         # If the corners have moved a lot since last frame, we're not
         # stable enough and shouldn't record this as a calibration
         # pose.
-        if {[meanPoseDifference $pose $prevPose] > 5} { return }
+        if {[meanPoseDifference $pose [lindex $::seenPoses end-2]] > 5 ||
+            [meanPoseDifference $pose [lindex $::seenPoses end-3]] > 5} {
+            return
+        }
         # Decreasing this threshold to 1 helps with data
         # accuracy. TODO: Use an _older_ frame?
         puts "WOULD APPEND CALIBRATION..."
@@ -894,16 +898,40 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
         set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
         set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
 
+        puts "$i: Rc:\n[show $Rc]"
+        puts "$i: tc:\n[show $tc]"
+
         set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
         set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
 
         # TODO: Try using pose estimation instead?
         dict for {id tag} [dict get $calibrationPose model] {
             if {![isProjectedTag $id]} { continue }
+            set k 0
             foreach v [dict get $tag p] {
+                incr k
                 lappend v 0.0
-                lappend cameraFramePoints [add [matmul $Rc $v] $tc]
-                lappend projectorFramePoints [add [matmul $Rp $v] $tp]
+
+                set vc [add [matmul $Rc $v] $tc]
+                set vp [add [matmul $Rp $v] $tp]
+
+                # HACK: only take points that are in front of the
+                # projector and camera (why are any points located
+                # behind?)
+                if {[lindex $vc 2] > 0 && [lindex $vp 2] > 0} {
+                    lappend cameraFramePoints $vc
+                    lappend projectorFramePoints $vp
+                }
+
+                puts "$i: vc: ($vc)" ;# vc.z MUST BE >0
+                puts "$i: reproject: ([intrinsics project [dict get $calibration camera intrinsics] $vc])"
+                catch {
+                puts "$i:  original: ([lindex [dict get $calibrationPose tags $id p] $k])"
+                }
+                puts "=="
+
+                # TODO: Check if z < 0.
+                # TODO: Try downprojecting using intrinsics & compare to detected corner
             }
         }
     }
@@ -933,6 +961,30 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 
     dict set calibration R_cameraToProjector $R
     dict set calibration t_cameraToProjector $t
+
+    # puts "Rs = \[\]"
+    # for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
+    #     # For each checkerboard pose (model plane):
+    #     # Rc*modelFramePoint + tc = cameraFramePoint
+    #     # Rp*modelFramePoint + tp = projectorFramePoint
+
+    #     set calibrationPose [lindex $calibrationPoses $i]
+
+    #     set Rc [dict get [lindex [dict get $calibration camera extrinsics] $i] R]
+    #     set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
+
+    #     set Rp [dict get [lindex [dict get $calibration projector extrinsics] $i] R]
+    #     set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
+
+    #     set Rcinv [solvePGauss $Rc [mkIdentity 3]]
+    #     set R [matmul $Rp $Rcinv]
+    #     set t [sub $tp [matmul $R $tc]]
+
+    #     dict set calibration R_cameraToProjector $R
+    #     dict set calibration t_cameraToProjector $t
+
+    #     puts "Rs.append(\[[join [rotationMatrixToRotationVector $R] ,]\])"
+    # }
 }
 
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
