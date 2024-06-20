@@ -11,7 +11,7 @@
 package require math::linearalgebra
 # rename ::scale scaleTk
 foreach p {add norm sub scale matmul
-    getelem transpose determineSVD shape mkIdentity
+    getelem transpose determineSVD shape mkIdentity show
     solvePGauss crossproduct getcol setcol unitLengthVector det
 } {
     namespace import ::math::linearalgebra::$p
@@ -728,7 +728,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
-        catch { exec mkdir "$::env(HOME)/folk-calibration-poses" }
+        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
         image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at timestamp /any/]] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
         # apply {{calibrationBoardPdf} {
@@ -876,8 +876,9 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
 }
 
 fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
-    # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671) to
-    # find the rotation and translation from 3D camera-space to 3D
+    # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
+    # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
+    # to find the rotation and translation from 3D camera-space to 3D
     # projector-space.
 
     upvar $calibrationVar calibration
@@ -898,26 +899,26 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 
         # TODO: Try using pose estimation instead?
         dict for {id tag} [dict get $calibrationPose model] {
-            # if {![isProjectedTag $id]} { continue }
-            set v [dict get $tag c]
-            lappend v 0.0
-            lappend cameraFramePoints [add [matmul $Rc $v] $tc]
-            lappend projectorFramePoints [add [matmul $Rp $v] $tp]
+            if {![isProjectedTag $id]} { continue }
+            foreach v [dict get $tag p] {
+                lappend v 0.0
+                lappend cameraFramePoints [add [matmul $Rc $v] $tc]
+                lappend projectorFramePoints [add [matmul $Rp $v] $tp]
+            }
         }
     }
+
+    puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+    puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
 
     set n [llength $cameraFramePoints]
 
     set vcsum {0 0 0}
-    foreach vc $cameraFramePoints {
-        set vcsum [add $vcsum $vc]
-    }
+    foreach vc $cameraFramePoints { set vcsum [add $vcsum $vc] }
     set cameraFramePointsCentroid [scale [/ 1.0 $n] $vcsum]
 
     set vpsum {0 0 0}
-    foreach vp $projectorFramePoints {
-        set vpsum [add $vpsum $vp]
-    }
+    foreach vp $projectorFramePoints { set vpsum [add $vpsum $vp] }
     set projectorFramePointsCentroid [scale [/ 1.0 $n] $vpsum]
 
     set H [matmul [transpose [sub $cameraFramePoints \
@@ -925,18 +926,13 @@ fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
                [sub $projectorFramePoints \
                     [lrepeat $n $projectorFramePointsCentroid]]]
 
-    puts DETSVD([shape $H])
-
     lassign [determineSVD $H] U S V
     set R [matmul $V [transpose $U]]
-    puts DET_R([det $R])
     set t [sub $projectorFramePointsCentroid \
                [matmul $R $cameraFramePointsCentroid]]
 
     dict set calibration R_cameraToProjector $R
     dict set calibration t_cameraToProjector $t
-
-    puts SETCAMERATOPROJ_DONE
 }
 
 # End-to-end calibrates a camera-projector pair. calibrationPoses is
