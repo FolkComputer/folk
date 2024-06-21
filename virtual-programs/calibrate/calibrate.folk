@@ -879,7 +879,9 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
                 extrinsics $extrinsics]
 }
 
-fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
+proc setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
+    upvar ^isProjectedTag ^isProjectedTag
+
     # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
     # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
     # to find the rotation and translation from 3D camera-space to 3D
@@ -1025,7 +1027,7 @@ try {
     set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
         set calibration [read $fd]; close $fd
         puts "READING CALIB"
@@ -1045,71 +1047,9 @@ try {
 }
 
 fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibration} {
-    set cameraCalibration [dict create]
-    dict set cameraCalibration intrinsics \
-        [dict get $calibration camera intrinsics]
-    dict set cameraCalibration poses [lmap \
-        pose $calibrationPoses \
-        extrinsics [dict get $calibration camera extrinsics] \
-    {
-        set modelPoints [list]
-        set points [list]
-        dict for {id tag} [dict get $pose tags] {
-            if {![isPrintedTag $id]} continue
-            lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
-                list {*}$corner 0.0
-            }]
-            lappend points {*}[dict get $tag p]
-        }
-        dict create \
-            R [dict get $extrinsics R] \
-            t [dict get $extrinsics t] \
-            modelPoints $modelPoints \
-            points $points
-    }]
-    set cameraCalibration [apply $refineCalibration $cameraCalibration]
 
-    dict set calibration camera intrinsics \
-        [dict get $cameraCalibration intrinsics]
-    dict set calibration camera extrinsics \
-        [lmap pose [dict get $cameraCalibration poses] {
-            dict create R [dict get $pose R] t [dict get $pose t]
-        }]
 
-    set projectorCalibration [dict create]
-    dict set projectorCalibration intrinsics \
-        [dict get $calibration projector intrinsics]
-    dict set projectorCalibration poses [lmap \
-        pose $calibrationPoses \
-        extrinsics [dict get $calibration projector extrinsics] \
-    {
-        set H_modelToProjector [dict get $pose H_modelToDisplay]
 
-        set modelPoints [list]
-        set points [list]
-        dict for {id tag} [dict get $pose tags] {
-            if {![isProjectedTag $id]} continue
-            foreach modelCorner [dict get $pose model $id p] {
-                lappend modelPoints [list {*}$modelCorner 0.0]
-                lappend points [applyHomography $H_modelToProjector $modelCorner]
-            }
-        }
-        dict create \
-            R [dict get $extrinsics R] \
-            t [dict get $extrinsics t] \
-            modelPoints $modelPoints \
-            points $points
-    }]
-    set projectorCalibration [apply $refineCalibration $projectorCalibration]
-
-    dict set calibration projector intrinsics \
-        [dict get $projectorCalibration intrinsics]
-    dict set calibration projector extrinsics \
-        [lmap pose [dict get $projectorCalibration poses] {
-            dict create R [dict get $pose R] t [dict get $pose t]
-        }]
-
-    setCameraToProjectorExtrinsics calibration $calibrationPoses
     return $calibration
 }
 
@@ -1122,8 +1062,7 @@ When the calibration poses are /calibrationPoses/ &\
     puts $calibration
     puts ""
 
-    set calibration [refineCalibrateCameraAndProjector \
-                         $refineCalibration \
+    set calibration [apply $refineCalibration \
                          $calibrationPoses $calibration]
     puts "======== Refined calibration ========="
     puts $calibration

@@ -166,9 +166,9 @@ When the calibration model is /MODEL/ {
             out[1] = (y * (1.0 + D))*fy + cy;
         }
     }
-    $cc proc func {int m int n double* x
-                   double* fvec double** dvec
-                   void* _} int {
+    $cc proc monoFunc {int m int n double* x
+                       double* fvec double** dvec
+                       void* _} int {
         // Unwrap the parameters x[]:
         int k = 0;
 
@@ -231,9 +231,9 @@ When the calibration model is /MODEL/ {
         }
         return 0;
     }
-    $cc proc computeError {double[] params int paramsCount} void {
+    $cc proc monoComputeError {double[] params int paramsCount} void {
         double fvec[PointsCount];
-        func(PointsCount, paramsCount, params, fvec, NULL, NULL);
+        monoFunc(PointsCount, paramsCount, params, fvec, NULL, NULL);
         double totalError = 0;
         for (int i = 0; i < PointsCount; i++) {
             /* printf("  Error %d: %f\n", i, fvec[i]); */
@@ -241,16 +241,17 @@ When the calibration model is /MODEL/ {
         }
         printf("Total Error: %f\n", totalError);
     }
-    $cc proc refineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
+    $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
         setvbuf(stdout, NULL, _IONBF, BUFSIZ);
         
+
         mp_result result = {0};
 
         assert(paramsCount == 7 + NUM_POSES*6);
         printf("Unrefined -----------------\n");
-        computeError(params, paramsCount);
+        monoComputeError(params, paramsCount);
 
-        mpfit(func,
+        mpfit(monoFunc,
               // Number of example point pairs:
               PointsCount,
               // Number of parameters to optimize:
@@ -258,7 +259,7 @@ When the calibration model is /MODEL/ {
               params, NULL,
               NULL, NULL, &result);
         printf("Refined -------------------\n");
-        computeError(params, paramsCount);
+        monoComputeError(params, paramsCount);
 
         Tcl_Obj* paramObjs[paramsCount];
         for (int i = 0; i < paramsCount; i++) {
@@ -266,6 +267,39 @@ When the calibration model is /MODEL/ {
         }
         return Tcl_NewListObj(paramsCount, paramObjs);
     }
+
+    $cc proc stereoFunc {int m int n double* x
+                         double* fvec double** dvec
+                         void* _} int {
+        return 0;
+    }
+    $cc proc stereoComputeError {double[] params int paramsCount} void {
+        
+    }
+    $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
+        mp_result result = {0};
+
+        assert(paramsCount == 6);
+        printf("Unrefined -----------------\n");
+        stereoComputeError(params, paramsCount);
+
+        mpfit(monoFunc,
+              // Number of example point pairs:
+              PointsCount,
+              // Number of parameters to optimize:
+              paramsCount,
+              params, NULL,
+              NULL, NULL, &result);
+        printf("Refined -------------------\n");
+        stereoComputeError(params, paramsCount);
+
+        Tcl_Obj* paramObjs[paramsCount];
+        for (int i = 0; i < paramsCount; i++) {
+            paramObjs[i] = Tcl_NewDoubleObj(params[i]);
+        }
+        return Tcl_NewListObj(paramsCount, paramObjs);
+    }
+
     $cc compile ;# takes about a half-second
 
     # Refines the calibration of an individual camera or
@@ -273,18 +307,7 @@ When the calibration model is /MODEL/ {
     # and poses (list of pose dicts). Each pose dict should have
     # modelPoints (list of 3D points) and points (list of 2D points)
     # and R and t. Returns dict with updated intrinsics and poses.
-    set refineCalibration {{calibration} {
-        set paramNames {fx s cx fy cy k1 k2}
-
-        # Load the initial guesses for all parameters for fitting.
-        set params [lmap paramName $paramNames {
-            dict get $calibration intrinsics $paramName
-        }]
-        foreach pose [dict get $calibration poses] {
-            lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
-            lappend params {*}[dict get $pose t]
-        }
-
+    proc refineMonoCalibration {calibration} {
         # Load the example data for fitting.
         set poseModelPoints [list]
         set posePoints [list]
@@ -300,8 +323,19 @@ When the calibration model is /MODEL/ {
         }
         setPoints $posePointsCount $poseModelPoints $posePoints
 
+        set paramNames {fx s cx fy cy k1 k2}
+
+        # Load the initial guesses for all parameters for fitting.
+        set params [lmap paramName $paramNames {
+            dict get $calibration intrinsics $paramName
+        }]
+        foreach pose [dict get $calibration poses] {
+            lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
+            lappend params {*}[dict get $pose t]
+        }
+
         # Do the actual optimization:
-        set refined [refineCalibrationOptimize $params [llength $params]]
+        set refined [monoRefineCalibrationOptimize $params [llength $params]]
 
         # Unspool the optimization result into the calibration data
         # structure and return that.
@@ -322,6 +356,90 @@ When the calibration model is /MODEL/ {
             set refined [lrange $refined 6 end]
         }
         dict set calibration poses $poses
+
+        return $calibration
+    }
+    set refineCalibration {{calibrationPoses calibration} {
+        upvar ^isPrintedTag ^isPrintedTag
+        upvar ^isProjectedTag ^isProjectedTag
+
+        # We start by individually refining the mono calibration of
+        # the camera and the mono calibration of the projector.
+
+        # Refine the camera:
+
+        set cameraCalibration [dict create]
+        dict set cameraCalibration intrinsics \
+            [dict get $calibration camera intrinsics]
+        dict set cameraCalibration poses \
+            [lmap pose $calibrationPoses \
+                 extrinsics [dict get $calibration camera extrinsics] \
+          {
+              set modelPoints [list]
+              set points [list]
+              dict for {id tag} [dict get $pose tags] {
+                  if {![isPrintedTag $id]} continue
+                  lappend modelPoints {*}[lmap corner [dict get $pose model $id p] {
+                      list {*}$corner 0.0
+                  }]
+                  lappend points {*}[dict get $tag p]
+              }
+              dict create \
+                  R [dict get $extrinsics R] \
+                  t [dict get $extrinsics t] \
+                  modelPoints $modelPoints \
+                  points $points
+          }]
+        set cameraCalibration [refineMonoCalibration $cameraCalibration]
+
+        dict set calibration camera intrinsics \
+            [dict get $cameraCalibration intrinsics]
+        dict set calibration camera extrinsics \
+            [lmap pose [dict get $cameraCalibration poses] {
+                dict create R [dict get $pose R] t [dict get $pose t]
+            }]
+
+        # Refine the projector:
+
+        set projectorCalibration [dict create]
+        dict set projectorCalibration intrinsics \
+            [dict get $calibration projector intrinsics]
+        dict set projectorCalibration poses \
+            [lmap pose $calibrationPoses \
+                 extrinsics [dict get $calibration projector extrinsics] \
+          {
+              set H_modelToProjector [dict get $pose H_modelToDisplay]
+
+              set modelPoints [list]
+              set points [list]
+              dict for {id tag} [dict get $pose tags] {
+                  if {![isProjectedTag $id]} continue
+                  foreach modelCorner [dict get $pose model $id p] {
+                      lappend modelPoints [list {*}$modelCorner 0.0]
+                      lappend points [applyHomography $H_modelToProjector $modelCorner]
+                  }
+              }
+              dict create \
+                  R [dict get $extrinsics R] \
+                  t [dict get $extrinsics t] \
+                  modelPoints $modelPoints \
+                  points $points
+          }]
+        set projectorCalibration [refineMonoCalibration $projectorCalibration]
+
+        dict set calibration projector intrinsics \
+            [dict get $projectorCalibration intrinsics]
+        dict set calibration projector extrinsics \
+            [lmap pose [dict get $projectorCalibration poses] {
+                dict create R [dict get $pose R] t [dict get $pose t]
+            }]
+
+        # Reconstruct camera->projector extrinsics after refinement.
+        setCameraToProjectorExtrinsics calibration $calibrationPoses
+
+        # FIXME: Now we do stereo refinement of the reprojection error
+        # of the entire system, including all intrinsics and
+        # extrinsics.
 
         return $calibration
     }}
