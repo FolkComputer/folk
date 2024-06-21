@@ -20,7 +20,7 @@ When the keyboards are /keyboards/ {
           const ws = new FolkWS(document.getElementById('status'));
 
           ws.watch("keyboard /kb/ claims key /something/ is down with timestamp /something/ printable /p/", {
-            add: (\[kb, p]) => {
+            add: ({ kb, p }) => {
               document.getElementById(kb + "-presses").innerText += p + " ";
             },
           });
