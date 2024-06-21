@@ -72,25 +72,55 @@ When the calibration model is /MODEL/ {
         #define MAX_POINTS_PER_POSE $[* [dict size $MODEL] 4]
         #define NUM_POSES 10
 
-        int PointsCount;
-        int PosePointsCount[NUM_POSES];
-        double PoseModelPoints[NUM_POSES][MAX_POINTS_PER_POSE][3];
-        double PosePoints[NUM_POSES][MAX_POINTS_PER_POSE][2];
+        typedef struct Intrinsics {
+            double fx;
+            double s;
+            double cx;
+            double fy;
+            double cy;
+            double k1;
+            double k2;
+        } Intrinsics;
+        int loadIntrinsics(Intrinsics* intr, double intrMat[3][3],
+                           double* x) {
+            int k = 0;
+            intr->fx = x[k++];
+            // HACK: zero out skew.
+            intr->s = x[k++]; intr->s = 0.0;
+            intr->cx = x[k++];
+            intr->fy = x[k++];
+            intr->cy = x[k++];
+            double intrMatTmp[3][3] = {
+                {intr->fx,   intr->s,  intr->cx},
+                {       0,  intr->fy,  intr->cy},
+                {       0,         0,         1}
+            };
+            memcpy(intrMat, intrMatTmp, sizeof(intrMatTmp));
+
+            intr->k1 = x[k++];
+            intr->k2 = x[k++];
+            return k;
+        }
+
+        int MonoPointsCount;
+        int MonoPosePointsCount[NUM_POSES];
+        double MonoPoseModelPoints[NUM_POSES][MAX_POINTS_PER_POSE][3];
+        double MonoPosePoints[NUM_POSES][MAX_POINTS_PER_POSE][2];
     }]
-    $cc proc setPoints {int[] posePointsCount
-                        double[] poseModelPoints
-                        double[] posePoints} void {
+    $cc proc monoSetPoints {int[] posePointsCount
+                            double[] poseModelPoints
+                            double[] posePoints} void {
         int mi = 0; int pi = 0;
-        PointsCount = 0;
+        MonoPointsCount = 0;
         for (int poseIdx = 0; poseIdx < NUM_POSES; poseIdx++) {
-            PosePointsCount[poseIdx] = posePointsCount[poseIdx];
-            PointsCount += PosePointsCount[poseIdx];
-            for (int i = 0; i < PosePointsCount[poseIdx]; i++) {
+            MonoPosePointsCount[poseIdx] = posePointsCount[poseIdx];
+            MonoPointsCount += MonoPosePointsCount[poseIdx];
+            for (int i = 0; i < MonoPosePointsCount[poseIdx]; i++) {
                 for (int j = 0; j < 3; j++) {
-                    PoseModelPoints[poseIdx][i][j] = poseModelPoints[mi++];
+                    MonoPoseModelPoints[poseIdx][i][j] = poseModelPoints[mi++];
                 }
                 for (int j = 0; j < 2; j++) {
-                    PosePoints[poseIdx][i][j] = posePoints[pi++];
+                    MonoPosePoints[poseIdx][i][j] = posePoints[pi++];
                 }
             }
         }
@@ -173,19 +203,9 @@ When the calibration model is /MODEL/ {
         int k = 0;
 
         // Intrinsics:
-        double fx = x[k++];
-        // HACK: zero out skew.
-        double s = x[k++]; s = 0.0;
-        double cx = x[k++];
-        double fy = x[k++];
-        double cy = x[k++];
-        double intrinsics[3][3] = {
-            {fx,    s,  cx},
-            {  0,  fy,  cy},
-            {  0,   0,   1}
-        };
-        double k1 = x[k++];
-        double k2 = x[k++];
+        Intrinsics intr;
+        double intrMat[3][3];
+        k += loadIntrinsics(&intr, intrMat, &x[k]);
 
         // Extrinsics:
         double r_pose[NUM_POSES][3];
@@ -204,38 +224,38 @@ When the calibration model is /MODEL/ {
             double R[3][3]; rotationVectorToRotationMatrix(r_pose[poseIdx], R);
 
             // For each point in the pose:
-            for (int pointIdx = 0; pointIdx < PosePointsCount[poseIdx]; pointIdx++) {
+            for (int pointIdx = 0; pointIdx < MonoPosePointsCount[poseIdx]; pointIdx++) {
                 // Get the 3D position of the point in ideal
                 // camera-space using model & extrinsics.
-                double* modelPoint = (double*) &PoseModelPoints[poseIdx][pointIdx];
+                double* modelPoint = (double*) &MonoPoseModelPoints[poseIdx][pointIdx];
                 double idealPoint[3];
                 transformVec3(R, t, modelPoint, idealPoint);
 
                 // Use intrinsics to project down to ideal 2D
                 // position.
                 double idealPlanePoint[3];
-                mulMat3Vec3(intrinsics, idealPoint, idealPlanePoint);
+                mulMat3Vec3(intrMat, idealPoint, idealPlanePoint);
                 idealPlanePoint[0] /= idealPlanePoint[2];
                 idealPlanePoint[1] /= idealPlanePoint[2];
                 idealPlanePoint[2] = 1.0;
 
                 double planePoint[2];
-                distort(fx, fy, cx, cy, k1, k2,
+                distort(intr.fx, intr.fy, intr.cx, intr.cy, intr.k1, intr.k2,
                         idealPlanePoint, planePoint);
 
                 // Add an error term to fvec.
-                double dx = planePoint[0] - PosePoints[poseIdx][pointIdx][0];
-                double dy = planePoint[1] - PosePoints[poseIdx][pointIdx][1];
+                double dx = planePoint[0] - MonoPosePoints[poseIdx][pointIdx][0];
+                double dy = planePoint[1] - MonoPosePoints[poseIdx][pointIdx][1];
                 fvec[f++] = sqrt(dx*dx + dy*dy);
             }
         }
         return 0;
     }
     $cc proc monoComputeError {double[] params int paramsCount} void {
-        double fvec[PointsCount];
-        monoFunc(PointsCount, paramsCount, params, fvec, NULL, NULL);
+        double fvec[MonoPointsCount];
+        monoFunc(MonoPointsCount, paramsCount, params, fvec, NULL, NULL);
         double totalError = 0;
-        for (int i = 0; i < PointsCount; i++) {
+        for (int i = 0; i < MonoPointsCount; i++) {
             /* printf("  Error %d: %f\n", i, fvec[i]); */
             totalError += fvec[i];
         }
@@ -253,7 +273,7 @@ When the calibration model is /MODEL/ {
 
         mpfit(monoFunc,
               // Number of example point pairs:
-              PointsCount,
+              MonoPointsCount,
               // Number of parameters to optimize:
               paramsCount,
               params, NULL,
@@ -267,40 +287,6 @@ When the calibration model is /MODEL/ {
         }
         return Tcl_NewListObj(paramsCount, paramObjs);
     }
-
-    $cc proc stereoFunc {int m int n double* x
-                         double* fvec double** dvec
-                         void* _} int {
-        return 0;
-    }
-    $cc proc stereoComputeError {double[] params int paramsCount} void {
-        
-    }
-    $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
-        mp_result result = {0};
-
-        assert(paramsCount == 6);
-        printf("Unrefined -----------------\n");
-        stereoComputeError(params, paramsCount);
-
-        mpfit(monoFunc,
-              // Number of example point pairs:
-              PointsCount,
-              // Number of parameters to optimize:
-              paramsCount,
-              params, NULL,
-              NULL, NULL, &result);
-        printf("Refined -------------------\n");
-        stereoComputeError(params, paramsCount);
-
-        Tcl_Obj* paramObjs[paramsCount];
-        for (int i = 0; i < paramsCount; i++) {
-            paramObjs[i] = Tcl_NewDoubleObj(params[i]);
-        }
-        return Tcl_NewListObj(paramsCount, paramObjs);
-    }
-
-    $cc compile ;# takes about a half-second
 
     # Refines the calibration of an individual camera or
     # projector. Takes a dict with intrinsics (dict of fx, s, cx, etc)
@@ -321,7 +307,7 @@ When the calibration model is /MODEL/ {
 
             lappend posePointsCount [llength $points]
         }
-        setPoints $posePointsCount $poseModelPoints $posePoints
+        monoSetPoints $posePointsCount $poseModelPoints $posePoints
 
         set paramNames {fx s cx fy cy k1 k2}
 
@@ -359,6 +345,76 @@ When the calibration model is /MODEL/ {
 
         return $calibration
     }
+
+    $cc code {
+        int StereoPointsCount;
+        int StereoPosePointsCount[NUM_POSES];
+        double StereoPoseModelPoints[NUM_POSES][MAX_POINTS_PER_POSE][3];
+        double StereoPoseCameraPoints[NUM_POSES][MAX_POINTS_PER_POSE][2];
+        double StereoPoseProjectorPoints[NUM_POSES][MAX_POINTS_PER_POSE][2];
+    }
+    $cc proc stereoSetPoints {int[] posePointsCount
+                              double[] poseModelPoints
+                              double[] poseCameraPoints
+                              double[] poseProjectorPoints} void {
+        int mi = 0; int pi = 0;
+        StereoPointsCount = 0;
+        for (int poseIdx = 0; poseIdx < NUM_POSES; poseIdx++) {
+            StereoPosePointsCount[poseIdx] = posePointsCount[poseIdx];
+            StereoPointsCount += StereoPosePointsCount[poseIdx];
+            for (int i = 0; i < StereoPosePointsCount[poseIdx]; i++) {
+                for (int j = 0; j < 3; j++) {
+                    StereoPoseModelPoints[poseIdx][i][j] = poseModelPoints[mi++];
+                }
+                for (int j = 0; j < 2; j++) {
+                    StereoPoseCameraPoints[poseIdx][i][j] = poseCameraPoints[pi++];
+                }
+                for (int j = 0; j < 2; j++) {
+                    StereoPoseProjectorPoints[poseIdx][i][j] = poseProjectorPoints[pi++];
+                }
+            }
+        }
+    }
+    $cc proc stereoFunc {int m int n double* x
+                         double* fvec double** dvec
+                         void* _} int {
+        // Unwrap the parameters x[]:
+        /* int k = 0; */
+
+        
+
+        return 0;
+    }
+    $cc proc stereoComputeError {double[] params int paramsCount} void {
+        
+    }
+    $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
+        mp_result result = {0};
+
+        assert(paramsCount == 6);
+        printf("Unrefined -----------------\n");
+        stereoComputeError(params, paramsCount);
+
+        mpfit(monoFunc,
+              // Number of example point pairs:
+              MonoPointsCount,
+              // Number of parameters to optimize:
+              paramsCount,
+              params, NULL,
+              NULL, NULL, &result);
+        printf("Refined -------------------\n");
+        stereoComputeError(params, paramsCount);
+
+        Tcl_Obj* paramObjs[paramsCount];
+        for (int i = 0; i < paramsCount; i++) {
+            paramObjs[i] = Tcl_NewDoubleObj(params[i]);
+        }
+        return Tcl_NewListObj(paramsCount, paramObjs);
+    }
+
+    $cc compile ;# takes about a half-second
+
+
     set refineCalibration {{calibrationPoses calibration} {
         upvar ^isPrintedTag ^isPrintedTag
         upvar ^isProjectedTag ^isProjectedTag
@@ -437,7 +493,7 @@ When the calibration model is /MODEL/ {
         # Reconstruct camera->projector extrinsics after refinement.
         setCameraToProjectorExtrinsics calibration $calibrationPoses
 
-        # FIXME: Now we do stereo refinement of the reprojection error
+        # Now we do stereo refinement of the reprojection error
         # of the entire system, including all intrinsics and
         # extrinsics.
 
