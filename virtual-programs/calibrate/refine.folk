@@ -273,7 +273,6 @@ $cc proc monoComputeError {double[] params int paramsCount} void {
 $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
-
     mp_result result = {0};
 
     assert(paramsCount == 7 + MonoPoseCount*6);
@@ -372,7 +371,7 @@ $cc proc stereoSetPoints {int poseCount
                           double[] poseModelPoints
                           double[] poseCameraPoints
                           double[] poseProjectorPoints} void {
-    int mi = 0; int pi = 0;
+    int mi = 0; int ci = 0; int pi = 0;
     StereoPoseCount = poseCount;
     StereoPointsCount = 0;
     for (int poseIdx = 0; poseIdx < StereoPoseCount; poseIdx++) {
@@ -383,7 +382,7 @@ $cc proc stereoSetPoints {int poseCount
                 StereoPoseModelPoints[poseIdx][i][j] = poseModelPoints[mi++];
             }
             for (int j = 0; j < 2; j++) {
-                StereoPoseCameraPoints[poseIdx][i][j] = poseCameraPoints[pi++];
+                StereoPoseCameraPoints[poseIdx][i][j] = poseCameraPoints[ci++];
             }
             for (int j = 0; j < 2; j++) {
                 StereoPoseProjectorPoints[poseIdx][i][j] = poseProjectorPoints[pi++];
@@ -470,7 +469,6 @@ $cc proc stereoComputeError {double[] params int paramsCount} void {
     double fvec[StereoPointsCount * 2];
     stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
-    printf("StereoPointsCount %d\n", StereoPointsCount);
     for (int i = 0; i < StereoPointsCount; i++) {
         /* printf("  Error %d: %f\n", i, fvec[i]); */
         totalError += fvec[i];
@@ -596,12 +594,16 @@ set refineCalibration {{calibrationPoses calibration} {
                                # for poses we're using
     for {set i 0} {$i < [llength $calibrationPoses]} {incr i} {
         set pose [lindex $calibrationPoses $i]
+        set H_modelToProjector [dict get $pose H_modelToDisplay]
 
         # If the pose has been estimated to be _behind_ the camera
         # or projector (z < 0), we should skip it.
         set tcz [lindex [dict get $calibration camera extrinsics] $i 2]
         set tpz [lindex [dict get $calibration projector extrinsics] $i 2]
-        if {$tcz < 0 || $tpz < 0} { continue }
+        if {$tcz < 0 || $tpz < 0} {
+            puts "SKIP POSE:$i"
+            continue
+        }
 
         set modelPoints [list]
         set cameraPoints [list]
