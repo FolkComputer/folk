@@ -7,6 +7,9 @@
 #     nonlinear refinement to find intrinsic and extrinsic parameters
 #     for the camera and projector.
 #
+#     Closely based on the technique in Audet (2009):
+#     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
+#
 
 package require math::linearalgebra
 # rename ::scale scaleTk
@@ -914,19 +917,16 @@ proc setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
                 set vc [add [matmul $Rc $v] $tc]
                 set vp [add [matmul $Rp $v] $tp]
 
-                # HACK: only take points that are in front of the
-                # projector and camera (why are any points located
-                # behind?)
-                if {[lindex $vc 2] > 0 && [lindex $vp 2] > 0} {
-                    lappend cameraFramePoints $vc
-                    lappend projectorFramePoints $vp
-                }
+                lappend cameraFramePoints $vc
+                lappend projectorFramePoints $vp
             }
         }
     }
 
     # puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
     # puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
+    set ::cfp $cameraFramePoints
+    set ::pfp $projectorFramePoints
 
     set n [llength $cameraFramePoints]
 
@@ -963,6 +963,7 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
     # First, calibrate the camera. "Using only the corners from
     # printed markers xb and their detected corners xc, [...]
     # calibrate the camera with no difficulties using Zhang’s method."
+    set i 0
     set Hs_modelToCamera [lmap pose $calibrationPoses {
         # Pairs of (camera coordinates, model coordinates).
         set model [dict get $pose model]
@@ -977,7 +978,11 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
                 }
         }
 
-        estimateHomography $pointPairs
+        set H [estimateHomography $pointPairs]
+        if {[det $H] < 0} {
+            set H [scale -1 $H]
+        }
+        set H
     }]
     puts "Zhang calibrate camera:"
     puts "========"
@@ -991,6 +996,7 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
 
     # Second, calibrate the projector.
     set modelToDisplayPointPairSets [list]
+    set i 0
     set Hs_modelToDisplay [lmap pose $calibrationPoses {
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
 
@@ -1004,6 +1010,9 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
             }
         }
 
+        if {[det $H_modelToDisplay] < 0} {
+            set H_modelToDisplay [scale -1 $H_modelToDisplay]
+        }
         set H_modelToDisplay
     }]
     puts "Zhang calibrate projector:"

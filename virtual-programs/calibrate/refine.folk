@@ -649,12 +649,10 @@ set refineCalibration {{calibrationPoses calibration} {
         }
     }
 
-    # TODO: Disabling stereo refinement for now.
-
-    # puts "\nStereo refine:"
-    # set refined [stereoRefineCalibrationOptimize $params [llength $params]]
-    # dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
-    # dict set calibration t_cameraToProjector [lrange $refined 3 5]
+    puts "\nStereo refine ($poseCount poses):"
+    set refined [stereoRefineCalibrationOptimize $params [llength $params]]
+    dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+    dict set calibration t_cameraToProjector [lrange $refined 3 5]
 
     # TODO: Fixup the extrinsics of the poses. They don't really
     # matter.
