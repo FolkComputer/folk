@@ -332,8 +332,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             etc):</p>
             <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
-            <p>Try to keep the board from bending or warping. (During
-            calibration, Folk will want to project AprilTags in the
+        <p>Try to keep the board from bending or warping.</p>
+        <p>(During calibration, Folk will want to project AprilTags in the
             central area of the board. Instead of printing, you can
             try just maximizing the board on your computer/tablet
             screen, but you'll need to cover the central
@@ -341,13 +341,13 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             tags on.)</p>
           </li>
 
-          <li><p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p></li>
+          <li><p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p> Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</li>
 
           <li><p>Once you start calibration, you'll need to <strong>move the board so
           that the projected AprilTags are in the center of the board</strong>,
           then <strong>hold the board still for a few seconds until
-          the pose is recorded.</strong>
-          You'll need to record 10 different poses; try to slant the
+          the pose is recorded.</strong></p>
+          <p>You'll need to record 10 different poses; try to slant the
           board and move it up and around the projector/camera area as much
             as possible.</p>
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
@@ -1036,7 +1036,7 @@ try {
     set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
     set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
+    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
         set calibration [read $fd]; close $fd
         puts "READING CALIB"
