@@ -332,8 +332,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             etc):</p>
             <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
-        <p>Try to keep the board from bending or warping.</p>
-        <p>(During calibration, Folk will want to project AprilTags in the
+        <p>Try to keep the board from bending or warping.
+        (During calibration, Folk will want to project AprilTags in the
             central area of the board. Instead of printing, you can
             try just maximizing the board on your computer/tablet
             screen, but you'll need to cover the central
