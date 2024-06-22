@@ -1046,13 +1046,6 @@ try {
     puts stderr "Failed to load calibration poses: $e"
 }
 
-fn refineCalibrateCameraAndProjector {refineCalibration calibrationPoses calibration} {
-
-
-
-    return $calibration
-}
-
 When the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration refiner is /refineCalibration/ {
@@ -1075,6 +1068,7 @@ When the calibration poses are /calibrationPoses/ &\
 }
 
 When the calibration is /calibration/ {
+    puts "\n\n====NEW CALIBRATION=====\n\n"
     set camera [dict get $calibration camera name]
     set display [dict get $calibration projector name]
     Claim camera $camera has intrinsics \

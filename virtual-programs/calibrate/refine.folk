@@ -598,9 +598,9 @@ set refineCalibration {{calibrationPoses calibration} {
 
         # If the pose has been estimated to be _behind_ the camera
         # or projector (z < 0), we should skip it.
-        set tcz [lindex [dict get $calibration camera extrinsics] $i 2]
-        set tpz [lindex [dict get $calibration projector extrinsics] $i 2]
-        if {$tcz < 0 || $tpz < 0} {
+        set tc [dict get [lindex [dict get $calibration camera extrinsics] $i] t]
+        set tp [dict get [lindex [dict get $calibration projector extrinsics] $i] t]
+        if {[lindex $tc 2] < 0 || [lindex $tp 2] < 0} {
             puts "SKIP POSE:$i"
             continue
         }
@@ -649,7 +649,15 @@ set refineCalibration {{calibrationPoses calibration} {
         }
     }
 
-    stereoRefineCalibrationOptimize $params [llength $params]
+    # TODO: Disabling stereo refinement for now.
+
+    # puts "\nStereo refine:"
+    # set refined [stereoRefineCalibrationOptimize $params [llength $params]]
+    # dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+    # dict set calibration t_cameraToProjector [lrange $refined 3 5]
+
+    # TODO: Fixup the extrinsics of the poses. They don't really
+    # matter.
 
     return $calibration
 }}
