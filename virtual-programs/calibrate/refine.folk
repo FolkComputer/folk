@@ -75,14 +75,13 @@ $cc code [csubst {
 
     typedef struct Intrinsics {
         double fx;
-        double s;
         double cx;
         double fy;
         double cy;
         double k1;
         double k2;
 
-        // Makes it easy to project. Same information as fx, s,
+        // Makes it easy to project. Same information as fx,
         // cx, fy, cy.
         double mat[3][3];
     } Intrinsics;
@@ -90,13 +89,11 @@ $cc code [csubst {
     int loadIntrinsics(Intrinsics* intr, double* x) {
         int k = 0;
         intr->fx = x[k++];
-        // HACK: zero out skew.
-        intr->s = x[k++]; intr->s = 0.0;
         intr->cx = x[k++];
         intr->fy = x[k++];
         intr->cy = x[k++];
         double intrMatTmp[3][3] = {
-            {intr->fx,   intr->s,  intr->cx},
+            {intr->fx,         0,  intr->cx},
             {       0,  intr->fy,  intr->cy},
             {       0,         0,         1}
         };
@@ -275,7 +272,7 @@ $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj
 
     mp_result result = {0};
 
-    assert(paramsCount == 7 + MonoPoseCount*6);
+    assert(paramsCount == 6 + MonoPoseCount*6);
     printf("Unrefined -----------------\n");
     monoComputeError(params, paramsCount);
 
@@ -318,7 +315,7 @@ proc refineMonoCalibration {calibration} {
     monoSetPoints [llength [dict get $calibration poses]] \
         $posePointsCount $poseModelPoints $posePoints
 
-    set intrNames {fx s cx fy cy k1 k2}
+    set intrNames {fx cx fy cy k1 k2}
 
     # Load the initial guesses for all parameters for fitting.
     set params [lmap intrName $intrNames {
@@ -631,7 +628,7 @@ set refineCalibration {{calibrationPoses calibration} {
         [concat {*}$poseCameraPoints] \
         [concat {*}$poseProjectorPoints]
 
-    set intrNames {fx s cx fy cy k1 k2}
+    set intrNames {fx cx fy cy k1 k2}
     stereoSetIntrinsics [lmap intrName $intrNames {
         dict get $calibration camera intrinsics $intrName
     }] [lmap intrName $intrNames {
