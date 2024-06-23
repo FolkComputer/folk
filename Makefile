@@ -21,10 +21,12 @@ sync:
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
 		. $(FOLK_REMOTE_NODE):~/folk2 \
 		--delete-after
+setup-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt install libssl-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make CFLAGS=$(CFLAGS) && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
 
 
 flamegraph:

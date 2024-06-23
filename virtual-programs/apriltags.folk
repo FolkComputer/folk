@@ -79,8 +79,6 @@ set detector [makeAprilTagDetector $tagFamily]
 When camera /any/ has frame /grayFrame/ at timestamp /any/ {
     # Need to have a `detector` object available from all threads,
     # inside this scope.
-    puts stderr HElo
-
     set aprilTime [time {
         set tags [$detector detect $grayFrame]
     }]
