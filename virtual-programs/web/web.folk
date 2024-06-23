@@ -127,10 +127,17 @@ proc handleRead {chan addr} {
     } else { puts "Closing: $chan $addr $headers"; close $chan }
 }
 
-set f [socket stream.server 4273]
-$f readable [lambda {} {f} {
-    set client [$f accept addr]
-    handleConnect $client $addr
-}]
+while true {
+    try {
+        set f [socket stream.server 4273]
+        $f readable [lambda {} {f} {
+            set client [$f accept addr]
+            handleConnect $client $addr
+        }]
+        break
+    } on error e {
+        puts stderr "web.folk: $e"
+        sleep 1
+    }
+}
 vwait forever
-
