@@ -443,6 +443,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set ::calibrationPoses [list]
     set CALIBRATION_POSES_MAX 10
 
+    set ::cycleTime NONE
+
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
@@ -512,7 +514,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         When the clock time is /t/ {
             # HACK: imperatively checks ::calibrationPoses every
             # frame.
-            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses"
+            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses ($::cycleTime us)"
             foreach side $sides {
                 lassign $side start end
                 set segment [sub $end $start]
@@ -560,6 +562,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # projected and printed), and updates the H_modelToDisplay
         # such that the projected tags should sit in the middle of the
         # calibration board.
+
+        set startTime [clock microseconds]
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -674,11 +678,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
-        set H_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
+        set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
-            Claim the calibration model-to-display homography is $H_modelToDisplay with \
+            Claim the calibration model-to-display homography is $nextH_modelToDisplay with \
                 model $nextModel version $nextVersion timestamp [clock milliseconds]
         }
 
@@ -691,6 +695,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
 
+        # TODO: Compute a pose homography from current?????  Take into
+        # account delta from last camera tags? Use that homography on
+        # the projector????
+
         set pose [dict create \
                       model $model version $version \
                       camera $camera \
@@ -698,9 +706,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       display $display \
                       displayWidth $displayWidth displayHeight $displayHeight \
                       tagSize $printedSideLengthM \
-                      H_cameraToDisplay $H_cameraToDisplay \
                       H_modelToDisplay $H_modelToDisplay \
                       tags [dict merge $printedTags $projectedTags]]
+        set ::cycleTime [- [clock microseconds] $startTime]
         lappend ::seenPoses $pose
         if {[llength $::seenPoses] > $SEEN_POSES_MAX} {
             set ::seenPoses [lreplace $::seenPoses 0 0]
