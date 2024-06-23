@@ -368,11 +368,15 @@ namespace eval ::quad {
         }]
     }
     proc scale {q s} {
+        # TODO: this should probably be with respect to the centroid
+        # of the quad?
         create [space $q] [lmap v [vertices $q] {
             lmap x $v {* $x $s}
         }]
     }
     proc buffer {q args} {
+        # TODO: this should probably be with respect to the centroid
+        # of the quad?
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         foreach {direction distance} $args {
             if {![regexp {([0-9\.]+)(mm|m)?} $distance -> distance unit]} {
@@ -411,6 +415,9 @@ namespace eval ::quad {
         }
         return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
     }
+
+    # TODO: we need to either return 'space-tagged points' for these
+    # or just change them into some default space like camera space.
     proc left {q} {
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
