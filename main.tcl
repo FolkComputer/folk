@@ -183,11 +183,17 @@ proc After {n unit body} {
         }]] {*}$argValues]
     } else { error }
 }
-set ::committed [dict create]
-set ::toCommit [dict create]
+
+set ::holding [dict create]
+set ::toHold [dict create]
+# Lower-level version of Commit that takes a single statement instead
+# of a whole program.
+proc Hold! {key stmt} { dict set ::toHold $key $stmt }
+
 proc Commit {args} {
     upvar this this
     set body [lindex $args end]
+    # TODO: Build a non-capturing
     if {[lindex $args 0] eq "(on"} {
         set userSpecifiedThis [string range [lindex $args 1] 0 end-1]
         set args [lreplace $args 0 1]
@@ -196,13 +202,14 @@ proc Commit {args} {
         set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
     }
     if {$body eq ""} {
-        dict set ::toCommit $key $body
+        Hold! $key {}
     } else {
         lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-        dict set ::toCommit $key $lambda
+        Hold! $key [list $key has program $lambda]
     }
 }
+
 
 set ::stepCount 0
 set ::stepTime -1
@@ -215,22 +222,18 @@ proc StepImpl {} {
     # Receive statements from all peers.
     foreach peerNs [namespace children ::Peers] {
         upvar ${peerNs}::process peer
-        Commit $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+        Hold! $peer [list $peer is sharing statements [${peerNs}::receive]]
     }
-
-    while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        dict for {key lambda} $::toCommit {
-            if {$lambda ne ""} {
-                Assert $key has program $lambda
+    
+    while {[dict size $::toHold] > 0 || ![Evaluator::LogIsEmpty]} {
+        dict for {key stmt} $::toHold {
+            if {$stmt ne ""} { Assert {*}$stmt }
+            if {[dict exists $::holding $key] && [dict get $::holding $key] ne $stmt} {
+                Retract {*}[dict get $::holding $key]
             }
-            if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
-                Retract $key has program [dict get $::committed $key]
-            }
-            if {$lambda ne ""} {
-                dict set ::committed $key $lambda
-            }
+            if {$stmt ne ""} { dict set ::holding $key $stmt }
         }
-        set ::toCommit [dict create]
+        set ::toHold [dict create]
         Evaluator::Evaluate
     }
 
