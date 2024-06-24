@@ -12,14 +12,44 @@ namespace eval ::video {
     # Ignoring deprecated declarations because of version differences across systems
     # in libavcodec and libavformat as of June 20, 2024.
     # $cc cflags -lavcodec -lavformat -Wno-deprecated-declarations
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavutil.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavutil] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavcodec.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavcodec] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavformat] end]}]
-    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep swscale] end]}]
+    c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/swscale.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep swscale] end]}]
+    $cc include <libavutil/imgutils.h>
     $cc include <libavcodec/avcodec.h>
     $cc include <libavformat/avformat.h>
     $cc include <libswscale/swscale.h>
 
     $cc proc init {} void {}
+
+    proc comment {} {
+                    #         AVFrame *pRGBFrame = av_frame_alloc();
+
+                    # pRGBFrame->format = AV_PIX_FMT_RGB24;
+                    # pRGBFrame->width = pFrame->width;
+                    # pRGBFrame->height = pFrame->height;
+
+                    # struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
+                    #                         pFrame->height,
+                    #                         pFrame->format,
+                    #                         pFrame->width,
+                    #                         pFrame->height,
+                    #                         AV_PIX_FMT_RGB24,
+                    #                         SWS_BICUBIC,
+                    #                         NULL,
+                    #                         NULL,
+                    #                         NULL);
+                    # int sts = sws_scale(sws_ctx,
+                    #     (const uint8_t * const*)pFrame->data,
+                    #     pFrame->linesize,
+                    #     0,
+                    #     pFrame->height,
+                    #     pRGBFrame->data,
+                    #     pRGBFrame->linesize);
+                    # // Hmmm, how to save this as an image_t?
+                    # fprintf(stderr, "sts: %d\n", sts);
+    }
     
     $cc proc video {char* filename} void {
         AVFormatContext *pFormatContext = avformat_alloc_context();
@@ -95,49 +125,93 @@ namespace eval ::video {
                     exit(1);
                 }
 
-                if (pCodecContext->frame_num == 1) {
-                    // 
+                // TODO: frame_number -> frame_num
+                if (pCodecContext->frame_number == 1) {
                     fprintf(stderr, "!!!!! On frame one ...\n");
-                    // convert frame data to image_t
-                    fprintf(stderr, "!!!!!! Before the image_t ...\n");
 
-                    AVFrame *pRGBFrame = av_frame_alloc();
+                    // Allocate a frame for the converted image
+                    AVFrame* pRGBFrame = av_frame_alloc();
+                    if (!pRGBFrame) {
+                        fprintf(stderr, "Could not allocate RGB frame\n");
+                        exit(1);
+                    }
 
+                    // Set the frame properties
                     pRGBFrame->format = AV_PIX_FMT_RGB24;
                     pRGBFrame->width = pFrame->width;
                     pRGBFrame->height = pFrame->height;
 
-                    struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
-                                            pFrame->height,
-                                            pFrame->format,
-                                            pFrame->width,
-                                            pFrame->height,
-                                            AV_PIX_FMT_RGB24,
-                                            SWS_BICUBIC,
-                                            NULL,
-                                            NULL,
-                                            NULL);
-                    int sts = sws_scale(sws_ctx,
-                        (const uint8_t * const*)pFrame->data,
-                        pFrame->linesize,
-                        0,
-                        pFrame->height,
-                        pRGBFrame->data,
-                        pRGBFrame->linesize);
-                    // Hmmm, how to save this as an image_t?
-                    fprintf(stderr, "sts: %d\n", sts);
+                    // Allocate the buffer for the RGB frame
+                    int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
+                    uint8_t* buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
+                    if (!buffer) {
+                        fprintf(stderr, "Could not allocate buffer for RGB frame\n");
+                        av_frame_free(&pRGBFrame);
+                        exit(1);
+                    }
 
+                    // Fill the frame with the allocated buffer
+                    av_image_fill_arrays(pRGBFrame->data, pRGBFrame->linesize, buffer, AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
+
+                    // Set up the context for the conversion
+                    struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
+                                                                pFrame->height,
+                                                                pFrame->format,
+                                                                pFrame->width,
+                                                                pFrame->height,
+                                                                AV_PIX_FMT_RGB24,
+                                                                SWS_BICUBIC,
+                                                                NULL,
+                                                                NULL,
+                                                                NULL);
+                    if (!sws_ctx) {
+                        fprintf(stderr, "Could not initialize the conversion context\n");
+                        av_free(buffer);
+                        av_frame_free(&pRGBFrame);
+                        exit(1);
+                    }
+
+                    // Perform the conversion
+                    int sts = sws_scale(sws_ctx,
+                                        (const uint8_t * const*)pFrame->data,
+                                        pFrame->linesize,
+                                        0,
+                                        pFrame->height,
+                                        pRGBFrame->data,
+                                        pRGBFrame->linesize);
+                    if (sts < 0) {
+                        fprintf(stderr, "Error while converting frame\n");
+                    } else {
+                        fprintf(stderr, "Successfully converted frame\n");
+
+                        // Print out the first few pixel values to prove it's correct
+                        for (int y = 0; y < 2; y++) {
+                            for (int x = 0; x < 2; x++) {
+                                int offset = y * pRGBFrame->linesize[0] + x * 3;
+                                fprintf(stderr, "Pixel (%d,%d): R=%d, G=%d, B=%d\n", x, y, pRGBFrame->data[0][offset], pRGBFrame->data[0][offset + 1], pRGBFrame->data[0][offset + 2]);
+                            }
+                        }
+                    }
+
+                    // Free the scaling context and the RGB buffer
+                    sws_freeContext(sws_ctx);
+                    av_free(buffer);
+                    av_frame_free(&pRGBFrame);
+
+                    fprintf(stderr, "sts: %d\n", sts);
                 } else {
                     continue;
                 }
                 fprintf(stderr, "======== After the continue  ... %d\n", pFrame->height);
 
-                fprintf(stderr, "Frame %jd (type=%c, format=%d) pts %ld key_frame %d\n",
-                        pCodecContext->frame_num,
+                // frame_number -> frame_num, also format string is jd
+                fprintf(stderr, "Frame %d (type=%c, format=%d) pts %ld\n",
+                        pCodecContext->frame_number,
                         av_get_picture_type_char(pFrame->pict_type),
                         pFrame->format,
-                        pFrame->pts,
-                        AV_FRAME_FLAG_KEY);
+                        pFrame->pts
+                        );
+                // TODO: Readd AV_FRAME_FLAG_KEY in new version of libavcodec
 
                 if (pFrame->format == AV_PIX_FMT_YUV420P) {
                     // TODO: use libswscale to convert to RGB, make an image_t
