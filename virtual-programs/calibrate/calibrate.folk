@@ -212,28 +212,24 @@ fn versionizeTags {tags version} {
 package require math
 namespace import ::math::mean
 fn meanPoseDifference {pose1 pose2} {
-    # First, remove the version rotations from tags1 and tags2.
     set tags1 [dict get $pose1 tags]
-    set version1 [dict get $pose1 version]
-    set tags1 [versionizeTags $tags1 [- $version1]]
-
     set tags2 [dict get $pose2 tags]
-    set version2 [dict get $pose2 version]
-    set tags2 [versionizeTags $tags2 [- $version2]]
 
-    set differences [list]
+    set diffsum 0.0
+    set ndiffs 0
     dict for {id tag} $tags1 {
+        # We cheat and only count printed tags so we don't have to
+        # deal with versioning.
+        if {![isPrintedTag $id]} { continue }
         if {![dict exists $tags2 $id]} { continue }
-        set corners1 [dict get $tag p]
-        set corners2 [dict get $tags2 $id p]
-        set cornerDifferences \
-            [lmap corner1 $corners1 corner2 $corners2 {
-                norm [sub $corner1 $corner2]
-            }]
-        lappend differences {*}$cornerDifferences
+
+        lassign [dict get $tag c] x1 y1
+        lassign [dict get $tags2 $id c] x2 y2
+        set diffsum [expr {$diffsum + sqrt(($x1 - $x2)*($x1 - $x2) + ($y1 - $y2)*($y1 - $y2))}]
+        incr ndiffs
     }
-    if {[llength $differences] == 0} { return Inf }
-    return [mean {*}$differences]
+    if {$ndiffs == 0} { return Inf }
+    return [expr {$diffsum / $ndiffs}]
 }
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
@@ -511,25 +507,24 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list $modelBottomRight $modelBottomLeft] \
                  [list $modelBottomLeft $modelTopLeft] \
                  [list $modelTopRight $modelBottomRight]]
-        When the clock time is /t/ {
-            # HACK: imperatively checks ::calibrationPoses every
-            # frame.
-            set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($::cycleTime*1000)}] ms)"
-            foreach side $sides {
-                lassign $side start end
-                set segment [sub $end $start]
-                set normal [unitLengthVector [list [- [lindex $segment 1]] [lindex $segment 0]]]
-                set modelPosition [add [scale 0.5 [add $start $end]] \
-                                       [scale [* -1.0 $printedSideLengthM] $normal]]
 
-                set dispSeg [sub [applyHomography $H_modelToDisplay $end] \
-                                 [applyHomography $H_modelToDisplay $start]]
-                set radians [- [atan2 [lindex $dispSeg 1] [lindex $dispSeg 0]]]
+        # HACK: imperatively checks ::calibrationPoses every
+        # frame.
+        set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($::cycleTime*1000)}] ms)"
+        foreach side $sides {
+            lassign $side start end
+            set segment [sub $end $start]
+            set normal [unitLengthVector [list [- [lindex $segment 1]] [lindex $segment 0]]]
+            set modelPosition [add [scale 0.5 [add $start $end]] \
+                                   [scale [* -1.0 $printedSideLengthM] $normal]]
 
-                Wish to draw text with text $text radians $radians \
-                    position [applyHomography $H_modelToDisplay $modelPosition] \
-                    anchor center color black layer 100 scale 2.0
-            }
+            set dispSeg [sub [applyHomography $H_modelToDisplay $end] \
+                             [applyHomography $H_modelToDisplay $start]]
+            set radians [- [atan2 [lindex $dispSeg 1] [lindex $dispSeg 0]]]
+
+            Wish to draw text with text $text radians $radians \
+                position [applyHomography $H_modelToDisplay $modelPosition] \
+                anchor center color black layer 100 scale 2.0
         }
     }
 
@@ -1103,4 +1098,4 @@ When the calibration is /calibration/ {
 }
 
 # HACK: for fast testing
-# Claim the printed tag side length is 17 mm
+# Claim the printed tag side length is 17.5 mm
