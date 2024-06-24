@@ -263,7 +263,7 @@ proc StepImpl {} {
 
 set ::frames [list]
 proc Step {} {
-    set ::stepRunTime 0
+    Evaluator::resetTimers
     set stepTime [baretime StepImpl]
     
     set framesInLastSecond 0
@@ -276,7 +276,7 @@ proc Step {} {
     }
     set ::frames [lreplace $::frames 0 end-$framesInLastSecond]
 
-    set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us) ($framesInLastSecond fps)"
+    set ::stepTime "$stepTime us (peer $::peerTime us, run $Evaluator::stepRunTime us) ($framesInLastSecond fps)"
 }
 
 source "lib/math.tcl"
