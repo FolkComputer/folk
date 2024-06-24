@@ -27,7 +27,8 @@ remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make && gdb ./folk -ex=run'
-
+valgrind-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make && valgrind --leak-check=yes ./folk'
 
 flamegraph:
 	sudo perf record -F 997 --pid=$(shell pgrep folk) -g -- sleep 30
