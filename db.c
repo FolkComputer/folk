@@ -177,7 +177,7 @@ static void listOfEdgeToDefragment(ListEdgeCheckerFn checker, void* checkerArg,
     size_t nEdges = 0;
     for (size_t i = 0; i < (*listPtr)->nEdges; i++) {
         uint64_t edge = (*listPtr)->edges[i];
-        // TODO: Also validate edge (is it a valid match / statement?)
+        // Also validate edge (is it a valid match / statement?)
         if (edge != 0 && checker(checkerArg, edge)) {
             list->edges[nEdges++] = edge;
         }
@@ -538,10 +538,9 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
-// Assumption: the db (statement addition) mutex is held by the
-// caller. What happens if the parent match is removed at some point?
-// How do we ensure that either this statement is retracted or it
-// never appears?
+// What happens if the parent match is removed at some point?  How do
+// we ensure that either this statement is retracted or it never
+// appears?
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMatchRef) {
     // Is this clause already present among the existing statements?
     StatementRef existingRefs[10];
