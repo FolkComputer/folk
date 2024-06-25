@@ -106,7 +106,8 @@ When the calibration unit model is /unitModel/ &\
         }
     }
 
-    When camera $camera has width /cameraWidth/ height /cameraHeight/ &\
+    When display $display has width /displayWidth/ height /displayHeight/ &\
+         camera $camera has width /cameraWidth/ height /cameraHeight/ &\
          the extrinsic correction printed tags are /capturedPrintedTags/ &\
          the extrinsic correction projected tags are /capturedProjectedTags/ {
 
@@ -165,7 +166,9 @@ When the calibration unit model is /unitModel/ &\
             [sub $modelCenter [dict get $model $printedTagId c]]
         lappend printedTagCenterToBoardCenter 0.0
 
-        set r [/ $printedTagSize 2.0]
+        # We need to go from inner corners (tag size) -> outer corners
+        # (AprilTag shader), then turn it from diameter to radius.
+        set r [expr {(10.0/6.0 * $printedTagSize) / 2.0}]
         set projectTagVerticesInCameraSpace \
             [lmap v [list [list [- $r]    $r  0] \
                          [list     $r     $r  0] \
@@ -192,6 +195,13 @@ When the calibration unit model is /unitModel/ &\
             }]
         set projectTagId [lindex $projectableTagIds \
                               [% $printedTagIdx [llength $projectableTagIds]]]
+
+        # White backdrop to hopefully make the projected tags pop out more:
+        Wish to draw a quad with \
+            p0 [list 0 0] p1 [list $displayWidth 0] \
+            p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
+            color white layer 99
+
         Wish to draw an AprilTag with id $projectTagId \
             corners [lreverse $projectTagVertices] layer 100
 
