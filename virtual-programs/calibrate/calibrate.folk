@@ -365,8 +365,6 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         const self = uuidv4();
 
         document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
-          // Report the side length to a statement in Folk.
-
           const mm = document.getElementById("tag-side-length-mm").value;
 
           window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
@@ -386,12 +384,21 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         });
 
         document.getElementById('correct-extrinsics-submit').addEventListener('click', (e) => {
+          const mm = document.getElementById("tag-side-length-mm").value;
+
           window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
           ws.onopen = () => {
-            ws.send(`Assert \${self} wishes to correct extrinsics`);
+            ws.send(`
+              Retract \${self} claims the printed tag side length is /anything/ mm
+              Assert \${self} claims the printed tag side length is \${mm} mm
+              Assert \${self} wishes to correct extrinsics
+            `);
           };
           window.onbeforeunload = () => {
-            ws.send(`Retract \${self} wishes to correct extrinsics`);
+            ws.send(`
+              Retract \${self} claims the printed tag side length is /anything/ mm
+              Retract \${self} wishes to correct extrinsics
+            `);
           }
         });
       </script>
