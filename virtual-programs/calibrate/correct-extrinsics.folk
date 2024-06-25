@@ -106,7 +106,8 @@ When the calibration unit model is /unitModel/ &\
         }
     }
 
-    When the extrinsic correction printed tags are /capturedPrintedTags/ &\
+    When camera $camera has width /cameraWidth/ height /cameraHeight/ &\
+         the extrinsic correction printed tags are /capturedPrintedTags/ &\
          the extrinsic correction projected tags are /capturedProjectedTags/ {
 
         # Each printed tag should get a corresponding projected tag.
@@ -127,12 +128,13 @@ When the calibration unit model is /unitModel/ &\
         # on.
         set printedTagIdx [llength $capturedProjectedTags]
         set printedTagHistory [lindex $capturedPrintedTags $printedTagIdx]
+        # Used later to get the tag's model-space coordinates.
         set printedTagId [dict get [lindex $printedTagHistory 0] id]
 
         # Do multi-frame-based tag pose estimation.
         set printedTagPose ""
         foreach det $printedTagHistory {
-            set p [dict get $det tags $printedTagId p]
+            set p [dict get $det p]
             if {$printedTagPose eq ""} {
                 set printedTagPose \
                     [baseEstimateTagPose $cameraIntrinsics \
@@ -142,7 +144,8 @@ When the calibration unit model is /unitModel/ &\
                 set printedTagPose \
                     [servoingEstimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
-                         $printedTagSize $tagPose $p]
+                         $printedTagSize \
+                         $printedTagPose $p]
             }
         }
 
@@ -173,7 +176,7 @@ When the calibration unit model is /unitModel/ &\
                      # center of the calibration board:
                      set v [add $v $printedTagCenterToBoardCenter]
                      # Move from tag-space to camera-space:
-                     dict with $printedTagPose {
+                     dict with printedTagPose {
                          add [matmul $R $v] $t
                      }
                  }]
@@ -181,7 +184,7 @@ When the calibration unit model is /unitModel/ &\
         set projectTagVertices \
             [lmap v $projectTagVerticesInCameraSpace {
                 # Move from camera-space to projector-space:
-                set vp [dict with $initialExtrinsics {
+                set vp [dict with initialExtrinsics {
                     add [matmul $R $v] $t
                 }]
                 # Move from projector-space to projector-pixel-space:
