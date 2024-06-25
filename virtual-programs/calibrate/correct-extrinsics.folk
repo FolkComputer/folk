@@ -1,0 +1,233 @@
+# correct-extrinsics.folk --
+#
+#     Implements extrinsics correction process -- final step in
+#     calibration which is used to correct any offset between the
+#     camera and projector. Relies on the fact that we can just use
+#     still poses on the table for this, and we know the
+#     camera/projector intrinsics well from earlier calibration; we
+#     don't need to wave board around in the air and capture 3D poses.
+#
+
+When the calibration unit model is /unitModel/ &\
+     /someone/ wishes to correct extrinsics &\
+     camera /camera/ to display /display/ has extrinsics /initialExtrinsics/ &\
+     camera /camera/ has intrinsics /cameraIntrinsics/ &\
+     display /display/ has intrinsics /projectorIntrinsics/ &\
+     the printed tag side length is /printedSideLengthMm/ mm {
+
+    set printedTagSize [/ $printedSideLengthMm 1000.0]
+
+    set model [dict map {id tag} $unitModel {
+        dict create c [scale $printedTagSize [dict get $tag c]] \
+            p [scale $printedTagSize [dict get $tag p]]
+    }]
+    set modelCenter [apply {{model} {
+        set tags [dict values $model]
+        set topLeftTagCenter [dict get [lindex $tags 0] c]
+        set bottomRightTagCenter [dict get [lindex $tags end] c]
+        return [scale 0.5 [add $topLeftTagCenter $bottomRightTagCenter]]
+    }} $model]
+
+    # Don't want to project any tag IDs other than the tags already
+    # marked out for the model.
+    set projectableTagIds [lmap id [dict keys $model] {
+        if {![isProjectedTag $id]} { continue }
+        set id
+    }]
+
+    set ::pastPoses [list]
+
+    When the extrinsic correction printed tags are /nothing/ &\
+         main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
+
+        # Look for the printed tags on the calibration board.
+
+        set pose [dict create tags $tags timestamp $timestamp]
+        lappend ::pastPoses $pose
+
+        if {[llength $::pastPoses] < 3} {
+            return
+        }
+        if {[meanPoseDifference $pose [lindex $::pastPoses 0]] > 5 ||
+            [meanPoseDifference $pose [lindex $::pastPoses end]] > 5} {
+            # Too much deviation. Reset.
+            set ::pastPoses [list]
+            return
+        }
+
+        # Check for stability over multiple frames. Countdown.
+        set stableTime [- $timestamp [dict get [lindex $::pastPoses 0] timestamp]]
+        if {$stableTime > 2} {
+            # Display a countdown to 0.
+        }
+        if {$stableTime < 5} {
+            return
+        }
+
+        # Now we have a pose that has been stable for 5s.
+        puts "ANALYZING POSE"
+
+        # Do pose detection on printed tags. Project an inwardized
+        # version of each tag, capture it on camera, pose-detect it,
+        # then compute an extrinsic offset from that. Then RANSAC to
+        # find consensus among the extrinsic offsets.
+        set boardTagIds [dict keys $model]
+        set capturedPrintedTags [list]
+        foreach id $boardTagIds {
+            if {![isPrintedTag $id]} { continue }
+
+            set tagHistory [lmap pose [lrange $::pastPoses end-2 end] {
+                if {![dict exists $pose tags $id]} { continue }
+                dict get $pose tags $id
+            }]
+            # Discard tags that weren't captured every pose.
+            if {[llength $tagHistory] != 3} { continue }
+
+            lappend capturedPrintedTags $tagHistory
+        }
+        if {[llength $capturedPrintedTags] < 3} {
+            puts stderr "calibrate extrinsics: Not enough captures"
+            return
+        }
+
+        Commit extrinsic correction printed tags {
+            Claim the extrinsic correction printed tags are $capturedPrintedTags
+        }
+        Commit extrinsic correction projected tags {
+            Claim the extrinsic correction projected tags are [list]
+        }
+    }
+
+    When the extrinsic correction printed tags are /capturedPrintedTags/ &\
+         the extrinsic correction projected tags are /capturedProjectedTags/ {
+
+        # Each printed tag should get a corresponding projected tag.
+        if {[llength $capturedPrintedTags] == [llength $capturedProjectedTags]} {
+            # We're done! We've collected all the data.
+
+            # For each projected tag, need original coordinates in
+            # camera-space (which are derived from the printed tag) +
+            # detected coordinates in camera-space (which are derived
+            # from the detection).
+            
+            # Move the detected coordinates into projector-space.
+
+            return
+        }
+
+        # Find the next printed tag that we should project a tag based
+        # on.
+        set printedTagIdx [llength $capturedProjectedTags]
+        set printedTagHistory [lindex $capturedPrintedTags $printedTagIdx]
+        set printedTagId [dict get [lindex $printedTagHistory 0] id]
+
+        # Do multi-frame-based tag pose estimation.
+        set printedTagPose ""
+        foreach det $printedTagHistory {
+            set p [dict get $det tags $printedTagId p]
+            if {$printedTagPose eq ""} {
+                set printedTagPose \
+                    [baseEstimateTagPose $cameraIntrinsics \
+                         $cameraWidth $cameraHeight \
+                         $printedTagSize $p]
+            } else {
+                set printedTagPose \
+                    [servoingEstimateTagPose $cameraIntrinsics \
+                         $cameraWidth $cameraHeight \
+                         $printedTagSize $tagPose $p]
+            }
+        }
+
+        # Now printedTagPose is {R, t} a rigid transform from
+        # tag-space (with (0, 0, 0) being the tag center) to
+        # camera-space.
+        #
+        # We want to make a tag that we can project -- we'll take the
+        # printed tag and make new vertices to project a tag at the
+        # center of the calibration board. This should be spaced
+        # well-enough under most expected offsets to be detectable.
+
+        # What's the vector from tag center -> board center in
+        # model-space? (This should directly translate into
+        # tag-space.)
+        set printedTagCenterToBoardCenter \
+            [sub $modelCenter [dict get $model $printedTagId c]]
+        lappend printedTagCenterToBoardCenter 0.0
+
+        set r [/ $printedTagSize 2.0]
+        set projectTagVerticesInCameraSpace \
+            [lmap v [list [list [- $r]    $r  0] \
+                         [list     $r     $r  0] \
+                         [list     $r  [- $r] 0] \
+                         [list  [- $r] [- $r] 0]] \
+                 {
+                     # Translate from original printed tag to the
+                     # center of the calibration board:
+                     set v [add $v $printedTagCenterToBoardCenter]
+                     # Move from tag-space to camera-space:
+                     dict with $printedTagPose {
+                         add [matmul $R $v] $t
+                     }
+                 }]
+
+        set projectTagVertices \
+            [lmap v $projectTagVerticesInCameraSpace {
+                # Move from camera-space to projector-space:
+                set vp [dict with $initialExtrinsics {
+                    add [matmul $R $v] $t
+                }]
+                # Move from projector-space to projector-pixel-space:
+                intrinsics project $projectorIntrinsics $vp
+            }]
+        set projectTagId [lindex $projectableTagIds \
+                              [% $printedTagIdx [llength $projectableTagIds]]]
+        Wish to draw an AprilTag with id $projectTagId \
+            corners $projectTagVertices layer 100
+
+        # Rcp*xc + tcp = xp
+        #
+        # seen as xc'
+        # Roff*xc + toff = xc'
+        # Rcp*xc + tcp = xp
+        # Rcp*xc' + tcp = xp
+        # Rcp*(Roff*xc + toff) + tcp = xp
+        # Rcp*Roff*xc + (Rcp*toff + tcp) = xp
+
+        # compute roff, toff which change xc to xc'
+        # set Rcp to Rcp*Roff
+        # set tcp to (Rcp*toff + tcp)
+
+
+        # Now tagPose is the pose of the printed tag in camera-space.
+
+        # Move tagPose toward the center of the board.
+
+        # Ask to project this new central tag.
+
+        # Store this new central tag and await detection.
+        # When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
+        #     if {![dict exists $tags $projectedId]} { return }
+        #     set det [dict get $tags $projectedId]
+
+        #     # Store this pair of (projection request, camera detection).
+        # }
+
+
+            # Store the pose.
+            
+
+            # Async: project the tag.
+            # Async: detect the tag.
+
+            # Move the poses into projector-space, move them into the
+            # middle, then project onto them.
+
+            # Intake frames, do pose detection on tags, move them into
+            # projector-space, compute offset of projected tags from
+            # expectation.
+            
+            # Tweak the extrinsics. Use RANSAC+Kabsch.
+    }
+
+    
+}
