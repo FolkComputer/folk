@@ -190,6 +190,8 @@ fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
     ! [isPrintedTag $id]
 }
+Claim the calibration isProjectedTag is ${^isProjectedTag}
+Claim the calibration isPrintedTag is ${^isPrintedTag}
 
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
 # according to version.
@@ -231,6 +233,7 @@ fn meanPoseDifference {pose1 pose2} {
     if {$ndiffs == 0} { return Inf }
     return [expr {$diffsum / $ndiffs}]
 }
+Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
     set marginTop 72; set marginLeft 36

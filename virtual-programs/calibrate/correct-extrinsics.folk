@@ -9,11 +9,16 @@
 #
 
 When the calibration unit model is /unitModel/ &\
-     /someone/ wishes to correct extrinsics &\
+     the calibration isProjectedTag is /^isProjectedTag/ &\
+     the calibration isPrintedTag is /^isPrintedTag/ &\
+     the calibration meanPoseDifference is /^meanPoseDifference/ &\
      camera /camera/ to display /display/ has extrinsics /initialExtrinsics/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ &\
      display /display/ has intrinsics /projectorIntrinsics/ &\
-     the printed tag side length is /printedSideLengthMm/ mm {
+     the printed tag side length is /printedSideLengthMm/ mm &\
+     /someone/ wishes to correct extrinsics {
+
+    puts "CORRECT EXTRINSICS"
 
     set printedTagSize [/ $printedSideLengthMm 1000.0]
 
@@ -38,9 +43,12 @@ When the calibration unit model is /unitModel/ &\
     set ::pastPoses [list]
 
     When the extrinsic correction printed tags are /nothing/ &\
-         main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
+         main-detector detects tags /tagsList/ on $camera at /timestamp/ in time /something/ {
 
         # Look for the printed tags on the calibration board.
+
+        set tags [dict create] ;# meanPoseDifference requires dict.
+        foreach tag $tagsList { dict set tags [dict get $tag id] $tag }
 
         set pose [dict create tags $tags timestamp $timestamp]
         lappend ::pastPoses $pose
