@@ -193,7 +193,7 @@ When the calibration unit model is /unitModel/ &\
         set projectTagId [lindex $projectableTagIds \
                               [% $printedTagIdx [llength $projectableTagIds]]]
         Wish to draw an AprilTag with id $projectTagId \
-            corners $projectTagVertices layer 100
+            corners [lreverse $projectTagVertices] layer 100
 
         # Rcp*xc + tcp = xp
         #
