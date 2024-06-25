@@ -143,8 +143,8 @@ set COLS 5
 # projected to PostScript points and printed; the tags in the
 # interior will get projected to Vulkan points and rendered on
 # projector.
-set MODEL [apply {{ROWS COLS} {
-    set MODEL [dict create]
+set UNIT_MODEL [apply {{ROWS COLS} {
+    set UNIT_MODEL [dict create]
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -168,12 +168,12 @@ set MODEL [apply {{ROWS COLS} {
                               c [scale 0.5 [add $modelTopLeft $modelBottomRight]] \
                               p [list $modelBottomLeft $modelBottomRight \
                                           $modelTopRight $modelTopLeft]]
-            dict set MODEL $id $modelTag
+            dict set UNIT_MODEL $id $modelTag
         }
     }
-    return $MODEL
+    return $UNIT_MODEL
 }} $ROWS $COLS]
-Claim the calibration model is $MODEL
+Claim the calibration unit model is $UNIT_MODEL
 
 fn isCalibrationTag {id} { expr {$id >= 48600 && $id < 48600 + $ROWS*$COLS} }
 fn isPrintedTag {id} {
@@ -308,8 +308,8 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
     return $pdf
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL ^makeCalibrationBoardPdf} {
-    set calibrationBoardPdf [makeCalibrationBoardPdf $MODEL 50 \
+Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf} {
+    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 50 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
 
     upvar ^html ^html
@@ -348,7 +348,12 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             as possible.</p>
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
-          </li>
+        </li>
+
+        <li><p>Finally, we'll correct any measurement offset between the camera and projector.</p>
+        <p><button id="correct-extrinsics-submit">Start Offset Correction</button></p>
+        <p>Leave your calibration board flat in the center of the table and don't move it.</p>
+        </li>
         </ol>
 
       <script>
@@ -369,12 +374,24 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
             ws.send(`
               Retract \${self} claims the printed tag side length is /anything/ mm
               Assert \${self} claims the printed tag side length is \${mm} mm
+              Assert \${self} wishes to calibrate
            `);
           };
           window.onbeforeunload = () => {
             ws.send(`
               Retract \${self} claims the printed tag side length is /anything/ mm
+              Retract \${self} wishes to calibrate
             `);
+          }
+        });
+
+        document.getElementById('correct-extrinsics-submit').addEventListener('click', (e) => {
+          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+          ws.onopen = () => {
+            ws.send(`Assert \${self} wishes to correct extrinsics`);
+          };
+          window.onbeforeunload = () => {
+            ws.send(`Retract \${self} wishes to correct extrinsics`);
           }
         });
       </script>
@@ -382,25 +399,12 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{MODEL
       </body>
     </html>
   }]
-}} $MODEL ${^makeCalibrationBoardPdf}]
+}} $UNIT_MODEL ${^makeCalibrationBoardPdf}]
 
-Wish the GPU compiles pipeline "apriltag" {
-    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
-        vec2 vertices[4] = vec2[4](a, b, d, c);
-        return vertices[gl_VertexIndex];
-    } {fn invBilinear} {
-        vec2 p = gl_FragCoord.xy;
-        vec2 uv = invBilinear(p, a, b, c, d);
-
-        int x = int(uv.x * 10); int y = int(uv.y * 10);
-        int bitIdx = y * 10 + x;
-        uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
-        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
-    }
-}
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
-     the printed tag side length is /printedSideLengthMm/ mm {
+     the printed tag side length is /printedSideLengthMm/ mm &\
+     /someone/ wishes to calibrate {
     # Project projected tags once the printed side length has been
     # dialed in.
 
@@ -419,9 +423,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set pad $tagSideLength
 
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
-    # MODEL's 2D coordinates have inner tag side length of 1.0: scale
-    # it to real-world coordinates.
-    set baseModel [dict map {id tag} $MODEL {
+    # UNIT_MODEL's 2D coordinates have inner tag side length of 1.0:
+    # scale it to real-world coordinates.
+    set baseModel [dict map {id tag} $UNIT_MODEL {
         dict create c [scale $printedSideLengthM [dict get $tag c]] \
             p [scale $printedSideLengthM [dict get $tag p]]
     }]
@@ -452,29 +456,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
         }
 
-        # These are computed so we can draw user instructions around
-        # the outer perimeter of the projected tags.
-        set minX 10000; set minY 10000; set maxX 0; set maxY 0
-
-        set instances [list]
         dict for {id modelTag} $model {
             if {![isProjectedTag $id]} { continue }
-
-            set tagImage [::tagImageForId $id]
-            set tagBits [list]
-            # 10x10 AprilTag -> 100 bits
-            for {set y 0} {$y < 10} {incr y} {
-                for {set x 0} {$x < 10} {incr x} {
-                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-                    set bit [== [image_t data $tagImage $j] 255]
-                    lappend tagBits $bit
-                }
-            }
-            # -> 4 32-bit integers
-            set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
-                                0b[join [lreverse [lrange $tagBits 32 63]] ""] \
-                                0b[join [lreverse [lrange $tagBits 64 95]] ""] \
-                                0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
@@ -482,9 +465,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             # {bottomleft bottomright topright topleft}
             set projectorOuterCorners [lmap modelInnerCorner $modelInnerCorners {
                 applyHomography $H_modelToDisplay \
-                             [innerToOuter $modelCenter $modelInnerCorner]
+                    [innerToOuter $modelCenter $modelInnerCorner]
             }]
-            lappend instances [list $tagBitsVec {*}$projectorOuterCorners]
+            Wish to draw an AprilTag with id $id corners $projectorOuterCorners layer 100
         }
 
         # White backdrop to hopefully make the projected tags pop out more:
@@ -492,8 +475,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             p0 [list 0 0] p1 [list $displayWidth 0] \
             p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
             color white layer 99
-
-        Wish the GPU draws pipeline "apriltag" with instances $instances layer 100
 
         # Instructions for the user:
         set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]
@@ -722,8 +703,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have moved a lot since last frame, we're not
         # stable enough and shouldn't record this as a calibration
         # pose.
-        if {[meanPoseDifference $pose [lindex $::seenPoses end-2]] > 5 ||
-            [meanPoseDifference $pose [lindex $::seenPoses end-3]] > 5} {
+        if {[meanPoseDifference $pose [lindex $::seenPoses end-1]] > 5 ||
+            [meanPoseDifference $pose [lindex $::seenPoses end-2]] > 5} {
             return
         }
         # Decreasing this threshold to 1 helps with data
@@ -771,7 +752,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Commit calibration {
                 Claim the calibration poses are $::calibrationPoses
             }
-            Retract /someone/ claims the printed tag side length is /anything/ mm
+            Retract /someone/ wishes to calibrate
         }
     }
 }
