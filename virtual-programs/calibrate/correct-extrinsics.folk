@@ -8,6 +8,27 @@
 #     don't need to wave board around in the air and capture 3D poses.
 #
 
+proc kabsch {xs ys} {
+    set n [llength $xs]
+    if {[llength $ys] != $n} { error "kabsch: xs and ys differ in length" }
+
+    set xsum {0 0 0}
+    foreach x $xs { set xsum [add $xsum $x] }
+    set xc [scale [/ 1.0 $n] $xsum]
+
+    set ysum {0 0 0}
+    foreach y $ys { set ysum [add $ysum $y] }
+    set yc [scale [/ 1.0 $n] $ysum]
+
+    set H [matmul [transpose [sub $xs [lrepeat $n $xc]]] \
+               [sub $ys [lrepeat $n $yc]]]
+
+    lassign [determineSVD $H] U S V
+    set R [matmul $V [transpose $U]]
+    set t [sub $yc [matmul $R $xc]]
+    return [list $R $t]
+}
+
 When the calibration unit model is /unitModel/ &\
      the calibration isProjectedTag is /^isProjectedTag/ &\
      the calibration isPrintedTag is /^isPrintedTag/ &\
@@ -118,6 +139,22 @@ When the calibration unit model is /unitModel/ &\
 
             # Do Kabsch algorithm with each subpair, print the R and t
             # results, compare by hand for now.
+            foreach pair $capturedProjectedTags {
+                lassign $pair xs ys
+                # Both xs and ys are in camera-space: xs is predicted
+                # vertices, ys is detected vertices.
+
+                puts "pair=="
+                puts "xs:"
+                puts [show $xs]
+                puts "ys:"
+                puts [show $ys]
+                puts "Kabsch: ([kabsch $xs $ys])"
+            }
+
+            Commit printed {}
+            Commit projected {}
+            Retract /any/ wishes to correct extrinsics
 
             # For each projected tag, need original coordinates in
             # camera-space (which are derived from the printed tag) +
@@ -236,6 +273,7 @@ When the calibration unit model is /unitModel/ &\
                              $cameraWidth $cameraHeight \
                              $printedTagSize $baseTagPose \
                              $p]
+            set r [expr {$printedTagSize / 2.0}]
             set detectTagVerticesInTagSpace \
                 [list [list [- $r]    $r  0] \
                      [list     $r     $r  0] \
