@@ -98,10 +98,10 @@ When the calibration unit model is /unitModel/ &\
             return
         }
 
-        Commit extrinsic correction printed tags {
+        Commit printed {
             Claim the extrinsic correction printed tags are $capturedPrintedTags
         }
-        Commit extrinsic correction projected tags {
+        Commit projected {
             Claim the extrinsic correction projected tags are [list]
         }
     }
@@ -114,13 +114,34 @@ When the calibration unit model is /unitModel/ &\
         # Each printed tag should get a corresponding projected tag.
         if {[llength $capturedPrintedTags] == [llength $capturedProjectedTags]} {
             # We're done! We've collected all the data.
+            puts "capturedProjectedTags: ($capturedProjectedTags)"
+
+            # Do Kabsch algorithm with each subpair, print the R and t
+            # results, compare by hand for now.
 
             # For each projected tag, need original coordinates in
             # camera-space (which are derived from the printed tag) +
             # detected coordinates in camera-space (which are derived
             # from the detection).
             
-            # Move the detected coordinates into projector-space.
+            # Build up a list of point pairs.
+
+            # Do Kabsch-RANSAC.
+
+            # Adjust the extrinsics.
+
+            # Rcp*xc + tcp = xp
+            #
+            # seen as xc'
+            # Roff*xc + toff = xc'
+            # Rcp*xc + tcp = xp
+            # Rcp*xc' + tcp = xp
+            # Rcp*(Roff*xc + toff) + tcp = xp
+            # Rcp*Roff*xc + (Rcp*toff + tcp) = xp
+
+            # compute roff, toff which change xc to xc'
+            # set Rcp to Rcp*Roff
+            # set tcp to (Rcp*toff + tcp)
 
             return
         }
@@ -178,7 +199,7 @@ When the calibration unit model is /unitModel/ &\
                      # Translate from original printed tag to the
                      # center of the calibration board:
                      set v [add $v $printedTagCenterToBoardCenter]
-                     # Move from tag-space to camera-space:
+                     # Move from printed-tag-space to camera-space:
                      dict with printedTagPose {
                          add [matmul $R $v] $t
                      }
@@ -205,50 +226,34 @@ When the calibration unit model is /unitModel/ &\
         Wish to draw an AprilTag with id $projectTagId \
             corners [lreverse $projectTagVertices] layer 100
 
-        # Rcp*xc + tcp = xp
-        #
-        # seen as xc'
-        # Roff*xc + toff = xc'
-        # Rcp*xc + tcp = xp
-        # Rcp*xc' + tcp = xp
-        # Rcp*(Roff*xc + toff) + tcp = xp
-        # Rcp*Roff*xc + (Rcp*toff + tcp) = xp
+        When tag $projectTagId has detection /det/ on $camera at /timestamp/ {
+            # Do we need more than one detection? Probably not.
+            set p [dict get $det p]
+            set baseTagPose [baseEstimateTagPose $cameraIntrinsics \
+                                 $cameraWidth $cameraHeight \
+                                 $printedTagSize $p]
+            set tagPose [servoingEstimateTagPose $cameraIntrinsics \
+                             $cameraWidth $cameraHeight \
+                             $printedTagSize $baseTagPose \
+                             $p]
+            set detectTagVerticesInTagSpace \
+                [list [list [- $r]    $r  0] \
+                     [list     $r     $r  0] \
+                     [list     $r  [- $r] 0] \
+                     [list  [- $r] [- $r] 0]]
+            set detectTagVerticesInCameraSpace \
+                [lmap v $detectTagVerticesInTagSpace {
+                    dict with tagPose {
+                        add [matmul $R $v] $t
+                    }
+                }]
 
-        # compute roff, toff which change xc to xc'
-        # set Rcp to Rcp*Roff
-        # set tcp to (Rcp*toff + tcp)
-
-
-        # Now tagPose is the pose of the printed tag in camera-space.
-
-        # Move tagPose toward the center of the board.
-
-        # Ask to project this new central tag.
-
-        # Store this new central tag and await detection.
-        # When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
-        #     if {![dict exists $tags $projectedId]} { return }
-        #     set det [dict get $tags $projectedId]
-
-        #     # Store this pair of (projection request, camera detection).
-        # }
-
-
-            # Store the pose.
-            
-
-            # Async: project the tag.
-            # Async: detect the tag.
-
-            # Move the poses into projector-space, move them into the
-            # middle, then project onto them.
-
-            # Intake frames, do pose detection on tags, move them into
-            # projector-space, compute offset of projected tags from
-            # expectation.
-            
-            # Tweak the extrinsics. Use RANSAC+Kabsch.
+            lappend capturedProjectedTags \
+                [list $projectTagVerticesInCameraSpace \
+                     $detectTagVerticesInCameraSpace]
+            Commit projected {
+                Claim the extrinsic correction projected tags are $capturedProjectedTags
+            }
+        }
     }
-
-    
 }
