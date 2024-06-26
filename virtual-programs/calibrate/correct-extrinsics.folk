@@ -236,12 +236,12 @@ When the calibration unit model is /unitModel/ &\
 
         # We need to go from inner corners (tag size) -> outer corners
         # (AprilTag shader), then turn it from diameter to radius.
-        set r [expr {(10.0/6.0 * $printedTagSize) / 2.0}]
+        set rr [expr {(10.0/6.0 * $printedTagSize) / 2.0}]
         set projectTagVerticesInCameraSpace \
-            [lmap v [list [list [- $r]    $r  0] \
-                         [list     $r     $r  0] \
-                         [list     $r  [- $r] 0] \
-                         [list  [- $r] [- $r] 0]] \
+            [lmap v [list [list [- $rr]    $rr  0] \
+                         [list     $rr     $rr  0] \
+                         [list     $rr  [- $rr] 0] \
+                         [list  [- $rr] [- $rr] 0]] \
                  {
                      # Translate from original printed tag to the
                      # center of the calibration board:
@@ -273,6 +273,23 @@ When the calibration unit model is /unitModel/ &\
         Wish to draw an AprilTag with id $projectTagId \
             corners [lreverse $projectTagVertices] layer 100
 
+        # Note that these are inner corners, not the outer corners
+        # above:
+        set r [expr {$printedTagSize / 2.0}]
+        set tagVerticesInCameraSpace \
+            [lmap v [list [list [- $r]    $r  0] \
+                         [list     $r     $r  0] \
+                         [list     $r  [- $r] 0] \
+                         [list  [- $r] [- $r] 0]] \
+                 {
+                     # Translate from original printed tag to the
+                     # center of the calibration board:
+                     set v [add $v $printedTagCenterToBoardCenter]
+                     # Move from printed-tag-space to camera-space:
+                     dict with printedTagPose {
+                         add [matmul $R $v] $t
+                     }
+                 }]
         When tag $projectTagId has detection /det/ on $camera at /timestamp/ {
             # Do we need more than one detection? Probably not.
             set p [dict get $det p]
@@ -283,7 +300,7 @@ When the calibration unit model is /unitModel/ &\
                              $cameraWidth $cameraHeight \
                              $printedTagSize $baseTagPose \
                              $p]
-            set r [expr {$printedTagSize / 2.0}]
+
             set detectTagVerticesInTagSpace \
                 [list [list [- $r]    $r  0] \
                      [list     $r     $r  0] \
@@ -297,7 +314,7 @@ When the calibration unit model is /unitModel/ &\
                 }]
 
             lappend capturedProjectedTags \
-                [list $projectTagVerticesInCameraSpace \
+                [list $tagVerticesInCameraSpace \
                      $detectTagVerticesInCameraSpace]
             Commit projected {
                 Claim the extrinsic correction projected tags are $capturedProjectedTags
