@@ -34,13 +34,16 @@ When the calibration unit model is /unitModel/ &\
      the calibration isPrintedTag is /^isPrintedTag/ &\
      the calibration meanPoseDifference is /^meanPoseDifference/ &\
      camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
-     camera /camera/ to display /display/ has extrinsics /initialExtrinsics/ &\
-     camera /camera/ has intrinsics /cameraIntrinsics/ &\
-     display /display/ has intrinsics /projectorIntrinsics/ &\
+     the calibration is /calibration/ &\
      the printed tag side length is /printedSideLengthMm/ mm &\
      /someone/ wishes to correct extrinsics {
 
     puts "CORRECT EXTRINSICS"
+    set cameraIntrinsics [dict get $calibration camera intrinsics]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
+    # Initial extrinsics:
+    set R_cameraToProjector0 [dict get $calibration R_cameraToProjector]
+    set t_cameraToProjector0 [dict get $calibration t_cameraToProjector]
 
     # VERY IMPORTANT: disable autofocus forever.
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
@@ -138,29 +141,45 @@ When the calibration unit model is /unitModel/ &\
         }
     }
 
-    When display $display has width /displayWidth/ height /displayHeight/ &\
+    When display /display/ has width /displayWidth/ height /displayHeight/ &\
          the extrinsic correction printed tags are /capturedPrintedTags/ &\
          the extrinsic correction projected tags are /capturedProjectedTags/ {
 
         # Each printed tag should get a corresponding projected tag.
         if {[llength $capturedPrintedTags] == [llength $capturedProjectedTags]} {
             # We're done! We've collected all the data.
-            puts [list set capturedProjectedTags $capturedProjectedTags]
+            # puts [list set capturedProjectedTags $capturedProjectedTags]
 
-            # Do Kabsch algorithm with each subpair, print the R and t
-            # results, compare by hand for now.
+            set xs [list]
+            set ys [list]
             foreach pair $capturedProjectedTags {
-                lassign $pair xs ys
+                lappend xs {*}[lindex $pair 0]
+                lappend ys {*}[lindex $pair 1]
+
                 # Both xs and ys are in camera-space: xs is predicted
                 # vertices, ys is detected vertices.
 
-                puts "pair=="
-                puts "xs:"
-                puts [show $xs]
-                puts "ys:"
-                puts [show $ys]
-                puts "Kabsch: ([kabsch $xs $ys])"
+                # lassign $pair xs ys
+                # puts "pair=="
+                # puts "xs:"
+                # puts [show $xs]
+                # puts "ys:"
+                # puts [show $ys]
+                # puts "Kabsch: ([kabsch $xs $ys])"
             }
+            lassign [kabsch $xs $ys] R_off t_off
+            puts "R_off: ($R_off)"
+            puts "t_off: ($t_off)"
+
+            dict set calibration R_cameraToProjector \
+                [matmul $R_cameraToProjector0 $R_off]
+            dict set calibration t_cameraToProjector \
+                [add [matmul $R_cameraToProjector0 $t_off] $t_cameraToProjector0]
+            Commit calibration {
+                Claim the calibration is $calibration
+            }
+            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
+            puts $fd $calibration; close $fd
 
             Commit printed {}
             Commit projected {}
@@ -255,9 +274,7 @@ When the calibration unit model is /unitModel/ &\
         set projectTagVertices \
             [lmap v $projectTagVerticesInCameraSpace {
                 # Move from camera-space to projector-space:
-                set vp [dict with initialExtrinsics {
-                    add [matmul $R $v] $t
-                }]
+                set vp [add [matmul $R_cameraToProjector0 $v] $t_cameraToProjector0]
                 # Move from projector-space to projector-pixel-space:
                 intrinsics project $projectorIntrinsics $vp
             }]
@@ -306,7 +323,8 @@ When the calibration unit model is /unitModel/ &\
             set projectedTagPixelSize [norm [sub [lindex $p 1] \
                                                  [lindex $p 0]]]
             set expectedProjectedTagSize [* [/ $projectedTagPixelSize $printedTagPixelSize] $printedTagSize]
-            puts "printedTagSize ($printedTagSize) -- expectedProjectedTagSize ($expectedProjectedTagSize)"
+            # puts "printedTagSize ($printedTagSize) -- expectedProjectedTagSize ($expectedProjectedTagSize)"
+            # set expectedProjectedTagSize $printedTagSize
 
             # Do we need more than one detection? Probably not.
             set baseTagPose [baseEstimateTagPose $cameraIntrinsics \
