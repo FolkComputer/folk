@@ -150,14 +150,39 @@ When the calibration unit model is /unitModel/ &\
             # We're done! We've collected all the data.
             # puts [list set capturedProjectedTags $capturedProjectedTags]
 
+            # Both xs and ys are in camera-space: xs is intended tag
+            # inner vertices, ys is observed vertices.
             set xs [list]
             set ys [list]
-            foreach pair $capturedProjectedTags {
-                lappend xs {*}[lindex $pair 0]
-                lappend ys {*}[lindex $pair 1]
+            foreach tagData $capturedProjectedTags {
+                set id [dict get $tagData id]
+                puts "=="
+                puts "$id ==========="
 
-                # Both xs and ys are in camera-space: xs is predicted
-                # vertices, ys is detected vertices.
+                set xc_intended [dict get $tagData xc_intended]
+                set xc_observed [dict get $tagData xc_observed]
+
+                lassign [kabsch $xc_intended $xc_observed] R_off t_off
+                puts "Kabsch: R_off:"
+                puts [show $R_off]
+                puts "t_off:"
+                puts [show $t_off]
+                
+                # Now test by reprojecting:
+                set projectTagVertices [dict get $tagData projectTagVertices]
+                puts "projectTagVertices:"
+                puts [join $projectTagVertices "\n"]
+
+                puts "reprojected tag vertices:"
+                foreach v $xc_intended {
+                    # use R_off and t_off to move v into the observed space
+                    set vo [add [matmul $R_off $v] $t_off]
+                    # use R_cp and t_cp to move v into projector space
+                    set vp [add [matmul $R_cameraToProjector0 $v] $t_cameraToProjector0]
+                    # use projectorIntrinsics to downproject v
+                    set vpp [intrinsics project $projectorIntrinsics $vp]
+                    puts $vpp
+                }
 
                 # lassign $pair xs ys
                 # puts "pair=="
@@ -167,19 +192,19 @@ When the calibration unit model is /unitModel/ &\
                 # puts [show $ys]
                 # puts "Kabsch: ([kabsch $xs $ys])"
             }
-            lassign [kabsch $xs $ys] R_off t_off
-            puts "R_off: ($R_off)"
-            puts "t_off: ($t_off)"
+            # lassign [kabsch $xs $ys] R_off t_off
+            # puts "R_off: ($R_off)"
+            # puts "t_off: ($t_off)"
 
-            dict set calibration R_cameraToProjector \
-                [matmul $R_cameraToProjector0 $R_off]
-            dict set calibration t_cameraToProjector \
-                [add [matmul $R_cameraToProjector0 $t_off] $t_cameraToProjector0]
-            Commit calibration {
-                Claim the calibration is $calibration
-            }
-            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
-            puts $fd $calibration; close $fd
+            # dict set calibration R_cameraToProjector \
+            #     [matmul $R_cameraToProjector0 $R_off]
+            # dict set calibration t_cameraToProjector \
+            #     [add [matmul $R_cameraToProjector0 $t_off] $t_cameraToProjector0]
+            # Commit calibration {
+            #     Claim the calibration is $calibration
+            # }
+            # set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
+            # puts $fd $calibration; close $fd
 
             Commit printed {}
             Commit projected {}
@@ -309,8 +334,8 @@ When the calibration unit model is /unitModel/ &\
                  }]
 
         # FIXME: The name `dett` is a hack (as opposed to `det`)
-        # because we have issues with same-name variables as in
-        # capture scope.
+        # because we have issues with same-name variables in capture
+        # scope.
         When tag $projectTagId has detection /dett/ on $camera at /timestamp/ {
             # We're not guaranteed that it was projected at the same
             # size. Let's estimate the projected size.
@@ -348,8 +373,10 @@ When the calibration unit model is /unitModel/ &\
                 }]
 
             lappend capturedProjectedTags \
-                [list $tagVerticesInCameraSpace \
-                     $detectTagVerticesInCameraSpace]
+                [dict create id $projectTagId \
+                     xc_intended $tagVerticesInCameraSpace \
+                     xc_observed $detectTagVerticesInCameraSpace \
+                     projectTagVertices $projectTagVertices]
             Commit projected {
                 Claim the extrinsic correction projected tags are $capturedProjectedTags
             }
