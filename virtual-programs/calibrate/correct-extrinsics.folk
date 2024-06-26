@@ -145,7 +145,7 @@ When the calibration unit model is /unitModel/ &\
         # Each printed tag should get a corresponding projected tag.
         if {[llength $capturedPrintedTags] == [llength $capturedProjectedTags]} {
             # We're done! We've collected all the data.
-            puts "capturedProjectedTags: ($capturedProjectedTags)"
+            puts [list set capturedProjectedTags $capturedProjectedTags]
 
             # Do Kabsch algorithm with each subpair, print the R and t
             # results, compare by hand for now.
@@ -290,15 +290,31 @@ When the calibration unit model is /unitModel/ &\
                          add [matmul $R $v] $t
                      }
                  }]
-        When tag $projectTagId has detection /det/ on $camera at /timestamp/ {
+
+        # FIXME: The name `dett` is a hack (as opposed to `det`)
+        # because we have issues with same-name variables as in
+        # capture scope.
+        When tag $projectTagId has detection /dett/ on $camera at /timestamp/ {
+            # We're not guaranteed that it was projected at the same
+            # size. Let's estimate the projected size.
+            # What was the pixel size of the printed tag?
+            set printedTagCorners [dict get [lindex $printedTagHistory end] p]
+            set printedTagPixelSize [norm [sub [lindex $printedTagCorners 1] \
+                                               [lindex $printedTagCorners 0]]]
+            # What is the pixel size of the projected tag?
+            set p [dict get $dett p]
+            set projectedTagPixelSize [norm [sub [lindex $p 1] \
+                                                 [lindex $p 0]]]
+            set expectedProjectedTagSize [* [/ $projectedTagPixelSize $printedTagPixelSize] $printedTagSize]
+            puts "printedTagSize ($printedTagSize) -- expectedProjectedTagSize ($expectedProjectedTagSize)"
+
             # Do we need more than one detection? Probably not.
-            set p [dict get $det p]
             set baseTagPose [baseEstimateTagPose $cameraIntrinsics \
                                  $cameraWidth $cameraHeight \
-                                 $printedTagSize $p]
+                                 $expectedProjectedTagSize $p]
             set tagPose [servoingEstimateTagPose $cameraIntrinsics \
                              $cameraWidth $cameraHeight \
-                             $printedTagSize $baseTagPose \
+                             $expectedProjectedTagSize $baseTagPose \
                              $p]
 
             set detectTagVerticesInTagSpace \
