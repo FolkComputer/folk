@@ -174,12 +174,17 @@ When the calibration unit model is /unitModel/ &\
                 puts [join $projectTagVertices "\n"]
 
                 puts "reprojected tag vertices:"
-                foreach v $xc_intended {
-                    # use R_off and t_off to move v into the observed space
-                    set vo [add [matmul $R_off $v] $t_off]
-                    # use R_cp and t_cp to move v into projector space
+                # foreach v $xc_intended {
+                    # # use R_off and t_off to move v into the observed space
+                    # set vo [add [matmul $R_off $v] $t_off]
+                    # # use R_cp and t_cp to move v into projector space
+                    # set vp [add [matmul $R_cameraToProjector0 $v] $t_cameraToProjector0]
+                    # # use projectorIntrinsics to downproject v
+                    # set vpp [intrinsics project $projectorIntrinsics $vp]
+                    # puts $vpp
+                # }
+                foreach v $xc_observed {
                     set vp [add [matmul $R_cameraToProjector0 $v] $t_cameraToProjector0]
-                    # use projectorIntrinsics to downproject v
                     set vpp [intrinsics project $projectorIntrinsics $vp]
                     puts $vpp
                 }
@@ -361,10 +366,10 @@ When the calibration unit model is /unitModel/ &\
                              $p]
 
             set detectTagVerticesInTagSpace \
-                [list [list [- $r]    $r  0] \
-                     [list     $r     $r  0] \
-                     [list     $r  [- $r] 0] \
-                     [list  [- $r] [- $r] 0]]
+                [list [list [- $rr]    $rr  0] \
+                     [list     $rr     $rr  0] \
+                     [list     $rr  [- $rr] 0] \
+                     [list  [- $rr] [- $rr] 0]]
             set detectTagVerticesInCameraSpace \
                 [lmap v $detectTagVerticesInTagSpace {
                     dict with tagPose {
