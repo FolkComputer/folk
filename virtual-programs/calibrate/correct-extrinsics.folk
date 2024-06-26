@@ -33,6 +33,7 @@ When the calibration unit model is /unitModel/ &\
      the calibration isProjectedTag is /^isProjectedTag/ &\
      the calibration isPrintedTag is /^isPrintedTag/ &\
      the calibration meanPoseDifference is /^meanPoseDifference/ &\
+     camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ to display /display/ has extrinsics /initialExtrinsics/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ &\
      display /display/ has intrinsics /projectorIntrinsics/ &\
@@ -40,6 +41,16 @@ When the calibration unit model is /unitModel/ &\
      /someone/ wishes to correct extrinsics {
 
     puts "CORRECT EXTRINSICS"
+
+    # VERY IMPORTANT: disable autofocus forever.
+    catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
+
+    if {$cameraWidth < 1920} {
+        Retract /someone/ wishes $::thisNode uses camera $camera \
+            with width $cameraWidth height $cameraHeight
+        Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
+        # TODO: restore old camera resolution later
+    }
 
     set printedTagSize [/ $printedSideLengthMm 1000.0]
 
@@ -115,7 +126,7 @@ When the calibration unit model is /unitModel/ &\
             lappend capturedPrintedTags $tagHistory
         }
         if {[llength $capturedPrintedTags] < 3} {
-            puts stderr "calibrate extrinsics: Not enough captures"
+            puts stderr "calibrate extrinsics: Not enough captures: [llength $capturedPrintedTags]"
             return
         }
 
@@ -128,7 +139,6 @@ When the calibration unit model is /unitModel/ &\
     }
 
     When display $display has width /displayWidth/ height /displayHeight/ &\
-         camera $camera has width /cameraWidth/ height /cameraHeight/ &\
          the extrinsic correction printed tags are /capturedPrintedTags/ &\
          the extrinsic correction projected tags are /capturedProjectedTags/ {
 
