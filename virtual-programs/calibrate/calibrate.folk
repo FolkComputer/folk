@@ -353,7 +353,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
         </li>
 
-        <li><p>Finally, we'll correct any measurement offset between the camera and projector.</p>
+        <li><p>(WIP, not currently useful) Finally, we'll correct any measurement offset between the camera and projector.</p>
         <p><button id="correct-extrinsics-submit">Start Offset Correction</button></p>
         <p>Leave your calibration board flat in the center of the table and don't move it.</p>
         </li>
