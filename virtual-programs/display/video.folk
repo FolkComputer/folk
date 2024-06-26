@@ -3,9 +3,6 @@ namespace eval ::video {
     set cc [c create]
     ::defineImageType $cc
     $cc cflags -lavcodec -lavformat -Wno-deprecated
-    # Ignoring deprecated declarations because of version differences across systems
-    # in libavcodec and libavformat as of June 20, 2024.
-    # $cc cflags -lavcodec -lavformat -Wno-deprecated-declarations
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavutil.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavutil] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavcodec.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavcodec] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavformat] end]}]
@@ -20,7 +17,59 @@ namespace eval ::video {
 
     $cc proc init {} void {}
 
-    $cc proc video {char* filename} void {
+    $cc proc generateImageFromFrame {AVFrame* pRGBFrame int width int height} image_t {
+        image_t ret;
+        ret.width = width;
+        ret.height = height;
+        ret.components = 4;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+
+        for (uint32_t y = 0; y < ret.height; ++y) {
+            for (uint32_t x = 0; x < ret.width; ++x) {
+                int offset = y * ret.bytesPerRow + x * ret.components;
+                int src_offset = y * pRGBFrame->linesize[0] + x * 3;
+                ret.data[offset] = pRGBFrame->data[0][src_offset];       // R
+                ret.data[offset + 1] = pRGBFrame->data[0][src_offset + 1]; // G
+                ret.data[offset + 2] = pRGBFrame->data[0][src_offset + 2]; // B
+                ret.data[offset + 3] = 255; // A
+            }
+        }
+        return ret;
+    }
+
+    $cc proc freeImage {image_t* im} void {
+        folkHeapFree(im->data);
+    }
+
+    $cc proc generateImage {int R int G int B int A} image_t {
+        image_t ret;
+        ret.width = 400;
+        ret.height = 400;
+        ret.components = 4;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+        int b = ret.bytesPerRow * ret.height * 0.2;
+        uint8_t L = 0xBB;
+
+        memset(ret.data, L, b);
+
+        for (uint32_t y = 0; y < ret.height; ++y) {
+            for (uint32_t x = 0; x < ret.width; ++x) {
+                ret.data[y * ret.bytesPerRow + x * ret.components] = R; // R
+                ret.data[y * ret.bytesPerRow + x * ret.components + 1] = G; // G
+                ret.data[y * ret.bytesPerRow + x * ret.components + 2] = B; // B
+                ret.data[y * ret.bytesPerRow + x * ret.components + 3] = A; // A
+            }
+        }
+        printf("returning fake image");
+        return ret;
+    }
+    $cc proc generateWhiteImage {} image_t {
+        return generateImage(255, 255, 255, 255);
+    }
+
+    $cc proc video {char* filename} image_t {
         AVFormatContext *pFormatContext = avformat_alloc_context();
         if (!pFormatContext) { exit(1); }
 
@@ -45,7 +94,6 @@ namespace eval ::video {
             avformat_free_context(pFormatContext);
             exit(1);
         }
-
 
         const AVCodec *pCodec = NULL;
         const AVCodecParameters *pCodecParameters =  NULL;
@@ -94,23 +142,19 @@ namespace eval ::video {
                     exit(1);
                 }
 
-                // TODO: frame_number -> frame_num
                 if (pCodecContext->frame_number == 1) {
                     fprintf(stderr, "!!!!! On frame one ...\n");
 
-                    // Allocate a frame for the converted image
                     AVFrame* pRGBFrame = av_frame_alloc();
                     if (!pRGBFrame) {
                         fprintf(stderr, "Could not allocate RGB frame\n");
                         exit(1);
                     }
 
-                    // Set the frame properties
                     pRGBFrame->format = AV_PIX_FMT_RGB24;
                     pRGBFrame->width = pFrame->width;
                     pRGBFrame->height = pFrame->height;
 
-                    // Allocate the buffer for the RGB frame
                     int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
                     uint8_t* buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
                     if (!buffer) {
@@ -119,10 +163,8 @@ namespace eval ::video {
                         exit(1);
                     }
 
-                    // Fill the frame with the allocated buffer
                     av_image_fill_arrays(pRGBFrame->data, pRGBFrame->linesize, buffer, AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
 
-                    // Set up the context for the conversion
                     struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
                                                                 pFrame->height,
                                                                 pFrame->format,
@@ -140,7 +182,6 @@ namespace eval ::video {
                         exit(1);
                     }
 
-                    // Perform the conversion
                     int sts = sws_scale(sws_ctx,
                                         (const uint8_t * const*)pFrame->data,
                                         pFrame->linesize,
@@ -153,50 +194,37 @@ namespace eval ::video {
                     } else {
                         fprintf(stderr, "Successfully converted frame\n");
 
-                        // Print out the first few pixel values to prove it's correct
-                        for (int y = 0; y < 2; y++) {
-                            for (int x = 0; x < 2; x++) {
-                                int offset = y * pRGBFrame->linesize[0] + x * 3;
-                                fprintf(stderr, "Pixel (%d,%d): R=%d, G=%d, B=%d\n", x, y, pRGBFrame->data[0][offset], pRGBFrame->data[0][offset + 1], pRGBFrame->data[0][offset + 2]);
-                            }
-                        }
+                        // image_t frame_image = generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
+                        return generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
                     }
 
-                    // Free the scaling context and the RGB buffer
                     sws_freeContext(sws_ctx);
                     av_free(buffer);
                     av_frame_free(&pRGBFrame);
 
-                    fprintf(stderr, "sts: %d\n", sts);
-                } else {
-                    continue;
-                }
-                fprintf(stderr, "======== After the continue  ... %d\n", pFrame->height);
-
-                // frame_number -> frame_num, also format string is jd
-                fprintf(stderr, "Frame %d (type=%c, format=%d) pts %ld\n",
-                        pCodecContext->frame_number,
-                        av_get_picture_type_char(pFrame->pict_type),
-                        pFrame->format,
-                        pFrame->pts
-                        );
-                // TODO: Readd AV_FRAME_FLAG_KEY in new version of libavcodec
-
-                if (pFrame->format == AV_PIX_FMT_YUV420P) {
-                    // TODO: use libswscale to convert to RGB, make an image_t
+                    break;  // Exit after processing the first frame
                 }
             }
             av_packet_unref(pPacket);
+            if (pCodecContext->frame_number > 1) break;  // Exit after processing the first frame
         }
+
+        av_frame_free(&pFrame);
+        av_packet_free(&pPacket);
+        avcodec_free_context(&pCodecContext);
+        avformat_close_input(&pFormatContext);
+        avformat_free_context(pFormatContext);
+        return generateWhiteImage();
     }
+
     $cc compile
     init
 }
 
-video::video /home/folk/bunny_1s_mute.mp4
-
-
-# Usage: Wish $this displays video "whatever.mp4"
+# e.g. Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
 When /someone/ wishes /thing/ displays video /videoSrc/ {
-    Wish $thing draws a circle with filled true radius 100 color magenta
+    set firstFrame [video::video $videoSrc]
+    # Make this a result of a when eventually, hard coded rn 
+    Wish to draw an image with center {500 500} image $firstFrame radians 0
+    Wish $thing is titled "should be displaying the first frame of $videoSrc"
 }
