@@ -18,7 +18,7 @@ When the display /display/ has width /displayWidth/ height /displayHeight/ &\
     puts "Evaluating calibration for $camera ($cameraWidth x $cameraHeight)"
     # camera (tag) point -> projection point
     # calibration for Hex
-    if {[catch {source "$::env(HOME)/generated-calibration.tcl"}]} {
+    if {[catch {source "$::env(HOME)/folk-live/generated-calibration.tcl"}]} {
         set points {
             {622 404 1706 1051}
             {624 650 1661 51}
