@@ -601,6 +601,9 @@ void workerRun(WorkQueueItem item) {
     }
 }
 
+void workerPreInit(int index) {
+    threads[index].workQueue = workQueueNew();
+}
 void workerInit(int index) {
     srand(time(NULL) + index);
 
@@ -612,8 +615,6 @@ void workerInit(int index) {
     self->tid = gettid();
 #endif
     pthread_mutex_init(&self->currentItemMutex, NULL);
-
-    self->workQueue = workQueueNew();
 
     interpBoot();
 }
@@ -695,6 +696,12 @@ int main(int argc, char** argv) {
 
     int NTHREADS = 8;
     threadCount = NTHREADS;
+
+    // Initialize all workqueues first, so threads can steal validly
+    // right away.
+    for (int i = 0; i < NTHREADS; i++) {
+        workerPreInit(i);
+    }
 
     // Spawn NTHREADS-1 workers. 
     pthread_t th[NTHREADS];
