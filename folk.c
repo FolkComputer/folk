@@ -487,10 +487,12 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
             // when the time is /t/ /__lambda/ with environment /__env/
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
-            Clause* whenPattern = unwhenizeClause(statementClause(when));
-            statementRelease(db, when);
+            if (when) {
+                Clause* whenPattern = unwhenizeClause(statementClause(when));
+                statementRelease(db, when);
 
-            pushRunWhenBlock(whenRef, whenPattern, ref);
+                pushRunWhenBlock(whenRef, whenPattern, ref);
+            }
         }
         free(existingReactingWhens);
     }
@@ -513,12 +515,14 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
             // when the time is /t/ /__lambda/ with environment /__env/
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
-            Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
-            Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
-            statementRelease(db, when);
+            if (when) {
+                Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
+                Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
+                statementRelease(db, when);
 
-            pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
-            free(unwhenizedWhenPattern);
+                pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
+                free(unwhenizedWhenPattern);
+            }
         }
         free(existingReactingWhens);
     }
