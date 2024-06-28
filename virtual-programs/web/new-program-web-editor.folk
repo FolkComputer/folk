@@ -108,7 +108,7 @@ Wish the web server handles route "/new" with handler {
 
   function handleDrag() {
     let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
-    ws.send(tcl`
+    ws.commit('region', tcl`
       set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
       set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
       proc handleConfigure {program x y w h} {
@@ -119,21 +119,15 @@ Wish the web server handles route "/new" with handler {
         set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
         set basicRegion [region create $vertices $edges]
         set rotatedRegion [region rotate $basicRegion ${regionAngle * (3.1415 / 180)}]
-        Commit region {
-          Claim $program has region $rotatedRegion
-        }
+        Claim $program has region $rotatedRegion
       }
       handleConfigure ${program} $left $top ${w} ${h}
-      if {$::isLaptop} { Step }
   `);
   }
   function handleSave() {
     const code = document.getElementById("code").value;
-    ws.send(tcl`
-      Commit code {
-        Claim ${program} has program code ${code}
-      }
-      if {$::isLaptop} { Step }
+    ws.commit('code', tcl`
+      Claim ${program} has program code ${code}
     `);
   }
   function handlePrint() {

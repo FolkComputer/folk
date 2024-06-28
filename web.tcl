@@ -219,8 +219,7 @@ proc handleWS {chan type msg} {
         Retract websocket $chan is connected
         Retract when websocket $chan is connected /...rest/
     } elseif {$type eq "text"} {
-        set now [clock milliseconds]
-        Assert when websocket $chan is connected [list {this timestamp} $msg] with environment [list $chan $now]
+        eval $msg
     } elseif {$type eq "ping" || $type eq "pong" || $type eq "disconnect"} {
         # puts "Event $type from chan $chan"
     } else {
