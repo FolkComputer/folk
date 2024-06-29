@@ -5,3 +5,4 @@
 
 systemctl enable iwd
 systemctl enable folk
+sed -i "s/.*PubkeyAuthentication.*/PubkeyAuthentication yes/g" /etc/ssh/sshd_config
