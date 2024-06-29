@@ -40,6 +40,14 @@ $gpuc struct Image {
 
     uint8_t* data;
 }
+
+# TODO: Support more than 16 concurrent images. This
+# constraint is imposed by Vulkan by default (device
+# maxPerStageDescriptorSamplers limit is 16). I think we can
+# increase it by querying GPU settings somehow.
+set GPU_MAX_IMAGES 16
+$gpuc proc getMaxImages {} int { return $GPU_MAX_IMAGES; }
+
 $gpuc include <stdlib.h>
 $gpuc code {
     #define VOLK_IMPLEMENTATION
@@ -123,7 +131,7 @@ $gpuc code {
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
 }
-$gpuc proc init {} void {
+$gpuc proc init {int displayIdx} void {
     $[vktry volkInitialize()]
     $[if {$macos} { expr {"glfwInit();"} }]
 
@@ -257,13 +265,18 @@ $gpuc proc init {} void {
             fprintf(stderr, "Failed to create GLFW window surface\n"); exit(1);
         }
     } : [csubst {
-        // TODO: support multiple displays
+        uint32_t displayCount;
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
+        printf("Gpu: Found %d displays\n", displayCount);
+        if (displayCount == 0) {
+            fprintf(stderr, "Gpu: No displays found\n"); exit(1);
+        }
 
-        uint32_t displayCount = 1; VkDisplayPropertiesKHR displayProps;
-        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, &displayProps);
+        VkDisplayPropertiesKHR displayProps[displayCount];
+        vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
         uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
-        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps.display, &modeCount, &modeProps);
+        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display, &modeCount, &modeProps);
         // modeProps is now the 0th display mode, which is probably
         // the best one (and we default to it for now).
 
@@ -816,254 +829,260 @@ $gpuc proc poll {} void {
     $[expr { $macos ? { glfwPollEvents(); } : {} }]
 }
 
-class Gpu {
-    gpuLib none
-    WIDTH 0
-    HEIGHT 0
-    nextPipelineId 0
-}
-Gpu method unknown {procName args} {
-    "$gpuLib $procName" {*}$args
-}
+set makeGpu {{gpuLib} {
+    class Gpu {
+        gpuLib none
+        WIDTH 0
+        HEIGHT 0
+        nextPipelineId 0
+    }
+    Gpu method unknown {procName args} {
+        "$gpuLib $procName" {*}$args
+    }
 
-# Draw to the screen using pipeline `pipeline`. Each arg in `args`
-# should be a push-constant parameter of the pipeline. Can only be
-# called between `drawStart` and `drawEnd`.
-Gpu method draw {pipeline args} {
-    set args [linsert $args 0 [list $WIDTH $HEIGHT]]
+    # Draw to the screen using pipeline `pipeline`. Each arg in `args`
+    # should be a push-constant parameter of the pipeline. Can only be
+    # called between `drawStart` and `drawEnd`.
+    Gpu method draw {pipeline args} {
+        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
 
-    $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
-}
+        $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
+    }
 
-# Construct a reusable GLSL function that can be linked into and
-# called from a shader/pipeline.
-Gpu method fn {arguments rtype body} {
-    set fnArgs [list]
-    # We inline all dependent functions from the caller scope
-    # immediately here, since we don't know if those dependencies
-    # would be accessible/in scope at all when this function gets
-    # actually compiled into a shader.
-    set depFnDict [dict create]
-    foreach {argtype argname} $arguments {
-        if {$argtype eq "fn"} {
-            # TODO: Support fn being a list {fnName fn}.
-            dict set depFnDict [string map {: ""} $argname] \
-                [uplevel 2 [list set $argname]]
+    # Construct a reusable GLSL function that can be linked into and
+    # called from a shader/pipeline.
+    Gpu method fn {arguments rtype body} {
+        set fnArgs [list]
+        # We inline all dependent functions from the caller scope
+        # immediately here, since we don't know if those dependencies
+        # would be accessible/in scope at all when this function gets
+        # actually compiled into a shader.
+        set depFnDict [dict create]
+        foreach {argtype argname} $arguments {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {fnName fn}.
+                dict set depFnDict [string map {: ""} $argname] \
+                    [uplevel 2 [list set $argname]]
+            } else {
+                lappend fnArgs $argtype $argname
+            }
+        }
+        return [list $fnArgs $depFnDict $rtype $body]
+    }
+
+    # Construct a shader pipeline that can be used to draw to the
+    # screen.
+    Gpu method pipeline {args} {
+        if {[llength $args] == 3} {
+            lassign $args vertArgs vertBody fragBody
+            set fragArgs [list]
+        } elseif {[llength $args] == 4} {
+            lassign $args vertArgs vertBody fragArgs fragBody
         } else {
-            lappend fnArgs $argtype $argname
+            error {Gpu pipeline: should be used as [$gpu pipeline vertArgs vertBody fragBody], or [$gpu pipeline vertArgs vertBody fragArgs fragBody]}
         }
-    }
-    return [list $fnArgs $depFnDict $rtype $body]
-}
+        set vertFnDict [dict create]
+        set fragFnDict [dict create]
+        set pushConstants [list]
+        set vertArgs [linsert $vertArgs 0 vec2 _resolution]
+        foreach {argtype argname} $vertArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                set fn [uplevel 2 [list set $argname]]
+                set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
+                dict set vertFnDict $argname $fn
+                continue
+            }
+            lappend pushConstants $argtype $argname
+        }
+        foreach {argtype argname} $fragArgs {
+            if {$argtype eq "fn"} {
+                # TODO: Support fn being a list {name fn}.
+                set fn [uplevel 2 [list set $argname]]
+                set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
+                dict set fragFnDict $argname $fn
+                continue
+            } else {
+                error "Fragment arguments not supported"
+            }
+        }
 
-# Construct a shader pipeline that can be used to draw to the
-# screen.
-Gpu method pipeline {args} {
-    if {[llength $args] == 3} {
-        lassign $args vertArgs vertBody fragBody
-        set fragArgs [list]
-    } elseif {[llength $args] == 4} {
-        lassign $args vertArgs vertBody fragArgs fragBody
-    } else {
-        error {Gpu pipeline: should be used as [$gpu pipeline vertArgs vertBody fragBody], or [$gpu pipeline vertArgs vertBody fragArgs fragBody]}
-    }
-    set vertFnDict [dict create]
-    set fragFnDict [dict create]
-    set pushConstants [list]
-    set vertArgs [linsert $vertArgs 0 vec2 _resolution]
-    foreach {argtype argname} $vertArgs {
-        if {$argtype eq "fn"} {
-            # TODO: Support fn being a list {name fn}.
-            set fn [uplevel 2 [list set $argname]]
-            set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
-            dict set vertFnDict $argname $fn
-            continue
-        }
-        lappend pushConstants $argtype $argname
-    }
-    foreach {argtype argname} $fragArgs {
-        if {$argtype eq "fn"} {
-            # TODO: Support fn being a list {name fn}.
-            set fn [uplevel 2 [list set $argname]]
-            set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
-            dict set fragFnDict $argname $fn
-            continue
-        } else {
-            error "Fragment arguments not supported"
-        }
-    }
+        # Create a C subcompiler to create a fast routine to encode
+        # the push constants on each draw call.
+        set cc [C]
+        $cc typedef int sampler2D
+        $cc struct vec2 { float x; float y; }
+        $cc struct vec3 { float x; float y; float z; }
+        $cc struct vec4 { float x; float y; float z; float w; }
 
-    # Create a C subcompiler to create a fast routine to encode
-    # the push constants on each draw call.
-    set cc [C]
-    $cc typedef int sampler2D
-    $cc struct vec2 { float x; float y; }
-    $cc struct vec3 { float x; float y; float z; }
-    $cc struct vec4 { float x; float y; float z; float w; }
-
-    $cc argtype vec2 {
-        vec2 $argname;
-        {
-            int $[set argname]_objc = Jim_ListLength(interp, $obj);
-            __ENSURE($[set argname]_objc == 2);
-            double x; double y;
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
-            $argname = (vec2) { (float)x, (float)y };
+        $cc argtype vec2 {
+            vec2 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 2);
+                double x; double y;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                $argname = (vec2) { (float)x, (float)y };
+            }
         }
-    }
-    $cc argtype vec3 {
-        vec3 $argname;
-        {
-            int $[set argname]_objc = Jim_ListLength(interp, $obj);
-            __ENSURE($[set argname]_objc == 3);
-            double x; double y; double z;
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
-            $argname = (vec3) { (float)x, (float)y, (float)z };
+        $cc argtype vec3 {
+            vec3 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 3);
+                double x; double y; double z;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+                $argname = (vec3) { (float)x, (float)y, (float)z };
+            }
         }
-    }
-    $cc argtype vec4 {
-        vec4 $argname;
-        {
-            int $[set argname]_objc = Jim_ListLength(interp, $obj);
-            __ENSURE($[set argname]_objc == 4);
-            double x; double y; double z; double w;
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
-            __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
-            $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+        $cc argtype vec4 {
+            vec4 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 4);
+                double x; double y; double z; double w;
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 0), &x));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 1), &y));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 2), &z));
+                __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, $obj, 3), &w));
+                $argname = (vec4) { (float)x, (float)y, (float)z, (float)w };
+            }
         }
-    }
-    $cc code [csubst {
-        typedef struct Args {
-            $[join [lmap {argtype argname} $pushConstants {
-                expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
-            }] "\n"]
-        } Args;
-    }]
-    $cc include <stddef.h>
-    $cc proc getArgsSize {} int { return sizeof(Args); }
-    set pipelineId $nextPipelineId
-    $cc proc pipelineEncodeArgs$pipelineId $pushConstants Jim_Obj* {
-        Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
-        return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
-    }
-    $cc proc exportPipelineEncodeArgsToGlobal {} void {
-        Jim_CreateCommand(interp, "pipelineEncodeArgs$pipelineId",
-                          pipelineEncodeArgs${pipelineId}_Cmd, NULL, NULL);
-    }
-    set lib [$cc compile]
-    incr nextPipelineId
-
-    set pushConstantsSize [$lib getArgsSize]
-    $lib exportPipelineEncodeArgsToGlobal
-
-    set pushConstantsCode [if {[llength $pushConstants] > 0} {
-        subst {
-            layout(push_constant) uniform Args {
-                [join [lmap {argtype argname} $pushConstants {
-                    if {$argname eq "_"} continue
-                    if {$argtype eq "sampler2D"} {
-                        expr {"int $argname;"}
-                    } else {
-                        expr {"$argtype $argname;"}
-                    }
+        $cc code [csubst {
+            typedef struct Args {
+                $[join [lmap {argtype argname} $pushConstants {
+                    expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
                 }] "\n"]
-            } args;
+            } Args;
+        }]
+        $cc include <stddef.h>
+        $cc proc getArgsSize {} int { return sizeof(Args); }
+        set pipelineId $nextPipelineId
+        $cc proc pipelineEncodeArgs$pipelineId $pushConstants Jim_Obj* {
+            Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
+            return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
         }
-    }]
+        $cc proc exportPipelineEncodeArgsToGlobal {} void {
+            Jim_CreateCommand(interp, "pipelineEncodeArgs$pipelineId",
+                              pipelineEncodeArgs${pipelineId}_Cmd, NULL, NULL);
+        }
+        set lib [$cc compile]
+        incr nextPipelineId
 
-    set vertShaderModule [$self createShaderModule [glslc -fshader-stage=vert [csubst {
-        #version 450
+        set pushConstantsSize [$lib getArgsSize]
+        $lib exportPipelineEncodeArgsToGlobal
 
-        $pushConstantsCode
-
-        $[join [lmap {fnName fn} $vertFnDict {
-            lassign $fn fnArgs _ fnRtype fnBody
+        set pushConstantsCode [if {[llength $pushConstants] > 0} {
             subst {
-                $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
-                    $fnBody
+                layout(push_constant) uniform Args {
+                    [join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            expr {"int $argname;"}
+                        } else {
+                            expr {"$argtype $argname;"}
+                        }
+                    }] "\n"]
+                } args;
+            }
+        }]
+
+        set vertShaderModule [$self createShaderModule [glslc -fshader-stage=vert [csubst {
+            #version 450
+
+            $pushConstantsCode
+
+            $[join [lmap {fnName fn} $vertFnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
+                    }
                 }
-            }
-        }] "\n"]
+            }] "\n"]
 
-        vec2 vert() {
-            $[join [lmap {argtype argname} $pushConstants {
-                if {$argname eq "_"} continue
-                if {$argtype eq "sampler2D"} continue
-                expr {"$argtype $argname = args.$argname;"}
-            }] " "]
-            $vertBody
-        }
-
-        void main() {
-            vec2 v = (2.0*vert() - args._resolution)/args._resolution;
-            gl_Position = vec4(v, 0.0, 1.0);
-        }
-    }]]]
-    # We pass the descriptor set with all images (samplers) to all
-    # fragment shaders, so we never need to rebind it (at draw
-    # time, the shader may get an index into the array if it's
-    # meant to draw an image).
-    #
-    # Note that we use combined image + sampler, instead of 1
-    # global sampler and multiple textures/images, because that's
-    # the only way to allow each image to have its own dimensions
-    # (dimensions are a property bound to the sampler).
-    set fragShaderModule [$self createShaderModule [glslc -fshader-stage=frag [csubst {
-        #version 450
-
-        layout(set = 0, binding = 0) uniform sampler2D _samplers[$::GPU_MAX_IMAGES];
-
-        $pushConstantsCode
-
-        layout(location = 0) out vec4 outColor;
-
-        $[join [lmap {fnName fn} $fragFnDict {
-            lassign $fn fnArgs _ fnRtype fnBody
-            subst {
-                $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
-                    $fnBody
-                }
-            }
-        }] "\n"]
-
-        $[join [lmap {argtype argname} $pushConstants {
-            if {$argtype eq "sampler2D"} {
-                expr {"#define $argname _samplers\[args.$argname\]"}
-            }
-        }] "\n"]
-
-        vec4 frag() {
-            $[join [lmap {argtype argname} $pushConstants {
-                if {$argname eq "_"} continue
-                if {$argtype ne "sampler2D"} {
+            vec2 vert() {
+                $[join [lmap {argtype argname} $pushConstants {
+                    if {$argname eq "_"} continue
+                    if {$argtype eq "sampler2D"} continue
                     expr {"$argtype $argname = args.$argname;"}
-                }
-            }] " "]
-            $fragBody
-        }
-        void main() { outColor = frag(); }
-    }]]]
+                }] " "]
+                $vertBody
+            }
 
-    # pipeline needs to contain a specification of push constants,
-    # so they can be filled in at draw time.
-    set pipeline [$self createPipeline $pipelineId \
-                      $vertShaderModule $fragShaderModule \
-                      $pushConstantsSize]
-    return $pipeline
-}
+            void main() {
+                vec2 v = (2.0*vert() - args._resolution)/args._resolution;
+                gl_Position = vec4(v, 0.0, 1.0);
+            }
+        }]]]
+        # We pass the descriptor set with all images (samplers) to all
+        # fragment shaders, so we never need to rebind it (at draw
+        # time, the shader may get an index into the array if it's
+        # meant to draw an image).
+        #
+        # Note that we use combined image + sampler, instead of 1
+        # global sampler and multiple textures/images, because that's
+        # the only way to allow each image to have its own dimensions
+        # (dimensions are a property bound to the sampler).
+        set fragShaderModule [$self createShaderModule [glslc -fshader-stage=frag [csubst {
+            #version 450
+
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxImages]];
+
+            $pushConstantsCode
+
+            layout(location = 0) out vec4 outColor;
+
+            $[join [lmap {fnName fn} $fragFnDict {
+                lassign $fn fnArgs _ fnRtype fnBody
+                subst {
+                    $fnRtype $fnName ([join [lmap {fnArgtype fnArgname} $fnArgs {subst {$fnArgtype $fnArgname}}] ", "]) {
+                        $fnBody
+                    }
+                }
+            }] "\n"]
+
+            $[join [lmap {argtype argname} $pushConstants {
+                if {$argtype eq "sampler2D"} {
+                    expr {"#define $argname _samplers\[args.$argname\]"}
+                }
+            }] "\n"]
+
+            vec4 frag() {
+                $[join [lmap {argtype argname} $pushConstants {
+                    if {$argname eq "_"} continue
+                    if {$argtype ne "sampler2D"} {
+                        expr {"$argtype $argname = args.$argname;"}
+                    }
+                }] " "]
+                $fragBody
+            }
+            void main() { outColor = frag(); }
+        }]]]
+
+        # pipeline needs to contain a specification of push constants,
+        # so they can be filled in at draw time.
+        set pipeline [$self createPipeline $pipelineId \
+                          $vertShaderModule $fragShaderModule \
+                          $pushConstantsSize]
+        return $pipeline
+    }
+
+    proc glslc {args} {
+        set cmdargs [lreplace $args end end]
+        set glsl [lindex $args end]
+        set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
+        set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
+        split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
+    }
+
+    return [Gpu new [list gpuLib $gpuLib]]
+}}
 
 # Image management:
-
-# TODO: Support more than 16 concurrent images. This
-# constraint is imposed by Vulkan by default (device
-# maxPerStageDescriptorSamplers limit is 16). I think we can
-# increase it by querying GPU settings somehow.
-set ::GPU_MAX_IMAGES 16
 
 # The technique used to manage images here is to have a
 # single giant descriptor set for a giant GPU-side array of
@@ -1102,7 +1121,7 @@ $gpuc proc imageManagerInit {} void {
         memset(bindings, 0, sizeof(bindings));
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[0].descriptorCount = $::GPU_MAX_IMAGES;
+        bindings[0].descriptorCount = getMaxImages();
         bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo createInfo = {0};
@@ -1345,10 +1364,10 @@ $gpuc code [csubst {
         VkImageView textureImageView;
         VkSampler textureSampler; 
     } gpu_image_block;
-    gpu_image_block gpuImages[$::GPU_MAX_IMAGES];
+    gpu_image_block gpuImages[$GPU_MAX_IMAGES];
 
     gpu_image_handle_t allocateGpuImageHandle() {
-        for (int i = 0; i < $::GPU_MAX_IMAGES; i++) {
+        for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
             if (!gpuImages[i].alive) { return i; }
         }
         fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
@@ -1475,8 +1494,9 @@ $gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
             // _something_. We just fill all slots wtih the
             // first image for now. See
             // http://roar11.com/2019/06/vulkan-textures-unbound/
-            VkWriteDescriptorSet descriptorWrites[$::GPU_MAX_IMAGES] = {0};
-            for (int i = 0; i < $::GPU_MAX_IMAGES; i++) {
+            VkWriteDescriptorSet descriptorWrites[getMaxImages()];
+            for (int i = 0; i < getMaxImages(); i++) {
+                memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
                 descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                 descriptorWrites[i].dstSet = imageDescriptorSet;
                 descriptorWrites[i].dstBinding = 0;
@@ -1485,7 +1505,7 @@ $gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
                 descriptorWrites[i].descriptorCount = 1;
                 descriptorWrites[i].pImageInfo = &imageInfo;
             }
-            vkUpdateDescriptorSets(device, $::GPU_MAX_IMAGES, descriptorWrites, 0, NULL);
+            vkUpdateDescriptorSets(device, getMaxImages(), descriptorWrites, 0, NULL);
             didInitializeDescriptors = true;
         } else {
             VkWriteDescriptorSet descriptorWrite = {0};
@@ -1533,112 +1553,106 @@ $gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 }
+set gpuLib [$gpuc compile]
 
 # if {!$macos} {
 #     # Needed on Raspberry Pi 4:
 #     c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
 # }
 
-proc glslc {args} {
-    set cmdargs [lreplace $args end end]
-    set glsl [lindex $args end]
-    set glslfile [file tempfile /tmp/glslfileXXXXXX].glsl
-    set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
-    split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
-}
+When /someone/ wishes $::thisNode uses display /displayIdx/ {
+    set gpu [apply $makeGpu $gpuLib]
+    $gpu init $displayIdx
+    $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
+    $gpu imageManagerInit
 
-set gpuLib [$gpuc compile]
-set gpu [Gpu new [list gpuLib $gpuLib]]
-$gpu init
-$gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
-$gpu imageManagerInit
+    Claim the display $displayIdx has width [$gpu get WIDTH] height [$gpu get HEIGHT]
 
-Assert! gpu.folk claims the display Display has width [$gpu get WIDTH] height [$gpu get HEIGHT]
+    # Dictionary where key is pipeline name and value is [list
+    # $pipelineSource $compiledPipeline].
+    set pipelines [dict create]
+    # Dictionary where key is function name and value is function source
+    # object.
+    set functions [dict create]
+    # Dictionary where key is image object and value is GPU image handle.
+    set gpuImages [dict create]
 
-# Dictionary where key is pipeline name and value is [list
-# $pipelineSource $compiledPipeline].
-set pipelines [dict create]
-# Dictionary where key is function name and value is function source
-# object.
-set functions [dict create]
-# Dictionary where key is image object and value is GPU image handle.
-set gpuImages [dict create]
-
-while 1 {
-    set displayList [dict create]
-    foreach match [Query! /wisher/ wishes the GPU loads image /im/] {
-        dict with match {
-            if {![dict exists $gpuImages $im]} {
-                set gim [$gpu copyImageToGpu $im]
-                dict set gpuImages $im $gim
-                Assert! gpu.folk claims the GPU has loaded image $im as $gim
+    while 1 {
+        set displayList [dict create]
+        foreach match [Query! /wisher/ wishes the GPU loads image /im/] {
+            dict with match {
+                if {![dict exists $gpuImages $im]} {
+                    set gim [$gpu copyImageToGpu $im]
+                    dict set gpuImages $im $gim
+                    Assert! gpu.folk claims the GPU has loaded image $im as $gim
+                }
             }
         }
-    }
-    foreach match [Query! /wisher/ wishes the GPU compiles function /name/ /source/] {
-        dict with match {
-            if {![dict exists $functions $name]} {
-                try {
-                    dict with functions {
-                        set fn [$gpu fn {*}$source]
+        foreach match [Query! /wisher/ wishes the GPU compiles function /name/ /source/] {
+            dict with match {
+                if {![dict exists $functions $name]} {
+                    try {
+                        dict with functions {
+                            set fn [$gpu fn {*}$source]
+                        }
+                        dict set functions $name $fn
+                    } on error e {
+                        puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+                        Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
                     }
-                    dict set functions $name $fn
+                }
+            }
+        }
+        foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
+            dict with match {
+                try {
+                    if {[dict exists $pipelines $name] &&
+                        [lindex [dict get $pipelines $name] 0] eq $source} {
+                        # Already compiled this one.
+                        continue
+                    }
+                    dict with functions {
+                        dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
+                    }
                 } on error e {
-                    puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+                    puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
                     Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
                 }
             }
         }
-    }
-    foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
-        dict with match {
+        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
-                if {[dict exists $pipelines $name] &&
-                    [lindex [dict get $pipelines $name] 0] eq $source} {
-                    # Already compiled this one.
-                    continue
+                set name [dict get $match name]
+                set pipeline [lindex [dict get $pipelines [dict get $match name]] 1]
+
+                set options [dict get $match options]
+                set layer [dict getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
                 }
-                dict with functions {
-                    dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
+                foreach instance $instances {
+                    dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
                 }
             } on error e {
-                puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
-                Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
+                puts stderr [errorInfo $e]
+                Assert! gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
+                # TODO: does this ever get disposed?
             }
         }
-    }
-    foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
-        try {
-            set name [dict get $match name]
-            set pipeline [lindex [dict get $pipelines [dict get $match name]] 1]
 
-            set options [dict get $match options]
-            set layer [dict getdef $options layer 0]
-            if {[dict exists $options instances]} {
-                set instances [dict get $options instances]
-            } else {
-                set instances [list [dict get $options arguments]]
+        $gpu drawStart
+        foreach layer [lsort -real [dict keys $displayList]] {
+            set layerDisplayList [dict get $displayList $layer]
+            foreach displayCommand $layerDisplayList {
+                try { {*}$displayCommand } \
+                    on error e { puts stderr [errorInfo $e] }
             }
-            foreach instance $instances {
-                dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
-            }
-        } on error e {
-            puts stderr [errorInfo $e]
-            Assert! gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
-            # TODO: does this ever get disposed?
         }
-    }
+        $gpu drawEnd
+        $gpu poll
 
-    $gpu drawStart
-    foreach layer [lsort -real [dict keys $displayList]] {
-        set layerDisplayList [dict get $displayList $layer]
-        foreach displayCommand $layerDisplayList {
-            try { {*}$displayCommand } \
-                on error e { puts stderr [errorInfo $e] }
-        }
+        # TODO: sleep for 5ms or something?
     }
-    $gpu drawEnd
-    $gpu poll
-
-    # TODO: sleep for 5ms or something?
 }
