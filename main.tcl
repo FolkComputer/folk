@@ -186,19 +186,32 @@ proc After {n unit body} {
 set ::committed [dict create]
 set ::toCommit [dict create]
 proc Commit {args} {
-    upvar this this
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set key [list]
     set body [lindex $args end]
-    if {[lindex $args 0] eq "(on"} {
-        set userSpecifiedThis [string range [lindex $args 1] 0 end-1]
-        set args [lreplace $args 0 1]
-        set key [list Commit $userSpecifiedThis {*}[lreplace $args end end]]
-    } else {
-        set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set isNonCapturing false
+    for {set i 0} {$i < [llength $args] - 1} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "(on"} {
+            incr i
+            set this [string range [lindex $args $i] 0 end-1]
+        } elseif {$arg eq "(non-capturing)"} {
+            set isNonCapturing true
+        } else {
+            lappend key $arg
+        }
     }
+    set key [list Commit $this {*}$key]
+
     if {$body eq ""} {
         dict set ::toCommit $key $body
     } else {
-        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        if {$isNonCapturing} {
+            set argNames {}
+            set argValues {}
+        } else {
+            lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        }
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
         dict set ::toCommit $key $lambda
     }
