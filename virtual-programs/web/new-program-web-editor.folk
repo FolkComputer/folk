@@ -100,13 +100,11 @@ Wish the web server handles route "/new" with handler {
 
   let regionAngle = 0;
   const ws = new FolkWS(document.getElementById('status'));
-  ws.evaluate(`
-    Assert when websocket $chan is connected {{this} {
-      On unmatch {
-        Commit (on $this) region {}
-        Commit (on $this) code {}
-      }
-    }} with environment [list $chan]
+  ws.send(`
+    On unmatch {
+      Commit (on $this) region {}
+      Commit (on $this) code {}
+    }
   `);
 
   ws.watchCollected(tcl`${program} has error /something/ with info /errorInfo/`, errors => {
