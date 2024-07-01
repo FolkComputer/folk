@@ -1029,28 +1029,32 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
     setCameraToProjectorExtrinsics calibration $calibrationPoses
     return $calibration
 }
-try {
-    set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
-    set calibrationPoses [read $fd]; close $fd
 
-    if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
-        set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
-        set calibration [read $fd]; close $fd
-        puts "READING CALIB"
-        Commit calibration {
-            Claim the calibration poses are $calibrationPoses
-            Claim the calibration is $calibration
+# We use `apply` to seal this code's local variables in so they don't
+# get captured by any of the Whens below.
+apply {{} {
+    try {
+        set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
+        set calibrationPoses [read $fd]; close $fd
+
+        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
+            set calibration [read $fd]; close $fd
+            puts "READING CALIB"
+            Commit calibration {
+                Claim the calibration poses are $calibrationPoses
+                Claim the calibration is $calibration
+            }
+        } else {
+            puts "NO CALIBRATION, JUST CALIB POSES"
+            Commit calibration {
+                Claim the calibration poses are $calibrationPoses
+            }
         }
-    } else {
-        puts "NO CALIBRATION, JUST CALIB POSES"
-        Commit calibration {
-            Claim the calibration poses are $calibrationPoses
-        }
+    } on error e {
+        puts stderr "Failed to load calibration poses: $e"
     }
-
-} on error e {
-    puts stderr "Failed to load calibration poses: $e"
-}
+}}
 
 When the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
@@ -1074,7 +1078,7 @@ When the calibration poses are /calibrationPoses/ &\
 }
 
 When the calibration is /calibration/ {
-    puts "\n\n====NEW CALIBRATION=====\n\n"
+    puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
     set camera [dict get $calibration camera name]
     set display [dict get $calibration projector name]
     Claim camera $camera has intrinsics \
