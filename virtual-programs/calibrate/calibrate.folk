@@ -1110,6 +1110,16 @@ When the calibration poses are /calibrationPoses/ &\
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
             add [matmul $R $v] $t
         }]
+        # For verification purposes: downproject to the camera pixel
+        # plane.
+        # for {set i 0} {$i < 4} {incr i} {
+        #     lassign [lindex $p $i] cx cy
+        #     puts [format "Cam corner $i (real)  : (%.3f %.3f)" $cx $cy]
+
+        #     set v [lindex $cameraVertices $i]
+        #     lassign [intrinsics project $cameraIntrinsics $v] cx cy
+        #     puts [format "Cam corner $i (reproj): (%.3f %.3f)" $cx $cy]
+        # }
 
         # Move the pose to projector-space.
         set projectorVertices [lmap v $cameraVertices {
@@ -1123,11 +1133,11 @@ When the calibration poses are /calibrationPoses/ &\
         for {set i 0} {$i < 4} {incr i} {
             set modelCorner [lindex [dict get $modelTag p] $i]
             lassign [applyHomography [dict get $pose H_modelToDisplay] $modelCorner] px py
-            puts [format "Corner $i (real)  : (%.3f %.3f)" $px $py]
+            puts [format "Proj corner $i (real)  : (%.3f %.3f)" $px $py]
 
             set v [lindex $projectorVertices $i]
             lassign [intrinsics project $projectorIntrinsics $v] rpx rpy
-            puts [format "Corner $i (reproj): (%.3f %.3f)" $rpx $rpy]
+            puts [format "Proj corner $i (reproj): (%.3f %.3f)" $rpx $rpy]
         }
         
     }
