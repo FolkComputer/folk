@@ -193,6 +193,9 @@ namespace eval ::video {
                         fprintf(stderr, "Error while converting frame\n");
                     } else {
                         fprintf(stderr, "Successfully converted frame\n");
+                        /*
+                        TODO: Figure out where to page video memory to get successive frames
+                        */
 
                         // image_t frame_image = generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
                         return generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
@@ -222,9 +225,10 @@ namespace eval ::video {
 }
 
 # e.g. Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
-When /someone/ wishes /thing/ displays video /videoSrc/ {
+When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
+    set center [region centroid $r]
     set firstFrame [video::video $videoSrc]
     # Make this a result of a when eventually, hard coded rn 
-    Wish to draw an image with center {500 500} image $firstFrame radians 0
+    Wish to draw an image with center $center image $firstFrame radians 0
     Wish $thing is titled "should be displaying the first frame of $videoSrc"
 }
