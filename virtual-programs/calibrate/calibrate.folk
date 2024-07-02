@@ -446,7 +446,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagSize`.
     set ::seenPoses [list]
-    set SEEN_POSES_MAX 10
+    set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
@@ -713,10 +713,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have moved a lot since last frame, we're not
         # stable enough and shouldn't record this as a calibration
         # pose.
-        if {[meanPoseDifference $pose [lindex $::seenPoses end-1]] > 5 ||
-            [meanPoseDifference $pose [lindex $::seenPoses end-2]] > 5} {
-            return
+        foreach seenPose [lrange $::seenPoses 0 end-1] {
+            if {[meanPoseDifference $pose $seenPose] > 5} {
+                return
+            }
         }
+
         # Decreasing this threshold to 1 helps with data
         # accuracy. TODO: Use an _older_ frame?
         puts "WOULD APPEND CALIBRATION ([- [clock microseconds] $startTime] us)..."
