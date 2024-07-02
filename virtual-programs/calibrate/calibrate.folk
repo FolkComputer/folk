@@ -714,13 +714,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # stable enough and shouldn't record this as a calibration
         # pose.
         foreach seenPose [lrange $::seenPoses 0 end-1] {
+            # Decreasing this threshold to 1 helps with data
+            # accuracy. TODO: Use an _older_ frame?
             if {[meanPoseDifference $pose $seenPose] > 5} {
                 return
             }
         }
 
-        # Decreasing this threshold to 1 helps with data
-        # accuracy. TODO: Use an _older_ frame?
         puts "WOULD APPEND CALIBRATION ([- [clock microseconds] $startTime] us)..."
 
         # If the corners have _not_ moved a lot since last _saved_
@@ -1072,6 +1072,65 @@ When the calibration poses are /calibrationPoses/ &\
     puts "======== Refined calibration ========="
     puts $calibration
     puts ""
+
+    puts "======== Reproject pose 0 ========="
+    set pose [lindex $calibrationPoses 0]
+    set tagSize [expr {17.5 / 1000.0}] ;# FIXME: hard-coded
+    set cameraIntrinsics [dict get $calibration camera intrinsics]
+    set cameraWidth [dict get $calibration camera intrinsics width]
+    set cameraHeight [dict get $calibration camera intrinsics height]
+    set projectorIntrinsics [dict get $calibration projector intrinsics]
+    dict for {id det} [dict get $pose tags] {
+        # Look through all the projected tags that we detected on
+        # camera in this pose.
+        if {![isProjectedTag $id]} { continue }
+
+        puts "Tag $id:"
+
+        set p [dict get $det p] ;# Camera detected corners.
+
+        # Pose-estimate this tag.
+        set tagPose [baseEstimateTagPose $cameraIntrinsics \
+                         $cameraWidth $cameraHeight \
+                         $tagSize \
+                         $p]
+        set tagPose [servoingEstimateTagPose $cameraIntrinsics \
+                         $cameraWidth $cameraHeight \
+                         $tagSize \
+                         $tagPose $p]
+
+        set r [expr {$tagSize / 2}]
+        set tagVertices \
+            [list [list [- $r]    $r  0] \
+                 [list     $r     $r  0] \
+                 [list     $r  [- $r] 0] \
+                 [list  [- $r] [- $r] 0]]
+        # Move the pose to camera-space.
+        set cameraVertices [lmap v $tagVertices {
+            set R [dict get $tagPose R]; set t [dict get $tagPose t]
+            add [matmul $R $v] $t
+        }]
+
+        # Move the pose to projector-space.
+        set projectorVertices [lmap v $cameraVertices {
+            set R [dict get $calibration R_cameraToProjector]
+            set t [dict get $calibration t_cameraToProjector]
+            add [matmul $R $v] $t
+        }]
+
+        # Downproject to the projector pixel plane.
+        set modelTag [dict get $pose model $id]
+        for {set i 0} {$i < 4} {incr i} {
+            set modelCorner [lindex [dict get $modelTag p] $i]
+            lassign [applyHomography [dict get $pose H_modelToDisplay] $modelCorner] px py
+            puts [format "Corner $i (real)  : (%.3f %.3f)" $px $py]
+
+            set v [lindex $projectorVertices $i]
+            lassign [intrinsics project $projectorIntrinsics $v] rpx rpy
+            puts [format "Corner $i (reproj): (%.3f %.3f)" $rpx $rpy]
+        }
+        
+    }
 
     Commit calibration { Claim the calibration is $calibration }
 
