@@ -207,7 +207,7 @@ $cc code {
     double dist(double a[2], double b[2]) {
         double dx = a[0] - b[0];
         double dy = a[1] - b[1];
-        return sqrt(dx*dx + dy*dy);
+        return dx*dx + dy*dy;
     }
 }
 $cc proc monoFunc {int m int n double* x
@@ -266,6 +266,7 @@ $cc proc monoComputeError {double[] params int paramsCount} void {
         totalError += fvec[i];
     }
     printf("Total Error: %f\n", totalError);
+    printf("RMSE: %f\n", sqrt(totalError / MonoPointsCount));
 }
 $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
@@ -471,6 +472,7 @@ $cc proc stereoComputeError {double[] params int paramsCount} void {
         totalError += fvec[i];
     }
     printf("Total Error: %f\n", totalError);
+    printf("RMSE: %f\n", sqrt(totalError / StereoPointsCount));
 }
 $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     mp_result result = {0};
@@ -530,6 +532,7 @@ set refineCalibration {{calibrationPoses calibration} {
               modelPoints $modelPoints \
               points $points
       }]
+    puts ".\nMono camera calibration\n-------"
     set cameraCalibration [refineMonoCalibration $cameraCalibration]
 
     dict set calibration camera intrinsics \
@@ -565,6 +568,7 @@ set refineCalibration {{calibrationPoses calibration} {
               modelPoints $modelPoints \
               points $points
       }]
+    puts ".\nMono projector calibration\n-------"
     set projectorCalibration [refineMonoCalibration $projectorCalibration]
 
     dict set calibration projector intrinsics \
@@ -646,7 +650,7 @@ set refineCalibration {{calibrationPoses calibration} {
         }
     }
 
-    puts "\nStereo refine ($poseCount poses):"
+    puts ".\nStereo refine ($poseCount poses):"
     set refined [stereoRefineCalibrationOptimize $params [llength $params]]
     dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
     dict set calibration t_cameraToProjector [lrange $refined 3 5]
