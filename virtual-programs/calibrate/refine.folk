@@ -74,35 +74,38 @@ $cc code [csubst {
     #define MAX_POSES 10
 
     typedef struct Intrinsics {
+        double width;
+        double height;
+
         double fx;
         double cx;
         double fy;
         double cy;
+        double s;
+
         double k1;
         double k2;
-
-        // Makes it easy to project. Same information as fx,
-        // cx, fy, cy.
-        double mat[3][3];
     } Intrinsics;
     // Load intrinsics from the parameter list.
-    int loadIntrinsics(Intrinsics* intr, double* x) {
+    int loadIntrinsics(Intrinsics* intr,
+                       double width, double height, double* x) {
+        // width and height are never parameters to be optimized.
+        intr->width = width;
+        intr->height = height;
+
         int k = 0;
         intr->fx = x[k++];
         intr->cx = x[k++];
         intr->fy = x[k++];
         intr->cy = x[k++];
-        double intrMatTmp[3][3] = {
-            {intr->fx,         0,  intr->cx},
-            {       0,  intr->fy,  intr->cy},
-            {       0,         0,         1}
-        };
-        memcpy(intr->mat, intrMatTmp, sizeof(intr->mat));
-
+        intr->s = 0.0;
         intr->k1 = x[k++];
         intr->k2 = x[k++];
         return k;
     }
+
+    double MonoWidth;
+    double MonoHeight;
 
     int MonoPoseCount;
     int MonoPointsCount;
@@ -173,8 +176,13 @@ $cc code {
             out[y] = A[y][0]*x[0] + A[y][1]*x[1] + A[y][2]*x[2];
         }
     }
-    void project(double A[3][3], double x[3], double out[2]) {
-        double outAug[3]; mulMat3Vec3(A, x, outAug);
+    void project(Intrinsics intr, double x[3], double out[2]) {
+        double intrMat[3][3] = {
+            {intr.fx,   intr.s,  intr.cx},
+            {      0,  intr.fy,  intr.cy},
+            {      0,        0,        1}
+        };
+        double outAug[3]; mulMat3Vec3(intrMat, x, outAug);
         out[0] = outAug[0]/outAug[2]; out[1] = outAug[1]/outAug[2];
     }
 
@@ -210,6 +218,9 @@ $cc code {
         return dx*dx + dy*dy;
     }
 }
+$cc proc monoSetDimensions {double width double height} void {
+    MonoWidth = width; MonoHeight = height;
+}
 $cc proc monoFunc {int m int n double* x
                    double* fvec double** dvec
                    void* _} int {
@@ -218,7 +229,7 @@ $cc proc monoFunc {int m int n double* x
 
     // Intrinsics:
     Intrinsics intr;
-    k += loadIntrinsics(&intr, &x[k]);
+    k += loadIntrinsics(&intr, MonoWidth, MonoHeight, &x[k]);
 
     // Extrinsics:
     double r_pose[MonoPoseCount][3];
@@ -247,7 +258,7 @@ $cc proc monoFunc {int m int n double* x
             // Use intrinsics to project down to ideal 2D
             // position.
             double idealPlanePoint[3];
-            project(intr.mat, idealPoint, idealPlanePoint);
+            project(intr, idealPoint, idealPlanePoint);
             double planePoint[2];
             distort(intr, idealPlanePoint, planePoint);
 
@@ -313,6 +324,8 @@ proc refineMonoCalibration {calibration} {
 
         lappend posePointsCount [llength $points]
     }
+    monoSetDimensions [dict get $calibration intrinsics width] \
+        [dict get $calibration intrinsics height]
     monoSetPoints [llength [dict get $calibration poses]] \
         $posePointsCount $poseModelPoints $posePoints
 
@@ -389,10 +402,14 @@ $cc proc stereoSetPoints {int poseCount
     }
 }
 $cc proc stereoSetIntrinsics {double[] cameraIntrinsics
-                              double[] projectorIntrinsics} void {
+                              double cameraWidth double cameraHeight
+                              double[] projectorIntrinsics
+                              double projectorWidth double projectorHeight} void {
     loadIntrinsics(&StereoCameraIntrinsics,
+                   cameraWidth, cameraHeight,
                    cameraIntrinsics);
     loadIntrinsics(&StereoProjectorIntrinsics,
+                   projectorWidth, projectorHeight,
                    projectorIntrinsics);
 }
 $cc proc stereoFunc {int m int n double* x
@@ -413,61 +430,78 @@ $cc proc stereoFunc {int m int n double* x
     double R_cp[3][3];
     rotationVectorToRotationMatrix(r_cp, R_cp);
 
-    // Per-pose model->camera extrinsics:
-    double rc_pose[StereoPoseCount][3];
-    double tc_pose[StereoPoseCount][3];
-    for (int i = 0; i < StereoPoseCount; i++) {
-        rc_pose[i][0] = x[k++]; rc_pose[i][1] = x[k++]; rc_pose[i][2] = x[k++];
-        tc_pose[i][0] = x[k++]; tc_pose[i][1] = x[k++]; tc_pose[i][2] = x[k++];
-    }
-
     int f = 0;
     for (int poseIdx = 0; poseIdx < StereoPoseCount; poseIdx++) {
-        // Per-pose model->camera extrinsics:
-        double tc[3]; memcpy(tc, tc_pose[poseIdx], sizeof(double[3]));
-        double Rc[3][3]; rotationVectorToRotationMatrix(rc_pose[poseIdx], Rc);
+        // For each tag in the pose:
+        double tagSize = 0.0175;
+        for (int pointIdx = 0; pointIdx < StereoPosePointsCount[poseIdx]; pointIdx += 4) {
+            // Convert camera pixel-space corner points to a 3D pose.
+            double (*pp)[MAX_POINTS_PER_POSE][2] = &StereoPoseCameraPoints[poseIdx];
+            double p0[4][2] = {
+                {(*pp)[pointIdx  ][0], (*pp)[pointIdx  ][1]},
+                {(*pp)[pointIdx+1][0], (*pp)[pointIdx+1][1]},
+                {(*pp)[pointIdx+2][0], (*pp)[pointIdx+2][1]},
+                {(*pp)[pointIdx+3][0], (*pp)[pointIdx+3][1]},
+            };
+            TagPose tagPose = baseEstimateTagPose(camIntr, camIntr.width, camIntr.height,
+                                                  tagSize, p0);
+            tagPose = servoingEstimateTagPose(camIntr, camIntr.width, camIntr.height,
+                                              tagSize, tagPose, p0);
 
-        // For each point in the pose:
-        for (int pointIdx = 0; pointIdx < StereoPosePointsCount[poseIdx]; pointIdx++) {
-            // Get the 3D position of the model point in ideal
-            // camera-space using model & extrinsics.
-            double* modelPoint = (double*) &StereoPoseModelPoints[poseIdx][pointIdx];
-            double idealCameraPoint[3];
-            transformVec3(Rc, tc, modelPoint, idealCameraPoint);
+            double r = tagSize / 2.0;
+            double tagCorners[4][3] = {
+                {-r,  r, 0},
+                { r,  r, 0},
+                { r, -r, 0},
+                {-r, -r, 0}
+            };
+            // For each corner of the tag:
+            for (int i = 0; i < 4; i++) {
+                // Convert tag-space corner point to 3D camera-space
+                // corner point.
+                double cameraCorner[3];
+                transformVec3(tagPose.R, (double*) tagPose.t,
+                              tagCorners[i],
+                              cameraCorner);
 
-            // Project the point down from ideal camera-space to
-            // camera pixel space. Compare with known position.
-            double idealCameraPixelPoint[2];
-            project(camIntr.mat, idealCameraPoint, idealCameraPixelPoint);
-            double cameraPixelPoint[2];
-            distort(camIntr, idealCameraPixelPoint, cameraPixelPoint);
+                double creproj[2];
+                project(camIntr, cameraCorner, creproj);
+                distort(camIntr, creproj, creproj);
+                /* printf("cam corner %d orig   : (%.3f %.3f)\n", i, (*pp)[pointIdx+i][0], (*pp)[pointIdx+i][1]); */
+                /* printf("cam corner %d reproj : (%.3f %.3f)\n", i, creproj[0], creproj[1]); */
+                fvec[f++] = dist(creproj, (*pp)[pointIdx+i]);
 
-            fvec[f++] = dist(cameraPixelPoint,
-                             StereoPoseCameraPoints[poseIdx][pointIdx]);
+                // Convert 3D camera-space corner point to 3D
+                // projector-space corner point.
+                double projectorCorner[3];
+                transformVec3(R_cp, t_cp, cameraCorner,
+                              projectorCorner);
 
-            // Transform the point from ideal camera-space to
-            // ideal projector-space using the extrinsics.
-            double idealProjectorPoint[3];
-            transformVec3(R_cp, t_cp, idealCameraPoint, idealProjectorPoint);
+                // Downproject to 2D projector pixel-space.
+                double reproj[2];
+                project(projIntr, projectorCorner, reproj);
+                distort(projIntr, reproj, reproj);
 
-            // Project the point down from ideal projector-space
-            // to projector pixel space. Compare with known position.
-            double idealProjectorPixelPoint[2];
-            project(projIntr.mat, idealProjectorPoint, idealProjectorPixelPoint);
-            double projectorPixelPoint[2];
-            distort(projIntr, idealProjectorPixelPoint, projectorPixelPoint);
+                double orig[2] = {
+                    StereoPoseProjectorPoints[poseIdx][pointIdx + i][0],
+                    StereoPoseProjectorPoints[poseIdx][pointIdx + i][1]
+                };
 
-            fvec[f++] = dist(projectorPixelPoint,
-                             StereoPoseProjectorPoints[poseIdx][pointIdx]);
+                // Return the difference as error.
+                /* printf("proj corner %d orig  : (%.3f %.3f)\n", i, orig[0], orig[1]); */
+                /* printf("proj corner %d reproj: (%.3f %.3f)\n", i, reproj[0], reproj[1]); */
+                fvec[f++] = dist(reproj, orig);
+            }
+            /* printf(".\n"); */
         }
     }
     return 0;
 }
 $cc proc stereoComputeError {double[] params int paramsCount} void {
-    double fvec[StereoPointsCount * 2];
-    stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
+    double fvec[StereoPointsCount*2];
+    stereoFunc(StereoPointsCount*2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
-    for (int i = 0; i < StereoPointsCount; i++) {
+    for (int i = 0; i < StereoPointsCount*2; i++) {
         /* printf("  Error %d: %f\n", i, fvec[i]); */
         totalError += fvec[i];
     }
@@ -477,13 +511,13 @@ $cc proc stereoComputeError {double[] params int paramsCount} void {
 $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     mp_result result = {0};
 
-    assert(paramsCount == 6 + StereoPoseCount*6);
+    assert(paramsCount == 6);
     printf("Unrefined -----------------\n");
     stereoComputeError(params, paramsCount);
 
     mpfit(stereoFunc,
           // Number of example point pairs:
-          StereoPointsCount * 2,
+          StereoPointsCount*2,
           // Number of parameters to optimize:
           paramsCount,
           params, NULL,
@@ -497,9 +531,6 @@ $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_O
     }
     return Tcl_NewListObj(paramsCount, paramObjs);
 }
-
-$cc compile ;# takes about a half-second
-
 
 set refineCalibration {{calibrationPoses calibration} {
     upvar ^isPrintedTag ^isPrintedTag
@@ -625,7 +656,6 @@ set refineCalibration {{calibrationPoses calibration} {
         lappend poseModelPoints {*}$modelPoints
         lappend poseCameraPoints {*}$cameraPoints
         lappend poseProjectorPoints {*}$projectorPoints
-        lappend poseExtrinsics [lindex [dict get $calibration camera extrinsics] $i]
     }
     stereoSetPoints $poseCount $posePointsCount \
         [concat {*}$poseModelPoints] \
@@ -633,22 +663,22 @@ set refineCalibration {{calibrationPoses calibration} {
         [concat {*}$poseProjectorPoints]
 
     set intrNames {fx cx fy cy k1 k2}
-    stereoSetIntrinsics [lmap intrName $intrNames {
-        dict get $calibration camera intrinsics $intrName
-    }] [lmap intrName $intrNames {
-        dict get $calibration projector intrinsics $intrName
-    }]
+    stereoSetIntrinsics \
+        [lmap intrName $intrNames {
+            dict get $calibration camera intrinsics $intrName
+        }] \
+        [dict get $calibration camera intrinsics width] \
+        [dict get $calibration camera intrinsics height] \
+        [lmap intrName $intrNames {
+            dict get $calibration projector intrinsics $intrName
+        }] \
+        [dict get $calibration projector intrinsics width] \
+        [dict get $calibration projector intrinsics height]
 
     # Load the initial guesses for all parameters for fitting.
     set params [list {*}[rotationMatrixToRotationVector \
                              [dict get $calibration R_cameraToProjector]] \
                     {*}[dict get $calibration t_cameraToProjector]]
-    foreach extrinsic $poseExtrinsics {
-        dict with extrinsic {
-            lappend params {*}[rotationMatrixToRotationVector $R]
-            lappend params {*}$t
-        }
-    }
 
     puts ".\nStereo refine ($poseCount poses):"
     set refined [stereoRefineCalibrationOptimize $params [llength $params]]
@@ -660,5 +690,17 @@ set refineCalibration {{calibrationPoses calibration} {
 
     return $calibration
 }}
-Claim the calibration refiner is $refineCalibration
 
+When the tags-to-quads C library is /quadcc/ {
+    # HACK
+    set ::quadcc $quadcc
+    $cc struct TagPose {
+        double R[3][3];
+        double t[3][1];
+    }
+    $cc import ::quadcc baseEstimateTagPose as baseEstimateTagPose
+    $cc import ::quadcc servoingEstimateTagPose as servoingEstimateTagPose
+    $cc compile ;# takes about a half-second
+
+    Claim the calibration refiner is $refineCalibration
+}

@@ -432,6 +432,7 @@ namespace eval ::quad {
 }
 
 $cc compile
+Claim the tags-to-quads C library is $cc
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
