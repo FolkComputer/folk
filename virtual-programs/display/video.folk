@@ -199,8 +199,6 @@ namespace eval ::video {
                         /*
                         TODO: Figure out where to page video memory to get successive frames
                         */
-
-                        // image_t frame_image = generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
                         return generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
                     }
 
@@ -231,6 +229,7 @@ namespace eval ::video {
 # Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
 When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
     set center [region centroid $r]
+    # TODO: Okay, this is running every frame, need to cache it so we don't crash the system
     set firstFrame [video::video $videoSrc]
     # Make this a result of a when eventually, hard coded rn 
     Wish to draw an image with center $center image $firstFrame radians 0
