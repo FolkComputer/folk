@@ -2,7 +2,10 @@ puts "=== hello video ==="
 namespace eval ::video {
     set cc [c create]
     ::defineImageType $cc
-    $cc cflags -lavcodec -lavformat -Wno-deprecated
+    # $cc cflags -lavcodec -lavformat -Wno-deprecated
+    # Ignoring deprecated declarations because of version differences across systems
+    # in libavcodec and libavformat as of June 20, 2024.
+    $cc cflags -lavcodec -lavformat -Wno-deprecated-declarations
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavutil.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavutil] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavcodec.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavcodec] end]}]
     c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavformat] end]}]
@@ -224,7 +227,8 @@ namespace eval ::video {
     init
 }
 
-# e.g. Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
+# e.g.
+# Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
 When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
     set center [region centroid $r]
     set firstFrame [video::video $videoSrc]
