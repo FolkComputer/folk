@@ -1,14 +1,24 @@
 Wish the web server handles route {/page/(.*)$} with handler {
-    if {[regexp -all {/page/(\d*)$} $path whole_match program_id]} {
-        set filename "../folk-printed-programs/$program_id.folk" 
-        set fp [open $filename r]
-        set file_data [read $fp]
-        close $fp
-    } elseif {[regexp -all {/page/(.*)$} $path whole_match program_id]} {
-        set filename "virtual-programs/$program_id.folk" 
-        set fp [open $filename r]
-        set file_data [read $fp]
-        close $fp
+    regexp {/page/(.*)$} $path -> program_id
+    set filenames [list \
+        "$::env(HOME)/folk-printed-programs/$program_id.folk" \
+        "$::env(HOME)/folk-live/$program_id.folk" \
+        "user-programs/[info hostname]/$program_id.folk" \
+        "virtual-programs/$program_id.folk" \
+    ]
+
+    foreach filename $filenames {
+        if [file exists $filename] {
+            set fp [open $filename r]
+            set file_data [read $fp]
+            close $fp
+            break
+        }
+    }
+
+    if {![info exists file_data]} {
+        set filename [lindex $filenames end]
+        set file_data "# (new file $filename)"
     }
 
     html [string map [list file_data [htmlEscape $file_data] program_id $program_id file_name $filename] {
@@ -23,7 +33,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
         <pre id="error"></pre>
         <script src="/lib/folk.js"></script>
         <script>
-          const isVirtualProgram = 'file_name'.includes('virtual-programs');
+          const isVirtualProgram = !'file_name'.includes('folk-printed-programs');
 
           if (isVirtualProgram) {
             document.getElementById("print").disabled = true;
