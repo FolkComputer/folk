@@ -53,7 +53,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           }, false);
 
           const ws = new FolkWS(document.getElementById('status'));
-          ws.watchCollected(tcl`${program} has error /something/ with info /errorInfo/`, errors => {
+          ws.watchCollected(tcl`program_id has error /something/ with info /errorInfo/`, errors => {
             errorEle.style.backgroundColor = errors.length ? "#f55" : "";
             errorEle.innerText = errors.map(e => e.errorInfo).join('\n');
           });
@@ -76,7 +76,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           function handlePrint() {
             const code = document.getElementById("code").value;
             jobid = String(Math.random());
-            ws.send(tcl`Wish to print program program_id with code ${code} with job-id ${jobid}`);
+            ws.send(tcl`Wish to print program program_id with code ${code} job-id ${jobid}`);
           }
         </script>
         </body>
