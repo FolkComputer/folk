@@ -1,4 +1,5 @@
 puts "=== hello video ==="
+
 namespace eval ::video {
     set cc [c create]
     ::defineImageType $cc
@@ -225,13 +226,30 @@ namespace eval ::video {
     init
 }
 
+On process "display" {
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/]
+
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/]
+
+    Wish $::thisProcess shares statements like \
+        [list /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/]
+    When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
+        set center [region centroid $r]
+        set firstFrame [video::video $videoSrc]
+        # Make this a result of a when eventually, hard coded rn 
+        Wish to draw an image with center $center image $firstFrame radians 0
+        Wish $thing is titled "should be displaying the first frame of $videoSrc"
+    }
+}
+
 # e.g.
 # Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
-When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
-    set center [region centroid $r]
-    # TODO: Okay, this is running every frame, need to cache it so we don't crash the system
-    set firstFrame [video::video $videoSrc]
-    # Make this a result of a when eventually, hard coded rn 
-    Wish to draw an image with center $center image $firstFrame radians 0
-    Wish $thing is titled "should be displaying the first frame of $videoSrc"
-}
+# When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
+#     set center [region centroid $r]
+#     set firstFrame [video::video $videoSrc]
+#     # Make this a result of a when eventually, hard coded rn 
+#     Wish to draw an image with center $center image $firstFrame radians 0
+#     Wish $thing is titled "should be displaying the first frame of $videoSrc"
+# }
