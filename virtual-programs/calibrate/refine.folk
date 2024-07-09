@@ -78,8 +78,8 @@ $cc code [csubst {
         double height;
 
         double fx;
-        double cx;
         double fy;
+        double cx;
         double cy;
         double s;
 
