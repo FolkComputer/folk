@@ -157,11 +157,7 @@ namespace eval keymap {
         }
 
         proc load {name} {
-            # TODO: This errors when `sudo` is removed.
-            #       I tried adding `folk` to the `tty`
-            #       group and running this on folk0.
-            #       Still getting some KDSKBMODE error.
-            exec loadkeys $name
+            exec kbd_mode -u $name
             set keytable [exec dumpkeys -kf]
             set unitable [exec dumpkeys -kfn]
 
