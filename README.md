@@ -57,10 +57,6 @@ if flashing from a Mac])
         sudo useradd -m folk; sudo passwd folk;
         for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
-   (If you get errors from usermod like `group 'gpio' does not exist`,
-   try running again omitting the groups that don't exist from the
-   command.)
-
 1. `sudo apt update`
 
 1. Set up OpenSSH server if needed; connect to network. To ssh into
