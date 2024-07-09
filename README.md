@@ -55,7 +55,7 @@ if flashing from a Mac])
    If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
-        sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,tty,render,netdev,lpadmin,gpio,i2c,spi folk
+        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
    (If you get errors from usermod like `group 'gpio' does not exist`,
    try running again omitting the groups that don't exist from the
