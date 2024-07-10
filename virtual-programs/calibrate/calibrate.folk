@@ -1039,7 +1039,7 @@ apply {{this} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
         set calibrationPoses [read $fd]; close $fd
 
-        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
             puts "READING CALIB"
