@@ -2,6 +2,13 @@
 # for wishes of the form:
 # "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
 
+When /anyone/ wishes /source/ is connected to /sink/ {
+    Wish $source is connected to $sink from centroid to centroid
+}
+When /anyone/ wishes /source/ is dynamically connected to /sink/ {
+    Wish $source is dynamically connected to $sink from centroid to centroid
+}
+
 When /anyone/ wishes /source/ is connected to /sink/ /...options/ & \
   /source/ has region /source_region/ & \
   /sink/ has region /sink_region/ {
