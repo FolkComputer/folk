@@ -61,11 +61,7 @@ if flashing from a Mac])
    If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
-        sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
-
-   (If you get errors from usermod like `group 'gpio' does not exist`,
-   try running again omitting the groups that don't exist from the
-   command.)
+        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
 1. `sudo apt update`
 
@@ -79,7 +75,7 @@ if flashing from a Mac])
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
    git libjpeg-dev libpng-dev fbset libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers console-data`
+   libgbm-dev glslc vulkan-validationlayers console-data kbd`
 
    (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 

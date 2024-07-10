@@ -25,7 +25,7 @@ proc walkInputEventPaths {} {
             if {[file readable $device] == 0} {
                 puts "Device $device is not readable. Attempting to change permissions."
                 # Attempt to change permissions so that the file can be read
-                exec sudo chmod +r $device
+                exec chmod +r $device
             }
             lappend keyboards $device
         }
