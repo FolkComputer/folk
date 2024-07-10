@@ -8,15 +8,21 @@ announced it or made it ready for public use. We make no guarantee of
 support, of usability, or of continuing backward compatibility. Try at
 your own risk!**
 
-We're working on a more complete open-source release for 2024, which
-would open up our internal GitHub repository, document the
-installation process, and provide canonical examples/demos to show
-what's possible. If you don't know what this is, then you might want
-to wait for that release.
+We're working on a more formal announcement, which will talk
+more about the goals of the project & provide canonical examples/demos
+to show what's possible. If you don't know what this is, then you
+might want to wait for that release.
 
 -----
 
 # [Folk](https://folk.computer)
+
+[Folk](https://folk.computer) is a physical computing system: reactive
+database, programming environment, projection mapping system. Instead
+of a phone/laptop/touchscreen/mouse/keyboard, your computational
+objects are physical objects in the real world, and you can program
+them inside the system itself. Folk is [written in a mix of C and
+Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
 ## Hardware
 
