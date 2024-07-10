@@ -329,5 +329,5 @@ When /someone/ wishes to print /code/ with job id /id/ {
     Say $::thisNode wishes to print $code with job-id $id
 }
 When /someone/ wishes to print program /id/ with /code/ with job id /id/ {
-    Say $::thisNode wishes to print program $id with $code job-id $id
+    Say $::thisNode wishes to print program $id with code $code job-id $id
 }
