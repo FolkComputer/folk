@@ -23,6 +23,7 @@ When /someone/ wishes to draw a stroke with /...options/ {
     set points [dict get $options points]
     set width [dict get $options width]
     set color [getColor [dict get $options color]]
+    set layer [dict_getdef $options layer 0]
 
     set instances [list]
     for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
@@ -30,5 +31,5 @@ When /someone/ wishes to draw a stroke with /...options/ {
         set to [lindex $points [expr $i+1]]
         lappend instances [list $from $to $width $color]
     }
-    Wish the GPU draws pipeline "line" with instances $instances
+    Wish the GPU draws pipeline "line" with instances $instances layer $layer
 }
