@@ -2,43 +2,39 @@
 # for wishes of the form:
 # "Wish $tag is connected to $tag2" or "Wish $tag is dynamically connected to $tag2"
 
-When /anyone/ wishes /source/ is connected to /sink/ {
-  Wish $source is connected to $sink from centroid to centroid
-}
-
-When /anyone/ wishes /source/ is dynamically connected to /sink/ {
-  Wish $source is dynamically connected to $sink from centroid to centroid
-}
-
-When /anyone/ wishes /source/ is connected to /sink/ from /p1/ to /p2/ & \
+When /anyone/ wishes /source/ is connected to /sink/ /...options/ & \
   /source/ has region /source_region/ & \
   /sink/ has region /sink_region/ {
-
    if {$source == $sink} {return}
 
+   set p1 [dict_getdef $options from centroid]
+   set p2 [dict_getdef $options to centroid]
    set source [region $p1 $source_region]
    set sink [region $p2 $sink_region]
 
    set direction [vec2 sub $sink $source]
+   set color [dict_getdef $options color grey]
+   set layer [dict_getdef $options layer 0]
 
    set c [vec2 scale [vec2 add $source $sink] 0.5]
    set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}]
 
-   set color grey
-   Wish to draw a stroke with points [list $source $sink] width 2 color $color
-   Wish to draw a shape with sides 3 center $c radius 30 radians $angle color $color filled true
+   Wish to draw a stroke with points [list $source $sink] width 2 color $color layer $layer
+   Wish to draw a shape with sides 3 center $c radius 30 radians $angle color $color filled true layer $layer
 }
 
 set speed 75
 set spacing 50
 set maxsize 25
 
-When /anyone/ wishes /source/ is dynamically connected to /sink/ from /p1/ to /p2/ & \
+When /anyone/ wishes /source/ is dynamically connected to /sink/ /...options/ & \
   /source/ has region /source_region/ & \
   /sink/ has region /sink_region/ {
 
    if {$source == $sink} {return}
 
+   set p1 [dict_getdef $options from centroid]
+   set p2 [dict_getdef $options to centroid]
    set source [region $p1 $source_region]
    set sink [region $p2 $sink_region]
 
@@ -46,10 +42,12 @@ When /anyone/ wishes /source/ is dynamically connected to /sink/ from /p1/ to /p
    set distance [vec2 distance $sink $source]
    set angle [expr {atan2(-[lindex $direction 1], [lindex $direction 0]) - 3.14159/2}] 
 
+   set color [dict_getdef $options color white]
+   set layer [dict_getdef $options layer 0]
+
    lassign [vec2 scale [vec2 add $source $sink] 0.5] cx cy
 
-   Wish to draw a stroke with points [list $source $sink] width 1 color white
-   
+   Wish to draw a stroke with points [list $source $sink] width 1 color $color layer $layer
    
    When the clock time is /t/ {
      set offset [expr {round($t*$speed) % $spacing}]
@@ -58,7 +56,7 @@ When /anyone/ wishes /source/ is dynamically connected to /sink/ from /p1/ to /p
      for {set p $offset} {$p < $distance} {incr p $spacing} {
         set c [vec2 add $source [vec2 scale $direction $p]]
         set s [expr {min($maxsize, 0.20*min($p, $distance - $p))}]
-        Wish to draw a shape with sides 3 center $c radius $s radians $angle color white filled true
+        Wish to draw a shape with sides 3 center $c radius $s radians $angle color $color filled true layer $layer
       }
     }
 }
