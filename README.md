@@ -1,9 +1,8 @@
 **Note: Folk is in a *pre-alpha* state and isn't yet well-documented
 or well-exampled.**
 
-**We're making Folk's source code free and available to the public in
-a [read-only form](https://git.folk.computer/folk/about/), in case
-you're already excited about trying it, but we haven't formally
+**We're making Folk's source code free and available to the public, in
+case you're already excited about trying it, but we haven't formally
 announced it or made it ready for public use. We make no guarantee of
 support, of usability, or of continuing backward compatibility. Try at
 your own risk!**
@@ -18,7 +17,7 @@ might want to wait for that release.
 # [Folk](https://folk.computer)
 
 [Folk](https://folk.computer) is a physical computing system: reactive
-database, programming environment, projection mapping system. Instead
+database, programming environment, projection mapping. Instead
 of a phone/laptop/touchscreen/mouse/keyboard, your computational
 objects are physical objects in the real world, and you can program
 them inside the system itself. Folk is [written in a mix of C and
