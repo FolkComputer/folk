@@ -147,12 +147,14 @@ scripts from your laptop manage the Folk service by running
 Then, _on your laptop_, clone this repository:
 
 ```
-$ git clone https://git.folk.computer/folk
+$ git clone https://github.com/FolkComputer/folk.git
 ```
 
 And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
 will rsync folk to the tabletop and run it there as well as running it
 on your laptop.
+
+(or clone it onto the machine and run `sudo systemctl start folk` there)
 
 ### How to control tabletop Folk from your laptop
 
