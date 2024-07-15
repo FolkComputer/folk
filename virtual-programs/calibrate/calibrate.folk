@@ -1080,24 +1080,22 @@ apply {{this} {
                 [makeIntrinsics [dict get $cinfo {Projector  0}]]
 
             set R [dict get $cinfo {Projector  0} R data]
-            set R_projectorToCamera \
+            set R_cameraToProjector \
                 [list [lrange $R 0 2] \
                      [lrange $R 3 5] \
                      [lrange $R 6 8]]
             dict set calibration R_cameraToProjector \
-                [solvePGauss $R_projectorToCamera [mkIdentity 3]]
+                $R_cameraToProjector
 
-            set t_projectorToCamera \
+            set t_cameraToProjector \
                 [dict get $cinfo {Projector  0} T data]
 
             set tagMeterSize 0.016
             set tagPixelSize 200
             dict set calibration t_cameraToProjector \
                 [scale [expr {1.0 / $tagPixelSize * $tagMeterSize}] \
-                     $t_projectorToCamera]
+                     $t_cameraToProjector]
 
-            # dict set calibration R_cameraToProjector {{-0.9955066318207673 -0.075033000575951 0.05776326536338347} {0.08127640446691833 -0.9900747951473867 0.11465620825227982} {0.048586953781866365 0.11883580621357184 0.9917244370709889}}
-            # dict set calibration t_cameraToProjector {-0.2286068989227939 -0.5291457039949631 0.638675992272574}
             puts "Yaml calib ($calibration)"
             Commit calibration {
                 Claim the calibration poses are $calibrationPoses
