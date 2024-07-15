@@ -1039,7 +1039,72 @@ apply {{this} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
         set calibrationPoses [read $fd]; close $fd
 
-        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
+        if {[file exists "$::env(HOME)/folk-live/calibration.yaml"]} {
+            # Calibration to import from ProCamCalib.
+            puts "READING YAML CALIB"
+            package require yaml
+            
+            set fd [open "$::env(HOME)/folk-live/calibration.yaml" r]
+            set calibrationYaml [read $fd]; close $fd
+            set calibrationYaml [string map {!!opencv-matrix ""} $calibrationYaml]
+
+            set cinfo [::yaml::yaml2dict $calibrationYaml]
+
+            package require math::linearalgebra
+            namespace import ::math::linearalgebra::*
+
+            set calibration [dict create]
+            proc makeIntrinsics {struct} {
+                dict with struct {
+                    set intr [dict get $cameraMatrix data]
+                    set distortion [dict get $distortionCoeffs data]
+                    dict create \
+                        width $imageWidth  \
+                        height $imageHeight \
+                        fx [lindex $intr 0] \
+                        fy [lindex $intr 4] \
+                        cx [lindex $intr 2] \
+                        cy [lindex $intr 5] \
+                        s 0.0 \
+                        k1 [lindex $distortion 0] \
+                        k2 [lindex $distortion 1]
+                }
+            }
+
+            dict set calibration camera name /dev/video0
+            dict set calibration camera intrinsics \
+                [makeIntrinsics [dict get $cinfo {Camera  0}]]
+
+            dict set calibration projector name 0
+            dict set calibration projector intrinsics \
+                [makeIntrinsics [dict get $cinfo {Projector  0}]]
+
+            set R [dict get $cinfo {Projector  0} R data]
+            set R_projectorToCamera \
+                [list [lrange $R 0 2] \
+                     [lrange $R 3 5] \
+                     [lrange $R 6 8]]
+            dict set calibration R_cameraToProjector \
+                [solvePGauss $R_projectorToCamera [mkIdentity 3]]
+
+            set t_projectorToCamera \
+                [dict get $cinfo {Projector  0} T data]
+
+            set tagMeterSize 0.016
+            set tagPixelSize 200
+            dict set calibration t_cameraToProjector \
+                [scale [expr {1.0 / $tagPixelSize * $tagMeterSize}] \
+                     $t_projectorToCamera]
+
+            # dict set calibration R_cameraToProjector {{-0.9955066318207673 -0.075033000575951 0.05776326536338347} {0.08127640446691833 -0.9900747951473867 0.11465620825227982} {0.048586953781866365 0.11883580621357184 0.9917244370709889}}
+            # dict set calibration t_cameraToProjector {-0.2286068989227939 -0.5291457039949631 0.638675992272574}
+            puts "Yaml calib ($calibration)"
+            Commit calibration {
+                Claim the calibration poses are $calibrationPoses
+                Claim the calibration is $calibration
+            }
+
+        } elseif {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
             puts "READING CALIB"
