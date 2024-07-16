@@ -325,6 +325,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <style>body { max-width: 600px; }</style>
         </head>
       <body>
+        <span id="status">Status</span>
 
         <ol>
           <li>
@@ -335,33 +336,32 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             </iframe>
             <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
         <p>Try to keep the board from bending or warping.
-        (During calibration, Folk will want to project AprilTags in the
-            central area of the board. Instead of printing, you can
+        (During calibration, Folk will want to project AprilTags in the gaps on the grid of tags on the board. Instead of printing, you can
             try just maximizing the board on your computer/tablet
-            screen, but you'll need to cover the central
-            area with a sticky note or something else that Folk can project
+            screen, but you'll need to cover each gap with sticky note or something else that Folk can project
             tags on.)</p>
           </li>
 
           <li><p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p> Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</li>
 
-          <li><p>Once you start calibration, you'll need to <strong>move the board so
-          that the projected AprilTags are in the center of the board</strong>,
-          then <strong>hold the board still for a few seconds until
-          the pose is recorded.</strong></p>
-          <p>You'll need to record 10 different poses; try to slant the
-          board and move it up and around the projector/camera area as much
-            as possible.</p>
-            <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
-            <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
-        </li>
+          <li><p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
 
-        <li><p>(WIP, not currently useful) Finally, we'll correct any measurement offset between the camera and projector.</p>
-        <p><button id="correct-extrinsics-submit">Start Offset Correction</button></p>
-        <p>Leave your calibration board flat in the center of the table and don't move it.</p>
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <strong>so that a projected tag sits inside the gap between printed AprilTags</strong>, wait a second for the projected tags to refit into the grid,
+          then <strong>hold the board still for a few seconds until
+        the pose is recorded.</strong></p>
+
+          <p>Check this camera preview if you think tags aren't being recognized or your camera isn't in a good position:<br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p>
+
+          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so and hold it still again to capture another pose.</p>
+
+          <p>Repeat this process of dragging the board around. You'll need to record 10 different poses; try to slant the
+          board and move it up and around to cover the projector/camera area as much
+            as possible.</p>
+            <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
         </li>
         </ol>
 
+      <script src="/lib/folk.js"></script>
       <script>
         function uuidv4() {
           return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -370,57 +370,28 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         }
         const self = uuidv4();
 
+        const ws = new FolkWS(document.getElementById('status'));
+
         document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
           const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
-          // TODO: use folk.js
-          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-          ws.onopen = () => {
-            ws.send(`
-              set boardPdf [binary decode base64 {\${boardSrc}}]
-              set fd [open /tmp/folk-calibration-board.pdf w]
-              fconfigure \$fd -encoding binary -translation binary
-              puts \$fd \$boardPdf; close \$fd
-              exec lpr /tmp/folk-calibration-board.pdf
-           `);
-          };
+          ws.evaluate(`
+            set boardPdf [binary decode base64 {\${boardSrc}}]
+            set fd [open /tmp/folk-calibration-board.pdf w]
+            fconfigure \$fd -encoding binary -translation binary
+            puts \$fd \$boardPdf; close \$fd
+            exec lpr /tmp/folk-calibration-board.pdf
+          `);
         });
         document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
           const mm = document.getElementById("tag-side-length-mm").value;
 
-          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-          ws.onopen = () => {
-            ws.send(`
-              Retract \${self} claims the printed tag side length is /anything/ mm
-              Assert \${self} claims the printed tag side length is \${mm} mm
-              Assert \${self} wishes to calibrate
-           `);
-          };
-          window.onbeforeunload = () => {
-            ws.send(`
-              Retract \${self} claims the printed tag side length is /anything/ mm
-              Retract \${self} wishes to calibrate
-            `);
-          }
-        });
-
-        document.getElementById('correct-extrinsics-submit').addEventListener('click', (e) => {
-          const mm = document.getElementById("tag-side-length-mm").value;
-
-          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-          ws.onopen = () => {
-            ws.send(`
-              Retract \${self} claims the printed tag side length is /anything/ mm
-              Assert \${self} claims the printed tag side length is \${mm} mm
-              Assert \${self} wishes to correct extrinsics
-            `);
-          };
-          window.onbeforeunload = () => {
-            ws.send(`
-              Retract \${self} claims the printed tag side length is /anything/ mm
-              Retract \${self} wishes to correct extrinsics
-            `);
-          }
+          // TODO: using Assert is a little ugly (it's so it can be
+          // retracted when calibration is done)
+          ws.send(tcl`
+            Claim the printed tag side length is \${mm} mm
+            Assert \${self} wishes to calibrate
+          `);
         });
       </script>
 
