@@ -800,7 +800,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Commit reporting info for the Web page.
         set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $::calibrationPoses {subst {
-            <li>RMSE [dict get $pose rmse]</li>
+            <li>RMSE [dict_getdef $pose rmse (unavailable)]</li>
         }}] \n]
         [string repeat {<li>Not detected yet</li>} [- 10 [llength $::calibrationPoses]]]
         </ol>"
@@ -1197,7 +1197,7 @@ When the calibration poses are /calibrationPoses/ &\
 
     set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $calibrationPoses {subst {
-            <li>RMSE [dict get $pose rmse]</li>
+            <li>RMSE [dict_getdef $pose rmse (unavailable)]</li>
         }}] \n]
         [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
         </ol>
