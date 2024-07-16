@@ -1,34 +1,46 @@
 Wish the web server handles route {/page/(.*)$} with handler {
-    if {[regexp -all {/page/(\d*)$} $path whole_match program_id]} {
-        set filename "../folk-printed-programs/$program_id.folk" 
-        set fp [open $filename r]
-        set file_data [read $fp]
-        close $fp
-    } elseif {[regexp -all {/page/(.*)$} $path whole_match program_id]} {
-        set filename "virtual-programs/$program_id.folk" 
-        set fp [open $filename r]
-        set file_data [read $fp]
-        close $fp
+    regexp {/page/(.*)$} $path -> program_id
+    set filenames [list \
+        "$::env(HOME)/folk-printed-programs/$program_id.folk" \
+        "$::env(HOME)/folk-live/$program_id.folk" \
+        "user-programs/[info hostname]/$program_id.folk" \
+        "virtual-programs/$program_id.folk" \
+    ]
+
+    foreach filename $filenames {
+        if [file exists $filename] {
+            set fp [open $filename r]
+            set file_data [read $fp]
+            close $fp
+            break
+        }
+    }
+
+    if {![info exists file_data]} {
+        set filename [lindex $filenames end]
+        set file_data "# (new file $filename)"
     }
 
     html [string map [list file_data [htmlEscape $file_data] program_id $program_id file_name $filename] {
         <html>
         <body>
         <div>
-            <span id="status">Status</span>
-            <button onclick="handleSave()">Save</button>
-            <button id="print" onclick="handlePrint()">Print</button>
+          <span id="status">Status</span>
+          <button onclick="handleSave()">Save</button>
+          <button id="print" onclick="handlePrint()">Print</button>
         </div>
         <textarea id="code" style="width: 100%;height: 95vh;">file_data</textarea>
         <pre id="error"></pre>
+        <script src="/lib/folk.js"></script>
         <script>
-          const isVirtualProgram = 'file_name'.includes('virtual-programs');
+          const isVirtualProgram = !'file_name'.includes('folk-printed-programs');
 
           if (isVirtualProgram) {
-              document.getElementById("print").disabled = true;
+            document.getElementById("print").disabled = true;
           }
 
           const codeEle = document.getElementById("code");
+          const errorEle = document.getElementById("error");
           function uuidv4() {
             return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
               (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
@@ -50,70 +62,31 @@ Wish the web server handles route {/page/(.*)$} with handler {
             }
           }, false);
 
-          let ws;
-          let send;
-          function wsConnect() {
-            ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
-            send = function(s) { ws.send(s); }
-
-            ws.onopen = () => {
-              document.getElementById('status').innerHTML = "<span style=background-color:seagreen;color:white;>Connnected</span>";
-            };
-            ws.onclose = window.onbeforeunload = () => {
-              document.getElementById('status').innerHTML = "<span style=background-color:red;color:white;>Disconnnected</span>";
-              setTimeout(() => { wsConnect(); }, 1000);
-            };
-            ws.onerror = (err) => {
-              document.getElementById('status').innerText = "Error";
-              console.error('Socket encountered error: ', err.message, 'Closing socket');
-              ws.close();
-            }
-            ws.onmessage = (msg) => {
-              if (msg.data.startsWith("Error:")) {
-                const errorEl = document.getElementById("error");
-                if (msg.data === "Error:") {
-                  errorEl.style.backgroundColor = "";
-                  errorEl.innerText = "";
-                } else {
-                  errorEl.style.backgroundColor = "#f55";
-                  errorEl.innerText = msg.data;
-                }
-              }
-            }
-          };
-          wsConnect();
+          const ws = new FolkWS(document.getElementById('status'));
+          ws.watchCollected(tcl`program_id has error /something/ with info /errorInfo/`, errors => {
+            errorEle.style.backgroundColor = errors.length ? "#f55" : "";
+            errorEle.innerText = errors.map(e => e.errorInfo).join('\n');
+          });
 
           function handleSave() {
             const code = document.getElementById("code").value;
-            send(`
+            ws.send(tcl`
               set fp [open file_name w]
-              puts -nonewline $fp {${code}}
+              puts -nonewline $fp ${code}
               close $fp
               puts "Saved program_id.folk"
             `);
 
-              if (isVirtualProgram) {
-                send(`EditVirtualProgram file_name {${code}}`)
+            if (isVirtualProgram) {
+              ws.send(tcl`EditVirtualProgram file_name ${code}`)
             }
-
-            [500, 1000, 3000].forEach(timeout => {
-              setTimeout(() => {
-                send(`
-set errors [Statements::findMatches [list program_id has error /err/ with info /errorInfo/]]
-::websocket::send $chan text [join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"]
-`);
-              }, 500);
-            });
           }
 
           let jobid;
           function handlePrint() {
             const code = document.getElementById("code").value;
             jobid = String(Math.random());
-            send(`Assert web wishes to print program program_id with code {${code}} with job-id {${jobid}}`);
-            setTimeout(500, () => {
-              send(`Retract web wishes to print program program_id with code {${code}} with job-id {${jobid}}`);
-            });
+            ws.send(tcl`Wish to print program program_id with code ${code} job-id ${jobid}`);
           }
         </script>
         </body>

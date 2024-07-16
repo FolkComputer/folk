@@ -1,3 +1,8 @@
 When keyboard /k/ claims key Meta_Escape is down with timestamp /any/ {
+	# When sudo is removed here you get:
+	# 
+	# Error in virtual-programs/esc-restart.folk, match m10029:6: Failed to restart folk.service: Interactive authentication required.
+	# 
+	# TODO: Figure out how to do this with less powerful permissions than `sudo`.
 	exec sudo systemctl restart folk
 }

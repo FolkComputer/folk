@@ -240,8 +240,21 @@ proc remotePrintRequest {remoteNode clause} {
     }} $clause]
 }
 
-When $::thisNode claims printer /name/ is a cups printer with url /url/ driver /driver/ {
-    puts "lpadmin -E -p $name -v $url -m $driver"
+When $::thisNode claims printer /name/ is a cups printer with /...options/ {
+    set command [list /usr/sbin/lpadmin -p $name -E]
+    if {[dict exists $options url]} {
+        lappend command -v [dict get $options url]
+    }
+
+    if {[dict exists $options driver]} {
+        lappend command -m [dict get $options driver]
+    }
+
+    if {[dict exists $options extra-args]} {
+        lappend command {*}[dict get $options extra-args]
+    }
+
+    exec {*}$command
 }
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
@@ -316,5 +329,5 @@ When /someone/ wishes to print /code/ with job id /id/ {
     Say $::thisNode wishes to print $code with job-id $id
 }
 When /someone/ wishes to print program /id/ with /code/ with job id /id/ {
-    Say $::thisNode wishes to print program $id with $code with job-id $id
+    Say $::thisNode wishes to print program $id with code $code job-id $id
 }

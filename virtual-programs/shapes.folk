@@ -8,6 +8,7 @@ When /someone/ wishes to draw a shape with /...options/ {
   set radians [dict_getdef $options radians 0]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
+  set layer [dict_getdef $options layer 0]
 
   set p [list 0 0]
   set center $p
@@ -32,9 +33,9 @@ When /someone/ wishes to draw a shape with /...options/ {
   }]
 
   if {$filled} {
-    Wish to draw a polygon with points $points color $color
+    Wish to draw a polygon with points $points color $color layer $layer
   } else {
-    Wish to draw a stroke with points $points width 1 color $color
+    Wish to draw a stroke with points $points width 1 color $color layer $layer
   }
 }
 
@@ -55,6 +56,7 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set thickness [dict_getdef $options thickness 5]
+  set layer [dict_getdef $options layer 0]
  
   if {$offsetX != 0} {
     set x [expr {$x + $offsetX}]
@@ -67,13 +69,17 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   set p [list $x $y]
 
   if {$shape eq "circle"} {
-      Wish to draw a circle with center $p radius $radius thickness $thickness color $color filled $filled
+      Wish to draw a circle with \
+          center $p radius $radius thickness $thickness \
+          color $color filled $filled layer $layer
   } elseif {[dict exists $shapes $shape]} {
       Wish to draw a shape with sides [dict get $shapes $shape] \
-          center $p radius $radius radians $angle color $color filled $filled
+          center $p radius $radius radians $angle \
+          color $color filled $filled layer $layer
   } else {
       Wish to draw a shape with sides 2 \
-          center $p radius $radius radians $angle color $color filled $filled
+          center $p radius $radius radians $angle \
+          color $color filled $filled layer $layer
   }
 }
 When /someone/ wishes /p/ draws an /shape/ with /...options/ {

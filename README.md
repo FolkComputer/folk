@@ -1,22 +1,27 @@
 **Note: Folk is in a *pre-alpha* state and isn't yet well-documented
 or well-exampled.**
 
-**We're making Folk's source code free and available to the public in
-a [read-only form](https://git.folk.computer/folk/about/), in case
-you're already excited about trying it, but we haven't formally
+**We're making Folk's source code free and available to the public, in
+case you're already excited about trying it, but we haven't formally
 announced it or made it ready for public use. We make no guarantee of
 support, of usability, or of continuing backward compatibility. Try at
 your own risk!**
 
-We're working on a more complete open-source release for 2024, which
-would open up our internal GitHub repository, document the
-installation process, and provide canonical examples/demos to show
-what's possible. If you don't know what this is, then you might want
-to wait for that release.
+We're working on a more formal announcement, which will talk
+more about the goals of the project & provide canonical examples/demos
+to show what's possible. If you don't know what this is, then you
+might want to wait for that release.
 
 -----
 
 # [Folk](https://folk.computer)
+
+[Folk](https://folk.computer) is a physical computing system: reactive
+database, programming environment, projection mapping. Instead
+of a phone/laptop/touchscreen/mouse/keyboard, your computational
+objects are physical objects in the real world, and you can program
+them inside the system itself. Folk is [written in a mix of C and
+Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
 ## Hardware
 
@@ -55,11 +60,7 @@ if flashing from a Mac])
    If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
-        sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
-
-   (If you get errors from usermod like `group 'gpio' does not exist`,
-   try running again omitting the groups that don't exist from the
-   command.)
+        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
 1. `sudo apt update`
 
@@ -73,7 +74,7 @@ if flashing from a Mac])
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers console-data`
+   libgbm-dev glslc vulkan-validationlayers console-data kbd`
 
    (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 
@@ -146,12 +147,14 @@ scripts from your laptop manage the Folk service by running
 Then, _on your laptop_, clone this repository:
 
 ```
-$ git clone https://git.folk.computer/folk
+$ git clone https://github.com/FolkComputer/folk.git
 ```
 
 And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
 will rsync folk to the tabletop and run it there as well as running it
 on your laptop.
+
+(or clone it onto the machine and run `sudo systemctl start folk` there)
 
 ### How to control tabletop Folk from your laptop
 
