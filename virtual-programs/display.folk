@@ -1684,7 +1684,7 @@ Start-display-process {
         }]
         if {$macos} { Gpu::poll }
 
-        Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
+        Hold { Claim the display time is "render $renderTime us ($::stepTime)" }
     }
 }
 

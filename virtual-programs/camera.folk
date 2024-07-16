@@ -378,7 +378,7 @@ Start process "camera" {
     set ::oldFrames [list]
     When $::thisProcess has step count /c/ {
         set frame [Camera::grayFrame]
-        Commit {
+        Hold {
             Claim the camera time is $::stepTime
             Claim the camera frame is $frame at [clock milliseconds]
         }
