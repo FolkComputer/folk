@@ -183,7 +183,7 @@ proc After {n unit body} {
         }]] {*}$argValues]
     } else { error }
 }
-set ::holdted [dict create]
+set ::held [dict create]
 set ::toHold [dict create]
 proc Hold {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
@@ -236,11 +236,11 @@ proc StepImpl {} {
             if {$lambda ne ""} {
                 Assert $key has program $lambda
             }
-            if {[dict exists $::holdted $key] && [dict get $::holdted $key] ne $lambda} {
-                Retract $key has program [dict get $::holdted $key]
+            if {[dict exists $::held $key] && [dict get $::held $key] ne $lambda} {
+                Retract $key has program [dict get $::held $key]
             }
             if {$lambda ne ""} {
-                dict set ::holdted $key $lambda
+                dict set ::held $key $lambda
             }
         }
         set ::toHold [dict create]
