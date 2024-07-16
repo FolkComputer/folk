@@ -135,7 +135,7 @@ $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
 c loadlib $::env(HOME)/apriltag/libapriltag.so
 $cc compile
 
-set ROWS 4
+set ROWS 3
 set COLS 5
 # The model is a dictionary whose keys are tag IDs and where each
 # value is a dictionary with keys `c` and `p` which are model points
@@ -147,7 +147,7 @@ set UNIT_MODEL [apply {{ROWS COLS} {
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
-    set pad $tagSideLength
+    set pad [expr {$tagSideLength / 2}]
     for {set row 0} {$row < $ROWS} {incr row} {
         for {set col 0} {$col < $COLS} {incr col} {
             set id [expr {48600 + $row*$COLS + $col}]
@@ -314,7 +314,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf} {
-    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 50 \
+    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
 
     upvar ^html ^html
@@ -331,8 +331,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <iframe width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
+            <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
         <p>Try to keep the board from bending or warping.
         (During calibration, Folk will want to project AprilTags in the
             central area of the board. Instead of printing, you can
@@ -369,6 +370,21 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         }
         const self = uuidv4();
 
+        document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
+          const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
+
+          // TODO: use folk.js
+          window.ws = new WebSocket(window.location.origin.replace("http", "ws") + "/ws");
+          ws.onopen = () => {
+            ws.send(`
+              set boardPdf [binary decode base64 {\${boardSrc}}]
+              set fd [open /tmp/folk-calibration-board.pdf w]
+              fconfigure \$fd -encoding binary -translation binary
+              puts \$fd \$boardPdf; close \$fd
+              exec lpr /tmp/folk-calibration-board.pdf
+           `);
+          };
+        });
         document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
           const mm = document.getElementById("tag-side-length-mm").value;
 
