@@ -679,11 +679,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-
-        # Try running the camera points through H_cameraToDisplay to
-        # get canonical display points, compare to running model
-        # points through H_modelToDisplay, filter if too much error?
-        
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
@@ -702,9 +697,28 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
 
-        # TODO: Compute a pose homography from current?????  Take into
-        # account delta from last camera tags? Use that homography on
-        # the projector????
+        # We can do an error check here. H_modelToCameraViaPs was
+        # derived above from printed tags -- we should be able to run
+        # _projected_ tags through it and compare the coordinates to
+        # the actual detection coordinates. If there's too much error,
+        # we won't record this as a calibration pose.
+        set totalError 0.0
+        dict for {id projectedTag} $projectedTags {
+            foreach modelCorner [dict get $model $id p] \
+                cameraCorner [dict get $projectedTag p] {
+                    lassign $cameraCorner cx cy
+                    # Predicted camera x and y.
+                    lassign [applyHomography $H_modelToCameraViaPs $modelCorner] px py
+                    set dx [- $cx $px]; set dy [- $cy $py]
+                    set err [expr {$dx*$dx + $dy*$dy}]
+                    set totalError [+ $totalError $err]
+            }
+        }
+        set poseRmse [expr {sqrt($totalError / ([llength $projectedTags] * 4))}]
+        if {$poseRmse > 5} {
+            puts "Pose has too-high rmse ($poseRmse); skipping"
+            return
+        }
 
         set pose [dict create \
                       model $model version $version \
@@ -714,6 +728,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       displayWidth $displayWidth displayHeight $displayHeight \
                       tagSize $printedSideLengthM \
                       H_modelToDisplay $H_modelToDisplay \
+                      rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
         lappend ::seenPoses $pose
@@ -755,14 +770,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         exec mkdir -p "$::env(HOME)/folk-calibration-poses"
         image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at timestamp /any/]] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
-        # apply {{calibrationBoardPdf} {
-        #     set fd [open "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses]-model.pdf" w]
-        #     puts $fd $calibrationBoardPdf; close $fd
-        # }} [makeCalibrationBoardPdf \
-        #         [dict map {id tag} $model {
-        #             dict create c [scale [/ 1.0 $printedSideLengthM] [dict get $tag c]] \
-        #                 p [scale [/ 1.0 $printedSideLengthM] [dict get $tag p]]
-        #         }] 50 {{id} {return true}}]
 
         # OK, let's save this calibration pose.
         lappend ::calibrationPoses $pose
