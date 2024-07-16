@@ -213,27 +213,8 @@ not the PS for it to work, probably)
 
 1. Position the camera. Make sure Folk is running (ssh in, `cd
    ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
-   http://whatever.local:4273 and make a new program and save it:
-   
-   ```
-   When camera /any/ has frame /im/ at timestamp /any/ {
-     Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
-       # set width [dict get $im width]
-       # set height [dict get $im height]
-       set filename "/tmp/web-image-frame.jpg"
-       image saveAsJpeg $im $filename
-       set fsize [file size $filename]
-       set fd [open $filename r]
-       fconfigure $fd -encoding binary -translation binary
-       set body [read $fd $fsize]
-       close $fd
-       dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-     }} $im]
-   }
-   ```
-
-   Go to http://whatever.local:4273/frame-image/ to see the camera's
-   current field of view. Reposition your camera to cover your table.
+   http://whatever.local:4273/camera-frame to see a preview of what
+   the camera sees. Reposition your camera to cover your table.
 
 1. Go to the Folk calibration page at
    http://whatever.local:4273/calibrate and follow the instructions
