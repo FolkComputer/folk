@@ -138,11 +138,10 @@ $cc compile
 set ROWS 4
 set COLS 5
 # The model is a dictionary whose keys are tag IDs and where each
-# value is a dictionary with keys `c` and `p` which are
-# model points (x, y). The tags on the outer perimeter will get
-# projected to PostScript points and printed; the tags in the
-# interior will get projected to Vulkan points and rendered on
-# projector.
+# value is a dictionary with keys `c` and `p` which are model points
+# (x, y). Tags with isPrintedTag will get projected to PostScript
+# points and printed; tags with isProjectedTag will get projected to
+# Vulkan points and rendered on projector.
 set UNIT_MODEL [apply {{ROWS COLS} {
     set UNIT_MODEL [dict create]
 
@@ -181,23 +180,26 @@ fn isPrintedTag {id} {
     # We print tags on the outer perimeter of the grid, and we project
     # tags in the interior.
     set idx [- $id 48600]
-    set row [expr {$idx / $COLS}]
-    set col [expr {$idx % $COLS}]
-    return [expr {$row == 0 || $row == $ROWS - 1 ||
-                  $col == 0 || $col == $COLS - 1}]
+    expr {$idx % 2 == 0}
 }
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
-    ! [isPrintedTag $id]
+    set idx [- $id 48600]
+    expr {$idx % 2 != 0}
 }
 Claim the calibration isProjectedTag is ${^isProjectedTag}
 Claim the calibration isPrintedTag is ${^isPrintedTag}
 
+fn isVersionTag {id} {
+    if {![isProjectedTag $id]} { return false }
+    set idx [- $id 48600]
+    expr {$idx % 4 == 1}
+}
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
 # according to version.
 fn versionizeTags {tags version} {
     foreach id [dict keys $tags] {
-        if {!([isProjectedTag $id] && $id % 2 == 1)} {
+        if {![isVersionTag $id]} {
             continue
         }
         # This is a version tag. Rotate it.
@@ -283,7 +285,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
                 grestore
 
                 % Label the inner side length:
-                [if {$tagIdx == 3} { subst {
+                [if {$tagIdx == 1} { subst {
                     gsave
                     [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
                     [expr {$psY - 15}] translate
@@ -610,7 +612,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             # Find any version tag. If none were detected, then abort
             # and wait until a later frame.
             dict for {id tag} $projectedTags {
-                if {[isProjectedTag $id] && $id % 2 == 1} {
+                if {[isVersionTag $id]} {
                     set versionTagId $id
                     break
                 }
@@ -623,9 +625,17 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                             [lindex $p 1 0] - [lindex $p 0 0])}
             }}
             set versionTagAngle [apply $getTagAngle [dict get $projectedTags $versionTagId]]
+
             # Compare angle to angle of any other projected tag.
             if {[dict size $projectedTags] < 2} { return }
-            set otherTagAngle [apply $getTagAngle [lindex [dict values [dict remove $projectedTags $versionTagId]] 0]]
+            dict for {id projectedTag} $projectedTags {
+                if {![isVersionTag $id]} {
+                    set otherTagAngle [apply $getTagAngle $projectedTag]
+                    break
+                }
+            }
+            if {![info exists otherTagAngle]} { return }
+
             set versionAngle [expr {$versionTagAngle - $otherTagAngle}]
             # Rotations corresponding to versions 0, 1, 2, 3:
             set possibleVersions \
@@ -640,7 +650,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
             # If the detected version does not correspond to version mod 4,
             # then we should abort and wait until a later frame.
-            if {$detectedVersion != [expr {$version % 4}]} { return }
+            set expectedVersion [expr {$version % 4}]
+            if {$detectedVersion != $expectedVersion} {
+                return
+            }
         }
 
         set projectedPointPairs [list]
@@ -666,6 +679,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
+
+        # Try running the camera points through H_cameraToDisplay to
+        # get canonical display points, compare to running model
+        # points through H_modelToDisplay, filter if too much error?
+        
         Commit H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
@@ -994,7 +1012,6 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
     puts "\n======================\n"
 
     # Second, calibrate the projector.
-    set modelToDisplayPointPairSets [list]
     set i 0
     set Hs_modelToDisplay [lmap pose $calibrationPoses {
         set H_modelToDisplay [dict get $pose H_modelToDisplay]
@@ -1039,7 +1056,7 @@ apply {{this} {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
         set calibrationPoses [read $fd]; close $fd
 
-        if {[file exists "$::env(HOME)/folk-live/calibration.yaml"]} {
+        if {[file exists "$::env(HOME)/folk-live/calibration-DISABLED.yaml"]} {
             # Calibration to import from ProCamCalib.
             puts "READING YAML CALIB"
             package require yaml
