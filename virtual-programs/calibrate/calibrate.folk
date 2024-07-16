@@ -365,7 +365,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           poses are recorded, you'll see the results below.</p>
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
           </li>
-          <li>Calibration results: TODO: Not yet!</li>
+          <li>Calibration results: <div id="calibration-report"></div></li>
         </ol>
 
       <script src="/lib/folk.js"></script>
@@ -392,6 +392,10 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         });
         document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
           const mm = document.getElementById("tag-side-length-mm").value;
+          if (mm === "") {
+            alert("Error: You need to type in the inner side length (mm) of your board tags before clicking Start Calibration.");
+            return;
+          }
 
           // TODO: using Assert is a little ugly (it's so it can be
           // retracted when calibration is done)
@@ -405,6 +409,14 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           ws.evaluate(tcl`
             {*}\$::CommitDefaultModel \${scale}
           `);
+        });
+        const calibrationReportEl = document.getElementById('calibration-report');
+        ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+          if (reports.length === 0) {
+            calibrationReportEl.innerHTML = "Not available yet.";
+            return;
+          }
+          calibrationReportEl.innerHTML = reports[0].calibrationReport;
         });
       </script>
 
@@ -782,6 +794,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend ::calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
+
+        # Commit reporting info for the Web page.
+        set calibrationReport "Poses: <ol>
+        [join [lmap pose $::calibrationPoses {subst {
+            <li>RMSE [dict get $pose rmse]</li>
+        }}] \n]
+        [string repeat {<li>Not detected yet</li>} [- 10 [llength $::calibrationPoses]]]
+        </ol>"
+        Commit (non-capturing) calibration report \
+            [list Claim the calibration report is $calibrationReport]
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
