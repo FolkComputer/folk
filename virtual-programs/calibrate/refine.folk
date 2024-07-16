@@ -257,7 +257,7 @@ $cc proc monoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc monoComputeError {double[] params int paramsCount} void {
+$cc proc monoComputeError {double[] params int paramsCount} double {
     double fvec[MonoPointsCount];
     monoFunc(MonoPointsCount, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -266,7 +266,9 @@ $cc proc monoComputeError {double[] params int paramsCount} void {
         totalError += fvec[i];
     }
     printf("Total Error: %f\n", totalError);
-    printf("RMSE: %f\n", sqrt(totalError / MonoPointsCount));
+    double rmse = sqrt(totalError / MonoPointsCount);
+    printf("RMSE: %f\n", rmse);
+    return rmse;
 }
 $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
@@ -285,13 +287,14 @@ $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj
           params, NULL,
           NULL, NULL, &result);
     printf("Refined -------------------\n");
-    monoComputeError(params, paramsCount);
+    double rmse = monoComputeError(params, paramsCount);
 
-    Tcl_Obj* paramObjs[paramsCount];
+    Tcl_Obj* paramObjs[1 + paramsCount];
+    paramObjs[0] = Tcl_NewDoubleObj(rmse);
     for (int i = 0; i < paramsCount; i++) {
-        paramObjs[i] = Tcl_NewDoubleObj(params[i]);
+        paramObjs[1 + i] = Tcl_NewDoubleObj(params[i]);
     }
-    return Tcl_NewListObj(paramsCount, paramObjs);
+    return Tcl_NewListObj(1 + paramsCount, paramObjs);
 }
 
 # Refines the calibration of an individual camera or
@@ -333,7 +336,8 @@ proc refineMonoCalibration {calibration} {
     # Unspool the optimization result into the calibration data
     # structure and return that.
 
-    set refined [lassign $refined {*}$intrNames]
+    set refined [lassign $refined rmse {*}$intrNames]
+    dict set calibration rmse $rmse
     foreach intrName $intrNames {
         dict set calibration intrinsics $intrName [set $intrName]
     }
@@ -463,7 +467,7 @@ $cc proc stereoFunc {int m int n double* x
     }
     return 0;
 }
-$cc proc stereoComputeError {double[] params int paramsCount} void {
+$cc proc stereoComputeError {double[] params int paramsCount} double {
     double fvec[StereoPointsCount * 2];
     stereoFunc(StereoPointsCount * 2, paramsCount, params, fvec, NULL, NULL);
     double totalError = 0;
@@ -472,7 +476,9 @@ $cc proc stereoComputeError {double[] params int paramsCount} void {
         totalError += fvec[i];
     }
     printf("Total Error: %f\n", totalError);
-    printf("RMSE: %f\n", sqrt(totalError / StereoPointsCount));
+    double rmse = sqrt(totalError / StereoPointsCount);
+    printf("RMSE: %f\n", rmse);
+    return rmse;
 }
 $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_Obj* {
     mp_result result = {0};
@@ -489,13 +495,14 @@ $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Tcl_O
           params, NULL,
           NULL, NULL, &result);
     printf("Refined -------------------\n");
-    stereoComputeError(params, paramsCount);
+    double rmse = stereoComputeError(params, paramsCount);
 
-    Tcl_Obj* paramObjs[paramsCount];
+    Tcl_Obj* paramObjs[1 + paramsCount];
+    paramObjs[0] = Tcl_NewDoubleObj(rmse);
     for (int i = 0; i < paramsCount; i++) {
-        paramObjs[i] = Tcl_NewDoubleObj(params[i]);
+        paramObjs[1 + i] = Tcl_NewDoubleObj(params[i]);
     }
-    return Tcl_NewListObj(paramsCount, paramObjs);
+    return Tcl_NewListObj(1 + paramsCount, paramObjs);
 }
 
 $cc compile ;# takes about a half-second
@@ -535,6 +542,8 @@ set refineCalibration {{calibrationPoses calibration} {
     puts ".\nMono camera calibration\n-------"
     set cameraCalibration [refineMonoCalibration $cameraCalibration]
 
+    dict set calibration camera rmse \
+        [dict get $cameraCalibration rmse]
     dict set calibration camera intrinsics \
         [dict get $cameraCalibration intrinsics]
     dict set calibration camera extrinsics \
@@ -571,6 +580,8 @@ set refineCalibration {{calibrationPoses calibration} {
     puts ".\nMono projector calibration\n-------"
     set projectorCalibration [refineMonoCalibration $projectorCalibration]
 
+    dict set calibration projector rmse \
+        [dict get $projectorCalibration rmse]
     dict set calibration projector intrinsics \
         [dict get $projectorCalibration intrinsics]
     dict set calibration projector extrinsics \
@@ -652,6 +663,8 @@ set refineCalibration {{calibrationPoses calibration} {
 
     puts ".\nStereo refine ($poseCount poses):"
     set refined [stereoRefineCalibrationOptimize $params [llength $params]]
+    set refined [lassign $refined rmse]
+    dict set calibration rmse $rmse
     dict set calibration R_cameraToProjector [rotationVectorToRotationMatrix [lrange $refined 0 2]]
     dict set calibration t_cameraToProjector [lrange $refined 3 5]
 

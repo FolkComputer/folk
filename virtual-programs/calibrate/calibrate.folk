@@ -365,7 +365,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           poses are recorded, you'll see the results below.</p>
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
           </li>
-          <li>Calibration results: <div id="calibration-report"></div></li>
+        <li>Calibration results: <div id="calibration-report"></div>
+        <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p></li>
         </ol>
 
       <script src="/lib/folk.js"></script>
@@ -543,6 +544,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                                            $displayHeight/($ROWS * ($tagOuterLength + $pad)))}]
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
+        # TODO: Center this on the projector area.
         set H_modelToDisplay [estimateHomography [subst {
             {$printedSideLengthM $printedSideLengthM $tagSideLengthPixels $tagSideLengthPixels}
             {$printedSideLengthM 0 $tagSideLengthPixels 0}
@@ -796,7 +798,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
 
         # Commit reporting info for the Web page.
-        set calibrationReport "Poses: <ol>
+        set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $::calibrationPoses {subst {
             <li>RMSE [dict get $pose rmse]</li>
         }}] \n]
@@ -1187,14 +1189,34 @@ When the calibration poses are /calibrationPoses/ &\
     set calibration [apply $refineCalibration \
                          $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
-    puts "Camera --------"
-    puts [join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
-    puts "Projector -----"
-    puts [join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+
     puts "."
     puts "======== Refined calibration ========="
     puts $calibration
     puts "."
+
+    set calibrationReport "<p>Poses:</p><ol>
+        [join [lmap pose $calibrationPoses {subst {
+            <li>RMSE [dict get $pose rmse]</li>
+        }}] \n]
+        [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
+        </ol>
+        <p>Calibration:</p><pre>
+Camera intrinsics --------
+[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
+
+Camera RMSE [dict_getdef $calibration camera rmse (unavailable)]
+
+Projector intrinsics -----
+[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+
+Projector RMSE [dict_getdef $calibration projector rmse (unavailable)]
+
+----
+Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
+</pre>"
+    Commit (non-capturing) calibration report \
+        [list Claim the calibration report is $calibrationReport]
 
     When the printed tag side length is /tagSizeMm/ mm {
         puts "======== Reproject pose 0 ========="
