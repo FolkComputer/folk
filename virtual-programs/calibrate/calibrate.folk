@@ -180,12 +180,17 @@ fn isPrintedTag {id} {
     # We print tags on the outer perimeter of the grid, and we project
     # tags in the interior.
     set idx [- $id 48600]
-    expr {$idx % 2 == 0}
+    return [expr {$idx % 2 == 0}] ;# for checkerboard
+
+    # for perimeter:
+    # set row [expr {$idx / $COLS}]
+    # set col [expr {$idx % $COLS}]
+    # return [expr {$row == 0 || $row == $ROWS - 1 ||
+    #               $col == 0 || $col == $COLS - 1}]
 }
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
-    set idx [- $id 48600]
-    expr {$idx % 2 != 0}
+    ! [isPrintedTag $id]
 }
 Claim the calibration isProjectedTag is ${^isProjectedTag}
 Claim the calibration isPrintedTag is ${^isPrintedTag}
@@ -193,7 +198,8 @@ Claim the calibration isPrintedTag is ${^isPrintedTag}
 fn isVersionTag {id} {
     if {![isProjectedTag $id]} { return false }
     set idx [- $id 48600]
-    expr {$idx % 4 == 1}
+    # expr {$idx % 2 == 1} ;# for perimeter
+    expr {$idx % 4 == 1} ;# for checkerboard
 }
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
 # according to version.
@@ -301,12 +307,6 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
             }
         }]] "\n"]
     }]
-
-    # apply {{ps} {
-    #     set fp [open "/tmp/cali-[clock milliseconds].ps" w]
-    #     puts $fp $ps
-    #     close $fp
-    # }} $ps
 
     set fp [open [list |ps2pdf - - <<$ps] rb]
     set pdf [read $fp]; close $fp
