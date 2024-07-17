@@ -1,0 +1,14 @@
+When /someone/ wishes /page/ has fuzzy halo with radius /radius/ color /color/ \
+  & /page/ has region /r/ {
+  ## Kick off shader that takes
+  set pageBounds [region vertices $r]
+  # pageBounds and creates a fuzzy SDF halo around all the pages! :)
+  Wish $page is titled "this will be a fuzzy halo ... just you wait!"
+  Wish $this is outlined thick teal
+}
+
+Wish $this has fuzzy halo with radius 5 color teal
+
+#####
+# Eventually `outline` should actually just be undergirded by:
+# Wish $this 
