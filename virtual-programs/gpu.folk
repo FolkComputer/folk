@@ -1560,6 +1560,13 @@ set gpuLib [$gpuc compile]
 #     c loadlib [lindex [exec /usr/sbin/ldconfig -p | grep libatomic.so | head -1] end]
 # }
 
+if {$macos} {
+    local proc When {args} {
+        set body [lindex $args end]
+        uplevel {set displayIdx 0}
+        uplevel $body
+    }
+}
 When /someone/ wishes $::thisNode uses display /displayIdx/ {
     set gpu [apply $makeGpu $gpuLib]
     $gpu init $displayIdx

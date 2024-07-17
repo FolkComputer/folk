@@ -170,11 +170,19 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         clause = jimArgsToClause(argc, argv);
     }
 
+    MatchRef parent;
+    if (self->currentMatch) {
+        parent = matchRef(db, self->currentMatch);
+    } else {
+        parent = MATCH_REF_NULL;
+        fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
+                clauseToString(clause));
+    }
     workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = SAY,
        .thread = thread,
        .say = {
-           .parent = matchRef(db, self->currentMatch),
+           .parent = parent,
            .clause = clause,
        }
     });
@@ -729,7 +737,9 @@ int main(int argc, char** argv) {
     }
 
 #ifdef __APPLE__
-    eval("source virtual-programs/gpu.folk");
+    // Hard-coded. Run in apply so that there's a local scope to be
+    // lexically captured.
+    eval("apply {{} {source virtual-programs/gpu.folk}}");
 #endif
     
     workerLoop();
