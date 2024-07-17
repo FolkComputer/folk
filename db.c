@@ -542,24 +542,52 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 // we ensure that either this statement is retracted or it never
 // appears?
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMatchRef) {
+    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+
     // Is this clause already present among the existing statements?
     StatementRef existingRefs[10];
-    pthread_mutex_lock(&db->clauseToStatementIdMutex);
     int existingRefsCount = trieLookupLiteral(db->clauseToStatementId, clause,
                                               (uint64_t*) existingRefs,
                                               sizeof(existingRefs)/sizeof(existingRefs[0]));
-    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+
+    // Note that we're still holding the clauseToStatementId lock.
 
     Match* parent = matchAcquire(db, parentMatchRef);
     if (!matchRefIsNull(parentMatchRef) && parent == NULL) {
         // Parent match has been invalidated -- abort!
+        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
         return STATEMENT_REF_NULL;
+    }
+    if (existingRefsCount == 0) {
+        // The clause doesn't exist in a statement yet. Make the new
+        // statement.
+
+        // We need to keep the clauseToStatementId trie locked until
+        // we've added the new statement, so that no one else also
+        // does the same check, gets 0 existing refs, releases the
+        // lock, and then adds the new statement at the same time (so
+        // we end up with 2 copies).
+
+        StatementRef ref = statementNew(db, clause);
+        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
+
+        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+
+        if (parent) {
+            matchAddChildStatement(db, parent, ref);
+            matchRelease(db, parent);
+        }
+        return ref;
     }
 
     Statement* stmt;
     if (existingRefsCount == 1 && (stmt = statementAcquire(db, existingRefs[0]))) {
         // The clause already exists. We'll add the parents to the
         // existing statement instead of making a new statement.
+
+        // We unlock the trie after acquiring the statement.
+        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+
         /* printf("Reuse: (%s)\n", clauseToString(clause)); */
 
         // FIXME: What if the parent has/will be destroyed?
@@ -570,27 +598,11 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
         }
         statementRelease(db, stmt);
         return STATEMENT_REF_NULL;
-
-    } else if (existingRefsCount == 0) {
-        // The clause doesn't exist in a statement yet. Make the new
-        // statement.
-
-        StatementRef ref = statementNew(db, clause);
-        pthread_mutex_lock(&db->clauseToStatementIdMutex);
-        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
-        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
-
-        if (parent) {
-            matchAddChildStatement(db, parent, ref);
-            matchRelease(db, parent);
-        }
-        return ref;
-
-    } else {
-        // Invariant has been violated: somehow we have 2+ copies of
-        // the same clause already in the db?
-        fprintf(stderr, "Error: Clause duplicate\n"); exit(1);
     }
+
+    // Invariant has been violated: somehow we have 2+ copies of
+    // the same clause already in the db?
+    fprintf(stderr, "Error: Clause duplicate\n"); exit(1);
 }
 
 Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],

@@ -31,6 +31,8 @@ typedef struct ThreadControlBlock {
 ThreadControlBlock threads[100];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
+// helper function to get self from LLDB:
+ThreadControlBlock* getSelf() { return self; }
 
 __thread Jim_Interp* interp = NULL;
 
