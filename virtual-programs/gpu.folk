@@ -241,14 +241,22 @@ $gpuc proc init {int displayIdx} void {
 
         VkPhysicalDeviceFeatures deviceFeatures = {0};
 
-        const char *deviceExtensions[] = $[expr { $macos ? {{
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            "VK_KHR_portability_subset",
-            VK_KHR_MAINTENANCE3_EXTENSION_NAME
-        }} : {{
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-            VK_KHR_MAINTENANCE3_EXTENSION_NAME
-        }} }];
+        $[if {$macos} {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                "VK_KHR_portability_subset",
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
+            };
+        }} elseif {$isGlfw} {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            };
+        }} else {subst -nocommands {
+            const char *deviceExtensions[] = {
+                VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                VK_KHR_MAINTENANCE3_EXTENSION_NAME
+            };
+        }}]
 
         VkDeviceCreateInfo createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
