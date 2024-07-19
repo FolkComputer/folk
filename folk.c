@@ -672,30 +672,10 @@ void* workerMain(void* arg) {
     return NULL;
 }
 
-static void trieWriteToPdf() {
-    char code[500];
-    snprintf(code, 500,
-             "proc Wish {args} {}; source virtual-programs/web/trie-graph.folk; "
-             "set dot [apply $trieDotify $trieLib [__db]]; "
-             "set fd [open trie.pdf w]; puts $fd [apply $getDotAsPdf $dot]; close $fd; "
-             "puts trie.pdf");
-    eval(code);
-}
-static void dbWriteToPdf() {
-    char code[500];
-    snprintf(code, 500,
-             "proc Wish {args} {}; source virtual-programs/web/dep-graph.folk; "
-             "set dot [apply $dbDotify $dbLib [__db]]; "
-             "set fd [open db.pdf w]; puts $fd [apply $getDotAsPdf $dot]; close $fd; "
-             "puts db.pdf");
-    eval(code);
-}
 static void exitHandler() {
-    printf("exitHandler\n----------\n");
-
-    trieWriteToPdf();
-    dbWriteToPdf();
+    eval("source exit-handler.folk");
 }
+
 int main(int argc, char** argv) {
     // Do all setup.
 
