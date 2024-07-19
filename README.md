@@ -2,6 +2,7 @@
 
 ```
 $ cd vendor/jimtcl && ./configure CFLAGS=-g && make && cd -
+$ cd vendor/apriltag && make libapriltag.a libapriltag.so && cd -
 $ make && ./folk
 ```
 

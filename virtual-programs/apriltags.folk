@@ -1,7 +1,7 @@
 proc makeAprilTagDetector {TAG_FAMILY} {
     set cc [C]
-    $cc cflags -I$::env(HOME)/apriltag
-    $cc endcflags $::env(HOME)/apriltag/libapriltag.a
+    $cc cflags -I./vendor/apriltag
+    $cc endcflags ./vendor/apriltag/libapriltag.a
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>
