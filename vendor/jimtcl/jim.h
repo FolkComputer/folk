@@ -906,6 +906,10 @@ JIM_EXPORT void Jim_SetDouble(Jim_Interp *interp, Jim_Obj *objPtr,
         double doubleValue);
 JIM_EXPORT Jim_Obj * Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue);
 
+/* source object */
+void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
+        Jim_Obj *fileNameObj, int lineNumber);
+
 /* commands utilities */
 JIM_EXPORT void Jim_WrongNumArgs (Jim_Interp *interp, int argc,
         Jim_Obj *const *argv, const char *msg);
