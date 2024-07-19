@@ -12,6 +12,10 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
     return
 }
 
+# HACK: We just query for this information outright, because we need
+# to know it at C compile time.
+set isGlfw [expr {[llength [Query! /anyone/ wishes $::thisNode uses display glfw]] > 0}]
+
 # First, we build the C GPU library, which can make direct calls into
 # Vulkan -- this library then exposes functions that we can call from
 # Tcl.
@@ -22,6 +26,10 @@ $gpuc cflags -I./vendor
 set macos [expr {$::tcl_platform(os) eq "darwin"}]
 if {$macos} {
     $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
+    set isGlfw true
+}
+
+if {$isGlfw} {
     $gpuc endcflags -lglfw
 } else {
     foreach renderFile [glob -nocomplain "/dev/dri/render*"] {
@@ -49,14 +57,14 @@ set GPU_MAX_IMAGES 16
 $gpuc proc getMaxImages {} int { return $GPU_MAX_IMAGES; }
 
 $gpuc include <stdlib.h>
-$gpuc code {
+$gpuc code [csubst {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
 
-    #if defined(__APPLE__)
+    $[if {$isGlfw} { subst {
       // This must be included _after_ volk.h (Vulkan).
       #include <GLFW/glfw3.h>
-    #endif
+    } }]
 
     static const char* VkResultToString(VkResult res) {
             switch (res) {
@@ -94,7 +102,7 @@ $gpuc code {
             }
     #undef CASE
     }
-}
+}]
 
 proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -133,7 +141,7 @@ $gpuc code {
 }
 $gpuc proc init {int displayIdx} void {
     $[vktry volkInitialize()]
-    $[if {$macos} { expr {"glfwInit();"} }]
+    $[if {$isGlfw} { expr {"glfwInit();"} }]
 
     // Set up VkInstance instance:
     {
@@ -146,19 +154,29 @@ $gpuc proc init {int displayIdx} void {
         createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
         createInfo.ppEnabledLayerNames = validationLayers;
 
-        const char* enabledExtensions[] = $[expr { $macos ? {{
-            VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-            VK_KHR_SURFACE_EXTENSION_NAME,
-            "VK_EXT_metal_surface",
-            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-        }} : {{
-            // 2 extensions for non-X11/Wayland display
-            VK_KHR_SURFACE_EXTENSION_NAME,
-            VK_KHR_DISPLAY_EXTENSION_NAME,
-            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-        }} }];
-        createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+        $[if {$macos} {subst -nocommands {
+            const char* enabledExtensions[] = {
+                VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                "VK_EXT_metal_surface",
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            };
+            createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+
+        }} elseif {$isGlfw} {subst -nocommands {
+            const char** enabledExtensions = glfwGetRequiredInstanceExtensions(&createInfo.enabledExtensionCount);
+
+        }} else {subst -nocommands {
+            const char* enabledExtensions[] = {
+                // 2 extensions for non-X11/Wayland display
+                VK_KHR_SURFACE_EXTENSION_NAME,
+                VK_KHR_DISPLAY_EXTENSION_NAME,
+                VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            };
+            createInfo.enabledExtensionCount = sizeof(enabledExtensions)/sizeof(enabledExtensions[0]);
+        }}]
         createInfo.ppEnabledExtensionNames = enabledExtensions;
+
         $[if {$macos} { expr {{
             createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         }} }]
@@ -257,7 +275,7 @@ $gpuc proc init {int displayIdx} void {
 
     // Get drawing surface.
     VkSurfaceKHR surface;
-    $[expr { $macos ? {
+    $[expr { $isGlfw ? {
         GLFWwindow* window;
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
@@ -312,7 +330,7 @@ $gpuc proc init {int displayIdx} void {
         if (capabilities.currentExtent.width != UINT32_MAX) {
             extent = capabilities.currentExtent;
         } else {
-            $[expr { $macos ? {
+            $[expr { $isGlfw ? {
                 glfwGetFramebufferSize(window, (int*) &extent.width, (int*) &extent.height);
                 if (capabilities.minImageExtent.width > extent.width) { extent.width = capabilities.minImageExtent.width; }
                 if (capabilities.maxImageExtent.width < extent.width) { extent.width = capabilities.maxImageExtent.width; }
@@ -826,7 +844,7 @@ $gpuc proc drawEnd {} void {
 }
 
 $gpuc proc poll {} void {
-    $[expr { $macos ? { glfwPollEvents(); } : {} }]
+    $[expr { $isGlfw ? { glfwPollEvents(); } : {} }]
 }
 
 set makeGpu {{gpuLib} {
@@ -1568,6 +1586,8 @@ if {$macos} {
     }
 }
 When /someone/ wishes $::thisNode uses display /displayIdx/ {
+    if {$displayIdx eq "glfw"} { set displayIdx -1 }
+
     set gpu [apply $makeGpu $gpuLib]
     $gpu init $displayIdx
     $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
