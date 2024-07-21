@@ -124,7 +124,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
 
     Jim_Obj* scriptObj = interp->currentScriptObj;
-    char* sourceFileName;
+    const char* sourceFileName;
     int sourceLineNumber;
     if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
         sourceFileName = "<unknown>";

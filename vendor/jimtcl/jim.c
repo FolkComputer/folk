@@ -3786,7 +3786,7 @@ static int JimScriptValid(Jim_Interp *interp, ScriptObj *script)
     return 1;
 }
 
-int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, char **sourceFileName) {
+int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, const char **sourceFileName) {
     if (scriptObj->typePtr == &sourceObjType) {
         *sourceFileName = Jim_String(scriptObj->internalRep.sourceValue.fileNameObj);
         return JIM_OK;
