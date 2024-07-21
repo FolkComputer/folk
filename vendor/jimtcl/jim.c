@@ -3803,7 +3803,7 @@ int Jim_ScriptGetSourceLineNumber(Jim_Interp *interp, Jim_Obj *scriptObj, int* s
         return JIM_OK;
     } else if (scriptObj->typePtr == &scriptObjType) {
         struct ScriptObj *script = (void *)scriptObj->internalRep.ptr;
-        *sourceLineNumber = script->firstline;
+        *sourceLineNumber = script->linenr;
         return JIM_OK;
     }
     return JIM_ERR;
