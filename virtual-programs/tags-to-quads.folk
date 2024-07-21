@@ -433,16 +433,16 @@ namespace eval ::quad {
 
 $cc compile
 
-When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+When the default printed tag size is /tagSizeMm/ mm &\
+     camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
-        
+
+    set tagSize [/ $tagSizeMm 1000.0]
+
     set ::prevTagPoses [dict create]
     When tag /tag/ has detection /det/ on $camera at /timestamp/ {
         # Setting aside this tag space (48600 to 48713) for calibration.
         if {$tag >= 48600} { return }
-
-        # set tagSize [expr {31.5 / 1000}]; # 31.5 mm
-        set tagSize [expr {30.0 / 1000}]
 
         if {[dict exists $::prevTagPoses $tag]} {
             set prevTimestamp [dict get $::prevTagPoses $tag timestamp]
