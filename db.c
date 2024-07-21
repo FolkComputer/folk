@@ -31,6 +31,7 @@ typedef struct Statement {
     _Atomic int ptrCount;
 
     // Immutable statement properties:
+    // -----
 
     // statementAcquire needs to increment the ptrCount _first_, then
     // check gen. gen cannot be mutated while ptrCount > 0.
@@ -39,7 +40,13 @@ typedef struct Statement {
     // ptrCount > 0.
     Clause* clause;
 
+    // Used for debugging (and stack traces for When bodies).
+    char sourceFileName[100];
+    int sourceLineNumber;
+    pthread_mutex_t sourceMutex;
+
     // Mutable statement properties:
+    // -----
 
     // How many living Matches (or Holds or Asserts) are supporting
     // this statement? When parentCount hits 0, we deindex the
@@ -301,7 +308,9 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // becomes responsible for freeing it. Note: returns an acquired
 // (ptrCount-incremented) statement pointer so it's safe to store in
 // the index.
-static StatementRef statementNew(Db* db, Clause* clause) {
+static StatementRef statementNew(Db* db, Clause* clause,
+                                 char* sourceFileName,
+                                 int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
     // Look for a free statement slot to use:
@@ -330,12 +339,23 @@ static StatementRef statementNew(Db* db, Clause* clause) {
     stmt->childMatches = listOfEdgeToNew(8);
     pthread_mutex_init(&stmt->childMatchesMutex, NULL);
 
+    snprintf(stmt->sourceFileName, sizeof(stmt->sourceFileName),
+             "%s", sourceFileName);
+    stmt->sourceLineNumber = sourceLineNumber;
+
     // This won't free stmt until its parentCount is 0.
     stmt->ptrCount = 0;
 
     return ret;
 }
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
+
+char* statementSourceFileName(Statement* stmt) {
+    return stmt->sourceFileName;
+}
+int statementSourceLineNumber(Statement* stmt) {
+    return stmt->sourceLineNumber;
+}
 
 // TODO: do we use this? remove?
 void statementRemoveChildMatch(Statement* stmt, MatchRef to) {
@@ -541,7 +561,9 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 // What happens if the parent match is removed at some point?  How do
 // we ensure that either this statement is retracted or it never
 // appears?
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMatchRef) {
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+                                      char* sourceFileName, int sourceLineNumber,
+                                      MatchRef parentMatchRef) {
     pthread_mutex_lock(&db->clauseToStatementIdMutex);
 
     // Is this clause already present among the existing statements?
@@ -568,7 +590,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
         // lock, and then adds the new statement at the same time (so
         // we end up with 2 copies).
 
-        StatementRef ref = statementNew(db, clause);
+        StatementRef ref = statementNew(db, clause,
+                                        sourceFileName,
+                                        sourceLineNumber);
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
 
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
@@ -584,6 +608,10 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parentMat
     if (existingRefsCount == 1 && (stmt = statementAcquire(db, existingRefs[0]))) {
         // The clause already exists. We'll add the parents to the
         // existing statement instead of making a new statement.
+
+        // TODO: Update the sourceFileName and sourceLineNumber to
+        // reflect this parent (this isn't quite correct either but
+        // better than nothing).
 
         // We unlock the trie after acquiring the statement.
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
@@ -657,6 +685,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
+                             char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
     *outOldStatement = STATEMENT_REF_NULL;
 
@@ -700,7 +729,10 @@ StatementRef dbHoldStatement(Db* db,
 
         hold->version = version;
 
-        StatementRef newStmt = dbInsertOrReuseStatement(db, clause, MATCH_REF_NULL);
+        StatementRef newStmt = dbInsertOrReuseStatement(db, clause,
+                                                        sourceFileName,
+                                                        sourceLineNumber,
+                                                        MATCH_REF_NULL);
         hold->statement = newStmt;
 
         uint64_t results[10];

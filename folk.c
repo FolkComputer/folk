@@ -123,10 +123,24 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimArgsToClause(argc, argv);
 
+    Jim_Obj* scriptObj = interp->currentScriptObj;
+    char* sourceFileName;
+    int sourceLineNumber;
+    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
+        sourceFileName = "<unknown>";
+    }
+    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
+        sourceLineNumber = -1;
+    }
+
     workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = ASSERT,
        .thread = -1,
-       .assert = { .clause = clause }
+       .assert = {
+           .clause = clause,
+           .sourceFileName = strdup(sourceFileName),
+           .sourceLineNumber = sourceLineNumber,
+       }
     });
 
     return (JIM_OK);
@@ -153,8 +167,12 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = HOLD,
        .thread = -1,
-       .hold = { .key = key, .version = ++latestVersion,
-                 .clause = clause, }
+       .hold = {
+           .key = key, .version = ++latestVersion,
+           .clause = clause,
+           .sourceFileName = "<unknown>",
+           .sourceLineNumber = -1
+       }
     });
 
     return (JIM_OK);
@@ -184,6 +202,8 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .say = {
            .parent = parent,
            .clause = clause,
+           .sourceFileName = "<unknown>",
+           .sourceLineNumber = -1
        }
     });
 
@@ -335,9 +355,15 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Jim_Obj* expr = Jim_NewStringObj(interp, builtinEnv, -1);
 
     // Prepend `apply $lambda` to expr:
+    Jim_Obj* lambdaObj = Jim_NewStringObj(interp, lambda, -1);
+    Jim_Obj* lambdaBody = Jim_ListGetIndex(interp, lambdaObj, 1);
+    printf("applying -- got sourcelinenum %d\n", statementSourceLineNumber(stmt));
+    Jim_SetSourceInfo(interp, lambdaBody,
+                      Jim_NewStringObj(interp, statementSourceFileName(stmt), -1),
+                      statementSourceLineNumber(stmt));
     Jim_Obj* applyLambda[] = {
         Jim_NewStringObj(interp, "apply", -1),
-        Jim_NewStringObj(interp, lambda, -1)
+        lambdaObj
     };
     Jim_ListInsertElements(interp, expr, 0,
                            sizeof(applyLambda)/sizeof(applyLambda[0]),
@@ -547,7 +573,10 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.assert.clause, MATCH_REF_NULL);
+        ref = dbInsertOrReuseStatement(db, item.assert.clause,
+                                       item.assert.sourceFileName,
+                                       item.assert.sourceLineNumber,
+                                       MATCH_REF_NULL);
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref, item.assert.clause);
         }
@@ -564,6 +593,8 @@ void workerRun(WorkQueueItem item) {
 
         newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
                                  item.hold.clause,
+                                 item.hold.sourceFileName,
+                                 item.hold.sourceLineNumber,
                                  &oldRef);
         if (!statementRefIsNull(newRef)) {
             reactToNewStatement(newRef, item.hold.clause);
@@ -590,7 +621,10 @@ void workerRun(WorkQueueItem item) {
         /* printf("@%d: Say (%.100s)\n", self->index, clauseToString(item.say.clause)); */
 
         StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.say.clause, item.say.parent);
+        ref = dbInsertOrReuseStatement(db, item.say.clause,
+                                       item.say.sourceFileName,
+                                       item.say.sourceLineNumber,
+                                       item.say.parent);
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref, item.say.clause);
         }

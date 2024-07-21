@@ -906,9 +906,11 @@ JIM_EXPORT void Jim_SetDouble(Jim_Interp *interp, Jim_Obj *objPtr,
         double doubleValue);
 JIM_EXPORT Jim_Obj * Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue);
 
-/* source object */
-void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
+/* script/source object */
+JIM_EXPORT void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
         Jim_Obj *fileNameObj, int lineNumber);
+JIM_EXPORT int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, char **sourceFileName);
+JIM_EXPORT int Jim_ScriptGetSourceLineNumber(Jim_Interp *interp, Jim_Obj *scriptObj, int* sourceLineNumber);
 
 /* commands utilities */
 JIM_EXPORT void Jim_WrongNumArgs (Jim_Interp *interp, int argc,

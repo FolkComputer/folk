@@ -17,7 +17,13 @@ typedef struct WorkQueueItem {
     // processed). The workqueue does not itself copy or own or free
     // the Clause* you give it.
     union {
-        struct { Clause* clause; } assert;
+        struct {
+            Clause* clause;
+            // Caller is also responsible for freeing sourceFileName
+            // on dequeue.
+            char* sourceFileName;
+            int sourceLineNumber;
+        } assert;
         struct { Clause* pattern; } retract;
         struct {
             // Caller is also responsible for keeping key alive & for
@@ -26,6 +32,11 @@ typedef struct WorkQueueItem {
             int64_t version;
 
             Clause* clause;
+
+            // Caller is also responsible for freeing sourceFileName
+            // on dequeue.
+            char* sourceFileName;
+            int sourceLineNumber;
         } hold;
         struct {
             // This MatchRef may be invalidated while this Say is
@@ -34,6 +45,11 @@ typedef struct WorkQueueItem {
             MatchRef parent;
 
             Clause* clause;
+
+            // Caller is also responsible for freeing sourceFileName
+            // on dequeue.
+            char* sourceFileName;
+            int sourceLineNumber;
         } say;
         struct {
             // The StatementRefs may be invalidated while this Run is

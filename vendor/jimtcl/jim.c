@@ -3786,6 +3786,29 @@ static int JimScriptValid(Jim_Interp *interp, ScriptObj *script)
     return 1;
 }
 
+int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, char **sourceFileName) {
+    if (scriptObj->typePtr == &sourceObjType) {
+        *sourceFileName = Jim_String(scriptObj->internalRep.sourceValue.fileNameObj);
+        return JIM_OK;
+    } else if (scriptObj->typePtr == &scriptObjType) {
+        struct ScriptObj *script = (void *)scriptObj->internalRep.ptr;
+        *sourceFileName = Jim_String(script->fileNameObj);
+        return JIM_OK;
+    }
+    return JIM_ERR;
+}
+int Jim_ScriptGetSourceLineNumber(Jim_Interp *interp, Jim_Obj *scriptObj, int* sourceLineNumber) {
+    if (scriptObj->typePtr == &sourceObjType) {
+        *sourceLineNumber = scriptObj->internalRep.sourceValue.lineNumber;
+        return JIM_OK;
+    } else if (scriptObj->typePtr == &scriptObjType) {
+        struct ScriptObj *script = (void *)scriptObj->internalRep.ptr;
+        *sourceLineNumber = script->firstline;
+        return JIM_OK;
+    }
+    return JIM_ERR;
+}
+
 
 /* -----------------------------------------------------------------------------
  * Commands

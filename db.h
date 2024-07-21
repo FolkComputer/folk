@@ -44,6 +44,8 @@ bool statementCheck(Db* db, StatementRef ref);
 StatementRef statementRef(Db* db, Statement* stmt);
 
 Clause* statementClause(Statement* stmt);
+char* statementSourceFileName(Statement* stmt);
+int statementSourceLineNumber(Statement* stmt);
 
 void statementRemoveChildMatch(Statement* stmt, MatchRef to);
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
@@ -91,7 +93,9 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // which then becomes responsible for freeing it later. Pass a null
 // MatchRef if this is an assertion. Returns a null StatementRef if no
 // new statement was created. 
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, MatchRef parent);
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+                                      char* sourceFileName, int sourceLineNumber,
+                                      MatchRef parent);
 
 // Call when you're about to begin a match (i.e., evaluating the body
 // of a When) -- creates the Match object that you'll attach any
@@ -111,6 +115,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
+                             char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement);
 
 #endif
