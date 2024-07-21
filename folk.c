@@ -357,7 +357,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // Prepend `apply $lambda` to expr:
     Jim_Obj* lambdaObj = Jim_NewStringObj(interp, lambda, -1);
     Jim_Obj* lambdaBody = Jim_ListGetIndex(interp, lambdaObj, 1);
-    printf("applying -- got sourcelinenum %d\n", statementSourceLineNumber(stmt));
     Jim_SetSourceInfo(interp, lambdaBody,
                       Jim_NewStringObj(interp, statementSourceFileName(stmt), -1),
                       statementSourceLineNumber(stmt));
