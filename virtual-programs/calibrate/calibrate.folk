@@ -329,6 +329,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
         <ol>
           <li>
+            <h3>Print the calibration board.</h3>
+
             <p>Print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
@@ -342,9 +344,18 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             tags on.)</p>
           </li>
 
-          <li><p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p> Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</li>
+          <li>
+            <h3>Measure your calibration board.</h3>
 
-          <li><p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
+            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
+
+            <p>Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</p>
+          </li>
+
+          <li>
+            <h3>Run the calibration process.</h3>
+
+            <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
 
             <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <strong>so that at least one projected tag sits inside the gap between printed AprilTags</strong>, wait a second for the projected tags to refit into the grid,
           then <strong>hold the board still for a few seconds until
@@ -365,12 +376,55 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           poses are recorded, you'll see the results below.</p>
             <p>(If calibration gets into a bad state, feel free to click Start Calibration again.)</p>
           </li>
-        <li>Calibration results: <div id="calibration-report"></div>
-        <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p></li>
 
-        <li><p>Calibration should be in place once you have 10 poses! The best way to test calibration is to print some programs that outline themselves and see how well the projected outlines line up. If you have a bad calibration, you can try just calibrating again.</p>
-        <p>Also: by default, Folk assumes that printed programs have an inner tag side length of 30 mm. Measure your printed programs, and if they have a different size, edit your setup.folk to change the tag size there. (if you don't have a setup.folk, copy setup.folk.default in your folk folder to ~/folk-live/setup.folk and edit that.)</p>
-        </li>
+          <li>
+            <h3>Calibration results:</h3> <div id="calibration-report"></div>
+            
+            <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p>
+
+            <p>Calibration should be in place once you have 10 poses!</p>
+
+            <p>If you have a bad calibration, you can try just
+            calibrating again.</p>
+          </li>
+
+          <li>
+            <h3>Measure program geometry.</h3>
+
+            <p>Now we need to tell Folk the exact geometry of an
+              average program page (how big is the tag in each
+              program? how far is the tag from the edges of the sheet
+              of paper?).</p>
+
+            <p>Print a program that outlines itself (<a href="/new">make new program here</a>),
+              if you don't have one already.</p>
+
+            
+            
+
+            <p>Also: by default, Folk assumes that printed programs
+            have an inner tag side length of 30 mm. Measure your
+            printed programs, and if they have a different size, edit
+            your setup.folk to change the tag size there. (if you
+            don't have a setup.folk, copy setup.folk.default in your
+              folk folder to ~/folk-live/setup.folk and edit that.)</p>
+
+            <details>
+              <summary>How to manually override the geometry of a specific program</summary>
+
+              <p>If you've printed out program 30 at a different size
+              or manually cut and pasted the tag 30 somewhere, you can
+              set its geometry by making a 30.folktag file.</p>
+            </details>
+          </li>
+
+          <li>
+            <h3>Test calibration.</h3>
+
+            <p>The best way to test calibration is to 
+              and see how well the projected outline lines up with the
+              physical edge of the page.</p>
+          </li>
         </ol>
 
       <script src="/lib/folk.js"></script>
@@ -418,7 +472,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         const calibrationReportEl = document.getElementById('calibration-report');
         ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
           if (reports.length === 0) {
-            calibrationReportEl.innerHTML = "Not available yet.";
+            calibrationReportEl.innerHTML = "<pre>Not available yet.</pre>";
             return;
           }
           calibrationReportEl.innerHTML = reports[0].calibrationReport;
