@@ -313,9 +313,33 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
     return $pdf
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf} {
+fn makeExampleProgramPdf {} {
+    set results [Statements::findMatches [list /someone/ claims paper format /format/ is the default paper format]]
+    if {[llength $results] > 0} {
+        set format [dict get [lindex $results 0] format]
+    } else {
+        set format letter
+    }
+
+    # HACK: we should import ::programToPs somehow instead.
+    set ps [::programToPs 0 {Claim $this is an example program} $format {{
+        newpath
+        [expr {$PageWidth-$tagwidth-$margin}] [expr {$PageHeight-$tagheight-$margin}] moveto
+        [expr {($tagwidth / 10.0) * 2}] [expr {($tagheight / 10.0) * 2}] rmoveto
+        0 [expr {$PageHeight-$tagheight-$margin + ($tagheight / 10.0) * 2}] lineto
+        1 0 0 setrgbcolor stroke
+    }}]
+
+    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set pdf [read $fp]; close $fp
+    return $pdf
+}
+
+Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPdf} {
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
+
+    set exampleProgramPdf [makeExampleProgramPdf]
 
     upvar ^html ^html
     html [csubst {
@@ -399,15 +423,15 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Print a program that outlines itself (<a href="/new">make new program here</a>),
               if you don't have one already.</p>
 
-            
-            
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $exampleProgramPdf]">
+            </iframe>
 
-            <p>Also: by default, Folk assumes that printed programs
-            have an inner tag side length of 30 mm. Measure your
-            printed programs, and if they have a different size, edit
-            your setup.folk to change the tag size there. (if you
-            don't have a setup.folk, copy setup.folk.default in your
-              folk folder to ~/folk-live/setup.folk and edit that.)</p>
+            <ul>
+              <li>Left: <input id="left-mm" type="text"></li>
+              <li>Left: <input id="right-mm" type="text"></li>
+              <li>Left: <input id="top-mm" type="text"></li>
+              <li>Left: <input id="bottom-mm" type="text"></li>
+            </ul>
 
             <details>
               <summary>How to manually override the geometry of a specific program</summary>
@@ -472,7 +496,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         const calibrationReportEl = document.getElementById('calibration-report');
         ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
           if (reports.length === 0) {
-            calibrationReportEl.innerHTML = "<pre>Not available yet.</pre>";
+            calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
             return;
           }
           calibrationReportEl.innerHTML = reports[0].calibrationReport;
@@ -482,7 +506,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
       </body>
     </html>
   }]
-}} $UNIT_MODEL ${^makeCalibrationBoardPdf}]
+}} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPdf}]
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\

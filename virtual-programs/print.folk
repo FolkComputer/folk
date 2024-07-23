@@ -115,7 +115,7 @@ proc rangeDict {from to val} {
     return $res
 }
 
-proc ::programToPs {id text {format "letter"}} {
+proc ::programToPs {id text {format "letter"} {mixins {}}} {
     set defaults {
         margin 36
         fontsize 12
@@ -192,6 +192,14 @@ proc ::programToPs {id text {format "letter"}} {
                   newpath
                   [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
                   ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+
+                  [join [lmap mixin $mixins {
+                      # We run mixins only on page 1 for now.  They
+                      # get access to everything in scope. Kind of
+                      # hacky, but OK for now.
+
+                      subst $mixin
+                  }] "\n"]
                 }] }]
                 showpage
             }]
@@ -201,8 +209,6 @@ proc ::programToPs {id text {format "letter"}} {
 
     return $out
 }
-
-if {$::isLaptop} { return }
 
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"
