@@ -217,6 +217,14 @@ proc Hold {args} {
     }
 }
 
+proc Commit {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set w "Commit was deprecated in July 2024; use Hold instead"
+    Claim $this has warning $w with info $w
+
+    uplevel [list Hold {*}$args]
+}
+
 set ::stepCount 0
 set ::stepTime -1
 source "lib/peer.tcl"
