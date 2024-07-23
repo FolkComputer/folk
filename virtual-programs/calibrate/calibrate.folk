@@ -313,7 +313,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
     return $pdf
 }
 
-fn makeExampleProgramPdf {} {
+fn makeExampleProgramPng {} {
     set results [Statements::findMatches [list /someone/ claims paper format /format/ is the default paper format]]
     if {[llength $results] > 0} {
         set format [dict get [lindex $results 0] format]
@@ -330,16 +330,16 @@ fn makeExampleProgramPdf {} {
         1 0 0 setrgbcolor stroke
     }}]
 
-    set fp [open [list |ps2pdf - - <<$ps] rb]
-    set pdf [read $fp]; close $fp
-    return $pdf
+    set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
+    set png [read $fp]; close $fp
+    return $png
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPdf} {
+Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPng} {
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
 
-    set exampleProgramPdf [makeExampleProgramPdf]
+    set exampleProgramPng [makeExampleProgramPng]
 
     upvar ^html ^html
     html [csubst {
@@ -423,8 +423,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Print a program that outlines itself (<a href="/new">make new program here</a>),
               if you don't have one already.</p>
 
-            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $exampleProgramPdf]">
-            </iframe>
+            <img height="300" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
+              style="border: 2px solid black;">
 
             <ul>
               <li>Left: <input id="left-mm" type="text"></li>
@@ -506,7 +506,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
       </body>
     </html>
   }]
-}} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPdf}]
+}} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPng}]
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
