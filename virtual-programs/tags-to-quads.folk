@@ -435,8 +435,11 @@ namespace eval ::quad {
 
 $cc compile
 
+When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
+    Wish tag $tag has geometry
+}
 When the default program geometry is /defaultGeom/ &\
-     when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
+     /someone/ wishes tag /tag/ has geometry {
 
     if {[file exists "$::env(HOME)/folk-printed-programs/$tag.folkgeom"]} {
         set fd [open "$::env(HOME)/folk-printed-programs/$tag.folkgeom" r]
