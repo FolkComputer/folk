@@ -436,10 +436,16 @@ namespace eval ::quad {
 $cc compile
 
 When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$tag >= 48600} { return }
+
     Wish tag $tag has geometry
 }
 When the default program geometry is /defaultGeom/ &\
      /someone/ wishes tag /tag/ has geometry {
+
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$tag >= 48600} { return }
 
     if {[file exists "$::env(HOME)/folk-printed-programs/$tag.folkgeom"]} {
         set fd [open "$::env(HOME)/folk-printed-programs/$tag.folkgeom" r]
@@ -511,6 +517,7 @@ When tag /tag/ has quad /q/ &\
     Claim $tag has quad $pageQuad
 
     Claim tag $tag is a tag
+    # TODO: this is probably not the same as geometry?
     Claim tag $tag has a program
 
     # HACK:
