@@ -379,6 +379,10 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
     set exampleProgramPng [makeExampleProgramPng]
 
+    set defaultGeom [dict get [lindex [Statements::findMatches \
+                                           [list /someone/ claims the default program geometry is /defaultGeom/]] 0] defaultGeom]
+    fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
+
     upvar ^html ^html
     html [csubst {
       <html>
@@ -445,8 +449,8 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <script>
               document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
                 const mm = document.getElementById("tag-side-length-mm").value;
-                if (mm === "") {
-                  alert("Error: You need to type in the inner side length (mm) of your board tags before clicking Start Calibration.");
+                if (mm === "" || isNaN(mm)) {
+                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Calibration.");
                   return;
                 }
 
@@ -524,20 +528,23 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>
-              <li style="color: green">Tag inner side length (try to be accurate to half a millimeter or better): <input id="geomTagSizeMm" type="text">mm</li>
+              <li style="color: green">Tag inner side length (try to be accurate to half a millimeter or better):
+                <input id="geomTagSizeMm" type="text" placeholder="$[defaultGeomGet tagSize]">mm</li>
 
-              <li style="color: red">Left: <input id="geomLeftMm" type="text">mm</li>
-              <li style="color: red">Right: <input id="geomRightMm" type="text">mm</li>
-              <li style="color: blue">Top: <input id="geomTopMm" type="text">mm</li>
-              <li style="color: blue">Bottom: <input id="geomBottomMm" type="text">mm</li>
+              <li style="color: red">Left: <input id="geomLeftMm" type="text" placeholder="$[defaultGeomGet left]">mm</li>
+              <li style="color: red">Right: <input id="geomRightMm" type="text" placeholder="$[defaultGeomGet right]">mm</li>
+              <li style="color: blue">Top: <input id="geomTopMm" type="text" placeholder="$[defaultGeomGet top]">mm</li>
+              <li style="color: blue">Bottom: <input id="geomBottomMm" type="text" placeholder="$[defaultGeomGet bottom]">mm</li>
             </ul>
-            <script>
-             // TODO: preload info from current file
-            </script>
 
             <p><button id="geomSave">Save Program Geometry</button></p>
             <script>
              geomSave.addEventListener('click', () => {
+               if (!([geomTagSizeMm.value, geomLeftMm.value, geomRightMm.value,
+                      geomTopMm.value, geomBottomMm.value].every(x => x != "" && !isNaN(x)))) {
+                 alert("Error: You haven't filled in all the geometry values.");
+                 return;
+               }
                const geom = {
                  tagSize: geomTagSizeMm.value + 'mm',
                  left: geomLeftMm.value + 'mm',
@@ -546,7 +553,11 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                  bottom: geomBottomMm.value + 'mm'
                };
                ws.commit('default program geometry',
-                         tcl`Claim the default program geometry is \${geom}`,
+                         tcl`
+set fd [open "\$::env(HOME)/folk-printed-programs/default.folkgeom" w]
+set geom \${geom}; puts \$fd \$geom; close \$fd
+Claim the default program geometry is \$geom
+`,
                          '<global>');
              });
             </script>
@@ -558,7 +569,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               different size, or you manually cut and pasted the tag
               30 somewhere and want to create a specially sized region
               around that, you can set tag 30's geometry manually by making a
-              30.folkgeom file in ~/folk-printed-programs.</p>
+              30.folkgeom text file in ~/folk-printed-programs, with content like this:</p>
+
+              <pre>tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm</pre>
             </details>
           </li>
 
@@ -1463,3 +1476,21 @@ When the calibration is /calibration/ {
     Claim camera $camera to display $display has extrinsics $extrinsics
 }
 
+# Read the default program geometry (create a default default if it
+# doesn't exist).
+apply {{this} {
+    if {![file exists "$::env(HOME)/folk-printed-programs"]} {
+        exec mkdir -p "$::env(HOME)/folk-printed-programs"
+    }
+    if {[file exists "$::env(HOME)/folk-printed-programs/default.folkgeom"]} {
+        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" r]
+        set defaultGeom [read $fd]; close $fd
+    } else {
+        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" w]
+        set defaultGeom {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
+        puts $fd $defaultGeom; close $fd
+    }
+
+    Commit (non-capturing) (on <global>) {default program geometry} \
+        [list Claim the default program geometry is $defaultGeom]
+}} $this
