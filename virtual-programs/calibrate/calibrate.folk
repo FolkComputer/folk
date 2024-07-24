@@ -330,34 +330,42 @@ fn makeExampleProgramPng {} {
         % Left
         newpath
         [+ $left $outerToInner] [expr {$bottom + $tagheight/2.0}] moveto
-        0 -10 rlineto 0 10 rmoveto
+        0 -15 rlineto 0 15 rmoveto
         0                       [expr {$bottom + $tagheight/2.0}] lineto
-        0 -10 rlineto 0 10 rmoveto
-        1 0 0 setrgbcolor 4 setlinewidth stroke
+        0 -15 rlineto 0 15 rmoveto
+        1 0 0 setrgbcolor 6 setlinewidth stroke
 
         % Right
         newpath
         [expr {$left + $tagwidth - $outerToInner}] [expr {$bottom + $tagheight/2.0}] moveto
-        0 -10 rlineto 0 10 rmoveto
+        0 -15 rlineto 0 15 rmoveto
         $PageWidth                                 [expr {$bottom + $tagheight/2.0}] lineto
-        0 -10 rlineto 0 10 rmoveto
-        1 0 0 setrgbcolor 4 setlinewidth stroke
+        0 -15 rlineto 0 15 rmoveto
+        1 0 0 setrgbcolor 6 setlinewidth stroke
 
         % Top
         newpath
         [expr {$left + $tagwidth/2.0}] [expr {$bottom + $tagheight - $outerToInner}] moveto
-        10 0 rlineto -10 0 rmoveto
+        15 0 rlineto -15 0 rmoveto
         [expr {$left + $tagwidth/2.0}] $PageHeight lineto
-        10 0 rlineto -10 0 rmoveto
-        0 0.5 1 setrgbcolor 4 setlinewidth stroke
+        15 0 rlineto -15 0 rmoveto
+        0 0.5 1 setrgbcolor 6 setlinewidth stroke
 
         % Bottom
         newpath
         [expr {$left + $tagwidth/2.0}] [expr {$bottom + $outerToInner}] moveto
-        10 0 rlineto -10 0 rmoveto
+        15 0 rlineto -15 0 rmoveto
         [expr {$left + $tagwidth/2.0}] [expr {$PageHeight/2.0}] lineto
-        10 0 rlineto -10 0 rmoveto
-        0 0.5 1 setrgbcolor 4 setlinewidth stroke
+        15 0 rlineto -15 0 rmoveto
+        0 0.5 1 setrgbcolor 6 setlinewidth stroke
+
+        % Tag inner
+        newpath
+        $left $bottom moveto $outerToInner $outerToInner rmoveto
+        0 5 rmoveto 0 15 rlineto
+        [expr {$tagwidth - $outerToInner*2}] 0 rlineto
+        0 -15 rlineto
+        0 1 0 setrgbcolor 6 setlinewidth stroke
     }}]
 
     set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
@@ -380,6 +388,17 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
         </head>
       <body>
         <span id="status">Status</span>
+        <script src="/lib/folk.js"></script>
+        <script>
+         function uuidv4() {
+           return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+             (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+           );
+         }
+         const self = uuidv4();
+
+         const ws = new FolkWS(document.getElementById('status'));
+        </script>
 
         <ol>
           <li>
@@ -391,8 +410,21 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
             <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
+            <script>
+              document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
+                const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
+
+                ws.evaluate(`
+                  set boardPdf [binary decode base64 {\${boardSrc}}]
+                  set fd [open /tmp/folk-calibration-board.pdf w]
+                  fconfigure \$fd -encoding binary -translation binary
+                  puts \$fd \$boardPdf; close \$fd
+                  exec lpr /tmp/folk-calibration-board.pdf
+                `);
+              });
+            </script>
             <p>Try to keep the board from bending or warping. Printing on cardstock can help.</p>
-        <p>(During calibration, Folk will want to project AprilTags in the gaps on the grid of tags on the board. Instead of printing, you can
+            <p>(During calibration, Folk will want to project AprilTags in the gaps on the grid of tags on the board. Instead of printing, you can
             try just maximizing the board on your computer/tablet
             screen, but you'll need to cover each gap with sticky note or something else that Folk can project
             tags on.)</p>
@@ -410,6 +442,22 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <h3>Run the calibration process.</h3>
 
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
+            <script>
+              document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
+                const mm = document.getElementById("tag-side-length-mm").value;
+                if (mm === "") {
+                  alert("Error: You need to type in the inner side length (mm) of your board tags before clicking Start Calibration.");
+                  return;
+                }
+
+                // TODO: using Assert is a little ugly (it's so it can be
+                // retracted when calibration is done)
+                ws.send(tcl`
+                  Claim the printed calibration tag size is \${mm} mm
+                  Assert \${self} wishes to calibrate
+                `);
+              });
+            </script>
 
             <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <strong>so that at least one projected tag sits inside the gap between printed AprilTags</strong>, wait a second for the projected tags to refit into the grid,
           then <strong>hold the board still for a few seconds until
@@ -418,6 +466,14 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Are the projected tags too big to fit in the gaps between printed tags? Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
             </p>
+            <script>
+              document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
+                const scale = e.target.value / 100.0;
+                ws.evaluate(tcl`
+                  {*}\$::CommitDefaultModel \${scale}
+                `);
+              });
+            </script>
 
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
@@ -433,7 +489,17 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
           <li>
             <h3>Calibration results:</h3> <div id="calibration-report"></div>
-            
+            <script>
+              const calibrationReportEl = document.getElementById('calibration-report');
+              ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+                if (reports.length === 0) {
+                  calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
+                  return;
+                }
+                calibrationReportEl.innerHTML = reports[0].calibrationReport;
+              });
+            </script>
+
             <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p>
 
             <p>Calibration should be in place once you have 10 poses!</p>
@@ -446,30 +512,53 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <h3>Measure program geometry.</h3>
 
             <p>Now we need to tell Folk the exact geometry of an
-              average program page (how big is the tag in each
-              program? how far is the tag from the edges of the sheet
-              of paper?).</p>
+              average program page: what is the physical size of the
+              AprilTag on the page? how far is the tag from the edges
+              of the page?</p>
 
             <p><a href="/new">Print a program that outlines itself</a>,
               if you don't have one already.</p>
 
-            <p>Fold the program in half if you want half-height programs. Measure the inner tag side length and tag distances to the edges of the sheet:</p>
+            <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
             <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>
-              <li style="color: red">Left: <input id="left-mm" type="text"></li>
-              <li style="color: red">Right: <input id="right-mm" type="text"></li>
-              <li style="color: blue">Top: <input id="top-mm" type="text"></li>
-              <li style="color: blue">Bottom: <input id="bottom-mm" type="text"></li>
+              <li style="color: green">Tag inner side length (try to be accurate to half a millimeter or better): <input id="geomTagSizeMm" type="text">mm</li>
+
+              <li style="color: red">Left: <input id="geomLeftMm" type="text">mm</li>
+              <li style="color: red">Right: <input id="geomRightMm" type="text">mm</li>
+              <li style="color: blue">Top: <input id="geomTopMm" type="text">mm</li>
+              <li style="color: blue">Bottom: <input id="geomBottomMm" type="text">mm</li>
             </ul>
+            <script>
+             // TODO: preload info from current file
+            </script>
+
+            <p><button id="geomSave">Save Program Geometry</button></p>
+            <script>
+             geomSave.addEventListener('click', () => {
+               const geom = {
+                 tagSize: geomTagSizeMm.value + 'mm',
+                 left: geomLeftMm.value + 'mm',
+                 right: geomRightMm.value + 'mm',
+                 top: geomTopMm.value + 'mm',
+                 bottom: geomBottomMm.value + 'mm'
+               };
+               ws.commit('default program geometry',
+                         tcl`Claim the default program geometry is \${geom}`,
+                         '<global>');
+             });
+            </script>
 
             <details>
               <summary>How to manually override the geometry of a specific program</summary>
 
-              <p>If you've printed out program 30 at a different size
-              or manually cut and pasted the tag 30 somewhere, you can
-              set its geometry by making a 30.folktag file.</p>
+              <p>If you've, for example, printed out program 30 at a
+              different size, or you manually cut and pasted the tag
+              30 somewhere and want to create a specially sized region
+              around that, you can set tag 30's geometry manually by making a
+              30.folkgeom file in ~/folk-printed-programs.</p>
             </details>
           </li>
 
@@ -486,59 +575,6 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             before or after.)</p>
           </li>
         </ol>
-
-      <script src="/lib/folk.js"></script>
-      <script>
-        function uuidv4() {
-          return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-          );
-        }
-        const self = uuidv4();
-
-        const ws = new FolkWS(document.getElementById('status'));
-
-        document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
-          const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
-
-          ws.evaluate(`
-            set boardPdf [binary decode base64 {\${boardSrc}}]
-            set fd [open /tmp/folk-calibration-board.pdf w]
-            fconfigure \$fd -encoding binary -translation binary
-            puts \$fd \$boardPdf; close \$fd
-            exec lpr /tmp/folk-calibration-board.pdf
-          `);
-        });
-        document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
-          const mm = document.getElementById("tag-side-length-mm").value;
-          if (mm === "") {
-            alert("Error: You need to type in the inner side length (mm) of your board tags before clicking Start Calibration.");
-            return;
-          }
-
-          // TODO: using Assert is a little ugly (it's so it can be
-          // retracted when calibration is done)
-          ws.send(tcl`
-            Claim the printed calibration tag size is \${mm} mm
-            Assert \${self} wishes to calibrate
-          `);
-        });
-        document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
-          const scale = e.target.value / 100.0;
-          ws.evaluate(tcl`
-            {*}\$::CommitDefaultModel \${scale}
-          `);
-        });
-        const calibrationReportEl = document.getElementById('calibration-report');
-        ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
-          if (reports.length === 0) {
-            calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
-            return;
-          }
-          calibrationReportEl.innerHTML = reports[0].calibrationReport;
-        });
-      </script>
-
       </body>
     </html>
   }]
