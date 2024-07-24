@@ -1438,6 +1438,16 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
     puts $fd $calibration; close $fd
 }
 
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     the calibration is /nothing/ {
+    set warning "WARNING: Folk hasn't been calibrated!"
+
+    puts stderr "calibrate: $warning"
+    set cx [/ $displayWidth 2.0]
+    Wish to draw text with x $cx y [* $displayHeight 0.3] text $warning color red
+    Wish to draw text with x $cx y [* $displayHeight 0.7] text $warning color red
+}
+
 When the calibration is /calibration/ {
     puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
     set camera [dict get $calibration camera name]
