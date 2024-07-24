@@ -502,8 +502,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
 When tag /tag/ has quad /q/ &\
      tag /tag/ has geometry /geom/ {
-    # TODO: Store construction of program $tag so it can vary by
-    # program, instead of hard-coding.
+
     set pageQuad [quad buffer $q \
                       top [dict_getdef $geom top 0] \
                       right [dict_getdef $geom right 0] \
