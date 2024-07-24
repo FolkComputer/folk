@@ -383,6 +383,8 @@ namespace eval ::quad {
                 error "quad buffer: Invalid distance $distance"
             }
 
+            if {$distance == 0} { continue }
+
             if {$unit eq "mm"} {
                 set distance [* $distance 0.001]
                 set unit "m"
@@ -433,16 +435,21 @@ namespace eval ::quad {
 
 $cc compile
 
-When the default printed tag size is /tagSizeMm/ mm &\
-     camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+When the default program geometry is /defaultGeom/ &\
+     when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
+    
+    Claim tag $tag has geometry $defaultGeom
+    # TODO: Look up per-tag geometry
+}
+
+When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
 
-    set tagSize [/ $tagSizeMm 1000.0]
-
     set ::prevTagPoses [dict create]
-    When tag /tag/ has detection /det/ on $camera at /timestamp/ {
-        # Setting aside this tag space (48600 to 48713) for calibration.
-        if {$tag >= 48600} { return }
+    When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
+         tag /tag/ has geometry /geom/ {
+
+        set tagSize [expr {[string map {mm ""} [dict get $geom tagSize]] / 1000.0}]
 
         if {[dict exists $::prevTagPoses $tag]} {
             set prevTimestamp [dict get $::prevTagPoses $tag timestamp]
@@ -485,14 +492,15 @@ When the default printed tag size is /tagSizeMm/ mm &\
     }
 }
 
-When tag /tag/ has quad /q/ {
+When tag /tag/ has quad /q/ &\
+     tag /tag/ has geometry /geom/ {
     # TODO: Store construction of program $tag so it can vary by
     # program, instead of hard-coding.
     set pageQuad [quad buffer $q \
-                      top 28mm \
-                      right 28mm \
-                      left 157mm \
-                      bottom 80mm]
+                      top [dict_getdef $geom top 0] \
+                      right [dict_getdef $geom right 0] \
+                      left [dict_getdef $geom left 0] \
+                      bottom [dict_getdef $geom bottom 0]]
     Claim $tag has quad $pageQuad
 
     Claim tag $tag is a tag

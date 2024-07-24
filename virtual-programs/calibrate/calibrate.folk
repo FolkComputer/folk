@@ -978,7 +978,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
         if {[llength $::calibrationPoses] >= $CALIBRATION_POSES_MAX} {
-            puts "READY CALIBARTION POSES!"
+            puts "READY CALIBRATION POSES!"
 
             catch { exec mkdir "$::env(HOME)/folk-live" }
             catch {exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"}
@@ -1326,7 +1326,7 @@ apply {{this} {
                 Claim the calibration is $calibration
             }
 
-        } elseif {[file exists "$::env(HOME)/folk-live/folk-calibration-output-DISABLED.txt"]} {
+        } elseif {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
             puts "READING CALIB"
