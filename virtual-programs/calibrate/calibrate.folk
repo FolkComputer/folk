@@ -327,45 +327,46 @@ fn makeExampleProgramPng {} {
         [set bottom [expr {$PageHeight-$tagheight-$margin}]]
         [set outerToInner [expr {($tagwidth / 10.0) * 2}]]
 
+        % These take in x1 y1 x2 y2 on stack.
+        /markXDistance {
+            newpath moveto
+            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
+            lineto
+            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
+            6 setlinewidth stroke
+        } def
+        /markYDistance {
+            newpath moveto
+            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
+            lineto
+            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
+            6 setlinewidth stroke
+        } def
+
         % Left
-        newpath
-        [+ $left $outerToInner] [expr {$bottom + $tagheight/2.0}] moveto
-        0 -15 rlineto 0 15 rmoveto
-        0                       [expr {$bottom + $tagheight/2.0}] lineto
-        0 -15 rlineto 0 15 rmoveto
-        1 0 0 setrgbcolor 6 setlinewidth stroke
+        [+ $left $outerToInner] [expr {$bottom + $tagheight/2.0}]
+        0                       [expr {$bottom + $tagheight/2.0}]
+        1 0 0 setrgbcolor markXDistance
 
         % Right
-        newpath
-        [expr {$left + $tagwidth - $outerToInner}] [expr {$bottom + $tagheight/2.0}] moveto
-        0 -15 rlineto 0 15 rmoveto
-        $PageWidth                                 [expr {$bottom + $tagheight/2.0}] lineto
-        0 -15 rlineto 0 15 rmoveto
-        1 0 0 setrgbcolor 6 setlinewidth stroke
+        [expr {$left + $tagwidth - $outerToInner}] [expr {$bottom + $tagheight/2.0}]
+        $PageWidth                                 [expr {$bottom + $tagheight/2.0}]
+        1 0 0 setrgbcolor markXDistance
 
         % Top
-        newpath
-        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $tagheight - $outerToInner}] moveto
-        15 0 rlineto -15 0 rmoveto
-        [expr {$left + $tagwidth/2.0}] $PageHeight lineto
-        15 0 rlineto -15 0 rmoveto
-        0 0.5 1 setrgbcolor 6 setlinewidth stroke
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $tagheight - $outerToInner}]
+        [expr {$left + $tagwidth/2.0}] $PageHeight
+        0 0.5 1 setrgbcolor markYDistance
 
         % Bottom
-        newpath
-        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $outerToInner}] moveto
-        15 0 rlineto -15 0 rmoveto
-        [expr {$left + $tagwidth/2.0}] [expr {$PageHeight/2.0}] lineto
-        15 0 rlineto -15 0 rmoveto
-        0 0.5 1 setrgbcolor 6 setlinewidth stroke
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $outerToInner}]
+        [expr {$left + $tagwidth/2.0}] [expr {$PageHeight/2.0}]
+        0 0.5 1 setrgbcolor markYDistance
 
         % Tag inner
-        newpath
-        $left $bottom moveto $outerToInner $outerToInner rmoveto
-        0 5 rmoveto 0 15 rlineto
-        [expr {$tagwidth - $outerToInner*2}] 0 rlineto
-        0 -15 rlineto
-        0 1 0 setrgbcolor 6 setlinewidth stroke
+        [+ $left $outerToInner]                    [+ $bottom $outerToInner 5]
+        [expr {$left + $tagwidth - $outerToInner}] [+ $bottom $outerToInner 5]
+        0 1 0 setrgbcolor markXDistance
     }}]
 
     set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
