@@ -314,20 +314,50 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 fn makeExampleProgramPng {} {
-    set results [Statements::findMatches [list /someone/ claims paper format /format/ is the default paper format]]
-    if {[llength $results] > 0} {
-        set format [dict get [lindex $results 0] format]
-    } else {
-        set format letter
-    }
-
+    # HACK: we hard-code letter, since this is just for documentation
+    # purposes, and we want to cut the bottom half off so we need
+    # known dimensions.
+    set format letter
     # HACK: we should import ::programToPs somehow instead.
-    set ps [::programToPs 0 {Claim $this is an example program} $format {{
+    set ps [::programToPs 0 {# This image is for illustration purposes; don't
+# print it. You should print a program normally
+# through the Folk editor and measure that.} $format {{
+
+        [set left [expr {$PageWidth-$tagwidth-$margin}]]
+        [set bottom [expr {$PageHeight-$tagheight-$margin}]]
+        [set outerToInner [expr {($tagwidth / 10.0) * 2}]]
+
+        % Left
         newpath
-        [expr {$PageWidth-$tagwidth-$margin}] [expr {$PageHeight-$tagheight-$margin}] moveto
-        [expr {($tagwidth / 10.0) * 2}] [expr {($tagheight / 10.0) * 2}] rmoveto
-        0 [expr {$PageHeight-$tagheight-$margin + ($tagheight / 10.0) * 2}] lineto
-        1 0 0 setrgbcolor stroke
+        [+ $left $outerToInner] [expr {$bottom + $tagheight/2.0}] moveto
+        0 -10 rlineto 0 10 rmoveto
+        0                       [expr {$bottom + $tagheight/2.0}] lineto
+        0 -10 rlineto 0 10 rmoveto
+        1 0 0 setrgbcolor 4 setlinewidth stroke
+
+        % Right
+        newpath
+        [expr {$left + $tagwidth - $outerToInner}] [expr {$bottom + $tagheight/2.0}] moveto
+        0 -10 rlineto 0 10 rmoveto
+        $PageWidth                                 [expr {$bottom + $tagheight/2.0}] lineto
+        0 -10 rlineto 0 10 rmoveto
+        1 0 0 setrgbcolor 4 setlinewidth stroke
+
+        % Top
+        newpath
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $tagheight - $outerToInner}] moveto
+        10 0 rlineto -10 0 rmoveto
+        [expr {$left + $tagwidth/2.0}] $PageHeight lineto
+        10 0 rlineto -10 0 rmoveto
+        0 0.5 1 setrgbcolor 4 setlinewidth stroke
+
+        % Bottom
+        newpath
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $outerToInner}] moveto
+        10 0 rlineto -10 0 rmoveto
+        [expr {$left + $tagwidth/2.0}] [expr {$PageHeight/2.0}] lineto
+        10 0 rlineto -10 0 rmoveto
+        0 0.5 1 setrgbcolor 4 setlinewidth stroke
     }}]
 
     set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
@@ -420,17 +450,18 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               program? how far is the tag from the edges of the sheet
               of paper?).</p>
 
-            <p>Print a program that outlines itself (<a href="/new">make new program here</a>),
+            <p><a href="/new">Print a program that outlines itself</a>,
               if you don't have one already.</p>
 
-            <img height="300" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
-              style="border: 2px solid black;">
+            <p>Fold the program in half if you want half-height programs. Measure the inner tag side length and tag distances to the edges of the sheet:</p>
+            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
+              style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>
-              <li>Left: <input id="left-mm" type="text"></li>
-              <li>Left: <input id="right-mm" type="text"></li>
-              <li>Left: <input id="top-mm" type="text"></li>
-              <li>Left: <input id="bottom-mm" type="text"></li>
+              <li style="color: red">Left: <input id="left-mm" type="text"></li>
+              <li style="color: red">Right: <input id="right-mm" type="text"></li>
+              <li style="color: blue">Top: <input id="top-mm" type="text"></li>
+              <li style="color: blue">Bottom: <input id="bottom-mm" type="text"></li>
             </ul>
 
             <details>
@@ -445,9 +476,14 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <li>
             <h3>Test calibration.</h3>
 
-            <p>The best way to test calibration is to 
-              and see how well the projected outline lines up with the
-              physical edge of the page.</p>
+            <p>The best way to test calibration is to look at your
+              printed program and see how well the projected outline
+              lines up with the physical edge of your program.</p>
+
+            <p>Again, if you have a bad calibration, you can try just
+            calibrating again. (Just scroll back up and click Start
+            Calibration. You don't need to redo any of the steps
+            before or after.)</p>
           </li>
         </ol>
 
