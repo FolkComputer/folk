@@ -105,7 +105,7 @@ namespace eval keymap {
         set kk "$code $mod"
 
         if {![dict exists $ksyms $kk]} return
-        return [list [dict get $ksyms $kk] [dict_getdef $chars $kk ""]]
+        return [list [dict get $ksyms $kk] [dict getdef $chars $kk ""]]
     }
 
     proc dump {km} {
@@ -115,7 +115,7 @@ namespace eval keymap {
         set mods [_fillRange $range]
         puts $ksyms
         for {set code 1} {$code < 256} {incr code} {
-            set out [lmap mod $mods {dict_getdef $ksyms "$code $mod" VoidSymbol}]
+            set out [lmap mod $mods {dict getdef $ksyms "$code $mod" VoidSymbol}]
             puts "keycode $code = [join $out \t]"
         }
     }
