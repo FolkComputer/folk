@@ -358,8 +358,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Jim_Obj* lambdaObj = Jim_NewStringObj(interp, lambda, -1);
     Jim_Obj* lambdaBody = Jim_ListGetIndex(interp, lambdaObj, 1);
     Jim_SetSourceInfo(interp, lambdaBody,
-                      Jim_NewStringObj(interp, statementSourceFileName(stmt), -1),
-                      statementSourceLineNumber(stmt));
+                      Jim_NewStringObj(interp, statementSourceFileName(when), -1),
+                      statementSourceLineNumber(when));
     Jim_Obj* applyLambda[] = {
         Jim_NewStringObj(interp, "apply", -1),
         lambdaObj
