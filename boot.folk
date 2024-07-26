@@ -1,14 +1,9 @@
 puts Boot
 
-Assert! when /this/ has program /__program/ {{this __program} {
-    apply $__program $this
-}} with environment {}
-
-# I like having the program code in this intermediate statement so
-# it's easy to query, rather than wrapping it in a lambda immediately
-# on reading the virtual program file.
 Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {
-    Claim $__this has program [list {this} $__programCode]
+    set __programCode [info source $__programCode $__this 1]
+
+    apply [list {this} $__programCode] $__this
 }} with environment {}
 
 proc LoadProgram! {programFilename} {
