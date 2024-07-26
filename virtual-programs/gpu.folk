@@ -295,7 +295,7 @@ $gpuc proc init {int displayIdx} void {
         vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
         printf("Gpu: Found %d displays\n", displayCount);
         if (displayCount == 0) {
-            fprintf(stderr, "Gpu: No displays found\n"); exit(1);
+            FOLK_ERROR("Gpu: No displays found");
         }
 
         VkDisplayPropertiesKHR displayProps[displayCount];

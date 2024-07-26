@@ -80,6 +80,8 @@ class C {
         #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
 
+        #define FOLK_ERROR(MSG) do { Jim_SetResultString(interp, MSG, -1); longjmp(__onError, 0); } while (0)
+
         Jim_Obj* Jim_ObjPrintf(const char* format, ...) {
             va_list args;
             va_start(args, format);
