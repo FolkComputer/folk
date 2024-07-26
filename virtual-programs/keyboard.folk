@@ -1,0 +1,146 @@
+# Function to check if the device is a keyboard
+proc isKeyboard {device} {
+    set properties [exec udevadm info --query=property --name=$device]
+    if {$properties eq ""} {
+        return false
+    }
+    set isKeyboard [string match *ID_INPUT_KEYBOARD=1* $properties]
+    return $isKeyboard
+    # TODO: Excluding mice would nice to keey the list of keyboard devices short
+    #       Alas, including mice is necessary for the Logitech K400R keyboard
+    # set isMouse [string match *ID_INPUT_MOUSE=1* $properties]
+    # return [expr {$isKeyboard && !$isMouse}]
+}
+
+####
+# /dev/input/event* addresses are the ground truth for keyboard devices
+#
+# This function goes through each of them and checks if they are keyboards
+proc walkInputEventPaths {} {
+    # set allDevices [glob -nocomplain "/dev/input/event*"]
+    set allDevices [glob -nocomplain "/dev/input/by-path/*"]
+    set keyboards [list]
+    foreach device $allDevices {
+        if {[isKeyboard $device]} {
+            if {[file readable $device] == 0} {
+                puts "Device $device is not readable. Attempting to change permissions."
+                # Attempt to change permissions so that the file can be read
+                exec chmod +r $device
+            }
+            lappend keyboards $device
+        }
+    }
+    return $keyboards
+}
+
+set keyboardDevices [walkInputEventPaths]
+
+Claim the keyboards are $keyboardDevices
+
+# backwards compatibility
+When /page/ is a keyboard with path /keyboard/ {
+    Claim $page is a keyboard with path $keyboard locale us
+}
+
+# go through each keyboard device and start a process that
+foreach keyboard $keyboardDevices {
+    Start process "keyboard-$keyboard" {
+        source "lib/keymap.tcl"
+
+        set cc [c create]
+        $cc include <linux/input.h>
+        $cc include <sys/ioctl.h>
+        $cc include <stdio.h>
+        $cc include <string.h>
+
+        $cc proc ::setGrabDevice {Tcl_Interp* interp char* channelName bool grab} void {
+            FILE* fp;
+            if (Tcl_GetOpenFile(interp, channelName, 0, 1, (ClientData *) &fp) != TCL_OK) {
+                printf("unable to open channel '%s' as file\n'", channelName);
+                return;
+            }
+            ioctl(fileno(fp), EVIOCGRAB, (void*)grab);
+        }
+        $cc compile
+
+        set KEY_STATES [list up down repeat]
+
+        variable ::keyboardChannel [open $keyboard r]
+        chan configure $::keyboardChannel -translation binary
+
+        Wish $::thisProcess shares statements like \
+            [list keyboard /kb/ claims key /k/ is /t/ with /...options/]
+        Wish $::thisProcess receives statements like \
+            [list /someone/ claims /page/ is a keyboard with path $keyboard locale /locale/]
+
+        set ::localKeymaps [dictset create]
+        set ::defaultKeymap [keymap load us]
+        When /page/ is a keyboard with path $keyboard locale /locale/ {
+            set map [keymap load $locale]
+            dictset add ::localKeymaps $map
+            ::setGrabDevice $::keyboardChannel [dictset size $::localKeymaps]
+
+            On unmatch {
+                dictset remove ::localKeymaps $map
+                keymap destroy $map
+                ::setGrabDevice $::keyboardChannel [dictset size $::localKeymaps]
+            }
+        }
+        Step
+
+        variable evtBytes 16
+        variable evtFormat iissi
+        if {[exec getconf LONG_BIT] == 64} {
+            set evtBytes 24
+            set evtFormat wwssi
+        }
+
+        set modifiers [dict map {k v} $keymap::modWeights {set v 0}]
+        while 1 {
+            binary scan [read $::keyboardChannel $evtBytes] $evtFormat \
+                tvSec tvUsec type code value
+
+            if {$type == 0x01} { ;# EV_KEY
+                Step
+
+                lassign [dictset entries $::localKeymaps] activeKeymap
+                if {$activeKeymap eq ""} {
+                    set activeKeymap $::defaultKeymap
+                }
+
+                set mods [+ {*}[dict values $modifiers]]
+                lassign [keymap resolve $activeKeymap $code $mods] key keychar
+                if {$key eq ""} { continue }
+
+                set keyState [lindex $KEY_STATES $value]
+
+                set isDown [expr {$keyState != "up"}]
+                if {[dict exists $keymap::modWeights $key]} {
+                    set weight [dict get $keymap::modWeights $key]
+                    dict set modifiers $key [expr {$isDown * $weight}]
+                }
+
+                set now [clock milliseconds]
+                set options [dict create timestamp $now]
+                if {$keychar ne ""} {
+                    dict set options printable $keychar
+                }
+                Assert keyboard $keyboard claims key $key is $keyState with {*}$options
+
+                # Retract all key events that are more than 5 seconds old.
+                set events [Statements::findMatches \
+                    [list keyboard $keyboard claims key /key/ is /keyState/ with /...options/]]
+                foreach event $events {
+                    dict with event {
+                        set timestamp [dict get $options timestamp]
+                        if {$now - $timestamp > 5000} {
+                            Retract keyboard $keyboard claims key $key is $keyState with {*}$options
+                        }
+                    }
+                }
+
+                Step
+            }
+        }
+    }
+}
