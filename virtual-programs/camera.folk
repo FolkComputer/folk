@@ -287,7 +287,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         proc new {device width height {usesJpegFormat 1}} {
             # TODO: re-add usesJpegFormat
             set camera [cameraOpen $device $width $height]
-            puts stderr "Loaded $camera"
+            puts stderr "camera: Loaded $camera"
             cameraInit $camera
             cameraStart $camera
             # skip 5 frames for booting a cam
