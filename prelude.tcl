@@ -66,10 +66,10 @@ proc When {args} {
 
     if {$negate} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues
+        tailcall Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues
     } else {
         lappend argNames {*}$varNamesWillBeBound
-        Say when {*}$pattern [list $argNames $body] with environment $argValues
+        tailcall Say when {*}$pattern [list $argNames $body] with environment $argValues
     }
 }
 proc On {event args} {

@@ -179,6 +179,16 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Jim_Obj* scriptObj = interp->currentScriptObj;
+    const char* sourceFileName;
+    int sourceLineNumber;
+    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
+        sourceFileName = "<unknown>";
+    }
+    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
+        sourceLineNumber = -1;
+    }
+
     Clause* clause;
     int thread = -1;
     if (Jim_String(argv[1])[0] == '@') {
@@ -202,8 +212,8 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .say = {
            .parent = parent,
            .clause = clause,
-           .sourceFileName = "<unknown>",
-           .sourceLineNumber = -1
+           .sourceFileName = sourceFileName,
+           .sourceLineNumber = sourceLineNumber
        }
     });
 
