@@ -1736,3 +1736,9 @@ namespace eval ::Display {
         Wish to draw an image with x $x y $y image $im radians $radians scale $scale
     }
 }
+
+# HACK: for backward compat
+When display /displayIdx/ has width /displayWidth/ height /displayHeight/ {
+    set ::Display::WIDTH $displayWidth
+    set ::Display::HEIGHT $displayHeight
+}
