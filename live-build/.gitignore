@@ -1,5 +1,5 @@
-folk-amd64.img
-live-image-amd64.img
+*.img
+*.img.zip
 chroot
 binary
 cache
