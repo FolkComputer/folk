@@ -50,8 +50,6 @@ sudo mount -t vfat -o uid=$USER,gid=$USER \
 
 # Copy writable partition content (including Folk repo) into mounted
 # FAT32 filesystem:
-cp -r folk-live/* /mnt/folk-img-writable
-rm /mnt/folk-img-writable/folk/.git
-cp -r .git/modules/folk /mnt/folk-img-writable/folk/.git
+cp -rL folk-live/* /mnt/folk-img-writable
 
 sudo umount /mnt/folk-img-writable
