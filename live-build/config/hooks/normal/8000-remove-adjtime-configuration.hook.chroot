@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+# Reset generated file
+
+cat > /etc/adjtime << EOF
+0.0 0 0.0
+0
+UTC
+EOF

@@ -1,0 +1,60 @@
+# This Folk program will run automatically when Folk starts up.
+
+# Uncomment and set these if you want Folk to connect to your Wi-Fi:
+# set WIFI_SSID "REPLACE_ME_WITH_WIFI_SSID"
+# set WIFI_PASSWORD "REPLACE_ME_WITH_WIFI_PASSWORD"
+
+# Uncomment and set this to set a different hostname:
+# set HOSTNAME "folk-live"
+
+# Uncomment set this to register a network printer (using IPP-Everywhere):
+# set PRINTER_URL "ipp://the-printers-ip.local/ipp/print"
+
+###########################
+
+set errs [list]
+
+try {
+    if {[info exists WIFI_SSID]} {
+        exec iwctl station wlan0 scan
+        exec iwctl --passphrase $WIFI_PASSWORD station wlan0 connect $WIFI_SSID
+    }
+} on error wifierr { lappend errs $wifierr }
+
+try {
+    if {[info exists HOSTNAME]} {
+        exec sudo sed -i "s/folk-live/folk-live $HOSTNAME/" /etc/hosts
+        exec sudo hostnamectl set-hostname $HOSTNAME
+    }
+    exec sudo dhclient
+} on error dherr { lappend errs $dherr }
+
+try {
+    if {[info exists PRINTER_URL]} {
+        exec /usr/sbin/lpadmin -E -p default-printer -v $PRINTER_URL -m everywhere
+        exec lpoptions -d default-printer
+    }
+} on error printererr { lappend errs $printererr }
+
+try {
+    if {[llength [glob -nocomplain "$::env(HOME)/folk-printed-programs/*"]] == 0} {
+        exec rm -rf "$::env(HOME)/folk-printed-programs"
+    }
+    if {![file exists "$::env(HOME)/folk-printed-programs"]} {
+        exec mkdir -p "$::env(HOME)/folk-live/folk-printed-programs"
+        exec ln -s "$::env(HOME)/folk-live/folk-printed-programs" \
+            "$::env(HOME)/folk-printed-programs"
+    }
+} on error pperr { lappend errs $pperr }
+
+When the display /disp/ has width /displayWidth/ height /displayHeight/ {
+    set cx [/ $displayWidth 2.0]; set cy [/ $displayHeight 2.0]
+    Wish to draw text with x $cx y [/ $cy 2.0] text "Welcome to Folk"
+    if {[llength $errs] > 0} {
+        Wish to draw text with x $cx y [+ [/ $cy 2.0] 30] \
+            text "Setup errors:\n---\n[join $errs "\n"]"
+    }
+}
+
+# In fact, any .folk file on this flash drive in / or in a
+# subdirectory of / will automatically get run by Folk.
