@@ -48,8 +48,10 @@ sudo mount -t vfat -o uid=$USER,gid=$USER \
      -o loop,offset=$(($EFI_START_MIB * 1024 * 1024)),rw \
      $FOLK_IMG /mnt/folk-img-writable
 
-# Copy writable partition content (including Folk repo) into mounted
+# Copy writable partition content into mounted FAT32 filesystem:
+cp -r folk-live/* /mnt/folk-img-writable
+# Copy Folk repo itself (excluding .gitignored files) into mounted
 # FAT32 filesystem:
-cp -rL folk-live/* /mnt/folk-img-writable
+git clone .. /mnt/folk-img-writable/folk
 
 sudo umount /mnt/folk-img-writable
