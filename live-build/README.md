@@ -34,7 +34,7 @@ In this live-build/ subdirectory of the Folk repo:
 ```
 # apt install live-build parted dosfstools zip
 $ git submodule update --init
-$ make -C config/includes.chroot_after_packages/home/folk/apriltag libapriltag.a
+$ make -C config/includes.chroot_after_packages/home/folk/apriltag libapriltag.a libapriltag.so
 $ make
 ```
 
