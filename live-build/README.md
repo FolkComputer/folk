@@ -29,9 +29,12 @@ You need to build on a computer running amd64 Debian Bookworm. (Use a
 virtual machine if you need to. A Folk system built by folk-live-build
 itself should work, though, whether on a virtual or physical machine.)
 
+In this live-build/ subdirectory of the Folk repo:
+
 ```
 # apt install live-build parted dosfstools zip
 $ git submodule update --init
+$ make -C config/includes.chroot_after_packages/home/folk/apriltag libapriltag.a
 $ make
 ```
 
