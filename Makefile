@@ -8,9 +8,11 @@ folk: workqueue.c db.c trie.c folk.c vendor/jimtcl/libjim.a
 		workqueue.c db.c trie.c folk.c \
 		-ljim -lm -lssl -lcrypto -lz
 
-.PHONY: test
+.PHONY: test clean
 test: folk
 	./folk test/test.folk
+clean:
+	rm -f folk
 
 debug-attach:
 	lldb --attach-name folk

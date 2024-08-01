@@ -212,7 +212,7 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .say = {
            .parent = parent,
            .clause = clause,
-           .sourceFileName = sourceFileName,
+           .sourceFileName = strdup(sourceFileName),
            .sourceLineNumber = sourceLineNumber
        }
     });
