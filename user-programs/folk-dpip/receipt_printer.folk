@@ -1,13 +1,9 @@
 namespace eval EscPos {
     proc printProgram {id code} {
         set printerSocket [socket 192.168.0.156 9100]
-        # set printerSocket [socket 127.0.0.1 9100]
-        set tagBits [idToAprilTagBits $id]
-        puts "tagBits number of bytes (should be ...20?): [string length $tagBits]" 
 
         fconfigure $printerSocket -translation binary -buffering none
-        # puts -nonewline $printerSocket "[init]\x1d(L\x16\x00\x39\x70\x30\x02\x02\x31\x0a\x00\x0a\x00$tagBits\x1d(L\x02\x00\x30\x32Page $id[feed 4][cut]"
-        puts -nonewline $printerSocket "[init]\x1dv0\x03\x02\x00\x0a\x00[set tagBits][feed 1]$id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])[feed 2]$code[feed 3][cut]"
+        puts -nonewline $printerSocket "[init][tag $id][feed 1]$id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])[feed 2]$code[feed 3][cut]"
         close $printerSocket
     }
 
@@ -23,23 +19,35 @@ namespace eval EscPos {
         return "\x1b\x40"
     }
 
-    proc idToAprilTagBits id {
+    proc raw number {
+        return [format "%c" $number]
+    }
+
+    proc scaledAprilTag {id scale} {
         set tagImage [::tagImageForId $id]
         set tagBits [list]
         for {set y 0} {$y < 10} {incr y} {
-            for {set x 0} {$x < 16} {incr x} {
-                if {$x > 9} {
-                    lappend tagBits 0
-                    continue
+            for {set i 0 } {$i < $scale} {incr i} {
+                for {set x 0} {$x < 10} {incr x} {
+                    set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+                    set bit [!= [image_t data $tagImage $j] 255]
+                    lappend tagBits {*}[lrepeat $scale $bit]
                 }
-                set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-                set bit [!= [image_t data $tagImage $j] 255]
-                lappend tagBits $bit
             }
         }
-        puts "tagBits:"
-        puts [exec fold -w 16 << [join $tagBits ""]]
-        return [binary format B* [join $tagBits ""]]
+        return $tagBits
+    }
+
+    proc tag {id {scale 20}} {
+        set tagImage [::tagImageForId $id]
+        set tagBits [scaledAprilTag $id $scale]
+
+        set width [expr {10 * $scale}]
+        set xL [expr {$width / 8}]   ;# width in bytes (low byte)
+        set yL [expr {$width % 256}] ;# height in lines (low byte)
+        set yH [expr {$width / 256}] ;# height in lines (high byte)
+
+        return "\x1dv0\x03[raw $xL]\x00[raw $yL][raw $yH][binary format B* [join $tagBits ""]]"
     }
 }
 
