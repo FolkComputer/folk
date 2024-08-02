@@ -37,7 +37,7 @@ See <https://folk.computer/pilot/>
 **Experimental:** If you have an amd64 PC, you can use the live USB
 image which has Folk and all dependencies pre-installed.
 
-**See <https://github.com/FolkComputer/folk-live-build/releases> to
+**See <https://github.com/FolkComputer/folk/releases> to
 get the Linux live USB image.**
 
 You can update Folk by running `git pull` in the `folk` subfolder of
