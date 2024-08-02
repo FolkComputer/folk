@@ -3,7 +3,6 @@ ifeq ($(shell uname -s),Linux)
 endif
 folk: workqueue.c db.c trie.c folk.c vendor/jimtcl/libjim.a
 	cc -g -o$@ $(CFLAGS) \
-		-I./vendor/libpqueue/src vendor/libpqueue/src/pqueue.c \
 		-I./vendor/jimtcl -L./vendor/jimtcl \
 		workqueue.c db.c trie.c folk.c \
 		-ljim -lm -lssl -lcrypto -lz
