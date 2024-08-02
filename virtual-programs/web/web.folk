@@ -3,6 +3,8 @@ puts Web
 # HACK
 signal block SIGPIPE
 
+source "lib/ws.tcl"
+
 proc handleConnect {chan addr} {
     fileevent $chan readable [list handleRead $chan $addr]
 }
@@ -55,7 +57,7 @@ proc handleRead {chan addr} {
     gets $chan line; set line [string range $line 0 end-1]
     set firstline $line
 
-    # puts "Http: $chan $addr: $line"
+    puts stderr "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
     set headers [list]
     while true {
         gets $chan line; set line [string range $line 0 end-1]
@@ -129,8 +131,8 @@ proc handleRead {chan addr} {
         close $chan
 
     } elseif {$path eq "/ws"} {
-        puts stderr "web: Request for /ws"
-        websocketUpgrade $chan
+        puts stderr "web: Request for /ws ($headers)"
+        ::websocketUpgrade $chan [dict get $headers Sec-WebSocket-Key]
 
     } else { puts "Closing: $chan $addr $headers"; close $chan }
 }
@@ -144,6 +146,7 @@ while true {
         }]
         break
     } on error e {
+        # Handles failure to bind to :4273. We try again in a second.
         puts stderr "web.folk: $e"
         sleep 1
     }
