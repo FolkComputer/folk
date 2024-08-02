@@ -12,7 +12,7 @@ proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s 
 proc readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
     set fd [open $filename r]
-    fconfigure $fd -encoding binary -translation binary
+    fconfigure $fd -translation binary
     set response [read $fd]; close $fd; return $response
 }
 
@@ -32,6 +32,10 @@ proc handlePage {path httpStatusVar contentTypeVar} {
         }
         "/statements.pdf" {
             getDotAsPdf [Statements::dot] contentType
+        }
+        "/lib/folk.js" {
+            set contentType "text/javascript"
+            readFile "lib/folk.js" contentType
         }
         default {
             upvar $httpStatusVar httpStatus
@@ -66,7 +70,7 @@ proc handleRead {chan addr} {
         }
     }
 
-    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path]} {
+    if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
         set handlers [Query! /someone/ wishes the web server handles route /route/ with handler /handler/]
         try {
@@ -123,6 +127,10 @@ proc handleRead {chan addr} {
             puts -nonewline $chan "Error: $e"
         }
         close $chan
+
+    } elseif {$path eq "/ws"} {
+        puts stderr "web: Request for /ws"
+        websocketUpgrade $chan
 
     } else { puts "Closing: $chan $addr $headers"; close $chan }
 }

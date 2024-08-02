@@ -9,9 +9,7 @@ $ make && ./folk
 ## requirements
 
 on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
-`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`
-
-Clone & build apriltag in home folder
+`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`, `libwslay-dev`
 
 ## todo
 
