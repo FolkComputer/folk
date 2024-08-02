@@ -103,7 +103,22 @@ $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
 $cc endcflags -lwslay
 set wsLib [$cc compile]
 
-proc ::websocketUpgrade {chan acceptKey} {wsLib} {
+package require base64
+
+set cc [C]
+$cc include <openssl/sha.h>
+$cc proc sha1 {char* d} Jim_Obj* {
+    unsigned char md[20];
+    SHA1(d, strlen(d), md);
+    return Jim_NewStringObj(interp, md, 20);
+}
+$cc endcflags -lssl
+set sha1Lib [$cc compile]
+
+proc ::websocketUpgrade {chan clientKey} {wsLib sha1Lib} {
+    set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    set acceptKey [::base64::encode [$sha1Lib sha1 $acceptKeyRaw]]
+
     puts -nonewline $chan "HTTP/1.1 101 Switching Protocols\r
 Upgrade: websocket\r
 Connection: Upgrade\r
