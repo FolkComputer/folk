@@ -180,8 +180,8 @@ if {![catch {package require Trf 2.0}]} {
 	variable i
 
 	set i 0
-	foreach ch {A B C D E F G H I J K L M N O P Q R S T U V W X Y Z \
-		a b c d e f g h i j k l m n o p q r s t u v w x y z \
+	foreach ch {A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+		a b c d e f g h i j k l m n o p q r s t u v w x y z
 		0 1 2 3 4 5 6 7 8 9 + /} {
 	    set base64_tmp($ch) $i
 	    lappend base64_en $ch
