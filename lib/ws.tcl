@@ -5,6 +5,9 @@ $cc include <sys/socket.h>
 $cc include <wslay/wslay.h>
 
 $cc code {
+    // HACK: we should probably use per-context locks instead?
+    pthread_mutex_t wsMutex;
+
     typedef struct WsSession {
         int fd;
         Jim_Obj* onMsgRecv;
@@ -78,6 +81,9 @@ $cc code {
     };
 }
 $cc typedef {struct wslay_event_context*} wslay_event_context_ptr
+$cc proc init {} void {
+    pthread_mutex_init(&wsMutex, NULL);
+}
 $cc proc wsInit {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
     // Convert chan to an int fd:
     FILE* fp = Jim_AioFilehandle(interp, chan);
@@ -96,6 +102,11 @@ $cc proc wsInit {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
     fprintf(stderr, "wsInit\n");
     return ctx;
 }
+
+# You must use these to guard any use of a wslay_event_context_ptr.
+$cc proc wsLock {} void { pthread_mutex_lock(&wsMutex); }
+$cc proc wsUnlock {} void { pthread_mutex_unlock(&wsMutex); }
+
 $cc proc wsReadable {wslay_event_context_ptr ctx} void {
     wslay_event_recv(ctx);
 }
@@ -108,16 +119,28 @@ $cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
 $cc proc wsWantWrite {wslay_event_context_ptr ctx} bool {
     return wslay_event_want_write(ctx);
 }
-$cc proc wsWrite {wslay_event_context_ptr ctx} void {
-    WsSession* session = (WsSession*) user_data;
-    
+
+# This function is designed to be callable from any thread, so
+# arbitrary When bodies can emit data onto the WebSocket (since they
+# may run on any thread).
+$cc proc wsQueueMsg {wslay_event_context_ptr ctx char* data} void {
+    struct wslay_event_msg msg = {
+        .opcode = WSLAY_TEXT_FRAME,
+        .msg = data,
+        .msg_length = strlen(data)
+    };
+    pthread_mutex_lock(&wsMutex);
+    wslay_event_queue_msg(ctx, &msg);
+    pthread_mutex_unlock(&wsMutex);
 }
+
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
     // TODO: free the WsSession
     wslay_event_context_free(ctx);
 }
 $cc endcflags -lwslay
 set wsLib [$cc compile]
+$wsLib init
 
 package require base64
 
@@ -139,14 +162,24 @@ class WsConnection {
     wsLib {}
 }
 WsConnection method onChanReadable {} {
+    $wsLib wsLock
+
     $wsLib wsReadable $ctx
     $self updateChanReadableWritable
+
+    $wsLib wsUnlock
 }
 WsConnection method onChanWritable {} {
+    $wsLib wsLock
+
     $wsLib wsWritable $ctx
     $self updateChanReadableWritable
+
+    $wsLib wsUnlock
 }
 WsConnection method updateChanReadableWritable {} {
+    # WARNING: You must call this method with the wsLock held.
+
     if {[$wsLib wsWantRead $ctx]} {
         $chan readable [list $self onChanReadable]
     } else {

@@ -4,6 +4,9 @@ puts Web
 signal block SIGPIPE
 
 source "lib/ws.tcl"
+# We export wsLib so that other threads can emit messages onto
+# websockets.
+Claim the websocket library is $wsLib
 
 proc handleConnect {chan addr} {
     fileevent $chan readable [list handleRead $chan $addr]
