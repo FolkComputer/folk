@@ -23,7 +23,7 @@ proc walkInputEventPaths {} {
     foreach device $allDevices {
         if {[isKeyboard $device]} {
             if {[file readable $device] == 0} {
-                puts "Device $device is not readable. Attempting to change permissions."
+                puts stderr "keyboard: Device $device is not readable. Attempting to change permissions."
                 # Attempt to change permissions so that the file can be read
                 exec chmod +r $device
             }

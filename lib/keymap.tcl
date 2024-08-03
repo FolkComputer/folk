@@ -43,7 +43,11 @@ namespace eval keymap {
     }
 
     proc load {name} {
-        exec kbd_mode -u $name
+        try {
+            exec kbd_mode -u $name
+        } on error e {
+            puts stderr "keymap: Warning: Could not do `kbd_mode -u $name`"
+        }
         set keytable [exec dumpkeys -kf]
         set unitable [exec dumpkeys -kfn]
 
