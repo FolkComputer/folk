@@ -285,6 +285,13 @@ static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *con
     Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
     return JIM_OK;
 }
+static int __currentMatchIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    MatchRef ref = matchRef(db, self->currentMatch);
+    char ret[100]; snprintf(ret, 100, "m%u:%u", ref.idx, ref.gen);
+    Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
+}
 static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
     Jim_SetResultString(interp, ret, strlen(ret));
@@ -314,6 +321,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentMatchId", __currentMatchIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
