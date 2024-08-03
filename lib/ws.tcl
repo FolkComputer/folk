@@ -55,8 +55,15 @@ $cc code {
     static void on_msg_recv_callback(wslay_event_context_ptr ctx,
                                      const struct wslay_event_on_msg_recv_arg* arg,
                                      void* user_data) {
+        WsSession* session = (WsSession*) user_data;
         if (!wslay_is_ctrl_frame(arg->opcode)) {
-            fprintf(stderr, "Got message: (%s)\n", arg->msg);
+            Jim_Obj* msgObj = Jim_NewStringObj(interp, arg->msg, arg->msg_length);
+            if (Jim_EvalObjPrefix(interp, session->onMsgRecv,
+                                  1, &msgObj) == JIM_ERR) {
+                Jim_MakeErrorMessage(interp);
+                fprintf(stderr, "ws.tcl: on_msg_recv_callback: Error: (%s)\n",
+                        Jim_GetString(Jim_GetResult(interp), NULL));
+            }
         }
     }
 
@@ -101,7 +108,12 @@ $cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
 $cc proc wsWantWrite {wslay_event_context_ptr ctx} bool {
     return wslay_event_want_write(ctx);
 }
+$cc proc wsWrite {wslay_event_context_ptr ctx} void {
+    WsSession* session = (WsSession*) user_data;
+    
+}
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
+    // TODO: free the WsSession
     wslay_event_context_free(ctx);
 }
 $cc endcflags -lwslay
@@ -120,43 +132,59 @@ $cc proc sha1 {char* d} Jim_Obj* {
 $cc endcflags -lssl
 set sha1Lib [$cc compile]
 
-proc ::websocketUpgrade {chan clientKey} {wsLib sha1Lib} {
+class WsConnection {
+    chan {}
+    ctx {}
+
+    wsLib {}
+}
+WsConnection method onChanReadable {} {
+    $wsLib wsReadable $ctx
+    $self updateChanReadableWritable
+}
+WsConnection method onChanWritable {} {
+    $wsLib wsWritable $ctx
+    $self updateChanReadableWritable
+}
+WsConnection method updateChanReadableWritable {} {
+    if {[$wsLib wsWantRead $ctx]} {
+        $chan readable [list $self onChanReadable]
+    } else {
+        $chan readable {}
+    }
+    if {[$wsLib wsWantWrite $ctx]} {
+        $chan writable [list $self onChanWritable]
+    } else {
+        $chan writable {}
+    }
+}
+
+WsConnection method onMsgRecv {msg} {
+    eval $msg
+}
+
+# This class method creates a new WsConnection from an active HTTP
+# channel and key from /ws upgrade request header.
+proc {WsConnection upgrade} {chan clientKey} {wsLib sha1Lib} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     set acceptKey [::base64::encode [$sha1Lib sha1 $acceptKeyRaw]]
 
-    puts -nonewline $chan "HTTP/1.1 101 Switching Protocols\r
+    puts -nonewline $chan \
+        "HTTP/1.1 101 Switching Protocols\r
 Upgrade: websocket\r
 Connection: Upgrade\r
 Sec-WebSocket-Accept: $acceptKey\r
 \r
 "
     $chan ndelay 1
-    set ctx [$wsLib wsInit $chan {
-        puts stderr "ws.tcl: onMsgRecv"
-    }]
 
-    set ::websocketOnChanReadable \
-        [lambda {} {wsLib ctx} {
-            $wsLib wsReadable $ctx
-            $::websocketUpdateChanReadableWritable
-        }]
-    set ::websocketOnChanWritable \
-        [lambda {} {wsLib ctx} {
-            $wsLib wsWritable $ctx
-            $::websocketUpdateChanReadableWritable
-        }]
-    set ::websocketUpdateChanReadableWritable \
-        [lambda {} {wsLib ctx chan} {
-            if {[$wsLib wsWantRead $ctx]} {
-                $chan readable $::websocketOnChanReadable
-            } else {
-                $chan readable {}
-            }
-            if {[$wsLib wsWantWrite $ctx]} {
-                $chan writable $::websocketOnChanWritable
-            } else {
-                $chan writable {}
-            }
-        }]
-    $::websocketUpdateChanReadableWritable
+    set conn [WsConnection new \
+                  [list chan $chan ctx {} wsLib $wsLib]]
+    set ctx [$wsLib wsInit $chan [lambda {msg} {conn} {
+        $conn onMsgRecv $msg
+    }]]
+    $conn eval [list set ctx $ctx]
+
+    $conn updateChanReadableWritable
+    return $conn
 }
