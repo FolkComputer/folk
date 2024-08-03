@@ -1,5 +1,5 @@
 Wish the web server handles route "/keyboards$" with handler {
-    set keyboards [lmap result [Query! /keyboard/ is a keyboard device] {
+    set keyboards [lmap result [Query! /someone/ claims /keyboard/ is a keyboard device] {
         dict get $result keyboard
     }]
     html [subst {
