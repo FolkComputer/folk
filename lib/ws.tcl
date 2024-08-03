@@ -1,5 +1,3 @@
-# ./folk play/ws-play.tcl
-
 set cc [C]
 $cc include <errno.h>
 $cc include <sys/socket.h>
@@ -106,6 +104,7 @@ set wsLib [$cc compile]
 package require base64
 
 set cc [C]
+$cc include <string.h>
 $cc include <openssl/sha.h>
 $cc proc sha1 {char* d} Jim_Obj* {
     unsigned char md[20];
