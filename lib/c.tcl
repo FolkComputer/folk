@@ -538,6 +538,6 @@ proc unknown {cmdName args} {
         }
         $cmdName {*}$args
     } else {
-        error "Unknown: $cmdName"
+        error "Unknown command '$cmdName'"
     }
 }

@@ -135,27 +135,28 @@ Sec-WebSocket-Accept: $acceptKey\r
         puts stderr "ws.tcl: onMsgRecv"
     }]
 
-    set updateChanReadableWritable {}
-    set onChanReadable [lambda {} {wsLib ctx updateChanReadableWritable} {
-        $wsLib wsReadable $ctx
-        $updateChanReadableWritable
-    }]
-    set onChanWritable [lambda {} {wsLib ctx updateChanReadableWritable} {
-        $wsLib wsWritable $ctx
-        $updateChanReadableWritable
-    }]
-    set updateChanReadableWritable \
-        [lambda {} {wsLib ctx chan onChanReadable onChanWritable} {
+    set ::websocketOnChanReadable \
+        [lambda {} {wsLib ctx} {
+            $wsLib wsReadable $ctx
+            $::websocketUpdateChanReadableWritable
+        }]
+    set ::websocketOnChanWritable \
+        [lambda {} {wsLib ctx} {
+            $wsLib wsWritable $ctx
+            $::websocketUpdateChanReadableWritable
+        }]
+    set ::websocketUpdateChanReadableWritable \
+        [lambda {} {wsLib ctx chan} {
             if {[$wsLib wsWantRead $ctx]} {
-                $chan readable $onChanReadable
+                $chan readable $::websocketOnChanReadable
             } else {
                 $chan readable {}
             }
             if {[$wsLib wsWantWrite $ctx]} {
-                $chan writable $onChanWritable
+                $chan writable $::websocketOnChanWritable
             } else {
                 $chan writable {}
             }
         }]
-    $updateChanReadableWritable
+    $::websocketUpdateChanReadableWritable
 }
