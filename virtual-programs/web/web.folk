@@ -136,6 +136,8 @@ proc handleRead {chan addr} {
     } elseif {[info exists path] && $path eq "/ws"} {
         puts stderr "web: Request for /ws ($headers)"
         set ::wsconn [WsConnection upgrade $chan [dict get $headers Sec-WebSocket-Key]]
+        Assert! websocket $chan is connected
+        # TODO: Retract! on disconnect
 
     } else { puts "Closing: $chan $addr $headers"; close $chan }
 }
