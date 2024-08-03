@@ -9,8 +9,6 @@
 #define JIM_EMBEDDED
 #include <jim.h>
 
-#include <pqueue.h>
-
 #include "db.h"
 #include "workqueue.h"
 
