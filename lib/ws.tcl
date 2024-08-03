@@ -95,6 +95,12 @@ $cc proc wsReadable {wslay_event_context_ptr ctx} void {
 $cc proc wsWritable {wslay_event_context_ptr ctx} void {
     wslay_event_send(ctx);
 }
+$cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
+    return wslay_event_want_read(ctx);
+}
+$cc proc wsWantWrite {wslay_event_context_ptr ctx} bool {
+    return wslay_event_want_write(ctx);
+}
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
     wslay_event_context_free(ctx);
 }
@@ -124,9 +130,32 @@ Connection: Upgrade\r
 Sec-WebSocket-Accept: $acceptKey\r
 \r
 "
+    $chan ndelay 1
     set ctx [$wsLib wsInit $chan {
         puts stderr "ws.tcl: onMsgRecv"
     }]
-    $chan readable [list $wsLib wsReadable $ctx]
-    $chan writable [list $wsLib wsWritable $ctx]
+
+    set updateChanReadableWritable {}
+    set onChanReadable [lambda {} {wsLib ctx updateChanReadableWritable} {
+        $wsLib wsReadable $ctx
+        $updateChanReadableWritable
+    }]
+    set onChanWritable [lambda {} {wsLib ctx updateChanReadableWritable} {
+        $wsLib wsWritable $ctx
+        $updateChanReadableWritable
+    }]
+    set updateChanReadableWritable \
+        [lambda {} {wsLib ctx chan onChanReadable onChanWritable} {
+            if {[$wsLib wsWantRead $ctx]} {
+                $chan readable $onChanReadable
+            } else {
+                $chan readable {}
+            }
+            if {[$wsLib wsWantWrite $ctx]} {
+                $chan writable $onChanWritable
+            } else {
+                $chan writable {}
+            }
+        }]
+    $updateChanReadableWritable
 }
