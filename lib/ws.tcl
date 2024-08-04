@@ -1,13 +1,12 @@
 set cc [C]
 $cc include <errno.h>
 $cc include <sys/socket.h>
+$cc include <string.h>
+$cc include <fcntl.h>
 
 $cc include <wslay/wslay.h>
 
 $cc code {
-    // HACK: we should probably use per-context locks instead?
-    pthread_mutex_t wsMutex;
-
     typedef struct WsSession {
         int fd;
         Jim_Obj* onMsgRecv;
@@ -79,12 +78,24 @@ $cc code {
         .on_frame_recv_end_callback = NULL,
         .on_msg_recv_callback = on_msg_recv_callback
     };
+
+    int wsPipeRead;
+    int wsPipeWrite;
 }
 $cc typedef {struct wslay_event_context*} wslay_event_context_ptr
-$cc proc init {} void {
-    pthread_mutex_init(&wsMutex, NULL);
+$cc proc init {Jim_Obj* pipeReadObj Jim_Obj* pipeWriteObj} void {
+    FILE* pipeReadPtr = Jim_AioFilehandle(interp, pipeReadObj);
+    if (pipeReadPtr == NULL) { FOLK_ERROR("ws: pipeReadPtr is null\n"); }
+    wsPipeRead = fileno(pipeReadPtr);
+
+    int flags = fcntl(wsPipeRead, F_GETFL, 0);
+    fcntl(wsPipeRead, F_SETFL, flags | O_NONBLOCK);
+
+    FILE* pipeWritePtr = Jim_AioFilehandle(interp, pipeWriteObj);
+    if (pipeWritePtr == NULL) { FOLK_ERROR("ws: pipeWritePtr is null\n"); }
+    wsPipeWrite = fileno(pipeWritePtr);
 }
-$cc proc wsInit {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
+$cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
     // Convert chan to an int fd:
     FILE* fp = Jim_AioFilehandle(interp, chan);
     if (fp == NULL) {
@@ -103,15 +114,17 @@ $cc proc wsInit {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
     return ctx;
 }
 
-# You must use these to guard any use of a wslay_event_context_ptr.
-$cc proc wsLock {} void { pthread_mutex_lock(&wsMutex); }
-$cc proc wsUnlock {} void { pthread_mutex_unlock(&wsMutex); }
-
 $cc proc wsReadable {wslay_event_context_ptr ctx} void {
-    wslay_event_recv(ctx);
+    int r = wslay_event_recv(ctx);
+    if (r != 0) {
+        fprintf(stderr, "ws: wslay_event_recv: %d\n", r);
+    }
 }
 $cc proc wsWritable {wslay_event_context_ptr ctx} void {
-    wslay_event_send(ctx);
+    int r = wslay_event_send(ctx);
+    if (r != 0) {
+        fprintf(stderr, "ws: wslay_event_send: %d\n", r);
+    }
 }
 $cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
     return wslay_event_want_read(ctx);
@@ -123,15 +136,35 @@ $cc proc wsWantWrite {wslay_event_context_ptr ctx} bool {
 # This function is designed to be callable from any thread, so
 # arbitrary When bodies can emit data onto the WebSocket (since they
 # may run on any thread).
-$cc proc wsQueueMsg {wslay_event_context_ptr ctx char* data} void {
-    struct wslay_event_msg msg = {
-        .opcode = WSLAY_TEXT_FRAME,
-        .msg = data,
-        .msg_length = strlen(data)
-    };
-    pthread_mutex_lock(&wsMutex);
-    wslay_event_queue_msg(ctx, &msg);
-    pthread_mutex_unlock(&wsMutex);
+$cc proc wsEmitMsg {wslay_event_context_ptr ctx char* data} void {
+    uint8_t pipedata[sizeof(ctx) + sizeof(data)];
+    memcpy(&pipedata[0], &ctx, sizeof(ctx));
+    char* datadup = strdup(data);
+    // The datadup string will be freed at the web thread on receipt.
+    memcpy(&pipedata[sizeof(ctx)], &datadup, sizeof(datadup));
+    if (write(wsPipeWrite, pipedata, sizeof(pipedata)) != sizeof(pipedata)) {
+        FOLK_ERROR("ws: wsEmitMsg: write failed\n");
+    }
+}
+
+# This function runs on the web thread.
+$cc proc wsPipeReadMsg {} wslay_event_context_ptr {
+    uint8_t pipedata[sizeof(wslay_event_context_ptr) + sizeof(char*)];
+    if (read(wsPipeRead, pipedata, sizeof(pipedata)) == sizeof(pipedata)) {
+        wslay_event_context_ptr ctx; memcpy(&ctx, &pipedata[0], sizeof(ctx));
+        char* data; memcpy(&data, &pipedata[sizeof(ctx)], sizeof(data));
+
+        struct wslay_event_msg msg = {
+            .opcode = WSLAY_TEXT_FRAME,
+            .msg = data,
+            .msg_length = strlen(data)
+        };
+        wslay_event_queue_msg(ctx, &msg);
+
+        free(data);
+        return ctx;
+    }
+    return NULL;
 }
 
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
@@ -139,8 +172,13 @@ $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
     wslay_event_context_free(ctx);
 }
 $cc endcflags -lwslay
+
 set wsLib [$cc compile]
-$wsLib init
+# This pipe is used so that other threads can queue up messages to
+# send out through WebSockets.
+lassign [pipe] wsPipeRead wsPipeWrite
+
+$wsLib init $wsPipeRead $wsPipeWrite
 
 package require base64
 
@@ -162,24 +200,14 @@ class WsConnection {
     wsLib {}
 }
 WsConnection method onChanReadable {} {
-    $wsLib wsLock
-
     $wsLib wsReadable $ctx
     $self updateChanReadableWritable
-
-    $wsLib wsUnlock
 }
 WsConnection method onChanWritable {} {
-    $wsLib wsLock
-
     $wsLib wsWritable $ctx
     $self updateChanReadableWritable
-
-    $wsLib wsUnlock
 }
 WsConnection method updateChanReadableWritable {} {
-    # WARNING: You must call this method with the wsLock held.
-
     if {[$wsLib wsWantRead $ctx]} {
         $chan readable [list $self onChanReadable]
     } else {
@@ -193,8 +221,21 @@ WsConnection method updateChanReadableWritable {} {
 }
 
 WsConnection method onMsgRecv {msg} {
+    # puts stderr "onMsgRecv ($msg)"
     eval $msg
 }
+
+$wsPipeRead readable [lambda {} {wsLib} {
+    try {
+        while true {
+            set ctx [$wsLib wsPipeReadMsg]
+            set conn [dict get $::wsConnections $ctx]
+            $conn updateChanReadableWritable
+        }
+    } on error e {}
+}]
+
+set ::wsConnections [dict create]
 
 # This class method creates a new WsConnection from an active HTTP
 # channel and key from /ws upgrade request header.
@@ -213,11 +254,12 @@ Sec-WebSocket-Accept: $acceptKey\r
 
     set conn [WsConnection new \
                   [list chan $chan ctx {} wsLib $wsLib]]
-    set ctx [$wsLib wsInit $chan [lambda {msg} {conn} {
+    set ctx [$wsLib wsNew $chan [lambda {msg} {conn} {
         $conn onMsgRecv $msg
     }]]
     $conn eval [list set ctx $ctx]
 
     $conn updateChanReadableWritable
+    dict set ::wsConnections $ctx $conn
     return $conn
 }
