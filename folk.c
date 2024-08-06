@@ -725,14 +725,24 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "%d: ???", threadIndex);
     }
 }
-void trace(char* buf) {
+void trace(const char* format, ...) {
     int traceIdx = traceNextIdx++;
     if (traceIdx == sizeof(traceLog)/sizeof(traceLog[0])) {
         fprintf(stderr, "workerLoop: trace exhausted\n");
+        return;
         /* exit(1); */
     }
-    snprintf(traceLog[traceIdx], sizeof(traceLog[traceIdx]),
-             "%d: %s", self->index, buf);
+
+    char* dest = traceLog[traceIdx];
+    size_t n = sizeof(traceLog[traceIdx]);
+    n -= snprintf(dest, n, "%d: ", self->index);
+
+    dest += sizeof(traceLog[traceIdx]) - n;
+
+    va_list args;
+    va_start(args, format);
+    vsnprintf(dest, n, format, args);
+    va_end(args);
 }
 #endif
 void workerLoop() {
@@ -751,7 +761,7 @@ void workerLoop() {
         // bug).  probably need to make a trace.h?
 
         char buf[1000]; traceItem(buf, sizeof(buf), item);
-        trace(buf);
+        trace("%s", buf);
 #endif
 
         /* if (item.op != NONE && */
