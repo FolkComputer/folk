@@ -503,6 +503,8 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         // Scan the existing statement set for any already-existing
         // matching statements.
         ResultSet* existingMatchingStatements = dbQuery(db, pattern);
+        /* trace("Adding when: existing matches (%d)", */
+        /*       existingMatchingStatements->nResults); */
         for (int i = 0; i < existingMatchingStatements->nResults; i++) {
             pushRunWhenBlock(ref, pattern,
                              existingMatchingStatements->results[i]);
@@ -512,6 +514,8 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern) {
             existingMatchingStatements = dbQuery(db, claimizedPattern);
+            /* trace("Adding when: claimized existing matches (%d)", */
+            /*       existingMatchingStatements->nResults); */
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
                 pushRunWhenBlock(ref, claimizedPattern,
                                  existingMatchingStatements->results[i]);
@@ -547,6 +551,8 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         Clause* whenizedClause = whenizeClause(clause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
+        /* trace("Adding stmt: existing reacting whens (%d)", */
+        /*       existingReactingWhens->nResults); */
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
             // when the time is /t/ /__lambda/ with environment /__env/
@@ -570,6 +576,8 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
+        /* trace("Adding stmt: unclaimized: existing reacting whens (%d)", */
+        /*       existingReactingWhens->nResults); */
         // TODO: lease result statements so they don't get freed?
         // hazard pointer?
         free(unclaimizedClause);
@@ -748,11 +756,27 @@ void trace(const char* format, ...) {
 void workerLoop() {
     for (;;) {
         WorkQueueItem item = workQueueTake(self->workQueue);
+
+        int backoffUs = 1;
         while (item.op == NONE) {
+            // Die if the backoff is too long. Probably the intuition
+            // here is that we die if we've been waiting longer than a
+            // new thread would take to start.
+            if (backoffUs > 5000) {
+                trace("Die");
+                goto die;
+            }
+            if (backoffUs > 1) {
+                usleep(backoffUs);
+            }
+
             // If item is none, then steal from another thread's
             // workqueue:
             int stealee = rand() % threadCount;
             item = workQueueSteal(threads[stealee].workQueue);
+            trace("Stealing!");
+
+            backoffUs *= 2;
         }
 
 #ifdef FOLK_TRACE
@@ -775,6 +799,7 @@ void workerLoop() {
 
         workerRun(item);
     }
+ die:
 }
 void* workerMain(void* arg) {
     workerInit((int) (intptr_t) arg);
