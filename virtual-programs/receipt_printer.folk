@@ -1,5 +1,9 @@
 namespace eval EscPos {
     proc printProgram {id code address} {
+        set folkFile [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+        puts $folkFile $code
+        close $folkFile
+
         set printerSocket [socket $address 9100]
 
         fconfigure $printerSocket -translation binary -buffering none
