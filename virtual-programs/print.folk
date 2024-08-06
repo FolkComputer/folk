@@ -285,12 +285,11 @@ When /someone/ wishes to print program /id/ with /...options/ {
         [list \
             {/someone/ claims /printer/ is a receipt printer} \
             {/someone/ claims /printer/ is the default printer} \
-            {/someone/ claims /printer/ is at /address/} \
         ] {}]
     if {[llength $receiptMatches] > 0} {
         set matchDict [lindex $receiptMatches 0]
-        set address [dict get $matchDict address]
-        ::EscPos::printProgram $id $code $address
+        set printer [dict get $matchDict printer]
+        ::EscPos::printProgram $printer $id $code
         return
     }
 

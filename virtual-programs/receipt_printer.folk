@@ -1,14 +1,34 @@
 namespace eval EscPos {
-    proc printProgram {id code address} {
-        set folkFile [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
-        puts $folkFile $code
-        close $folkFile
+    proc printProgram {printer id code} {
+        writeFolkFile $id $code
+        writeGeomFile $printer $id
+
+        set matches [Statements::findMatches "/someone/ claims $printer is at /address/"]
+        set matchDict [lindex $matches 0]
+        if {![dict exists $matchDict address]} { return }
+        set address [dict get $matchDict address]
 
         set printerSocket [socket $address 9100]
 
         fconfigure $printerSocket -translation binary -buffering none
         puts -nonewline $printerSocket "[init][tag $id][feed 1]$id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])[feed 2]$code[feed 3][cut]"
         close $printerSocket
+    }
+
+    proc writeFolkFile {id code} {
+        set folkFile [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+        puts $folkFile $code
+        close $folkFile
+    }
+
+    proc writeGeomFile {printer id} {
+        set matches [Statements::findMatches "/someone/ claims $printer has tag geometry /geometry/"]
+        set matchDict [lindex $matches 0]
+        if {![dict exists $matchDict geometry]} { return }
+        set geometry [dict get $matchDict geometry]
+        set geomFile [open "$::env(HOME)/folk-printed-programs/$id.folkgeom" w]
+        puts $geomFile $geometry
+        close $geomFile
     }
 
     proc cut {} {
