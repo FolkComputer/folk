@@ -37,8 +37,7 @@ __thread Jim_Interp* interp = NULL;
 Db* db;
 
 #ifdef FOLK_TRACE
-WorkQueueItem trace[50000];
-int traceThreadIndex[50000];
+char traceLog[50000][1000];
 int _Atomic traceNextIdx = 0;
 #endif
 
@@ -497,8 +496,6 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 // respect to any pertinent existing statements. Should be called with
 // the database lock held.
 static void reactToNewStatement(StatementRef ref, Clause* clause) {
-    // TODO: implement collected matches
-
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
@@ -523,6 +520,25 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         }
     }
 
+    // Add to DB <Claim Omar is a person>
+    // Add to DB <When /someone/ is a person { ... }>
+    // React to <Claim Omar is a person>: finds When -> evals
+    // React to <When /someone/ is a person>: finds Claim -> evals (DOUBLE EVAL)
+
+    // (is the double eval even bad?)
+
+    // what is the cause of the skip behavior where program code
+    // claims don't even have children?
+
+    // FIXME: What if a when is added that matches us at this point?
+    // We're already in the DB, so the when will fire itself with
+    // respect to us in the DB, but we'll also see it here, so we'll
+    // fire with respect to it in the DB.
+
+    // Solution? Some kind of lookaside buffer with a list of patterns
+    // that are being contended over? Some kind of locks? Reversible
+    // transactions? Like is this whole thing a transaction.
+    
     // Trigger any already-existing reactions to the addition of this
     // statement (look for Whens that are already in the database).
     {
@@ -531,8 +547,6 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         Clause* whenizedClause = whenizeClause(clause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
-        // TODO: lease result statements so they don't get freed?
-        // hazard pointer?
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
             // when the time is /t/ /__lambda/ with environment /__env/
@@ -681,6 +695,46 @@ void workerInit(int index) {
 
     interpBoot();
 }
+#ifdef FOLK_TRACE
+extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
+void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
+    int threadIndex = self->index;
+    if (item.op == ASSERT) {
+        snprintf(buf, bufsz, "Assert (%.100s)",
+                 clauseToString(item.assert.clause));
+    } else if (item.op == RETRACT) {
+        snprintf(buf, bufsz, "Retract (%.100s)",
+                 clauseToString(item.retract.pattern));
+    } else if (item.op == HOLD) {
+        snprintf(buf, bufsz, "Hold (%.100s) (%lld) (%.100s)",
+                 item.hold.key, item.hold.version,
+                 clauseToString(item.hold.clause));
+    } else if (item.op == SAY) {
+        snprintf(buf, bufsz, "Say (%.100s)",
+                 clauseToString(item.say.clause));
+    } else if (item.op == RUN) {
+        Statement* stmt = statementUnsafeGet(db, item.run.stmt);
+        snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
+                 clauseToString(item.run.whenPattern),
+                 stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+    } else if (item.op == REMOVE_PARENT) {
+        Statement* stmt = statementUnsafeGet(db, item.removeParent.stmt);
+        snprintf(buf, bufsz, "%d: Remove Parent (%.100s)", threadIndex,
+                 stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+    } else {
+        snprintf(buf, bufsz, "%d: ???", threadIndex);
+    }
+}
+void trace(char* buf) {
+    int traceIdx = traceNextIdx++;
+    if (traceIdx == sizeof(traceLog)/sizeof(traceLog[0])) {
+        fprintf(stderr, "workerLoop: trace exhausted\n");
+        /* exit(1); */
+    }
+    snprintf(traceLog[traceIdx], sizeof(traceLog[traceIdx]),
+             "%d: %s", self->index, buf);
+}
+#endif
 void workerLoop() {
     for (;;) {
         WorkQueueItem item = workQueueTake(self->workQueue);
@@ -692,15 +746,12 @@ void workerLoop() {
         }
 
 #ifdef FOLK_TRACE
-        int traceIdx = traceNextIdx++;
-        if (traceIdx == sizeof(trace)/sizeof(trace[0])) {
-            fprintf(stderr, "workerLoop: trace exhausted\n");
-            /* exit(1); */
-        }
-        if (traceIdx < sizeof(trace)/sizeof(trace[0])) {
-            trace[traceIdx] = item;
-            traceThreadIndex[traceIdx] = self->index;
-        }
+        // TODO: also trace suboperations (like whether statement
+        // addition reacts properly, to track down the dropped-program
+        // bug).  probably need to make a trace.h?
+
+        char buf[1000]; traceItem(buf, sizeof(buf), item);
+        trace(buf);
 #endif
 
         /* if (item.op != NONE && */

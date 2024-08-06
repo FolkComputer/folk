@@ -3,52 +3,16 @@ set traceLib [apply {{} {
     $cc cflags -I.
     $cc include "workqueue.h"
     $cc code {
-        extern WorkQueueItem trace[];
-        extern int traceThreadIndex[];
+        extern char traceLog[50000][1000];
         extern int _Atomic traceNextIdx;
         extern Db* db;
-
-        extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
     }
     $cc proc getTrace {} Jim_Obj* {
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
         int traceMaxIdx = traceNextIdx;
 
-        static char buf[1000];
         for (int i = 0; i < traceMaxIdx; i++) {
-            int threadIndex = traceThreadIndex[i];
-            WorkQueueItem item = trace[i];
-            if (item.op == ASSERT) {
-                snprintf(buf, sizeof(buf), "%d: Assert (%.100s)",
-                         threadIndex,
-                         clauseToString(item.assert.clause));
-            } else if (item.op == RETRACT) {
-                snprintf(buf, sizeof(buf), "%d: Retract (%.100s)",
-                         threadIndex,
-                         clauseToString(item.retract.pattern));
-            } else if (item.op == HOLD) {
-                snprintf(buf, sizeof(buf), "%d: Hold (%.100s) (%lld) (%.100s)",
-                         threadIndex,
-                         item.hold.key, item.hold.version,
-                         clauseToString(item.hold.clause));
-            } else if (item.op == SAY) {
-                snprintf(buf, sizeof(buf), "%d: Say (%.100s)",
-                         threadIndex,
-                         clauseToString(item.say.clause));
-            } else if (item.op == RUN) {
-                Statement* stmt = statementUnsafeGet(db, item.run.stmt);
-                snprintf(buf, sizeof(buf), "%d: Run when (%.100s) (%.100s)",
-                         threadIndex,
-                         clauseToString(item.run.whenPattern),
-                         stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
-            } else if (item.op == REMOVE_PARENT) {
-                Statement* stmt = statementUnsafeGet(db, item.removeParent.stmt);
-                snprintf(buf, sizeof(buf), "%d: Remove Parent (%.100s)", threadIndex,
-                         stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
-            } else {
-                snprintf(buf, sizeof(buf), "%d: ???", threadIndex);
-            }
-            Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, buf, -1));
+            Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, traceLog[i], -1));
         }
         return ret;
     }
