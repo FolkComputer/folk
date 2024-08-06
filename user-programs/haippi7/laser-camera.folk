@@ -23,7 +23,7 @@ On process {
             set tags [::BlobDetect::detect $grayFrame $threshold]
         }]
         
-        Commit {
+        Hold {
             Claim the camera frame is $grayFrame
 
             Claim the camera time is $cameraTime

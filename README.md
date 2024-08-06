@@ -329,7 +329,7 @@ created. Therefore, it will eventually be useful for you to know
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
 These are all implemented in `main.tcl`. For most things, you'll
-probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
+probably only need `Wish`, `Claim`, `When`, and maybe `Hold`.
 
 ### Wish and Claim
 
@@ -428,25 +428,25 @@ cool`.
 first-class object. You can use `&` joins in that pattern as
 well.)
 
-### Commit
+### Hold
 
-Experimental: `Commit` is used to register claims that will stick
-around until you do another `Commit`. You can use this to create the
+Experimental: `Hold` is used to register claims that will stick
+around until you do another `Hold`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Commit { Claim $this has a ball at x 100 y 100 }
+Hold { Claim $this has a ball at x 100 y 100 }
 
 When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Commit { Claim $this has a ball at x $x y [expr {$y+1}] }
+        Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
 ```
 
-`Commit` will overwrite all statements made by the previous `Commit`
+`Hold` will overwrite all statements made by the previous `Hold`
 (scoped to the current `$this`).
 
 **Notice that you should scope your claim: it's `$this has a ball`, not `there
@@ -459,13 +459,13 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Commit ball position {
+Hold ball position {
   Claim $this has a ball at blahblah
 }
 ```
 
-and then future commits with that key, `ball position`, will
-overwrite this statement but not override different commits with
+and then future holds with that key, `ball position`, will
+overwrite this statement but not override different holds with
 different keys
 
 (there's currently no way to overwrite state from other pages, but we
@@ -475,24 +475,24 @@ that if it was useful.)
 ### Every time
 
 Experimental: `Every time` works almost like `When`, but it's used to
-commit when an 'event' happens without causing a reaction cascade.
+hold when an 'event' happens without causing a reaction cascade.
 
 **You can't make Claims, Whens, or Wishes inside an `Every time`
-block. You can only Commit.**
+block. You can only Hold.**
 
 Example:
 
 ```
-Commit { Claim $this has seen 0 boops }
+Hold { Claim $this has seen 0 boops }
 
 Every time there is a boop & $this has seen /n/ boops {
-  Commit { Claim $this has seen [expr {$n + 1}] boops }
+  Hold { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
 If you had used `When` here, it wouldn't terminate, since the new
-`$this has seen n+1 boops` commit would cause the `When` to retrigger,
-resulting in a `$this has seen n+2 boops` commit, then another
+`$this has seen n+1 boops` hold would cause the `When` to retrigger,
+resulting in a `$this has seen n+2 boops` hold, then another
 retrigger, and so on.
 
 `Every time`, in contrast, will 'only react once' to the boop; nothing

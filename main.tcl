@@ -183,9 +183,9 @@ proc After {n unit body} {
         }]] {*}$argValues]
     } else { error }
 }
-set ::committed [dict create]
-set ::toCommit [dict create]
-proc Commit {args} {
+set ::held [dict create]
+set ::toHold [dict create]
+proc Hold {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     set key [list]
     set body [lindex $args end]
@@ -201,10 +201,10 @@ proc Commit {args} {
             lappend key $arg
         }
     }
-    set key [list Commit $this {*}$key]
+    set key [list Hold $this {*}$key]
 
     if {$body eq ""} {
-        dict set ::toCommit $key $body
+        dict set ::toHold $key $body
     } else {
         if {$isNonCapturing} {
             set argNames {}
@@ -213,8 +213,16 @@ proc Commit {args} {
             lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
         }
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-        dict set ::toCommit $key $lambda
+        dict set ::toHold $key $lambda
     }
+}
+
+proc Commit {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set w "Commit was deprecated in July 2024; use Hold instead"
+    Claim $this has warning $w with info $w
+
+    uplevel [list Hold {*}$args]
 }
 
 set ::stepCount 0
@@ -228,22 +236,22 @@ proc StepImpl {} {
     # Receive statements from all peers.
     foreach peerNs [namespace children ::Peers] {
         upvar ${peerNs}::process peer
-        Commit $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+        Hold $peer [list Say $peer is sharing statements [${peerNs}::receive]]
     }
 
-    while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        dict for {key lambda} $::toCommit {
+    while {[dict size $::toHold] > 0 || ![Evaluator::LogIsEmpty]} {
+        dict for {key lambda} $::toHold {
             if {$lambda ne ""} {
                 Assert $key has program $lambda
             }
-            if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
-                Retract $key has program [dict get $::committed $key]
+            if {[dict exists $::held $key] && [dict get $::held $key] ne $lambda} {
+                Retract $key has program [dict get $::held $key]
             }
             if {$lambda ne ""} {
-                dict set ::committed $key $lambda
+                dict set ::held $key $lambda
             }
         }
-        set ::toCommit [dict create]
+        set ::toHold [dict create]
         Evaluator::Evaluate
     }
 
@@ -296,7 +304,7 @@ source "lib/math.tcl"
 
 
 # this defines $this in the contained scopes
-# it's also used to implement Commit
+# it's also used to implement Hold
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }}

@@ -1,5 +1,5 @@
 for {set i 0} {$i < 30000} {incr i} {
-    Commit [list Claim the iteration count is $i]
+    Hold [list Claim the iteration count is $i]
     Step
 }
 

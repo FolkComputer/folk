@@ -102,8 +102,8 @@ Wish the web server handles route "/new" with handler {
   const ws = new FolkWS(document.getElementById('status'));
   ws.send(`
     On unmatch {
-      Commit (on $this) region {}
-      Commit (on $this) code {}
+      Hold (on $this) region {}
+      Hold (on $this) code {}
     }
   `);
 
@@ -114,7 +114,7 @@ Wish the web server handles route "/new" with handler {
 
   function handleDrag() {
     let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
-    ws.commit('region', tcl`
+    ws.hold('region', tcl`
       set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
       set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
       proc handleConfigure {program x y w h} {
@@ -132,7 +132,7 @@ Wish the web server handles route "/new" with handler {
   }
   function handleSave() {
     const code = document.getElementById("code").value;
-    ws.commit('code', tcl`
+    ws.hold('code', tcl`
       Claim ${program} has program code ${code}
     `);
   }
