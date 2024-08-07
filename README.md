@@ -45,8 +45,7 @@ the FOLK-LIVE partition once you've flashed the live USB.
 
 ## Manual Linux tabletop installation
 
-Set up [Ubuntu **Server** 23.04 Lunar
-Lobster](https://ubuntu.com/download/server#releases).
+Set up [Ubuntu **Server** 24.04 LTS (Noble Numbat)](https://ubuntu.com/download/server#releases).
 
 (for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
 and get the 64-bit version [also see [this
@@ -68,9 +67,6 @@ if flashing from a Mac])
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. `sudo adduser folk video` & `sudo adduser folk render` & `sudo
-   adduser folk input` (?) & log out and log back in (re-ssh)
-
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
@@ -78,19 +74,11 @@ if flashing from a Mac])
 
    (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 
-   (glslc may not be available if you're not on Ubuntu 23.04; on ARM
-   like Pi 4 you need to build it from source; [binaries are
-   available](https://github.com/google/shaderc/blob/main/downloads.md)
-   otherwise)
-
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
           1. On a Pi 4, if vulkaninfo reports "Failed to detect any
-             valid GPUs in the current config", add
-             `dtoverlay=vc4-fkms-v3d` or `dtoverlay=vc4-kms-v3d` (I
-             think this one is more recommended now?) to the bottom of
-             `/boot/firmware/config.txt` or `/boot/config.txt`,
-             whichever exists
+             valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
+             `/boot/firmware/config.txt`.
              (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
      1. Try `vkcube`:
 
@@ -111,9 +99,8 @@ if flashing from a Mac])
    control --reload-rules && sudo udevadm trigger`
 
 1. Get AprilTags: `cd ~ && git clone
-   https://github.com/FolkComputer/apriltag.git && cd apriltag && make`
-   (you can probably ignore errors at the end of this if they're just
-   for the OpenCV demo)
+   https://github.com/FolkComputer/apriltag.git && cd apriltag && make
+   libapriltag.so libapriltag.a`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
