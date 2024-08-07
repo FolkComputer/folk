@@ -265,16 +265,16 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with /...options/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk0.
+        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with {*}$options]
+        return
+    }
+
     set id [nextId]
     Say $::thisNode wishes to print program $id with code $code {*}$options
 }
 When /someone/ wishes to print program /id/ with /...options/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
-        # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print program $id with {*}$options]
-        return
-    }
-
     set jobid [dict get $options job-id]
     if {[dict exists $::printjobs $jobid]} {return}
     puts "Wish to print jobid $jobid"
