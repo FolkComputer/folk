@@ -363,7 +363,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {
             set frame [Camera::grayFrame $camera]
-            Commit {
+            Hold {
                 Claim camera $cameraPath has camera time $::stepTime
                 Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
             }

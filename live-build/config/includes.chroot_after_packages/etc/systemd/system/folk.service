@@ -1,0 +1,14 @@
+[Unit]
+Description=Folk service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=folk
+ExecStart=make -C /home/folk/folk
+
+[Install]
+WantedBy=multi-user.target

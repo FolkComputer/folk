@@ -184,13 +184,13 @@ proc After {n unit body} {
     } else { error }
 }
 
-set ::holding [dict create]
+set ::held [dict create]
 set ::toHold [dict create]
-# Lower-level version of Commit that takes a single statement instead
+# Lower-level version of Hold that takes a single statement instead
 # of a whole program.
 proc Hold! {key stmt} { dict set ::toHold $key $stmt }
-
-proc Commit {args} {
+# Higher-level version that takes a whole program (may deprecate).
+proc Hold {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     set key [list]
     set body [lindex $args end]
@@ -206,7 +206,7 @@ proc Commit {args} {
             lappend key $arg
         }
     }
-    set key [list Commit $this {*}$key]
+    set key [list Hold $this {*}$key]
 
     if {$body eq ""} {
         Hold! $key {}
@@ -220,6 +220,14 @@ proc Commit {args} {
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
         Hold! $key [list $key has program $lambda]
     }
+}
+
+proc Commit {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set w "Commit was deprecated in July 2024; use Hold instead"
+    Claim $this has warning $w with info $w
+
+    uplevel [list Hold {*}$args]
 }
 
 
@@ -240,10 +248,10 @@ proc StepImpl {} {
     while {[dict size $::toHold] > 0 || ![Evaluator::LogIsEmpty]} {
         dict for {key stmt} $::toHold {
             if {$stmt ne ""} { Assert {*}$stmt }
-            if {[dict exists $::holding $key] && [dict get $::holding $key] ne $stmt} {
-                Retract {*}[dict get $::holding $key]
+            if {[dict exists $::held $key] && [dict get $::held $key] ne $stmt} {
+                Retract {*}[dict get $::held $key]
             }
-            if {$stmt ne ""} { dict set ::holding $key $stmt }
+            if {$stmt ne ""} { dict set ::held $key $stmt }
         }
         set ::toHold [dict create]
         Evaluator::Evaluate
@@ -298,7 +306,7 @@ source "lib/math.tcl"
 
 
 # this defines $this in the contained scopes
-# it's also used to implement Commit
+# it's also used to implement Hold
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }}
