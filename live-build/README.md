@@ -4,7 +4,7 @@ Builds a bootable Folk OS image.
 
 To run Folk on a PC, [download the latest pre-built Folk image for USB
 stick from the Releases
-page.](https://github.com/FolkComputer/folk-live-build/releases)
+page.](https://github.com/FolkComputer/folk/releases)
 Follow the instructions there.
 
 ---
