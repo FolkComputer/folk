@@ -14,7 +14,7 @@
 
 typedef struct ThreadControlBlock {
     int index;
-    pid_t tid;
+    pid_t _Atomic tid;
 
     WorkQueue* workQueue;
 
@@ -686,23 +686,6 @@ void workerRun(WorkQueueItem item) {
     }
 }
 
-void workerPreInit(int index) {
-    threads[index].workQueue = workQueueNew();
-}
-void workerInit(int index) {
-    srand(time(NULL) + index);
-
-    self = &threads[index];
-    self->index = index;
-#ifdef __APPLE__
-    self->tid = pthread_mach_thread_np(pthread_self());
-#else
-    self->tid = gettid();
-#endif
-    pthread_mutex_init(&self->currentItemMutex, NULL);
-
-    interpBoot();
-}
 #ifdef FOLK_TRACE
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
@@ -752,9 +735,13 @@ void trace(const char* format, ...) {
     vsnprintf(dest, n, format, args);
     va_end(args);
 }
+#else
+#define trace(...)
 #endif
+int _Atomic workerWakeups = 0;
 void workerLoop() {
     for (;;) {
+        workerWakeups++;
         WorkQueueItem item = workQueueTake(self->workQueue);
 
         int backoffUs = 1;
@@ -773,17 +760,15 @@ void workerLoop() {
             // If item is none, then steal from another thread's
             // workqueue:
             int stealee = rand() % threadCount;
-            item = workQueueSteal(threads[stealee].workQueue);
+            if (threads[stealee].tid != 0) {
+                item = workQueueSteal(threads[stealee].workQueue);
+            }
             trace("Stealing!");
 
             backoffUs *= 2;
         }
 
 #ifdef FOLK_TRACE
-        // TODO: also trace suboperations (like whether statement
-        // addition reacts properly, to track down the dropped-program
-        // bug).  probably need to make a trace.h?
-
         char buf[1000]; traceItem(buf, sizeof(buf), item);
         trace("%s", buf);
 #endif
@@ -800,11 +785,34 @@ void workerLoop() {
         workerRun(item);
     }
  die:
+    self->tid = 0;
+}
+void workerInit(int index) {
+    srand(time(NULL) + index);
+
+    self = &threads[index];
+    if (self->workQueue == NULL) {
+        self->workQueue = workQueueNew();
+    }
+    self->index = index;
+#ifdef __APPLE__
+    self->tid = pthread_mach_thread_np(pthread_self());
+#else
+    self->tid = gettid();
+#endif
+    pthread_mutex_init(&self->currentItemMutex, NULL);
+
+    interpBoot();
 }
 void* workerMain(void* arg) {
-    workerInit((int) (intptr_t) arg);
+    int index = threadCount++;
+    workerInit(index);
     workerLoop();
     return NULL;
+}
+void workerSpawn() {
+    pthread_t th;
+    pthread_create(&th, NULL, workerMain, NULL);
 }
 
 static void exitHandler() {
@@ -824,19 +832,11 @@ int main(int argc, char** argv) {
     atexit(exitHandler);
 
     int NTHREADS = 8;
-    threadCount = NTHREADS;
+    threadCount = 1; // i.e., this current thread.
 
-    // Initialize all workqueues first, so threads can steal validly
-    // right away.
-    for (int i = 0; i < NTHREADS; i++) {
-        workerPreInit(i);
-    }
-
-    // Spawn NTHREADS-1 workers. 
+    // Spawn NTHREADS-1 workers.
     pthread_t th[NTHREADS];
-    for (int i = 1; i < NTHREADS; i++) {
-        pthread_create(&th[i], NULL, workerMain, (void*) (intptr_t) i);
-    }
+    for (int i = 1; i < NTHREADS; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like

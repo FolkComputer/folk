@@ -1,0 +1,18 @@
+set cc [C]
+$cc code {
+    extern int _Atomic workerWakeups;
+}
+$cc proc manage {} void {
+    if (workerWakeups == 0) {
+        fprintf(stderr, "We're dead!\n");
+    }
+    workerWakeups = 0;
+}
+set threadPoolManagerLib [$cc compile]
+
+while true {
+    # sleep 0.005
+    sleep 1
+
+    $threadPoolManagerLib manage
+}
