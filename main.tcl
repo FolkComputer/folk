@@ -613,7 +613,15 @@ if {[info exists ::entry]} {
     # process.
     set ::thisProcess $::thisNode
 
-    proc ::loadVirtualPrograms {} {
+    proc ::loadVirtualPrograms {{programs ""}} {
+				if {$programs eq ""} {
+					set programs [list {*}[glob virtual-programs/*.folk] \
+					                   {*}[glob virtual-programs/*/*.folk] \
+					                   {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+					                   {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
+					                   {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]]
+				}
+
         set ::rootVirtualPrograms [dict create]
         proc loadProgram {programFilename} {
             # this is a proc so its variables don't leak
@@ -621,11 +629,8 @@ if {[info exists ::entry]} {
             dict set ::rootVirtualPrograms $programFilename [read $fp]
             close $fp
         }
-        foreach programFilename [list {*}[glob virtual-programs/*.folk] \
-                                     {*}[glob virtual-programs/*/*.folk] \
-                                     {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
-                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
-                                     {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
+				
+        foreach programFilename $programs {
             if {[string match "*/_archive/*" $programFilename] ||
                 [string match "*/folk-printed-programs/*" $programFilename]} { continue }
             loadProgram $programFilename

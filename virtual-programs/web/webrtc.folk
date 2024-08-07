@@ -1,0 +1,196 @@
+try {
+  exec gst-webrtc-signalling-server &
+} on error {e} {
+  error "gst-webrtc-signalling-server not found, you probably need to install gst-plugins-rs"
+}
+
+try {
+  exec gst-inspect-1.0 rswebrtc
+} on error {e} {
+  error "gstreamer plugin 'rswebrtc' not found, you probably need to install gst-plugins-rs"
+}
+
+try {
+  exec gst-inspect-1.0 webrtc
+} on error {e} {
+  error "gstreamer plugin 'webrtc' not found, you probably need to install gst-plugins-bad"
+}
+
+When /someone/ wishes /p/ receives webrtc video /feed/ &\
+     /someone/ claims webrtc video /feed/ streams from peer /peer-id/ {
+  set uri gstwebrtc://127.0.0.1:8443?peer-id=${peer-id}
+  When the gstreamer pipeline "uridecodebin uri=$uri" frame is /image/ at /ts/ {
+    Claim $p has webrtc video $feed frame $image at $ts
+  }
+}
+
+When when /p/ has webrtc video /feed/ frame /image/ at /ts/ /lambda/ with environment /e/ {
+  Wish $p receives webrtc video $feed
+}
+
+Wish the web server handles route "/webrtc$" with handler {
+  html {
+    <!DOCTYPE html>
+    <html>
+    <body>
+      <span id="status">Status</span>
+      <h1>active feeds</h1>
+      <div id="feeds">
+      </div>
+
+      <script src="/lib/folk.js"></script>
+      <script>
+        const ws = new FolkWS(document.getElementById('status'));
+        ws.watch('/someone/ wishes /someone/ receives webrtc video /feed/', {
+          add: ({ feed }) => {
+            const link = document.createElement('a');
+            link.id = `feed-${feed}`;
+            link.style = "display: block";
+            link.innerText = `stream to ${feed}`;
+            link.href = `/webrtc/${encodeURIComponent(feed)}/send`;
+            feeds.append(link);
+          },
+          remove: ({ feed }) => document.getElementById(`feed-${feed}`).remove(),
+        });
+      </script>
+    </body>
+    </html>
+  }
+}
+
+Wish the web server handles route {/webrtc/(.*)/send$} with handler {
+  regexp {/webrtc/(.*)/send$} $path -> feed
+  html [format {
+    <!DOCTYPE html>
+    <html style="display: flex; min-height: 100vh">
+    <head>
+    </head>
+    <body style="display: flex; flex-direction: column; flex: 1;">
+      <span id="status">Status</span>
+      <h1>share video to feed %s</h1>
+      <div>
+        <button id="camera-button">start camera</button>
+        <button id="screen-button">start screenshare</button>
+        <button id="stop-button">stop</button>
+      </div>
+      <video style="flex: 1; background: #000; margin: auto; max-width: 100%%;" id="preview"></video>
+
+      <script src="/lib/folk.js"></script>
+      <script src="/vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js"></script>
+      <script>
+        const protocol = window.location.protocol.replace("http", "ws");
+        const api = new GstWebRTCAPI({
+          meta: { name: `WebClient-${Date.now()}` },
+          signalingServerUrl: `${protocol}//${window.location.hostname}:8443/webrtc`,
+        });
+        const ws = new FolkWS(document.getElementById("status"));
+
+        const feed = '%s';
+        let peerId = null;
+        let session;
+
+        const videoElement = document.getElementById("preview");
+
+        api.registerConnectionListener({
+          connected: (clientId) => { peerId = clientId; },
+          disconnected: () => { peerId = null; }
+        });
+
+        const handleStream = (stream) => {
+          const sess = api.createProducerSession(stream);
+
+          if (!sess) {
+            for (const track of stream.getTracks()) {
+              track.stop();
+            }
+            // captureSection.classList.remove("starting");
+            return;
+          }
+
+          sess.addEventListener("error", (event) => console.error(event.message, event.error));
+
+          sess.addEventListener("closed", () => {
+            videoElement.pause();
+            videoElement.srcObject = null;
+            ws.send(tcl`Commit {}`);
+            session = null;
+            // captureSection.classList.remove("has-sess", "starting");
+          });
+
+          sess.addEventListener("stateChanged", (event) => {
+            if ((event.target.state === GstWebRTCAPI.SessionState.streaming)) {
+              videoElement.srcObject = stream;
+              videoElement.play().catch(() => {});
+              // captureSection.classList.remove("starting");
+
+              // sess ready, announce to folk consumers!
+              ws.send(tcl`Commit {
+                Claim webrtc video ${feed} streams from peer ${peerId}
+              }`);
+            }
+          });
+
+          /*
+          sess.addEventListener("clientConsumerAdded", (event) => {
+            if (captureSection._producerSession === sess) {
+              console.info(`client consumer added: ${event.detail.peerId}`);
+            }
+          });
+
+          sess.addEventListener("clientConsumerRemoved", (event) => {
+            if (captureSection._producerSession === sess) {
+              console.info(`client consumer removed: ${event.detail.peerId}`);
+            }
+          });
+          */
+
+          // captureSection.classList.add("has-sess");
+          sess.start();
+          return sess;
+        };
+
+        document.getElementById("stop-button").onclick = (event) => {
+          event.preventDefault();
+          if (session) {
+            session.close();
+          }
+        };
+
+        document.getElementById("camera-button").onclick = (event) => {
+          event.preventDefault();
+          if (session) return;
+
+          session = true;
+          const constraints = { video: true, audio: false };
+          navigator.mediaDevices.getUserMedia(constraints)
+            .then(handleStream)
+            .then(
+              (s) => { session = s; },
+              (error) => {
+                console.error("cannot have access to webcam and microphone", error);
+                session = null;
+              }
+            );
+        };
+
+        document.getElementById("screen-button").onclick = (event) => {
+          event.preventDefault();
+          if (session) return;
+
+          session = true;
+          const constraints = { video: true, audio: false };
+          navigator.mediaDevices.getDisplayMedia(constraints)
+            .then(handleStream)
+            .then(
+              (s) => { session = s; },
+              (error) => {
+                console.error("cannot have access to screen", error);
+                session = null;
+              }
+            );
+        };
+      </script>
+    </body>
+    </html>
+  } $feed $feed]
+}

@@ -75,6 +75,16 @@ namespace eval ::image {
                     image[i][j * 3 + 2] = data[i*bytesPerRow + j*3 + 2];
                 }
             }
+        } else if (components == 4) {
+            image = calloc(height, sizeof (JSAMPROW));
+            for (size_t i = 0; i < height; i++) {
+                image[i] = calloc(width * 3, sizeof (JSAMPLE));
+                for (size_t j = 0; j < width; j++) {
+                    image[i][j * 3 + 0] = data[i*bytesPerRow + j*4];
+                    image[i][j * 3 + 1] = data[i*bytesPerRow + j*4 + 1];
+                    image[i][j * 3 + 2] = data[i*bytesPerRow + j*4 + 2];
+                }
+            }
         } else { exit(1); }
 
       struct jpeg_compress_struct compress;
@@ -106,6 +116,10 @@ namespace eval ::image {
 
         if (components == 3)
             png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        else if (components == 4)
+            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGBA,
                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
                 PNG_FILTER_TYPE_DEFAULT);
         else if (components == 1)
