@@ -475,7 +475,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
                 const scale = e.target.value / 100.0;
                 ws.evaluate(tcl`
-                  {*}\$::CommitDefaultModel \${scale}
+                  {*}\$::HoldDefaultModel \${scale}
                 `);
               });
             </script>
@@ -739,7 +739,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # HACK: This is made a global utility function so it can also be
     # called by the Web page when the user hits the slider to adjust
     # projected tag scale.
-    fn CommitDefaultModel {scale} {
+    fn HoldDefaultModel {scale} {
         # Default model: just makes the tags fill most of the middle
         # of the projector area.
         set tagSideLengthPixels [expr {min($displayWidth/($COLS * ($tagOuterLength + $pad)),
@@ -753,18 +753,18 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             {0 $printedSideLengthM 0 $tagSideLengthPixels}
             {0 0 0 0}
         }]]
-        Commit H_modelToDisplay {
+        Hold H_modelToDisplay {
             # Default model and version: nothing rotated.
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
                 model $baseModel version -1 timestamp [expr {[clock milliseconds] / 1000.0}]
         }
     }
-    set ::CommitDefaultModel ${^CommitDefaultModel}
+    set ::HoldDefaultModel ${^HoldDefaultModel}
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
                          model /anything/ version /anything/ timestamp /anything/ {
-        CommitDefaultModel 1.0
+        HoldDefaultModel 1.0
     }
-    On unmatch { Commit H_modelToDisplay {} }
+    On unmatch { Hold H_modelToDisplay {} }
 
     When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
@@ -903,7 +903,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        Commit H_modelToDisplay {
+        Hold H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
             set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
@@ -999,14 +999,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         lappend ::calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
 
-        # Commit reporting info for the Web page.
+        # Hold reporting info for the Web page.
         set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $::calibrationPoses {subst {
             <li>RMSE [dict_getdef $pose rmse (unavailable)]</li>
         }}] \n]
         [string repeat {<li>Not detected yet</li>} [- 10 [llength $::calibrationPoses]]]
         </ol>"
-        Commit (non-capturing) calibration report \
+        Hold (non-capturing) calibration report \
             [list Claim the calibration report is $calibrationReport]
 
         # If we have enough poses, then stop the calibration process
@@ -1020,7 +1020,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
-            Commit calibration {
+            Hold calibration {
                 Claim the calibration poses are $::calibrationPoses
             }
             Retract /someone/ wishes to calibrate
@@ -1355,7 +1355,7 @@ apply {{this} {
                      $t_cameraToProjector]
 
             puts "Yaml calib ($calibration)"
-            Commit calibration {
+            Hold calibration {
                 Claim the calibration poses are $calibrationPoses
                 Claim the calibration is $calibration
             }
@@ -1364,13 +1364,13 @@ apply {{this} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
             puts "READING CALIB"
-            Commit calibration {
+            Hold calibration {
                 Claim the calibration poses are $calibrationPoses
                 Claim the calibration is $calibration
             }
         } else {
             puts "NO CALIBRATION, JUST CALIB POSES"
-            Commit calibration {
+            Hold calibration {
                 Claim the calibration poses are $calibrationPoses
             }
         }
@@ -1417,7 +1417,7 @@ Projector RMSE [dict_getdef $calibration projector rmse (unavailable)]
 ----
 Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
 </pre>"
-    Commit (non-capturing) calibration report \
+    Hold (non-capturing) calibration report \
         [list Claim the calibration report is $calibrationReport]
 
     When the printed calibration tag size is /tagSizeMm/ mm {
@@ -1480,7 +1480,7 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
         }       
     }
 
-    Commit calibration { Claim the calibration is $calibration }
+    Hold calibration { Claim the calibration is $calibration }
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
@@ -1526,6 +1526,6 @@ apply {{this} {
         puts $fd $defaultGeom; close $fd
     }
 
-    Commit (non-capturing) (on <global>) {default program geometry} \
+    Hold (non-capturing) (on <global>) {default program geometry} \
         [list Claim the default program geometry is $defaultGeom]
 }} $this
