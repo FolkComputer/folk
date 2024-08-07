@@ -65,6 +65,10 @@ typedef struct WorkQueueItem {
 
 typedef struct WorkQueue WorkQueue;
 
+// Global module initialization. Must call first.
+void workQueueInit();
+
+// Constructs a new work queue.
 WorkQueue* workQueueNew();
 
 // Removes the bottom item from work queue:
@@ -75,5 +79,8 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item);
 
 // Removes the top item from work queue:
 WorkQueueItem workQueueSteal(WorkQueue* q);
+
+// Waits on global semaphore for _any_ work queue to get new item.
+void workQueueAwaitAnyPush();
 
 #endif

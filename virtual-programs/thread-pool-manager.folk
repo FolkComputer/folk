@@ -1,12 +1,18 @@
+# The job of this thread pool manager is to replenish the pool of
+# worker waiters so that we can service new work. (Workers may get
+# occupied with infinite loop, blocking on camera, web serving,
+# etc. and basically leave the active pool of waiters, so we need to
+# constantly check that we have enough.)
+
 set cc [C]
 $cc code {
-    extern int _Atomic workerWakeups;
+    extern int _Atomic workerWaiters;
 }
 $cc proc manage {} void {
-    if (workerWakeups == 0) {
-        fprintf(stderr, "We're dead!\n");
+    fprintf(stderr, "workerWaiters: %d\n", workerWaiters);
+    if (workerWaiters < 2) {
+        workerSpawn();
     }
-    workerWakeups = 0;
 }
 set threadPoolManagerLib [$cc compile]
 

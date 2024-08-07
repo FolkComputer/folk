@@ -738,23 +738,23 @@ void trace(const char* format, ...) {
 #else
 #define trace(...)
 #endif
-int _Atomic workerWakeups = 0;
+int _Atomic workerWaiters = 0;
 void workerLoop() {
     for (;;) {
-        workerWakeups++;
         WorkQueueItem item = workQueueTake(self->workQueue);
 
-        int backoffUs = 1;
+        int ntries = 0;
         while (item.op == NONE) {
-            // Die if the backoff is too long. Probably the intuition
-            // here is that we die if we've been waiting longer than a
-            // new thread would take to start.
-            if (backoffUs > 5000) {
-                trace("Die");
-                goto die;
-            }
-            if (backoffUs > 1) {
-                usleep(backoffUs);
+            if (ntries > 3) {
+                if (workerWaiters < 2) {
+                    workerWaiters++;
+                    workQueueAwaitAnyPush();
+                    workerWaiters--;
+                } else {
+                    // we have enough waiters already. die.
+                    trace("Die");
+                    goto die;
+                }
             }
 
             // If item is none, then steal from another thread's
@@ -765,7 +765,7 @@ void workerLoop() {
             }
             trace("Stealing!");
 
-            backoffUs *= 2;
+            ntries++;
         }
 
 #ifdef FOLK_TRACE
@@ -785,6 +785,8 @@ void workerLoop() {
         workerRun(item);
     }
  die:
+    // Note that our workqueue should be empty at this point.
+    fprintf(stderr, "%d: Die\n", self->index);
     self->tid = 0;
 }
 void workerInit(int index) {
@@ -828,6 +830,8 @@ int main(int argc, char** argv) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+
+    workQueueInit();
 
     atexit(exitHandler);
 

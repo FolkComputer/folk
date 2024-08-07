@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <stdatomic.h>
+#include <semaphore.h>
+#include <stdio.h>
 
 #include "workqueue.h"
 
@@ -17,6 +19,14 @@ typedef struct WorkQueue {
     WorkQueueArray* _Atomic array;
 } WorkQueue;
 
+sem_t workQueueSem;
+void workQueueInit() {
+    if (sem_init(&workQueueSem, 0, 0) != 0) {
+        fprintf(stderr, "workqueue: workQueueSem initialization failed\n");
+        exit(1);
+    }
+}
+
 WorkQueue* workQueueNew() {
     WorkQueue* q = (WorkQueue*) calloc(1, sizeof(WorkQueue));
     // default size of WorkQueueArray is 2.
@@ -28,7 +38,6 @@ WorkQueue* workQueueNew() {
     return q;
 }
 
-#include <stdio.h>
 WorkQueueItem workQueueTake(WorkQueue* q) {
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
@@ -97,6 +106,8 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item) {
                           x, memory_order_relaxed);
     atomic_thread_fence(memory_order_release);
     atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
+
+    sem_post(&workQueueSem);
 }
 
 WorkQueueItem workQueueSteal(WorkQueue* q) {
@@ -117,4 +128,8 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
     WorkQueueItem item = *x; free(x);
     return item;
+}
+
+void workQueueAwaitAnyPush() {
+    sem_wait(&workQueueSem);
 }
