@@ -1,0 +1,5 @@
+return
+When /anyone/ wishes /page/ displays keyboard analytics {
+    Wish $page is titled "LOGGING: Keyboard "
+    Wish $page is outlined thick "hsl(0,100%,50%)"
+}

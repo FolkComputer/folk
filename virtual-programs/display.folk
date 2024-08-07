@@ -1745,4 +1745,26 @@ namespace eval ::Display {
     }
 
     Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
+
+    Claim the documentation for color is "
+    # Colors
+    Folk supports all CSS named colors as well as RGB, RGBA, HSL, and hexadecimal colors.
+    ## Color formats:
+    - `hsl(H,S%,L%)` (integer (degrees), percentage (0 - 100), percentage (0 - 100))
+    - `rgb(R,G,B)` (integer 0 - 255)
+    - `rgba(R,G,B,A)` (0 - 255)
+    - `0xRRGGBB` (hexadecimal)
+    - `0xRGB` (hexadecimal, shortened)
+    - `aliceblue` (all CSS 3 named colors)
+    ## Demo program:
+     ```tcl
+     When the clock time is /t/ {
+        for {set i 0} {$i < 36} {incr i} {
+            Wish $this draws a circle with color hsl([expr {$i * 10 + round(sin($t) * 200)}],100%,50%) filled true radius 10 offset [list [* $i -20] 0]
+            Wish $this draws a circle with color rgb([* $i 10],0,0) filled true radius 10 offset [list [* $i -20] 30]
+            Wish $this draws a circle with color 0xC0E filled true radius 10 offset [list [* $i -20] 60]
+        }
+    }
+     ```
+    "
 }
