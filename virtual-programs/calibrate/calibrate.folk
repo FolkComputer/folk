@@ -1474,10 +1474,12 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
                 puts [format "Corner $i (real)  : (%.3f %.3f)" $px $py]
 
                 set v [lindex $projectorVertices $i]
-                lassign [intrinsics project $projectorIntrinsics $v] rpx rpy
+                lassign [intrinsics project $projectorIntrinsics \
+                             $projectorWidth $projectorHeight \
+                             $v] rpx rpy
                 puts [format "Corner $i (reproj): (%.3f %.3f)" $rpx $rpy]
             }
-        }       
+        }
     }
 
     Hold calibration { Claim the calibration is $calibration }

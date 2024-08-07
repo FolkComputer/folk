@@ -321,7 +321,9 @@ When /someone/ wishes /p/ has camera slice & \
     set minX 10000; set minY 10000
     set maxX -10000; set maxY -10000
     foreach v [quad vertices $q] {
-        lassign [intrinsics project $cameraIntrinsics $v] cx cy
+        lassign [intrinsics project $cameraIntrinsics \
+                     [::image width $f] [::image height $f] \
+                     $v] cx cy
         if {$cx < $minX} { set minX $cx }
         if {$cx > $maxX} { set maxX $cx }
         if {$cy < $minY} { set minY $cy }
@@ -331,8 +333,8 @@ When /someone/ wishes /p/ has camera slice & \
     # Clamp to image bounds
     set x [expr {int(max($minX, 0))}]
     set y [expr {int(max($minY, 0))}]
-    set w [expr {int(min(abs($maxX - $x), [image width $f]))}]
-    set h [expr {int(min(abs($maxY - $y), [image height $f]))}]
+    set w [expr {int(min(abs($maxX - $x), [image width $f] - $x))}]
+    set h [expr {int(min(abs($maxY - $y), [image height $f] - $y))}]
 
     # Extract and claim the image for the page
     set subimage [image subimage $f $x $y $w $h]

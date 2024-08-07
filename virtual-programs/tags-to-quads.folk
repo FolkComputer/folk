@@ -34,7 +34,8 @@ namespace eval intrinsics {
         out[0] = (x * (1.0 + D))*fx + cx;
         out[1] = (y * (1.0 + D))*fy + cy;
     }
-    $cc proc project {Intrinsics intr double[3] v} Tcl_Obj* {
+    $cc proc project {Intrinsics intr double width double height
+                      double[3] v} Tcl_Obj* {
         double out[3] = {
             v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
                        0 + v[1]*intr.fy + v[2]*intr.cy,
@@ -44,6 +45,8 @@ namespace eval intrinsics {
         distort(intr.fx, intr.fy, intr.cx, intr.cy,
                 intr.k1, intr.k2,
                 out, out);
+        out[0] *= width / intr.width;
+        out[1] *= height / intr.height;
         Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
         return Tcl_NewListObj(2, retObjs);
     }
@@ -529,10 +532,12 @@ When tag /tag/ has quad /q/ &\
 
 # TODO: Remove this backward compatibility with 2D programs:
 # HACK: For backward compatibility:
-When display /proj/ has intrinsics /projectorIntrinsics/ &\
+When display /proj/ has width /projWidth/ height /projHeight/ &\
+     display /proj/ has intrinsics /projectorIntrinsics/ &\
      tag /tag/ is a tag & /tag/ has quad /q/ {
     set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
-        intrinsics project $projectorIntrinsics $v
+        intrinsics project $projectorIntrinsics \
+            $projWidth $projHeight $v
     }]
 
     set edges [list]
