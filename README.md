@@ -28,7 +28,7 @@ Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 You'll need to set up a dedicated PC to run Folk and connect to
 webcam+projector+printer+etc.
 
-We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 4).
+We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
@@ -45,12 +45,13 @@ the FOLK-LIVE partition once you've flashed the live USB.
 
 ## Manual Linux tabletop installation
 
-Set up [Ubuntu **Server** 24.04 LTS (Noble Numbat)](https://ubuntu.com/download/server#releases).
+On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
+Numbat)](https://ubuntu.com/download/server#releases).
 
-(for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
-and get the 64-bit version [also see [this
+(for a Pi 4/5, use Raspberry Pi Imager and get Raspberry Pi OS Lite
+64-bit version [also see [this
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
-if flashing from a Mac])
+if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
@@ -76,7 +77,7 @@ if flashing from a Mac])
 
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
-          1. On a Pi 4, if vulkaninfo reports "Failed to detect any
+          1. On a Pi, if vulkaninfo reports "Failed to detect any
              valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
              `/boot/firmware/config.txt`.
              (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
@@ -98,9 +99,7 @@ if flashing from a Mac])
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
    control --reload-rules && sudo udevadm trigger`
 
-1. Get AprilTags: `cd ~ && git clone
-   https://github.com/FolkComputer/apriltag.git && cd apriltag && make
-   libapriltag.so libapriltag.a`
+1. Get AprilTags: `cd ~ && git clone https://github.com/FolkComputer/apriltag.git && cd apriltag && make libapriltag.so libapriltag.a`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
