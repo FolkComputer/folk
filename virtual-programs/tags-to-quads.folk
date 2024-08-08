@@ -382,7 +382,7 @@ namespace eval ::quad {
         # of the quad?
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         foreach {direction distance} $args {
-            if {![regexp {([0-9\.]+)(mm|m)?} $distance -> distance unit]} {
+            if {![regexp {([\-0-9\.]+)(mm|m)?} $distance -> distance unit]} {
                 error "quad buffer: Invalid distance $distance"
             }
 
