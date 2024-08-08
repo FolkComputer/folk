@@ -279,6 +279,20 @@ When /someone/ wishes to print program /id/ with /...options/ {
     if {[dict exists $::printjobs $jobid]} {return}
     puts "Wish to print jobid $jobid"
 
+    set code [dict get $options code]
+
+    set receiptMatches [Statements::findMatchesJoining\
+        [list \
+            {/someone/ claims /printer/ is a receipt printer} \
+            {/someone/ claims /printer/ is the default printer} \
+        ] {}]
+    if {[llength $receiptMatches] > 0} {
+        set matchDict [lindex $receiptMatches 0]
+        set printer [dict get $matchDict printer]
+        ::EscPos::printProgram $printer $id $code
+        return
+    }
+
     # find printer & format
     set defaultStatements ""
     if {![dict exists $options printer]} {
@@ -311,7 +325,6 @@ When /someone/ wishes to print program /id/ with /...options/ {
 
     dict set ::printjobs $jobid [list $id $args]
 
-    set code [dict get $options code]
     set ps [programToPs $id $code $format]
 
     # save code and ps to disk
