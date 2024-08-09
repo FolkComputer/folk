@@ -41,7 +41,7 @@ namespace eval c {
     variable nextHandle 0
     proc create {} {
         variable nextHandle
-        set handle "c[incr nextHandle]"
+        set handle "::c[incr nextHandle]"
         uplevel [list namespace eval $handle {
             variable prelude {
                 #include <tcl.h>
@@ -525,8 +525,8 @@ namespace eval c {
                 exec cc -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
-            ::proc import {scc sname as dest} {
-                set scc [namespace origin [namespace qualifiers $scc]::[set $scc]]
+            ::proc import {sccVar sname as dest} {
+                upvar $sccVar scc
                 set procinfo [dict get [set ${scc}::procs] $sname]
                 set rtype [dict get $procinfo rtype]
                 set arglist [dict get $procinfo arglist]
