@@ -71,7 +71,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers console-data kbd`
+   libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
 
    (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 
