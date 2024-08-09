@@ -1,19 +1,5 @@
 if {$::isLaptop} return
 
-if {$::thisNode eq "folk-interact"} {
-    namespace eval ::Camera {
-        variable WIDTH 1920
-        variable HEIGHT 1080
-    }
-} else {
-    namespace eval ::Camera {
-        variable WIDTH 1280
-        variable HEIGHT 720
-    }
-}
-set width $::Camera::WIDTH
-set height $::Camera::HEIGHT
-
 set makeCamera {
     rename [c create] camc
 
@@ -305,13 +291,13 @@ set makeCamera {
             #define folkHeapFree free
         }
     }
-    camc proc newImage {int width int height int components} image_t {
-        uint8_t* data = folkHeapAlloc(width*components*height);
+    camc proc newImage {camera_t* camera int components} image_t {
+        uint8_t* data = folkHeapAlloc(camera->width*components*camera->height);
         return (image_t) {
-            .width = width,
-            .height = height,
+            .width = camera->width,
+            .height = camera->height,
             .components = components,
-            .bytesPerRow = width*components,
+            .bytesPerRow = camera->width*components,
             .data = data
         };
     }
@@ -326,75 +312,73 @@ set makeCamera {
     }
     camc compile
 
-    variable camera
-    proc init {width height {usesJpegFormat 1}} {
-        variable camera
-        variable WIDTH; variable HEIGHT
-        set WIDTH $width; set HEIGHT $height
-        set camera [Camera::cameraOpen "/dev/video0" $width $height $usesJpegFormat]
-        Camera::cameraInit $camera
-        Camera::cameraStart $camera
+    proc new {device width height {usesJpegFormat 1}} {
+        set camera [cameraOpen $device $width $height $usesJpegFormat]
+        cameraInit $camera
+        cameraStart $camera
         # skip 5 frames for booting a cam
         for {set i 0} {$i < 5} {incr i} {
-            Camera::cameraFrame $camera
+            cameraFrame $camera
         }
+        return $camera
     }
-    proc frame {} {
-        variable camera
-        variable WIDTH; variable HEIGHT
+    proc frame {camera} {
         if {![cameraFrame $camera]} {
             error "Failed to capture from camera"
         }
-        set image [newImage $WIDTH $HEIGHT 3]
+        set image [newImage $camera 3]
         cameraDecompressRgb $camera $image
         return $image
     }
-    proc grayFrame {} {
-        variable camera
-        variable WIDTH; variable HEIGHT
-        if {![Camera::cameraFrame $camera]} {
+    proc grayFrame {camera} {
+        if {![cameraFrame $camera]} {
             error "Failed to capture from camera"
         }
-        set image [Camera::newImage $WIDTH $HEIGHT 1]
-        Camera::cameraDecompressGray $camera $image
+        set image [newImage $camera 1]
+        cameraDecompressGray $camera $image
         return $image
     }
 }
 
-Start process "camera" {
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims the camera /...anything/]
+When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+    set width [dict get $options width]
+    set height [dict get $options height]
+    Start process "camera $cameraPath $options" {
+        Wish $::thisProcess shares statements like \
+            [list /someone/ claims camera $cameraPath /...anything/]
 
-    namespace eval Camera $makeCamera
+        namespace eval Camera $makeCamera
 
-    if {[string match "gadget-*" $::thisNode]} {
-        Camera::init $width $height 0
-    } else {
-        Camera::init $width $height 1
-    }
-
-    puts "Camera tid: [getTid] booted at [clock milliseconds]"
-
-    set ::oldFrames [list]
-    When $::thisProcess has step count /c/ {
-        set frame [Camera::grayFrame]
-        Hold {
-            Claim the camera time is $::stepTime
-            Claim the camera frame is $frame at [clock milliseconds]
+        if {[string match "gadget-*" $::thisNode]} {
+            set camera [Camera::new $cameraPath $width $height 0]
+        } else {
+            set camera [Camera::new $cameraPath $width $height 1]
         }
-        lappend ::oldFrames $frame
-        if {[llength $::oldFrames] >= 10} {
-            set ::oldFrames [lassign $::oldFrames oldestFrame]
-            Camera::freeImage $oldestFrame
+
+        # TODO: report actual width and height from v4l2
+        Claim camera $cameraPath has width $width height $height
+
+        puts "camera.folk: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+
+        set ::oldFrames [list]
+        When $::thisProcess has step count /c/ {
+            set frame [Camera::grayFrame $camera]
+            Hold {
+                Claim camera $cameraPath has camera time $::stepTime
+                Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
+            }
+            lappend ::oldFrames $frame
+            if {[llength $::oldFrames] >= 10} {
+                set ::oldFrames [lassign $::oldFrames oldestFrame]
+                Camera::freeImage $oldestFrame
+            }
         }
     }
 }
 
+# TODO: remove this; useful for compatibility with current metrics but
+# doesn't work for multicam
 set ::cameraTime none
-When the camera time is /cameraTime/ {
+When camera /any/ has camera time /cameraTime/ {
     set ::cameraTime $cameraTime
-}
-# For backward compatibility.
-When the camera frame is /grayFrame/ at /timestamp/ {
-    Claim the camera frame is $grayFrame
 }

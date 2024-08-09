@@ -11,9 +11,9 @@ rename unknown _original_unknown
 proc unknown {name args} {
     set err [catch {set fnVar ^$name; upvar $fnVar fn}]
     if {$err == 0 && [info exists fn]} {
-        uplevel [list {*}$fn {*}$args]
+        tailcall {*}$fn {*}$args
     } else {
-        uplevel [list _original_unknown $name {*}$args]
+        tailcall _original_unknown $name {*}$args
     }
 }
 

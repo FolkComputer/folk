@@ -15,7 +15,6 @@ namespace eval statement {
     # statements (which are the parents and children of the match).
 
     variable cc [c create]
-    namespace export $cc
 
     $cc include <string.h>
     $cc include <stdlib.h>
@@ -189,7 +188,7 @@ namespace eval statement {
     }
 
     variable negations [list nobody nothing]
-    variable blanks [list someone something anyone anything]
+    variable blanks [list someone something anyone anything any]
 
     # Splits a pattern by & into subpatterns, like
     #

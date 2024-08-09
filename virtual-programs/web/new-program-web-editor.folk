@@ -115,8 +115,10 @@ Wish the web server handles route "/new" with handler {
   function handleDrag() {
     let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
     ws.hold('region', tcl`
-      set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($Display::HEIGHT) / ${window.innerHeight}))}]
-      set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($Display::WIDTH) / ${window.innerWidth}))}]
+      set dims [lindex [Statements::findMatches [list /someone/ claims display /disp/ has width /displayWidth/ height /displayHeight/]] 0]
+      set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
+      set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
+      set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
       proc handleConfigure {program x y w h} {
         set vertices [list [list [expr {$x+$w}] $y] \
             [list $x $y] \
@@ -141,7 +143,6 @@ Wish the web server handles route "/new" with handler {
     const jobid = String(Math.random());
     ws.send(tcl`Wish to print ${code} with job-id ${jobid}`);
   }
-
   handleDrag();
     </script>
   </body>

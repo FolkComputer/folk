@@ -1,16 +1,24 @@
-When tag /something/ has corners /corners/ {
-    set tagCorners [lmap p $corners {::cameraToProjector $p}]
+When display /proj/ has width /projWidth/ height /projHeight/ &\
+     display /proj/ has intrinsics /projectorIntrinsics/ {
+        
+    When tag /id/ has quad /q/ {
+        # Convert quad to projector coordinates:
+        set tagCorners [lmap v [quad vertices [quad change $q "display $proj"]] {
+            intrinsics project $projectorIntrinsics \
+                $projWidth $projHeight $v
+        }]
 
-    set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
-    set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
+        set vecBottom [sub [lindex $tagCorners 1] [lindex $tagCorners 0]]
+        set vecRight [sub [lindex $tagCorners 2] [lindex $tagCorners 1]]
 
-    set offsets {{-0.5 -0.5} {0.5 -0.5} {0.5 0.5} {-0.5 0.5}}
-    set scales [matmul $offsets [list $vecBottom $vecRight]]
-    set corners [add $tagCorners $scales]
+        set offsets {{-0.5 -0.5} {0.5 -0.5} {0.5 0.5} {-0.5 0.5}}
+        set scales [matmul $offsets [list $vecBottom $vecRight]]
+        set corners [add $tagCorners $scales]
 
-    set p0 [lindex $corners 0]
-    set p1 [lindex $corners 1]
-    set p2 [lindex $corners 2]
-    set p3 [lindex $corners 3]
-    Wish to draw a quad with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black layer 1
+        set p0 [lindex $corners 0]
+        set p1 [lindex $corners 1]
+        set p2 [lindex $corners 2]
+        set p3 [lindex $corners 3]
+        Wish to draw a quad with p0 $p0 p1 $p1 p2 $p2 p3 $p3 color black layer 1
+    }
 }

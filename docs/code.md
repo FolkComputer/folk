@@ -16,9 +16,6 @@
 6. `virtual-programs`
     1. Our own high-level Folk programs
     2. They could be printed out... Perhaps, should be.
-8. `calibrate.tcl`
-    1. Calibrates the `pi` projector and dumps a bunch of homography metadata
-       to disk
 9. `replmain.tcl`
     1. A front-end to the statements database, like `laptop` or `pi`
     2. Should there just be a `/clients` directory, where all of the possible
