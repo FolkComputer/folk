@@ -237,6 +237,9 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
     /* exit(1); */
 }
 
+# TagPose represents a rotation and translation from tag-space (where
+# (0, 0, 0) is the center of the tag) to camera-space (where (0, 0, 0)
+# is the center of the camera lens).
 $cc struct TagPose {
     double R[3][3];
     double t[3][1];
@@ -436,6 +439,7 @@ namespace eval ::quad {
     namespace ensemble create
 }
 
+Claim the tags-to-quads C library is $cc
 $cc compile
 
 When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {

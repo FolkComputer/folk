@@ -547,6 +547,22 @@ Camera Controls
             calibrating again.</p>
           </li>
 
+
+          <li>
+            <h3>Refine calibration on the table.</h3>
+
+            <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
+            <script>
+              document.getElementById('table-refinement-submit').addEventListener('click', (e) => {
+                // TODO: using Assert is a little ugly (it's so it can be
+                // retracted when calibration is done)
+                ws.send(tcl`
+                  Assert \${self} wishes to do table refinement
+                `);
+              });
+            </script>
+          </li>
+
           <li>
             <h3>Measure program geometry.</h3>
 
