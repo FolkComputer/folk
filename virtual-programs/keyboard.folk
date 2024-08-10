@@ -122,7 +122,7 @@ foreach keyboard $keyboardDevices {
 
                 set now [clock milliseconds]
                 set options [dict create timestamp $now]
-                if {$keychar ne ""} {
+                if {$keychar ne "" && $mods <= 1} {
                     dict set options printable $keychar
                 }
                 Assert keyboard $keyboard claims key $key is $keyState with {*}$options
