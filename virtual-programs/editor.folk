@@ -201,7 +201,11 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
 
     if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {
       # handle printable (character) input
-      if {[dict exists $options printable]} {
+      # TODO:
+      # This is a workaround to exclude Control_* characters from being included as printable
+      # The correct fix is to change the keymap to not include Control_* as printable, I think, but
+      # I couldn't figure out how to do that today (Friday, August 09, 2024 | 10:00PM)
+      if {[dict exists $options printable] && ![string match "Control_*" $key]} {
         Hold "cursor$kbPath" {
           Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
           Hold "code$kbPath" {
