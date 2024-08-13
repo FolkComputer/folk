@@ -16,9 +16,34 @@ proc assert condition {
     }
 }
 namespace eval ::library {
-    proc create {{name tclfile} body} {
+    # statics is a list of names to capture from the surrounding
+    # context.
+    proc create {args} {
+        if {[llength $args] == 1} {
+            set name library
+            set body [lindex $args 0]
+            set statics {}
+        } elseif {[llength $args] == 2} {
+            lassign $args name body
+            set statics {}
+        } elseif {[llength $args] == 3} {
+            lassign $args name statics body
+        } else {
+            error "library create: Invalid arguments"
+        }
         set tclfile [file tempfile /tmp/${name}_XXXXXX].tcl
-        set tclfd [open $tclfile w]; puts $tclfd $body; close $tclfd
+
+        set statics [lmap static $statics {list $static [uplevel set $static]}]
+        set tclcode [list apply {{tclfile statics body} {
+            foreach static $statics {
+                lassign $static name value
+                namespace eval ::<library:$tclfile> [list variable $name $value]
+            }
+            namespace eval ::<library:$tclfile> $body
+            namespace eval ::<library:$tclfile> {namespace ensemble create}
+        }} $tclfile $statics $body]
+
+        set tclfd [open $tclfile w]; puts $tclfd $tclcode; close $tclfd
         return "<library:$tclfile>"
     }
     namespace ensemble create
@@ -39,8 +64,7 @@ proc unknown {cmdName args} {
         # Allow Tcl `library create` libraries to be callable from any
         # thread, because we load the library into the Tcl interpreter
         # for a given thread on demand.
-        namespace eval ::<library:$tclfile> [list source $tclfile]
-        namespace eval ::<library:$tclfile> {namespace ensemble create}        
+        source $tclfile
         $cmdName {*}$args
 
     } else {
