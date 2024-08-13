@@ -331,15 +331,17 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
 set poseLib [$cc compile]
 Claim the pose library is $poseLib
 
-namespace eval ::space {
-    set changers [dict create]
+set spaceLib [library create {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::matmul
 
     proc changeableTo {targetSpace changer} {
         list changeableTo $targetSpace $changer
     }
     proc change {sourceSpace targetSpace v} {
         # puts "change $sourceSpace -> $targetSpace ($v)"
-        variable changers
         if {$sourceSpace eq $targetSpace} {
             return $v
         }
@@ -349,30 +351,39 @@ namespace eval ::space {
             set v [{*}$changer $v]
             return [change $changedSpace $targetSpace $v]
         }
-        if {[dict exists $changers $sourceSpace $targetSpace]} {
-            set changer [dict get $changers $sourceSpace $targetSpace]
+        set changers [Query! /someone/ claims the changer \
+                          from space $sourceSpace to space $targetSpace is /changer/]
+        if {[llength $changers] > 0} {
+            set changer [dict get [lindex $changers 0] changer]
+
             return [{*}$changer $v]
         }
-        error "space change: Don't know how to change $sourceSpace to $targetSpace"
+        error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
     }
-    namespace export *
-    namespace ensemble create
-}
+}]
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
-    # HACK: doesn't use db
-    dict set space::changers $camera "display $display" [list apply {{R t v} {
-        add [matmul $R $v] $t
-    }} [dict get $extrinsics R] [dict get $extrinsics t]]
+    Claim the changer from space $camera to space "display $display" is \
+        [list apply [list {R t v} {
+            add [matmul $R $v] $t
+        } $spaceLib] \
+             [dict get $extrinsics R] \
+             [dict get $extrinsics t]]
 }
-set quadLib [library create {
+set quadLib [library create quadLib {spaceLib} {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::matmul
+
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
 
     proc change {q targetSpace} {
+        variable spaceLib
         set sourceSpace [space $q]
         create $targetSpace [lmap v [vertices $q] {
-            ::space change $sourceSpace $targetSpace $v
+            $spaceLib change $sourceSpace $targetSpace $v
         }]
     }
     proc scale {q s} {
@@ -436,9 +447,6 @@ set quadLib [library create {
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
     }
-
-    namespace export *
-    namespace ensemble create
 }]
 
 When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
@@ -495,11 +503,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         Hold! [list tag pose $tag] \
             [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
 
-        set tagToCameraSpaceChanger [list apply {{tagPose v} {
+        set tagToCameraSpaceChanger [list apply [list {tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
             add [matmul $R $v] $t
-        }} $tagPose]
-        set tagSpace [space changeableTo $camera $tagToCameraSpaceChanger]
+        } $spaceLib] $tagPose]
+        set tagSpace [$spaceLib changeableTo $camera $tagToCameraSpaceChanger]
 
         set r [expr {$tagSize / 2}]
         # Vertex order is bottom-left, bottom-right, top-right,
@@ -510,7 +518,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list     $r  [- $r] 0] \
                  [list  [- $r] [- $r] 0]]
 
-        set quad [quad create $tagSpace $vertices]
+        set quad [$quadLib create $tagSpace $vertices]
         Claim tag $tag has quad $quad
     }
 }
@@ -518,11 +526,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 When tag /tag/ has quad /q/ &\
      tag /tag/ has geometry /geom/ {
 
-    set pageQuad [quad buffer $q \
-                      top [dict_getdef $geom top 0] \
-                      right [dict_getdef $geom right 0] \
-                      left [dict_getdef $geom left 0] \
-                      bottom [dict_getdef $geom bottom 0]]
+    set pageQuad [$quadLib buffer $q \
+                      top [dict getdef $geom top 0] \
+                      right [dict getdef $geom right 0] \
+                      left [dict getdef $geom left 0] \
+                      bottom [dict getdef $geom bottom 0]]
     Claim $tag has quad $pageQuad
 
     Claim tag $tag is a tag
@@ -533,7 +541,7 @@ When tag /tag/ has quad /q/ &\
 
     # Claim $tag has quad $q
     # Just uses the outer edge of the tag:
-    # Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
+    # Claim $tag has quad [$quadLib scale $q [expr {10.0 / 6.0}]]
 }
 
 # TODO: Remove this backward compatibility with 2D programs:
@@ -541,8 +549,12 @@ When tag /tag/ has quad /q/ &\
 When display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ &\
      tag /tag/ is a tag & /tag/ has quad /q/ {
-    set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
-        intrinsics project $projectorIntrinsics \
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::sub
+
+    set vertices [lmap v [$quadLib vertices [$quadLib change $q "display $proj"]] {
+        $poseLib project $projectorIntrinsics \
             $projWidth $projHeight $v
     }]
 
