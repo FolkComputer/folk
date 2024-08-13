@@ -17,5 +17,6 @@ When /someone/ wishes to collect matches for /clause/ {
         {*}${Recollect!}
         On unmatch ${Recollect!}
     }
+    {*}${Recollect!}
     On unmatch ${Recollect!}
 }
