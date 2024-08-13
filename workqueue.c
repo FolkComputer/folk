@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdatomic.h>
 #include <semaphore.h>
+#include <fcntl.h>
 #include <stdio.h>
 
 #include "workqueue.h"
@@ -19,10 +20,12 @@ typedef struct WorkQueue {
     WorkQueueArray* _Atomic array;
 } WorkQueue;
 
-sem_t workQueueSem;
+sem_t* workQueueSem;
 void workQueueInit() {
-    if (sem_init(&workQueueSem, 0, 0) != 0) {
-        fprintf(stderr, "workqueue: workQueueSem initialization failed\n");
+    // We use sem_open because sem_init is not supported on macOS.
+    workQueueSem = sem_open("workQueueSem", O_CREAT, 0644, 0);
+    if (workQueueSem == SEM_FAILED) {
+        perror("workqueue: workQueueSem initialization failed");
         exit(1);
     }
 }
@@ -107,7 +110,7 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item) {
     atomic_thread_fence(memory_order_release);
     atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
 
-    sem_post(&workQueueSem);
+    sem_post(workQueueSem);
 }
 
 WorkQueueItem workQueueSteal(WorkQueue* q) {
@@ -131,5 +134,5 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
 }
 
 void workQueueAwaitAnyPush() {
-    sem_wait(&workQueueSem);
+    sem_wait(workQueueSem);
 }
