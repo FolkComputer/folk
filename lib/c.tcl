@@ -129,9 +129,8 @@ class C {
                         $argtype $argname;
                         // First, try to read the obj as a raw pointer.
                         if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
-                            // Now try to coerce to a Tcl object.
-                            __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
-                            $argname = $obj->internalRep.ptrIntValue.ptr;
+                            // No? Then try to coerce to a Tcl object.
+                            $[$self arg $basetype $argname $obj]
                         }
                     }}
                 } else {
@@ -448,6 +447,7 @@ C method proc {name arguments rtype body} {
         set obj [subst {objv\[1 + [llength $loadargs]\]}]
         lappend loadargs [$self arg {*}[typestyle $argtype $argname] $obj]
     }
+    regsub {\[\d*\]} $rtype * decayedRtype
     if {$rtype == "void"} {
         set saverv [subst {
             $cname ([join $argnames ", "]);
@@ -455,7 +455,7 @@ C method proc {name arguments rtype body} {
         }]
     } else {
         set saverv [subst {
-            $rtype rvalue = $cname ([join $argnames ", "]);
+            $decayedRtype rvalue = $cname ([join $argnames ", "]);
             Jim_Obj* robj;
             [$self ret $rtype robj rvalue]
             Jim_SetResult(interp, robj);
@@ -467,7 +467,7 @@ C method proc {name arguments rtype body} {
     dict set procs $name rtype $rtype
     dict set procs $name arglist $arglist
     dict set procs $name code [subst {
-        static $rtype $cname ([join $arglist ", "]) {
+        static $decayedRtype $cname ([join $arglist ", "]) {
             [$self linedirective]
             $body
         }
@@ -477,8 +477,8 @@ C method proc {name arguments rtype body} {
                 Jim_SetResultFormatted(interp, "Wrong number of arguments to $name");
                 return JIM_ERR;
             }
-            int r = setjmp(__onError);
-            if (r != 0) { return JIM_ERR; }
+            int __r = setjmp(__onError);
+            if (__r != 0) { return JIM_ERR; }
 
             [join $loadargs "\n"]
             $saverv
