@@ -7,6 +7,7 @@
 set cc [C]
 $cc code {
     extern int _Atomic workerWaiters;
+    extern void workerSpawn();
 }
 $cc proc manage {} void {
     fprintf(stderr, "workerWaiters: %d\n", workerWaiters);

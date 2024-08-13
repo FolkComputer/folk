@@ -2,6 +2,7 @@ set cc [C]
 $cc include <errno.h>
 $cc include <sys/socket.h>
 $cc include <string.h>
+$cc include <unistd.h>
 $cc include <fcntl.h>
 
 $cc include <wslay/wslay.h>
