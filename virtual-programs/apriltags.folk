@@ -1,7 +1,7 @@
 proc makeAprilTagDetector {TAG_FAMILY} {
     set cc [C]
     $cc cflags -I./vendor/apriltag
-    $cc endcflags ./vendor/apriltag/libapriltag.a
+    $cc endcflags ./vendor/apriltag/libapriltag.so
     $cc include <apriltag.h>
     $cc include <$TAG_FAMILY.h>
     $cc include <math.h>
@@ -44,7 +44,7 @@ proc makeAprilTagDetector {TAG_FAMILY} {
 
             int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
             double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
-            detectionObjs[i] = Jim_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
+            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
                                              det->id,
                                              det->c[0], det->c[1],
                                              det->p[0][0], det->p[0][1],
@@ -76,24 +76,25 @@ set tagFamily "tagStandard52h13"
 # Plain detector. Runs on entire camera frame.
 set detector [makeAprilTagDetector $tagFamily]
 
-When camera /any/ has frame /grayFrame/ at timestamp /any/ {
+When camera /camera/ has frame /grayFrame/ at timestamp /ts/ {
     # Need to have a `detector` object available from all threads,
     # inside this scope.
     set aprilTime [time {
         set tags [$detector detect $grayFrame]
     }]
-    perfEvent didDetect
-    Hold! apriltags [list virtual-program/apriltags.folk claims $this detects tags $tags in time $aprilTime]
+    # perfEvent didDetect
+    Hold! apriltags \
+        [list virtual-program/apriltags.folk claims $this detects tags $tags \
+             on camera $camera at timestamp $ts in time $aprilTime]
 }
 
 ########
 
 # Split detection into individual tag claims:
-When /someone/ detects tags /tags/ in time /aprilTime/ {
-    foreach tag $tags {
-        set id [dict get $tag id]
-        Claim tag $id has center [dict get $tag center] size [dict get $tag size]
-        Claim tag $id has corners [dict get $tag corners]
+When /someone/ detects tags /tags/ on camera /camera/ at timestamp /ts/ in time /aprilTime/ {
+    foreach det $tags {
+        set id [dict get $det id]
+        Claim tag $id has detection $det on camera $camera at timestamp $ts
     }
     # Claim the AprilTag time is $::aprilTime
 }

@@ -316,6 +316,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
+    Claim camera $camera has width $width height $height
     set camObj [Camera::new $camera $width $height 1]
 
     set oldFrames [list]

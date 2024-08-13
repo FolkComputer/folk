@@ -28,9 +28,9 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.a && make CFLAGS=$(CFLAGS) && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.a && make && gdb ./folk -ex=run'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make && gdb ./folk -ex=run'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make -C vendor/jimtcl && make && valgrind --leak-check=yes ./folk'
 
