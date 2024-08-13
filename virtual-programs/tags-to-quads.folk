@@ -1,4 +1,4 @@
-set cc [c create]
+set cc [C]
 
 # Represents camera or projector intrinsics, including the classic
 # intrinsic matrix but also dimensions at which the matrix was created
@@ -22,38 +22,36 @@ $cc struct Intrinsics {
     double k2;
 }
 
-namespace eval intrinsics {
-    set cc [uplevel {set cc}]
-    $cc proc distort {double fx double fy double cx double cy
-                      double k1 double k2
-                      double xy[2] double out[2]} void {
-        double x = (xy[0] - cx)/fx;
-        double y = (xy[1] - cy)/fy;
-        double r2 = x*x + y*y;
-        double D = k1 * r2 + k2 * r2*r2;
-        out[0] = (x * (1.0 + D))*fx + cx;
-        out[1] = (y * (1.0 + D))*fy + cy;
-    }
-    $cc proc project {Intrinsics intr double width double height
-                      double[3] v} Tcl_Obj* {
-        double out[3] = {
-            v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
-                       0 + v[1]*intr.fy + v[2]*intr.cy,
-                       0 +            0 + v[2]
-        };
-        out[0] /= out[2]; out[1] /= out[2];
-        distort(intr.fx, intr.fy, intr.cx, intr.cy,
-                intr.k1, intr.k2,
-                out, out);
-        out[0] *= width / intr.width;
-        out[1] *= height / intr.height;
-        Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
-        return Tcl_NewListObj(2, retObjs);
-    }
-    namespace export *
-    namespace ensemble create
+# Intrinsics helpers:
+$cc proc distort {double fx double fy double cx double cy
+                  double k1 double k2
+                  double xy[2] double out[2]} void {
+    double x = (xy[0] - cx)/fx;
+    double y = (xy[1] - cy)/fy;
+    double r2 = x*x + y*y;
+    double D = k1 * r2 + k2 * r2*r2;
+    out[0] = (x * (1.0 + D))*fx + cx;
+    out[1] = (y * (1.0 + D))*fy + cy;
 }
-
+$cc proc project {Intrinsics intr double width double height
+                  double[3] v} Jim_Obj* {
+    double out[3] = {
+        v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
+                   0 + v[1]*intr.fy + v[2]*intr.cy,
+                   0 +            0 + v[2]
+    };
+    out[0] /= out[2]; out[1] /= out[2];
+    distort(intr.fx, intr.fy, intr.cx, intr.cy,
+            intr.k1, intr.k2,
+            out, out);
+    out[0] *= width / intr.width;
+    out[1] *= height / intr.height;
+    Jim_Obj* retObjs[2] = {
+        Jim_NewDoubleObj(interp, out[0]),
+        Jim_NewDoubleObj(interp, out[1])
+    };
+    return Jim_NewListObj(interp, retObjs, 2);
+}
 $cc proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
                               double* in
@@ -329,6 +327,9 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
     return ret;
 }
 
+set poseLib [$cc compile]
+Claim the pose library is $poseLib
+
 namespace eval ::space {
     set changers [dict create]
 
@@ -362,7 +363,7 @@ When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
         add [matmul $R $v] $t
     }} [dict get $extrinsics R] [dict get $extrinsics t]]
 }
-namespace eval ::quad {
+set quadLib [library create {
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
@@ -437,10 +438,7 @@ namespace eval ::quad {
 
     namespace export *
     namespace ensemble create
-}
-
-Claim the tags-to-quads C library is $cc
-$cc compile
+}]
 
 When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
@@ -480,12 +478,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
         if {![info exists prevTagPose]} {
-            set prevTagPose [baseEstimateTagPose $cameraIntrinsics \
+            set prevTagPose [$poseLib baseEstimateTagPose $cameraIntrinsics \
                                  $cameraWidth $cameraHeight \
                                  $tagSize [dict get $det p]]
         }
 
-        set tagPose [servoingEstimateTagPose $cameraIntrinsics \
+        set tagPose [$poseLib servoingEstimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
                          $tagSize $prevTagPose \
                          [dict get $det p]]
