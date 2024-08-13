@@ -22,8 +22,11 @@ sync:
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
 		. $(FOLK_REMOTE_NODE):~/folk2 \
 		--delete-after
-setup-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt install libssl-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
+setup-remote:
+	ssh-copy-id $(FOLK_REMOTE_NODE)
+	make sync
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
+
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.a && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
