@@ -49,14 +49,14 @@ proc csubst {s} {
     join $result ""
 }
 ::proc cstyle {type name} {
-    if {[regexp {([^\[]+)(\[\d*\])$} $type -> basetype arraysuffix]} {
+    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
         list $basetype $name$arraysuffix
     } else {
         list $type $name
     }
 }
 ::proc typestyle {type name} {
-    if {[regexp {([^\[]+)(\[\d*\])$} $name -> basename arraysuffix]} {
+    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
         list $type$arraysuffix $basename
     } else {
         list $type $name
@@ -140,7 +140,7 @@ class C {
                         __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
                     }}
                 }
-            } elseif {[regexp {([^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
                 # note: arraylen can be ""
                 if {$basetype eq "char"} { expr {{
                     char $argname[$arraylen]; memcpy($argname, Jim_String($obj), $arraylen);
@@ -154,6 +154,17 @@ class C {
                         }
                     }
                 }} }
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                expr {{
+                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$[set argname]_objc][$arraylen2];
+                    {
+                        for (int i = 0; i < $[set argname]_objc; i++) {
+                            $[$self arg $basetype\[\] ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
+                            memcpy(${argname}[i], ${argname}_i, sizeof(${argname}_i));
+                        }
+                    }
+                }}
             } else {
                 error "Unrecognized argtype $argtype"
             }
@@ -182,7 +193,7 @@ class C {
         default {
             if {[string index $rtype end] == "*"} {
                 expr {{ $robj = Jim_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
-            } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                 if {$basetype eq "char"} { expr {{
                     $robj = Jim_ObjPrintf($rvalue);
                 }} } else { expr {{
@@ -194,7 +205,17 @@ class C {
                         $robj = Jim_NewListObj(interp, objv, $arraylen);
                     }
                 }} }
-            } else {
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
+                    {
+                        Jim_Obj* objv[$arraylen];
+                        for (int i = 0; i < $arraylen; i++) {
+                            $basetype* rrow = $rvalue[i];
+                            Jim_Obj** objrow = &objv[i];
+                            $[$self ret ${basetype}\[${arraylen2}\] *objrow rrow]
+                        }
+                        $robj = Jim_NewListObj(interp, objv, $arraylen);
+                    }
+            }} } else {
                 error "Unrecognized rtype $rtype"
             }
         }
@@ -371,20 +392,25 @@ C method struct {type fields} {
     foreach {fieldtype fieldname} $fields {
         try {
             if {$fieldtype ne "Jim_Obj*" &&
-                [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                 if {$basefieldtype eq "char"} {
                     $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
-                    $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
-                        __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
-                        return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                    if {$arraylen2 eq ""} {
+                        $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                            __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
+                            return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                        }
+                        set elementtype $basefieldtype
+                    } else {
+                        set elementtype $basefieldtype\[$arraylen2\]
                     }
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
-                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $basefieldtype {
+                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
