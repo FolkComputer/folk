@@ -3,7 +3,6 @@
 # We use `apply` to seal this code's local variables in so they don't
 # get captured by any Whens.
 apply {{this} {
-    return
     try {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
         set calibrationPoses [read $fd]; close $fd
