@@ -11,10 +11,43 @@ proc serializeEnvironment {} {
     list $argNames $argValues
 }
 proc assert condition {
-    if {![uplevel 1 expr $condition]} {
+    if {![uplevel [list expr $condition]]} {
         return -code error "assertion failed: $condition"
     }
 }
+namespace eval ::library {
+    proc create {{name tclfile} body} {
+        set tclfile [file tempfile /tmp/${name}_XXXXXX].tcl
+        set tclfd [open $tclfile w]; puts $tclfd $body; close $tclfd
+        return "<library:$tclfile>"
+    }
+    namespace ensemble create
+}
+
+proc unknown {cmdName args} {
+    if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
+        # Allow C libraries to be callable from any thread, because we
+        # load the library into the Tcl interpreter for a given thread
+        # on demand.
+
+        # Is it a C file? load it now.
+        load /tmp/$cid.so
+        proc <C:$cid> {procName args} {cid} { "<C:$cid> $procName" {*}$args }
+        $cmdName {*}$args
+
+    } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
+        # Allow Tcl `library create` libraries to be callable from any
+        # thread, because we load the library into the Tcl interpreter
+        # for a given thread on demand.
+        namespace eval ::<library:$tclfile> [list source $tclfile]
+        namespace eval ::<library:$tclfile> {namespace ensemble create}        
+        $cmdName {*}$args
+
+    } else {
+        error "Unknown command '$cmdName'"
+    }
+}
+
 
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }

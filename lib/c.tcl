@@ -483,7 +483,7 @@ C method compile {} {
                     snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
                     Jim_Eval(interp, script);
 
-                    Jim_CreateCommand(interp, "<$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
+                    Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
             return JIM_OK;
@@ -516,7 +516,7 @@ C method compile {} {
     # HACK: Why do we need this / only when running in lldb?
     while {![file exists [file rootname $cfile].so]} { sleep 0.0001 }
 
-    return <$cid>
+    return <C:$cid>
 }
 
 C method import {scc sname as dest} {
@@ -525,19 +525,4 @@ C method import {scc sname as dest} {
     set arglist [dict get $procinfo arglist]
     set addr [dict get [$scc eval {set addrs}] $sname]
     $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
-}
-
-# Allows C libraries to be callable from any thread, because we load
-# the library into the Tcl interpreter for a given thread on demand.
-proc unknown {cmdName args} {
-    if {[regexp {<(cfile[^ ]+)>} $cmdName -> cid]} {
-        # Is it a C file? load it now.
-        load /tmp/$cid.so
-        proc <$cid> {procName args} {cid} {
-            "<$cid> $procName" {*}$args
-        }
-        $cmdName {*}$args
-    } else {
-        error "Unknown command '$cmdName'"
-    }
 }
