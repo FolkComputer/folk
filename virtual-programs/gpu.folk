@@ -1601,7 +1601,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
     $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
     $gpu imageManagerInit
 
-    Claim the display $displayIdx has width [$gpu get WIDTH] height [$gpu get HEIGHT]
+    Claim display $displayIdx has width [$gpu get WIDTH] height [$gpu get HEIGHT]
 
     # Dictionary where key is pipeline name and value is [list
     # $pipelineSource $compiledPipeline].

@@ -242,15 +242,11 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    set fontResults [Query! /someone/ claims the GPU has font $font with data /fontData/]
-    if {[llength $fontResults] == 0} {
-        throw {DISPLAY FONT {font doesn't exist}} "$font doesn't exist"
+    When the GPU has font $font with data /fontData/ {
+        set instances [$fontLib textShape $fontData $text $x0 $y0 $scale {*}$anchor $radians $color]
+
+        # We need to batch into one wish so we don't deal with n^2
+        # checks for existing statements for n glyphs.
+        Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
     }
-    set fontData [dict get [lindex $fontResults 0] fontData]
-
-    set instances [$fontLib textShape $fontData $text $x0 $y0 $scale {*}$anchor $radians $color]
-
-    # We need to batch into one wish so we don't deal with n^2
-    # checks for existing statements for n glyphs.
-    Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
 }

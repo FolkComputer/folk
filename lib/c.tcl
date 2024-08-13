@@ -130,7 +130,12 @@ class C {
                         // First, try to read the obj as a raw pointer.
                         if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
                             // No? Then try to coerce to a Tcl object.
-                            $[$self arg $basetype $argname $obj]
+#if $[dict exists $objtypes $basetype]
+                                __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
+                                $argname = $obj->internalRep.ptrIntValue.ptr;
+#else
+                                FOLK_ERROR("Unable to convert $[set basetype]");
+#endif
                         }
                     }}
                 } else {
@@ -317,7 +322,7 @@ C method struct {type fields} {
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
     # (by someone else like the statement store).
-    lappend objtypes [csubst {
+    dict set objtypes $type [csubst {
         extern Jim_ObjType $[set type]_ObjType;
         void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
@@ -518,7 +523,7 @@ C method compile {} {
     set sourcecode [join [list \
                               $prelude \
                               {*}$code \
-                              {*}$objtypes \
+                              {*}[dict values $objtypes] \
                               {*}[lmap p [dict values $procs] {dict get $p code}] \
                               $init \
                              ] "\n"]
