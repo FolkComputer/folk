@@ -163,9 +163,9 @@ class C {
                     int $[set argname]_objc = Jim_ListLength(interp, $obj);
                     $basetype $argname[$[set argname]_objc][$arraylen2];
                     {
-                        for (int i = 0; i < $[set argname]_objc; i++) {
-                            $[$self arg $basetype\[\] ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
-                            memcpy(${argname}[i], ${argname}_i, sizeof(${argname}_i));
+                        for (int j = 0; j < $[set argname]_objc; j++) {
+                            $[$self arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
+                            memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
                     }
                 }}
