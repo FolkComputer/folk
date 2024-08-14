@@ -426,9 +426,10 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-(there's currently no way to overwrite state from other pages, but we
-could probably add a way to provide an absolute key that would allow
-that if it was useful.)
+You can overwrite another program's Hold with the `on` parameter, like
+`Hold (on 852) { ... }` (if the Hold is from page 852) or `Hold (on
+virtual-programs/example.folk) { ... }` (if the Hold is from the
+example.folk virtual program)
 
 ### Every time
 
