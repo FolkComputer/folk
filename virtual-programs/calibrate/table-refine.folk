@@ -115,7 +115,7 @@ When the tags-to-quads C library is /quadCc/ {
         matd_t* cRw = matd_create_data(3, 3, (double*) baseBoardPose.R);
         matd_t* ctw = matd_create_data(3, 1, (double*) baseBoardPose.t);
 
-        poseGaussNewton(wX, x, 4, &cRw, &ctw);
+        poseGaussNewton(wX, x, cornersCount, &cRw, &ctw);
 
         TagPose ret;
         memcpy(ret.R, cRw->data, sizeof(ret.R));
