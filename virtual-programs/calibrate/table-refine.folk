@@ -150,6 +150,7 @@ When the calibration unit model is /unitModel/ &\
     }
 
     When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
+        set modelPrintedTagCorners [list]
         set detectedPrintedTagCorners [list]
         foreach tag $tags {
             set id [dict get $tag id]
