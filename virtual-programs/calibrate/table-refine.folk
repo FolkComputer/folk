@@ -42,38 +42,36 @@ When the tags-to-quads C library is /quadCc/ {
     # estimate (which includes multiple tags).
     $cc proc baseEstimateBoardPose {Intrinsics cameraIntrinsics
                                     double cameraWidth double cameraHeight
-                                    double tagSize double[][2] detectedTagCorners
+                                    double[][2] modelTagCorners double[][2] detectedTagCorners
                                     int cornersCount} TagPose {
-        // NOTE: We only use the first 4 corners.
-
-        // We'll fill this in with a new .p and .H with
-        // undistorted/rescaled coordinates.
+        // We'll fill this in with a .H that represents all the corners.
         apriltag_detection_t det;
 
-        // We'll fill in the right side of each correspondence in the
-        // loop.
-        float correspondences[4][4] = {
-            {-1.0f, 1.0f, 0, 0},
-            {1.0f, 1.0f, 0, 0},
-            {1.0f, -1.0f, 0, 0},
-            {-1.0f, -1.0f, 0, 0}
-        };
-        for (int i = 0; i < 4; i++) {
-            rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
-                                detectedTagCorners[i], det.p[i]);
-            correspondences[i][2] = det.p[i][0];
-            correspondences[i][3] = det.p[i][1];
-        }
+        // The normal tag .H homography goes from (+/-1, +/-1) to the
+        // camera-detected tag corners.  We will instead create a
+        // board-wide homography from board meters position to the
+        // camera-detected tag corners.
+        float correspondences[cornersCount][4];
+        for (int i = 0; i < cornersCount; i++) {
+            correspondences[i][0] = modelTagCorners[i][0];
+            correspondences[i][1] = modelTagCorners[i][1];
 
+            double undistortedDetectedTagCorners[2];
+            rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
+                                detectedTagCorners[i],
+                                undistortedDetectedTagCorners);
+            correspondences[i][2] = undistortedDetectedTagCorners[0];
+            correspondences[i][3] = undistortedDetectedTagCorners[1];
+        }
         zarray_t correspondencesArr = {
-            .el_sz = sizeof(float[4]), .size = 4, .alloc = 4,
+            .el_sz = sizeof(float[4]), .size = cornersCount, .alloc = cornersCount,
             .data = (char*) correspondences
         };
         det.H = homography_compute(&correspondencesArr,
                                    HOMOGRAPHY_COMPUTE_FLAG_SVD);
         apriltag_detection_info_t info = {
             .det = &det,
-            .tagsize = tagSize,
+            .tagsize = 2.0, // scale factor = 1.0
             .fx = cameraIntrinsics.fx, .fy = cameraIntrinsics.fy,
             .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
         };
@@ -86,24 +84,17 @@ When the tags-to-quads C library is /quadCc/ {
         memcpy(ret.R, pose.R->data, sizeof(ret.R));
         memcpy(ret.t, pose.t->data, sizeof(ret.t));
 
-        // To turn the tag pose into a board pose, we just translate
-        // from center of tag to top-left corner of tag.
-        ret.t[0][0] -= tagSize / 2.0;
-        ret.t[1][0] -= tagSize / 2.0;
-
         matd_destroy(pose.R);
         matd_destroy(pose.t);
         return ret;
     }
     $cc proc estimateBoardPose {Intrinsics cameraIntrinsics
                                 double cameraWidth double cameraHeight
-                                double tagSize
                                 double[][2] modelTagCorners double[][2] detectedTagCorners
                                 int cornersCount} TagPose {
         TagPose baseBoardPose =
             baseEstimateBoardPose(cameraIntrinsics, cameraWidth, cameraHeight,
-                                  tagSize, detectedTagCorners,
-                                  cornersCount);
+                                  modelTagCorners, detectedTagCorners, cornersCount);
 
         double wX[cornersCount][3];
         double x[cornersCount][2];
@@ -172,7 +163,6 @@ When the calibration unit model is /unitModel/ &\
 
         # Do a single board-wide pose estimate.
         set pose [estimateBoardPose $cameraIntrinsics $cameraWidth $cameraHeight \
-                      $printedSideLengthM \
                       $modelPrintedTagCorners $detectedPrintedTagCorners \
                       [llength $detectedPrintedTagCorners]]
         set R_boardToCamera [dict get $pose R]
