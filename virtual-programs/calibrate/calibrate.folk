@@ -602,13 +602,13 @@ Camera Controls
                  top: geomTopMm.value + 'mm',
                  bottom: geomBottomMm.value + 'mm'
                };
-               ws.commit('default program geometry',
-                         tcl`
+               ws.hold('default program geometry',
+                       tcl`
 set fd [open "\$::env(HOME)/folk-printed-programs/default.folkgeom" w]
 set geom \${geom}; puts \$fd \$geom; close \$fd
 Claim the default program geometry is \$geom
 `,
-                         '<global>');
+                       '<global>');
              });
             </script>
 
