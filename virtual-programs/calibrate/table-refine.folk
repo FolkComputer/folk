@@ -159,6 +159,7 @@ When the calibration unit model is /unitModel/ &\
             lappend modelPrintedTagCorners {*}[dict get $model $id p]
             lappend detectedPrintedTagCorners {*}[dict get $tag p]
         }
+        if {[llength $detectedPrintedTagCorners] < 4} { return }
 
         # Do a single board-wide pose estimate.
         set pose [estimateBoardPose $cameraIntrinsics $cameraWidth $cameraHeight \
@@ -220,4 +221,6 @@ When the calibration unit model is /unitModel/ &\
 if {$::thisNode eq "folk-convivial"} {
     # HACK: to save me for now on folk-convivial
     Claim the printed calibration tag size is 23 mm
+} elseif {$::thisNode eq "folk-recurse"} {
+    Claim the printed calibration tag size is 24.5 mm
 }
