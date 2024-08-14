@@ -547,8 +547,7 @@ Camera Controls
             calibrating again.</p>
           </li>
 
-
-          <li>
+          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode eq "folk-convivial" ? "''" : "none"}]">
             <h3>Refine calibration on the table.</h3>
 
             <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
