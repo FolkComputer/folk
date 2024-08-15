@@ -1,5 +1,5 @@
 When camera /any/ has frame /im/ at timestamp /any/ {
-    Wish the web server handles route {/camera-frame(?:\?.*)?$} with handler [list apply {{im} {
+    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{im} {
         set filename "/tmp/web-image-frame.jpg"
         image saveAsJpeg $im $filename
         set fsize [file size $filename]
