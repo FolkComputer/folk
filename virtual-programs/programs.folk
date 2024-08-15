@@ -1,3 +1,11 @@
+When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$tag >= 48600} { return }
+
+    Claim tag $tag is a tag
+    Claim tag $tag has a program
+}
+
 When (non-capturing) /type/ /obj/ has a program {
     puts "Added $type $obj"
     # On unmatch { puts "Removed $type $obj" }

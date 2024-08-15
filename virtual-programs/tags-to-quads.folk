@@ -534,10 +534,6 @@ When tag /tag/ has quad /q/ &\
                       bottom [dict getdef $geom bottom 0]]
     Claim $tag has quad $pageQuad
 
-    Claim tag $tag is a tag
-    # TODO: this is probably not the same as geometry?
-    Claim tag $tag has a program
-
     # HACK:
 
     # Claim $tag has quad $q
