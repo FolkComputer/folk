@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <assert.h>
+#include <stdatomic.h>
 
 #define JIM_EMBEDDED
 #include <jim.h>
@@ -26,7 +27,8 @@ typedef struct ThreadControlBlock {
     Match* currentMatch;
 } ThreadControlBlock;
 
-ThreadControlBlock threads[100];
+#define THREADS_MAX 100
+ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
 // helper function to get self from LLDB:
@@ -795,20 +797,37 @@ void workerInit(int index) {
     self = &threads[index];
     if (self->workQueue == NULL) {
         self->workQueue = workQueueNew();
+        pthread_mutex_init(&self->currentItemMutex, NULL);
     }
     self->index = index;
-#ifdef __APPLE__
-    self->tid = pthread_mach_thread_np(pthread_self());
-#else
-    self->tid = gettid();
-#endif
-    pthread_mutex_init(&self->currentItemMutex, NULL);
 
     interpBoot();
 }
 void* workerMain(void* arg) {
-    int index = threadCount++;
-    workerInit(index);
+#ifdef __APPLE__
+    pid_t tid = pthread_mach_thread_np(pthread_self());
+#else
+    pid_t tid = gettid();
+#endif
+
+    int threadIndex = -1;
+    int i;
+    pid_t zero = 0;
+    for (i = 0; i < THREADS_MAX; i++) {
+        if (atomic_compare_exchange_weak(&threads[i].tid, &zero, tid)) {
+            threadIndex = i;
+            break;
+        }
+    }
+    if (threadIndex == -1) {
+        fprintf(stderr, "folk: workerMain: exceeded THREADS_MAX\n");
+        exit(1);
+    }
+    if (i >= threadCount) {
+        threadCount = i + 1;
+    }
+    /* fprintf(stderr, "thread boot %d (thread count %d)\n", threadIndex, threadCount); */
+    workerInit(threadIndex);
     workerLoop();
     return NULL;
 }
@@ -835,12 +854,19 @@ int main(int argc, char** argv) {
 
     atexit(exitHandler);
 
-    int NTHREADS = 8;
+    int THREADS_INITIAL = 8;
     threadCount = 1; // i.e., this current thread.
+    // Set up this thread's slot (slot 0) with tid to exclude other
+    // threads from using the slot:
+#ifdef __APPLE__
+    threads[0].tid = pthread_mach_thread_np(pthread_self());
+#else
+    threads[0].tid = gettid();
+#endif
 
-    // Spawn NTHREADS-1 workers.
-    pthread_t th[NTHREADS];
-    for (int i = 1; i < NTHREADS; i++) { workerSpawn(); }
+    // Spawn THREADS_INITIAL-1 workers.
+    pthread_t th[THREADS_INITIAL];
+    for (int i = 1; i < THREADS_INITIAL; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like

@@ -13,7 +13,8 @@ on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
 
 ## todo
 
-- preserve stack traces
+- ~~preserve stack traces~~
+  - adjust stack record if When is multiline
 - ~~put C procs on C compiler object instead of global namespace~~
 - ~~deal with macOS/glfw needing to be on thread 0?~~ ish
 - ~~port webcam~~
@@ -33,6 +34,7 @@ on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
   - use some sort of timer?
 - ~~thread monitoring (what threads are running what? what threads are blocked?)~~
 - spin up new threads if most/all existing threads are OS-blocked
+  - reuse old thread slots
 - ~~destructors~~
 - event statements
 - ~~transactions, causality, or Commit~~ Hold!
