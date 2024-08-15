@@ -1,12 +1,14 @@
-When camera /any/ has frame /im/ at timestamp /any/ {
-    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{im} {
+When the image library is /imageLib/ &\
+     camera /any/ has frame /im/ at timestamp /any/ {
+
+    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{imageLib im} {
         set filename "/tmp/web-image-frame.jpg"
-        image saveAsJpeg $im $filename
+        $imageLib saveAsJpeg $im $filename
         set fsize [file size $filename]
         set fd [open $filename r]
-        fconfigure $fd -encoding binary -translation binary
+        fconfigure $fd -translation binary
         set body [read $fd $fsize]
         close $fd
         dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-    }} $im]
+    }} $imageLib $im]
 }
