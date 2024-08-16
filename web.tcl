@@ -37,6 +37,9 @@ proc emitHTMLForProgramList {programList label} {
 
 proc handlePage {path httpStatusVar contentTypeVar} {
     upvar $contentTypeVar contentType
+    # TODO: We can probably factor this out of web.tcl and into a separate program (web/programs.folk) while we're at it right?
+    # From @osnr: https://github.com/FolkComputer/folk/pull/171#issuecomment-2292098801
+    # - @cwervo 2024-09-15
     switch -exact -- $path {
         "/" {
             set l [list]
