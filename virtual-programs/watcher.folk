@@ -1,3 +1,5 @@
+set ::watchdog_debug 0
+
 When the collected matches for [list /someone/ claims /page/ has program /program/] are /matches/ & the clock time is /t/ {
     # Analyze the matches, watch for non-virtual programs
     set webPrograms [list]
@@ -22,4 +24,98 @@ When the collected matches for [list /someone/ claims /page/ has program /progra
 
     Claim there are [llength $webPrograms] web programs
     Claim there are [llength $realPrograms] real programs
+}
+
+When the clock time is /t/ {
+    # Monitor RAM, CPU, and disk usage
+    set ramInfo [exec free -m]
+    set lines [split $ramInfo "\n"]
+    set memLine [lindex $lines 1]
+    set memParts [regexp -all -inline {\S+} $memLine]
+    set totalMem [lindex $memParts 1]
+    set usedMem [lindex $memParts 2]
+    set freeMem [lindex $memParts 3]
+
+    if {$::watchdog_debug} {
+        puts "Total Memory: $totalMem MB"
+        puts "Used Memory: $usedMem MB"
+        puts "Free Memory: $freeMem MB"
+    }
+
+    set ramUsage [expr {$usedMem / $totalMem * 100}]
+
+    if {$::watchdog_debug} {
+        puts "RAM Usage: $ramUsage%"
+    }
+
+    # Calculate CPU usage
+    set cpuInfo [exec top -bn1 | grep "Cpu(s)"]
+    set cpuUsage [lindex [regexp -all -inline {\d+\.\d+} $cpuInfo] 0]
+
+    if {$::watchdog_debug} {
+        puts "CPU Usage: $cpuUsage%"
+    }
+
+    # Calculate disk usage
+    set dfOutput [exec df -h /]
+    set diskLine [lindex [split $dfOutput "\n"] 1]
+    set diskParts [regexp -all -inline {\S+} $diskLine]
+    set diskUsage [string map {% {}} [lindex $diskParts 4]]
+
+    if {$::watchdog_debug} {
+        puts "Disk Usage: $diskUsage%"
+    }
+
+    Claim RAM usage is $ramUsage
+    Claim CPU usage is $cpuUsage
+    Claim disk usage is $diskUsage
+
+    # # Check for high resource usage and make warnings if necessary
+    if {$ramUsage > 90} {
+        Claim $this has warning"High RAM usage: $ramUsage MB"
+    }
+    if {$cpuUsage > 80} {
+        Claim $this has warning "High CPU usage: $cpuUsage%"
+    }
+    if {$diskUsage > 90} {
+        Claim $this has warning "High disk usage: $diskUsage%"
+    }
+}
+
+Wish the web server handles route "/resource-usage" with handler {
+    set ramUsage 0
+    set cpuUsage 0
+    set diskUsage 0
+
+    When /someone/ claims RAM usage is /ramUsage/ & /someone/ claims CPU usage is /cpuUsage/ & /someone/ claims disk usage is /diskUsage/ {
+        set ramUsage $ramUsage
+        set cpuUsage $cpuUsage
+        set diskUsage $diskUsage
+    }
+
+    html {
+        <html>
+        <head>
+            <link rel="stylesheet" href="/style.css">
+            <title>Statements</title>
+        </head>
+        <body>
+            <nav>
+                <a href="/new"><button>New program</button></a>
+                <a href="/programs">Running programs</a>
+                <a href="/timings">Timings</a>
+                <a href="/keyboards">Keyboards</a>
+                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                <a href="/statements.pdf">statements graph</a>
+            </nav>
+            <h1>Resource Usage</h1>
+            <div>
+                <!-- TODO: how to subs the real values into the html proc? -->
+                <p>RAM Usage: $ramUsage %</p>
+                <p>CPU Usage: $cpuUsage %</p>
+                <p>Disk Usage: $diskUsage %</p>
+            </div>
+        </body>
+        </html>
+    }
 }
