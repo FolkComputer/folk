@@ -74,12 +74,24 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             }
         }
         "/programs" {
+            # TODO:
+            # - Make this synchronous
+            # - Maybe should actually, move this to a virtual-program/watcher.folk.default programs that makes claims like:
+            #   Claim virtual programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim core programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim web programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim real programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+
             set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
             set vp [list]; # virtual programs
             set cp [list]; # core programs
             set wp [list]; # web programs
             set rp [list]; # real programs
 
+            # TODO:
+            # Right now this duplicates the virtual-programs/watcher.folk logic.
+            # Let's refactor this to use the claim logic in the future.
+            # - @cwervo 2024-09-15
             foreach match $programs {
                 set page [dict get $match page]
                 switch -glob $page {

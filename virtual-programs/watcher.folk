@@ -1,0 +1,25 @@
+When the collected matches for [list /someone/ claims /page/ has program /program/] are /matches/ & the clock time is /t/ {
+    # Analyze the matches, watch for non-virtual programs
+    set webPrograms [list]
+    set realPrograms [list]
+    foreach match $matches {
+        set page [dict get $match page]
+        switch -glob $page {
+            "virtual-programs/*" {
+                continue;
+            }
+            "setup.folk.default" {
+                continue;
+            }
+            "web-program-*" {
+                lappend webPrograms $page
+            }
+            default {
+                lappend realPrograms $page
+            }
+        }
+    }
+
+    Claim there are [llength $webPrograms] web programs
+    Claim there are [llength $realPrograms] real programs
+}
