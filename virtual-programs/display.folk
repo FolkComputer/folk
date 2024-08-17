@@ -1028,22 +1028,48 @@ Try doing `sudo adduser folk render`."
                 }
             }]] "\n"]
 
-            $[join [lmap {argtype argname} $pushConstants {
-                if {$argtype eq "sampler2D"} {
-                    expr {"#define $argname _samplers\[args.$argname\]"}
-                }
-            }] "\n"]
-
-            vec4 frag() {
-                $[join [lmap {argtype argname} $pushConstants {
-                    if {$argname eq "_"} continue
-                    if {$argtype ne "sampler2D"} {
-                        expr {"$argtype $argname = args.$argname;"}
-                    }
-                }] " "]
+            vec4 frag($[join [lmap {argtype argname} $pushConstants {
+                if {$argname eq "_"} continue
+                expr {"$argtype $argname"}
+            }] ", "]) {
                 $fragBody
             }
-            void main() { outColor = frag(); }
+            void main() {
+                $[eval {
+                    set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
+                    proc emitFragInvocation {pushConstants} { subst {
+                        outColor = frag([join [lmap {argtype argname} $pushConstants {
+                            if {$argname eq "_"} continue
+                            if {$argtype eq "sampler2D"} {
+                                # This should have been patched to a
+                                # static index by the caller.
+                                expr {"$argname"}
+                            } else {
+                                expr {"args.$argname"}
+                            }
+                        }] ", "]);
+                    } }
+                    list
+                }]
+                $[if {[llength $samplerIdxs] == 0} {
+                    emitFragInvocation $pushConstants
+
+                } elseif {[llength $samplerIdxs] == 1} {
+                    set samplerIdx [+ [lindex $samplerIdxs 0] 1]
+                    set samplerName [lindex $pushConstants $samplerIdx]
+                    set xs [list]
+                    for {set i 0} {$i < $ImageManager::GPU_MAX_IMAGES} {incr i} {
+                        set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
+                                                      _samplers\[$i\]]
+                        lappend xs [subst {
+                            [expr {$i == 0 ? "if" : "else if"}] (args.$samplerName == $i) {
+                                [emitFragInvocation $patchedPushConstants]
+                            }
+                        }]
+                    }
+                    join $xs "\n"
+                }]
+            }
         }]]]
 
         # pipeline needs to contain a specification of push constants,
