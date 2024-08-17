@@ -80,6 +80,7 @@ Try doing `sudo adduser folk render`."
     dc code {
         VkInstance instance;
         VkPhysicalDevice physicalDevice;
+        VkPhysicalDeviceFeatures physicalDeviceFeatures;
         VkDevice device;
 
         uint32_t computeQueueFamilyIndex;
@@ -160,6 +161,7 @@ Try doing `sudo adduser folk render`."
             vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
 
             physicalDevice = physicalDevices[0];
+            vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
         }
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
@@ -487,6 +489,9 @@ Try doing `sudo adduser folk render`."
     }]
     dc proc getWidth {} uint32_t { return swapchainExtent.width; }
     dc proc getHeight {} uint32_t { return swapchainExtent.height; }
+    dc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
+        return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
+    }
 
     proc defineVulkanHandleType {cc type} {
         set cc [uplevel {namespace current}]::$cc
@@ -1010,6 +1015,14 @@ Try doing `sudo adduser folk render`."
         # global sampler and multiple textures/images, because that's
         # the only way to allow each image to have its own dimensions
         # (dimensions are a property bound to the sampler).
+        #
+        # We have a whole code path basically just to handle v3dv
+        # (Raspberry Pi GPU), which doesn't support dynamic indexing
+        # (based on push constant) into the descriptor array. On GPUs
+        # like that, we manually emit an if ladder that checks each
+        # possible value of the push constant and uses the right
+        # statically-indexed descriptor.
+        set gpuSupportsDynamicIndexing [Gpu::getDoesSupportShaderSampledImageArrayDynamicIndexing]
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
@@ -1034,25 +1047,31 @@ Try doing `sudo adduser folk render`."
             }] ", "]) {
                 $fragBody
             }
-            void main() {
-                $[eval {
-                    set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
-                    proc emitFragInvocation {pushConstants} { subst {
-                        outColor = frag([join [lmap {argtype argname} $pushConstants {
-                            if {$argname eq "_"} continue
-                            if {$argtype eq "sampler2D"} {
-                                # This should have been patched to a
-                                # static index by the caller.
-                                expr {"$argname"}
+
+            $[eval {
+                set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
+                proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
+                    outColor = frag([join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            if {$gpuSupportsDynamicIndexing} {
+                                expr {"_samplers\[args.$argname\]"}
                             } else {
-                                expr {"args.$argname"}
+                                # This should have been patched to a
+                                # static expression like
+                                # `_samplers[3]` by the caller.
+                                expr {"$argname"}
                             }
-                        }] ", "]);
-                    } }
-                    list
-                }]
-                $[if {[llength $samplerIdxs] == 0} {
-                    emitFragInvocation $pushConstants
+                        } else {
+                            expr {"args.$argname"}
+                        }
+                    }] ", "]);
+                } }
+                list
+            }]
+            void main() {
+                $[if {$gpuSupportsDynamicIndexing || [llength $samplerIdxs] == 0} {
+                    emitFragInvocation $gpuSupportsDynamicIndexing $pushConstants
 
                 } elseif {[llength $samplerIdxs] == 1} {
                     set samplerIdx [+ [lindex $samplerIdxs 0] 1]
@@ -1063,11 +1082,13 @@ Try doing `sudo adduser folk render`."
                                                       _samplers\[$i\]]
                         lappend xs [subst {
                             [expr {$i == 0 ? "if" : "else if"}] (args.$samplerName == $i) {
-                                [emitFragInvocation $patchedPushConstants]
+                                [emitFragInvocation $gpuSupportsDynamicIndexing $patchedPushConstants]
                             }
                         }]
                     }
                     join $xs "\n"
+                } else {
+                    error "display: Cannot currently compile a shader that has more than 1 sampler2D parameter on this GPU."
                 }]
             }
         }]]]
