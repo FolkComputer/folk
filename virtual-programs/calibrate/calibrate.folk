@@ -704,7 +704,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
 
-            # {bottomleft bottomright topright topleft}
             set projectorOuterCorners [lmap modelInnerCorner $modelInnerCorners {
                 applyHomography $H_modelToDisplay \
                     [innerToOuter $modelCenter $modelInnerCorner]
