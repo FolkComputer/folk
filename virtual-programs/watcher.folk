@@ -1,5 +1,16 @@
 set ::watchdog_debug 0
 
+proc format_timestamp {} {
+    set ms [clock milliseconds]
+    set seconds [expr {$ms / 1000}]
+    set milliseconds [format "%02d" [expr {$ms % 1000 / 10}]]
+    return [clock format $seconds -format "%Y-%m-%d-%H:%M:%S:$milliseconds"]
+}
+
+proc print {message} {
+    puts "Watcher.folk ([format_timestamp]): $message"
+}
+
 When the collected matches for [list /someone/ claims /page/ has program /program/] are /matches/ & the clock time is /t/ {
     # Analyze the matches, watch for non-virtual programs
     set webPrograms [list]
@@ -37,15 +48,17 @@ When the clock time is /t/ {
     set freeMem [lindex $memParts 3]
 
     if {$::watchdog_debug} {
-        puts "Total Memory: $totalMem MB"
-        puts "Used Memory: $usedMem MB"
-        puts "Free Memory: $freeMem MB"
+        print "Total Memory: $totalMem MB"
+        print "Used Memory: $usedMem MB"
+        print "Free Memory: $freeMem MB"
+        print "--------"
     }
 
     set ramUsage [expr {$usedMem / $totalMem * 100}]
 
     if {$::watchdog_debug} {
-        puts "RAM Usage: $ramUsage%"
+        print "RAM Usage: $ramUsage%"
+        print "--------"
     }
 
     # Calculate CPU usage
@@ -53,7 +66,7 @@ When the clock time is /t/ {
     set cpuUsage [lindex [regexp -all -inline {\d+\.\d+} $cpuInfo] 0]
 
     if {$::watchdog_debug} {
-        puts "CPU Usage: $cpuUsage%"
+        print "CPU Usage: $cpuUsage%"
     }
 
     # Calculate disk usage
@@ -63,7 +76,7 @@ When the clock time is /t/ {
     set diskUsage [string map {% {}} [lindex $diskParts 4]]
 
     if {$::watchdog_debug} {
-        puts "Disk Usage: $diskUsage%"
+        print "Disk Usage: $diskUsage%"
     }
 
     Claim RAM usage is $ramUsage
@@ -79,6 +92,92 @@ When the clock time is /t/ {
     }
     if {$diskUsage > 90} {
         Claim $this has warning "High disk usage: $diskUsage%"
+    }
+
+    When there are /numRP/ real programs\
+        & there are /numWP/ web programs\
+        & RAM usage is /RAMusage/ \
+        & the clock time is /t/ {
+        # TODO: Print in big font at $WIDTH/2 and $HEIGHT/2:
+        # - RAM usage
+        # - current branch
+        # basically all of betterMetrics?
+
+        Hold watcherMetrics { Claim $this has metrics { \
+            time 0 \
+            branch ___ \
+            commit {time 0 description ___} \
+            uptime 0 \
+            fps "00 fps" \
+            step {us 00 fps 00}
+        }}
+
+        proc leftpad {number {width 5}} {
+            return [format "%0${width}d" [expr {round($number)}]]
+        }
+
+        When $this has metrics /metricsDict/ {
+            Hold watcherMetrics { Claim $this has metrics [dict create \
+                time $t \
+                branch [lindex [split [exec git status] "\n"] 0] \
+                commit [dict create time [exec git log -1 --format=%cd] description [exec git log -1 --format=%s]] \
+                uptime [exec uptime -p] \
+                fps [regsub {.*\(([0-9]+ fps)\).*} $::displayTime {\1}] \
+                step [dict create \
+                    us [regsub {^render\s+(\d+)\s+us.*} $::displayTime {\1}] \
+                    fps [regsub {.*\((\d+)\s+fps\).*} $::displayTime {\1}] \
+                ] \
+            ]}
+            # puts "there are: $numRP real programs | $numWP web programs ... [expr {[+ $numRP $numWP] > 0 ? "no desksaver" : "desksaver: $RAMusage"}]"
+
+            # TODO: Change this to be a big font and centered in the middle of the table using $center from above this scope
+            if {[+ $numRP $numWP] eq 0} {
+                set centerX [* $Display::WIDTH 0.5]
+                set centerY [* $Display::HEIGHT 0.5]
+                Wish to draw text with x $centerX y [/ $centerY 2.0] text "Desksaver:\nWelcome to Folk"
+                if {[+ $centerX $centerY]} {
+                        return;
+
+                        # Error:
+                        # Aug 18 18:50:58 folk-cwe make[433007]: display: Error in match m3243:0: missing value to go with key
+                        # Aug 18 18:50:58 folk-cwe make[433007]: missing value to go with key
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     while executing
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "dict get $options x"
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     (lambda term "options {
+                        # Aug 18 18:50:58 folk-cwe make[433007]:         if {[dict exists $options center]} {
+                        # Aug 18 18:50:58 folk-cwe make[433007]:      ..." line 8)
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "apply $lambda {*}$env"
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "time {set ret [apply $lambda {*}$env]}"
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     ("uplevel" body line 1)
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "uplevel [list time $body]"
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     (procedure "baretime" line 1)
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "baretime {set ret [apply $lambda {*}$env]}"
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     (procedure "runInSerializedEnvironment" line 9)
+                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
+                        # Aug 18 18:50:58 folk-cwe make[433007]: "runInSerializedEnvironment $lambda $env"
+
+                        Wish to draw text with x $centerX y $centerY text "
+                            ==== Desksaver ====
+                            Folk clock time: [leftpad [dict get $metricsDict time] 8]
+                                    Step time: ([leftpad [dict get $metricsDict step fps] 3] fps) | ([leftpad [dict get $metricsDict step us]] us)
+                                Camera time: ??? us
+                                AprilTag time: ??? us
+                                    Uptime: [dict get $metricsDict uptime]
+
+                                [dict get $metricsDict branch]
+                        
+                                Most recent commit:
+                                -------------------
+                                #[exec git rev-parse --short HEAD]
+                                [dict get $metricsDict commit time] [dict get $metricsDict commit description]
+                            " with font VictorMonoRegular
+                }
+            }
+        }
     }
 }
 
