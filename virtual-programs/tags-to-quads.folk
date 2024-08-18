@@ -363,9 +363,22 @@ When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
     }} [dict get $extrinsics R] [dict get $extrinsics t]]
 }
 namespace eval ::quad {
+    package require math::linearalgebra
+    namespace import ::math::linearalgebra::sub \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::unitLengthVector
+
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
+
+    # These return vectors along these directions for a quad.
+    # top - bottom:
+    proc up {q}    { sub [lindex $q 1 3] [lindex $q 1 0] }
+    # bottom - top:
+    proc down {q}  { sub [lindex $q 1 0] [lindex $q 1 3] }
+    proc left {q}  { sub [lindex $q 1 0] [lindex $q 1 1] }
+    proc right {q} { sub [lindex $q 1 1] [lindex $q 1 0] }
 
     proc change {q targetSpace} {
         set sourceSpace [space $q]
@@ -374,10 +387,20 @@ namespace eval ::quad {
         }]
     }
     proc scale {q s} {
+        if {![regexp {([0-9\.]+)(px|%)?} $s -> value unit]} {
+            error "quad scale: Invalid scale value $value"
+        }
+        if {$unit eq "%"} {
+            set value [* $value 0.01]
+            set unit ""
+        } elseif {$unit eq "px"} {
+            error "quad scale: px scaling of quads not supported yet"
+        }
+
         # TODO: this should probably be with respect to the centroid
         # of the quad?
         create [space $q] [lmap v [vertices $q] {
-            lmap x $v {* $x $s}
+            lmap x $v {* $x $value}
         }]
     }
     proc buffer {q args} {
@@ -385,7 +408,7 @@ namespace eval ::quad {
         # of the quad?
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         foreach {direction distance} $args {
-            if {![regexp {([\-0-9\.]+)(mm|m)?} $distance -> distance unit]} {
+            if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
                 error "quad buffer: Invalid distance $distance"
             }
 
@@ -423,14 +446,52 @@ namespace eval ::quad {
         }
         return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
     }
+    # Moves the region left/right/up/down along the x and y axes of
+    # the space of the quad (not the global x and y).
+    proc move {q args} {
+        # puts "move: $args"
+        foreach {direction distance} $args {
+            if {![regexp {([\-0-9\.]+)(cm|mm|m|%)?} $distance -> distance unit]} {
+                error "quad move: Invalid distance $distance"
+            }
+            if {$direction ne "left" && $direction ne "right" &&
+                $direction ne "up" && $direction ne "down"} {
+                error "quad move: Invalid direction $direction"
+            }
+
+            if {$unit eq "%"} {
+                set distance [* $distance 0.01]
+                set unit ""
+            }
+            if {$unit eq ""} {
+                # Empty unit is a scale factor of self; convert to meters
+                # puts "Scaling (distance $distance) (direction $direction)"
+                set dv [::math::linearalgebra::scale $distance [quad $direction $q]]
+            } else {
+                if {$unit eq "mm"} {
+                    set distance [* $distance 0.001]
+                    set unit "m"
+                } elseif {$unit eq "cm"} {
+                    set distance [* $distance 0.01]
+                    set unit "m"
+                }
+                if {$unit ne "m"} { error "quad move: Invalid unit $unit" }
+
+                set dv [::math::linearalgebra::scale $distance \
+                            [unitLengthVector [quad $direction $q]]]
+            }
+            set q [create [space $q] [lmap v [vertices $q] {add $v $dv}]]
+        }
+        return $q
+    }
 
     # TODO: we need to either return 'space-tagged points' for these
     # or just change them into some default space like camera space.
-    proc left {q} {
+    proc leftCenter {q} {
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
     }
-    proc right {q} {
+    proc rightCenter {q} {
         lassign [vertices $q] bottomLeft bottomRight topRight topLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
     }
@@ -538,7 +599,7 @@ When tag /tag/ has quad /q/ &\
 # HACK: For backward compatibility:
 When display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ &\
-     tag /tag/ is a tag & /tag/ has quad /q/ {
+     /tag/ has quad /q/ {
     set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
         intrinsics project $projectorIntrinsics \
             $projWidth $projHeight $v
