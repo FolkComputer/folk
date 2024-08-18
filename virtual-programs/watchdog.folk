@@ -13,7 +13,7 @@ Start process "watchdog" {
             set freeRamHistory [lassign $freeRamHistory evictedEntry]
         }
 
-        puts "watchdog: freeRam is [lindex $freeRamHistory end]"
+        # puts "watchdog: freeRam is [lindex $freeRamHistory end]"
         if {[llength $freeRamHistory] == 3 &&
             [lindex $freeRamHistory 0] < 100 &&
             [lindex $freeRamHistory 1] < 100 &&
