@@ -380,6 +380,23 @@ namespace eval ::quad {
     proc left {q}  { sub [lindex $q 1 0] [lindex $q 1 1] }
     proc right {q} { sub [lindex $q 1 1] [lindex $q 1 0] }
 
+
+    # TODO: we need to either return 'space-tagged points' for these
+    # or just change them into some default space like camera space.
+    proc leftCenter {q} {
+        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
+    }
+    proc rightCenter {q} {
+        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
+    }
+    proc centroid {q} {
+        lassign [vertices $q] a b c d
+        set vecsum [add [add [add $a $b] $c] $d]
+        return [::math::linearalgebra::scale 0.25 $vecsum]
+    }
+
     proc change {q targetSpace} {
         set sourceSpace [space $q]
         create $targetSpace [lmap v [vertices $q] {
@@ -387,6 +404,7 @@ namespace eval ::quad {
         }]
     }
     proc scale {q s} {
+        set c [centroid $q]
         if {![regexp {([0-9\.]+)(px|%)?} $s -> value unit]} {
             error "quad scale: Invalid scale value $value"
         }
@@ -397,10 +415,11 @@ namespace eval ::quad {
             error "quad scale: px scaling of quads not supported yet"
         }
 
-        # TODO: this should probably be with respect to the centroid
-        # of the quad?
         create [space $q] [lmap v [vertices $q] {
-            lmap x $v {* $x $value}
+            set v [sub $v $c]
+            set v [::math::linearalgebra::scale $value $v]
+            set v [add $v $c]
+            set v
         }]
     }
     proc buffer {q args} {
@@ -483,17 +502,6 @@ namespace eval ::quad {
             set q [create [space $q] [lmap v [vertices $q] {add $v $dv}]]
         }
         return $q
-    }
-
-    # TODO: we need to either return 'space-tagged points' for these
-    # or just change them into some default space like camera space.
-    proc leftCenter {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
-        return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
-    }
-    proc rightCenter {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
-        return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
     }
 
     namespace export *
