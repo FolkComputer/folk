@@ -762,8 +762,8 @@ Try doing `sudo adduser folk render`."
                                pipeline.pushConstantsSize, pushConstantsData);
         }
 
-        // 1 quad -> 2 triangles -> 6 vertices
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        // 1 quad -> 2 triangles -> 4 vertices
+        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
 
     # Draw to the screen using pipeline `pipeline`. Each arg in `args`
