@@ -13,6 +13,7 @@ body {
     color: #333;
     margin: 0 10%;
 }
+
 pre {
     font-family: fantasy;
     font-family: 'IBM Plex Mono';
@@ -20,12 +21,38 @@ pre {
     font-size: 14pt;
     line-height: 1.5;
     color: #333;
+    border: 1px solid #234;
+    padding: 1em;
+    border-radius: 6px;
+    box-shadow: inset 0 0 10px #000;
+    max-width: 60%;
 }
+
 .todo {
     font-family: fantasy;
     background-color: black;
     color: white;
 }
+
 .todo::before {
     content: '⚠️ TODO: ';
 }
+
+/* Docs */
+.int::after,
+.float::after,
+.vec2::after,
+.bool::after,
+.colorstring::after {
+  color: white;
+  background-color: #345;
+  border: 1px solid black;
+  border-radius: 6px;
+  margin-left: 0.2em;
+}
+
+.int::after { content: '(int)'; }
+.float::after { content: '(vec2)'; }
+.vec2::after { content: '(vec2)'; }
+.bool::after { content: '(bool)'; }
+.colorstring::after { content: ' (colorstring)'; }

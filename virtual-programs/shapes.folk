@@ -1,6 +1,19 @@
+# TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html
+
+# Drawing a shape
+# ---
+# This wish allows you to draw a shape with a given number of `sides`, `center`, `radius`, `color`, and a `filled` value.
 # sides 2 => line
 # sides 3 => triangle
 # sides 4 => square
+# sides 5 => pentagon
+# sides 6 => hextagon
+# sides 7 => septagon
+# sides 8 => octagon
+# sides 9 => nonagon
+# ---
+# Wish to draw a shape with sides /s:int/ center /c:vec2/ radius /r:float/ color /color:colorstring/ filled /filled?:bool/
+# ---
 When /someone/ wishes to draw a shape with /...options/ {
   set numPoints [dict get $options sides]
   set c [dict get $options center]
