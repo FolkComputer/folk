@@ -1,0 +1,31 @@
+/* @import url('https://folkcomputer.github.io/folk/vendor/fonts/IBM_Plex_Sans/IBMPlexSans-Regular');
+@import url('https://folkcomputer.github.io/folk/vendor/fonts/IBM_Plex_Mono/IBMPlexMono-Regular'); */
+/* @import url('./vendor/fonts/IBM_Plex_Sans/IBMPlexSans-Regular/IBMPlexSans-Regular.ttf');
+@import url('./vendor/fonts/IBM_Plex_Mono/IBMPlexMono-Regular/IBMPlexMono-Regular.ttf'); */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap');
+
+body {
+    font-family: fantasy;
+    font-family: 'IBM Plex Sans';
+    /* font-family: 'IBM Plex Sans', sans-serif; */
+    font-size: 16pt;
+    line-height: 1.5;
+    color: #333;
+    margin: 0 10%;
+}
+pre {
+    font-family: fantasy;
+    font-family: 'IBM Plex Mono';
+    /* font-family: 'IBM Plex Mono', monospace; */
+    font-size: 14pt;
+    line-height: 1.5;
+    color: #333;
+}
+.todo {
+    font-family: fantasy;
+    background-color: black;
+    color: white;
+}
+.todo::before {
+    content: '⚠️ TODO: ';
+}

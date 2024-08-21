@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Favicon -->
+  <title>Code | Folk Computer</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <h1 id="what-each-file-does-">What each file does...</h1>
+<ol>
+<li><code>main.tcl</code>:<ol>
+<li>Defines the Folk language</li>
+<li>Initializes Evaluator (statements, matches, tries)</li>
+<li>Starts up the web-server</li>
+<li>Starts up the entry (laptop or pi)</li>
+</ol>
+</li>
+<li><code>vendor</code><ol>
+<li>Mostly Tcl libraries other people wrote (most or all are just
+copied from tcllib?). Except font.tcl, which is inlined C that
+other people wrote</li>
+</ol>
+</li>
+<li><code>lib</code><ol>
+<li>Pure Tcl (and/or C) libraries that we wrote (need to be
+explicitly sourced into Folk &amp; don&#39;t use Folk constructs),
+including the C FFI and the C trie</li>
+</ol>
+</li>
+<li><code>virtual-programs</code><ol>
+<li>Our own high-level Folk programs</li>
+<li>They could be printed out... Perhaps, should be.</li>
+</ol>
+</li>
+<li><code>calibrate.tcl</code><ol>
+<li>Calibrates the <code>pi</code> projector and dumps a bunch of homography metadata
+to disk</li>
+</ol>
+</li>
+<li><code>replmain.tcl</code><ol>
+<li>A front-end to the statements database, like <code>laptop</code> or <code>pi</code></li>
+<li>Should there just be a <code>/clients</code> directory, where all of the possible
+entries go, and live in parallel.</li>
+</ol>
+</li>
+<li><code>host.tcl</code><ol>
+<li>Mapping from WiFi network, to name of Folk machines</li>
+</ol>
+</li>
+</ol>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- TODO: Favicon -->
+    <title>How Docs Work | Folk Computer</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <h1 id="docstring">Docstring</h1>
+
+    <p>The Folk docstring consists of:</p>
+    <ul>
+        <li>A title line</li>
+        <li>--- (three underscores) to separate the title line from the summary</li>
+        <li>A one-line summary</li>
+        <!-- - --- (three underscores) to separate the documentation from the parameters -->
+    <!-- - Parameters -->
+        <li>Supporting documentation</li>
+        <li>--- (three underscores) to separate the supporting documentation from the example string</li>
+        <li>The example When/Claim string</li>
+        <li>--- (three underscores) Final three dashes, ends the docstring</li>
+    </ul>
+
+    <p>e.g.:</p>
+    <pre><code class="lang-tcl"><span class="hljs-comment"># This is the title</span>
+    <span class="hljs-comment"># ---</span>
+    <span class="hljs-comment"># This is my smol summary</span>
+    <span class="hljs-comment"># This is the supporting documentation. I can write anything I want in here.</span>
+    <span class="hljs-comment"># The parser will look for the next three undersores so I can put ¯\_(ツ)_/¯ in here too.</span>
+    <span class="hljs-comment"># ---</span>
+    <span class="hljs-comment"># Claim name is "Euclid"</span>
+    <span class="hljs-comment"># Claim name is "George Pólya"</span>
+    <span class="hljs-comment"># ---</span>
+    When <span class="hljs-regexp">/someone/</span> claims name <span class="hljs-keyword">is</span> <span class="hljs-regexp">/name/</span> {
+        Claim <span class="hljs-regexp">/someone/</span> <span class="hljs-keyword">is</span> a mathematician
+    }
+    </code></pre>
+    <p>The output looks like:</p>
+    <section>
+        <h2> This is the title </h2>
+        <p>
+            This is my smol summary
+            This is the supporting documentation. I can write anything I want in here.
+            The parser will look for the next three undersores so I can put ¯_(ツ)_/¯ in here too.
+        </p>
+        <pre>
+            Claim name is &quot;Euclid&quot;
+            Claim name is &quot;George Pólya&quot;
+        </pre>
+        <pre>
+            When /someone/ claims name is /name/ {
+                Claim /someone/ is a mathematician
+            }
+        </pre>
+    </section>
+
+    <h1 id="generating-docs">Generating docs</h1>
+    <pre>
+        <code class="lang-bash">
+        <span class="hljs-attribute">make docs</span>
+        </code>
+    </pre>
+</body>
+</html>
