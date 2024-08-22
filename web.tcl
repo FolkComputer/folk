@@ -1,6 +1,14 @@
 lappend auto_path "./vendor"
 package require websocket
 
+# TODO:
+# - [ ] From the desksaver PR: We can probably factor this out of web.tcl
+#       and into a separate program (web/programs.folk) while we're at it right?
+#       https://github.com/FolkComputer/folk/pull/171#issuecomment-2292098801
+#
+#       Answer: Yes, we can! Let's refactor that rn .... (5:01 PM)
+# - [ ] 
+
 proc handleConnect {chan addr port} {
     fileevent $chan readable [list handleRead $chan $addr $port]
 }

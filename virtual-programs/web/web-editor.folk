@@ -1,5 +1,6 @@
 Wish the web server handles route {/page/(.*)$} with handler {
     regexp {/page/(.*)$} $path -> program_id
+    puts "/page/ got: $program_id ..."
     set filenames [list \
         "$::env(HOME)/folk-printed-programs/$program_id.folk" \
         "$::env(HOME)/folk-live/$program_id.folk" \
