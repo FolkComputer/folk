@@ -155,15 +155,27 @@ proc handleProgramsRoute {path} {
         set file_data "404|Error: $filename not found"
     }
 
-    return "<html><body>
-        <h1>Program Details:</h1>
-        <ul>
-            <li>Directory: $directory</li>
-            <li>Program ID: $program_id</li>
-        <ul>
+    return "<html>
+    <head>
+        <meta charset=UTF-8>
+        <meta name=viewport content=\"width=device-width, initial-scale=1.0\">
+        <title>$program_id - Folk Program</title>
+        <link rel=\"stylesheet\" href=\"/style.css\">
+    <body>
+        <h1>$program_id</h1>
+        <h2>[info hostname]/$directory/$program_id.folk</h2>
 
-        <h2>File content:</h2>
-        <pre>$file_data</pre>
+        <!-- TODO: Pull out docstring -> HTML in here -->
+        <section>
+            <h2>Docstring:</h2>
+            <p>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
+        </section
+
+
+        <details>
+            <summary><h2>File content:</h2></summary>
+            <pre>$file_data</pre>
+        </details> 
         </body></html>
     "
 }
