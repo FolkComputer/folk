@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&family=IBM+Plex+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100;1,200;1,300;1,400;1,500;1,600;1,700&display=swap');
+
 @media (prefers-color-scheme: dark){
     body {color:#fff;background:#000}
     a:link {color:#cdf}
@@ -5,6 +7,7 @@
     a:visited {color:#dcf}
     pre { color: black; }
 }
+
 nav {
     display: flex;
     align-items: center;
@@ -13,22 +16,40 @@ nav {
     text-align: center;
     font-weight: bold;
 }
+
 nav button {
     background-color: green;
     color: white;
     border-radius: 0;
     border-style: solid;
 }
-body{
-    margin:1em auto;
-    padding:0 .62em;
-    font:1em/1.62 sans-serif;
+
+body {
+    margin: 1em auto;
+    padding: 0 .62em;
+    font: 1em/1.62 'IBM Plex Sans', sans-serif;
 }
+
+.container {
+    border: 1px solid white;
+    border-radius: 6px;
+    padding: 0.1cm;
+    color: white;
+}
+
+.container[data-status="connected"] {
+    background-color: seagreen;
+}
+
+.container[data-status="disconnected"] {
+    background-color: red;
+}
+
 h1,h2,h3 {
     line-height:1.2
 }
-pre {
-    font-family: monospace;
+pre, #code {
+    font-family: 'IBM Plex Mono', monospace;
     background-color: #eee;
     padding: 5px;
     overflow: auto;
@@ -36,6 +57,6 @@ pre {
 
 @media print{
     body{
-        max-width:none
+        max-width: none
     }
 }

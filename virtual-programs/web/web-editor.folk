@@ -24,9 +24,13 @@ Wish the web server handles route {/page/(.*)$} with handler {
 
     html [string map [list file_data [htmlEscape $file_data] program_id $program_id file_name $filename] {
         <html>
+        <head>
+          <title>$program_id | Folk Computer</title>
+          <link rel="stylesheet" href="/style.css">
+        </head>
         <body>
         <div>
-          <span id="status">Status</span>
+          <span id="status" class="container">Status</span>
           <button onclick="handleSave()">Save</button>
           <button id="print" onclick="handlePrint()">Print</button>
         </div>
