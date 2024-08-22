@@ -183,8 +183,13 @@ proc After {n unit body} {
         }]] {*}$argValues]
     } else { error }
 }
+
 set ::held [dict create]
 set ::toHold [dict create]
+# Lower-level version of Hold that takes a single statement instead
+# of a whole program.
+proc Hold! {key stmt} { dict set ::toHold $key $stmt }
+# Higher-level version that takes a whole program (may deprecate).
 proc Hold {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
     set key [list]
@@ -204,7 +209,7 @@ proc Hold {args} {
     set key [list Hold $this {*}$key]
 
     if {$body eq ""} {
-        dict set ::toHold $key $body
+        Hold! $key {}
     } else {
         if {$isNonCapturing} {
             set argNames {}
@@ -213,7 +218,7 @@ proc Hold {args} {
             lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
         }
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-        dict set ::toHold $key $lambda
+        Hold! $key [list $key has program $lambda]
     }
 }
 
@@ -224,6 +229,7 @@ proc Commit {args} {
 
     uplevel [list Hold {*}$args]
 }
+
 
 set ::stepCount 0
 set ::stepTime -1
@@ -236,20 +242,16 @@ proc StepImpl {} {
     # Receive statements from all peers.
     foreach peerNs [namespace children ::Peers] {
         upvar ${peerNs}::process peer
-        Hold $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+        Hold! $peer [list $peer is sharing statements [${peerNs}::receive]]
     }
-
+    
     while {[dict size $::toHold] > 0 || ![Evaluator::LogIsEmpty]} {
-        dict for {key lambda} $::toHold {
-            if {$lambda ne ""} {
-                Assert $key has program $lambda
+        dict for {key stmt} $::toHold {
+            if {$stmt ne ""} { Assert {*}$stmt }
+            if {[dict exists $::held $key] && [dict get $::held $key] ne $stmt} {
+                Retract {*}[dict get $::held $key]
             }
-            if {[dict exists $::held $key] && [dict get $::held $key] ne $lambda} {
-                Retract $key has program [dict get $::held $key]
-            }
-            if {$lambda ne ""} {
-                dict set ::held $key $lambda
-            }
+            if {$stmt ne ""} { dict set ::held $key $stmt }
         }
         set ::toHold [dict create]
         Evaluator::Evaluate
@@ -284,7 +286,7 @@ proc StepImpl {} {
 
 set ::frames [list]
 proc Step {} {
-    set ::stepRunTime 0
+    Evaluator::resetTimers
     set stepTime [baretime StepImpl]
     
     set framesInLastSecond 0
@@ -297,7 +299,7 @@ proc Step {} {
     }
     set ::frames [lreplace $::frames 0 end-$framesInLastSecond]
 
-    set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us) ($framesInLastSecond fps)"
+    set ::stepTime "$stepTime us (peer $::peerTime us, run $Evaluator::stepRunTime us) ($framesInLastSecond fps)"
 }
 
 source "lib/math.tcl"
@@ -621,13 +623,21 @@ if {[info exists ::entry]} {
             dict set ::rootVirtualPrograms $programFilename [read $fp]
             close $fp
         }
+
+        # Load the setup program -- setup.folk.default gets overridden
+        # if the user made their own setup.folk.
+        loadProgram [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                           "$::env(HOME)/folk-live/setup.folk" :
+                           "setup.folk.default"}]
+
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
             if {[string match "*/_archive/*" $programFilename] ||
-                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
+                [string match "*/folk-printed-programs/*" $programFilename] ||
+                [string match "*/setup.folk" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
@@ -664,17 +674,18 @@ if {[info exists ::entry]} {
         #     set fd [open "|fswatch virtual-programs" r]
         #     fconfigure $fd -buffering line
         #     fileevent $fd readable [list apply {{fd} {
-        #         set changedFilename [file tail [gets $fd]]
+        #         regexp {virtual-programs\/.*$} [gets $fd] changedPath
+
+        #         set changedFilename [file tail $changedPath]
         #         if {[string index $changedFilename 0] eq "." ||
         #             [string index $changedFilename 0] eq "#" ||
         #             [file extension $changedFilename] ne ".folk"} {
         #             return
         #         }
-        #         set changedProgramName "virtual-programs/$changedFilename"
-        #         puts "$changedProgramName updated, reloading."
 
-        #         set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-        #         EditVirtualProgram $changedProgramName $programCode
+        #         puts "$changedPath updated, reloading."
+        #         set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+        #         EditVirtualProgram $changedPath $programCode
         #     }} $fd]
         # } on error err {
         #     puts stderr "Warning: could not invoke `fswatch` ($err)."

@@ -1,0 +1,226 @@
+# table-refine.folk --
+#
+#     Implements table-oriented projector-camera end-to-end
+#     calibration step.
+#
+
+When the tags-to-quads C library is /quadCc/ {
+    set cc [c create]
+
+    $cc struct Intrinsics {
+        double width;
+        double height;
+
+        double fx;
+        double fy;
+        double cx;
+        double cy;
+        double s;
+
+        double k1;
+        double k2;
+    }
+    $cc import quadCc rescaleAndUndistort as rescaleAndUndistort
+
+    $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+    $cc include <apriltag_pose.h>
+    $cc include <common/homography.h>
+    $cc include <common/matd.h>
+
+    $cc import quadCc poseGaussNewton as poseGaussNewton
+
+    # TagPose represents a rotation and translation from tag-space (where
+    # (0, 0, 0) is the center of the tag) to camera-space (where (0, 0, 0)
+    # is the center of the camera lens).
+    $cc struct TagPose {
+        double R[3][3];
+        double t[3][1];
+    }
+
+    # Used to generate the initial guess in estimateBoardPose. Kind of
+    # misuses the AprilTag pose estimation code to do an entire-board
+    # estimate (which includes multiple tags).
+    $cc proc baseEstimateBoardPose {Intrinsics cameraIntrinsics
+                                    double cameraWidth double cameraHeight
+                                    double[][2] modelTagCorners double[][2] detectedTagCorners
+                                    int cornersCount} TagPose {
+        // We'll fill this in with a .H that represents all the corners.
+        apriltag_detection_t det;
+
+        // The normal tag .H homography goes from (+/-1, +/-1) to the
+        // camera-detected tag corners.  We will instead create a
+        // board-wide homography from board meters position to the
+        // camera-detected tag corners.
+        float correspondences[cornersCount][4];
+        for (int i = 0; i < cornersCount; i++) {
+            correspondences[i][0] = modelTagCorners[i][0];
+            correspondences[i][1] = modelTagCorners[i][1];
+
+            double undistortedDetectedTagCorners[2];
+            rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
+                                detectedTagCorners[i],
+                                undistortedDetectedTagCorners);
+            correspondences[i][2] = undistortedDetectedTagCorners[0];
+            correspondences[i][3] = undistortedDetectedTagCorners[1];
+        }
+        zarray_t correspondencesArr = {
+            .el_sz = sizeof(float[4]), .size = cornersCount, .alloc = cornersCount,
+            .data = (char*) correspondences
+        };
+        det.H = homography_compute(&correspondencesArr,
+                                   HOMOGRAPHY_COMPUTE_FLAG_SVD);
+        apriltag_detection_info_t info = {
+            .det = &det,
+            .tagsize = 2.0, // scale factor = 1.0
+            .fx = cameraIntrinsics.fx, .fy = cameraIntrinsics.fy,
+            .cx = cameraIntrinsics.cx, .cy = cameraIntrinsics.cy
+        };
+        apriltag_pose_t pose;
+        estimate_pose_for_tag_homography(&info, &pose);
+
+        matd_destroy(det.H);
+
+        TagPose ret;
+        memcpy(ret.R, pose.R->data, sizeof(ret.R));
+        memcpy(ret.t, pose.t->data, sizeof(ret.t));
+
+        matd_destroy(pose.R);
+        matd_destroy(pose.t);
+        return ret;
+    }
+    $cc proc estimateBoardPose {Intrinsics cameraIntrinsics
+                                double cameraWidth double cameraHeight
+                                double[][2] modelTagCorners double[][2] detectedTagCorners
+                                int cornersCount} TagPose {
+        TagPose baseBoardPose =
+            baseEstimateBoardPose(cameraIntrinsics, cameraWidth, cameraHeight,
+                                  modelTagCorners, detectedTagCorners, cornersCount);
+
+        double wX[cornersCount][3];
+        double x[cornersCount][2];
+        for (int i = 0; i < cornersCount; i++) {
+            rescaleAndUndistort(cameraIntrinsics, cameraWidth, cameraHeight,
+                                detectedTagCorners[i],
+                                x[i]);
+            // Apply intrinsics to go from pixel coordinates to normalized
+            // image-plane coordinates:
+            x[i][0] = (x[i][0] - cameraIntrinsics.cx) / cameraIntrinsics.fx;
+            x[i][1] = (x[i][1] - cameraIntrinsics.cy) / cameraIntrinsics.fy;
+
+            wX[i][0] = modelTagCorners[i][0];
+            wX[i][1] = modelTagCorners[i][1];
+            wX[i][2] = 0;
+        }
+
+        matd_t* cRw = matd_create_data(3, 3, (double*) baseBoardPose.R);
+        matd_t* ctw = matd_create_data(3, 1, (double*) baseBoardPose.t);
+
+        poseGaussNewton(wX, x, cornersCount, &cRw, &ctw);
+
+        TagPose ret;
+        memcpy(ret.R, cRw->data, sizeof(ret.R));
+        memcpy(ret.t, ctw->data, sizeof(ret.t));
+
+        matd_destroy(cRw);
+        matd_destroy(ctw);
+        return ret;
+    }
+    $cc compile
+}
+
+When the calibration unit model is /unitModel/ &\
+     the calibration isPrintedTag is /isPrintedTag/ &\
+     the printed calibration tag size is /printedSideLengthMm/ mm &\
+     camera /camera/ has intrinsics /cameraIntrinsics/ &\
+     camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
+     display /display/ has intrinsics /displayIntrinsics/ &\
+     display /display/ has width /displayWidth/ height /displayHeight/ &\
+     camera /camera/ to display /display/ has extrinsics /extrinsics/ &\
+     /someone/ wishes to do table refinement {
+    
+    set printedSideLengthM [/ $printedSideLengthMm 1000.0]
+    set model [dict map {id tag} $unitModel {
+        dict create c [scale $printedSideLengthM [dict get $tag c]] \
+            p [scale $printedSideLengthM [dict get $tag p]]
+    }]
+
+    fn innerToOuter {center corner} {
+        set r [sub $corner $center]
+        return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
+    }
+
+    When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ {
+        set modelPrintedTagCorners [list]
+        set detectedPrintedTagCorners [list]
+        foreach tag $tags {
+            set id [dict get $tag id]
+            if {![{*}$isPrintedTag $id]} { continue }
+
+            lappend modelPrintedTagCorners {*}[dict get $model $id p]
+            lappend detectedPrintedTagCorners {*}[dict get $tag p]
+        }
+        if {[llength $detectedPrintedTagCorners] < 4} { return }
+
+        # Do a single board-wide pose estimate.
+        set pose [estimateBoardPose $cameraIntrinsics $cameraWidth $cameraHeight \
+                      $modelPrintedTagCorners $detectedPrintedTagCorners \
+                      [llength $detectedPrintedTagCorners]]
+        set R_boardToCamera [dict get $pose R]
+        set t_boardToCamera [dict get $pose t]
+
+        set R_cameraToDisplay [dict get $extrinsics R]
+        set t_cameraToDisplay [dict get $extrinsics t]
+
+        # Project a bunch of tags based on the pose estimate.
+        dict for {id modelTag} $model {
+            if {[{*}$isPrintedTag $id]} { continue }
+
+            set modelInnerCorners [lreverse [dict get $modelTag p]]
+            set modelCenter [dict get $modelTag c]
+            set modelOuterCorners [lmap modelInnerCorner $modelInnerCorners {
+                innerToOuter $modelCenter $modelInnerCorner
+            }]
+
+            set projectorOuterCorners [lmap modelOuterCorner $modelOuterCorners {
+                set v [list {*}$modelOuterCorner 0]
+                set cameraOuterCorner [add [matmul $R_boardToCamera $v] \
+                                           $t_boardToCamera]
+                set projectorOuterCorner [add [matmul $R_cameraToDisplay $cameraOuterCorner] \
+                                              $t_cameraToDisplay]
+                intrinsics project $displayIntrinsics \
+                    $displayWidth $displayHeight $projectorOuterCorner
+            }]
+
+            Wish to draw an AprilTag with id $id corners $projectorOuterCorners layer 100
+        }
+        # White backdrop to hopefully make the projected tags pop out more:
+        Wish to draw a quad with \
+            p0 [list 0 0] p1 [list $displayWidth 0] \
+            p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
+            color white layer 99
+    }
+
+    # TODO: are we stable?
+
+    # Later: do we see projected tags? record all data
+
+    # we want new camera and projector intrinsics + extrinsics that minimize ....
+
+    # given printed tags, the new extrinsics+intrinsics let you generate projector coordinates which you can match against the board-homography-expected projector coordinates.
+    # how do we know the board-homography-expected projector coordinates?
+    # well, what are the projector-space coordinates of the printed tags?
+
+    # printed tags in camera space (camera xy) -> pose estimate (camera xyz) -> transform (projector xyz) -> project (projector xy) -> homogrpahy shift to projected tags (projector xy)
+
+    # use projected and printed tags to compute homography. this does not depend on calibration
+    # printed tags in camera space (camera xy) -> homography -> printed tags in projector space (projector xy)
+
+    # Later later: Feed to LM along with original calib data
+}
+
+if {$::thisNode eq "folk-convivial"} {
+    # HACK: to save me for now on folk-convivial
+    Claim the printed calibration tag size is 23 mm
+} elseif {$::thisNode eq "folk-recurse"} {
+    Claim the printed calibration tag size is 24.5 mm
+}

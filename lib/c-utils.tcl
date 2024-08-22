@@ -10,13 +10,12 @@ if {[namespace exists c] && $::tcl_platform(os) eq "Linux"} {
 
 # FIXME: this shouldn't be global
 proc ::defineImageType {cc} {
-    set cc [uplevel {namespace current}]::$cc
-    $cc struct image_t {
+    uplevel [list $cc struct image_t {
         uint32_t width;
         uint32_t height;
         int components;
         uint32_t bytesPerRow;
 
         uint8_t* data;
-    }
+    }]
 }

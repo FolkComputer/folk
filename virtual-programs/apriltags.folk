@@ -36,20 +36,23 @@ set makeAprilTagDetector {{TAG_FAMILY} {
                 apriltag_detection_t *det;
                 zarray_get(detections, i, &det);
 
-                int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
-                double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
-                detectionObjs[i] = Tcl_ObjPrintf("id %d center {%f %f} corners {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
-                                                 det->id,
-                                                 det->c[0], det->c[1],
-                                                 det->p[0][0], det->p[0][1],
-                                                 det->p[1][0], det->p[1][1],
-                                                 det->p[2][0], det->p[2][1],
-                                                 det->p[3][0], det->p[3][1],
-                                                 size, angle);
+                detectionObjs[i] =
+                    Tcl_ObjPrintf("id %d "
+                                  "H {%f %f %f %f %f %f %f %f %f} "
+                                  "c {%f %f} "
+                                  "p {{%f %f} {%f %f} {%f %f} {%f %f}}",
+                                  det->id,
+                                  det->H->data[0], det->H->data[1], det->H->data[2],
+                                  det->H->data[3], det->H->data[4], det->H->data[5],
+                                  det->H->data[6], det->H->data[7], det->H->data[8],
+                                  det->c[0], det->c[1],
+                                  det->p[0][0], det->p[0][1],
+                                  det->p[1][0], det->p[1][1],
+                                  det->p[2][0], det->p[2][1],
+                                  det->p[3][0], det->p[3][1]);
             }
 
-
-            zarray_destroy(detections);
+            apriltag_detections_destroy(detections);
             Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
             return result;
         }
@@ -74,21 +77,23 @@ Claim the AprilTag detector maker is $makeAprilTagDetector
 set tagFamily "tagStandard52h13"
 
 # Plain detector. Runs on entire camera frame.
-set mainDetectorProcess [Start process {
+Start process {
     set detector [apply $makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+        [list /someone/ claims camera /any/ has frame /grayFrame/ at timestamp /timestamp/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ claims /process/ detects tags /tags/ at /timestamp/ in time /aprilTime/]
+        [list /someone/ claims /someone/ detects tags /tags/ on /camera/ \
+             at /timestamp/ in time /aprilTime/]
 
-    When the camera frame is /grayFrame/ at /timestamp/ {
+    When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ {
         set aprilTime [time {
             set tags [$detector detect $grayFrame]
         }]
-        Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
+        Claim main-detector detects tags $tags on $camera \
+            at $timestamp in time $aprilTime
     }
-}]
+}
 
 # Incremental detector. Looks at regions where there were tags in the
 # old camera frame.
@@ -96,11 +101,11 @@ Start process {
     set detector [apply $makeAprilTagDetector $tagFamily]
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims the camera frame is /grayFrame/ at /timestamp/]
+        [list /someone/ claims camera /any/ has frame /grayFrame/ at timestamp /timestamp/]
     Wish $::thisProcess receives statements like \
-        [list /someone/ claims $mainDetectorProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
+        [list /someone/ claims main-detector detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
-        [list /someone/ claims $::thisProcess detects tags /tags/ at /timestamp/ in time /aprilTime/]
+        [list /someone/ claims incremental-detector detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/]
     Wish $::thisProcess shares statements like \
         [list /someone/ wishes /something/ is labelled /text/]
     Wish $::thisProcess shares statements like \
@@ -120,44 +125,40 @@ Start process {
         }
     }
 
-    When the camera frame is /grayFrame/ at /timestamp/ & \
-         /process/ detects tags /prevTags/ at /something/ in time /something/ {
-
-        if {$process eq $::thisProcess} { return }
+    When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ & \
+         main-detector detects tags /prevTags/ on /camera/ at /something/ in time /something/ {
 
         set tags [list]
         set frameWidth [dict get $grayFrame width]
         set frameHeight [dict get $grayFrame height]
         set aprilTime 0
         foreach prevTag $prevTags {
-            set size [dict get $prevTag size]
-            set corners [dict get $prevTag corners]
+            set corners [dict get $prevTag p]
             set x [min {*}[lmap corner $corners {lindex $corner 0}]]
             set y [min {*}[lmap corner $corners {lindex $corner 1}]]
             set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
             set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
-            
-            set x [max [- $x $size] 0]
-            set y [max [- $y $size] 0]
-            set x1 [min [+ $x1 $size] $frameWidth]
-            set y1 [min [+ $y1 $size] $frameHeight]
+
+            set width [- $x1 $x]; set height [- $y1 $y]
+            set x [max [- $x $width] 0]
+            set y [max [- $y $height] 0]
+            set x1 [min [+ $x1 $width] $frameWidth]
+            set y1 [min [+ $y1 $height] $frameHeight]
 
             set subimage [subimage $grayFrame $x $y [- $x1 $x] [- $y1 $y]]
             set aprilTime [+ $aprilTime [baretime {
                 foreach tag [$detector detect $subimage] {
                     dict with tag {
-                        set center [vec2 add $center [list $x $y]]
-                        set corners [lmap corner $corners {vec2 add $corner [list $x $y]}]
+                        set c [vec2 add $c [list $x $y]]
+                        set p [lmap corner $p {vec2 add $corner [list $x $y]}]
                     }
                     lappend tags $tag
                 }
             }]]
         }
 
-        # Wish 6 is labelled "[llength $prevTags] -> [llength $tags] ($aprilTime us)"
-
-        Claim $::thisProcess detects tags $tags at $timestamp in time $aprilTime
-        # Wish 6 is labelled "\n\nStep time $::stepTime\n[join [lmap s [dict values [Statements::all]] {statement short $s}] "\n"]"
+        Claim incremental-detector detects tags $tags on $camera \
+            at $timestamp in time $aprilTime
     }
 }
 
@@ -170,13 +171,15 @@ set ::tagsCache [dict create]
 # TODO: Garbage-collect this cache.
 
 set ::aprilTime none
-When the collected matches for [list /someone/ detects tags /tags/ at /timestamp/ in time /aprilTime/] are /matches/ {
+When the collected matches for [list /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/] are /matches/ {
     set tagsSeen [dict create]
     foreach match $matches {
+        set camera [dict get $match camera]
         set timestamp [dict get $match timestamp]
         foreach tag [dict get $match tags] {
             set id [dict get $tag id]
 
+            dict set tag camera $camera
             dict set tag timestamp $timestamp
 
             if {[dict exists $::tagsCache $id] &&
@@ -190,9 +193,8 @@ When the collected matches for [list /someone/ detects tags /tags/ at /timestamp
     }
 
     dict for {id tag} $tagsSeen {
-        Claim tag $id has center [dict get $tag center] size [dict get $tag size]
-        # Corners are in order {bottomleft bottomright topright topleft}.
-        Claim tag $id has corners [dict get $tag corners]
+        Claim tag $id has detection $tag on [dict get $tag camera] \
+            at [dict get $tag timestamp]
     }
     set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $::aprilTime
