@@ -7,9 +7,12 @@ Wish the web server handles route "/new" with handler {
     <style>
         body { overflow: hidden; }
     </style>
+    <link rel="stylesheet" href="/style.css">
+    <title>New Program | Folk Computer</title>
   </head>
   <body>
-    <span id="status">Status</span>
+    <span id="status" class="container" data-status="disconnected">Status</span>
+
     <div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
       <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
       <p>
