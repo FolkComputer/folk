@@ -98,10 +98,6 @@ When the clock time is /t/ {
         & there are /numWP/ web programs\
         & RAM usage is /RAMusage/ \
         & the clock time is /t/ {
-        # TODO: Print in big font at $WIDTH/2 and $HEIGHT/2:
-        # - RAM usage
-        # - current branch
-        # basically all of betterMetrics?
 
         Hold watcherMetrics { Claim $this has metrics { \
             time 0 \
@@ -116,7 +112,10 @@ When the clock time is /t/ {
             return [format "%0${width}d" [expr {round($number)}]]
         }
 
-        When $this has metrics /metricsDict/ {
+        When $this has metrics /metricsDict/ &\
+         /someone/ claims RAM usage is /ramUsage/ &\
+         /someone/ claims CPU usage is /cpuUsage/ &\
+         /someone/ claims disk usage is /diskUsage/ {
             Hold watcherMetrics { Claim $this has metrics [dict create \
                 time $t \
                 branch [lindex [split [exec git status] "\n"] 0] \
@@ -128,54 +127,30 @@ When the clock time is /t/ {
                     fps [regsub {.*\((\d+)\s+fps\).*} $::displayTime {\1}] \
                 ] \
             ]}
-            # puts "there are: $numRP real programs | $numWP web programs ... [expr {[+ $numRP $numWP] > 0 ? "no desksaver" : "desksaver: $RAMusage"}]"
 
-            # TODO: Change this to be a big font and centered in the middle of the table using $center from above this scope
             if {[+ $numRP $numWP] eq 0} {
-                set centerX [* $Display::WIDTH 0.5]
-                set centerY [* $Display::HEIGHT 0.5]
-                Wish to draw text with x $centerX y [/ $centerY 2.0] text "Desksaver:\nWelcome to Folk"
-                if {[+ $centerX $centerY]} {
-                        return;
-
-                        # Error:
-                        # Aug 18 18:50:58 folk-cwe make[433007]: display: Error in match m3243:0: missing value to go with key
-                        # Aug 18 18:50:58 folk-cwe make[433007]: missing value to go with key
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     while executing
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "dict get $options x"
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     (lambda term "options {
-                        # Aug 18 18:50:58 folk-cwe make[433007]:         if {[dict exists $options center]} {
-                        # Aug 18 18:50:58 folk-cwe make[433007]:      ..." line 8)
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "apply $lambda {*}$env"
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "time {set ret [apply $lambda {*}$env]}"
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     ("uplevel" body line 1)
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "uplevel [list time $body]"
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     (procedure "baretime" line 1)
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "baretime {set ret [apply $lambda {*}$env]}"
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     (procedure "runInSerializedEnvironment" line 9)
-                        # Aug 18 18:50:58 folk-cwe make[433007]:     invoked from within
-                        # Aug 18 18:50:58 folk-cwe make[433007]: "runInSerializedEnvironment $lambda $env"
-
-                        Wish to draw text with x $centerX y $centerY text "
-                            ==== Desksaver ====
+                set centerX [* $Display::WIDTH 0.25]
+                set centerY [* $Display::HEIGHT 0.6]
+                Wish to draw text with \
+                    x $centerX \
+                    y $centerY \
+                    text "
+                            Welcome to Folk
                             Folk clock time: [leftpad [dict get $metricsDict time] 8]
-                                    Step time: ([leftpad [dict get $metricsDict step fps] 3] fps) | ([leftpad [dict get $metricsDict step us]] us)
-                                Camera time: ??? us
-                                AprilTag time: ??? us
-                                    Uptime: [dict get $metricsDict uptime]
+                            Step time: ([leftpad [dict get $metricsDict step fps] 3] fps) | ([leftpad [dict get $metricsDict step us]] us)
+                            CPU: [leftpad $cpuUsage 3]%
+                            RAM: [leftpad $ramUsage 3]%
+                            Disk usage: [leftpad $diskUsage 3]%
+                            Uptime: [dict get $metricsDict uptime]
+                            [dict get $metricsDict branch]
 
-                                [dict get $metricsDict branch]
-                        
-                                Most recent commit:
-                                -------------------
-                                #[exec git rev-parse --short HEAD]
-                                [dict get $metricsDict commit time] [dict get $metricsDict commit description]
-                            " with font VictorMonoRegular
-                }
+                            Most recent commit:
+                            -------------------
+                            #[exec git rev-parse --short HEAD]
+                            [dict get $metricsDict commit time] [dict get $metricsDict commit description]
+                    " \
+                    scale  2 \
+                    font VictorMonoRegular
             }
         }
     }

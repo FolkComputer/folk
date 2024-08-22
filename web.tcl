@@ -229,6 +229,7 @@ proc handleRead {chan addr port} {
 
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
+        # TODO: Make this a When
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
         try {
             foreach match $matches {
