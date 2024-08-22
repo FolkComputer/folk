@@ -162,20 +162,28 @@ proc handleProgramsRoute {path} {
         <title>$program_id - Folk Program</title>
         <link rel=\"stylesheet\" href=\"/style.css\">
     <body>
-        <h1>$program_id</h1>
-        <h2>[info hostname]/$directory/$program_id.folk</h2>
+        <section>
+            <h1 class=code>$program_id</h1>
+            <h2 class=code>[info hostname]/$directory/$program_id.folk</h2>
+        </section>
 
         <!-- TODO: Pull out docstring -> HTML in here -->
         <section>
-            <h2>Docstring:</h2>
-            <p>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
-        </section
+            <details>
+                <summary><span class=subtitle>Documentation:</h2></span>
+                <p>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
+                <pre>extacted comment</pre>
+            </details>
+        </section>
 
 
-        <details>
-            <summary><h2>File content:</h2></summary>
-            <pre>$file_data</pre>
-        </details> 
+        <section>
+            <details>
+                <summary><span class=subtitle>File content:</span>
+                <pre>$file_data</pre>
+            </details> 
+        </section>
+
         </body></html>
     "
 }

@@ -53,8 +53,18 @@ body {
 h1,h2,h3 {
     line-height:1.2
 }
-pre, #code {
+
+.subtitle {
+    font-size: 0.8em;
+    font-weight: normal;
+    text-decoration: underline;
+}
+
+pre, #code, .code {
     font-family: 'IBM Plex Mono', monospace;
+}
+
+pre, #code {
     background-color: #eee;
     padding: 5px;
     overflow: auto;
