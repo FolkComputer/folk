@@ -358,7 +358,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         # TODO: report actual width and height from v4l2
         Claim camera $cameraPath has width $width height $height
 
-        puts "camera.folk: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+        puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {
