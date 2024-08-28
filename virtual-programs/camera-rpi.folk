@@ -3,6 +3,7 @@ if {$::isLaptop} return
 set makeCamera {
     set cpp [C++]
     $cpp include <iostream>
+    $cpp include <iomanip>
     $cpp include <libcamera/libcamera.h>
     # osnr: HACK: because I'm building libcamera locally for now.
     $cpp cflags -I/usr/local/include/libcamera
@@ -11,6 +12,45 @@ set makeCamera {
     $cpp code {
         using namespace libcamera;
         std::shared_ptr<Camera> camera;
+
+        static void requestComplete(Request *request) {
+            if (request->status() == Request::RequestCancelled) {
+		return;
+            }
+
+            // TODO: copy the buffer to be managed by Folk and queue it up?
+            // is that too slow?
+            const Request::BufferMap &buffers = request->buffers();
+            for (auto bufferPair : buffers) {
+		// (Unused) Stream *stream = bufferPair.first;
+		FrameBuffer *buffer = bufferPair.second;
+		const FrameMetadata &metadata = buffer->metadata();
+
+		/* Print some information about the buffer which has completed. */
+		std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
+			  << " timestamp: " << metadata.timestamp
+			  << " bytesused: ";
+
+		unsigned int nplane = 0;
+		for (const FrameMetadata::Plane &plane : metadata.planes())
+                    {
+			std::cout << plane.bytesused;
+			if (++nplane < metadata.planes().size())
+                            std::cout << "/";
+                    }
+
+		std::cout << std::endl;
+
+		/*
+		 * Image data can be accessed here, but the FrameBuffer
+		 * must be mapped by the application
+		 */
+            }
+
+            /* Re-queue the Request to the camera. */
+            request->reuse(Request::ReuseBuffers);
+            camera->queueRequest(request);
+        }
     }
     $cpp proc cameraOpen {char* id int width int height} void {
         std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
@@ -24,12 +64,83 @@ set makeCamera {
         camera = cm->get(id);
         camera->acquire();
 
-	/* std::unique_ptr<CameraConfiguration> config = */
-        /*   camera->generateConfiguration({ StreamRole::Viewfinder }); */
-        /* StreamConfiguration &streamConfig = config->at(0); */
-        /* config->validate(); */
-	/* camera->configure(config.get()); */
+	std::unique_ptr<CameraConfiguration> config =
+            camera->generateConfiguration({ StreamRole::Viewfinder });
+        StreamConfiguration &streamConfig = config->at(0);
+        config->validate();
+	camera->configure(config.get());
+
+	FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
+	for (StreamConfiguration &cfg : *config) {
+            int ret = allocator->allocate(cfg.stream());
+            if (ret < 0) {
+                FOLK_ERROR("Can't allocate buffers");
+            }
+
+            size_t allocated = allocator->buffers(cfg.stream()).size();
+            std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
+	}
+
+        Stream *stream = streamConfig.stream();
+	const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
+	std::vector<std::unique_ptr<Request>> requests;
+	for (unsigned int i = 0; i < buffers.size(); ++i) {
+		std::unique_ptr<Request> request = camera->createRequest();
+		if (!request)
+		{
+                    FOLK_ERROR("Can't create request");
+
+		}
+
+		const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+		int ret = request->addBuffer(stream, buffer.get());
+		if (ret < 0)
+		{
+                    FOLK_ERROR("Can't set buffer for request");
+		}
+
+		/*
+		 * Controls can be added to a request on a per frame basis.
+		 */
+		ControlList &controls = request->controls();
+		controls.set(controls::Brightness, 0.5);
+
+		requests.push_back(std::move(request));
+	}
+
+	camera->requestCompleted.connect(requestComplete);
+
+        camera->start();
+	for (std::unique_ptr<Request> &request : requests) {
+            camera->queueRequest(request.get());
+        }
     }
+
+    defineImageType $cpp
+    $cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+    $cpp import ::Heap::cc folkHeapFree as folkHeapFree
+
+    $cpp proc newImage {} image_t {
+        uint32_t width = 1280;
+        uint32_t height = 720;
+        int components = 1;
+        uint8_t *data = (uint8_t *)folkHeapAlloc(width*components*height);
+        return (image_t) {
+            .width = width,
+            .height = height,
+            .components = components,
+            .bytesPerRow = width*components,
+            .data = data
+        };
+    }
+    $cpp proc freeImage {image_t image} void {
+        folkHeapFree(image.data);
+    }
+
+    $cpp proc grayFrame {} image_t {
+        return newImage();
+    }
+
     $cpp compile
 }
 
@@ -50,21 +161,21 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         # TODO: report actual width and height from libcamera
         Claim camera $cameraPath has width $width height $height
 
-        # puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+        puts "camera-rpi: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
-        # set ::oldFrames [list]
-        # When $::thisProcess has step count /c/ {
-        #     set frame [Camera::grayFrame $camera]
-        #     Hold {
-        #         Claim camera $cameraPath has camera time $::stepTime
-        #         Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
-        #     }
-        #     lappend ::oldFrames $frame
-        #     if {[llength $::oldFrames] >= 10} {
-        #         set ::oldFrames [lassign $::oldFrames oldestFrame]
-        #         Camera::freeImage $oldestFrame
-        #     }
-        # }
+        set ::oldFrames [list]
+        When $::thisProcess has step count /c/ {
+            set frame [Camera::grayFrame]
+            Hold {
+                Claim camera $cameraPath has camera time $::stepTime
+                Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
+            }
+            lappend ::oldFrames $frame
+            if {[llength $::oldFrames] >= 10} {
+                set ::oldFrames [lassign $::oldFrames oldestFrame]
+                Camera::freeImage $oldestFrame
+            }
+        }
     }
 }
 
