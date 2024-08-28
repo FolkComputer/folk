@@ -316,6 +316,8 @@ set makeCamera {
 }
 
 When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+    if {![string match "/dev*" $cameraPath]} { return }
+
     set width [dict get $options width]
     set height [dict get $options height]
     Start process "camera $cameraPath $options" {

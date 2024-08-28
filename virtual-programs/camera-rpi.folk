@@ -1,0 +1,76 @@
+if {$::isLaptop} return
+
+set makeCamera {
+    set cpp [C++]
+    $cpp include <iostream>
+    $cpp include <libcamera/libcamera.h>
+    # osnr: HACK: because I'm building libcamera locally for now.
+    $cpp cflags -I/usr/local/include/libcamera
+    c loadlibLd libcamera
+
+    $cpp code {
+        using namespace libcamera;
+        std::shared_ptr<Camera> camera;
+    }
+    $cpp proc cameraOpen {char* id int width int height} void {
+        std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+        cm->start();
+
+        std::cout << "camera-rpi: cameras:" << std::endl;
+	for (auto const &camera : cm->cameras()) {
+            std::cout << " - " << camera->id() << std::endl;
+        }
+
+        camera = cm->get(id);
+        camera->acquire();
+
+	/* std::unique_ptr<CameraConfiguration> config = */
+        /*   camera->generateConfiguration({ StreamRole::Viewfinder }); */
+        /* StreamConfiguration &streamConfig = config->at(0); */
+        /* config->validate(); */
+	/* camera->configure(config.get()); */
+    }
+    $cpp compile
+}
+
+When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+    if {![string match "/base*" $cameraPath]} { return }
+
+    puts "camera-rpi: Running."
+
+    set width [dict get $options width]
+    set height [dict get $options height]
+    Start process "camera $cameraPath $options" {
+        Wish $::thisProcess shares statements like \
+            [list /someone/ claims camera $cameraPath /...anything/]
+
+        namespace eval Camera $makeCamera
+        Camera::cameraOpen $cameraPath $width $height
+
+        # TODO: report actual width and height from libcamera
+        Claim camera $cameraPath has width $width height $height
+
+        # puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+
+        # set ::oldFrames [list]
+        # When $::thisProcess has step count /c/ {
+        #     set frame [Camera::grayFrame $camera]
+        #     Hold {
+        #         Claim camera $cameraPath has camera time $::stepTime
+        #         Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
+        #     }
+        #     lappend ::oldFrames $frame
+        #     if {[llength $::oldFrames] >= 10} {
+        #         set ::oldFrames [lassign $::oldFrames oldestFrame]
+        #         Camera::freeImage $oldestFrame
+        #     }
+        # }
+    }
+}
+
+# TODO: remove this; useful for compatibility with current metrics but
+# doesn't work for multicam
+set ::cameraTime none
+When camera /any/ has camera time /cameraTime/ {
+    set ::cameraTime $cameraTime
+}
