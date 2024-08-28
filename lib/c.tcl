@@ -43,6 +43,7 @@ namespace eval c {
         variable nextHandle
         set handle "::c[incr nextHandle]"
         uplevel [list namespace eval $handle {
+            variable compiler cc
             variable prelude {
                 #include <tcl.h>
                 #include <inttypes.h>
@@ -236,7 +237,7 @@ namespace eval c {
                 set frame [info frame -2]
                 if {[dict exists $frame line] && [dict exists $frame file] &&
                     [dict get $frame line] >= 0} {
-                    subst {#line [dict get $frame line] "[dict get $frame file]"}
+                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
                 } else { list }
             }
             ::proc code {newcode} {
@@ -491,6 +492,7 @@ namespace eval c {
                 variable objtypes
                 variable procs
                 variable cflags
+                variable compiler
 
                 set init [subst {
                     int Cfile_Init(Tcl_Interp* interp) {
@@ -511,18 +513,35 @@ namespace eval c {
                         return TCL_OK;
                     }
                 }]
+
+                set externC [subst {
+#ifdef __cplusplus
+extern "C" \{
+#endif
+}]
+                set unexternC [subst {
+#ifdef __cplusplus
+\}
+#endif
+}]
                 set sourcecode [join [list \
+                                          $externC \
                                           $prelude \
+                                          $unexternC \
+                                          \
                                           {*}$code \
+                                          \
+                                          $externC \
                                           {*}$objtypes \
                                           {*}[lmap p [dict values $procs] {dict get $p code}] \
                                           $init \
+                                          $unexternC
                                          ] "\n"]
 
                 # puts "=====================\n$sourcecode\n====================="
 
                 set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
-                exec cc -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
+                exec $compiler -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
             ::proc import {sccVar sname as dest} {
@@ -567,4 +586,11 @@ namespace eval c {
 
     namespace export *
     namespace ensemble create
+}
+
+proc ::C++ {} {
+    set cpp [c create]
+    set ${cpp}::compiler c++
+    $cpp cflags -Wno-write-strings
+    return $cpp
 }
