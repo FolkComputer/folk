@@ -100,8 +100,8 @@ namespace eval c {
                 size_t { expr {{ size_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
                 intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
                 uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, (int *)&$argname)); }}}
-                uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%"PRIu32, &$argname) == 1); }}}
-                uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%"PRIu64, &$argname) == 1); }}}
+                uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%" PRIu32, &$argname) == 1); }}}
+                uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%" PRIu64, &$argname) == 1); }}}
                 char* { expr {{ char* $argname = Tcl_GetString($obj); }} }
                 Tcl_Obj* { expr {{ Tcl_Obj* $argname = $obj; }}}
                 default {
@@ -301,7 +301,7 @@ namespace eval c {
                         memcpy(dupPtr->internalRep.ptrAndLongRep.ptr, srcPtr->internalRep.ptrAndLongRep.ptr, sizeof($type));
                     }
                     void $[set type]_updateStringProc(Tcl_Obj *objPtr) {
-                        $[set type] *robj = objPtr->internalRep.ptrAndLongRep.ptr;
+                        $[set type] *robj = ($[set type] *)objPtr->internalRep.ptrAndLongRep.ptr;
 
                         const char *format = "$[join [lmap fieldname $fieldnames {
                             subst {$fieldname {%s}}
@@ -313,7 +313,7 @@ namespace eval c {
                             }
                         }] "\n"]
                         objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
-                        objPtr->bytes = ckalloc(objPtr->length + 1);
+                        objPtr->bytes = (char *)ckalloc(objPtr->length + 1);
                         snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
                     }
                     int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
