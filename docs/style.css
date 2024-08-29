@@ -29,9 +29,14 @@ pre, .code {
 }
 
 .todo {
-    font-family: fantasy;
-    background-color: black;
-    color: white;
+    font-family: 'IBM Plex Mono';
+    font-weight: 500;
+    background-color: #234;
+    color: gold;
+    padding: 0.2em;
+    box-shadow: 0 0 10px red;
+    margin: 1em 0;
+    border-radius: 6px;
 }
 
 .todo::before {
