@@ -1,0 +1,20 @@
+puts "====== in touch.folk"
+set cpp [C++]
+$cpp cflags -I$::env(HOME)/freenect2/include
+
+$cpp include <libfreenect2/libfreenect2.hpp>
+$cpp include <libfreenect2/frame_listener_impl.h>
+$cpp include <libfreenect2/packet_pipeline.h>
+
+c loadlib $::env(HOME)/freenect2/lib/libfreenect2.so
+
+$cpp include <iostream>
+
+$cpp proc deviceCount {} int {
+    libfreenect2::Freenect2 freenect2;
+    return freenect2.enumerateDevices();
+}
+
+$cpp compile
+puts "Found [deviceCount] devices"
+puts "====== out of touch.folk"
