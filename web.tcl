@@ -78,8 +78,12 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 </head>
                 <body>
                 [join [lmap p $programs { dict with p {subst {
-                    <h2>$programName</h2>
+                    <details>
+                    <summary>
+                    <span class="code">$programName</span>
+                    </summary>
                     <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
+                    </details>
                 }} }] "\n"]
                 </body>
                 </html>
