@@ -90,9 +90,6 @@ let getState = streamGet tidal
 default (Pattern String, Integer, Double)
 }
 close $bootTidal
-set scStartup [open $::Music::musicDir/startup.sc w]
-puts $scStartup "SuperDirt.start;"
-close $scStartup
 
 set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
 
@@ -110,23 +107,49 @@ proc ::Music::finishSetup {} {
   if {$::thisNode ne "folk-beads"} {
     exec jack_control start
     exec jack_control ds alsa
-    exec jack_control dps device hw:HDMI,10
+    if {$::thisNode eq "folk-recurse"} {
+        exec jack_control dps device hw:PCH,0
+        exec jack_control dps period 256
+    } else {
+        exec jack_control dps device hw:HDMI,10
+        exec jack_control dps period 64
+    }
     exec jack_control dps rate 48000
     exec jack_control dps nperiods 2
-    exec jack_control dps period 64
   }
 
   catch {exec pkill ghci}
   catch {exec pkill sclang}
   after 500 {
-    ::Music::exec -ignorestderr xvfb-run --auto-servernum sclang $::Music::musicDir/startup.sc &
+    set scFifo $::Music::musicDir/sc-input
+    exec rm -f $scFifo
+    exec mkfifo $scFifo
+    ::Music::exec -ignorestderr sh -c "QT_QPA_PLATFORM=offscreen sclang -i folk < $scFifo" &
+    set scFifoId [open $scFifo w]
+    namespace eval ::Music { variable scFifo $scFifoId }
+    ::Music::scExec {
+        d = \SuperDirt.asClass;
+        if(d.isNil, { s.boot }, { d.start });
+        d = Dictionary();
+        ~synthNames = Dictionary();
+        ~bufs = Dictionary();
+        ~folkOSC = NetAddr.new("127.0.0.1", 7771);
+        o = OSCFunc({ arg msg, time;
+            var name;
+            name = ~synthNames[msg[1]];
+            if(name.notNil, {
+                ~folkOSC.sendMsg("/sounds/" ++ name ++ "/" ++ msg[2], msg[3]);
+            });
+        }, '/tr', s.addr);
+    }
+    Assert Supercollider is ready
 
-    set fifo $::Music::musicDir/tidal-input
-    exec rm -f $fifo
-    exec mkfifo $fifo
-    ::Music::exec -ignorestderr sh -c "ghci < $fifo" &
-    set fifoId [open $fifo w]
-    exec cat $::Music::musicDir/BootTidal.hs > $fifo
+    set tidalFifo $::Music::musicDir/tidal-input
+    exec rm -f $tidalFifo
+    exec mkfifo $tidalFifo
+    ::Music::exec -ignorestderr sh -c "ghci < $tidalFifo" &
+    set fifoId [open $tidalFifo w]
+    exec cat $::Music::musicDir/BootTidal.hs > $tidalFifo
   }
 }
 
@@ -141,3 +164,49 @@ proc ::Music::waitForDbus {} {
 }
 
 ::Music::waitForDbus
+
+proc ::Music::scExec {cmd} {
+    puts $::Music::scFifo "$cmd\x1b"
+    flush $::Music::scFifo
+}
+
+When Supercollider is ready & /someone/ wishes Supercollider runs /source/ {
+    ::Music::scExec $source
+}
+
+set ::nextscsynthid 0
+
+When Supercollider is ready & \
+     /someone/ wishes Supercollider plays sound /name/ /source/ with initialization /init/ {
+    set synthid [incr ::nextscsynthid]
+    set params [Statements::findMatches [list /someone/ wishes Supercollider sound $name attr /attr/ is /value/]]
+    set paramStr ""
+    foreach param $params {
+        dict with param { append paramStr "\\$attr, $value," }
+    }
+    ::Music::scExec [subst -nocommands -nobackslashes {
+        ($init);
+        x = {$source}.play(args: [$paramStr]);
+        d["$synthid"] = x;
+        ~synthNames[x.asNodeID] = "$name";
+    }]
+    Claim Supercollider sound $name has synth ID $synthid
+    On unmatch {
+        ::Music::scExec [subst -nocommands -nobackslashes {
+            x = d["$synthid"];
+            ~synthNames[x.asNodeID] = nil;
+            x.free;
+            d["$synthid"] = nil;
+        }]
+    }
+}
+
+When /someone/ wishes Supercollider plays sound /name/ /source/ {
+    Wish Supercollider plays sound $name $source with initialization { }
+}
+
+When Supercollider is ready & \
+     /someone/ wishes Supercollider sound /name/ attr /attr/ is /value/ & \
+     Supercollider sound /name/ has synth ID /synthid/ {
+    ::Music::scExec "d\[\"$synthid\"\].set(\\$attr, $value);"
+}

@@ -1,0 +1,56 @@
+Start process "osc" {
+    package require udp
+
+    set ::sock [udp_open 7771]
+    fconfigure $::sock -translation binary
+
+    proc ::decodeArgs {types argsHex} {
+        set args [binary decode hex $argsHex]
+        set out [list]
+        foreach char [split $types ""] {
+            if {$char eq "f"} {
+                set bytes [string range $args 0 3]
+                binary scan $bytes R x
+                lappend out $x
+                set args [string range $args 4 end]
+            } else {
+                puts "OSC decoding only supports float args for now"
+                return $out
+            }
+        }
+        return $out
+    }
+
+    Wish $::thisProcess shares statements like [list OSC path /path/ has args /...args/]
+
+    proc ::onDatagram {channel} {
+        set packet [read $channel]
+        # TODO: improve this parsing code to handle the full generality of OSC
+        if {[regexp -indices {^(\/[a-zA-Z0-9/\-\.]*)\0{1,4},([a-z]*)\0(.*)$} $packet -> pathIdx typesIdx argsIdx]} {
+            set path [string range $packet {*}$pathIdx]
+            set types [string range $packet {*}$typesIdx]
+            lassign $argsIdx argsStart argsEnd
+            set realArgsStart [expr {$argsStart+((4-($argsStart&3))&3)}]
+            set args [string range $packet $realArgsStart $argsEnd]
+            set args [::decodeArgs $types [binary encode hex $args]]
+
+            set events [Statements::findMatches \
+                [list OSC path $path has args /...oldArgs/]]
+            # should really only be one? but just in case
+            foreach event $events {
+                dict with event { Retract OSC path $path has args {*}$oldArgs }
+            }
+
+            Assert OSC path $path has args {*}$args
+            Step
+        } else {
+            puts "got a bad OSC packet? [binary encode hex $packet]"
+        }
+        return
+    }
+
+    fileevent $::sock readable [list ::onDatagram $::sock]
+
+    vwait forever
+}
+
