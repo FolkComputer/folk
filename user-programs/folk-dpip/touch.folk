@@ -1,4 +1,3 @@
-puts "====== in touch.folk"
 set cpp [C++]
 $cpp cflags -I$::env(HOME)/freenect2/include
 
@@ -10,11 +9,109 @@ c loadlib $::env(HOME)/freenect2/lib/libfreenect2.so
 
 $cpp include <iostream>
 
-$cpp proc deviceCount {} int {
+defineImageType $cpp
+
+$cpp code {
     libfreenect2::Freenect2 freenect2;
-    return freenect2.enumerateDevices();
+    libfreenect2::Freenect2Device *dev = 0;
+    libfreenect2::PacketPipeline *pipeline = 0;
+
+    libfreenect2::SyncMultiFrameListener listener(
+        libfreenect2::Frame::Color |
+        libfreenect2::Frame::Ir |
+        libfreenect2::Frame::Depth
+    );
+    libfreenect2::FrameMap frames;
+}
+
+$cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+$cpp import ::Heap::cc folkHeapFree as folkHeapFree
+
+$cpp proc initKinect {} bool {
+    if (freenect2.enumerateDevices() == 0) {
+        std::cout << "no device connected!" << std::endl;
+        return false;
+    }
+
+    pipeline = new libfreenect2::CpuPacketPipeline();
+    dev = freenect2.openDefaultDevice(pipeline);
+    dev->setColorFrameListener(&listener);
+    dev->setIrAndDepthFrameListener(&listener);
+    if (!dev->start()) {
+        std::cout << "couldn't start streams!" << std::endl;
+        return false;
+    }
+    if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
+        std::cout << "timed out waiting for frames!" << std::endl;
+        return false;
+    }
+    libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
+    std::cout << "width: " << rgb->width << std::endl;
+    std::cout << "height: " << rgb->height << std::endl;
+    std::cout << "bytes_per_pixel: " << rgb->bytes_per_pixel << std::endl;
+    std::cout << "format: " << rgb->format << std::endl;
+    listener.release(frames);
+    dev->stop();
+
+    return true;
+}
+
+$cpp code {
+    image_t newImage() {
+        uint8_t* data = (uint8_t *)folkHeapAlloc(1920*1080*3);
+        return (image_t) {
+            .width = 1920,
+            .height = 1080,
+            .components = 3,
+            .bytesPerRow = 1920*3,
+            .data = data
+        };
+    }
+}
+
+$cpp proc freeImage {image_t image} void {
+    folkHeapFree(image.data);
+}
+
+$cpp proc getFrame {} image_t {
+    image_t image = newImage();
+    if (!dev->start()) {
+        std::cout << "couldn't start streams!" << std::endl;
+        return image;
+    }
+    if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
+        std::cout << "timed out waiting for frames!" << std::endl;
+        return image;
+    }
+    libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
+    for (long unsigned int i = 0; i < 1920*1080*3; i += 3) {
+        image.data[i] = rgb->data[i+2+(i/3)];
+        image.data[i+1] = rgb->data[i+1+(i/3)];
+        image.data[i+2] = rgb->data[i+(i/3)];
+    };
+    listener.release(frames);
+    dev->stop();
+    return image;
 }
 
 $cpp compile
-puts "Found [deviceCount] devices"
-puts "====== out of touch.folk"
+
+puts "initializing kinect"
+if { ![initKinect] } {
+    puts "kinect not found! exiting touch tracking"
+    return
+}
+puts "kinect initialized"
+
+Wish the web server handles route {/kinect-camera-frame(?:\?.*)?$} with handler {
+    set filename "/tmp/web-image-frame-kinect.jpg"
+    set im [getFrame]
+    image saveAsJpeg $im $filename
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    freeImage $im
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+}
