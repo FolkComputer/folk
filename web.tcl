@@ -68,27 +68,6 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 </html>
             }
         }
-        "/programs" {
-            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
-            subst {
-                <html>
-                <head>
-                <link rel="stylesheet" href="/style.css">
-                <title>Running programs</title>
-                </head>
-                <body>
-                [join [lmap p $programs { dict with p {subst {
-                    <details>
-                    <summary>
-                    <span class="code">$programName</span>
-                    </summary>
-                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
-                    </details>
-                }} }] "\n"]
-                </body>
-                </html>
-            }
-        }
         "/timings" {
             set totalTimes [list]
             dict for {body totalTime} $Evaluator::totalTimesMap {

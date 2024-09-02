@@ -1,4 +1,5 @@
 # TODO: support e.g.:
+#    - programs (list out all the programs)
 #    - programs/virtual/label.folk
 #    - programs/printed/0123.folk
 #    - programs/core/powerSwitch.folk (aliases to virtual-programs/core/powerSwitch.folk)
@@ -8,16 +9,24 @@ proc log {msg} {
     puts "=== /programs/: === $msg"
 }
 
+set ::search_paths_dict [dict create \
+    "virtual" "virtual-programs" \
+    "printed" "$::env(HOME)/folk-printed-programs" \
+    "live" "$::env(HOME)/folk-live" \
+    "user" "user-programs/[info hostname]" \
+]
+
+# set ::search_paths [list \
+#     "virtual-programs" \
+#     "$::env(HOME)/folk-printed-programs" \
+#     "$::env(HOME)/folk-live" \
+#     "user-programs/[info hostname]" \
+# ]
+
 proc list_programs {directory} {
     set programs [list]
-    set search_paths [list \
-        "virtual-programs" \
-        "$::env(HOME)/folk-printed-programs" \
-        "$::env(HOME)/folk-live" \
-        "user-programs/[info hostname]" \
-    ]
     
-    foreach path $search_paths {
+    foreach path $::search_paths {
         set full_path [file join $path $directory]
         if {[file isdirectory $full_path]} {
             set files [glob -nocomplain -directory $full_path *.folk]
@@ -46,7 +55,7 @@ proc getFilename {directory program_id} {
     return 0
 }
 
-proc get_virtual_program {filename} {
+proc getFileData {filename} {
     if {[file exists $filename]} {
         set fp [open $filename r]
         set file_data [read $fp]
@@ -58,20 +67,20 @@ proc get_virtual_program {filename} {
 
 proc get_printed_program {program_id} {
     # Implementation for getting printed program
-    # For now, we'll use the same logic as get_virtual_program
-    return [get_virtual_program $program_id]
+    # For now, we'll use the same logic as getFileData
+    return [getFileData $program_id]
 }
 
 proc get_core_program {program_id} {
     # Implementation for getting core program
-    # For now, we'll use the same logic as get_virtual_program
-    return [get_virtual_program $program_id]
+    # For now, we'll use the same logic as getFileData
+    return [getFileData $program_id]
 }
 
 proc get_web_program {program_id} {
     # Implementation for getting web program
-    # For now, we'll use the same logic as get_virtual_program
-    return [get_virtual_program $program_id]
+    # For now, we'll use the same logic as getFileData
+    return [getFileData $program_id]
 }
 
 proc clipFolkExtension {filename} {
@@ -79,6 +88,7 @@ proc clipFolkExtension {filename} {
 }
 
 proc generate_directory_listing {directory programs} {
+    log "generate_directory_listing: $directory | $programs |"
     set mapped_html [string map [list \
         "directory" $directory \
         "program_list" [join $programs "\n"] \
@@ -119,9 +129,9 @@ proc handleProgramsRoute {path} {
     switch $count {
         2 {
             # e.g. http://folkName.local:4273/programs/0.folk
+            log "(2) PATHLIST: $pathList"
             set directory "printed"
             set program_id [clipFolkExtension [lindex $pathList 1]]
-            log "(2) PATHLIST: $pathList"
         }
         3 {
             # e.g. http://folkName.local:4273/programs/0.folk
@@ -134,9 +144,9 @@ proc handleProgramsRoute {path} {
             # e.g. programs/virtual/label.folk
             # e.g. http://folk-cwe.local:4273/programs/virtual/label.folk
             # e.g. http://folk-cwe.local:4273/programs/printed/0.folk
+            log "(4) PATHLIST: $pathList"
             set directory [lindex $pathList 2]
             set program_id [clipFolkExtension [lindex $pathList 3]]
-            log "(4) PATHLIST: $pathList"
         }
         default {
             return "<html><body><h1>Error: Invalid path structure</h1></body></html>"
@@ -148,7 +158,7 @@ proc handleProgramsRoute {path} {
     set filename [getFilename $directory $program_id]
     log "filename: $filename"
     log "program_id: $program_id"
-    set file_data [get_virtual_program $filename]
+    set file_data [getFileData $filename]
     if {$file_data == 0} {
         # TODO: Set appropriate HTTP status code
         #       Can maybe edit the WHen below to return a 404 status code?
@@ -176,17 +186,122 @@ proc handleProgramsRoute {path} {
             </details>
         </section>
 
-
         <section>
             <details>
                 <summary><span class=subtitle>File content:</span>
                 <pre>$file_data</pre>
             </details> 
         </section>
-
         </body></html>
     "
 }
+
+proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }
+
+proc emitHTMLForProgramList {programList label} {
+    set prettyLabel [string map {- " "} $label]
+    set prettyLabel [string totitle $prettyLabel]:
+    set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
+    lappend returnList "<ul>"
+    foreach item $programList {
+        lappend returnList "<li>
+          <details>
+            <summary class=subtitle>$item</summary>
+            <pre><code>[htmlEscape [getFileData $item]]</code></pre>
+        </li>"
+    }
+    lappend returnList "</ul>"
+    lappend returnList "</details>"
+    join $returnList
+}
+
+Wish the web server handles route {/programs$} with handler {
+    # TODO:
+    # - Make this synchronous
+    # - Maybe should actually, move this to a virtual-program/watcher.folk.default programs that makes claims like:
+    #   Claim virtual programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+    #   Claim core programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+    #   Claim web programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+    #   Claim real programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+    set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
+    set vp [list]; # virtual programs
+    set cp [list]; # core programs
+    set wp [list]; # web programs
+    set rp [list]; # real programs
+
+    foreach match $programs {
+        set page [dict get $match page]
+        switch -glob $page {
+            "virtual-programs/*" {
+                lappend vp $page
+            }
+            "setup.folk.default" {
+                lappend cp $page
+            }
+            "web-program-*" {
+                lappend wp $page
+            }
+            default {
+                lappend rp $page
+            }
+        }
+    }
+
+    set rawHTML [subst {
+        <html>
+        <head>
+            <title>All programs</title>
+            <link rel="stylesheet" href="/style.css">
+            <script src="/lib/folk.js"></script>
+            <script>
+            /* TODO:
+                (  ) Add a ws.watch() for /someone/ claims /page/ has program /program/
+            */
+            </script>
+        </head>
+        <body>
+                <nav>
+                    <a href="/new"><button>New program</button></a>
+                    <a href="/">Statements</a>
+                    <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+                    <a href="/statements.pdf">statements graph</a>
+                </nav>
+
+            [emitHTMLForProgramList $rp "real-programs"]
+            [emitHTMLForProgramList $wp "web-programs"]
+            [emitHTMLForProgramList $vp "virtual-programs"]
+            [emitHTMLForProgramList $cp "core-programs"]
+            [expr {[llength $rp] ?  "<h2>[llength $rp] [expr {[llength $rp] == 1 ? "program is" : "programs are"}] out.</h2>" : "No real programs are out."}]
+        </body>
+        </html>
+    }]
+    html $rawHTML
+}
+
+
+Wish the web server handles route {/programs_deprecated_handler$} with handler {
+    set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+    log "# programs: [llength $programs]"
+    set rawHTML "<html>
+    <head>
+        <link rel=stylesheet href=/style.css>
+        <title>Running programs</title>
+    </head>
+    <body>"
+    foreach program $programs {
+        lappend rawHTML [subst {
+            <details>
+            <summary class=subtitle>[dict get $program programName]</summary>
+            <pre><code>[dict get $program program]</code></pre>
+            </details>
+        }]
+    }
+    lappend rawHTML "
+    </body>
+    </html>"
+    html $rawHTML
+}
+
 
 # Router for `/programs/(.*)$`
 Wish the web server handles route {/programs/(.*)$} with handler {

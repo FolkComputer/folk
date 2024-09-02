@@ -55,9 +55,8 @@ h1,h2,h3 {
 }
 
 .subtitle {
-    font-size: 0.8em;
+    font-size: 1.4em;
     font-weight: normal;
-    text-decoration: underline;
 }
 
 pre, #code, .code {
