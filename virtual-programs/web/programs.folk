@@ -1,6 +1,7 @@
 # TODO: support e.g.:
 #    - programs (list out all the programs)
 #    - programs/virtual/label.folk
+#    - programs/virtual/display/arc.folk
 #    - programs/printed/0123.folk
 #    - programs/core/powerSwitch.folk (aliases to virtual-programs/core/powerSwitch.folk)
 #    - programs/web/id (displays the content of a live web program if that endpoint is active)
@@ -165,6 +166,7 @@ proc handleProgramsRoute {path} {
         set file_data "404|Error: $filename not found"
     }
 
+    # TODO: Parse the file_data to extract the docstring
     return "<html>
     <head>
         <meta charset=UTF-8>
@@ -173,24 +175,20 @@ proc handleProgramsRoute {path} {
         <link rel=\"stylesheet\" href=\"/style.css\">
     <body>
         <section>
-            <h1 class=code>$program_id</h1>
-            <h2 class=code>[info hostname]/$directory/$program_id.folk</h2>
+            <h1 class=\"subtitle code\">$program_id</h1>
+            <h2 class=\"code\">path: [info hostname]/$directory/$program_id.folk</h2>
         </section>
 
         <!-- TODO: Pull out docstring -> HTML in here -->
         <section>
-            <details>
-                <summary><span class=subtitle>Documentation:</h2></span>
-                <p>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
-                <pre>extacted comment</pre>
-            </details>
+            <h2 class=subtitle>Documentation:</h2>
+            <p class=todo>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
+            <pre>extacted comment</pre>
         </section>
 
         <section>
-            <details>
-                <summary><span class=subtitle>File content:</span>
-                <pre>$file_data</pre>
-            </details> 
+            <h2 class=subtitle>File content:</h2>
+            <pre>$file_data</pre>
         </section>
         </body></html>
     "
@@ -277,31 +275,6 @@ Wish the web server handles route {/programs$} with handler {
     }]
     html $rawHTML
 }
-
-
-Wish the web server handles route {/programs_deprecated_handler$} with handler {
-    set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
-    log "# programs: [llength $programs]"
-    set rawHTML "<html>
-    <head>
-        <link rel=stylesheet href=/style.css>
-        <title>Running programs</title>
-    </head>
-    <body>"
-    foreach program $programs {
-        lappend rawHTML [subst {
-            <details>
-            <summary class=subtitle>[dict get $program programName]</summary>
-            <pre><code>[dict get $program program]</code></pre>
-            </details>
-        }]
-    }
-    lappend rawHTML "
-    </body>
-    </html>"
-    html $rawHTML
-}
-
 
 # Router for `/programs/(.*)$`
 Wish the web server handles route {/programs/(.*)$} with handler {

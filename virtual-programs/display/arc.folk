@@ -3,7 +3,6 @@
 #     lassign [region centroid $r] x y
 #     Wish to draw an arc with x $x y $y start 0 arclen 1 thickness 3 radius 100 color green
 #   }
-
 Wish the GPU compiles pipeline "arc" {{vec2 center float start float arclen float radius float thickness vec4 color} {
     float r = radius + thickness;
     vec2 vertices[4] = vec2[4](
