@@ -103,6 +103,7 @@ set makeCamera {
         }
 
         static void processRequest(Request *request) {
+            printf("processRequest (%p)\n", request);
             std::cout << std::endl
                       << "Request completed: " << request->toString() << std::endl;
 
@@ -199,9 +200,9 @@ set makeCamera {
             request = latestRequest;
         } while (!latestRequest.compare_exchange_weak(request, nullptr));
 
-        std::cout << "before-processrequest" << std::endl;
-        processRequest(request);
-        std::cout << "after-processrequest" << std::endl;
+        if (request != nullptr) {
+            processRequest(request);
+        }
 
         return im;
     }
