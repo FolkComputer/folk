@@ -34,6 +34,9 @@ set ::search_paths_dict [dict create \
 ###############
 
 proc parse_tcl_docs {file_data} {
+
+    return [dict create documentation "TODO: Parse documentation" code $file_data]
+
     set lines [split $file_data "\n"]
     set result [list]
     set currentBlock [dict create]
