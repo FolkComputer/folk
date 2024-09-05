@@ -1,8 +1,11 @@
 namespace eval ::Zygote {
     set cc [c create]
     $cc include <unistd.h>
+    $cc include <sys/wait.h>
     $cc proc ::Zygote::fork {} int { return fork(); }
-    # FIXME: waitpid
+    $cc proc ::Zygote::wait {} int {
+        return wait(NULL);
+    }
     # FIXME: some kind of shared-memory log queue
     $cc compile
 
@@ -89,18 +92,22 @@ proc Start-process {name body} {
 
     ::peer $name false
 
-    Zygote::spawn [list apply {{processCode} {
+    Zygote::spawn [list apply {{processName processCode} {
         # A supervisor that wraps the subprocess.
         set pid [Zygote::fork]
         if {$pid == 0} {
             eval $processCode
         } else {
-            # TODO: Supervise the subprocess.
-            # waitpid $pid
-            # how to report outcomes to Folk?
+            set deadPid [Zygote::wait]
+            if {$deadPid == $pid} {
+                puts stderr "process: Subprocess '$processName' ($pid) died!"
+            } else {
+                error "process: Unknown pid $deadPid died."
+            }
+            # TODO: how to report outcomes to Folk?
             # does it have an inbox? do we assert into Folk and let it retract?
         }
-    }} $processCode]
+    }} $name $processCode]
 
     # Wrap these in a new scope so they don't capture a bunch of
     # random stuff from this outer scope.
