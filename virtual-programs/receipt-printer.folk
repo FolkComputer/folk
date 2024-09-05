@@ -1,5 +1,8 @@
 namespace eval EscPos {
     proc printProgram {printer id code} {
+        if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+            error "Program $id already exists on disk. Aborting print."
+        }
         writeFolkFile $id $code
         writeGeomFile $printer $id
 
