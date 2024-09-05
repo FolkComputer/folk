@@ -11,8 +11,24 @@ namespace eval EscPos {
         set printerSocket [socket $address 9100]
 
         fconfigure $printerSocket -translation binary -buffering none
-        puts -nonewline $printerSocket "[init][tag $id][feed 1]$id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])[feed 2]$code[feed 3][cut]"
+        set template {
+            [init]
+            [tag $id]
+            [feed 1]
+            $id ([clock format [clock seconds] -timezone :America/Denver -format "%a, %d %b %Y, %r"])
+            [feed 2]
+            $code
+            [feed 3]
+            [cut]
+        }
+        puts -nonewline $printerSocket [subst [prepareTemplate $template]]
         close $printerSocket
+    }
+
+    proc prepareTemplate {template} {
+        set trimmed [lmap line [split $template "\n"] { string trim $line }]
+        set singleLine [join $trimmed ""]
+        return $singleLine
     }
 
     proc writeFolkFile {id code} {
