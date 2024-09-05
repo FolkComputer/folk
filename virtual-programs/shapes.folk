@@ -1,5 +1,3 @@
-# TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html
-
 # Drawing a shape
 # ---
 # This wish allows you to draw a shape with a given number of `sides`, `center`, `radius`, `color`, and a `filled` value.
@@ -54,11 +52,13 @@ When /someone/ wishes to draw a shape with /...options/ {
 
 set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
                 septagon 7 octagon 8 nonagon 9]
+
 When /someone/ wishes /p/ draws a /shape/ {
   # TODO: This is a hack because rest pattern doesn't match empty
   # sequence at end.
   Wish $p draws a $shape with color white
 }
+
 When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] x y

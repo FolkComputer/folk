@@ -17,12 +17,76 @@ set ::search_paths_dict [dict create \
     "user" "user-programs/[info hostname]" \
 ]
 
-# set ::search_paths [list \
-#     "virtual-programs" \
-#     "$::env(HOME)/folk-printed-programs" \
-#     "$::env(HOME)/folk-live" \
-#     "user-programs/[info hostname]" \
+
+###############
+# Example result:
+# [
+#   {
+#     title "Labels"
+#     description "Display text on the screen with the font `PTSans-Regular`"
+#     example "Wish /someone/ is labelled "Hello, world!""
+#     code "When /someone/ wishes /thing/ is labelled /text/ {
+#             # Set the default font
+#             Wish $thing is labelled $text with font "PTSans-Regular"
+#          }"
+#   }
 # ]
+###############
+
+proc parse_tcl_docs {file_data} {
+    set lines [split $file_data "\n"]
+    set result [list]
+    set currentBlock [dict create]
+    set inBlock 0
+    set blockLevel 0
+
+    foreach line $lines {
+        if {[string match "# ---*" $line]}  {
+            set blockLevel [+ 1 $blockLevel]
+            continue;
+        }
+
+        if {$inBlock} {
+            switch $blockLevel {
+                1 {
+                    # Description
+                    # use dict update to set the description?
+                }
+                2 {
+                   # Example
+                }
+                3 {
+                    # Code
+                    # 
+                    # Need to figure 
+                }
+                default {
+                    log "---- not supposed to be here ----"
+                }
+            }
+            # evaluate line, put it into the currentBlock as needed
+        }
+        if {!$inBlock && [string match "# *" $line]} {
+            # We've started a new comment+code block
+            set content [string range $trimmed_line 2 end]
+            dict set currentBlock title $content
+        } else {
+            continue;
+        }
+    }
+
+    return [dict create documentation "TODO: Parse documentation" code $file_data]
+}
+
+# Example usage:
+# set file_data [read [open "paste.txt" r]]
+# set result [parse_tcl_docs $file_data]
+# puts "Documentation:\n[dict get $result documentation]"
+# puts "\nCode:\n[dict get $result code]"
+
+# Example usage:
+# set file_data [read [open "paste.txt" r]]
+# puts [parse_tcl_docs $file_data]
 
 proc list_programs {directory} {
     set programs [list]
@@ -63,7 +127,8 @@ proc getFileData {filename} {
         close $fp
         return $file_data
     }
-    return "# (new file $program_id)"
+    # return "# (new file $program_id)"
+    return "# (new file $filename)"
 }
 
 proc get_printed_program {program_id} {
@@ -153,6 +218,7 @@ proc handleProgramsRoute {path} {
             return "<html><body><h1>Error: Invalid path structure</h1></body></html>"
         }
     }
+    log "program id: $program_id"
     # TODO: Actually read the file content.
     #       For now we'll set it to a placeholder string.
     set filename "$directory/$program_id.folk"
@@ -166,7 +232,20 @@ proc handleProgramsRoute {path} {
         set file_data "404|Error: $filename not found"
     }
 
+    set parsedFile [parse_tcl_docs $file_data]
+
+    # set file_data [dict get $parsedFile documentation]
+    # set file_data [dict get $parsedFile code]
+
     # TODO: Parse the file_data to extract the docstring
+    # break into lines,
+    # foreach line [split $file_data "\n"] {
+    #     if {[string match "# *" $line]} {
+    #         set docstring $line
+    #         break
+    #     }
+    # }
+
     return "<html>
     <head>
         <meta charset=UTF-8>
@@ -183,12 +262,12 @@ proc handleProgramsRoute {path} {
         <section>
             <h2 class=subtitle>Documentation:</h2>
             <p class=todo>TODO: Write a docstring above each (?) When in this program to see what the generated equivalent would feel like in docs/virtual-programs/shapes/index.html</p>
-            <pre>extacted comment</pre>
+            [dict get $parsedFile documentation]
         </section>
 
         <section>
             <h2 class=subtitle>File content:</h2>
-            <pre>$file_data</pre>
+            <pre>[dict get $parsedFile code]</pre>
         </section>
         </body></html>
     "

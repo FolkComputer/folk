@@ -10,6 +10,11 @@ When /thing/ has region /region/ {
     }
 }
 
+# Labels
+# ---
+# Display text on the screen with the font `PTSans-Regular`
+# ---
+# Wish /someone/ is labelled "Hello, world!"
 When /someone/ wishes /thing/ is labelled /text/ {
   # Set the default font
   Wish $thing is labelled $text with font "PTSans-Regular"
@@ -19,6 +24,11 @@ fn text {coords text angle} {
   Display::text [lindex $coords 0] [lindex $coords 1] 2 $text $angle
 }
 
+# Halo messages
+# ---
+# Display text above and below the region of $anyone
+# ---
+# Wish $this has halo message "Hello, world!"
 When /anyone/ wishes /p/ has halo message /message/ & /p/ has region /r/ {
   lassign [lindex $r 0] a b c d
   set angle [region angle $r]
