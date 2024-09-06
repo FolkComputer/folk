@@ -5,11 +5,14 @@ set makeCamera {
     $cpp include <iostream>
     $cpp include <iomanip>
     $cpp include <atomic>
+    $cpp include <sys/mman.h>
+
     $cpp include <libcamera/libcamera.h>
     # osnr: HACK: because I'm building libcamera locally for now.
     $cpp cflags -I/usr/local/include/libcamera
     c loadlibLd libcamera
 
+    defineImageType $cpp
     $cpp code {
         using namespace libcamera;
 
@@ -22,6 +25,10 @@ set makeCamera {
 	std::vector<std::unique_ptr<Request>> requests;
 
         std::atomic<Request *> latestRequest;
+
+        uint32_t frameWidth;
+        uint32_t frameHeight;
+        uint32_t frameBytesPerRow;
 
         static void requestComplete(Request *request);
     }
@@ -40,6 +47,10 @@ set makeCamera {
         config = camera->generateConfiguration({ StreamRole::Viewfinder });
         StreamConfiguration &streamConfig = config->at(0);
         config->validate();
+        frameWidth = streamConfig.size.width;
+        frameHeight = streamConfig.size.height;
+        frameBytesPerRow = streamConfig.stride;
+
 	camera->configure(config.get());
 
         allocator = new FrameBufferAllocator(camera);
@@ -54,6 +65,8 @@ set makeCamera {
 	}
 
         Stream *stream = streamConfig.stream();
+        assert(streamConfig.pixelFormat.toString() == "XRGB8888");
+
         const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
 	for (unsigned int i = 0; i < buffers.size(); ++i) {
 		std::unique_ptr<Request> request = camera->createRequest();
@@ -90,6 +103,8 @@ set makeCamera {
 		return;
             }
 
+            printf("======== REQUEST COMPLETE========\n");
+
             Request *prevLatestRequest;
             do {
                 prevLatestRequest = latestRequest;
@@ -102,10 +117,29 @@ set makeCamera {
             }
         }
 
-        static void processRequest(Request *request) {
-            printf("processRequest (%p)\n", request);
-            std::cout << std::endl
-                      << "Request completed: " << request->toString() << std::endl;
+        static void imageCopyGray(image_t to, image_t from) {
+            FOLK_ENSURE(from.components == 4);
+            FOLK_ENSURE(from.width == to.width);
+            FOLK_ENSURE(from.height == to.height);
+
+            for (uint32_t y = 0; y < from.height; y++) {
+                for (uint32_t x = 0; x < from.width; x++) {
+                    uint32_t i = (y * from.bytesPerRow) + x * 4;
+                    // FIXME: XRGB8888 assumed
+                    uint32_t r = from.data[i + 1];
+                    uint32_t g = from.data[i + 2];
+                    uint32_t b = from.data[i + 3];
+                    // from https://mina86.com/2021/rgb-to-greyscale/
+                    uint32_t yy = 3567664 * r + 11998547 * g + 1211005 * b;
+                    to.data[y * to.bytesPerRow + x] = ((yy + (1 << 23)) >> 24);
+                }
+            }
+        }
+
+        static void processRequestAndCopyFrame(Request *request, image_t im) {
+            // printf("processRequest (%p)\n", request);
+            // std::cout << std::endl
+            //           << "Request completed: " << request->toString() << std::endl;
 
             /*
              * When a request has completed, it is populated with a metadata control
@@ -118,14 +152,14 @@ set makeCamera {
              * all the metadata for inspection. A custom application can parse each
              * of these items and process them according to its needs.
              */
-            const ControlList &requestMetadata = request->metadata();
-            for (const auto &ctrl : requestMetadata) {
-                    const ControlId *id = controls::controls.at(ctrl.first);
-                    const ControlValue &value = ctrl.second;
+            // const ControlList &requestMetadata = request->metadata();
+            // for (const auto &ctrl : requestMetadata) {
+            //         const ControlId *id = controls::controls.at(ctrl.first);
+            //         const ControlValue &value = ctrl.second;
 
-                    std::cout << "\t" << id->name() << " = " << value.toString()
-                              << std::endl;
-            }
+            //         // std::cout << "\t" << id->name() << " = " << value.toString()
+            //         //           << std::endl;
+            // }
 
             /*
              * Each buffer has its own FrameMetadata to describe its state, or the
@@ -138,30 +172,46 @@ set makeCamera {
              * sensor along with the image as processed by the ISP.
              */
             const Request::BufferMap &buffers = request->buffers();
+            assert(buffers.size() == 1);
             for (auto bufferPair : buffers) {
                     // (Unused) Stream *stream = bufferPair.first;
                     FrameBuffer *buffer = bufferPair.second;
                     const FrameMetadata &metadata = buffer->metadata();
 
                     /* Print some information about the buffer which has completed. */
-                    std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
-                              << " timestamp: " << metadata.timestamp
-                              << " bytesused: ";
+                    // std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
+                    //           << " timestamp: " << metadata.timestamp
+                    //           << " bytesused: ";
 
-                    unsigned int nplane = 0;
-                    for (const FrameMetadata::Plane &plane : metadata.planes())
-                    {
-                            std::cout << plane.bytesused;
-                            if (++nplane < metadata.planes().size())
-                                    std::cout << "/";
-                    }
-
-                    std::cout << std::endl;
-
+                    // unsigned int nplane = 0;
+                    // for (const FrameMetadata::Plane &plane : metadata.planes())
+                    // {
+                    //         std::cout << plane.bytesused;
+                    //         if (++nplane < metadata.planes().size())
+                    //                 std::cout << "/";
+                    // }
+                    assert(metadata.planes().size() == 1);
+                    assert(buffer->planes().size() == 1);
+                    
+                    auto &plane = buffer->planes()[0];
+                    int fd = plane.fd.get();
+                    
                     /*
                      * Image data can be accessed here, but the FrameBuffer
                      * must be mapped by the application
                      */
+                    void *addr = mmap64(NULL, plane.length, PROT_READ, MAP_PRIVATE, fd, 0);
+                    if (addr == MAP_FAILED) {
+                        FOLK_ERROR("camera-rpi: MAP_FAILED");
+                    }
+                    void *planeData = (uint8_t *)addr + plane.offset;
+                    image_t planeIm = {
+                        .width = frameWidth, .height = frameHeight,
+                        .components = 4, .bytesPerRow = frameBytesPerRow,
+                        .data = (uint8_t *)planeData
+                    };
+                    imageCopyGray(im, planeIm);
+                    munmap(addr, plane.length);
             }
 
             /* Re-queue the Request to the camera. */
@@ -170,13 +220,12 @@ set makeCamera {
         }
     }
 
-    defineImageType $cpp
     $cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
     $cpp import ::Heap::cc folkHeapFree as folkHeapFree
 
     $cpp proc newImage {} image_t {
-        uint32_t width = 1280;
-        uint32_t height = 720;
+        uint32_t width = frameWidth;
+        uint32_t height = frameHeight;
         int components = 1;
         uint8_t *data = (uint8_t *)folkHeapAlloc(width*components*height);
         return (image_t) {
@@ -192,18 +241,17 @@ set makeCamera {
     }
 
     $cpp proc grayFrame {} image_t {
-        image_t im = newImage();
-
         // We want to take exclusive ownership over the request.
         Request *request;
         do {
             request = latestRequest;
         } while (!latestRequest.compare_exchange_weak(request, nullptr));
 
-        if (request != nullptr) {
-            processRequest(request);
-        }
+        if (request == nullptr) { FOLK_ERROR("No new frame yet"); }
 
+        image_t im = newImage();
+        processRequestAndCopyFrame(request, im);
+        printf("Got new frame\n");
         return im;
     }
 
@@ -231,7 +279,10 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {
-            set frame [Camera::grayFrame]
+            try {
+                set frame [Camera::grayFrame]
+            } on error e { return }
+
             Hold {
                 Claim camera $cameraPath has camera time $::stepTime
                 Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
