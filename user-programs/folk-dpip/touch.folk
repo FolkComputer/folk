@@ -45,11 +45,16 @@ $cpp proc initKinect {} bool {
         std::cout << "timed out waiting for frames!" << std::endl;
         return false;
     }
-    libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
-    std::cout << "width: " << rgb->width << std::endl;
-    std::cout << "height: " << rgb->height << std::endl;
-    std::cout << "bytes_per_pixel: " << rgb->bytes_per_pixel << std::endl;
-    std::cout << "format: " << rgb->format << std::endl;
+    libfreenect2::Frame *ir = frames[libfreenect2::Frame::Ir];
+    std::cout << "ir width: " << ir->width << std::endl;
+    std::cout << "ir height: " << ir->height << std::endl;
+    std::cout << "ir bytes_per_pixel: " << ir->bytes_per_pixel << std::endl;
+    std::cout << "ir format: " << ir->format << std::endl;
+    libfreenect2::Frame *depth = frames[libfreenect2::Frame::Depth];
+    std::cout << "depth width: " << depth->width << std::endl;
+    std::cout << "depth height: " << depth->height << std::endl;
+    std::cout << "depth bytes_per_pixel: " << depth->bytes_per_pixel << std::endl;
+    std::cout << "depth format: " << depth->format << std::endl;
     listener.release(frames);
     dev->stop();
 
@@ -57,13 +62,13 @@ $cpp proc initKinect {} bool {
 }
 
 $cpp code {
-    image_t newImage() {
-        uint8_t* data = (uint8_t *)folkHeapAlloc(1920*1080*3);
+    image_t newGrayImage() {
+        uint8_t* data = (uint8_t *)folkHeapAlloc(512*424);
         return (image_t) {
-            .width = 1920,
-            .height = 1080,
-            .components = 3,
-            .bytesPerRow = 1920*3,
+            .width = 512,
+            .height = 424,
+            .components = 1,
+            .bytesPerRow = 512,
             .data = data
         };
     }
@@ -73,22 +78,47 @@ $cpp proc freeImage {image_t image} void {
     folkHeapFree(image.data);
 }
 
-$cpp proc getFrame {} image_t {
-    image_t image = newImage();
+$cpp proc getDepthFrame {} image_t {
+    image_t image = newGrayImage();
     if (!dev->start()) {
-        std::cout << "couldn't start streams!" << std::endl;
+        std::cout << "couldn't start dev in depth!" << std::endl;
         return image;
     }
     if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
-        std::cout << "timed out waiting for frames!" << std::endl;
+        std::cout << "timed out waiting for depth frames!" << std::endl;
         return image;
     }
-    libfreenect2::Frame *rgb = frames[libfreenect2::Frame::Color];
-    for (long unsigned int i = 0; i < 1920*1080*3; i += 3) {
-        image.data[i] = rgb->data[i+2+(i/3)];
-        image.data[i+1] = rgb->data[i+1+(i/3)];
-        image.data[i+2] = rgb->data[i+(i/3)];
-    };
+    libfreenect2::Frame *depth = frames[libfreenect2::Frame::Depth];
+
+    float* depthData = (float*)depth->data;
+    for (long unsigned int i = 0; i < 512*424; i += 1) {
+        float depthPixel = depthData[i];
+        uint8_t grayPixel = (depthPixel / 5000.0) * 255;
+        image.data[i] = grayPixel;
+    }
+    listener.release(frames);
+    dev->stop();
+    return image;
+}
+
+$cpp proc getIrFrame {} image_t {
+    image_t image = newGrayImage();
+    if (!dev->start()) {
+        std::cout << "couldn't start dev in IR!" << std::endl;
+        return image;
+    }
+    if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
+        std::cout << "timed out waiting for ir frames!" << std::endl;
+        return image;
+    }
+    libfreenect2::Frame *ir = frames[libfreenect2::Frame::Ir];
+
+    float* irData = (float *)ir->data;
+    for (long unsigned int i = 0; i < 512*424; i += 1) {
+        float irPixel = irData[i];
+        uint8_t grayPixel = (irPixel / 65535.0) * 255;
+        image.data[i] = grayPixel;
+    }
     listener.release(frames);
     dev->stop();
     return image;
@@ -103,9 +133,22 @@ if { ![initKinect] } {
 }
 puts "kinect initialized"
 
-Wish the web server handles route {/kinect-camera-frame(?:\?.*)?$} with handler {
-    set filename "/tmp/web-image-frame-kinect.jpg"
-    set im [getFrame]
+Wish the web server handles route {/kinect-ir-frame(?:\?.*)?$} with handler {
+    set filename "/tmp/web-ir-frame-kinect.jpg"
+    set im [getIrFrame]
+    image saveAsJpeg $im $filename
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    freeImage $im
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+}
+
+Wish the web server handles route {/kinect-depth-frame(?:\?.*)?$} with handler {
+    set filename "/tmp/web-depth-frame-kinect.jpg"
+    set im [getDepthFrame]
     image saveAsJpeg $im $filename
     set fsize [file size $filename]
     set fd [open $filename r]
