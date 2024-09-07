@@ -69,22 +69,20 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             }
         }
         "/timings" {
-            set totalTimes [list]
-            dict for {body totalTime} $Evaluator::totalTimesMap {
-                dict with totalTime {
-                    lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
-                }
+            set runTimes [list]
+            dict for {lambda runTime} $Evaluator::runTimesMap {
+                lappend runTimes $lambda $runTime
             }
-            set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+            set runTimes [lsort -integer -stride 2 -index 1 $runTimes]
 
-            set totalFrameTime 0
+            set totalRunTime 0
             set l [list]
-            foreach {body totalTime} $totalTimes {
-                set runs [dict get $Evaluator::runsMap $body]
-                set totalFrameTime [expr {$totalFrameTime + $totalTime/$::stepCount}]
+            foreach {lambda runTime} $runTimes {
+                set runCount [dict get $Evaluator::runCountsMap $lambda]
+                set totalRunTime [+ $totalRunTime $runTime]
                 lappend l [subst {
                     <li>
-                    <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                    <pre>[htmlEscape $lambda]</pre> ($runCount runs): $runTime us
                     </li>
                 }]
             }
@@ -100,7 +98,7 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
-                <h1>Timings (sum per-frame time $totalFrameTime us)</h1>
+                <h1>Timings (total frame run time $totalRunTime us)</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
             }

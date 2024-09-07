@@ -41,7 +41,7 @@ namespace eval c {
     variable nextHandle 0
     proc create {} {
         variable nextHandle
-        set handle "c[incr nextHandle]"
+        set handle "::c[incr nextHandle]"
         uplevel [list namespace eval $handle {
             variable prelude {
                 #include <tcl.h>
@@ -176,7 +176,7 @@ namespace eval c {
                 default {
                     if {[string index $rtype end] == "*"} {
                         expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
-                    } elseif {[regexp {([^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
                         if {$basetype eq "char"} { expr {{
                             $robj = Tcl_ObjPrintf("%s", $rvalue);
                         }} } else { expr {{
@@ -188,15 +188,28 @@ namespace eval c {
                                 $robj = Tcl_NewListObj($arraylen, objv);
                             }
                         }} }
-                    } else {
+                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
+                        {
+                            Tcl_Obj* objv[$arraylen];
+                            for (int i = 0; i < $arraylen; i++) {
+                                $basetype* rrow = $rvalue[i];
+                                Tcl_Obj** objrow = &objv[i];
+                                $[ret ${basetype}\[${arraylen2}\] *objrow rrow]
+                            }
+                            $robj = Tcl_NewListObj($arraylen, objv);
+                        }
+                    }} } else {
                         error "Unrecognized rtype $rtype"
                     }
                 }
             }
+            # Defines a new rtype.
             ::proc rtype {t h} {
                 variable rtypes
                 set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
             }
+            # Gets and monomorphizes(?) an rtype (used during code
+            # emit).
             ::proc ret {rtype robj rvalue} {
                 variable rtypes
                 csubst [switch $rtype $rtypes]
@@ -360,20 +373,25 @@ namespace eval c {
                 foreach {fieldtype fieldname} $fields {
                     try {
                         if {$fieldtype ne "Tcl_Obj*" &&
-                            [regexp {([^\[]+)(?:\[(\d*)\]|\*)$} $fieldtype -> basefieldtype arraylen]} {
+                            [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                             if {$basefieldtype eq "char"} {
                                 proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
                                     __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                     return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
                                 }
                             } else {
-                                proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                if {$arraylen2 eq ""} {
+                                    proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
+                                        __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
+                                        return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
+                                    }
+                                    set elementtype $basefieldtype
+                                } else {
+                                    set elementtype $basefieldtype\[$arraylen2\]
                                 }
                                 # If fieldtype is a pointer or an array,
                                 # then make a getter that takes an index.
-                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $basefieldtype {
+                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $elementtype {
                                     __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
                                     return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
                                 }
@@ -398,7 +416,7 @@ namespace eval c {
                 set cname [string map {":" "_"} $name]
                 set body [uplevel [list csubst $body]]
 
-                # puts "$name $args $rtype $body"
+                # puts "$name $args $rtype"
                 set arglist [list]
                 set argnames [list]
                 set loadargs [list]
@@ -412,6 +430,7 @@ namespace eval c {
                     set obj [subst {objv\[1 + [llength $loadargs]\]}]
                     lappend loadargs [arg {*}[typestyle $argtype $argname] $obj]
                 }
+                regsub {\[\d*\]} $rtype * decayedRtype
                 if {$rtype == "void"} {
                     set saverv [subst {
                         $cname ([join $argnames ", "]);
@@ -419,7 +438,7 @@ namespace eval c {
                     }]
                 } else {
                     set saverv [subst {
-                        $rtype rvalue = $cname ([join $argnames ", "]);
+                        $decayedRtype rvalue = $cname ([join $argnames ", "]);
                         Tcl_Obj* robj;
                         [ret $rtype robj rvalue]
                         Tcl_SetObjResult(interp, robj);
@@ -433,7 +452,7 @@ namespace eval c {
                 dict set procs $name arglist $arglist
                 dict set procs $name ns [uplevel {namespace current}]
                 dict set procs $name code [subst {
-                    static $rtype $cname ([join $arglist ", "]) {
+                    static $decayedRtype $cname ([join $arglist ", "]) {
                         [linedirective]
                         $body
                     }
@@ -444,8 +463,8 @@ namespace eval c {
                             return TCL_ERROR;
                         }
                         __interp = interp;
-                        int r = setjmp(__onError);
-                        if (r != 0) { return TCL_ERROR; }
+                        int __r = setjmp(__onError);
+                        if (__r != 0) { return TCL_ERROR; }
 
                         [join $loadargs "\n"]
                         $saverv
@@ -464,6 +483,8 @@ namespace eval c {
                 Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
             }]
             ::proc cflags {args} { variable cflags; lappend cflags {*}$args }
+            cflags -I./vendor
+
             ::proc compile {} {
                 variable prelude
                 variable code
@@ -504,8 +525,8 @@ namespace eval c {
                 exec cc -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
                 load [file rootname $cfile][info sharedlibextension] cfile
             }
-            ::proc import {scc sname as dest} {
-                set scc [namespace origin [namespace qualifiers $scc]::[set $scc]]
+            ::proc import {sccVar sname as dest} {
+                upvar $sccVar scc
                 set procinfo [dict get [set ${scc}::procs] $sname]
                 set rtype [dict get $procinfo rtype]
                 set arglist [dict get $procinfo arglist]

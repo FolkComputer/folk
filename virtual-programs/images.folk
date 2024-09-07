@@ -312,19 +312,29 @@ namespace eval ::image {
 
 # Callback: extract out a camera slice
 When /someone/ wishes /p/ has camera slice & \
-     the camera frame is /f/ & \
-     /p/ has region /r/ {
+     camera /cam/ has intrinsics /cameraIntrinsics/ & \
+     camera /cam/ has frame /f/ at timestamp /timestamp/ & \
+     /p/ has quad /q/ {
 
-    # Convert region in projector coordinates to camera
-    lassign [regionToBbox $r] minX minY maxX maxY
-    lassign [projectorToCamera [list $minX $minY]] px0 py0
-    lassign [projectorToCamera [list $maxX $maxY]] px1 py1
+    # Convert quad to camera coordinates
+    set q [quad change $q $cam]
+    set minX 10000; set minY 10000
+    set maxX -10000; set maxY -10000
+    foreach v [quad vertices $q] {
+        lassign [intrinsics project $cameraIntrinsics \
+                     [::image width $f] [::image height $f] \
+                     $v] cx cy
+        if {$cx < $minX} { set minX $cx }
+        if {$cx > $maxX} { set maxX $cx }
+        if {$cy < $minY} { set minY $cy }
+        if {$cy > $maxY} { set maxY $cy }
+    }
 
     # Clamp to image bounds
-    set x [expr {int(max(min($px0, $px1), 0))}]
-    set y [expr {int(max(min($py0, $py1), 0))}]
-    set w [expr {int(min(abs($px1 - $px0), [image width $f]))}]
-    set h [expr {int(min(abs($py1 - $py0), [image height $f]))}]
+    set x [expr {int(max($minX, 0))}]
+    set y [expr {int(max($minY, 0))}]
+    set w [expr {int(min(abs($maxX - $x), [image width $f] - $x))}]
+    set h [expr {int(min(abs($maxY - $y), [image height $f] - $y))}]
 
     # Extract and claim the image for the page
     set subimage [image subimage $f $x $y $w $h]

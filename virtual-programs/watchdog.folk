@@ -1,27 +1,27 @@
-# Temporarily disabling watchdog while we work out IPC.
-return
+if {$::tcl_platform(os) ne "Linux"} { return }
 
-if {$::isLaptop} { return }
-
-On process "watchdog" {
-    set ::lastPong [clock seconds]
-    fconfigure stdin -blocking 0 -buffering line
-    fileevent stdin readable {
-        gets stdin line
-        if {$line ne "pong"} { error "watchdog: Invalid return pong" }
-        set ::lastPong [clock seconds]
-
-        after 1000 { puts {expr {"pong"}} }
-    }
-    puts {expr {"pong"}}
-
-    every 2500 {
-        if {[clock seconds] - $::lastPong > 5} {
-            puts stderr "watchdog: Did not hear pong, restarting."
-            exec sudo systemctl restart folk
-            exit 1
+Start process "watchdog" {
+    # For now: every 2 seconds, check amount of free RAM
+    # system-wide. If it's stuck below 100MB, restart Folk. We give
+    # the RAM estimate some time to settle mostly so that Folk doesn't
+    # get into a boot loop when the RAM isn't free yet when it
+    # restarts.
+    set freeRamHistory [list]
+    while true {
+        lappend freeRamHistory [exec free -m | grep Mem | awk {{print $7}}]
+        if {[llength $freeRamHistory] > 3} {
+            set freeRamHistory [lassign $freeRamHistory evictedEntry]
         }
-    }
 
-    vwait forever
+        # puts "watchdog: freeRam is [lindex $freeRamHistory end]"
+        if {[llength $freeRamHistory] == 3 &&
+            [lindex $freeRamHistory 0] < 100 &&
+            [lindex $freeRamHistory 1] < 100 &&
+            [lindex $freeRamHistory 2] < 100} {
+
+            puts "watchdog: Free RAM is consistently below 100MB. Restarting Folk."
+            exec sudo systemctl restart folk
+        }
+        exec sleep 2
+    }
 }
