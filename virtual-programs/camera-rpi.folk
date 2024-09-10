@@ -50,6 +50,7 @@ set makeCamera {
         frameWidth = streamConfig.size.width;
         frameHeight = streamConfig.size.height;
         frameBytesPerRow = streamConfig.stride;
+        std::cout << "frameWidth: " << frameWidth << " frameHeight: " << frameHeight << std::endl;
 
 	camera->configure(config.get());
 
