@@ -103,11 +103,8 @@ set makeCamera {
     $cpp code {
         static void requestComplete(Request *request) {
             if (request->status() == Request::RequestCancelled) {
-                std::cout << "Request cancelled: " << request << std::endl;
 		return;
             }
-
-            std::cout << "======== REQUEST COMPLETE: " << request << std::endl;
 
             completedRequestsMutex.lock();
             completedRequests.push(request);
@@ -256,7 +253,6 @@ set makeCamera {
 
         image_t im = newImage();
         processRequestAndCopyFrame(latestRequest, im);
-        printf("Got new frame\n");
 
         /* Re-queue the Request to the camera. */
         latestRequest->reuse(Request::ReuseBuffers);
