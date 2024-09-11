@@ -4,7 +4,7 @@ set makeCamera {
     set cpp [C++]
     $cpp include <iostream>
     $cpp include <iomanip>
-    $cpp include <atomic>
+    $cpp include <mutex>
     $cpp include <sys/mman.h>
 
     $cpp include <libcamera/libcamera.h>
@@ -24,7 +24,8 @@ set makeCamera {
         // This vector always owns all the request objects.
 	std::vector<std::unique_ptr<Request>> requests;
 
-        std::atomic<Request *> latestRequest;
+        std::mutex latestRequestMutex;
+        Request *latestRequest;
 
         uint32_t frameWidth;
         uint32_t frameHeight;
@@ -101,19 +102,23 @@ set makeCamera {
     $cpp code {
         static void requestComplete(Request *request) {
             if (request->status() == Request::RequestCancelled) {
+                std::cout << "Request cancelled: " << request << std::endl;
 		return;
             }
 
-            printf("======== REQUEST COMPLETE========\n");
+            std::cout << "======== REQUEST COMPLETE: " << request << std::endl;
 
-            Request *prevLatestRequest;
-            do {
-                prevLatestRequest = latestRequest;
-            } while (!latestRequest.compare_exchange_weak(prevLatestRequest, request));
+            latestRequestMutex.lock();
+
+            Request *prevLatestRequest = latestRequest;
+            latestRequest = request;
+
+            latestRequestMutex.unlock();
 
             if (prevLatestRequest != nullptr) {
                 // Re-dispatch this request that we're skipping.
                 request->reuse(Request::ReuseBuffers);
+                std::cout << "Requeue from requestComplete: " << request << std::endl;
                 camera->queueRequest(request);
             }
         }
@@ -217,6 +222,7 @@ set makeCamera {
 
             /* Re-queue the Request to the camera. */
             request->reuse(Request::ReuseBuffers);
+            std::cout << "Requeue from processRequestAndCopyFrame: " << request << std::endl;
             camera->queueRequest(request);
         }
     }
@@ -244,9 +250,12 @@ set makeCamera {
     $cpp proc grayFrame {} image_t {
         // We want to take exclusive ownership over the request.
         Request *request;
-        do {
-            request = latestRequest;
-        } while (!latestRequest.compare_exchange_weak(request, nullptr));
+        latestRequestMutex.lock();
+
+        request = latestRequest;
+        latestRequest = nullptr;
+
+        latestRequestMutex.unlock();
 
         if (request == nullptr) { FOLK_ERROR("No new frame yet"); }
 
