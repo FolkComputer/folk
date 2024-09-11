@@ -5,6 +5,7 @@ set makeCamera {
     $cpp include <iostream>
     $cpp include <iomanip>
     $cpp include <mutex>
+    $cpp include <queue>
     $cpp include <sys/mman.h>
 
     $cpp include <libcamera/libcamera.h>
@@ -24,8 +25,8 @@ set makeCamera {
         // This vector always owns all the request objects.
 	std::vector<std::unique_ptr<Request>> requests;
 
-        std::mutex latestRequestMutex;
-        Request *latestRequest;
+        std::mutex completedRequestsMutex;
+        std::queue<Request *> completedRequests;
 
         uint32_t frameWidth;
         uint32_t frameHeight;
@@ -108,19 +109,9 @@ set makeCamera {
 
             std::cout << "======== REQUEST COMPLETE: " << request << std::endl;
 
-            latestRequestMutex.lock();
-
-            Request *prevLatestRequest = latestRequest;
-            latestRequest = request;
-
-            latestRequestMutex.unlock();
-
-            if (prevLatestRequest != nullptr) {
-                // Re-dispatch this request that we're skipping.
-                request->reuse(Request::ReuseBuffers);
-                std::cout << "Requeue from requestComplete: " << request << std::endl;
-                camera->queueRequest(request);
-            }
+            completedRequestsMutex.lock();
+            completedRequests.push(request);
+            completedRequestsMutex.unlock();
         }
 
         static void imageCopyGray(image_t to, image_t from) {
@@ -219,11 +210,6 @@ set makeCamera {
                     imageCopyGray(im, planeIm);
                     munmap(addr, plane.length);
             }
-
-            /* Re-queue the Request to the camera. */
-            request->reuse(Request::ReuseBuffers);
-            std::cout << "Requeue from processRequestAndCopyFrame: " << request << std::endl;
-            camera->queueRequest(request);
         }
     }
 
@@ -248,20 +234,34 @@ set makeCamera {
     }
 
     $cpp proc grayFrame {} image_t {
-        // We want to take exclusive ownership over the request.
-        Request *request;
-        latestRequestMutex.lock();
+        Request *latestRequest = nullptr;
 
-        request = latestRequest;
-        latestRequest = nullptr;
+        // We want to drain the queue of completed requests.
+        completedRequestsMutex.lock();
+        while (!completedRequests.empty()) {
+            if (latestRequest != nullptr) {
+                // We're skipping this request, because we have a
+                // newer one in the queue. Requeue it.
+                latestRequest->reuse(Request::ReuseBuffers);
+                camera->queueRequest(latestRequest);
+            }
+            latestRequest = completedRequests.front();
+            completedRequests.pop();
+        }
+        completedRequestsMutex.unlock();
 
-        latestRequestMutex.unlock();
-
-        if (request == nullptr) { FOLK_ERROR("No new frame yet"); }
+        if (latestRequest == nullptr) {
+            FOLK_ERROR("No new frame yet");
+        }
 
         image_t im = newImage();
-        processRequestAndCopyFrame(request, im);
+        processRequestAndCopyFrame(latestRequest, im);
         printf("Got new frame\n");
+
+        /* Re-queue the Request to the camera. */
+        latestRequest->reuse(Request::ReuseBuffers);
+        camera->queueRequest(latestRequest);
+
         return im;
     }
 
