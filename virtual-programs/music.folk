@@ -178,8 +178,8 @@ set ::nextscsynthid 0
 
 When Supercollider is ready & \
      /someone/ wishes Supercollider plays sound /name/ /source/ with initialization /init/ {
+    When the collected matches for [list /someone/ wishes Supercollider sound $name attr /attr/ is /value/] are /params/ {
     set synthid [incr ::nextscsynthid]
-    set params [Statements::findMatches [list /someone/ wishes Supercollider sound $name attr /attr/ is /value/]]
     set paramStr ""
     foreach param $params {
         dict with param { append paramStr "\\$attr, $value," }
@@ -198,6 +198,7 @@ When Supercollider is ready & \
             x.free;
             d["$synthid"] = nil;
         }]
+    }
     }
 }
 
