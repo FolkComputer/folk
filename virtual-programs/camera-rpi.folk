@@ -48,6 +48,9 @@ set makeCamera {
 
         config = camera->generateConfiguration({ StreamRole::Viewfinder });
         StreamConfiguration &streamConfig = config->at(0);
+        streamConfig.size = Size(width, height);
+        // streamConfig.pixelFormat = PixelFormat.fromString("YUV420");
+
         config->validate();
         frameWidth = streamConfig.size.width;
         frameHeight = streamConfig.size.height;
