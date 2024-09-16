@@ -65,6 +65,13 @@ set makeCamera {
 
             size_t allocated = allocator->buffers(cfg.stream()).size();
             std::cout << "camera-rpi: Allocated " << allocated << " buffers for stream" << std::endl;
+
+            for (PixelFormat &format : cfg.formats().pixelformats()) {
+                std::cout << "camera-rpi: Stream supports format " << format << std::endl;
+                // for (Size &size : cfg.formats().sizes(format)) {
+                //     std::cout << "  -> supports size " << size << std::endl;
+                // }
+            }
 	}
 
         Stream *stream = streamConfig.stream();
@@ -111,8 +118,27 @@ set makeCamera {
             completedRequestsMutex.unlock();
         }
 
-        static void imageCopyRgb(image_t to, image_t from) {
+        // static void imageCopyRgb(image_t to, image_t from) {
+        //     FOLK_ENSURE(from.components == 4);
+        //     FOLK_ENSURE(from.width == to.width);
+        //     FOLK_ENSURE(from.height == to.height);
+
+        //     for (uint32_t y = 0; y < from.height; y++) {
+        //         for (uint32_t x = 0; x < from.width; x++) {
+        //             uint32_t i = (y * from.bytesPerRow) + x * 4;
+        //             // FIXME: XRGB8888 assumed
+        //             uint8_t b = from.data[i + 0];
+        //             uint8_t g = from.data[i + 1];
+        //             uint8_t r = from.data[i + 2];
+        //             to.data[y * to.bytesPerRow + x*3 + 0] = r;
+        //             to.data[y * to.bytesPerRow + x*3 + 1] = g;
+        //             to.data[y * to.bytesPerRow + x*3 + 2] = b;
+        //         }
+        //     }
+        // }
+        static void imageCopyGray(image_t to, image_t from) {
             FOLK_ENSURE(from.components == 4);
+            FOLK_ENSURE(to.components == 1);
             FOLK_ENSURE(from.width == to.width);
             FOLK_ENSURE(from.height == to.height);
 
@@ -120,13 +146,12 @@ set makeCamera {
                 for (uint32_t x = 0; x < from.width; x++) {
                     uint32_t i = (y * from.bytesPerRow) + x * 4;
                     // FIXME: XRGB8888 assumed
-                    uint8_t b = from.data[i + 0];
-                    uint8_t g = from.data[i + 1];
-                    uint8_t r = from.data[i + 2];
+                    uint32_t b = from.data[i + 0];
+                    uint32_t g = from.data[i + 1];
+                    uint32_t r = from.data[i + 2];
                     // from https://mina86.com/2021/rgb-to-greyscale/
-                    to.data[y * to.bytesPerRow + x*3 + 0] = r;
-                    to.data[y * to.bytesPerRow + x*3 + 1] = g;
-                    to.data[y * to.bytesPerRow + x*3 + 2] = b;
+                    uint32_t yy = 3567664 * r + 11998547 * g + 1211005 * b;
+                    to.data[y * to.bytesPerRow + x] = ((yy + (1 << 23)) >> 24);
                 }
             }
         }
@@ -205,7 +230,7 @@ set makeCamera {
                         .components = 4, .bytesPerRow = frameBytesPerRow,
                         .data = (uint8_t *)planeData
                     };
-                    imageCopyRgb(im, planeIm);
+                    imageCopyGray(im, planeIm);
                     munmap(addr, plane.length);
             }
         }
@@ -217,7 +242,7 @@ set makeCamera {
     $cpp proc newImage {} image_t {
         uint32_t width = frameWidth;
         uint32_t height = frameHeight;
-        int components = 3;
+        int components = 1;
         uint8_t *data = (uint8_t *)folkHeapAlloc(width*components*height);
         return (image_t) {
             .width = width,
