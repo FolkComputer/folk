@@ -111,10 +111,10 @@ Wish the GPU compiles pipeline "curve" {
     vec4 col = mix( vec4(0.0), color, 1.0-smoothstep(t, t + px*1.5, d) );
 
     // control points
-    d = length(p0-p); col = mix( col, vec4(1.0, 0., 0., 1.), 1.0-smoothstep(4,4+px,d) );
-    d = length(p1-p); col = mix( col, vec4(0., 1.0, 0., 1.), 1.0-smoothstep(4,4+px,d) );
-    d = length(p2-p); col = mix( col, vec4(0., 0., 1.0, 1.), 1.0-smoothstep(4,4+px,d) );
-    d = length(p3-p); col = mix( col, vec4(1.0), 1.0-smoothstep(4,4+px,d) );
+    //d = length(p0-p); col = mix( col, vec4(1.0, 0., 0., 1.), 1.0-smoothstep(4,4+px,d) );
+    //d = length(p1-p); col = mix( col, vec4(0., 1.0, 0., 1.), 1.0-smoothstep(4,4+px,d) );
+    //d = length(p2-p); col = mix( col, vec4(0., 0., 1.0, 1.), 1.0-smoothstep(4,4+px,d) );
+    //d = length(p3-p); col = mix( col, vec4(1.0), 1.0-smoothstep(4,4+px,d) );
 
     return col;
   }
