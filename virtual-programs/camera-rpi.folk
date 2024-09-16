@@ -93,12 +93,6 @@ set makeCamera {
                     FOLK_ERROR("camera-rpi: Can't set buffer for request");
 		}
 
-		/*
-		 * Controls can be added to a request on a per frame basis.
-		 */
-		ControlList &controls = request->controls();
-		controls.set(controls::Brightness, 0.5);
-
 		requests.push_back(std::move(request));
 	}
 
