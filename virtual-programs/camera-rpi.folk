@@ -69,12 +69,12 @@ set makeCamera {
             size_t allocated = allocator->buffers(cfg.stream()).size();
             std::cout << "camera-rpi: Allocated " << allocated << " buffers for stream" << std::endl;
 
-            for (PixelFormat &format : cfg.formats().pixelformats()) {
-                std::cout << "camera-rpi: Stream supports format " << format << std::endl;
+            // for (PixelFormat &format : cfg.formats().pixelformats()) {
+                // std::cout << "camera-rpi: Stream supports format " << format << std::endl;
                 // for (Size &size : cfg.formats().sizes(format)) {
                 //     std::cout << "  -> supports size " << size << std::endl;
                 // }
-            }
+            // }
 	}
 
         Stream *stream = streamConfig.stream();
@@ -154,10 +154,6 @@ set makeCamera {
         }
 
         static void processRequestAndCopyFrame(Request *request, image_t im) {
-            // printf("processRequest (%p)\n", request);
-            // std::cout << std::endl
-            //           << "Request completed: " << request->toString() << std::endl;
-
             /*
              * When a request has completed, it is populated with a metadata control
              * list that allows an application to determine various properties of
@@ -174,20 +170,10 @@ set makeCamera {
             //         const ControlId *id = controls::controls.at(ctrl.first);
             //         const ControlValue &value = ctrl.second;
 
-            //         // std::cout << "\t" << id->name() << " = " << value.toString()
-            //         //           << std::endl;
+            //         std::cout << "\t" << id->name() << " = " << value.toString()
+            //                   << std::endl;
             // }
 
-            /*
-             * Each buffer has its own FrameMetadata to describe its state, or the
-             * usage of each buffer. While in our simple capture we only provide one
-             * buffer per request, a request can have a buffer for each stream that
-             * is established when configuring the camera.
-             *
-             * This allows a viewfinder and a still image to be processed at the
-             * same time, or to allow obtaining the RAW capture buffer from the
-             * sensor along with the image as processed by the ISP.
-             */
             const Request::BufferMap &buffers = request->buffers();
             assert(buffers.size() == 1);
             for (auto bufferPair : buffers) {
@@ -195,28 +181,12 @@ set makeCamera {
                     FrameBuffer *buffer = bufferPair.second;
                     const FrameMetadata &metadata = buffer->metadata();
 
-                    /* Print some information about the buffer which has completed. */
-                    // std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
-                    //           << " timestamp: " << metadata.timestamp
-                    //           << " bytesused: ";
-
-                    // unsigned int nplane = 0;
-                    // for (const FrameMetadata::Plane &plane : metadata.planes())
-                    // {
-                    //         std::cout << plane.bytesused;
-                    //         if (++nplane < metadata.planes().size())
-                    //                 std::cout << "/";
-                    // }
                     assert(metadata.planes().size() == 1);
                     assert(buffer->planes().size() == 1);
                     
                     auto &plane = buffer->planes()[0];
                     int fd = plane.fd.get();
-                    
-                    /*
-                     * Image data can be accessed here, but the FrameBuffer
-                     * must be mapped by the application
-                     */
+
                     void *addr = mmap64(NULL, plane.length, PROT_READ, MAP_PRIVATE, fd, 0);
                     if (addr == MAP_FAILED) {
                         FOLK_ERROR("camera-rpi: MAP_FAILED");
