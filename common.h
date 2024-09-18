@@ -8,6 +8,7 @@ typedef struct ThreadControlBlock {
     pid_t _Atomic tid;
 
     WorkQueue* workQueue;
+    bool _Atomic isAwaitingPush;
 
     // Used for diagnostics/profiling.
     WorkQueueItem currentItem;

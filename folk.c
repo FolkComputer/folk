@@ -726,7 +726,6 @@ void trace(const char* format, ...) {
 #else
 #define trace(...)
 #endif
-int _Atomic workerWaiters = 0;
 void workerLoop() {
     for (;;) {
         WorkQueueItem item = workQueueTake(self->workQueue);
@@ -734,15 +733,9 @@ void workerLoop() {
         int ntries = 0;
         while (item.op == NONE) {
             if (ntries > 3) {
-                if (workerWaiters < 2) {
-                    workerWaiters++;
-                    workQueueAwaitAnyPush();
-                    workerWaiters--;
-                } else {
-                    // we have enough waiters already. die.
-                    trace("Die");
-                    goto die;
-                }
+                self->isAwaitingPush = true;
+                workQueueAwaitAnyPush();
+                self->isAwaitingPush = false;
             }
 
             // If item is none, then steal from another thread's

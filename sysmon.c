@@ -1,14 +1,15 @@
 // Inspired by Golang's sysmon. Gotta catch 'em all...
 
+#include <unistd.h>
 #include <stdio.h>
 
 #include "common.h"
 
 extern ThreadControlBlock threads[];
 
+void workerSpawn();
 void sysmon() {
-    int activeWorkersCount = 0;
-    printf("-----\n");
+    int availableWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
         pid_t tid = threads[i].tid;
@@ -19,17 +20,17 @@ void sysmon() {
         FILE *fp = fopen(path, "r");
         int _pid; char _name[100]; char state;
         // TODO: doesn't deal with name with space in it.
-        fscanf(fp, "%d %s %c ", &_pid, &_name, &state);
+        fscanf(fp, "%d %s %c ", &_pid, _name, &state);
 
-        printf("%d: %c\n", tid, state);
+        if (state == 'R' || threads[i].isAwaitingPush) {
+            availableWorkersCount++;
+        }
 
         // How long has it been running in the current burst?
-
         // Is it blocked on the OS (sleeping state)?
-        
     }
-    if (activeWorkersCount) {
-        // Spawn a new worker.
+    if (availableWorkersCount < 2) {
+        workerSpawn();
     }
 }
 
