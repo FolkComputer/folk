@@ -11,33 +11,36 @@ set threadMonitorLib [apply {{} {
     }
     $cc proc threadCurrentItem {int tid} char* {
         static char buf[1000];
+        char *s = buf;
+        #define EMIT(...) s += snprintf(s, sizeof(buf) - (s - buf), __VA_ARGS__)
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid != tid) { continue; }
 
             WorkQueueItem item = threads[i].currentItem;
             if (item.op == ASSERT) {
-                snprintf(buf, sizeof(buf), "Assert");
+                EMIT("Assert");
             } else if (item.op == RETRACT) {
-                snprintf(buf, sizeof(buf), "Retract");
+                EMIT("Retract");
             } else if (item.op == HOLD) {
-                snprintf(buf, sizeof(buf), "Hold");
+                EMIT("Hold");
             } else if (item.op == SAY) {
-                snprintf(buf, sizeof(buf), "Say");
+                EMIT("Say");
             } else if (item.op == RUN) {
                 Statement* stmt = statementAcquire(db, item.run.stmt);
                 if (stmt != NULL) {
-                    snprintf(buf, sizeof(buf), "Run when (%.100s) (%.100s)",
-                             clauseToString(item.run.whenPattern),
-                             clauseToString(statementClause(stmt)));
+                    EMIT("Run when (%.100s) (%.100s)",
+                         clauseToString(item.run.whenPattern),
+                         clauseToString(statementClause(stmt)));
                     statementRelease(db, stmt);
                 }
             } else if (item.op == REMOVE_PARENT) {
-                snprintf(buf, sizeof(buf), "Remove Parent");
+                EMIT("Remove Parent");
             } else {
-                snprintf(buf, sizeof(buf), "???");
+                EMIT("???");
             }
             return buf;
         }
+        #undef EMIT
         return "<Not a Folk worker thread>";
     }
     return [$cc compile]

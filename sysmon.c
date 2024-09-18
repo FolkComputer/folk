@@ -9,6 +9,7 @@ extern ThreadControlBlock threads[];
 
 void workerSpawn();
 void sysmon() {
+    fprintf(stderr, "SYSMON\n");
     int availableWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
@@ -18,9 +19,11 @@ void sysmon() {
         // Check state of tid.
         char path[100]; snprintf(path, 100, "/proc/%d/stat", tid);
         FILE *fp = fopen(path, "r");
+        if (fp == NULL) { continue; }
         int _pid; char _name[100]; char state;
         // TODO: doesn't deal with name with space in it.
         fscanf(fp, "%d %s %c ", &_pid, _name, &state);
+        fclose(fp);
 
         if (state == 'R' || threads[i].isAwaitingPush) {
             availableWorkersCount++;
@@ -30,6 +33,7 @@ void sysmon() {
         // Is it blocked on the OS (sleeping state)?
     }
     if (availableWorkersCount < 2) {
+        fprintf(stderr, "workerSpawn\n");
         workerSpawn();
     }
 }
