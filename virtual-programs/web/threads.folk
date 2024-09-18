@@ -2,12 +2,7 @@ set threadMonitorLib [apply {{} {
     set cc [C]
     $cc cflags -I.
     $cc include "workqueue.h"
-    regexp {typedef struct ThreadControlBlock .* ThreadControlBlock;} [apply {{} {
-        set fd [open "folk.c" r]
-        set folkC [read $fd]; close $fd
-        return $folkC
-    }}] tcbStruct
-    $cc code $tcbStruct
+    $cc include "common.h"
     $cc code {
         extern ThreadControlBlock threads[];
         extern int _Atomic threadCount;

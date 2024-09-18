@@ -1,10 +1,10 @@
 ifeq ($(shell uname -s),Linux)
 	override CFLAGS += -Wl,--export-dynamic
 endif
-folk: workqueue.c db.c trie.c folk.c vendor/jimtcl/libjim.a
+folk: workqueue.c db.c trie.c sysmon.c folk.c vendor/jimtcl/libjim.a
 	cc -g -o$@ $(CFLAGS) \
 		-I./vendor/jimtcl -L./vendor/jimtcl \
-		workqueue.c db.c trie.c folk.c \
+		workqueue.c db.c trie.c sysmon.c folk.c \
 		-ljim -lm -lssl -lcrypto -lz
 
 .PHONY: test clean

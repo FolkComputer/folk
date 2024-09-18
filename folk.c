@@ -11,23 +11,9 @@
 #include <jim.h>
 
 #include "db.h"
-#include "workqueue.h"
+#include "common.h"
+#include "sysmon.h"
 
-typedef struct ThreadControlBlock {
-    int index;
-    pid_t _Atomic tid;
-
-    WorkQueue* workQueue;
-
-    // Used for diagnostics/profiling.
-    WorkQueueItem currentItem;
-    pthread_mutex_t currentItemMutex;
-
-    // Current match being constructed (if applicable).
-    Match* currentMatch;
-} ThreadControlBlock;
-
-#define THREADS_MAX 100
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
 __thread ThreadControlBlock* self;
@@ -853,6 +839,12 @@ int main(int argc, char** argv) {
     workQueueInit();
 
     atexit(exitHandler);
+
+    // Spawn the sysmon thread, which isn't managed the same way as
+    // worker threads, and which doesn't run a Folk interpreter. It's
+    // just pure C.
+    pthread_t sysmonTh;
+    pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
 
     int THREADS_INITIAL = 8;
     threadCount = 1; // i.e., this current thread.
