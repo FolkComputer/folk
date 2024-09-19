@@ -1,0 +1,13 @@
+set cpp [C++]
+$cpp include <vector>
+$cpp proc addInCpp {int a int b} int {
+    std::vector<int> xs = {a, b};
+    int sum = 0;
+    for (int x : xs) {
+        sum += x;
+    }
+    return sum;
+}
+set cppLib [$cpp compile]
+assert {[+ 10 3] == [$cppLib addInCpp 10 3]}
+

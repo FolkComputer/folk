@@ -1,11 +1,11 @@
 # lib/c.tcl --
 #
-#     Implements the C 'FFI' that lets you embed arbitrary C code into
-#     a Tcl program. Especially useful for calling existing C APIs and
-#     libraries (i.e., almost anything involving hardware or the OS --
-#     graphics, webcams, multithreading). Shells out to the C compiler
-#     to build a shared library and then uses Tcl `load` to load it
-#     immediately.
+#     Implements the C 'FFI' that lets you embed arbitrary C/C++ code
+#     into a Tcl program. Especially useful for calling existing C
+#     APIs and libraries (i.e., almost anything involving hardware or
+#     the OS -- graphics, webcams, multithreading). Shells out to the
+#     C compiler to build a shared library and then uses Tcl `load` to
+#     load it immediately.
 #
 # Copyright (c) 2022-2024 Folk Computer, Inc.
 
@@ -66,6 +66,7 @@ proc csubst {s} {
 package require oo
 
 class C {
+    compiler cc
     prelude {
         #include <jim.h>
         #include <inttypes.h>
@@ -117,8 +118,8 @@ class C {
         size_t { expr {{ size_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
         intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
         uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (int *)&$argname)); }}}
-        uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Jim_String($obj), "%"PRIu32, &$argname) == 1); }}}
-        uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Jim_String($obj), "%"PRIu64, &$argname) == 1); }}}
+        uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu32, &$argname) == 1); }}}
+        uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu64, &$argname) == 1); }}}
         char* { expr {{ char* $argname = (char*) Jim_String($obj); }} }
         Jim_Obj* { expr {{ Jim_Obj* $argname = $obj; }}}
         default {
@@ -335,7 +336,7 @@ C method struct {type fields} {
             memcpy(dupPtr->internalRep.ptrIntValue.ptr, srcPtr->internalRep.ptrIntValue.ptr, sizeof($type));
         }
         void $[set type]_updateStringProc(Jim_Obj *objPtr) {
-            $[set type] *robj = objPtr->internalRep.ptrIntValue.ptr;
+            $[set type] *robj = ($[set type] *) objPtr->internalRep.ptrIntValue.ptr;
 
             const char *format = "$[join [lmap fieldname $fieldnames {
                 subst {$fieldname {%s}}
@@ -347,7 +348,7 @@ C method struct {type fields} {
                 }
             }] "\n"]
             objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
-            objPtr->bytes = malloc(objPtr->length + 1);
+            objPtr->bytes = (char *) malloc(objPtr->length + 1);
             snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
@@ -520,12 +521,28 @@ C method compile {} {
             return JIM_OK;
         }
     }]
+    set externC [subst {
+#ifdef __cplusplus
+extern "C" \{
+#endif
+}]
+    set unexternC [subst {
+#ifdef __cplusplus
+\}
+#endif
+}]
     set sourcecode [join [list \
+                              $externC \
                               $prelude \
+                              $unexternC \
+                              \
                               {*}$code \
+                              \
+                              $externC \
                               {*}[dict values $objtypes] \
                               {*}[lmap p [dict values $procs] {dict get $p code}] \
                               $init \
+                              $unexternC \
                              ] "\n"]
 
     # puts "=====================\n$sourcecode\n====================="
@@ -536,12 +553,12 @@ C method compile {} {
     } elseif {$::tcl_platform(os) eq "darwin"} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
-    exec cc -Wall -g -fno-omit-frame-pointer -fPIC \
+    exec $compiler -Wall -g -fno-omit-frame-pointer -fPIC \
         {*}$cflags $cfile -c -o [file rootname $cfile].o
     # HACK: Why do we need this / only when running in lldb?
     while {![file exists [file rootname $cfile].o]} { sleep 0.0001 }
 
-    exec cc -shared $ignoreUnresolved \
+    exec $compiler -shared $ignoreUnresolved \
         -o [file rootname $cfile].so [file rootname $cfile].o \
         {*}$endcflags
     # HACK: Why do we need this / only when running in lldb?
@@ -556,4 +573,11 @@ C method import {scc sname as dest} {
     set arglist [dict get $procinfo arglist]
     set addr [dict get [$scc eval {set addrs}] $sname]
     $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+}
+
+proc ::C++ {} {
+    set cpp [C]
+    $cpp eval [list set compiler c++]
+    $cpp cflags -Wno-write-strings
+    return $cpp
 }
