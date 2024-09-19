@@ -49,8 +49,8 @@ set threadMonitorLib [apply {{} {
 #undef OP
 
         Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "awaitingPush", -1),
-                           Jim_NewStringObj(interp, thread->isAwaitingPush ? " (Awaiting Push)" : "", -1));
+                           Jim_NewStringObj(interp, "isAwaitingPush", -1),
+                           Jim_NewStringObj(interp, thread->isAwaitingPush ? "(Awaiting Push)" : "", -1));
 
         return ret;
     }
@@ -112,7 +112,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                   [if {$workerInfo eq ""} {subst {
                       (Not a Folk worker thread)
                   }} else {subst {
-                      [htmlEscape [dict get $workerInfo op]]
+                      [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]
                   }}]
                 <br>
 
