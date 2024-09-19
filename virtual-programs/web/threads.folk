@@ -9,40 +9,50 @@ set threadMonitorLib [apply {{} {
 
         extern Db* db;
     }
-    $cc proc workerInfo {int tid} char* {
-        static char buf[1000];
-        char *s = buf;
-        #define EMIT(...) s += snprintf(s, sizeof(buf) - (s - buf), __VA_ARGS__)
+    $cc proc workerInfo {int tid} Jim_Obj* {
+        ThreadControlBlock *thread = NULL;
         for (int i = 0; i < threadCount; i++) {
-            if (threads[i].tid != tid) { continue; }
-
-            WorkQueueItem item = threads[i].currentItem;
-            if (item.op == ASSERT) {
-                EMIT("Assert");
-            } else if (item.op == RETRACT) {
-                EMIT("Retract");
-            } else if (item.op == HOLD) {
-                EMIT("Hold");
-            } else if (item.op == SAY) {
-                EMIT("Say");
-            } else if (item.op == RUN) {
-                Statement* stmt = statementAcquire(db, item.run.stmt);
-                if (stmt != NULL) {
-                    EMIT("Run when (%.100s) (%.100s)",
-                         clauseToString(item.run.whenPattern),
-                         clauseToString(statementClause(stmt)));
-                    statementRelease(db, stmt);
-                }
-            } else if (item.op == REMOVE_PARENT) {
-                EMIT("Remove Parent");
-            } else {
-                EMIT("???");
+            if (threads[i].tid == tid) {
+                thread = &threads[i];
+                break;
             }
-            EMIT(threads[i].isAwaitingPush ? " (Awaiting Push)" : "");
-            return buf;
         }
-        #undef EMIT
-        return "<Not a Folk worker thread>";
+        if (thread == NULL) {
+            return Jim_NewEmptyStringObj(interp);
+        }
+
+        Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
+
+#define OP(...) Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1), Jim_ObjPrintf(__VA_ARGS__));
+        WorkQueueItem item = thread->currentItem;
+        if (item.op == ASSERT) {
+            OP("Assert");
+        } else if (item.op == RETRACT) {
+            OP("Retract");
+        } else if (item.op == HOLD) {
+            OP("Hold");
+        } else if (item.op == SAY) {
+            OP("Say");
+        } else if (item.op == RUN) {
+            Statement* stmt = statementAcquire(db, item.run.stmt);
+            if (stmt != NULL) {
+                OP("Run when (%.100s) (%.100s)",
+                     clauseToString(item.run.whenPattern),
+                     clauseToString(statementClause(stmt)));
+                statementRelease(db, stmt);
+            }
+        } else if (item.op == REMOVE_PARENT) {
+            OP("Remove Parent");
+        } else {
+            OP("???");
+        }
+#undef OP
+
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "awaitingPush", -1),
+                           Jim_NewStringObj(interp, thread->isAwaitingPush ? " (Awaiting Push)" : "", -1));
+
+        return ret;
     }
     return [$cc compile]
 }}]
@@ -97,10 +107,14 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 set kernelStack "<not permitted>"
             }
 
-            subst {<li style="[expr {$workerInfo eq "<Not a Folk worker thread>" ? "color: gray" : ""}]">
-                $taskdir:<br>
-                  [regexp -inline {State:[^\n]*\n} $status]<br>
-                [htmlEscape $workerInfo]<br>
+            subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
+                $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
+                  [if {$workerInfo eq ""} {subst {
+                      (Not a Folk worker thread)
+                  }} else {subst {
+                      [htmlEscape [dict get $workerInfo op]]
+                  }}]
+                <br>
 
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>

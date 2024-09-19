@@ -42,10 +42,11 @@ for debugging: `elfutils` (provides `eu-stack`)
 - ~~transactions, causality, or Commit~~ Hold!
 - fix segfault (memory leak?) after a while
   - ~~garbage collect on list resize~~
-  - free Clauses (lifetime tied to statements?)
+  - free Clauses (match-local arenas to allocate from?)
 - cache statements on each interpreter
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
   - RAM monitor
 - clean up shader reference errors (use trick from main?)
+- port camera-usb / camera-rpi split & backends, for gadget
