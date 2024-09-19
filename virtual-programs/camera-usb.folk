@@ -279,6 +279,8 @@ $camc endcflags -ljpeg
 set camLib [$camc compile]
 
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+    if {![string match "/dev*" $cameraPath]} { return }
+
     namespace eval Camera {
         variable camLib [uplevel {set camLib}]
         proc unknown {procName args} {

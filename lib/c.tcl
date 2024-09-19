@@ -82,6 +82,8 @@ class C {
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
 
         #define FOLK_ERROR(MSG) do { Jim_SetResultString(interp, MSG, -1); longjmp(__onError, 0); } while (0)
+        #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
+        #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
 
         Jim_Obj* Jim_ObjPrintf(const char* format, ...) {
             va_list args;
