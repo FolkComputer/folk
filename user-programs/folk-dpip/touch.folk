@@ -8,6 +8,9 @@ $cpp include <libfreenect2/packet_pipeline.h>
 c loadlib $::env(HOME)/freenect2/lib/libfreenect2.so
 
 $cpp include <iostream>
+$cpp include <cstring>
+$cpp include <assert.h>
+$cpp include <math.h>
 
 defineImageType $cpp
 
@@ -22,10 +25,117 @@ $cpp code {
         libfreenect2::Frame::Depth
     );
     libfreenect2::FrameMap frames;
-}
 
-$cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
-$cpp import ::Heap::cc folkHeapFree as folkHeapFree
+    libfreenect2::Frame* irFrame = new libfreenect2::Frame(512, 424, 4);
+    libfreenect2::Frame* depthFrame = new libfreenect2::Frame(512, 424, 4);
+
+    template <typename T, int N> struct fixedqueue {
+    protected:
+            T vals[N];
+            int rpos, wpos, count;
+    public:
+            fixedqueue() : rpos(0), wpos(0), count(0) {
+            }
+
+            int size() const {
+                    return count;
+            }
+
+            bool empty() const {
+                    return count == 0;
+            }
+
+            T pop() {
+                    assert(count > 0);
+                    T ret = vals[rpos];
+                    rpos = (rpos + 1) % N;
+                    --count;
+                    return ret;
+            }
+
+            void push(const T &val) {
+                    assert(count < N);
+                    vals[wpos] = val;
+                    wpos = (wpos + 1) % N;
+                    ++count;
+            }
+    };
+
+    typedef uint16_t depth_t;
+
+    const int HIST_SIZE = 100;
+    const int HIST_QUEUE_SIZE = 128;
+    const int HIST_MIN = 30;
+    const float INVALID_MEAN = 0;
+    const float INVALID_STDEV = 1e6;
+    const depth_t MIN_DEPTH = 100;
+    const depth_t MAX_DEPTH = 50000;
+    const float HEUR_Z_INCREASE_THRESHOLD = 10;
+    const float HEUR_STABLE_FACTOR = 1; /* mm / m^s */
+    const float HEUR_HALO_THRESHOLD = 5;
+
+
+    struct bgPixelState {
+        fixedqueue<depth_t, HIST_QUEUE_SIZE> window;
+        uint64_t current_sum, current_sum_squares;
+        float current_mean, current_stdev;
+        bool stable;
+        bgPixelState() : window(), current_sum(0), current_sum_squares(0), current_mean(INVALID_MEAN), current_stdev(INVALID_STDEV), stable(false) {}
+
+    private:
+        void remove_one() {
+            if(window.empty()) return;
+            uint64_t ival = window.pop();
+            current_sum -= ival;
+            current_sum_squares -= ival * ival;
+        }
+        void add_one(depth_t val) {
+            window.push(val);
+            uint64_t ival = val;
+            current_sum += ival;
+            current_sum_squares += ival * ival;
+        }
+
+    public:
+        void update(depth_t val) {
+            if (val < MIN_DEPTH || val > MAX_DEPTH) {
+                remove_one();
+                return;
+            }
+            if (window.size() == HIST_SIZE) {
+                remove_one();
+            }
+            add_one(val);
+        }
+
+        bool update_stats(float *stable_mean, float *stable_stdev) {
+            size_t n = window.size();
+            if (n == 0) {
+                current_mean = INVALID_MEAN;
+                current_stdev = INVALID_STDEV;
+                stable = false;
+                return stable;
+            }
+
+            current_mean = current_sum / (float)n;
+            current_stdev = sqrtf(current_sum_squares * n - current_sum * current_sum) / n;
+            if (current_mean > *stable_mean + *stable_stdev * HEUR_Z_INCREASE_THRESHOLD) {
+                stable = false;
+                *stable_mean = INVALID_MEAN;
+                *stable_stdev = INVALID_STDEV;
+            } else if(current_stdev > HEUR_STABLE_FACTOR * powf((current_mean / 1000.0f), 2) || n < HIST_MIN) {
+                stable = false;
+            } else {
+                stable = true;
+                if(current_mean > *stable_mean + HEUR_HALO_THRESHOLD || current_mean < *stable_mean) {
+                    *stable_mean = current_mean;
+                    *stable_stdev = current_stdev;
+                }
+            }
+            return stable;
+        }
+    };
+}
 
 $cpp proc initKinect {} bool {
     if (freenect2.enumerateDevices() == 0) {
@@ -56,10 +166,20 @@ $cpp proc initKinect {} bool {
     std::cout << "depth bytes_per_pixel: " << depth->bytes_per_pixel << std::endl;
     std::cout << "depth format: " << depth->format << std::endl;
     listener.release(frames);
-    dev->stop();
 
     return true;
 }
+
+$cpp proc fetchRawIrDepthFrames {} bool {
+    if (!listener.waitForNewFrame(frames, 10*1000)) return false;
+    depthFrame = frames[libfreenect2::Frame::Depth];
+    irFrame = frames[libfreenect2::Frame::Ir];
+    listener.release(frames);
+    return true;
+}
+
+$cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
+$cpp import ::Heap::cc folkHeapFree as folkHeapFree
 
 $cpp code {
     image_t newGrayImage() {
@@ -78,50 +198,32 @@ $cpp proc freeImage {image_t image} void {
     folkHeapFree(image.data);
 }
 
-$cpp proc getDepthFrame {} image_t {
+$cpp proc getDepthImage {} image_t {
     image_t image = newGrayImage();
-    if (!dev->start()) {
-        std::cout << "couldn't start dev in depth!" << std::endl;
-        return image;
-    }
-    if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
-        std::cout << "timed out waiting for depth frames!" << std::endl;
-        return image;
-    }
-    libfreenect2::Frame *depth = frames[libfreenect2::Frame::Depth];
+    float *depthFrameData = (float *)depthFrame->data;
 
-    float* depthData = (float*)depth->data;
     for (long unsigned int i = 0; i < 512*424; i += 1) {
-        float depthPixel = depthData[i];
+        float depthPixel = depthFrameData[i];
         uint8_t grayPixel = (depthPixel / 5000.0) * 255;
         image.data[i] = grayPixel;
     }
-    listener.release(frames);
-    dev->stop();
     return image;
 }
 
-$cpp proc getIrFrame {} image_t {
+$cpp proc getIrImage {} image_t {
     image_t image = newGrayImage();
-    if (!dev->start()) {
-        std::cout << "couldn't start dev in IR!" << std::endl;
-        return image;
-    }
-    if (!listener.waitForNewFrame(frames, 10*1000)) { // timeout after 10 seconds
-        std::cout << "timed out waiting for ir frames!" << std::endl;
-        return image;
-    }
-    libfreenect2::Frame *ir = frames[libfreenect2::Frame::Ir];
+    float* irData = (float *)irFrame->data;
 
-    float* irData = (float *)ir->data;
     for (long unsigned int i = 0; i < 512*424; i += 1) {
         float irPixel = irData[i];
         uint8_t grayPixel = (irPixel / 65535.0) * 255;
         image.data[i] = grayPixel;
     }
-    listener.release(frames);
-    dev->stop();
     return image;
+}
+
+$cpp proc stopKinect {} bool {
+    return dev->stop();
 }
 
 $cpp compile
@@ -133,28 +235,31 @@ if { ![initKinect] } {
 }
 puts "kinect initialized"
 
-Wish the web server handles route {/kinect-ir-frame(?:\?.*)?$} with handler {
-    set filename "/tmp/web-ir-frame-kinect.jpg"
-    set im [getIrFrame]
-    image saveAsJpeg $im $filename
-    set fsize [file size $filename]
-    set fd [open $filename r]
-    fconfigure $fd -encoding binary -translation binary
-    set body [read $fd $fsize]
-    close $fd
-    freeImage $im
-    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+set ::oldDepthImages [list]
+set ::oldIrImages [list]
+set currentDepthTimestamp 0
+
+When $::thisProcess has step count /c/ {
+    fetchRawIrDepthFrames
+    set depthImage [getDepthImage]
+    set irImage [getIrImage]
+    Hold {
+        Claim the kinect has depth image $depthImage at timestamp [expr {[clock milliseconds] / 1000.0}]
+        Claim the kinect has ir image $irImage at timestamp [expr {[clock milliseconds] / 1000.0}]
+    }
+    lappend ::oldDepthImages $depthImage
+    if {[llength $::oldDepthImages] >= 10} {
+        set ::oldDepthImages [lassign $::oldDepthImages oldestDepthImage]
+        freeImage $oldestDepthImage
+    }
+    lappend ::oldIrImages $irImage
+    if {[llength $::oldIrImages] >= 10} {
+        set ::oldIrImages [lassign $::oldIrImages oldestIrImage]
+        freeImage $oldestIrImage
+    }
 }
 
-Wish the web server handles route {/kinect-depth-frame(?:\?.*)?$} with handler {
-    set filename "/tmp/web-depth-frame-kinect.jpg"
-    set im [getDepthFrame]
-    image saveAsJpeg $im $filename
-    set fsize [file size $filename]
-    set fd [open $filename r]
-    fconfigure $fd -encoding binary -translation binary
-    set body [read $fd $fsize]
-    close $fd
-    freeImage $im
-    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+When /anyone/ wishes to stop the kinect {
+    stopKinect
 }
+
