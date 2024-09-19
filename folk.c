@@ -732,11 +732,11 @@ void workerLoop() {
 
         int ntries = 0;
         while (item.op == NONE) {
-            if (ntries > 3) {
-                self->isAwaitingPush = true;
-                workQueueAwaitAnyPush();
-                self->isAwaitingPush = false;
-            }
+            /* if (ntries > 3) { */
+            /*     self->isAwaitingPush = true; */
+            /*     workQueueAwaitAnyPush(); */
+            /*     self->isAwaitingPush = false; */
+            /* } */
 
             // If item is none, then steal from another thread's
             // workqueue:

@@ -129,7 +129,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
                   [if {$workerInfo eq ""} {subst {
-                      (Not a Folk worker thread)
+                      (Not a Folk worker thread)<br>
                   }} else {subst {
                       [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]<br>
                       <details>
@@ -137,8 +137,6 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                           <pre>[htmlEscape [dict get $workerInfo workQueue]]</pre>
                       </details>
                   }}]
-                <br>
-
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>
             </li>}
