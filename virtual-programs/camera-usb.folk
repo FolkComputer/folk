@@ -1,6 +1,6 @@
-# camera.folk --
+# camera-usb.folk --
 #
-#     Hardware interface with the webcam (v4l2).
+#     Hardware interface with USB webcams (v4l2).
 
 if {$::tcl_platform(os) eq "darwin"} { return }
 
@@ -279,7 +279,7 @@ $camc endcflags -ljpeg
 set camLib [$camc compile]
 
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
-    if {![string match "/dev*" $cameraPath]} { return }
+    if {![string match "/dev*" $camera]} { return }
 
     namespace eval Camera {
         variable camLib [uplevel {set camLib}]

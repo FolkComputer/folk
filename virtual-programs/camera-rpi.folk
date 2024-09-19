@@ -1,3 +1,9 @@
+# camera-usb.folk --
+#
+#     Hardware interface with Pi webcams (libcamera).
+
+if {$::tcl_platform(os) eq "darwin"} { return }
+
 set makeCamera {
     set cpp [C++]
     $cpp include <iostream>
@@ -268,8 +274,8 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     set width [dict get $options width]
     set height [dict get $options height]
 
-    namespace eval Camera $makeCamera
-    Camera::cameraOpen $cameraPath $width $height
+    set camLib [eval $makeCamera]
+    $camLib cameraOpen $cameraPath $width $height
 
     # TODO: report actual width and height from libcamera
     Claim camera $cameraPath has width $width height $height
@@ -279,7 +285,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     set ::oldFrames [list]
     When $::thisProcess has step count /c/ {
         try {
-            set frame [Camera::grayFrame]
+            set frame [$camLib grayFrame]
         } on error e { return }
 
         Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]]
@@ -287,7 +293,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         lappend ::oldFrames $frame
         if {[llength $::oldFrames] >= 10} {
             set ::oldFrames [lassign $::oldFrames oldestFrame]
-            Camera::freeImage $oldestFrame
+            $camLib freeImage $oldestFrame
         }
     }
 }
