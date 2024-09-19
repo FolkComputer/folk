@@ -738,6 +738,14 @@ void workerLoop() {
             /*     self->isAwaitingPush = false; */
             /* } */
 
+            // TODO: Maybe we should find a way to yield regularly so
+            // we can take ssh connections.
+            if (ntries > 100) {
+                self->isAwaitingPush = true;
+                workQueueAwaitAnyPush();
+                self->isAwaitingPush = false;
+            }
+
             // If item is none, then steal from another thread's
             // workqueue:
             int stealee = rand() % threadCount;
