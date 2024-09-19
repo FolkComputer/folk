@@ -9,7 +9,7 @@ set threadMonitorLib [apply {{} {
 
         extern Db* db;
     }
-    $cc proc threadCurrentItem {int tid} char* {
+    $cc proc workerInfo {int tid} char* {
         static char buf[1000];
         char *s = buf;
         #define EMIT(...) s += snprintf(s, sizeof(buf) - (s - buf), __VA_ARGS__)
@@ -83,7 +83,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
             set statusFd [open $taskdir/status r]
             set status [read $statusFd]; close $statusFd
 
-            set currentItem [$threadMonitorLib threadCurrentItem $tid]
+            set workerInfo [$threadMonitorLib workerInfo $tid]
 
             try {
                 set userStack [dict get $userStacks $tid]
@@ -97,10 +97,10 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 set kernelStack "<not permitted>"
             }
 
-            subst {<li style="[expr {$currentItem eq "<Not a Folk worker thread>" ? "color: gray" : ""}]">
+            subst {<li style="[expr {$workerInfo eq "<Not a Folk worker thread>" ? "color: gray" : ""}]">
                 $taskdir:<br>
                   [regexp -inline {State:[^\n]*\n} $status]<br>
-                [htmlEscape $currentItem]<br>
+                [htmlEscape $workerInfo]<br>
 
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>

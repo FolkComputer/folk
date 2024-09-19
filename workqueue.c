@@ -15,8 +15,8 @@ typedef struct WorkQueueArray {
 } WorkQueueArray;
 
 typedef struct WorkQueue {
-    size_t _Atomic top;
-    size_t _Atomic bottom;
+    size_t _Atomic top; // where items are stolen
+    size_t _Atomic bottom; // where new items are pushed & items are taken
     WorkQueueArray* _Atomic array;
 } WorkQueue;
 
@@ -69,7 +69,7 @@ WorkQueueItem workQueueTake(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x; free(x);
+    WorkQueueItem item = *x; /* free(x); */
     return item;
 }
 
@@ -129,10 +129,31 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x; free(x);
+    WorkQueueItem item = *x; /* free(x); */
     return item;
 }
 
 void workQueueAwaitAnyPush() {
     sem_wait(workQueueSem);
+}
+
+// Used to peek into work queue for monitoring purposes. Copies items
+// from next-to-steal (top) in order down to next-to-take (bottom).
+int unsafe_workQueueCopy(WorkQueueItem* to, int maxn,
+                          WorkQueue* q) {
+    WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
+    size_t size = atomic_load_explicit(&a->size, memory_order_relaxed);
+    /* WorkQueueArray *new_a = (WorkQueueArray*) calloc(1, new_size * sizeof(WorkQueueItem*) + sizeof(WorkQueueArray)); */
+    size_t top = atomic_load_explicit(&q->top, memory_order_relaxed);
+    size_t bottom = atomic_load_explicit(&q->bottom, memory_order_relaxed);
+    /* atomic_store_explicit(&new_a->size, new_size, memory_order_relaxed); */
+    size_t i;
+    int j = 0;
+    for (i = top; i < bottom; i++) {
+        if (j >= maxn) { break; }
+        to[j++] = *(atomic_load_explicit(&a->buffer[i % size], memory_order_relaxed));
+    }
+
+    // FIXME: Return failure if anything has changed?
+    return j;
 }
