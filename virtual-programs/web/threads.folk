@@ -38,6 +38,7 @@ set threadMonitorLib [apply {{} {
             } else {
                 EMIT("???");
             }
+            EMIT(threads[i].isAwaitingPush ? " (Awaiting Push)" : "");
             return buf;
         }
         #undef EMIT
@@ -82,6 +83,8 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
             set statusFd [open $taskdir/status r]
             set status [read $statusFd]; close $statusFd
 
+            set currentItem [$threadMonitorLib threadCurrentItem $tid]
+
             try {
                 set userStack [dict get $userStacks $tid]
             } on error e {
@@ -94,10 +97,10 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 set kernelStack "<not permitted>"
             }
 
-            subst {<li>
+            subst {<li style="[expr {$currentItem eq "<Not a Folk worker thread>" ? "color: gray" : ""}]">
                 $taskdir:<br>
                   [regexp -inline {State:[^\n]*\n} $status]<br>
-                [htmlEscape [$threadMonitorLib threadCurrentItem $tid]]<br>
+                [htmlEscape $currentItem]<br>
 
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>

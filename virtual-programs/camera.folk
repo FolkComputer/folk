@@ -328,6 +328,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 50} {
             set oldFrames [lassign $oldFrames oldestFrame]
+            # puts stderr "freeing old frame ($oldestFrame)"
             $camLib freeImage $oldestFrame
         }
     }
