@@ -8,6 +8,35 @@ set threadMonitorLib [apply {{} {
         extern int _Atomic threadCount;
 
         extern Db* db;
+
+        Jim_Obj* itemToStringObj(WorkQueueItem item) {
+            Jim_Obj* obj;
+
+#define EMIT(...) obj = Jim_ObjPrintf(__VA_ARGS__)
+            if (item.op == ASSERT) {
+                EMIT("Assert");
+            } else if (item.op == RETRACT) {
+                EMIT("Retract");
+            } else if (item.op == HOLD) {
+                EMIT("Hold");
+            } else if (item.op == SAY) {
+                EMIT("Say");
+            } else if (item.op == RUN) {
+                Statement* stmt = statementAcquire(db, item.run.stmt);
+                if (stmt != NULL) {
+                    EMIT("Run when (%.100s) (%.100s)",
+                         clauseToString(item.run.whenPattern),
+                         clauseToString(statementClause(stmt)));
+                    statementRelease(db, stmt);
+                }
+            } else if (item.op == REMOVE_PARENT) {
+                EMIT("Remove Parent");
+            } else {
+                EMIT("???");
+            }
+#undef EMIT
+            return obj;
+        }
     }
     $cc proc workerInfo {int tid} Jim_Obj* {
         ThreadControlBlock *thread = NULL;
@@ -23,34 +52,24 @@ set threadMonitorLib [apply {{} {
 
         Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
 
-#define OP(...) Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1), Jim_ObjPrintf(__VA_ARGS__));
         WorkQueueItem item = thread->currentItem;
-        if (item.op == ASSERT) {
-            OP("Assert");
-        } else if (item.op == RETRACT) {
-            OP("Retract");
-        } else if (item.op == HOLD) {
-            OP("Hold");
-        } else if (item.op == SAY) {
-            OP("Say");
-        } else if (item.op == RUN) {
-            Statement* stmt = statementAcquire(db, item.run.stmt);
-            if (stmt != NULL) {
-                OP("Run when (%.100s) (%.100s)",
-                     clauseToString(item.run.whenPattern),
-                     clauseToString(statementClause(stmt)));
-                statementRelease(db, stmt);
-            }
-        } else if (item.op == REMOVE_PARENT) {
-            OP("Remove Parent");
-        } else {
-            OP("???");
-        }
-#undef OP
+        Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1),
+                           itemToStringObj(item));
 
         Jim_DictAddElement(interp, ret,
                            Jim_NewStringObj(interp, "isAwaitingPush", -1),
                            Jim_NewStringObj(interp, thread->isAwaitingPush ? "(Awaiting Push)" : "", -1));
+
+        // TODO: Build up workQueueStr
+        WorkQueueItem items[100];
+        int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
+        for (int i = 0; i < nitems; i++) {
+            
+        }
+        char *workQueueStr = "WQ";
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "workQueue", -1),
+                           Jim_NewStringObj(interp, workQueueStr, -1));
 
         return ret;
     }

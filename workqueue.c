@@ -140,7 +140,7 @@ void workQueueAwaitAnyPush() {
 // Used to peek into work queue for monitoring purposes. Copies items
 // from next-to-steal (top) in order down to next-to-take (bottom).
 int unsafe_workQueueCopy(WorkQueueItem* to, int maxn,
-                          WorkQueue* q) {
+                         WorkQueue* q) {
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
     size_t size = atomic_load_explicit(&a->size, memory_order_relaxed);
     /* WorkQueueArray *new_a = (WorkQueueArray*) calloc(1, new_size * sizeof(WorkQueueItem*) + sizeof(WorkQueueArray)); */
