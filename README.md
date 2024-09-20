@@ -49,4 +49,5 @@ for debugging: `elfutils` (provides `eu-stack`)
   - have some kind of label-based, cross-thread fps counter
   - RAM monitor
 - clean up shader reference errors (use trick from main?)
-- port camera-usb / camera-rpi split & backends, for gadget
+- ~~port camera-usb / camera-rpi split & backends, for gadget~~
+- time-to-live / sustain? need to keep keyboard from unloading
