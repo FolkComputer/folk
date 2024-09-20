@@ -77,6 +77,11 @@ set tagFamily "tagStandard52h13"
 set detector [makeAprilTagDetector $tagFamily]
 
 When camera /camera/ has frame /grayFrame/ at timestamp /ts/ {
+    set now [expr {[clock milliseconds] / 1000.0}]
+    # puts stderr "now - ts: [expr {$now - $ts}]"
+    # Do not process frames older than 25 frames (they're freed at 50 frames).
+    if {$now - $ts > 0.016 * 25} { return }
+
     # Need to have a `detector` object available from all threads,
     # inside this scope.
     set aprilTime [time {
