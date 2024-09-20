@@ -53,20 +53,30 @@ When /keyboard/ is a keyboard device {
     $cc include <stdio.h>
     $cc include <string.h>
 
-    $cc proc setGrabDevice {Jim_Interp* interp Jim_Obj* channel bool grab} void {
+    # This needs to be called on this thread (since it depends on
+    # interpreter-local information about the channel), and then the
+    # returned fileno is portable to other threads which can do the
+    # keyboard grab/ungrab later.
+    $cc proc getFileno {Jim_Interp* interp Jim_Obj* channel} int {
         FILE* fp = Jim_AioFilehandle(interp, channel);
         if (fp == NULL) {
             printf("unable to open channel '%s' as file\n'", Jim_String(channel));
-            return;
+            return -1;
         }
-        ioctl(fileno(fp), EVIOCGRAB, (void*)grab);
+        return fileno(fp);
     }
+
+    $cc proc setGrabDevice {Jim_Interp* interp int fileno bool grab} void {
+        ioctl(fileno, EVIOCGRAB, (void*)grab);
+    }
+
     set grabber [$cc compile]
 
     set KEY_STATES [list up down repeat]
 
     set keyboardChannel [open $keyboard r]
     fconfigure $keyboardChannel -translation binary
+    set keyboardFileno [$grabber getFileno $keyboardChannel]
 
     Hold! local-keymaps [list $this claims $keyboard has keymaps [dict create]]
 
@@ -81,14 +91,14 @@ When /keyboard/ is a keyboard device {
         dict set localKeymaps $map true
         Hold! local-keymaps [list $this claims $keyboard has keymaps $localKeymaps]
 
-        $grabber setGrabDevice $keyboardChannel [dict size $localKeymaps]
+        $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
 
         On unmatch {
             dict unset localKeymaps $map
             Hold! local-keymaps [list $this claims $keyboard has keymaps $localKeymaps]
 
             # keymap destroy $map
-            $grabber setGrabDevice $keyboardChannel [dict size $localKeymaps]
+            $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
         }
     }
 
