@@ -14,7 +14,7 @@ When /thing/ has region /region/ {
 # ---
 # Display text on the screen with the font `PTSans-Regular`
 # ---
-# Wish /someone/ is labelled "Hello, world!"
+# Wish /someone/ is labelled /text:string/
 When /someone/ wishes /thing/ is labelled /text/ {
   # Set the default font
   Wish $thing is labelled $text with font "PTSans-Regular"
