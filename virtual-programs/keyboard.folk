@@ -71,6 +71,9 @@ When /keyboard/ is a keyboard device {
     Hold! local-keymaps [list $this claims $keyboard has keymaps [dict create]]
 
     When /page/ is a keyboard with path $keyboard locale /locale/ {
+        if {![exists -command keymap]} {
+            source "lib/keymap.tcl"
+        }
         set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
                                            0] localKeymaps {}]
 

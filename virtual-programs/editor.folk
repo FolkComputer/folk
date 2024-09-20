@@ -1,3 +1,5 @@
+return
+
 set baseCode "Wish \$this is outlined green"
 
 # This makes all keyboards into editors automatically, so a keyboard
