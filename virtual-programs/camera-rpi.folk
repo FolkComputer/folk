@@ -93,6 +93,10 @@ set makeCamera {
                     FOLK_ERROR("camera-rpi: Can't set buffer for request");
 		}
 
+                ControlList &controls = request->controls();
+                controls.set(controls::AeEnable, false);
+                controls.set(controls::ExposureTime, 20000);
+
 		requests.push_back(std::move(request));
 	}
 
