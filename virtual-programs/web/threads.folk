@@ -28,6 +28,8 @@ set threadMonitorLib [apply {{} {
                          clauseToString(item.run.whenPattern),
                          clauseToString(statementClause(stmt)));
                     statementRelease(db, stmt);
+                } else {
+                    EMIT("Run (INVALIDATED)");
                 }
             } else if (item.op == REMOVE_PARENT) {
                 EMIT("Remove Parent");
