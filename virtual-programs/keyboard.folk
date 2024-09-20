@@ -87,7 +87,7 @@ When /keyboard/ is a keyboard device {
             dict unset localKeymaps $map
             Hold! local-keymaps [list $this claims $keyboard has keymaps $localKeymaps]
 
-            keymap destroy $map
+            # keymap destroy $map
             $grabber setGrabDevice $keyboardChannel [dict size $localKeymaps]
         }
     }
