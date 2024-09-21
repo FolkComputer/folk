@@ -36,7 +36,10 @@ proc ::peer {process {dieOnDisconnect false}} {
         }
 	proc clear {} {
             variable process
-            Mailbox::clear $process $::thisProcess
+	    variable connected
+	    set connected false
+	    Mailbox::clear $process $::thisProcess
+            Mailbox::clear $::thisProcess $process
 	}
 
         proc share {shareStatements} {

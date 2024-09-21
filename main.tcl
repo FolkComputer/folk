@@ -597,6 +597,7 @@ namespace eval ::Mailbox {
     }
     $cc proc clear {char* from char* to} void {
         mailbox_t* mailbox = find(from, to);
+        fprintf(stderr, "Mailbox clear %s -> %s\n", from, to);
         pthread_mutex_lock(&mailbox->mutex); {
             mailbox->active = 0;
             mailbox->mail[0] = '\0';

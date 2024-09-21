@@ -1,5 +1,3 @@
-if {$::isLaptop} return
-
 set makeAprilTagDetector {{TAG_FAMILY} {
     set detector AprilTagDetector_${TAG_FAMILY}
     namespace eval $detector {

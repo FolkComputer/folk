@@ -1,10 +1,5 @@
 start:
-	case "$(shell hostname)" in \
-	gadget-*) \
-		libcamerify tclsh8.6 main.tcl;; \
-	*) \
-		tclsh8.6 main.tcl;; \
-	esac
+	tclsh8.6 main.tcl
 debug:
 	gdb --args tclsh8.6 main.tcl
 remote-debug: sync
