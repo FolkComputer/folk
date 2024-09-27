@@ -1,0 +1,20 @@
+Wish $this is outlined gold
+
+set folkname [info hostname]
+
+When $this has region /r/ {
+    Claim $folkname has html "<h2>Blah</h2>\n<pre>some example code</pre>"
+    Claim $folkname has angle [region angle $r]
+}
+
+When $folkname has angle /angle/ {
+    Wish $this is labelled "angle: $angle"
+}
+
+When /page/ claims I'm slide /n/ & /page/ has region /r/ {
+    set center [region centroid $r]
+    set angle [region angle $r]
+    set data [dict create center $center width [region width $r] height [region height $r] angle $angle]
+    Claim $folkname displays slide $n with data $data
+    Wish $this is labelled "Slide $n: "
+}
