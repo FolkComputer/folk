@@ -6,10 +6,51 @@
 #include "common.h"
 
 extern ThreadControlBlock threads[];
+extern Db* db;
 
 void workerSpawn();
+
+#define SYSMON_TICK_MS 2
+
+typedef struct RemoveLater {
+    StatementRef stmt;
+    int64_t canRemoveAtTick;
+} RemoveLater;
+
+#define REMOVE_LATER_MAX 30
+RemoveLater removeLater[REMOVE_LATER_MAX];
+pthread_mutex_t removeLaterMutex;
+
+int64_t _Atomic tick;
+
+void sysmonInit() {
+    pthread_mutex_init(&removeLaterMutex, NULL);
+}
+
 void sysmon() {
-    fprintf(stderr, "SYSMON\n");
+    // This is the system monitoring routine that runs on every tick
+    // (every few milliseconds).
+    int64_t currentTick = tick;
+
+    // First: deal with any remove-later (sustains).
+    pthread_mutex_lock(&removeLaterMutex);
+    int i;
+    for (i = 0; i < REMOVE_LATER_MAX; i++) {
+        if (!statementRefIsNull(removeLater[i].stmt)) {
+            Statement* stmt;
+            if (removeLater[i].canRemoveAtTick >= currentTick &&
+                (stmt = statementAcquire(db, removeLater[i].stmt))) {
+
+                statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+                statementRelease(db, stmt);
+            }
+            removeLater[i].stmt = STATEMENT_REF_NULL;
+            removeLater[i].canRemoveAtTick = 0;
+        }
+    }
+    pthread_mutex_unlock(&removeLaterMutex);
+
+    // Second: manage the pool of worker threads.
     int availableWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
@@ -40,9 +81,31 @@ void sysmon() {
 
 void *sysmonMain(void *ptr) {
     for (;;) {
-        /* usleep(1000); // sleep for 1ms. */
-        usleep(1000000);
+        usleep(SYSMON_TICK_MS * 1000);
+
+        tick++;
         sysmon();
     }
     return NULL;
+}
+// This gets called from other threads.
+void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
+    // TODO: Round laterMs up to a number of ticks.
+    // Then put it into the tick slot.
+    int laterTicks = laterMs / SYSMON_TICK_MS;
+
+    pthread_mutex_lock(&removeLaterMutex);
+    int i;
+    for (i = 0; i < REMOVE_LATER_MAX; i++) {
+        if (statementRefIsNull(removeLater[i].stmt)) {
+            removeLater[i].stmt = stmtRef;
+            removeLater[i].canRemoveAtTick = tick + laterTicks;
+            break;
+        }
+    }
+    if (i == REMOVE_LATER_MAX) {
+        fprintf(stderr, "sysmon: Ran out of remove-later slots!");
+        exit(1);
+    }
+    pthread_mutex_unlock(&removeLaterMutex);
 }

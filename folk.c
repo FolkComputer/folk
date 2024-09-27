@@ -145,7 +145,15 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 // Hold! {Omar's time} {the time is 3}
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3);
+    assert(argc == 3 || argc == 4);
+    long sustainMs;
+    if (argc == 3) {
+        sustainMs = 0;
+    } else if (argc == 4) {
+        if (Jim_GetLong(interp, argv[3], &sustainMs) != JIM_OK) {
+            return JIM_ERR;
+        }
+    }
     const char* key = strdup(Jim_GetString(argv[1], NULL));
     Clause* clause = jimObjToClause(interp, argv[2]);
 
@@ -154,6 +162,7 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
        .thread = -1,
        .hold = {
            .key = key, .version = ++latestVersion,
+           .sustainMs = (int) sustainMs,
            .clause = clause,
            .sourceFileName = "<unknown>",
            .sourceLineNumber = -1
@@ -624,22 +633,19 @@ void workerRun(WorkQueueItem item) {
         if (!statementRefIsNull(newRef)) {
             reactToNewStatement(newRef, item.hold.clause);
         }
-        // We need to delay the react to removed statement until
-        // full subconvergence of the addition of the new
-        // statement.  or just mess with priorities so that the
-        // react to removed statement usually gets delayed?
+        // TODO: We need to delay the react to removed statement until
+        // the estimated convergence time of the new statement has
+        // elapsed (a few milliseconds?)
         if (!statementRefIsNull(oldRef)) {
-            // HACK: prevents flickering.
-            usleep(1000);
-            
-            workQueuePush(self->workQueue, (WorkQueueItem) {
-                    .op = REMOVE_PARENT,
-                    .thread = -1,
-                    .removeParent = { .stmt = oldRef }
-                });
-
-            // TODO: Impose a hop limit after which we should carry
-            // out the removal?
+            if (item.hold.sustainMs > 0) {
+                sysmonRemoveLater(oldRef, item.hold.sustainMs);
+            } else {
+                Statement* stmt;
+                if ((stmt = statementAcquire(db, oldRef))) {
+                    statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+                    statementRelease(db, stmt);
+                }
+            }
         }
 
     } else if (item.op == SAY) {
@@ -659,13 +665,6 @@ void workerRun(WorkQueueItem item) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
-
-    } else if (item.op == REMOVE_PARENT) {
-        Statement* stmt;
-        if ((stmt = statementAcquire(db, item.removeParent.stmt))) {
-            statementRemoveParentAndMaybeRemoveSelf(db, stmt);
-            statementRelease(db, stmt);
-        }
 
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
@@ -695,10 +694,6 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         Statement* stmt = statementUnsafeGet(db, item.run.stmt);
         snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
                  clauseToString(item.run.whenPattern),
-                 stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
-    } else if (item.op == REMOVE_PARENT) {
-        Statement* stmt = statementUnsafeGet(db, item.removeParent.stmt);
-        snprintf(buf, bufsz, "%d: Remove Parent (%.100s)", threadIndex,
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
     } else {
         snprintf(buf, bufsz, "%d: ???", threadIndex);

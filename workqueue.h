@@ -30,6 +30,7 @@ typedef struct WorkQueueItem {
             // freeing it on dequeue.
             const char* key;
             int64_t version;
+            int sustainMs;
 
             Clause* clause;
 
@@ -59,7 +60,6 @@ typedef struct WorkQueueItem {
             Clause* whenPattern;
             StatementRef stmt;
         } run;
-        struct { StatementRef stmt; } removeParent;
     };
 } WorkQueueItem;
 
