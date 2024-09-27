@@ -12,7 +12,7 @@ When the db library is /dbLib/ {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            ([$dbLib statementParentCount $db $ref] parents): <code>[htmlEscape [string range $terms 0 100]]</code> ([htmlEscape $childMatchRefs])</summary>
+            ([$dbLib statementParentCount $db $ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ([htmlEscape $childMatchRefs])</summary>
             <pre>[htmlEscape $terms]</pre>
             </details>
             </li>

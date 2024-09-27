@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "common.h"
 
@@ -80,8 +81,11 @@ void sysmon() {
 }
 
 void *sysmonMain(void *ptr) {
+    struct timespec tickTime;
+    tickTime.tv_sec = 0;
+    tickTime.tv_nsec = SYSMON_TICK_MS * 1000 * 1000;
     for (;;) {
-        usleep(SYSMON_TICK_MS * 1000);
+        nanosleep(&tickTime, NULL);
 
         tick++;
         sysmon();
