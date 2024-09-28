@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
+#include <sys/time.h>
+#include <inttypes.h>
 
 #include "common.h"
 
@@ -25,12 +27,20 @@ pthread_mutex_t removeLaterMutex;
 
 int64_t _Atomic tick;
 
+int64_t timestampAtBoot;
+int64_t timestamp() {
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+    return (int64_t)currentTime.tv_sec*1e6 + currentTime.tv_usec;
+}
+
 void sysmonInit() {
     pthread_mutex_init(&removeLaterMutex, NULL);
+    timestampAtBoot = timestamp();
 }
 
 void sysmon() {
-    trace("Sysmon Tick");
+    trace("%" PRId64 "us: Sysmon Tick", timestamp() - timestampAtBoot);
 
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).

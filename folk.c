@@ -837,6 +837,7 @@ int main(int argc, char** argv) {
     // Spawn the sysmon thread, which isn't managed the same way as
     // worker threads, and which doesn't run a Folk interpreter. It's
     // just pure C.
+    sysmonInit();
     pthread_t sysmonTh;
     pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
 
