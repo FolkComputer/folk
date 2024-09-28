@@ -257,12 +257,10 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     }
     return s;
 }
-#ifdef FOLK_TRACE
 Statement* statementUnsafeGet(Db* db, StatementRef ref) {
     if (ref.idx == 0) { return NULL; }
     return &db->statementPool[ref.idx];
 }
-#endif
 void statementRelease(Db* db, Statement* stmt) {
     if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
         stmt->gen++; // Guard the rest of the freeing process.

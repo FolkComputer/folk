@@ -6,6 +6,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdatomic.h>
+#include <inttypes.h>
 
 #define JIM_EMBEDDED
 #include <jim.h>
@@ -24,10 +25,8 @@ __thread Jim_Interp* interp = NULL;
 
 Db* db;
 
-#ifdef FOLK_TRACE
 char traceLog[50000][1000];
 int _Atomic traceNextIdx = 0;
-#endif
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
@@ -673,7 +672,6 @@ void workerRun(WorkQueueItem item) {
     }
 }
 
-#ifdef FOLK_TRACE
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
     int threadIndex = self->index;
@@ -684,7 +682,7 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
     } else if (item.op == HOLD) {
-        snprintf(buf, bufsz, "Hold (%.100s) (%lld) (%.100s)",
+        snprintf(buf, bufsz, "Hold (%.100s) (%" PRId64 ") (%.100s)",
                  item.hold.key, item.hold.version,
                  clauseToString(item.hold.clause));
     } else if (item.op == SAY) {
@@ -709,7 +707,7 @@ void trace(const char* format, ...) {
 
     char* dest = traceLog[traceIdx];
     size_t n = sizeof(traceLog[traceIdx]);
-    n -= snprintf(dest, n, "%d: ", self->index);
+    n -= snprintf(dest, n, "%d: ", self == NULL ? -1 : self->index);
 
     dest += sizeof(traceLog[traceIdx]) - n;
 
@@ -718,9 +716,7 @@ void trace(const char* format, ...) {
     vsnprintf(dest, n, format, args);
     va_end(args);
 }
-#else
-#define trace(...)
-#endif
+
 void workerLoop() {
     for (;;) {
         WorkQueueItem item = workQueueTake(self->workQueue);
@@ -747,7 +743,9 @@ void workerLoop() {
             if (threads[stealee].tid != 0) {
                 item = workQueueSteal(threads[stealee].workQueue);
             }
+#ifdef FOLK_TRACE
             trace("Stealing!");
+#endif
 
             ntries++;
         }

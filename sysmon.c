@@ -8,6 +8,7 @@
 
 extern ThreadControlBlock threads[];
 extern Db* db;
+extern void trace(const char* format, ...);
 
 void workerSpawn();
 
@@ -29,6 +30,8 @@ void sysmonInit() {
 }
 
 void sysmon() {
+    trace("Sysmon Tick");
+
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).
     int64_t currentTick = tick;
@@ -74,10 +77,10 @@ void sysmon() {
         // How long has it been running in the current burst?
         // Is it blocked on the OS (sleeping state)?
     }
-    if (availableWorkersCount < 2) {
-        fprintf(stderr, "workerSpawn\n");
-        workerSpawn();
-    }
+    /* if (availableWorkersCount < 2) { */
+    /*     fprintf(stderr, "workerSpawn\n"); */
+    /*     workerSpawn(); */
+    /* } */
 }
 
 void *sysmonMain(void *ptr) {
