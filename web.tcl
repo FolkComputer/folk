@@ -22,8 +22,24 @@ proc getDotAsPdf {dot contentTypeVar} {
     set response [read $fd]; close $fd; return $response
 }
 
+proc emitHTMLForProgramList {programList label} {
+    set prettyLabel [string map {- " "} $label]
+    set prettyLabel [string totitle $prettyLabel]:
+    set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
+    lappend returnList "<ul>"
+    foreach item $programList {
+        lappend returnList "<li>$item</li>"
+    }
+    lappend returnList "</ul>"
+    lappend returnList "</details>"
+    join $returnList
+}
+
 proc handlePage {path httpStatusVar contentTypeVar} {
     upvar $contentTypeVar contentType
+    # TODO: We can probably factor this out of web.tcl and into a separate program (web/programs.folk) while we're at it right?
+    # From @osnr: https://github.com/FolkComputer/folk/pull/171#issuecomment-2292098801
+    # - @cwervo 2024-09-15
     switch -exact -- $path {
         "/" {
             set l [list]
@@ -61,18 +77,70 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             }
         }
         "/programs" {
-            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+            # TODO:
+            # - Make this synchronous
+            # - Maybe should actually, move this to a virtual-program/watcher.folk.default programs that makes claims like:
+            #   Claim virtual programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim core programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim web programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+            #   Claim real programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
+
+            set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
+            set vp [list]; # virtual programs
+            set cp [list]; # core programs
+            set wp [list]; # web programs
+            set rp [list]; # real programs
+
+            # TODO:
+            # Right now this duplicates the virtual-programs/watcher.folk logic.
+            # Let's refactor this to use the claim logic in the future.
+            # - @cwervo 2024-09-15
+            foreach match $programs {
+                set page [dict get $match page]
+                switch -glob $page {
+                    "virtual-programs/*" {
+                        lappend vp $page
+                    }
+                    "setup.folk.default" {
+                        lappend cp $page
+                    }
+                    "web-program-*" {
+                        lappend wp $page
+                    }
+                    default {
+                        lappend rp $page
+                    }
+                }
+            }
+
             subst {
                 <html>
                 <head>
-                <link rel="stylesheet" href="/style.css">
-                <title>Running programs</title>
+                    <link rel="stylesheet" href="/style.css">
+                    <title>Running programs</title>
+                    <link rel="stylesheet" href="/style.css">
+                    <style>
+                        body {
+                            font-family: math;
+                        }
+                        summary {
+                            font-family: monospace;
+                            font-size: 2em;
+                        }
+                    </style>
+                    <script src="/lib/folk.js"></script>
+                    <script>
+                    /* TODO:
+                      (  ) Add a ws.watch() for /someone/ claims /page/ has program /program/
+                    */
+                    </script>
                 </head>
                 <body>
-                [join [lmap p $programs { dict with p {subst {
-                    <h2>$programName</h2>
-                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
-                }} }] "\n"]
+                    [emitHTMLForProgramList $rp "real-programs"]
+                    [emitHTMLForProgramList $wp "web-programs"]
+                    [emitHTMLForProgramList $vp "virtual-programs"]
+                    [emitHTMLForProgramList $cp "core-programs"]
+                    [expr {[llength $rp] ?  "<h2>[llength $rp] [expr {[llength $rp] == 1 ? "program is" : "programs are"}] out.</h2>" : "No real programs are out."}]
                 </body>
                 </html>
             }
@@ -159,6 +227,7 @@ proc handleRead {chan addr port} {
 
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
+        # TODO: Make this a When
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
         try {
             foreach match $matches {
