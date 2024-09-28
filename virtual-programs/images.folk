@@ -331,13 +331,17 @@ When /someone/ wishes /p/ has camera slice & \
     }
 
     # Clamp to image bounds
-    set x [expr {int(max($minX, 0))}]
-    set y [expr {int(max($minY, 0))}]
-    set w [expr {int(min(abs($maxX - $x), [image width $f] - $x))}]
-    set h [expr {int(min(abs($maxY - $y), [image height $f] - $y))}]
+    set minX [expr {max(0, min($minX, [image width $f]))}]
+    set maxX [expr {max(0, min($maxX, [image width $f]))}]
+    set minY [expr {max(0, min($minY, [image height $f]))}]
+    set maxY [expr {max(0, min($maxY, [image height $f]))}]
+
+    set w [expr {$maxX - $minX}]
+    set h [expr {$maxY - $minY}]
+    if {$w <= 0 || $h <= 0} { return }
 
     # Extract and claim the image for the page
-    set subimage [image subimage $f $x $y $w $h]
+    set subimage [image subimage $f [int $minX] [int $minY] [int $w] [int $h]]
     Claim $p has camera slice $subimage
 }
 
@@ -355,18 +359,23 @@ When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
     Wish to draw an image with center $center image $slice radians 0 scale 1
 }
 
-When /someone/ wishes /p/ displays image /im/ with scale /s/ {
+When /someone/ wishes /p/ displays image /im/ with /...options/ {
     set im [image load $im]
     When $p has region /r/ {
         # Compute a scale for im that will fit in the region width/height
         # Draw im with scale and rotation
-        set center [region centroid $r]
+        if {![dict exists $options center]} {
+            dict set options center [region centroid $r]
+        }
         # set width [region width $r]
         # set height [region height $r]
         # set scale [expr {min($width / [image width $im],
         #                      $height / [image height $im])}]
         # Wish $p is labelled $im
-        Wish to draw an image with center $center image $im radians [region angle $r] scale $s
+        if {![dict exists $options radians]} {
+            dict set options radians [region angle $r]
+        }
+        Wish to draw an image with image $im {*}$options
     }
     # On unmatch {
     #     # HACK: Leaves time for the display to finish trying to display this.
