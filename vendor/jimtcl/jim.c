@@ -4450,7 +4450,7 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
         Jim_IncrRefCount(interp->framePtr->nsObj);
         Jim_DecrRefCount(interp, qualifiedNameObj);
     }
-    while (cmd->u.proc.upcall) {
+    while (cmd->isproc && cmd->u.proc.upcall) {
         cmd = cmd->prevCmd;
     }
     return cmd;
