@@ -757,6 +757,7 @@ namespace eval Statements { ;# singleton Statement store
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+            set label [string range $label 0 16383]
             lappend dot "<$id> \[label=\"$id: $label\"\];"
 
             dict for {matchId _} [statement parentMatchIds $stmt] {
