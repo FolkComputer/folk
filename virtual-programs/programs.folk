@@ -16,8 +16,10 @@ When (non-capturing) /type/ /obj/ has a program {
                 # way of finding the 'authoritative' node on the local
                 # network, or broadcasting out, and getting pages from
                 # there.
+                puts stderr "programs: WARNING: Faulting to folk0 to try to get program $obj.folk"
                 exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
-                    "http://folk0.local:4273/printed-programs/$obj.folk"
+                    "http://folk0.local:4273/printed-programs/$obj.folk" &
+                # HACK: It won't be reloaded until you redetect the tag.
             }
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
         }
