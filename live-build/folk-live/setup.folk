@@ -10,6 +10,10 @@
 # Uncomment set this to register a network printer (using IPP-Everywhere):
 # set PRINTER_URL "ipp://the-printers-ip.local/ipp/print"
 
+# Change these to change camera device, display choice, or cam resolution:
+Wish $::thisNode uses camera "/dev/video0" with width 1280 height 720
+Wish $::thisNode uses display 0
+
 ###########################
 
 set errs [list]

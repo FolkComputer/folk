@@ -101,6 +101,10 @@ proc Start-process {name body} {
             set deadPid [Zygote::wait]
             if {$deadPid == $pid} {
                 puts stderr "process: Subprocess '$processName' ($pid) died!"
+                # HACK: so the system can recover if display crashes
+                if {$processName eq "display"} {
+                    exec sudo systemctl restart folk
+                }
             } else {
                 error "process: Unknown pid $deadPid died."
             }
