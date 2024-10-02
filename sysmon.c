@@ -8,11 +8,16 @@
 
 #include "common.h"
 
+// TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 
+extern WorkQueue* globalWorkQueue;
+extern pthread_mutex_t globalWorkQueueMutex;
+
 void workerSpawn();
+
 
 #define SYSMON_TICK_MS 2
 
@@ -51,15 +56,18 @@ void sysmon() {
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
         if (!statementRefIsNull(removeLater[i].stmt)) {
-            Statement* stmt;
-            if (removeLater[i].canRemoveAtTick >= currentTick &&
-                (stmt = statementAcquire(db, removeLater[i].stmt))) {
+            if (removeLater[i].canRemoveAtTick >= currentTick) {
+                pthread_mutex_lock(&globalWorkQueueMutex);
+                workQueuePush(globalWorkQueue, (WorkQueueItem) {
+                        .op = REMOVE_PARENT,
+                        .thread = -1,
+                        .removeParent = { .stmt = removeLater[i].stmt }
+                    });
+                pthread_mutex_unlock(&globalWorkQueueMutex);
 
-                statementRemoveParentAndMaybeRemoveSelf(db, stmt);
-                statementRelease(db, stmt);
+                removeLater[i].stmt = STATEMENT_REF_NULL;
+                removeLater[i].canRemoveAtTick = 0;
             }
-            removeLater[i].stmt = STATEMENT_REF_NULL;
-            removeLater[i].canRemoveAtTick = 0;
         }
     }
     pthread_mutex_unlock(&removeLaterMutex);

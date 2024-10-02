@@ -60,6 +60,7 @@ typedef struct WorkQueueItem {
             Clause* whenPattern;
             StatementRef stmt;
         } run;
+        struct { StatementRef stmt; } removeParent;
     };
 } WorkQueueItem;
 

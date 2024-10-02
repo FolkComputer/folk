@@ -21,6 +21,9 @@ __thread ThreadControlBlock* self;
 // helper function to get self from LLDB:
 ThreadControlBlock* getSelf() { return self; }
 
+WorkQueue* globalWorkQueue;
+pthread_mutex_t globalWorkQueueMutex;
+
 __thread Jim_Interp* interp = NULL;
 
 Db* db;
@@ -665,6 +668,13 @@ void workerRun(WorkQueueItem item) {
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
 
+    } else if (item.op == REMOVE_PARENT) {
+        Statement* stmt;
+        if ((stmt = statementAcquire(db, item.removeParent.stmt))) {
+            statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+            statementRelease(db, stmt);
+        }
+
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
                 item.op);
@@ -718,8 +728,18 @@ void trace(const char* format, ...) {
 }
 
 void workerLoop() {
+    int64_t schedtick = 0;
     for (;;) {
-        WorkQueueItem item = workQueueTake(self->workQueue);
+        schedtick++;
+
+        WorkQueueItem item;
+        if (schedtick % 61 == 0) {
+            pthread_mutex_lock(&globalWorkQueueMutex);
+            item = workQueueTake(globalWorkQueue);
+            pthread_mutex_unlock(&globalWorkQueueMutex);
+        } else {
+            item = workQueueTake(self->workQueue);
+        }
 
         int ntries = 0;
         while (item.op == NONE) {
@@ -746,6 +766,8 @@ void workerLoop() {
 #ifdef FOLK_TRACE
             trace("Stealing!");
 #endif
+            // TODO: Steal from global queue.
+            
 
             ntries++;
         }
@@ -755,14 +777,13 @@ void workerLoop() {
         trace("%s", buf);
 #endif
 
-        /* if (item.op != NONE && */
-        /*     item.thread != -1 && */
-        /*     item.thread != self->index) { */
+        if (item.op != NONE &&
+            item.thread != -1 &&
+            item.thread != self->index) {
 
-        /*     // Skip and requeue. */
-        /*     workQueuePush(self->workQueue, item); */
-        /*     item.op = NONE; */
-        /* } */
+            fprintf(stderr, "folk: UNIMPLEMENTED: wrong thread for item\n");
+            exit(1);
+        }
 
         workerRun(item);
     }
@@ -831,6 +852,8 @@ int main(int argc, char** argv) {
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 
     workQueueInit();
+    globalWorkQueue = workQueueNew();
+    pthread_mutex_init(&globalWorkQueueMutex, NULL);
 
     atexit(exitHandler);
 
