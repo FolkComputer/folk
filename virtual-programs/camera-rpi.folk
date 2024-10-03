@@ -281,7 +281,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     # TODO: report actual width and height from libcamera
     Claim camera $cameraPath has width $width height $height
 
-    puts "camera-rpi: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+    puts "camera-rpi: $cameraPath ($options) booted at [clock milliseconds]"
 
     set ::oldFrames [list]
     When $::thisProcess has step count /c/ {
