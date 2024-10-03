@@ -283,25 +283,18 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     puts "camera-rpi: $cameraPath ($options) booted at [clock milliseconds]"
 
-    set ::oldFrames [list]
-    When $::thisProcess has step count /c/ {
+    set oldFrames [list]
+    while 1 {
         try {
             set frame [$camLib grayFrame]
-        } on error e { return }
+        } on error e { continue }
 
         Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]]
 
-        lappend ::oldFrames $frame
-        if {[llength $::oldFrames] >= 10} {
-            set ::oldFrames [lassign $::oldFrames oldestFrame]
+        lappend oldFrames $frame
+        if {[llength $oldFrames] >= 10} {
+            set oldFrames [lassign $oldFrames oldestFrame]
             $camLib freeImage $oldestFrame
         }
     }
-}
-
-# TODO: remove this; useful for compatibility with current metrics but
-# doesn't work for multicam
-set ::cameraTime none
-When camera /any/ has camera time /cameraTime/ {
-    set ::cameraTime $cameraTime
 }
