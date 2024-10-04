@@ -289,7 +289,7 @@ When /someone/ wishes to print program /id/ with /...options/ {
     if {[llength $receiptMatches] > 0} {
         set matchDict [lindex $receiptMatches 0]
         set printer [dict get $matchDict printer]
-        ::EscPos::printProgram $printer $id $code
+        escpos printProgram $printer $id $code
         return
     }
 
