@@ -1,4 +1,7 @@
-namespace eval EscPos {
+namespace eval escpos {
+    namespace export *
+    namespace ensemble create
+
     proc printProgram {printer id code} {
         if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
             error "Program $id already exists on disk. Aborting print."
@@ -24,14 +27,14 @@ namespace eval EscPos {
             [feed 3]
             [cut]
         }
-        puts -nonewline $printerSocket [subst [prepareTemplate $template]]
+        puts -nonewline $printerSocket [render $template]
         close $printerSocket
     }
 
-    proc prepareTemplate {template} {
+    proc render {template} {
         set trimmed [lmap line [split $template "\n"] { string trim $line }]
         set singleLine [join $trimmed ""]
-        return $singleLine
+        return [uplevel [list subst $singleLine]]
     }
 
     proc writeFolkFile {id code} {
