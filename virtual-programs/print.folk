@@ -94,9 +94,14 @@ proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
 
         lassign [lindex $lines $i] linenum line
         set max [dict_getdef $linelenOverrides $i $linelen]
-        if {[string length $line] > $max} {
+        if {$max == 0} {
+            lset lines $i [list "" ""]
+            set lines [linsert $lines $i+1 [list $linenum $line]]
+
+        } elseif {[string length $line] > $max} {
             lset lines $i 1 [string range $line 0 $max]
             set lines [linsert $lines $i+1 [list "" [string range $line $max+1 end]]]
+
         } elseif {$linenum ne ""} {
             set safeline $i
         }
@@ -136,14 +141,16 @@ proc ::programToPs {id text {format "letter"} {mixins {}}} {
             maxcharsOverride {[rangeDict 0 8 46]}
         }
         indexcard {
-            fontsize 8
+            fontsize 24
+            tagsize {300 300}
             pagesize {612 792}
-            maxlines 44
-            maxchars 68
+            maxlines 22
+            maxchars 34
+            maxcharsOverride {[rangeDict 0 9 0]}
         }
     }]
-
-    # TODO: indexcard layout exceptions
+    # indexcard (really receipt) assumes fake letter/A4 size:
+    # https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
 
     set params [dict merge $defaults [dict get $formats $format]]
     dict with params {
@@ -187,7 +194,7 @@ proc ::programToPs {id text {format "letter"} {mixins {}}} {
                   grestore
 
                   /Helvetica-Narrow findfont
-                  10 scalefont
+                  [- $fontsize 2] scalefont
                   setfont
                   newpath
                   [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
