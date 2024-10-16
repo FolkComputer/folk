@@ -10,6 +10,9 @@ set traceLib [apply {{} {
     $cc proc getTrace {} Jim_Obj* {
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
         int traceMaxIdx = traceNextIdx;
+        if (traceMaxIdx >= sizeof(traceLog)/sizeof(traceLog[0])) {
+            traceMaxIdx = sizeof(traceLog)/sizeof(traceLog[0]) - 1;
+        }
 
         for (int i = 0; i < traceMaxIdx; i++) {
             Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, traceLog[i], -1));
