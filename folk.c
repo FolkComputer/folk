@@ -709,7 +709,7 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
 }
 void trace(const char* format, ...) {
     int traceIdx = traceNextIdx++;
-    if (traceIdx == sizeof(traceLog)/sizeof(traceLog[0])) {
+    if (traceIdx >= sizeof(traceLog)/sizeof(traceLog[0])) {
         /* fprintf(stderr, "workerLoop: trace exhausted\n"); */
         return;
         /* exit(1); */
