@@ -133,13 +133,39 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     return item;
 }
 
+int workQueueStealHalf(WorkQueueItem* into, int maxn,
+                       WorkQueue* q) {
+    size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
+    atomic_thread_fence(memory_order_seq_cst);
+    size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
+
+    int nstolen = 0;
+    ssize_t size = b - t;
+    if (size > 0) {
+        /* Non-empty queue. */
+        WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_acquire);
+
+        for (size_t i = t; i < size; i++) {
+            if (nstolen >= maxn) { break; }
+            into[nstolen++] = *(atomic_load_explicit(&a->buffer[i % size], memory_order_relaxed));
+        }
+
+        if (!atomic_compare_exchange_strong_explicit(&q->top, &t, t + nstolen, memory_order_seq_cst, memory_order_relaxed)) {
+            /* Failed race. */
+            nstolen = 0;
+        }
+    }
+
+    return nstolen;
+}
+
 void workQueueAwaitAnyPush() {
     sem_wait(workQueueSem);
 }
 
 // Used to peek into work queue for monitoring purposes. Copies items
 // from next-to-steal (top) in order down to next-to-take (bottom).
-int unsafe_workQueueCopy(WorkQueueItem* to, int maxn,
+int unsafe_workQueueCopy(WorkQueueItem* into, int maxn,
                          WorkQueue* q) {
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
     size_t size = atomic_load_explicit(&a->size, memory_order_relaxed);
@@ -151,7 +177,7 @@ int unsafe_workQueueCopy(WorkQueueItem* to, int maxn,
     int j = 0;
     for (i = top; i < bottom; i++) {
         if (j >= maxn) { break; }
-        to[j++] = *(atomic_load_explicit(&a->buffer[i % size], memory_order_relaxed));
+        into[j++] = *(atomic_load_explicit(&a->buffer[i % size], memory_order_relaxed));
     }
 
     // FIXME: Return failure if anything has changed?

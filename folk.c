@@ -727,6 +727,19 @@ void trace(const char* format, ...) {
     va_end(args);
 }
 
+bool workerSteal() {
+    int stealee = rand() % threadCount;
+    if (threads[stealee].tid == 0) { return false; }
+
+    WorkQueueItem items[50];
+    int nstolen = workQueueStealHalf(items,
+                                     sizeof(items)/sizeof(items[0]),
+                                     threads[stealee].workQueue);
+    for (int i = 0; i < nstolen; i++) {
+        workQueuePush(self->workQueue, items[i]);
+    }
+    return nstolen > 0;
+}
 void workerLoop() {
     int64_t schedtick = 0;
     for (;;) {
@@ -741,35 +754,25 @@ void workerLoop() {
             item = workQueueTake(self->workQueue);
         }
 
-        int ntries = 0;
-        while (item.op == NONE) {
-            /* if (ntries > 3) { */
-            /*     self->isAwaitingPush = true; */
-            /*     workQueueAwaitAnyPush(); */
-            /*     self->isAwaitingPush = false; */
-            /* } */
-
-            // TODO: Maybe we should find a way to yield regularly so
-            // we can take ssh connections.
-            if (ntries > 100) {
-                self->isAwaitingPush = true;
-                workQueueAwaitAnyPush();
-                self->isAwaitingPush = false;
-            }
-
+        if (item.op == NONE) {
             // If item is none, then steal from another thread's
             // workqueue:
-            int stealee = rand() % threadCount;
-            if (threads[stealee].tid != 0) {
-                item = workQueueSteal(threads[stealee].workQueue);
-            }
+            if (workerSteal()) {
 #ifdef FOLK_TRACE
-            trace("Stealing!");
+                trace("Stealing!");
 #endif
-            // TODO: Steal from global queue.
-            
+                // Then try again:
+                continue;
+            }
 
-            ntries++;
+            // Steal failed? Try stealing from global queue.
+            pthread_mutex_lock(&globalWorkQueueMutex);
+            WorkQueueItem taken = workQueueTake(globalWorkQueue);
+            if (taken.op != NONE) {
+                workQueuePush(self->workQueue, taken);
+            }
+            pthread_mutex_unlock(&globalWorkQueueMutex);
+            continue;
         }
 
 #ifdef FOLK_TRACE

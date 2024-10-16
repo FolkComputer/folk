@@ -80,6 +80,10 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item);
 
 // Removes the top item from work queue:
 WorkQueueItem workQueueSteal(WorkQueue* q);
+// Removes half the queued items from work queue, starting from the
+// top item:
+int workQueueStealHalf(WorkQueueItem* into, int maxn,
+                       WorkQueue* q);
 
 // Waits on global semaphore for _any_ work queue to get new item.
 void workQueueAwaitAnyPush();
