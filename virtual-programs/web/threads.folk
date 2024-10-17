@@ -18,7 +18,9 @@ set threadMonitorLib [apply {{} {
             } else if (item.op == RETRACT) {
                 EMIT("Retract");
             } else if (item.op == HOLD) {
-                EMIT("Hold");
+                EMIT("Hold (%.20s: %" PRId64 ") (%.50s)",
+                     item.hold.key, item.hold.version,
+                     clauseToString(item.hold.clause));
             } else if (item.op == SAY) {
                 EMIT("Say");
             } else if (item.op == RUN) {
@@ -136,7 +138,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                       [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]<br>
                       <details>
                           <summary>Work queue:</summary>
-                          <pre>[htmlEscape [dict get $workerInfo workQueue]]</pre>
+                          <pre>[htmlEscape [join [dict get $workerInfo workQueue] "\n"]]</pre>
                       </details>
                   }}]
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
