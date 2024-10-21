@@ -49,7 +49,7 @@ set makeCamera {
         config = camera->generateConfiguration({ StreamRole::Viewfinder });
         StreamConfiguration &streamConfig = config->at(0);
         streamConfig.size = Size(width, height);
-        // streamConfig.pixelFormat = PixelFormat.fromString("YUV420");
+        streamConfig.pixelFormat = PixelFormat::fromString("YUV420");
 
         config->validate();
         frameWidth = streamConfig.size.width;
@@ -69,16 +69,16 @@ set makeCamera {
             size_t allocated = allocator->buffers(cfg.stream()).size();
             std::cout << "camera-rpi: Allocated " << allocated << " buffers for stream" << std::endl;
 
-            // for (PixelFormat &format : cfg.formats().pixelformats()) {
-                // std::cout << "camera-rpi: Stream supports format " << format << std::endl;
-                // for (Size &size : cfg.formats().sizes(format)) {
-                //     std::cout << "  -> supports size " << size << std::endl;
-                // }
-            // }
+            /* for (PixelFormat &format : cfg.formats().pixelformats()) { */
+            /*     std::cout << "camera-rpi: Stream supports format " << format << std::endl; */
+                /* for (Size &size : cfg.formats().sizes(format)) { */
+                /*     std::cout << "  -> supports size " << size << std::endl; */
+                /* } */
+            /* } */
 	}
 
         Stream *stream = streamConfig.stream();
-        assert(streamConfig.pixelFormat.toString() == "XRGB8888");
+        assert(streamConfig.pixelFormat.toString() == "YUV420");
 
         const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
 	for (unsigned int i = 0; i < buffers.size(); ++i) {
@@ -119,65 +119,7 @@ set makeCamera {
             completedRequestsMutex.unlock();
         }
 
-        // static void imageCopyRgb(image_t to, image_t from) {
-        //     FOLK_ENSURE(from.components == 4);
-        //     FOLK_ENSURE(from.width == to.width);
-        //     FOLK_ENSURE(from.height == to.height);
-
-        //     for (uint32_t y = 0; y < from.height; y++) {
-        //         for (uint32_t x = 0; x < from.width; x++) {
-        //             uint32_t i = (y * from.bytesPerRow) + x * 4;
-        //             // FIXME: XRGB8888 assumed
-        //             uint8_t b = from.data[i + 0];
-        //             uint8_t g = from.data[i + 1];
-        //             uint8_t r = from.data[i + 2];
-        //             to.data[y * to.bytesPerRow + x*3 + 0] = r;
-        //             to.data[y * to.bytesPerRow + x*3 + 1] = g;
-        //             to.data[y * to.bytesPerRow + x*3 + 2] = b;
-        //         }
-        //     }
-        // }
-        static void imageCopyGray(image_t to, image_t from) {
-            FOLK_ENSURE(from.components == 4);
-            FOLK_ENSURE(to.components == 1);
-            FOLK_ENSURE(from.width == to.width);
-            FOLK_ENSURE(from.height == to.height);
-
-            for (uint32_t y = 0; y < from.height; y++) {
-                for (uint32_t x = 0; x < from.width; x++) {
-                    uint32_t i = (y * from.bytesPerRow) + x * 4;
-                    // FIXME: XRGB8888 assumed
-                    uint32_t b = from.data[i + 0];
-                    uint32_t g = from.data[i + 1];
-                    uint32_t r = from.data[i + 2];
-                    // from https://mina86.com/2021/rgb-to-greyscale/
-                    uint32_t yy = 3567664 * r + 11998547 * g + 1211005 * b;
-                    to.data[y * to.bytesPerRow + x] = ((yy + (1 << 23)) >> 24);
-                }
-            }
-        }
-
         static void processRequestAndCopyFrame(Request *request, image_t im) {
-            /*
-             * When a request has completed, it is populated with a metadata control
-             * list that allows an application to determine various properties of
-             * the completed request. This can include the timestamp of the Sensor
-             * capture, or its gain and exposure values, or properties from the IPA
-             * such as the state of the 3A algorithms.
-             *
-             * ControlValue types have a toString, so to examine each request, print
-             * all the metadata for inspection. A custom application can parse each
-             * of these items and process them according to its needs.
-             */
-            // const ControlList &requestMetadata = request->metadata();
-            // for (const auto &ctrl : requestMetadata) {
-            //         const ControlId *id = controls::controls.at(ctrl.first);
-            //         const ControlValue &value = ctrl.second;
-
-            //         std::cout << "\t" << id->name() << " = " << value.toString()
-            //                   << std::endl;
-            // }
-
             const Request::BufferMap &buffers = request->buffers();
             assert(buffers.size() == 1);
             for (auto bufferPair : buffers) {
@@ -185,9 +127,9 @@ set makeCamera {
                     FrameBuffer *buffer = bufferPair.second;
                     const FrameMetadata &metadata = buffer->metadata();
 
-                    assert(metadata.planes().size() == 1);
-                    assert(buffer->planes().size() == 1);
-                    
+                    assert(metadata.planes().size() == 3);
+                    assert(buffer->planes().size() == 3);
+
                     auto &plane = buffer->planes()[0];
                     int fd = plane.fd.get();
 
@@ -196,12 +138,7 @@ set makeCamera {
                         FOLK_ERROR("camera-rpi: MAP_FAILED");
                     }
                     void *planeData = (uint8_t *)addr + plane.offset;
-                    image_t planeIm = {
-                        .width = frameWidth, .height = frameHeight,
-                        .components = 4, .bytesPerRow = frameBytesPerRow,
-                        .data = (uint8_t *)planeData
-                    };
-                    imageCopyGray(im, planeIm);
+                    memcpy(im.data, planeData, frameHeight * frameBytesPerRow);
                     munmap(addr, plane.length);
             }
         }
@@ -269,6 +206,8 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     set width [dict get $options width]
     set height [dict get $options height]
     Start process "camera $cameraPath $options" {
+        puts "Camera pid: [pid]"
+
         Wish $::thisProcess shares statements like \
             [list /someone/ claims camera $cameraPath /...anything/]
 
