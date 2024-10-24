@@ -547,15 +547,22 @@ Camera Controls
             calibrating again.</p>
           </li>
 
-          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode eq "folk-convivial" ? "''" : "none"}]">
+          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-convivial" "gadget-pink"} ? "''" : "none"}]">
             <h3>Refine calibration on the table.</h3>
 
             <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
             <script>
               document.getElementById('table-refinement-submit').addEventListener('click', (e) => {
+                // HACK: duplicated code from above
+                const mm = document.getElementById("tag-side-length-mm").value;
+                if (mm === "" || isNaN(mm)) {
+                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Calibration.");
+                  return;
+                }
                 // TODO: using Assert is a little ugly (it's so it can be
                 // retracted when calibration is done)
                 ws.send(tcl`
+                  Claim the printed calibration tag size is \${mm} mm
                   Assert \${self} wishes to do table refinement
                 `);
               });
