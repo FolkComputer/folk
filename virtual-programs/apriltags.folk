@@ -170,7 +170,8 @@ set ::tagsCache [dict create]
 
 set ::aprilTime none
 When the collected matches for [list /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/] are /matches/ {
-    set tagsSeen [dict create]
+    set now [expr {[clock milliseconds] / 1000.0}]
+
     foreach match $matches {
         set camera [dict get $match camera]
         set timestamp [dict get $match timestamp]
@@ -186,13 +187,16 @@ When the collected matches for [list /someone/ detects tags /tags/ on /camera/ a
             } else {
                 dict set ::tagsCache $id $tag
             }
-            dict set tagsSeen $id $tag
         }
     }
 
-    dict for {id tag} $tagsSeen {
-        Claim tag $id has detection $tag on [dict get $tag camera] \
-            at [dict get $tag timestamp]
+    dict for {id tag} $::tagsCache {
+        # We keep tags around for 100ms.
+        if {$now - [dict get $tag timestamp] < 0.1} {
+            Claim tag $id has detection $tag on [dict get $tag camera] \
+                at [dict get $tag timestamp]
+        }
+        # TODO: Evict otherwise.
     }
     set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $::aprilTime
