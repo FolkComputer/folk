@@ -1,8 +1,8 @@
 
 
 When (non-capturing) /type/ /obj/ has a program {
-    puts "Added $type $obj"
-    On unmatch { puts "Removed $type $obj" }
+    # puts "Added $type $obj"
+    # On unmatch { puts "Removed $type $obj" }
 
     try {
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
