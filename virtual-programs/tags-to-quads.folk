@@ -78,7 +78,7 @@ $cc include <common/matd.h>
 $cc include <common/homography.h>
 
 $cc code {
-#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + (nr*nc*sizeof(double))); name->nrows = nr; name->ncols = nc;
+#define MATD_VAR(name, nr, nc) matd_t* name = alloca(sizeof(matd_t) + ((nr)*(nc)*sizeof(double))); name->nrows = nr; name->ncols = nc;
 }
 $cc proc pseudoInverse {matd_t* a} matd_t* {
     matd_svd_t usv = matd_svd(a);
@@ -231,7 +231,9 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         matd_destroy(Jp);
         matd_destroy(dq);
 
-        if (iters++ > 10) { /* ok */ }
+        // Otherwise, you end up with tens of thousands of iters and
+        // memory issues start to appear.
+        if (iters++ > 100) { return;  }
     } while (fabs(residual - residual_prev) > MATD_EPS);
 
     /* exit(1); */
