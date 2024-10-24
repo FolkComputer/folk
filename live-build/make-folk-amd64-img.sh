@@ -53,5 +53,8 @@ cp -r folk-live/* /mnt/folk-img-writable
 # Copy Folk repo itself (excluding .gitignored files) into mounted
 # FAT32 filesystem:
 git clone .. /mnt/folk-img-writable/folk
+cd /mnt/folk-img-writable/folk
+git remote set-url origin https://github.com/FolkComputer/folk.git
+cd -
 
 sudo umount /mnt/folk-img-writable

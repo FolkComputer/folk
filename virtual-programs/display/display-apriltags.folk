@@ -1,0 +1,39 @@
+Wish the GPU compiles pipeline "apriltag" {
+    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+    } {fn invBilinear} {
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+
+        int x = int(uv.x * 10); int y = int(uv.y * 10);
+        int bitIdx = y * 10 + x;
+        uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
+        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+    }
+}
+
+When /someone/ wishes to draw an AprilTag with /...options/ {
+    set id [dict get $options id]
+    set corners [dict get $options corners]
+    set layer [dict_getdef $options layer 0]
+
+    set tagImage [::tagImageForId $id]
+    set tagBits [list]
+    # 10x10 AprilTag -> 100 bits
+    for {set y 0} {$y < 10} {incr y} {
+        for {set x 0} {$x < 10} {incr x} {
+            set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
+            set bit [== [image_t data $tagImage $j] 255]
+            lappend tagBits $bit
+        }
+    }
+    # -> 4 32-bit integers
+    set tagBitsVec [list 0b[join [lreverse [lrange $tagBits 0 31]] ""] \
+                        0b[join [lreverse [lrange $tagBits 32 63]] ""] \
+                        0b[join [lreverse [lrange $tagBits 64 95]] ""] \
+                        0b[join [lreverse [lrange $tagBits 96 127]] ""]]
+
+    Wish the GPU draws pipeline "apriltag" with \
+        arguments [list $tagBitsVec {*}$corners] layer $layer
+}

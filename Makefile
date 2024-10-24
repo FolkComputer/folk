@@ -1,19 +1,16 @@
 start:
-	case "$(shell hostname)" in \
-	gadget-*) \
-		libcamerify tclsh8.6 main.tcl;; \
-	*) \
-		tclsh8.6 main.tcl;; \
-	esac
+	tclsh8.6 main.tcl
 debug:
 	gdb --args tclsh8.6 main.tcl
 remote-debug: sync
 	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl stop folk && make -C /home/folk/folk debug'
+remote-valgrind: sync
+	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'cd folk; sudo systemctl stop folk && valgrind --leak-check=yes tclsh8.6 main.tcl'
 
 FOLK_SHARE_NODE := $(shell tclsh8.6 hosts.tcl shareNode)
 
 sync:
-	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a . folk@$(FOLK_SHARE_NODE):/home/folk/folk
+	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a --no-links . folk@$(FOLK_SHARE_NODE):/home/folk/folk
 
 sync-restart: sync
 	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl restart folk'
@@ -53,13 +50,12 @@ remote-flamegraph:
 backup-printed-programs:
 	cd ~/folk-printed-programs && timestamp=$$(date '+%Y-%m-%d_%H-%M-%S%z') && tar -zcvf ~/"folk-printed-programs_$$timestamp.tar.gz" . && echo "Saved to: ~/folk-printed-programs_$$timestamp.tar.gz"
 
-calibrate:
-	tclsh8.6 calibrate.tcl
-calibrate-debug:
-	gdb --args tclsh8.6 calibrate.tcl
-remote-calibrate: sync
-	ssh folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk calibrate
-remote-calibrate-debug: sync
-	ssh folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk calibrate-debug
+.PHONY: test sync start journal repl enable-pubkey install-deps
 
-.PHONY: test sync start journal repl calibrate remote-calibrate
+enable-pubkey:
+	ssh folk-live -- 'sudo sed -i "s/.*PubkeyAuthentication.*/PubkeyAuthentication yes/g" /etc/ssh/sshd_config && sudo systemctl restart ssh'
+	sleep 1
+	ssh-copy-id folk-live
+
+install-deps:
+	sudo apt install console-data

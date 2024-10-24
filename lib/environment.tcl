@@ -11,29 +11,21 @@ proc serializeEnvironment {} {
     list $argnames $argvalues
 }
 
-set ::Evaluator::totalTimesMap [dict create]
-set ::Evaluator::runsMap [dict create]
+# Should reset each frame:
+proc resetTimers {} {
+    set ::Evaluator::stepRunTime 0
+    set ::Evaluator::runCountsMap [dict create]
+    set ::Evaluator::runTimesMap [dict create]
+}
+resetTimers
 
 proc runInSerializedEnvironment {lambda env} {
-    dict incr ::Evaluator::runsMap $lambda
-    if {![dict exists $::Evaluator::totalTimesMap $lambda]} {
-        dict set ::Evaluator::totalTimesMap $lambda [dict create loadTime 0 runTime 0 unloadTime 0]
-    }
-    set loadTime_ [baretime {}]
+    dict incr ::Evaluator::runCountsMap $lambda
 
-    try {
-        set runTime_ [baretime {set ret [apply $lambda {*}$env]}]
-        set ::stepRunTime [+ $::stepRunTime $runTime_]
-        set ret
-
-    } finally {
-        set unloadTime_ [baretime {}]
-        dict with ::Evaluator::totalTimesMap $lambda {
-            incr loadTime $loadTime_
-            if {[info exists runTime_]} {
-                incr runTime $runTime_
-            }
-            incr unloadTime $unloadTime_
-        }
-    }
+    set runTime [baretime {set ret [apply $lambda {*}$env]}]
+    dict set ::Evaluator::runTimesMap $lambda \
+        [+ [dict_getdef $::Evaluator::runTimesMap $lambda 0] \
+             $runTime]
+    set ::Evaluator::stepRunTime [+ $::Evaluator::stepRunTime $runTime]
+    return $ret
 }
