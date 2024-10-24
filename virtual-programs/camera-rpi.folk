@@ -95,7 +95,7 @@ set makeCamera {
 
                 ControlList &controls = request->controls();
                 controls.set(controls::AeEnable, false);
-                controls.set(controls::ExposureTime, 20000);
+                controls.set(controls::ExposureTime, 25000);
 
 		requests.push_back(std::move(request));
 	}
@@ -164,7 +164,7 @@ set makeCamera {
         folkHeapFree(image.data);
     }
 
-    $cpp proc grayFrame {} image_t {
+    $cpp proc grayFrame {int exposureTimeUs} image_t {
         Request *latestRequest = nullptr;
 
         // We want to drain the queue of completed requests.
@@ -190,6 +190,8 @@ set makeCamera {
 
         /* Re-queue the Request to the camera. */
         latestRequest->reuse(Request::ReuseBuffers);
+        ControlList &controls = latestRequest->controls();
+        controls.set(controls::ExposureTime, exposureTimeUs);
         camera->queueRequest(latestRequest);
 
         return im;
@@ -210,6 +212,8 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
         Wish $::thisProcess shares statements like \
             [list /someone/ claims camera $cameraPath /...anything/]
+        Wish $::thisProcess receives statements like                  \
+            [list /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us]
 
         namespace eval Camera $makeCamera
         Camera::cameraOpen $cameraPath $width $height
@@ -220,9 +224,13 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         puts "camera-rpi: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
         set ::oldFrames [list]
+        set ::exposureTimeUs 25000
+        When /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us {
+            set ::exposureTimeUs $exposureTimeUs
+        }
         When $::thisProcess has step count /c/ {
             try {
-                set frame [Camera::grayFrame]
+                set frame [Camera::grayFrame $::exposureTimeUs]
             } on error e { return }
 
             Hold {
