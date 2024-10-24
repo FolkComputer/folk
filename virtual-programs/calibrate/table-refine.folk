@@ -217,10 +217,3 @@ When the calibration unit model is /unitModel/ &\
 
     # Later later: Feed to LM along with original calib data
 }
-
-if {$::thisNode eq "folk-convivial"} {
-    # HACK: to save me for now on folk-convivial
-    Claim the printed calibration tag size is 23 mm
-} elseif {$::thisNode eq "folk-recurse"} {
-    Claim the printed calibration tag size is 24.5 mm
-}
