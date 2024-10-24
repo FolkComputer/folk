@@ -1,5 +1,9 @@
 if {$::isLaptop} return
 
+if {[file exists "$::env(HOME)/libcamera-pi5.yaml"]} {
+    set ::env(LIBCAMERA_RPI_CONFIG_FILE) "$::env(HOME)/libcamera-pi5.yaml"
+}
+
 set makeCamera {
     set cpp [C++]
     $cpp include <iostream>
