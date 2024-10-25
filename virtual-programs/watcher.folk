@@ -167,11 +167,11 @@ Wish the web server handles route "/resource-usage" with handler {
         set diskUsage $diskUsage
     }
 
-    html {
+    html [subst {
         <html>
         <head>
             <link rel="stylesheet" href="/style.css">
-            <title>Statements</title>
+            <title>Resource Usage</title>
         </head>
         <body>
             <nav>
@@ -191,5 +191,5 @@ Wish the web server handles route "/resource-usage" with handler {
             </div>
         </body>
         </html>
-    }
+    }]
 }
