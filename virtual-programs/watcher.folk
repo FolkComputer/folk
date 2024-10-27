@@ -129,7 +129,7 @@ When the clock time is /t/ {
             ]}
 
             if {[+ $numRP $numWP] eq 0} {
-                set centerX [* $Display::WIDTH 0.25]
+                set centerX [* $Display::WIDTH 0.4]
                 set centerY [* $Display::HEIGHT 0.6]
                 Wish to draw text with \
                     x $centerX \
