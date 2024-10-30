@@ -24,6 +24,9 @@ When the collected matches for [list /someone/ claims /page/ has program /progra
             "setup.folk.default" {
                 continue;
             }
+            "/home/*" {
+                continue;
+            }
             "web-program-*" {
                 lappend webPrograms $page
             }
@@ -54,7 +57,7 @@ When the clock time is /t/ {
         print "--------"
     }
 
-    set ramUsage [expr {$usedMem / $totalMem * 100}]
+    set ramUsage [expr {$usedMem * 1.0 / $totalMem * 100.0}]
 
     if {$::watchdog_debug} {
         print "RAM Usage: $ramUsage%"
@@ -184,7 +187,6 @@ Wish the web server handles route "/resource-usage" with handler {
             </nav>
             <h1>Resource Usage</h1>
             <div>
-                <!-- TODO: how to subs the real values into the html proc? -->
                 <p>RAM Usage: $ramUsage %</p>
                 <p>CPU Usage: $cpuUsage %</p>
                 <p>Disk Usage: $diskUsage %</p>

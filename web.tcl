@@ -104,6 +104,9 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                     "setup.folk.default" {
                         lappend cp $page
                     }
+                    "/home/*" {
+                        lappend cp $page
+                    }
                     "web-program-*" {
                         lappend wp $page
                     }
