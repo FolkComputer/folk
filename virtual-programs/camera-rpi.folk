@@ -100,11 +100,11 @@ set makeCamera {
                 ControlList &controls = request->controls();
 
                 controls.set(controls::AeEnable, false);
-                controls.set(controls::ExposureTime, 25000);
+                controls.set(controls::ExposureTime, 35000);
 
                 controls.set(controls::AfMode, controls::AfModeManual);
                 // Focus 30cm away (0.3m -> 1/0.3 = 3.3).
-                controls.set(controls::LensPosition, 3.3);
+                controls.set(controls::LensPosition, 1.6);
 
 		requests.push_back(std::move(request));
 	}
