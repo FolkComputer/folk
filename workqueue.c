@@ -140,14 +140,14 @@ int workQueueStealHalf(WorkQueueItem* into, int maxn,
     size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
 
     int nstolen = 0;
-    ssize_t size = b - t;
-    if (size > 0) {
+    ssize_t count = b - t;
+    if (count > 0) {
         /* Non-empty queue. */
         WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_acquire);
 
-        for (size_t i = t; i < size; i++) {
+        for (size_t i = t; i < b; i++) {
             if (nstolen >= maxn) { break; }
-            into[nstolen++] = *(atomic_load_explicit(&a->buffer[i % size], memory_order_relaxed));
+            into[nstolen++] = *(atomic_load_explicit(&a->buffer[i % a->size], memory_order_relaxed));
         }
 
         if (!atomic_compare_exchange_strong_explicit(&q->top, &t, t + nstolen, memory_order_seq_cst, memory_order_relaxed)) {

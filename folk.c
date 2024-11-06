@@ -730,7 +730,10 @@ void trace(const char* format, ...) {
 
 ssize_t unsafe_workQueueSize(WorkQueue* q);
 bool workerSteal() {
-    int stealee = rand() % threadCount;
+    int stealee;
+    do {
+        stealee = rand() % threadCount;
+    } while (stealee == self->index);
     if (threads[stealee].tid == 0) { return false; }
 
     WorkQueueItem items[50];
@@ -741,9 +744,11 @@ bool workerSteal() {
         workQueuePush(self->workQueue, items[i]);
     }
 #ifdef FOLK_TRACE
-    trace("Try stealing from thread %d (tid %d): n = %d; nstolen = %d",
+    trace("Tried stealing from thread %d (tid %d): n (%p) = %d; nstolen = %d",
           stealee, threads[stealee].tid,
-          unsafe_workQueueSize(threads[stealee].workQueue), nstolen);
+          threads[stealee].workQueue,
+          unsafe_workQueueSize(threads[stealee].workQueue),
+          nstolen);
 #endif
     return nstolen > 0;
 }
