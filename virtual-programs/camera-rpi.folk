@@ -103,8 +103,8 @@ set makeCamera {
                 controls.set(controls::ExposureTime, 25000);
 
                 controls.set(controls::AfMode, controls::AfModeManual);
-                // Focus 30cm away (0.3m -> 1/0.3 = 3.3).
-                controls.set(controls::LensPosition, 3.3);
+                // Focus 40cm away (0.4m -> 1/0.4 = 2.5).
+                controls.set(controls::LensPosition, 2.5);
 
 		requests.push_back(std::move(request));
 	}
