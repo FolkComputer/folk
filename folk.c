@@ -14,6 +14,7 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
+#include "trace.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -28,7 +29,8 @@ __thread Jim_Interp* interp = NULL;
 
 Db* db;
 
-char traceLog[50000][1000];
+char traceHead[TRACE_HEAD_COUNT][TRACE_ENTRY_SIZE];
+char traceTail[TRACE_TAIL_COUNT][TRACE_ENTRY_SIZE];
 int _Atomic traceNextIdx = 0;
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
@@ -711,17 +713,14 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
 }
 void trace(const char* format, ...) {
     int traceIdx = traceNextIdx++;
-    if (traceIdx >= sizeof(traceLog)/sizeof(traceLog[0])) {
-        /* fprintf(stderr, "workerLoop: trace exhausted\n"); */
-        return;
-        /* exit(1); */
-    }
 
-    char* dest = traceLog[traceIdx];
-    size_t n = sizeof(traceLog[traceIdx]);
+    char* dest = (traceIdx < TRACE_HEAD_COUNT) ?
+        traceHead[traceIdx] :
+        traceTail[(traceIdx - TRACE_HEAD_COUNT) % TRACE_TAIL_COUNT];
+    size_t n = TRACE_ENTRY_SIZE;
     n -= snprintf(dest, n, "%d: ", self == NULL ? -1 : self->index);
 
-    dest += sizeof(traceLog[traceIdx]) - n;
+    dest += TRACE_ENTRY_SIZE - n;
 
     va_list args;
     va_start(args, format);
@@ -765,6 +764,9 @@ void workerLoop() {
         if (item.op == NONE) {
             // If item is none, then steal from another thread's
             // workqueue:
+/* #ifdef FOLK_TRACE */
+/*             trace("Trying steal (schedtick %" PRId64 ")", schedtick); */
+/* #endif */
             if (workerSteal()) {
 /* #ifdef FOLK_TRACE */
 /*                 trace("Stealing!"); */

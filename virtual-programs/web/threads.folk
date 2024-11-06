@@ -81,7 +81,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
 
         <h2>Threads</h2>
 
-        <ol>
+        <ol start="0">
         [join [lmap tid $tids {
             set taskdir /proc/$pid/task/$tid
 
