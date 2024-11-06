@@ -703,6 +703,8 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
                  clauseToString(item.run.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+    } else if (item.op == REMOVE_PARENT) {
+        snprintf(buf, bufsz, "Remove Parent");
     } else {
         snprintf(buf, bufsz, "%d: ???", threadIndex);
     }

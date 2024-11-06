@@ -10,36 +10,8 @@ set threadMonitorLib [apply {{} {
         extern Db* db;
 
         Jim_Obj* itemToStringObj(WorkQueueItem item) {
-            Jim_Obj* obj;
-
-#define EMIT(...) obj = Jim_ObjPrintf(__VA_ARGS__)
-            if (item.op == ASSERT) {
-                EMIT("Assert");
-            } else if (item.op == RETRACT) {
-                EMIT("Retract");
-            } else if (item.op == HOLD) {
-                EMIT("Hold (%.20s: %" PRId64 ") (%.50s)",
-                     item.hold.key, item.hold.version,
-                     clauseToString(item.hold.clause));
-            } else if (item.op == SAY) {
-                EMIT("Say");
-            } else if (item.op == RUN) {
-                Statement* stmt = statementAcquire(db, item.run.stmt);
-                if (stmt != NULL) {
-                    EMIT("Run when (%.100s) (%.100s)",
-                         clauseToString(item.run.whenPattern),
-                         clauseToString(statementClause(stmt)));
-                    statementRelease(db, stmt);
-                } else {
-                    EMIT("Run (INVALIDATED)");
-                }
-            } else if (item.op == REMOVE_PARENT) {
-                EMIT("Remove Parent");
-            } else {
-                EMIT("???");
-            }
-#undef EMIT
-            return obj;
+            char buf[10000]; traceItem(buf, sizeof(buf), item);
+            return Jim_NewStringObj(interp, buf, -1);
         }
     }
     $cc proc workerInfo {int tid} Jim_Obj* {
@@ -134,13 +106,16 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
                   [if {$workerInfo eq ""} {subst {
                       (Not a Folk worker thread)<br>
-                  }} else {subst {
-                      [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]<br>
-                      <details>
-                          <summary>Work queue:</summary>
-                          <pre>[htmlEscape [join [dict get $workerInfo workQueue] "\n"]]</pre>
-                      </details>
-                  }}]
+                  }} else {
+                      set workQueue [dict get $workerInfo workQueue]
+                      subst {
+                          [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]<br>
+                          <details>
+                            <summary>Work queue ([llength $workQueue] items):</summary>
+                            <pre>[htmlEscape [join $workQueue "\n"]]</pre>
+                          </details>
+                      }
+                  }]
                 <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>
             </li>}
