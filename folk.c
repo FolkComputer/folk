@@ -729,6 +729,7 @@ void trace(const char* format, ...) {
     va_end(args);
 }
 
+ssize_t unsafe_workQueueSize(WorkQueue* q);
 bool workerSteal() {
     int stealee = rand() % threadCount;
     if (threads[stealee].tid == 0) { return false; }
@@ -740,6 +741,11 @@ bool workerSteal() {
     for (int i = 0; i < nstolen; i++) {
         workQueuePush(self->workQueue, items[i]);
     }
+#ifdef FOLK_TRACE
+    trace("Try stealing from thread %d (tid %d): n = %d; nstolen = %d",
+          stealee, threads[stealee].tid,
+          unsafe_workQueueSize(threads[stealee].workQueue), nstolen);
+#endif
     return nstolen > 0;
 }
 void workerLoop() {
@@ -760,9 +766,9 @@ void workerLoop() {
             // If item is none, then steal from another thread's
             // workqueue:
             if (workerSteal()) {
-#ifdef FOLK_TRACE
-                trace("Stealing!");
-#endif
+/* #ifdef FOLK_TRACE */
+/*                 trace("Stealing!"); */
+/* #endif */
                 // Then try again:
                 continue;
             }

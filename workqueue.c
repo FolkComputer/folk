@@ -183,3 +183,10 @@ int unsafe_workQueueCopy(WorkQueueItem* into, int maxn,
     // FIXME: Return failure if anything has changed?
     return j;
 }
+ssize_t unsafe_workQueueSize(WorkQueue* q) {
+    size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
+    atomic_thread_fence(memory_order_seq_cst);
+    size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
+    ssize_t size = b - t;
+    return size;
+}
