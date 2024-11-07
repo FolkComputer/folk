@@ -204,6 +204,8 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
                 clauseToString(clause));
     }
+    // TODO: dispatch to global injector queue if the current work
+    // item is long-running.
     workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = SAY,
        .thread = thread,

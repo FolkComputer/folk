@@ -21,23 +21,62 @@ typedef struct ListOfEdgeTo {
 #define SIZEOF_LIST_OF_EDGE_TO(CAPACITY_EDGES) (sizeof(ListOfEdgeTo) + (CAPACITY_EDGES)*sizeof(uint64_t))
 typedef bool (*ListEdgeCheckerFn)(void* arg, uint64_t edge);
 
+
+typedef struct GenRc {
+    int16_t gen;
+
+    // How many acquired raw pointers to this object exist? The
+    // statement cannot be freed/invalidated as long as rc > 0. You
+    // must increment rc before accessing any other field in the
+    // object.
+    int16_t rc;
+} GenRc;
+
+bool genRcAcquire(_Atomic GenRc* genRcPtr, int32_t gen) {
+    GenRc oldGenRc;
+    GenRc newGenRc;
+    do {
+        oldGenRc = *genRcPtr;
+        if (oldGenRc.gen < 0 || oldGenRc.gen != gen) {
+            fprintf(stderr, "Failed acquire (gen = %d vs refgen = %d)\n", oldGenRc.gen, gen);
+            return false;
+        }
+
+        newGenRc = oldGenRc;
+        newGenRc.rc++;
+
+    } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
+
+    return true;
+}
+// Returns true if you are the last releaser (rc is now 0).
+bool genRcRelease(_Atomic GenRc* genRcPtr) {
+    GenRc oldGenRc;
+    GenRc newGenRc;
+    bool isLastReleaser = false;
+    do {
+        oldGenRc = *genRcPtr;
+        newGenRc = oldGenRc;
+
+        isLastReleaser = (--newGenRc.rc == 0);
+        if (isLastReleaser) {
+            newGenRc.gen++;
+        }
+
+    } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
+    return isLastReleaser;
+}
+
 // Statement datatype:
 
 typedef struct Statement {
-    // How many acquired raw pointers to this statement exist? The
-    // statement cannot be freed/invalidated as long as ptrCount >
-    // 0. You must increment ptrCount before accessing any other field
-    // in a Statement slot.
-    _Atomic int ptrCount;
+    _Atomic GenRc genRc;
 
     // Immutable statement properties:
     // -----
 
-    // statementAcquire needs to increment the ptrCount _first_, then
-    // check gen. gen cannot be mutated while ptrCount > 0.
-    uint32_t gen;
     // Owned by the DB. clause cannot be mutated or invalidated while
-    // ptrCount > 0.
+    // rc > 0.
     Clause* clause;
 
     // Used for debugging (and stack traces for When bodies).
@@ -64,11 +103,9 @@ typedef struct Statement {
 // Match datatype:
 
 typedef struct Match {
-    _Atomic int ptrCount;
+    _Atomic GenRc genRc;
 
     // Immutable match properties:
-
-    uint32_t gen;
 
     pthread_t workerThread;
 
@@ -246,25 +283,17 @@ Statement* statementAcquire(Db* db, StatementRef ref) {
     if (ref.idx == 0) { return NULL; }
 
     Statement* s = &db->statementPool[ref.idx];
-    // statementAcquire needs to increment the ptrCount _first_, then
-    // check gen. (It's only guaranteed that no one can change gen or
-    // otherwise invalidate the statement once ptrCount is
-    // incremented.)
-    s->ptrCount++;
-    if (ref.gen < 0 || ref.gen != s->gen) {
-        s->ptrCount--;
-        return NULL;
+    if (genRcAcquire(&s->genRc, ref.gen)) {
+        return s;
     }
-    return s;
+    return NULL;
 }
 Statement* statementUnsafeGet(Db* db, StatementRef ref) {
     if (ref.idx == 0) { return NULL; }
     return &db->statementPool[ref.idx];
 }
 void statementRelease(Db* db, Statement* stmt) {
-    if (--stmt->ptrCount == 0 && stmt->parentCount == 0) {
-        stmt->gen++; // Guard the rest of the freeing process.
-
+    if (genRcRelease(&stmt->genRc)) {
         reactToRemovedStatement(db, stmt);
 
         stmt->parentCount = 0;
@@ -290,12 +319,14 @@ void statementRelease(Db* db, Statement* stmt) {
 
 bool statementCheck(Db* db, StatementRef ref) {
     Statement* s = &db->statementPool[ref.idx];
-    return ref.gen >= 0 && ref.gen == s->gen;
+    GenRc genRc = s->genRc;
+    return ref.gen >= 0 && ref.gen == genRc.gen;
 }
 
 StatementRef statementRef(Db* db, Statement* stmt) {
+    GenRc genRc = stmt->genRc;
     return (StatementRef) {
-        .gen = stmt->gen,
+        .gen = genRc.gen,
         .idx = stmt - &db->statementPool[0]
     };
 }
@@ -304,8 +335,8 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. Note: returns an acquired
-// (ptrCount-incremented) statement pointer so it's safe to store in
-// the index.
+// (rc-incremented) statement pointer so it's safe to store in the
+// index.
 static StatementRef statementNew(Db* db, Clause* clause,
                                  char* sourceFileName,
                                  int sourceLineNumber) {
@@ -317,19 +348,21 @@ static StatementRef statementNew(Db* db, Clause* clause,
         if (idx == 0) { continue; }
         stmt = &db->statementPool[idx];
 
-        ret = (StatementRef) { .gen = stmt->gen, .idx = idx };
+        GenRc oldGenRc = stmt->genRc;
+        GenRc newGenRc = oldGenRc;
+        ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
 
-        if (stmt->ptrCount == 0 && stmt->clause == NULL) {
-            int expectedPtrCount = 0;
-            if (atomic_compare_exchange_weak(&stmt->ptrCount, 
-                                             &expectedPtrCount, 1)) {
+        if (oldGenRc.rc == 0 && stmt->clause == NULL) {
+            newGenRc.rc = 1;
+            if (atomic_compare_exchange_weak(&stmt->genRc, 
+                                             &oldGenRc, newGenRc)) {
                 break;
             }
         }
     }
     // We should have exclusive access to stmt right now, because its
-    // ptrCount is 1 but it's not pointed to by any ref or pointer
-    // other than the one we have.
+    // rc is 1 but it's not pointed to by any ref or pointer other
+    // than the one here.
 
     stmt->clause = clause;
 
@@ -341,8 +374,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
              "%s", sourceFileName);
     stmt->sourceLineNumber = sourceLineNumber;
 
-    // This won't free stmt until its parentCount is 0.
-    stmt->ptrCount = 0;
+    // TODO: do we zero out rc?
 
     return ret;
 }
@@ -397,20 +429,14 @@ Match* matchAcquire(Db* db, MatchRef ref) {
     if (ref.idx == 0) { return NULL; }
 
     Match* m = &db->matchPool[ref.idx];
-    // matchAcquire needs to increment the ptrCount _first_, then
-    // check gen. (It's only guaranteed that no one can change gen or
-    // otherwise invalidate the match once ptrCount is incremented.)
-    m->ptrCount++;
-    if (ref.gen < 0 || ref.gen != m->gen) {
-        m->ptrCount--; // TODO: what if this zeroes it?
+    if (genRcAcquire(&m->genRc, ref.gen)) {
+        return m;
+    } else {
         return NULL;
     }
-    return m;
 }
 void matchRelease(Db* db, Match* match) {
-    if (--match->ptrCount == 0 && match->shouldFree) {
-        match->gen++; // Guard the rest of the freeing process.
-
+    if (genRcRelease(&match->genRc) && match->shouldFree) {
         reactToRemovedMatch(db, match);
 
         free(match->childStatements);
@@ -420,12 +446,14 @@ void matchRelease(Db* db, Match* match) {
 
 bool matchCheck(Db* db, MatchRef ref) {
     Match* m = &db->matchPool[ref.idx];
-    return ref.gen >= 0 && ref.gen == m->gen;
+    GenRc genRc = m->genRc;
+    return ref.gen >= 0 && ref.gen == genRc.gen;
 }
 
 MatchRef matchRef(Db* db, Match* match) {
+    GenRc genRc = match->genRc;
     return (MatchRef) {
-        .gen = match->gen,
+        .gen = genRc.gen,
         .idx = match - &db->matchPool[0]
     };
 }
@@ -438,13 +466,15 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
         int32_t idx = db->matchPoolNextIdx++;
         if (idx == 0) { continue; }
         match = &db->matchPool[idx];
+        
+        GenRc oldGenRc = match->genRc;
+        GenRc newGenRc = oldGenRc;
+        ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
 
-        ret = (MatchRef) { .gen = match->gen, .idx = idx };
-
-        if (match->ptrCount == 0 && match->childStatements == NULL) {
-            int expectedPtrCount = 0;
-            if (atomic_compare_exchange_weak(&match->ptrCount,
-                                             &expectedPtrCount, 1)) {
+        if (oldGenRc.rc == 0 && match->childStatements == NULL) {
+            newGenRc.rc = 1;
+            if (atomic_compare_exchange_weak(&match->genRc, 
+                                             &oldGenRc, newGenRc)) {
                 break;
             }
         }
@@ -461,8 +491,8 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
         match->destructors[i].fn = NULL;
     }
 
-    // This won't free match until it's explicitly destroyed.
-    match->ptrCount = 0;
+    // FIXME: This won't free match until it's explicitly destroyed.
+    /* match->ptrCount = 0; */
 
     return ret;
 }
@@ -508,10 +538,10 @@ void matchRemoveSelf(Db* db, Match* match) {
 Db* dbNew() {
     Db* ret = calloc(sizeof(Db), 1);
 
-    ret->statementPool[0].gen = 0xFFFFFFFF;
+    ret->statementPool[0].genRc = (GenRc) { .gen = -1, .rc = 0 };
     ret->statementPoolNextIdx = 1;
 
-    ret->matchPool[0].gen = 0xFFFFFFFF;
+    ret->matchPool[0].genRc = (GenRc) { .gen = -1, .rc = 0 };
     ret->matchPoolNextIdx = 1;
 
     ret->clauseToStatementId = trieNew();
@@ -628,7 +658,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 
     // Invariant has been violated: somehow we have 2+ copies of
     // the same clause already in the db?
-    fprintf(stderr, "Error: Clause duplicate\n"); exit(1);
+    fprintf(stderr, "Error: Clause duplicate (existingRefsCount = %d) (%.100s)\n",
+            existingRefsCount,
+            clauseToString(clause)); exit(1);
 }
 
 Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
