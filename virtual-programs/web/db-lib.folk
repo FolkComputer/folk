@@ -9,6 +9,10 @@ Claim the db library is [apply {{} {
             size_t nEdges; // This is an estimate.
             uint64_t edges[];
         } ListOfEdgeTo;
+        typedef struct GenRc {
+            int16_t gen;
+            int16_t rc;
+        } GenRc;
 
         #include <pthread.h>
     }
@@ -36,7 +40,8 @@ Claim the db library is [apply {{} {
     $cc proc statementPtrCount {Db* db StatementRef stmtRef} int {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return -1; }
-        int ret = stmt->ptrCount - 1;
+        GenRc genRc = stmt->genRc;
+        int ret = genRc.rc - 1;
         statementRelease(db, stmt);
         return ret;
     }
@@ -69,7 +74,8 @@ Claim the db library is [apply {{} {
     }
     $cc proc matchPtrCount {Db* db MatchRef matchRef} int {
         Match* match = matchAcquire(db, matchRef);
-        int ret = match->ptrCount - 1;
+        GenRc genRc = match->genRc;
+        int ret = genRc.rc - 1;
         matchRelease(db, match);
         return ret;
     }

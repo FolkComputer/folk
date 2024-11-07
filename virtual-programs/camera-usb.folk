@@ -188,7 +188,7 @@ $camc proc cameraFrame {Camera* camera} int {
     // printf("r: %d\n", r);
     if (r == -1) quit("select");
     if (r == 0) {
-        printf("selection failed of fd %d\n", camera->fd);
+        fprintf(stderr, "selection failed of fd %d\n", camera->fd);
         return 0;
     }
     return camera_capture(camera);

@@ -884,7 +884,7 @@ int main(int argc, char** argv) {
     pthread_t sysmonTh;
     pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
 
-    int THREADS_INITIAL = 8;
+    int THREADS_INITIAL = 3; // ncpus - 1
     threadCount = 1; // i.e., this current thread.
     // Set up this thread's slot (slot 0) with tid to exclude other
     // threads from using the slot:
