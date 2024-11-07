@@ -738,7 +738,9 @@ bool workerSteal() {
     do {
         stealee = rand() % threadCount;
     } while (stealee == self->index);
-    if (threads[stealee].tid == 0) { return false; }
+    if (threads[stealee].tid == 0 || threads[stealee].workQueue == NULL) {
+        return false;
+    }
 
     WorkQueueItem items[50];
     int nstolen = workQueueStealHalf(items,
