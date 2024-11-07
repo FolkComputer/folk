@@ -8,16 +8,27 @@ typedef struct ThreadControlBlock {
     pid_t _Atomic tid;
 
     WorkQueue* workQueue;
-    bool _Atomic isAwaitingPush;
 
     // Used for diagnostics/profiling.
     WorkQueueItem currentItem;
     pthread_mutex_t currentItemMutex;
+
+    // Used for managing the threadpool.
+    int64_t _Atomic currentItemStartTimestamp;
 
     // Current match being constructed (if applicable).
     Match* currentMatch;
 } ThreadControlBlock;
 
 #define THREADS_MAX 100
+
+static inline int64_t timestamp_get() {
+    // Returns timestamp in nanoseconds.
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts)) {
+        perror("can't even get the time :'-(");
+    }
+    return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
+}
 
 #endif

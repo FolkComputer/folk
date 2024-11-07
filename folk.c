@@ -605,6 +605,8 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
 }
 
 void workerRun(WorkQueueItem item) {
+    self->currentItemStartTimestamp = timestamp_get();
+
     pthread_mutex_lock(&self->currentItemMutex);
     self->currentItem = item;
     pthread_mutex_unlock(&self->currentItemMutex);

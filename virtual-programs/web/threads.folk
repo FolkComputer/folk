@@ -32,10 +32,6 @@ set threadMonitorLib [apply {{} {
         Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1),
                            itemToStringObj(item));
 
-        Jim_DictAddElement(interp, ret,
-                           Jim_NewStringObj(interp, "isAwaitingPush", -1),
-                           Jim_NewStringObj(interp, thread->isAwaitingPush ? "(Awaiting Push)" : "", -1));
-
         WorkQueueItem items[100];
         int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
         Jim_Obj* workQueueObj = Jim_NewListObj(interp, NULL, 0);
@@ -109,7 +105,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                   }} else {
                       set workQueue [dict get $workerInfo workQueue]
                       subst {
-                          [htmlEscape [dict get $workerInfo op]] [dict get $workerInfo isAwaitingPush]<br>
+                          [htmlEscape [dict get $workerInfo op]]<br>
                           <details>
                             <summary>Work queue ([llength $workQueue] items):</summary>
                             <pre>[htmlEscape [join $workQueue "\n"]]</pre>

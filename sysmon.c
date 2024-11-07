@@ -18,6 +18,8 @@ extern pthread_mutex_t globalWorkQueueMutex;
 
 void workerSpawn();
 
+// HACK: ncpus - 1
+#define THREADS_ACTIVE_TARGET 3
 
 #define SYSMON_TICK_MS 2
 
@@ -33,19 +35,16 @@ pthread_mutex_t removeLaterMutex;
 int64_t _Atomic tick;
 
 int64_t timestampAtBoot;
-int64_t timestamp() {
-    struct timeval currentTime;
-    gettimeofday(&currentTime, NULL);
-    return (int64_t)currentTime.tv_sec*1e6 + currentTime.tv_usec;
-}
 
 void sysmonInit() {
     pthread_mutex_init(&removeLaterMutex, NULL);
-    timestampAtBoot = timestamp();
+    timestampAtBoot = timestamp_get();
 }
 
 void sysmon() {
-    trace("%" PRId64 "us: Sysmon Tick", timestamp() - timestampAtBoot);
+    int64_t now = timestamp_get();
+
+    trace("%" PRId64 "us: Sysmon Tick", now - timestampAtBoot);
 
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).
@@ -73,6 +72,7 @@ void sysmon() {
     pthread_mutex_unlock(&removeLaterMutex);
 
     // Second: manage the pool of worker threads.
+    // How many workers are 'available'?
     int availableWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
@@ -80,25 +80,28 @@ void sysmon() {
         if (tid == 0) { continue; }
 
         // Check state of tid.
-        char path[100]; snprintf(path, 100, "/proc/%d/stat", tid);
-        FILE *fp = fopen(path, "r");
-        if (fp == NULL) { continue; }
-        int _pid; char _name[100]; char state;
-        // TODO: doesn't deal with name with space in it.
-        fscanf(fp, "%d %s %c ", &_pid, _name, &state);
-        fclose(fp);
+        /* char path[100]; snprintf(path, 100, "/proc/%d/stat", tid); */
+        /* FILE *fp = fopen(path, "r"); */
+        /* if (fp == NULL) { continue; } */
+        /* int _pid; char _name[100]; char state; */
+        /* // TODO: doesn't deal with name with space in it. */
+        /* fscanf(fp, "%d %s %c ", &_pid, _name, &state); */
+        /* fclose(fp); */
 
-        if (state == 'R' || threads[i].isAwaitingPush) {
+        // TODO: Check work item start timestamp. 2 ms old?
+        if (threads[i].currentItemStartTimestamp == 0 ||
+            now - threads[i].currentItemStartTimestamp < 2000) {
+
             availableWorkersCount++;
         }
 
         // How long has it been running in the current burst?
         // Is it blocked on the OS (sleeping state)?
     }
-    /* if (availableWorkersCount < 2) { */
-    /*     fprintf(stderr, "workerSpawn\n"); */
-    /*     workerSpawn(); */
-    /* } */
+    if (availableWorkersCount < 2) {
+        fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
+        workerSpawn();
+    }
 }
 
 void *sysmonMain(void *ptr) {
