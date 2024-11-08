@@ -99,6 +99,7 @@ void sysmon() {
         // Is it blocked on the OS (sleeping state)?
     }
     if (availableWorkersCount < 2) {
+        // new worker spawns should be safe, legal, and rare.
         fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
         workerSpawn();
     }

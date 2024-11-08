@@ -15,6 +15,8 @@ set threadMonitorLib [apply {{} {
         }
     }
     $cc proc workerInfo {int tid} Jim_Obj* {
+        int64_t now = timestamp_get();
+
         ThreadControlBlock *thread = NULL;
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid == tid) {
@@ -42,6 +44,14 @@ set threadMonitorLib [apply {{} {
         Jim_DictAddElement(interp, ret,
                            Jim_NewStringObj(interp, "workQueue", -1),
                            workQueueObj);
+
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "currentItemStartTimestamp", -1),
+                           Jim_ObjPrintf("%" PRId64, thread->currentItemStartTimestamp));
+
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "elapsed", -1),
+                           Jim_NewIntObj(interp, now - thread->currentItemStartTimestamp));
 
         return ret;
     }
@@ -105,7 +115,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                   }} else {
                       set workQueue [dict get $workerInfo workQueue]
                       subst {
-                          [htmlEscape [dict get $workerInfo op]]<br>
+                          [htmlEscape [dict get $workerInfo op]] (elapsed: [dict get $workerInfo elapsed] us)<br>
                           <details>
                             <summary>Work queue ([llength $workQueue] items):</summary>
                             <pre>[htmlEscape [join $workQueue "\n"]]</pre>

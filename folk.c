@@ -824,6 +824,7 @@ void workerInit(int index) {
         self->workQueue = workQueueNew();
         pthread_mutex_init(&self->currentItemMutex, NULL);
     }
+    self->currentItemStartTimestamp = 0;
     self->index = index;
 
     interpBoot();
