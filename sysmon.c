@@ -49,7 +49,24 @@ void sysmon() {
     // (every few milliseconds).
     int64_t currentTick = tick;
 
-    // First: deal with any remove-later (sustains).
+    // First: check that we have a reasonable amount of free RAM.
+    if (currentTick % 1000 == 0) {
+        // assuming that ticks happen every 2ms, this should happen
+        // every 2s.
+        int freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+        int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+        fprintf(stderr, "Check avail RAM: %d MB / %d MB\n",
+                freeRamMb,
+                totalRamMb);
+        if (freeRamMb < 100) {
+            // Hard die if we are likely to run out of RAM, because
+            // that will lock the system (making it hard to ssh in,
+            // etc).
+            exit(1);
+        }
+    }
+
+    // Second: deal with any remove-later (sustains).
     pthread_mutex_lock(&removeLaterMutex);
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
@@ -70,7 +87,7 @@ void sysmon() {
     }
     pthread_mutex_unlock(&removeLaterMutex);
 
-    // Second: manage the pool of worker threads.
+    // Third: manage the pool of worker threads.
     // How many workers are 'available'?
     int availableWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
@@ -123,10 +140,6 @@ void sysmon() {
     if (availableWorkersCount < 2) {
         // new worker spawns should be safe, legal, and rare.
         fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
-
-        // TODO: snapshot all current thread info so we can diagnose
-        // what caused this worker spawn.
-
         workerSpawn();
     }
 }
