@@ -882,6 +882,22 @@ int main(int argc, char** argv) {
 
     atexit(exitHandler);
 
+#ifdef __linux__
+    // Count CPUs so we can set up the thread pool to align with the
+    // available cores.
+    cpu_set_t cs; CPU_ZERO(&cs);
+    sched_getaffinity(0, sizeof(cs), &cs);
+    int cpuCount = CPU_COUNT(&cs);
+    printf("main: CPU_COUNT = %d\n", cpuCount);
+    assert(cpuCount >= 2);
+
+    // Disable CPU 0 entirely; we will leave it to Linux. Goal:
+    // exclude one CPU from Folk, so that Linux can still accept ssh
+    // connections and stuff like that if Folk goes off the rails.
+    CPU_CLR(0, &cs);
+    sched_setaffinity(0, sizeof(cs), &cs);
+#endif
+
     // Spawn the sysmon thread, which isn't managed the same way as
     // worker threads, and which doesn't run a Folk interpreter. It's
     // just pure C.
