@@ -41,6 +41,9 @@ When the collected matches for [list /someone/ claims /page/ has program /progra
 }
 
 When the clock time is /t/ {
+    if {$Display::WIDTH eq ""} {
+      return
+    }
     # Monitor RAM, CPU, and disk usage
     set ramInfo [exec free -m]
     set lines [split $ramInfo "\n"]
