@@ -686,6 +686,12 @@ void workerRun(WorkQueueItem item) {
                 item.op);
         exit(1);
     }
+
+    // TODO: do we need this extra traffic?
+    self->currentItemStartTimestamp = 0;
+    pthread_mutex_lock(&self->currentItemMutex);
+    self->currentItem = (WorkQueueItem) { .op = NONE };
+    pthread_mutex_unlock(&self->currentItemMutex);
 }
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
@@ -711,8 +717,10 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
     } else if (item.op == REMOVE_PARENT) {
         snprintf(buf, bufsz, "Remove Parent");
+    } else if (item.op == NONE) {
+        snprintf(buf, bufsz, "NONE");
     } else {
-        snprintf(buf, bufsz, "%d: ???", threadIndex);
+        snprintf(buf, bufsz, "???");
     }
 }
 void trace(const char* format, ...) {
@@ -822,6 +830,7 @@ void workerInit(int index) {
     self = &threads[index];
     if (self->workQueue == NULL) {
         self->workQueue = workQueueNew();
+        self->currentItem = (WorkQueueItem) { .op = NONE };
         pthread_mutex_init(&self->currentItemMutex, NULL);
     }
     pthread_getcpuclockid(pthread_self(), &self->clockid);
