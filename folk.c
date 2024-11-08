@@ -833,7 +833,11 @@ void workerInit(int index) {
         self->currentItem = (WorkQueueItem) { .op = NONE };
         pthread_mutex_init(&self->currentItemMutex, NULL);
     }
+#ifdef __linux__
     pthread_getcpuclockid(pthread_self(), &self->clockid);
+#else
+    self->clockid = CLOCK_MONOTONIC;
+#endif
     self->currentItemStartTimestamp = 0;
     self->index = index;
 

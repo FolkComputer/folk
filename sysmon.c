@@ -50,6 +50,7 @@ void sysmon() {
     int64_t currentTick = tick;
 
     // First: check that we have a reasonable amount of free RAM.
+#ifdef __linux__
     if (currentTick % 1000 == 0) {
         // assuming that ticks happen every 2ms, this should happen
         // every 2s.
@@ -65,6 +66,7 @@ void sysmon() {
             exit(1);
         }
     }
+#endif
 
     // Second: deal with any remove-later (sustains).
     pthread_mutex_lock(&removeLaterMutex);
