@@ -88,9 +88,10 @@ void sysmon() {
         /* fscanf(fp, "%d %s %c ", &_pid, _name, &state); */
         /* fclose(fp); */
 
-        // TODO: Check work item start timestamp. 2 ms old?
+        // Check work item start timestamp. Been working for less than
+        // 2 ms? We'll count it as available.
         if (threads[i].currentItemStartTimestamp == 0 ||
-            now - threads[i].currentItemStartTimestamp < 2000) {
+            now - threads[i].currentItemStartTimestamp < 2000000) {
 
             availableWorkersCount++;
         }
