@@ -38,13 +38,12 @@ int64_t timestampAtBoot;
 
 void sysmonInit() {
     pthread_mutex_init(&removeLaterMutex, NULL);
-    timestampAtBoot = timestamp_get();
+    timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
 }
 
 void sysmon() {
-    int64_t now = timestamp_get();
-
-    trace("%" PRId64 "us: Sysmon Tick", now - timestampAtBoot);
+    trace("%" PRId64 "us: Sysmon Tick",
+          timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot);
 
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).
@@ -88,13 +87,35 @@ void sysmon() {
         /* fscanf(fp, "%d %s %c ", &_pid, _name, &state); */
         /* fclose(fp); */
 
+        // We want to know when a thread will be likely to be ready to
+        // take on new work.
+
+        // so, we want to estimate how long its current work item will
+        // take.
+
+        // We want to count the number of threads that are ready to
+        // take on new work.
+
+        // what if the thread gets/got preempted? it'll totally screw
+        // over the elapsed time estimate.
+
         // Check work item start timestamp. Been working for less than
-        // 2 ms? We'll count it as available.
+        // 10 ms? We'll count it as available.
+        int64_t now = timestamp_get(threads[i].clockid);
         if (threads[i].currentItemStartTimestamp == 0 ||
-            now - threads[i].currentItemStartTimestamp < 2000000) {
+            now - threads[i].currentItemStartTimestamp < 10000000) {
 
             availableWorkersCount++;
         }
+        // FIXME: what if we get in a loop where we keep spawning threads?
+
+        // Should we mark any thread in a C call mid-match (or simply
+        // sleeping on the OS?) as being no longer pinned?  Should we
+        // pin worker threads to the CPU?
+
+        // We want ncpus worker threads.
+
+        // What if a worker thread is genuinely busy with compute?
 
         // How long has it been running in the current burst?
         // Is it blocked on the OS (sleeping state)?
@@ -102,6 +123,10 @@ void sysmon() {
     if (availableWorkersCount < 2) {
         // new worker spawns should be safe, legal, and rare.
         fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
+
+        // TODO: snapshot all current thread info so we can diagnose
+        // what caused this worker spawn.
+
         workerSpawn();
     }
 }

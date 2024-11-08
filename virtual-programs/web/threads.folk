@@ -15,8 +15,6 @@ set threadMonitorLib [apply {{} {
         }
     }
     $cc proc workerInfo {int tid} Jim_Obj* {
-        int64_t now = timestamp_get();
-
         ThreadControlBlock *thread = NULL;
         for (int i = 0; i < threadCount; i++) {
             if (threads[i].tid == tid) {
@@ -49,6 +47,7 @@ set threadMonitorLib [apply {{} {
                            Jim_NewStringObj(interp, "currentItemStartTimestamp", -1),
                            Jim_ObjPrintf("%" PRId64, thread->currentItemStartTimestamp));
 
+        int64_t now = timestamp_get(thread->clockid);
         Jim_DictAddElement(interp, ret,
                            Jim_NewStringObj(interp, "elapsed", -1),
                            Jim_NewDoubleObj(interp, (double)(now - thread->currentItemStartTimestamp) / 1000.0));

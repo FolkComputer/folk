@@ -605,7 +605,7 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
 }
 
 void workerRun(WorkQueueItem item) {
-    self->currentItemStartTimestamp = timestamp_get();
+    self->currentItemStartTimestamp = timestamp_get(self->clockid);
 
     pthread_mutex_lock(&self->currentItemMutex);
     self->currentItem = item;
@@ -824,6 +824,7 @@ void workerInit(int index) {
         self->workQueue = workQueueNew();
         pthread_mutex_init(&self->currentItemMutex, NULL);
     }
+    pthread_getcpuclockid(pthread_self(), &self->clockid);
     self->currentItemStartTimestamp = 0;
     self->index = index;
 
@@ -882,6 +883,18 @@ int main(int argc, char** argv) {
 
     atexit(exitHandler);
 
+    {
+        // Spawn the sysmon thread, which isn't managed the same way
+        // as worker threads, and which doesn't run a Folk
+        // interpreter. It's just pure C. It's also guaranteed(?) to
+        // not run more than every few milliseconds, so it's ok to let
+        // it run on the free core.
+        sysmonInit();
+        pthread_t sysmonTh;
+        pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
+        // TODO: should the sysmon thread _only_ run on the free core?
+    }
+
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
     // available cores.
@@ -896,16 +909,12 @@ int main(int argc, char** argv) {
     // connections and stuff like that if Folk goes off the rails.
     CPU_CLR(0, &cs);
     sched_setaffinity(0, sizeof(cs), &cs);
+    int cpuUsableCount = cpuCount - 1;
+#else
+    // HACK: for macOS.
+    int cpuUsableCount = 3;
 #endif
 
-    // Spawn the sysmon thread, which isn't managed the same way as
-    // worker threads, and which doesn't run a Folk interpreter. It's
-    // just pure C.
-    sysmonInit();
-    pthread_t sysmonTh;
-    pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
-
-    int THREADS_INITIAL = 3; // ncpus - 1
     threadCount = 1; // i.e., this current thread.
     // Set up this thread's slot (slot 0) with tid to exclude other
     // threads from using the slot:
@@ -915,9 +924,8 @@ int main(int argc, char** argv) {
     threads[0].tid = gettid();
 #endif
 
-    // Spawn THREADS_INITIAL-1 workers.
-    pthread_t th[THREADS_INITIAL];
-    for (int i = 1; i < THREADS_INITIAL; i++) { workerSpawn(); }
+    // Now spawn cpuUsableCount-1 additional workers.
+    for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like
