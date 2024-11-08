@@ -667,6 +667,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # TODO: restore old camera resolution later
     }
 
+    # HACK: hard-coded for now; assumes dark room. Won't work on USB
+    # webcams yet, either (just Pi).
+    Wish camera $camera uses exposure time 16000 us
+
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
     set pad $tagSideLength
