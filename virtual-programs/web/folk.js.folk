@@ -1,0 +1,4 @@
+
+Wish the web server handles route "/lib/folk.js" with handler {
+    js [readFile "lib/folk.js" "text/javascript"]
+}

@@ -1,0 +1,3 @@
+Wish the web server handles route "/favicon.ico" with handler {
+    favicon [readFile "assets/favicon.ico"  "image/x-icon"]
+}

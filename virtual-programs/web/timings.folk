@@ -1,0 +1,35 @@
+Wish the web server handles route "/timings" with handler {
+    set runTimes [list]
+    dict for {lambda runTime} $Evaluator::runTimesMap {
+        lappend runTimes $lambda $runTime
+    }
+    set runTimes [lsort -integer -stride 2 -index 1 $runTimes]
+
+    set totalRunTime 0
+    set l [list]
+    foreach {lambda runTime} $runTimes {
+        set runCount [dict get $Evaluator::runCountsMap $lambda]
+        set totalRunTime [+ $totalRunTime $runTime]
+        lappend l [subst {
+            <li>
+            <pre>[htmlEscape $lambda]</pre> ($runCount runs): $runTime us
+            </li>
+        }]
+    }
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Timings</title>
+        </head>
+        <nav>
+        <a href="/new"><button>New program</button></a>
+        <a href="/">Statements</a>
+        <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
+        <a href="/statements.pdf">statements graph</a>
+        </nav>
+        <h1>Timings (total frame run time $totalRunTime us)</h1>
+        <ul>[join $l "\n"]</ul>
+        </html>
+    }]
+}

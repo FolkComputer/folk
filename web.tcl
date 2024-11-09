@@ -41,170 +41,12 @@ proc handlePage {path httpStatusVar contentTypeVar} {
     # From @osnr: https://github.com/FolkComputer/folk/pull/171#issuecomment-2292098801
     # - @cwervo 2024-09-15
     switch -exact -- $path {
-        "/" {
-            set l [list]
-            dict for {id stmt} [Statements::all] {
-                lappend l [subst {
-                    <li>
-                    <details>
-                    <summary style="[expr {
-                    [lsearch -exact [statement clause $stmt] error] != -1
-                    ? "color: red"
-                    : ""}]">
-                    $id: [htmlEscape [statement short $stmt]]</summary>
-                    <pre>[htmlEscape [statement clause $stmt]]</pre>
-                    </details>
-                    </li>
-                }]
-            }
-            subst {
-                <html>
-                <head>
-                <link rel="stylesheet" href="/style.css">
-                <title>Statements</title>
-                </head>
-                <nav>
-                <a href="/new"><button>New program</button></a>
-                <a href="/programs">Running programs</a>
-                <a href="/timings">Timings</a>
-                <a href="/keyboards">Keyboards</a>
-                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
-                <a href="/statements.pdf">statements graph</a>
-                </nav>
-                <h1>Statements</h1>
-                <ul>[join $l "\n"]</ul>
-                </html>
-            }
-        }
-        "/programs" {
-            # TODO:
-            # - Make this synchronous
-            # - Maybe should actually, move this to a virtual-program/watcher.folk.default programs that makes claims like:
-            #   Claim virtual programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
-            #   Claim core programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
-            #   Claim web programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
-            #   Claim real programs are [list {page a program p_a} {page b program p_b} {page c program p_c}]
-
-            set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
-            set vp [list]; # virtual programs
-            set cp [list]; # core programs
-            set wp [list]; # web programs
-            set rp [list]; # real programs
-
-            # TODO:
-            # Right now this duplicates the virtual-programs/watcher.folk logic.
-            # Let's refactor this to use the claim logic in the future.
-            # - @cwervo 2024-09-15
-            foreach match $programs {
-                set page [dict get $match page]
-                switch -glob $page {
-                    "virtual-programs/*" {
-                        lappend vp $page
-                    }
-                    "setup.folk.default" {
-                        lappend cp $page
-                    }
-                    "/home/*" {
-                        lappend cp $page
-                    }
-                    "web-program-*" {
-                        lappend wp $page
-                    }
-                    default {
-                        lappend rp $page
-                    }
-                }
-            }
-
-            subst {
-                <html>
-                <head>
-                    <link rel="stylesheet" href="/style.css">
-                    <title>Running programs</title>
-                    <link rel="stylesheet" href="/style.css">
-                    <style>
-                        body {
-                            font-family: math;
-                        }
-                        summary {
-                            font-family: monospace;
-                            font-size: 2em;
-                        }
-                    </style>
-                    <script src="/lib/folk.js"></script>
-                    <script>
-                    /* TODO:
-                      (  ) Add a ws.watch() for /someone/ claims /page/ has program /program/
-                    */
-                    </script>
-                </head>
-                <body>
-                    [emitHTMLForProgramList $rp "real-programs"]
-                    [emitHTMLForProgramList $wp "web-programs"]
-                    [emitHTMLForProgramList $vp "virtual-programs"]
-                    [emitHTMLForProgramList $cp "core-programs"]
-                    [expr {[llength $rp] ?  "<h2>[llength $rp] [expr {[llength $rp] == 1 ? "program is" : "programs are"}] out.</h2>" : "No real programs are out."}]
-                </body>
-                </html>
-            }
-        }
-        "/timings" {
-            set runTimes [list]
-            dict for {lambda runTime} $Evaluator::runTimesMap {
-                lappend runTimes $lambda $runTime
-            }
-            set runTimes [lsort -integer -stride 2 -index 1 $runTimes]
-
-            set totalRunTime 0
-            set l [list]
-            foreach {lambda runTime} $runTimes {
-                set runCount [dict get $Evaluator::runCountsMap $lambda]
-                set totalRunTime [+ $totalRunTime $runTime]
-                lappend l [subst {
-                    <li>
-                    <pre>[htmlEscape $lambda]</pre> ($runCount runs): $runTime us
-                    </li>
-                }]
-            }
-            subst {
-                <html>
-                <head>
-                <link rel="stylesheet" href="/style.css">
-                <title>Timings</title>
-                </head>
-                <nav>
-                <a href="/new"><button>New program</button></a>
-                <a href="/">Statements</a>
-                <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
-                <a href="/statements.pdf">statements graph</a>
-                </nav>
-                <h1>Timings (total frame run time $totalRunTime us)</h1>
-                <ul>[join $l "\n"]</ul>
-                </html>
-            }
-        }
-        "/favicon.ico" {
-            set contentType "image/x-icon"
-            readFile "assets/favicon.ico" contentType
-        }
-        "/style.css" {
-            set contentType "text/css"
-            readFile "assets/style.css" contentType
-        }
-        "/statementClauseToId.pdf" {
-            getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
-        }
-        "/statements.pdf" {
-            getDotAsPdf [Statements::dot] contentType
-        }
-        "/lib/folk.js" {
-            set contentType "text/javascript"
-            readFile "lib/folk.js" contentType
-        }
-        "/vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" {
-            set contentType "text/javascript"
-            readFile "vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" contentType
-        }
+        # "/statementClauseToId.pdf" {
+        #     getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] contentType
+        # }
+        # "/statements.pdf" {
+        #     getDotAsPdf [Statements::dot] contentType
+        # }
         default {
             upvar $httpStatusVar httpStatus
             set httpStatus "HTTP/1.1 404 Not Found"
@@ -228,18 +70,24 @@ proc handleRead {chan addr port} {
         } else { break }
     }
 
+    # TODO: Make CSS, PDF, and JS passable contentTypes to this When and default to text/html if none is provided
     if {[regexp {GET ([^ ]*) HTTP/1.1} $firstline -> path] && $path ne "/ws"} {
         set response {}
-        # TODO: Make this a When
         set matches [Statements::findMatches {/someone/ wishes the web server handles route /route/ with handler /handler/}]
         try {
+            puts "matches: [llength $matches]"
             foreach match $matches {
                 set route [dict get $match route]
                 set handler [dict get $match handler]
                 if {[regexp -all $route $path whole_match]} {
+                    puts "got match: $route $whole_match"
                     fn html {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/html; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
                     fn json {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/json; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
-                    set response [apply [list {path ^html ^json} $handler] $path ${^html} ${^json}]
+                    fn css {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/css; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
+                    fn favicon {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/x-icon; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
+                    fn js {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: text/javascript; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
+                    fn pdf {body} {dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: application/pdf; charset=utf-8\n\n" body [encoding convertto utf-8 $body]}
+                    set response [apply [list {path ^html ^json ^css ^favicon ^js ^pdf} $handler] $path ${^html} ${^json} ${^css} ${^favicon} ${^js} ${^pdf}]
                 }
             }
             if {$response eq ""} {

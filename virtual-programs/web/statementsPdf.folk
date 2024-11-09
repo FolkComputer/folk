@@ -1,0 +1,4 @@
+Wish the web server handles route "/statements.pdf" with handler {
+    puts "statement length: [llength Statements::dot]"
+    pdf [getDotAsPdf [Statements::dot] "application/pdf"]
+}

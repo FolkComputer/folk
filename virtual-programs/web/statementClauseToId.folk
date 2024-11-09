@@ -1,0 +1,3 @@
+Wish the web server handles route "/statementClauseToId.pdf" with handler {
+    pdf [getDotAsPdf [trie dot [Statements::statementClauseToIdTrie]] "application/pdf"]
+}
