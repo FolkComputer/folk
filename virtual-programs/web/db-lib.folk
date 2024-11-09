@@ -10,8 +10,10 @@ Claim the db library is [apply {{} {
             uint64_t edges[];
         } ListOfEdgeTo;
         typedef struct GenRc {
-            int16_t gen;
             int16_t rc;
+
+            int gen: 15;
+            bool alive: 1;
         } GenRc;
 
         #include <pthread.h>
@@ -79,11 +81,12 @@ Claim the db library is [apply {{} {
         matchRelease(db, match);
         return ret;
     }
-    $cc proc matchShouldFree {Db* db MatchRef matchRef} int {
+    $cc proc matchIsAlive {Db* db MatchRef matchRef} int {
         Match* match = matchAcquire(db, matchRef);
-        int shouldFree = match->shouldFree;
+        GenRc genRc = match->genRc;
+        int alive = genRc.alive;
         matchRelease(db, match);
-        return shouldFree;
+        return alive;
     }
     $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
         Match* match = matchAcquire(db, matchRef);

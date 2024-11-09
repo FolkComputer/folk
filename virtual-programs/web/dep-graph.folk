@@ -22,8 +22,8 @@ set dbDotify {{dbLib db} {
         if {$match eq "(Match*) 0x0"} { continue }
 
         set matchPtrCount [$dbLib matchPtrCount $db $matchRef]
-        set matchShouldFree [$dbLib matchShouldFree $db $matchRef]
-        lappend dot "<$matchRef> \[label=\"$matchRef (shouldFree $matchShouldFree) ($matchPtrCount)\"\];"
+        set matchIsAlive [$dbLib matchIsAlive $db $matchRef]
+        lappend dot "<$matchRef> \[label=\"$matchRef (alive? $matchIsAlive) ($matchPtrCount)\"\];"
         foreach childStatementRef [$dbLib childStatements $db $matchRef] {
             lappend dot "<$matchRef> -> <$childStatementRef>;"
         }

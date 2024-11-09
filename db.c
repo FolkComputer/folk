@@ -23,13 +23,12 @@ typedef bool (*ListEdgeCheckerFn)(void* arg, uint64_t edge);
 
 
 typedef struct GenRc {
-    int gen: 15;
-
     // How many acquired raw pointers to this object exist? The object
     // cannot be freed/invalidated as long as rc > 0. You must
     // increment rc before accessing any other field in the object.
     int16_t rc;
 
+    int gen: 15;
     bool alive: 1;
 } GenRc;
 
@@ -718,6 +717,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 
     for (size_t i = 0; i < nResults; i++) {
         Statement* stmt = statementAcquire(db, results[i]);
+
         statementRemoveParentAndMaybeRemoveSelf(db, stmt);
         statementRelease(db, stmt);
     }
