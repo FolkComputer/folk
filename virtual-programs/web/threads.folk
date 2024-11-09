@@ -9,6 +9,9 @@ set threadMonitorLib [apply {{} {
 
         extern Db* db;
 
+        extern int unsafe_workQueueCopy(WorkQueueItem* into, int maxn, WorkQueue* q);
+        extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
+
         Jim_Obj* itemToStringObj(WorkQueueItem item) {
             char buf[10000]; traceItem(buf, sizeof(buf), item);
             return Jim_NewStringObj(interp, buf, -1);
