@@ -17,17 +17,23 @@ set threadMonitorLib [apply {{} {
             return Jim_NewStringObj(interp, buf, -1);
         }
     }
-    $cc proc workerInfo {int tid} Jim_Obj* {
-        ThreadControlBlock *thread = NULL;
+    $cc proc workerTids {} Jim_Obj* {
+        // Fallback on macOS, where we don't have /proc to query all
+        // threads of the Folk process.
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
         for (int i = 0; i < threadCount; i++) {
-            if (threads[i].tid == tid) {
-                thread = &threads[i];
-                break;
+            if (threads[i].tid != 0) {
+                Jim_ListAppendElement(interp, ret,
+                                      Jim_NewIntObj(interp, threads[i].tid));
             }
         }
-        if (thread == NULL) {
+        return ret;
+    }
+    $cc proc workerInfo {int threadIndex} Jim_Obj* {
+        if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
             return Jim_NewEmptyStringObj(interp);
         }
+        ThreadControlBlock *thread = &threads[threadIndex];
 
         Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
 
@@ -57,15 +63,24 @@ set threadMonitorLib [apply {{} {
 
         return ret;
     }
+    $cc proc workerInfoFromTid {int tid} Jim_Obj* {
+        for (int i = 0; i < threadCount; i++) {
+            if (threads[i].tid == tid) {
+                return workerInfo(i);
+            }
+        }
+        return Jim_NewEmptyStringObj(interp);
+    }
     return [$cc compile]
 }}]
 
 Wish the web server handles route "/threads" with handler [list apply {{threadMonitorLib} {
     set pid [pid]
-    set tids [glob -tails -directory /proc/$pid/task *]
-
-    set userStacks [dict create]
     try {
+        set tids [glob -tails -directory /proc/$pid/task *]
+
+        set userStacks [dict create]
+
         set euStackOutput [exec eu-stack --pid=[pid] --verbose]
         set currentTid none
         foreach line [split $euStackOutput "\n"] {
@@ -76,7 +91,9 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                     "[dict getdef $userStacks $currentTid {}]\n$line"
             }
         }
-    } on error e {}
+    } on error e {
+        set tids [$threadMonitorLib workerTids]
+    }
 
     html [subst {
         <html>
@@ -93,10 +110,14 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
         [join [lmap tid $tids {
             set taskdir /proc/$pid/task/$tid
 
-            set statusFd [open $taskdir/status r]
-            set status [read $statusFd]; close $statusFd
+            try {
+                set statusFd [open $taskdir/status r]
+                set status [read $statusFd]; close $statusFd
+            } on error e {
+                set status "<status unknown>"
+            }
 
-            set workerInfo [$threadMonitorLib workerInfo $tid]
+            set workerInfo [$threadMonitorLib workerInfoFromTid $tid]
 
             try {
                 set userStack [dict get $userStacks $tid]
