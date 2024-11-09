@@ -23,13 +23,14 @@ typedef bool (*ListEdgeCheckerFn)(void* arg, uint64_t edge);
 
 
 typedef struct GenRc {
-    int16_t gen;
+    int gen: 15;
 
-    // How many acquired raw pointers to this object exist? The
-    // statement cannot be freed/invalidated as long as rc > 0. You
-    // must increment rc before accessing any other field in the
-    // object.
+    // How many acquired raw pointers to this object exist? The object
+    // cannot be freed/invalidated as long as rc > 0. You must
+    // increment rc before accessing any other field in the object.
     int16_t rc;
+
+    bool alive: 1;
 } GenRc;
 
 bool genRcAcquire(_Atomic GenRc* genRcPtr, int32_t gen) {
@@ -49,27 +50,45 @@ bool genRcAcquire(_Atomic GenRc* genRcPtr, int32_t gen) {
 
     return true;
 }
-// Returns true if you are the last releaser (rc is now 0).
 bool genRcRelease(_Atomic GenRc* genRcPtr) {
     GenRc oldGenRc;
     GenRc newGenRc;
-    bool isLastReleaser = false;
+    bool callerShouldFree = false;
     do {
         oldGenRc = *genRcPtr;
         newGenRc = oldGenRc;
 
-        isLastReleaser = (--newGenRc.rc == 0);
-        if (isLastReleaser) {
+        // FIXME: check alive. return true if rc is 0 AND not alive.
+
+        callerShouldFree = !oldGenRc.alive && (--newGenRc.rc == 0);
+        if (callerShouldFree) {
             newGenRc.gen++;
         }
 
     } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
-    return isLastReleaser;
+    return callerShouldFree;
+}
+void genRcMarkAsDead(_Atomic GenRc* genRcPtr) {
+    // ASSUMES that rc > 0 (because the caller must have acquired the
+    // rc before calling us), which means gen cannot change. We do the
+    // loop here in case the rc changes.
+    GenRc oldGenRc;
+    GenRc newGenRc;
+    do {
+        oldGenRc = *genRcPtr;
+        newGenRc = oldGenRc;
+
+        newGenRc.alive = false;
+
+        // TODO: Check that gen hasn't changed and that rc > 0.
+    } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
 }
 
 // Statement datatype:
 
 typedef struct Statement {
+    // We keep rc at 1 to represent being 'owned' by the database.
+    // NO, that doesn't work, because then how do you actually release it from the database? What if multiple ppl release at once?
     _Atomic GenRc genRc;
 
     // Immutable statement properties:
@@ -116,8 +135,6 @@ typedef struct Match {
     // workerThread is subject to termination signal (SIGUSR1) if the
     // match is removed.
     _Atomic bool isCompleted;
-
-    _Atomic bool shouldFree;
 
     // TODO: Add match destructors.
     struct {
@@ -254,10 +271,12 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
+    fprintf(stderr, "reactToRemovedMatch\n");
     // Walk through each child statement and remove this match as a
     // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
     for (size_t i = 0; i < match->childStatements->nEdges; i++) {
+        fprintf(stderr, "Remove child match's child\n");
         StatementRef childRef = { .val = match->childStatements->edges[i] };
         Statement* child = statementAcquire(db, childRef);
         if (child != NULL) {
@@ -334,9 +353,7 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
-// becomes responsible for freeing it. Note: returns an acquired
-// (rc-incremented) statement pointer so it's safe to store in the
-// index.
+// becomes responsible for freeing it. 
 static StatementRef statementNew(Db* db, Clause* clause,
                                  char* sourceFileName,
                                  int sourceLineNumber) {
@@ -353,7 +370,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
         ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
 
         if (oldGenRc.rc == 0 && stmt->clause == NULL) {
-            newGenRc.rc = 1;
+            newGenRc.alive = true;
             if (atomic_compare_exchange_weak(&stmt->genRc, 
                                              &oldGenRc, newGenRc)) {
                 break;
@@ -373,8 +390,6 @@ static StatementRef statementNew(Db* db, Clause* clause,
     snprintf(stmt->sourceFileName, sizeof(stmt->sourceFileName),
              "%s", sourceFileName);
     stmt->sourceLineNumber = sourceLineNumber;
-
-    // TODO: do we zero out rc?
 
     return ret;
 }
@@ -404,6 +419,8 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
+        genRcMarkAsDead(&stmt->genRc);
+
         // Deindex the statement:
         uint64_t results[100];
         pthread_mutex_lock(&db->clauseToStatementIdMutex);
@@ -436,7 +453,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
     }
 }
 void matchRelease(Db* db, Match* match) {
-    if (genRcRelease(&match->genRc) && match->shouldFree) {
+    if (genRcRelease(&match->genRc)) {
         reactToRemovedMatch(db, match);
 
         free(match->childStatements);
@@ -472,7 +489,7 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
         ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
 
         if (oldGenRc.rc == 0 && match->childStatements == NULL) {
-            newGenRc.rc = 1;
+            newGenRc.alive = true;
             if (atomic_compare_exchange_weak(&match->genRc, 
                                              &oldGenRc, newGenRc)) {
                 break;
@@ -486,13 +503,9 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     pthread_mutex_init(&match->childStatementsMutex, NULL);
     match->workerThread = workerThread;
     match->isCompleted = false;
-    match->shouldFree = false;
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
         match->destructors[i].fn = NULL;
     }
-
-    // FIXME: This won't free match until it's explicitly destroyed.
-    /* match->ptrCount = 0; */
 
     return ret;
 }
@@ -523,7 +536,8 @@ void matchCompleted(Match* match) {
 }
 void matchRemoveSelf(Db* db, Match* match) {
     /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
-    match->shouldFree = true;
+    genRcMarkAsDead(&match->genRc);
+
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
         // execution.
