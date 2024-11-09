@@ -58,8 +58,6 @@ bool genRcRelease(_Atomic GenRc* genRcPtr) {
         oldGenRc = *genRcPtr;
         newGenRc = oldGenRc;
 
-        // FIXME: check alive. return true if rc is 0 AND not alive.
-
         callerShouldFree = !oldGenRc.alive && (--newGenRc.rc == 0);
         if (callerShouldFree) {
             newGenRc.gen++;
@@ -271,12 +269,10 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
-    fprintf(stderr, "reactToRemovedMatch\n");
     // Walk through each child statement and remove this match as a
     // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
     for (size_t i = 0; i < match->childStatements->nEdges; i++) {
-        fprintf(stderr, "Remove child match's child\n");
         StatementRef childRef = { .val = match->childStatements->edges[i] };
         Statement* child = statementAcquire(db, childRef);
         if (child != NULL) {
@@ -537,6 +533,7 @@ void matchCompleted(Match* match) {
 void matchRemoveSelf(Db* db, Match* match) {
     /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
     genRcMarkAsDead(&match->genRc);
+    reactToRemovedMatch(db, match);
 
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
