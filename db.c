@@ -133,11 +133,11 @@ typedef struct Match {
     // match is removed.
     _Atomic bool isCompleted;
 
-    // TODO: Add match destructors.
     struct {
         void (*fn)(void*);
         void* arg;
     } destructors[10];
+    pthread_mutex_t destructorsMutex;
 
     // ListOfEdgeTo StatementRef. Used for removal.
     ListOfEdgeTo* childStatements;
@@ -282,11 +282,14 @@ static void reactToRemovedMatch(Db* db, Match* match) {
     pthread_mutex_unlock(&match->childStatementsMutex);
 
     // Fire any destructors.
+    pthread_mutex_lock(&match->destructorsMutex);
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
         if (match->destructors[i].fn != NULL) {
             match->destructors[i].fn(match->destructors[i].arg);
+            match->destructors[i].fn = NULL;
         }
     }
+    pthread_mutex_unlock(&match->destructorsMutex);
 }
 
 ////////////////////////////////////////////////////////////
@@ -501,6 +504,7 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
         match->destructors[i].fn = NULL;
     }
+    pthread_mutex_init(&match->destructorsMutex, NULL);
 
     return ret;
 }
@@ -513,6 +517,7 @@ void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
                     &match->childStatements, child.val);
 }
 void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
+    pthread_mutex_lock(&m->destructorsMutex);
     int i;
     for (i = 0; i < sizeof(m->destructors)/sizeof(m->destructors[0]); i++) {
         if (m->destructors[i].fn == NULL) {
@@ -521,6 +526,7 @@ void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
             break;
         }
     }
+    pthread_mutex_unlock(&m->destructorsMutex);
     if (i == 10) {
         fprintf(stderr, "matchAddDestructor: Failed\n"); exit(1);
     }
