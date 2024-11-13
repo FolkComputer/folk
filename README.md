@@ -55,4 +55,8 @@ for debugging: `elfutils` (provides `eu-stack`)
 - clean up shader reference errors (use trick from main?)
 - ~~port camera-usb / camera-rpi split & backends, for gadget~~
 - port camera throughput fix from folk1
+- port tag iters fix from folk1
+- weird bugs
+  - drawImpl crash (vkCmdBindPipeline -> out of range) (does this
+    happen when RAM is under 100MB always?)
 
