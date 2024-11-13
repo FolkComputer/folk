@@ -1,0 +1,72 @@
+proc emitHTMLForProgramList {programList label} {
+    set prettyLabel [string map {- " "} $label]
+    set prettyLabel [string totitle $prettyLabel]:
+    set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
+    lappend returnList "<ul>"
+    foreach item $programList {
+        lappend returnList "<li>$item</li>"
+    }
+    lappend returnList "</ul>"
+    lappend returnList "</details>"
+    join $returnList
+}
+
+Wish the web server handles route "/programs" with handler {
+    set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
+    set vp [list]; # virtual programs
+    set cp [list]; # core programs
+    set wp [list]; # web programs
+    set rp [list]; # real programs
+
+    foreach match $programs {
+        set page [dict get $match page]
+        switch -glob $page {
+            "virtual-programs/*" {
+                lappend vp $page
+            }
+            "setup.folk.default" {
+                lappend cp $page
+            }
+            "/home/*" {
+                lappend cp $page
+            }
+            "web-program-*" {
+                lappend wp $page
+            }
+            default {
+                lappend rp $page
+            }
+        }
+    }
+
+    html [subst {
+        <html>
+        <head>
+            <title>Running programs</title>
+            <link rel="stylesheet" href="/style.css">
+            <style>
+                body {
+                    font-family: math;
+                }
+                summary {
+                    font-family: monospace;
+                    font-size: 2em;
+                }
+            </style>
+            <script src="/lib/folk.js"></script>
+            <script>
+            /* TODO:
+                (  ) Add a ws.watch() for /someone/ claims /page/ has program /program/
+            */
+            </script>
+        </head>
+        <body>
+            [emitHTMLForProgramList $rp "real-programs"]
+            [emitHTMLForProgramList $wp "web-programs"]
+            [emitHTMLForProgramList $vp "virtual-programs"]
+            [emitHTMLForProgramList $cp "core-programs"]
+            [expr {[llength $rp] ?  "<h2>[llength $rp] [expr {[llength $rp] == 1 ? "program is" : "programs are"}] out.</h2>" : "No real programs are out."}]
+        </body>
+        </html>
+    }]
+}
