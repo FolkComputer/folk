@@ -4,7 +4,7 @@ proc emitHTMLForProgramList {programList label} {
     set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
     lappend returnList "<ul>"
     foreach item $programList {
-        lappend returnList "<li>$item</li>"
+        lappend returnList "<li><details><summary>[dict get $item programName]</summary><pre><code>[htmlEscape [lindex [dict get $item program] 1]]</code></pre></details></li>"
     }
     lappend returnList "</ul>"
     lappend returnList "</details>"
@@ -12,29 +12,29 @@ proc emitHTMLForProgramList {programList label} {
 }
 
 Wish the web server handles route "/programs" with handler {
-    set programs [Statements::findMatches [list /someone/ claims /page/ has program /program/]]
+    set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
     set vp [list]; # virtual programs
     set cp [list]; # core programs
     set wp [list]; # web programs
     set rp [list]; # real programs
 
     foreach match $programs {
-        set page [dict get $match page]
-        switch -glob $page {
+        set programName [dict get $match programName]
+        switch -glob $programName {
             "virtual-programs/*" {
-                lappend vp $page
+                lappend vp $match
             }
             "setup.folk.default" {
-                lappend cp $page
+                lappend cp $match
             }
             "/home/*" {
-                lappend cp $page
+                lappend cp $match
             }
             "web-program-*" {
-                lappend wp $page
+                lappend wp $match
             }
             default {
-                lappend rp $page
+                lappend rp $match
             }
         }
     }
@@ -56,7 +56,7 @@ Wish the web server handles route "/programs" with handler {
             <script src="/lib/folk.js"></script>
             <script>
             /* TODO:
-                (  ) Add a ws.watch() for /someone/ claims /page/ has program /program/
+                (  ) Add a ws.watch() for /someone/ claims /programName/ has program /program/
             */
             </script>
         </head>
