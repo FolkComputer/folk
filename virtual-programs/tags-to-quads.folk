@@ -502,8 +502,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                          [dict get $det p]]
 
         Hold! [list tag pose $tag] \
-            [list $this claims tag $tag has pose $tagPose at timestamp $timestamp] \
-            4
+            [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
 
         set tagToCameraSpaceChanger [list apply [list {tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
