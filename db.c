@@ -38,7 +38,6 @@ bool genRcAcquire(_Atomic GenRc* genRcPtr, int32_t gen) {
     do {
         oldGenRc = *genRcPtr;
         if (oldGenRc.gen < 0 || oldGenRc.gen != gen) {
-            fprintf(stderr, "Failed acquire (gen = %d vs refgen = %d)\n", oldGenRc.gen, gen);
             return false;
         }
 

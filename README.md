@@ -33,6 +33,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **fix memory leak (10MB/second)**
   - free Clauses (match-local arenas to allocate from?)
   - cache per-thread value copies?
+- **workqueues get really huge??** is this the cause of leak?
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
@@ -43,3 +44,4 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - weird bugs
   - drawImpl crash (vkCmdBindPipeline -> out of range) (does this
     happen when RAM is under 100MB always?)
+
