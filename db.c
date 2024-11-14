@@ -310,8 +310,6 @@ Statement* statementUnsafeGet(Db* db, StatementRef ref) {
 }
 void statementRelease(Db* db, Statement* stmt) {
     if (genRcRelease(&stmt->genRc)) {
-        reactToRemovedStatement(db, stmt);
-
         stmt->parentCount = 0;
         free(stmt->childMatches);
         stmt->childMatches = NULL;
