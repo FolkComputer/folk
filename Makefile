@@ -25,7 +25,7 @@ sync:
 setup-remote:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && ./folk'
@@ -33,6 +33,10 @@ debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && gdb ./folk -ex=run'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make -C vendor/jimtcl && make && valgrind --leak-check=yes ./folk'
+heapprofile-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof ./folk'
+heapprofile-remote-dump:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk /tmp/folk.hprof.0002.heap'
 
 flamegraph:
 	sudo perf record -F 997 --pid=$(shell pgrep folk) -g -- sleep 30
