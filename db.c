@@ -56,7 +56,8 @@ bool genRcRelease(_Atomic GenRc* genRcPtr) {
         oldGenRc = *genRcPtr;
         newGenRc = oldGenRc;
 
-        callerShouldFree = !oldGenRc.alive && (--newGenRc.rc == 0);
+        --newGenRc.rc;
+        callerShouldFree = !oldGenRc.alive && (newGenRc.rc == 0);
         if (callerShouldFree) {
             newGenRc.gen++;
         }
