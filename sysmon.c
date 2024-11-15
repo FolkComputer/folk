@@ -162,9 +162,21 @@ void sysmon() {
     clockTimeClause->terms[5] = strdup("is");
     asprintf(&clockTimeClause->terms[6], "%f",
              (double)timeUs / 1000000.0);
-    dbHoldStatement(db, "clock-time", currentTick,
-                    clockTimeClause,
-                    "sysmon.c", __LINE__, NULL);
+
+    pthread_mutex_lock(&globalWorkQueueMutex);
+    workQueuePush(globalWorkQueue, (WorkQueueItem) {
+            .op = HOLD,
+            .thread = -1,
+            .hold = {
+                .key = strdup("clock-time"),
+                .version = currentTick,
+                .sustainMs = 0,
+                .clause = clockTimeClause,
+                .sourceFileName = "sysmon.c",
+                .sourceLineNumber = __LINE__
+            }
+        });
+    pthread_mutex_unlock(&globalWorkQueueMutex);
 }
 
 void *sysmonMain(void *ptr) {
