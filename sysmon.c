@@ -46,7 +46,7 @@ void sysmonInit() {
 }
 
 void sysmon() {
-    /* trace("%" PRId64 "us: Sysmon Tick", */
+    /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
 
     // This is the system monitoring routine that runs on every tick
@@ -151,7 +151,7 @@ void sysmon() {
 
     // Fourth: update the clock time statement in the database.
     // sysmon.c claims the clock time is <TIME>
-    int64_t timeUs = timestamp_get(CLOCK_REALTIME);
+    int64_t timeNs = timestamp_get(CLOCK_REALTIME);
     Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
     clockTimeClause->nTerms = 7;
     clockTimeClause->terms[0] = strdup("sysmon.c");
@@ -161,7 +161,7 @@ void sysmon() {
     clockTimeClause->terms[4] = strdup("time");
     clockTimeClause->terms[5] = strdup("is");
     asprintf(&clockTimeClause->terms[6], "%f",
-             (double)timeUs / 1000000.0);
+             (double)timeNs / 1000000000.0);
 
     pthread_mutex_lock(&globalWorkQueueMutex);
     workQueuePush(globalWorkQueue, (WorkQueueItem) {
