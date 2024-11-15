@@ -5,6 +5,10 @@
 #include <time.h>
 #include <sys/time.h>
 #include <inttypes.h>
+#include <string.h>
+#ifdef __linux__
+#include <sys/sysinfo.h>
+#endif
 
 #include "common.h"
 
@@ -42,8 +46,8 @@ void sysmonInit() {
 }
 
 void sysmon() {
-    trace("%" PRId64 "us: Sysmon Tick",
-          timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot);
+    /* trace("%" PRId64 "us: Sysmon Tick", */
+    /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
 
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).
@@ -144,6 +148,23 @@ void sysmon() {
         fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
         workerSpawn();
     }
+
+    // Fourth: update the clock time statement in the database.
+    // sysmon.c claims the clock time is <TIME>
+    int64_t timeUs = timestamp_get(CLOCK_REALTIME);
+    Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
+    clockTimeClause->nTerms = 7;
+    clockTimeClause->terms[0] = strdup("sysmon.c");
+    clockTimeClause->terms[1] = strdup("claims");
+    clockTimeClause->terms[2] = strdup("the");
+    clockTimeClause->terms[3] = strdup("clock");
+    clockTimeClause->terms[4] = strdup("time");
+    clockTimeClause->terms[5] = strdup("is");
+    asprintf(&clockTimeClause->terms[6], "%f",
+             (double)timeUs / 1000000.0);
+    dbHoldStatement(db, "clock-time", currentTick,
+                    clockTimeClause,
+                    "sysmon.c", __LINE__, NULL);
 }
 
 void *sysmonMain(void *ptr) {
