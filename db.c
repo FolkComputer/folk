@@ -732,7 +732,7 @@ StatementRef dbHoldStatement(Db* db,
                              Clause* clause,
                              char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
-    *outOldStatement = STATEMENT_REF_NULL;
+    if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
     pthread_mutex_lock(&db->holdsMutex);
 
