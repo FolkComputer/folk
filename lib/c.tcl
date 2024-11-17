@@ -326,6 +326,15 @@ C method struct {type fields} {
     # code. value = 0 means the data is owned externally
     # (by someone else like the statement store).
     dict set objtypes $type [csubst {
+        $[join [lmap fieldname $fieldnames { subst {
+            Jim_Obj* k__${type}__${fieldname};
+        } }] "\n"]
+        void $[set type]_init(Jim_Interp* interp) {
+            $[join [lmap fieldname $fieldnames { subst {
+                k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
+            } }] "\n"]
+        }
+
         extern Jim_ObjType $[set type]_ObjType;
         void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
@@ -358,7 +367,8 @@ C method struct {type fields} {
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_Obj* obj_$fieldname;
-                    __ENSURE_OK(Jim_DictKey(interp, objPtr, Jim_ObjPrintf("%s", "$fieldname"), &obj_$fieldname, JIM_ERRMSG));
+                    __ENSURE_OK(Jim_DictKey(interp, objPtr, k__$[set type]__$fieldname, &obj_$fieldname, JIM_ERRMSG));
+
                     $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
                     memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
                 }
@@ -520,6 +530,10 @@ C method compile {} {
                     Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
+
+            [join [lmap type [dict keys $objtypes] { subst {
+                ${type}_init(interp);
+            } }] "\n"]
             return JIM_OK;
         }
     }]
