@@ -82,8 +82,7 @@ void sysmon() {
         if (!statementRefIsNull(removeLater[i].stmt)) {
             if (removeLater[i].canRemoveAtTick >= currentTick) {
                 // Remove immediately on sysmon thread so there's no
-                // pileup, then TODO: dispatch destructors to the
-                // global work queue?
+                // pileup.
                 Statement* stmt;
                 if ((stmt = statementAcquire(db, removeLater[i].stmt))) {
                     statementRemoveParentAndMaybeRemoveSelf(db, stmt);
