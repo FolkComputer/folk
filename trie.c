@@ -10,6 +10,10 @@
 #include "trie.h"
 
 char* clauseToString(Clause* c) {
+    if (c == NULL || c->nTerms <= 0 || c->nTerms > 100) {
+        return strdup("<invalid clause>");
+    }
+
     int totalLength = 0;
     for (int i = 0; i < c->nTerms; i++) {
         totalLength += strlen(c->terms[i]) + 1;

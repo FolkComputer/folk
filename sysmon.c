@@ -60,6 +60,9 @@ void sysmon() {
         // every 2s.
         int freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
         int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
+        // TODO: Check directly folk's own use of RAM, so we can
+        // detect leaks (I think system RAM is good for killing but
+        // process RAM use is better for leak diagnosis).
         fprintf(stderr, "Check avail RAM: %d MB / %d MB\n",
                 freeRamMb,
                 totalRamMb);

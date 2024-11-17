@@ -318,6 +318,7 @@ void statementRelease(Db* db, Statement* stmt) {
         // find it, and we don't want to reuse the slot.
 #else
         Clause* stmtClause = statementClause(stmt);
+        stmtClause->nTerms = 0;
         for (int i = 0; i < stmtClause->nTerms; i++) {
             free(stmtClause->terms[i]);
         }
