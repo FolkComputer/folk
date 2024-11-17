@@ -79,7 +79,7 @@ static void workQueueResize(WorkQueue* q) {
     size_t new_size = size << 1;
     if (new_size > 1024 * 1024) {
         fprintf(stderr, "workQueueResize: Way too big new size\n");
-        exit(10);
+        exit(1);
     }
     WorkQueueArray *new_a = (WorkQueueArray*) calloc(1, new_size * sizeof(WorkQueueItem*) + sizeof(WorkQueueArray));
     size_t top = atomic_load_explicit(&q->top, memory_order_relaxed);

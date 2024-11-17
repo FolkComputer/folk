@@ -538,13 +538,12 @@ static void reactToNewStatement(StatementRef ref) {
 
     // (is the double eval even bad?)
 
-    // what is the cause of the skip behavior where program code
-    // claims don't even have children?
-
     // FIXME: What if a when is added that matches us at this point?
     // We're already in the DB, so the when will fire itself with
     // respect to us in the DB, but we'll also see it here, so we'll
     // fire with respect to it in the DB.
+
+    // sequence number? react completion flag?
 
     // Solution? Some kind of lookaside buffer with a list of patterns
     // that are being contended over? Some kind of locks? Reversible

@@ -30,8 +30,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count
 - event statements
-- **fix memory leak (10MB/second)**
-  - free Clauses (match-local arenas to allocate from?)
+- **fix memory leak (200MB/second)**
   - cache per-thread value copies?
 - **workqueues get really huge??** is this the cause of leak?
 - performance analysis
@@ -44,4 +43,5 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - weird bugs
   - drawImpl crash (vkCmdBindPipeline -> out of range) (does this
     happen when RAM is under 100MB always?)
+- enforce removal of two-generation-old Holds so you don't blow up
 

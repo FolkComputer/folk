@@ -84,8 +84,6 @@ void genRcMarkAsDead(_Atomic GenRc* genRcPtr) {
 // Statement datatype:
 
 typedef struct Statement {
-    // We keep rc at 1 to represent being 'owned' by the database.
-    // NO, that doesn't work, because then how do you actually release it from the database? What if multiple ppl release at once?
     _Atomic GenRc genRc;
 
     // Immutable statement properties:
