@@ -51,19 +51,20 @@ bool genRcAcquire(_Atomic GenRc* genRcPtr, int32_t gen) {
 bool genRcRelease(_Atomic GenRc* genRcPtr) {
     GenRc oldGenRc;
     GenRc newGenRc;
-    bool callerShouldFree = false;
+    bool callerIsLastReleaser = false;
     do {
         oldGenRc = *genRcPtr;
+
         newGenRc = oldGenRc;
 
         --newGenRc.rc;
-        callerShouldFree = !oldGenRc.alive && (newGenRc.rc == 0);
-        if (callerShouldFree) {
+        callerIsLastReleaser = !oldGenRc.alive && (newGenRc.rc == 0);
+        if (callerIsLastReleaser) {
             newGenRc.gen++;
         }
 
     } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
-    return callerShouldFree;
+    return callerIsLastReleaser;
 }
 void genRcMarkAsDead(_Atomic GenRc* genRcPtr) {
     // ASSUMES that rc > 0 (because the caller must have acquired the
