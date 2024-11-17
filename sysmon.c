@@ -78,13 +78,14 @@ void sysmon() {
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
         if (!statementRefIsNull(removeLater[i].stmt)) {
             if (removeLater[i].canRemoveAtTick >= currentTick) {
-                pthread_mutex_lock(&globalWorkQueueMutex);
-                workQueuePush(globalWorkQueue, (WorkQueueItem) {
-                        .op = REMOVE_PARENT,
-                        .thread = -1,
-                        .removeParent = { .stmt = removeLater[i].stmt }
-                    });
-                pthread_mutex_unlock(&globalWorkQueueMutex);
+                // Remove immediately on sysmon thread so there's no
+                // pileup, then TODO: dispatch destructors to the
+                // global work queue?
+                Statement* stmt;
+                if ((stmt = statementAcquire(db, removeLater[i].stmt))) {
+                    statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+                    statementRelease(db, stmt);
+                }
 
                 removeLater[i].stmt = STATEMENT_REF_NULL;
                 removeLater[i].canRemoveAtTick = 0;
