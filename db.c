@@ -54,7 +54,6 @@ bool genRcRelease(_Atomic GenRc* genRcPtr) {
     bool callerIsLastReleaser = false;
     do {
         oldGenRc = *genRcPtr;
-
         newGenRc = oldGenRc;
 
         --newGenRc.rc;
@@ -604,6 +603,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 // What happens if the parent match is removed at some point?  How do
 // we ensure that either this statement is retracted or it never
 // appears?
+// WARNING: This takes ownership of clause. It may be freed after you call this!
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {

@@ -496,9 +496,13 @@ static Clause* unwhenizeClause(Clause* whenClause) {
 
 // React to the addition of a new statement: fire any pertinent
 // existing Whens & if the new statement is a When, then fire it with
-// respect to any pertinent existing statements. Should be called with
-// the database lock held.
-static void reactToNewStatement(StatementRef ref, Clause* clause) {
+// respect to any pertinent existing statements. 
+static void reactToNewStatement(StatementRef ref) {
+    // This is just to ensure clause validity.
+    Statement* stmt = statementAcquire(db, ref);
+    if (stmt == NULL) { return; }
+    Clause* clause = statementClause(stmt);
+
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
@@ -602,6 +606,7 @@ static void reactToNewStatement(StatementRef ref, Clause* clause) {
         }
         free(existingReactingWhens);
     }
+    statementRelease(db, stmt);
 }
 
 void workerRun(WorkQueueItem item) {
@@ -620,7 +625,7 @@ void workerRun(WorkQueueItem item) {
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL);
         if (!statementRefIsNull(ref)) {
-            reactToNewStatement(ref, item.assert.clause);
+            reactToNewStatement(ref);
         }
 
     } else if (item.op == RETRACT) {
@@ -639,7 +644,7 @@ void workerRun(WorkQueueItem item) {
                                  item.hold.sourceLineNumber,
                                  &oldRef);
         if (!statementRefIsNull(newRef)) {
-            reactToNewStatement(newRef, item.hold.clause);
+            reactToNewStatement(newRef);
         }
         // TODO: We need to delay the react to removed statement until
         // the estimated convergence time of the new statement has
@@ -657,7 +662,7 @@ void workerRun(WorkQueueItem item) {
         }
 
     } else if (item.op == SAY) {
-        /* printf("@%d: Say (%.100s)\n", self->index, clauseToString(item.say.clause)); */
+        /* printf("@%d: Say (%p) (%.100s)\n", self->index, item.say.clause, clauseToString(item.say.clause)); */
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.say.clause,
@@ -665,7 +670,7 @@ void workerRun(WorkQueueItem item) {
                                        item.say.sourceLineNumber,
                                        item.say.parent);
         if (!statementRefIsNull(ref)) {
-            reactToNewStatement(ref, item.say.clause);
+            reactToNewStatement(ref);
         }
 
     } else if (item.op == RUN) {
