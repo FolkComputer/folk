@@ -4,7 +4,7 @@
 #include "db.h"
 #include "trie.h"
 
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN, REMOVE_PARENT } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN, EVAL } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
 
@@ -60,7 +60,9 @@ typedef struct WorkQueueItem {
             Clause* whenPattern;
             StatementRef stmt;
         } run;
-        struct { StatementRef stmt; } removeParent;
+        struct {
+            char* code;
+        } eval;
     };
 } WorkQueueItem;
 

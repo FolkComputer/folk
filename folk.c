@@ -220,13 +220,19 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 static void destructorHelper(void* arg) {
+    // This dispatches an evaluation task to the global queue, so it
+    // can be invoked from sysmon (which doesn't have its own Tcl
+    // interpreter).
+
     char* code = (char*) arg;
-    int error = Jim_Eval(interp, code);
-    if (error == JIM_ERR) {
-        Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "destructorHelper: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
-    }
-    free(code);
+
+    pthread_mutex_lock(&globalWorkQueueMutex);
+    workQueuePush(globalWorkQueue, (WorkQueueItem) {
+            .op = EVAL,
+            .thread = -1,
+            .eval = { .code = code }
+        });
+    pthread_mutex_unlock(&globalWorkQueueMutex);
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
@@ -678,12 +684,15 @@ void workerRun(WorkQueueItem item) {
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
 
-    } else if (item.op == REMOVE_PARENT) {
-        Statement* stmt;
-        if ((stmt = statementAcquire(db, item.removeParent.stmt))) {
-            statementRemoveParentAndMaybeRemoveSelf(db, stmt);
-            statementRelease(db, stmt);
+    } else if (item.op == EVAL) {
+        // Used for destructors.
+        char* code = item.eval.code;
+        int error = Jim_Eval(interp, code);
+        if (error == JIM_ERR) {
+            Jim_MakeErrorMessage(interp);
+            fprintf(stderr, "destructorHelper: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
         }
+        free(code);
 
     } else {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
@@ -719,8 +728,8 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
                  clauseToString(item.run.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
-    } else if (item.op == REMOVE_PARENT) {
-        snprintf(buf, bufsz, "Remove Parent");
+    } else if (item.op == EVAL) {
+        snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
         snprintf(buf, bufsz, "NONE");
     } else {
