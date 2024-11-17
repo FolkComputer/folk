@@ -149,7 +149,9 @@ int workQueueStealHalf(WorkQueueItem* into, int maxn,
         /* Non-empty queue. */
         WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_acquire);
 
-        for (size_t i = t; i < b; i++) {
+        ssize_t stealcount = count/2;
+        if (stealcount == 0) stealcount = 1;
+        for (size_t i = t; i < t + stealcount; i++) {
             if (nstolen >= maxn) { break; }
             into[nstolen++] = *(atomic_load_explicit(&a->buffer[i % a->size], memory_order_relaxed));
         }
