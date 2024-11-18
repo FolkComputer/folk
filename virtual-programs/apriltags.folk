@@ -90,7 +90,7 @@ When camera /camera/ has frame /grayFrame/ at timestamp /ts/ {
     # perfEvent didDetect
     Hold! apriltags \
         [list virtual-program/apriltags.folk claims $this detects tags $tags \
-             on camera $camera at timestamp $ts in time $aprilTime]
+             on camera $camera at timestamp $ts in time $aprilTime] 4
 }
 
 ########

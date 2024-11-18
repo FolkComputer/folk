@@ -161,8 +161,6 @@ void *sysmonMain(void *ptr) {
 }
 // This gets called from other threads.
 void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
-    // TODO: Round laterMs up to a number of ticks.
-    // Then put it into the tick slot.
     int laterTicks = laterMs / SYSMON_TICK_MS;
 
     int i;
