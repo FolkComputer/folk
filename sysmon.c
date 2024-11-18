@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <inttypes.h>
 #include <string.h>
+#include <stdatomic.h>
 #ifdef __linux__
 #include <sys/sysinfo.h>
 #endif
@@ -28,20 +29,18 @@ void workerSpawn();
 #define SYSMON_TICK_MS 2
 
 typedef struct RemoveLater {
-    StatementRef stmt;
+    _Atomic StatementRef stmt;
     int64_t canRemoveAtTick;
 } RemoveLater;
 
-#define REMOVE_LATER_MAX 30
+#define REMOVE_LATER_MAX 1000
 RemoveLater removeLater[REMOVE_LATER_MAX];
-pthread_mutex_t removeLaterMutex;
 
 int64_t _Atomic tick;
 
 int64_t timestampAtBoot;
 
 void sysmonInit() {
-    pthread_mutex_init(&removeLaterMutex, NULL);
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
 }
 
@@ -76,25 +75,24 @@ void sysmon() {
 #endif
 
     // Second: deal with any remove-later (sustains).
-    pthread_mutex_lock(&removeLaterMutex);
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
-        if (!statementRefIsNull(removeLater[i].stmt)) {
+        StatementRef stmtRef = removeLater[i].stmt;
+        if (!statementRefIsNull(stmtRef)) {
             if (removeLater[i].canRemoveAtTick >= currentTick) {
                 // Remove immediately on sysmon thread so there's no
                 // pileup.
                 Statement* stmt;
-                if ((stmt = statementAcquire(db, removeLater[i].stmt))) {
+                if ((stmt = statementAcquire(db, stmtRef))) {
                     statementRemoveParentAndMaybeRemoveSelf(db, stmt);
                     statementRelease(db, stmt);
                 }
 
-                removeLater[i].stmt = STATEMENT_REF_NULL;
                 removeLater[i].canRemoveAtTick = 0;
+                removeLater[i].stmt = STATEMENT_REF_NULL;
             }
         }
     }
-    pthread_mutex_unlock(&removeLaterMutex);
 
     // Third: manage the pool of worker threads.
     // How many workers are 'available'?
@@ -104,27 +102,6 @@ void sysmon() {
         pid_t tid = threads[i].tid;
         if (tid == 0) { continue; }
 
-        // Check state of tid.
-        /* char path[100]; snprintf(path, 100, "/proc/%d/stat", tid); */
-        /* FILE *fp = fopen(path, "r"); */
-        /* if (fp == NULL) { continue; } */
-        /* int _pid; char _name[100]; char state; */
-        /* // TODO: doesn't deal with name with space in it. */
-        /* fscanf(fp, "%d %s %c ", &_pid, _name, &state); */
-        /* fclose(fp); */
-
-        // We want to know when a thread will be likely to be ready to
-        // take on new work.
-
-        // so, we want to estimate how long its current work item will
-        // take.
-
-        // We want to count the number of threads that are ready to
-        // take on new work.
-
-        // what if the thread gets/got preempted? it'll totally screw
-        // over the elapsed time estimate.
-
         // Check work item start timestamp. Been working for less than
         // 10 ms? We'll count it as available.
         int64_t now = timestamp_get(threads[i].clockid);
@@ -133,18 +110,6 @@ void sysmon() {
 
             availableWorkersCount++;
         }
-        // FIXME: what if we get in a loop where we keep spawning threads?
-
-        // Should we mark any thread in a C call mid-match (or simply
-        // sleeping on the OS?) as being no longer pinned?  Should we
-        // pin worker threads to the CPU?
-
-        // We want ncpus worker threads.
-
-        // What if a worker thread is genuinely busy with compute?
-
-        // How long has it been running in the current burst?
-        // Is it blocked on the OS (sleeping state)?
     }
     if (availableWorkersCount < 2) {
         // new worker spawns should be safe, legal, and rare.
@@ -200,11 +165,14 @@ void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
     // Then put it into the tick slot.
     int laterTicks = laterMs / SYSMON_TICK_MS;
 
-    pthread_mutex_lock(&removeLaterMutex);
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
-        if (statementRefIsNull(removeLater[i].stmt)) {
-            removeLater[i].stmt = stmtRef;
+        StatementRef oldStmtRef = removeLater[i].stmt;
+        if (statementRefIsNull(oldStmtRef) &&
+            atomic_compare_exchange_weak(&removeLater[i].stmt,
+                                         &oldStmtRef,
+                                         stmtRef)) {
+
             removeLater[i].canRemoveAtTick = tick + laterTicks;
             break;
         }
@@ -213,5 +181,4 @@ void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
         exit(1);
     }
-    pthread_mutex_unlock(&removeLaterMutex);
 }
