@@ -317,11 +317,9 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               Wish to print $code with job-id $jobid
               Hold print-${jobid} {
                 Claim $id' is printing $jobid
-                puts "holding titling page at [clock milliseconds]"
               }
               After 2000 milliseconds {
                 Hold print-${jobid} {}
-                puts "untitling page at [clock milliseconds]"
               }
 
               Hold "code$kbPath" {

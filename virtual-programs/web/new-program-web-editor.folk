@@ -142,7 +142,6 @@ Wish the web server handles route "/new" with handler {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
     ws.send(tcl`Wish to print ${code} with job-id ${jobid}`);
-    console.log("Printing with job-id", jobid);
     let printBtn = document.getElementById("printBtn")
     printBtn.innerText = "Printing";
     printBtn.disabled = true;
