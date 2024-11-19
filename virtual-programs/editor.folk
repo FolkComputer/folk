@@ -189,6 +189,13 @@ proc getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
+When /page/ is printing /jobid/ & /page/ has region /r/ {
+  set r [region move $r left 50px]
+  lassign [region left $r] x y
+  set angle [region angle $r]
+  Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
+}
+
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id "$page$kbPath"
 
@@ -306,7 +313,14 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               }
 
               Hold print { Claim $id has printed $code at $timestamp}
-              Wish to print $code with job-id [expr {rand()}]
+              set jobid [expr {rand()}]
+              Wish to print $code with job-id $jobid
+              Hold print-${jobid} {
+                Claim $id' is printing $jobid
+              }
+              After 2000 milliseconds {
+                Hold print-${jobid} {}
+              }
 
               Hold "code$kbPath" {
                 Claim $id has program code $code

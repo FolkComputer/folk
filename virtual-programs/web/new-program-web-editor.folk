@@ -14,7 +14,7 @@ Wish the web server handles route "/new" with handler {
       <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
       <p>
         <button onclick="handleSave()">Save</button>
-        <button onclick="handlePrint()">Print</button>
+        <button id="printBtn" onclick="handlePrint()">Print</button>
 
         <input id="regionAngleRange" type="range" value="0" min="0" max="360" step="0.1" oninput="this.nextElementSibling.value = `angle: ${this.value}&deg;`; regionAngle = this.value; handleDrag();">
         <output>angle: 0&deg;</output>
@@ -142,6 +142,13 @@ Wish the web server handles route "/new" with handler {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
     ws.send(tcl`Wish to print ${code} with job-id ${jobid}`);
+    let printBtn = document.getElementById("printBtn")
+    printBtn.innerText = "Printing";
+    printBtn.disabled = true;
+    setTimeout(() => {
+      printBtn.innerText = "Print";
+      printBtn.disabled = false;
+    }, 1000);
   }
   handleDrag();
     </script>
