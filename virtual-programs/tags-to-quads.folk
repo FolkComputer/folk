@@ -230,7 +230,10 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         matd_destroy(Jp);
         matd_destroy(dq);
 
-        if (iters++ > 10) { /* ok */ }
+        if (iters++ > 50) {
+            fprintf(stderr, "tags-to-quads: TOO MANY ITERS\n");
+            break;
+        }
     } while (fabs(residual - residual_prev) > MATD_EPS);
 
     /* exit(1); */
