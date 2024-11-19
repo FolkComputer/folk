@@ -326,7 +326,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         # perfEvent camera
 
         set frame [Camera::grayFrame $camObj]
-        Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 4
+        Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 6
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 50} {
             set oldFrames [lassign $oldFrames oldestFrame]
