@@ -268,7 +268,7 @@ static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         free(env);
         statementRelease(db, result);
     }
-    free(pattern);
+    clauseFree(pattern);
     free(rs);
     Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, resultObjsCount));
     return JIM_OK;

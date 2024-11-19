@@ -10,6 +10,7 @@ typedef struct Clause {
     char* terms[];
 } Clause;
 #define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
+void clauseFree(Clause* c);
 
 // Caller must free the string.
 char* clauseToString(Clause* c);

@@ -9,6 +9,14 @@
 
 #include "trie.h"
 
+void clauseFree(Clause* c) {
+    c->nTerms = 0;
+    for (int i = 0; i < c->nTerms; i++) {
+        free(c->terms[i]);
+    }
+    free(c);
+}
+
 char* clauseToString(Clause* c) {
     if (c == NULL || c->nTerms <= 0 || c->nTerms > 100) {
         return strdup("<invalid clause>");
