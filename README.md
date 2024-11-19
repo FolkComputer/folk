@@ -17,22 +17,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 ## todo
 
 - adjust stack record if When is multiline
-- ~~thread-local workqueues & work stealing~~
-  - dependencies? transactions?
-- fix printing to stdout
-- clock time?
-  - hold it in sysmon?
-  - **-> marching ants animation**
-- When priorities? deadlines?
-  - consistent name for sustain/ttl/remove-later
-- ~~implement Collect -> labels~~
-  - use some sort of timer?
+- consistent name for sustain/ttl/remove-later
 - reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count
 - event statements
-- **fix memory leak (200MB/second)**
+- **fix memory leak (5MB/second)**
   - cache per-thread value copies?
-- **workqueues get really huge??** is this the cause of leak?
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
@@ -40,8 +30,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
 - port tag iters fix from folk1
-- weird bugs
-  - drawImpl crash (vkCmdBindPipeline -> out of range) (does this
-    happen when RAM is under 100MB always?)
-- enforce removal of two-generation-old Holds so you don't blow up
-
+- web stops working after a while
+- **marching ants animation**
+- **blinking of outlines**
