@@ -380,7 +380,12 @@ static StatementRef statementNew(Db* db, Clause* clause,
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
-    pthread_mutex_init(&stmt->childMatchesMutex, NULL);
+
+    pthread_mutexattr_t mta;
+    pthread_mutexattr_init(&mta);
+    pthread_mutexattr_settype(&mta, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&stmt->childMatchesMutex, &mta);
+    pthread_mutexattr_destroy(&mta);
 
     snprintf(stmt->sourceFileName, sizeof(stmt->sourceFileName),
              "%s", sourceFileName);
@@ -406,8 +411,10 @@ static bool matchChecker(void* db, uint64_t ref) {
     return matchCheck((Db*) db, (MatchRef) { .val = ref });
 }
 void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
+    pthread_mutex_lock(&stmt->childMatchesMutex);
     listOfEdgeToAdd(&matchChecker, db,
                     &stmt->childMatches, child.val);
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 void statementAddParent(Statement* stmt) { stmt->parentCount++; }
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
@@ -495,7 +502,13 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     // We should have exclusive access to match right now.
 
     match->childStatements = listOfEdgeToNew(8);
-    pthread_mutex_init(&match->childStatementsMutex, NULL);
+
+    pthread_mutexattr_t mta;
+    pthread_mutexattr_init(&mta);
+    pthread_mutexattr_settype(&mta, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&match->childStatementsMutex, &mta);
+    pthread_mutexattr_destroy(&mta);
+
     match->workerThread = workerThread;
     match->isCompleted = false;
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
@@ -510,8 +523,10 @@ static bool statementChecker(void* db, uint64_t ref) {
     return statementCheck((Db*) db, (StatementRef) { .val = ref });
 }
 void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
+    pthread_mutex_lock(&match->childStatementsMutex);
     listOfEdgeToAdd(statementChecker, db,
                     &match->childStatements, child.val);
+    pthread_mutex_unlock(&match->childStatementsMutex);
 }
 void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
     pthread_mutex_lock(&m->destructorsMutex);
