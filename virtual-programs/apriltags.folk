@@ -92,7 +92,7 @@ while true {
 
     # Use highest timestamp (latest) camera frame.
     set results [lsort -command [list apply {{a b} {
-        - [dict get $a ts] [dict get $b ts]
+        expr {[dict get $a ts] < [dict get $b ts]}
     }}] $results]
     set latestResult [lindex $results end]
     dict with latestResult {
@@ -108,8 +108,11 @@ while true {
             set tags [$detector detect $grayFrame]
         }]
         # perfEvent didDetect
+
+        # Holding for 16ms so that the tag detections overlap so that
+        # you don't get re-Added.
         Hold! apriltags \
             [list virtual-programs/apriltags.folk claims $this detects tags $tags \
-                 on camera $camera at timestamp $ts in time $aprilTime]
+                 on camera $camera at timestamp $ts in time $aprilTime] 16
     }
 }
