@@ -10,6 +10,14 @@ Assert! when we are on {{} {
     }
 
     When we are on {
+        source "virtual-programs/web/web.folk"
+    }
+    When we are on {
+        source "virtual-programs/web/db-lib.folk"
+        source "virtual-programs/web/index.folk"
+        source "virtual-programs/web/trace.folk"
+    }
+    When we are on {
         set this SELF
         source "$::env(HOME)/folk-live/setup.folk"
         source "virtual-programs/gpu.folk"
