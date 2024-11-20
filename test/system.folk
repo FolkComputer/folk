@@ -1,0 +1,38 @@
+Assert! we are on
+Assert! when we are on {{} {
+    When we are on {
+        set tick 0
+        while true {
+            Hold! time [list the local tick is $tick]
+            incr tick
+            sleep 0.1
+        }
+    }
+
+    When we are on {
+        set this SELF
+        source "$::env(HOME)/folk-live/setup.folk"
+        source "virtual-programs/gpu.folk"
+    }
+    source "virtual-programs/draw/color-map.folk"
+    source "virtual-programs/draw/line.folk"
+    source "virtual-programs/decorations/outline.folk"
+    When the local tick is /tick/ {
+        set x $($tick % 300); set y $($tick % 300)
+        set w 100; set h 100
+        set vertices [list [list [expr {$x+$w}] $y] \
+                          [list $x $y] \
+                          [list $x [expr {$y+$h}]] \
+                          [list [expr {$x+$w}] [expr {$y+$h}]]]
+        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+        Claim PROGRAM has region [region create $vertices $edges]
+    }
+    Wish PROGRAM is outlined green
+
+    When we are on {
+        while true {
+            sleep 1
+            puts [Query! the local tick is /tick/]
+        }
+    }
+}} with environment {}
