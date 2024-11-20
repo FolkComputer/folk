@@ -1,7 +1,9 @@
 // Inspired by Golang's sysmon. Gotta catch 'em all...
 
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <stdio.h>
+
 #include <time.h>
 #include <sys/time.h>
 #include <inttypes.h>
