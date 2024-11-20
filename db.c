@@ -313,16 +313,13 @@ void statementRelease(Db* db, Statement* stmt) {
         free(stmt->childMatches);
         stmt->childMatches = NULL;
 
-#ifdef FOLK_TRACE
-        // Don't remove the clause; we want the trace to be able to
-        // find it, and we don't want to reuse the slot.
-#else
         Clause* stmtClause = statementClause(stmt);
-        clauseFree(stmtClause);
-
         // Marks this statement slot as being fully free and ready for
         // reuse.
         stmt->clause = NULL;
+#ifdef FOLK_TRACE
+#else
+        clauseFree(stmtClause);
 #endif
     }
 }
