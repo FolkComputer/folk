@@ -29,6 +29,7 @@ proc makeAprilTagDetector {TAG_FAMILY} {
         pthread_mutex_init(&tmutex, NULL);
     }
     $cc proc detect {Image gray} Jim_Obj* {
+        // FIXME: this mutex holds up the whole system.
         pthread_mutex_lock(&tmutex);
 
         assert(gray.components == 1);
@@ -76,25 +77,6 @@ set tagFamily "tagStandard52h13"
 # Plain detector. Runs on entire camera frame.
 set detector [makeAprilTagDetector $tagFamily]
 
-When camera /camera/ has frame /grayFrame/ at timestamp /ts/ {
-    set now [expr {[clock milliseconds] / 1000.0}]
-    # puts stderr "now - ts: [expr {$now - $ts}]"
-    # Do not process frames older than 25 frames (they're freed at 50 frames).
-    if {$now - $ts > 0.016 * 25} { return }
-
-    # Need to have a `detector` object available from all threads,
-    # inside this scope.
-    set aprilTime [time {
-        set tags [$detector detect $grayFrame]
-    }]
-    # perfEvent didDetect
-    Hold! apriltags \
-        [list virtual-program/apriltags.folk claims $this detects tags $tags \
-             on camera $camera at timestamp $ts in time $aprilTime] 4
-}
-
-########
-
 # Split detection into individual tag claims:
 When /someone/ detects tags /tags/ on camera /camera/ at timestamp /ts/ in time /aprilTime/ {
     foreach det $tags {
@@ -102,4 +84,32 @@ When /someone/ detects tags /tags/ on camera /camera/ at timestamp /ts/ in time 
         Claim tag $id has detection $det on camera $camera at timestamp $ts
     }
     # Claim the AprilTag time is $::aprilTime
+}
+
+while true {
+    set results [Query! /someone/ claims camera /camera/ has frame /grayFrame/ at timestamp /ts/]
+    if {[llength $results] == 0} { continue }
+
+    # Use highest timestamp (latest) camera frame.
+    set results [lsort -command [list apply {a b} {
+        - [dict get $a ts] [dict get $b ts]
+    }] $results]
+    set latestResult [lindex $results end]
+    dict with latestResult {
+        set now [expr {[clock milliseconds] / 1000.0}]
+
+        # puts stderr "now - ts: [expr {$now - $ts}]"
+        # Do not process frames older than 25 frames (they're freed at 50 frames).
+        if {$now - $ts > 0.016 * 25} { return }
+
+        # Need to have a `detector` object available from all threads,
+        # inside this scope.
+        set aprilTime [time {
+            set tags [$detector detect $grayFrame]
+        }]
+        # perfEvent didDetect
+        Hold! apriltags \
+            [list virtual-programs/apriltags.folk claims $this detects tags $tags \
+                 on camera $camera at timestamp $ts in time $aprilTime] 4
+    }
 }
