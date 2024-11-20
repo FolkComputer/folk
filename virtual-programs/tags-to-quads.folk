@@ -483,9 +483,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         set prevResults [Query! /someone/ claims tag $tag has pose /tagPose/ at timestamp /timestamp/]
         if {[llength $prevResults] > 0} {
-            set latestResult [lindex [lsort -command {apply {a b} {
+            set latestResult [lindex [lsort -command {apply {{a b} {
                 expr { [dict get $b timestamp] <=> [dict get $a timestamp] }
-            }} $prevResults] 0]
+            }}} $prevResults] 0]
 
             set prevTimestamp [dict get $latestResult timestamp]
             # Consider previous tag pose if it's less than 200ms old:
