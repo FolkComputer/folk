@@ -91,9 +91,9 @@ while true {
     if {[llength $results] == 0} { continue }
 
     # Use highest timestamp (latest) camera frame.
-    set results [lsort -command [list apply {a b} {
+    set results [lsort -command [list apply {{a b} {
         - [dict get $a ts] [dict get $b ts]
-    }] $results]
+    }}] $results]
     set latestResult [lindex $results end]
     dict with latestResult {
         set now [expr {[clock milliseconds] / 1000.0}]
@@ -110,6 +110,6 @@ while true {
         # perfEvent didDetect
         Hold! apriltags \
             [list virtual-programs/apriltags.folk claims $this detects tags $tags \
-                 on camera $camera at timestamp $ts in time $aprilTime] 4
+                 on camera $camera at timestamp $ts in time $aprilTime]
     }
 }
