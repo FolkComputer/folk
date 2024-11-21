@@ -449,8 +449,6 @@ Match* matchAcquire(Db* db, MatchRef ref) {
 }
 void matchRelease(Db* db, Match* match) {
     if (genRcRelease(&match->genRc)) {
-        reactToRemovedMatch(db, match);
-
         free(match->childStatements);
         match->childStatements = NULL;
     }

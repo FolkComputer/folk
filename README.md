@@ -29,7 +29,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - **pmap monitor for memory leak?**
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- port tag iters fix from folk1
-- web stops working after a while
+- ~~port tag iters fix from folk1~~
+- ~~web stops working after a while~~
 - **marching ants animation**
 - **blinking of outlines**
+- **sticking of outlines**
+- is stealing too frequent? are we spending most of our time trying to steal?
