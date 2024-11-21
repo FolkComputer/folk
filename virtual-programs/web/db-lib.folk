@@ -90,6 +90,7 @@ Claim the db library is [apply {{} {
     }
     $cc proc childStatements {Db* db MatchRef matchRef} Jim_Obj* {
         Match* match = matchAcquire(db, matchRef);
+        if (match == NULL) { return Jim_NewStringObj(interp, "", -1); }
 
         int nChildren = 0;
         Jim_Obj* childObjs[match->childStatements->nEdges];

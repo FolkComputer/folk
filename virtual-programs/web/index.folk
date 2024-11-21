@@ -4,7 +4,15 @@ When the db library is /dbLib/ {
     foreach result [Query! /...terms/] {
         set ref [dict get $result __ref]
         set terms [dict get $result terms]
+
         set childMatchRefs [$dbLib childMatches $db $ref]
+        set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
+            set childStatementRefs [$dbLib childStatements $db $childMatchRef]
+            subst {
+                \[ $childMatchRef ($childStatementRefs) \]
+            }
+        }] " "]
+
         lappend l [subst {
             <li>
             <details>
@@ -12,7 +20,7 @@ When the db library is /dbLib/ {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            ([$dbLib statementParentCount $db $ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ([htmlEscape $childMatchRefs])</summary>
+            $ref ([$dbLib statementParentCount $db $ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
             <pre>[htmlEscape $terms]</pre>
             </details>
             </li>
