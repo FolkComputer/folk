@@ -115,6 +115,7 @@ proc vktry {call} { string map {\n " "} [csubst {{
 $gpuc code {
     VkInstance instance;
     VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceFeatures physicalDeviceFeatures;
     VkDevice device;
 
     uint32_t computeQueueFamilyIndex;
@@ -205,6 +206,7 @@ $gpuc proc init {int displayIdx} void {
         vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
 
         physicalDevice = physicalDevices[0];
+        vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
     }
 
     uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
@@ -538,6 +540,9 @@ $gpuc proc init {int displayIdx} void {
 }
 $gpuc proc getWidth {} uint32_t { return swapchainExtent.width; }
 $gpuc proc getHeight {} uint32_t { return swapchainExtent.height; }
+$gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
+    return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
+}
 
 proc defineVulkanHandleType {cc type} {
     $cc argtype $type [format {
@@ -1053,6 +1058,14 @@ set makeGpu {{gpuLib} {
         # global sampler and multiple textures/images, because that's
         # the only way to allow each image to have its own dimensions
         # (dimensions are a property bound to the sampler).
+        #
+        # We have a whole code path basically just to handle v3dv
+        # (Raspberry Pi GPU), which doesn't support dynamic indexing
+        # (based on push constant) into the descriptor array. On GPUs
+        # like that, we manually emit an if ladder that checks each
+        # possible value of the push constant and uses the right
+        # statically-indexed descriptor.
+        set gpuSupportsDynamicIndexing [$self getDoesSupportShaderSampledImageArrayDynamicIndexing]
         set fragShaderModule [$self createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
@@ -1071,22 +1084,57 @@ set makeGpu {{gpuLib} {
                 }
             }] "\n"]
 
-            $[join [lmap {argtype argname} $pushConstants {
-                if {$argtype eq "sampler2D"} {
-                    expr {"#define $argname _samplers\[args.$argname\]"}
-                }
-            }] "\n"]
-
-            vec4 frag() {
-                $[join [lmap {argtype argname} $pushConstants {
-                    if {$argname eq "_"} continue
-                    if {$argtype ne "sampler2D"} {
-                        expr {"$argtype $argname = args.$argname;"}
-                    }
-                }] " "]
+            vec4 frag($[join [lmap {argtype argname} $pushConstants {
+                if {$argname eq "_"} continue
+                expr {"$argtype $argname"}
+            }] ", "]) {
                 $fragBody
             }
-            void main() { outColor = frag(); }
+
+            $[eval {
+                set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
+                proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
+                    outColor = frag([join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            if {$gpuSupportsDynamicIndexing} {
+                                expr {"_samplers\[args.$argname\]"}
+                            } else {
+                                # This should have been patched to a
+                                # static expression like
+                                # `_samplers[3]` by the caller.
+                                expr {"$argname"}
+                            }
+                        } else {
+                            expr {"args.$argname"}
+                        }
+                    }] ", "]);
+                } }
+                list
+            }]
+            void main() {
+                $[if {$gpuSupportsDynamicIndexing || [llength $samplerIdxs] == 0} {
+                    emitFragInvocation $gpuSupportsDynamicIndexing $pushConstants
+
+                } elseif {[llength $samplerIdxs] == 1} {
+                    set samplerIdx [+ [lindex $samplerIdxs 0] 1]
+                    set samplerName [lindex $pushConstants $samplerIdx]
+                    set maxImages [$self getMaxImages]
+                    set xs [list]
+                    for {set i 0} {$i < $maxImages} {incr i} {
+                        set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
+                                                      _samplers\[$i\]]
+                        lappend xs [subst {
+                            [expr {$i == 0 ? "if" : "else if"}] (args.$samplerName == $i) {
+                                [emitFragInvocation $gpuSupportsDynamicIndexing $patchedPushConstants]
+                            }
+                        }]
+                    }
+                    join $xs "\n"
+                } else {
+                    error "display: Cannot currently compile a shader that has more than 1 sampler2D parameter on this GPU."
+                }]
+            }
         }]]]
 
         # pipeline needs to contain a specification of push constants,
