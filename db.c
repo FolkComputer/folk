@@ -263,6 +263,9 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
             matchRelease(db, child);
         }
     }
+    // We mark as dead here to block addition of any new child matches
+    // henceforth.
+    genRcMarkAsDead(&stmt->genRc);
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
@@ -414,8 +417,6 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
-        genRcMarkAsDead(&stmt->genRc);
-
         // Deindex the statement:
         uint64_t results[100];
         pthread_mutex_lock(&db->clauseToStatementIdMutex);
@@ -429,6 +430,7 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             /*         nResults); */
         }
 
+        // This call will also mark the GenRc as dead:
         reactToRemovedStatement(db, stmt);
     }
 }
@@ -693,20 +695,27 @@ Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
         Statement* parent = statementAcquire(db, parents[i]);
         if (parent) {
             pthread_mutex_lock(&parent->childMatchesMutex);
-            statementAddChildMatch(db, parent, ref);
+            GenRc genRc = parent->genRc;
+            if (genRc.alive) {
+                statementAddChildMatch(db, parent, ref);
+            } else {
+                pthread_mutex_unlock(&parent->childMatchesMutex);
+                statementRelease(db, parent);
+                goto fail;
+            }
             pthread_mutex_unlock(&parent->childMatchesMutex);
-
             statementRelease(db, parent);
         } else {
-            // TODO: The parent is dead; we should abort/reverse this
+            // The parent is dead; we should abort/reverse this
             // whole thing.
-            /* printf("dbInsertMatch: parent stmt was invalidated\n"); */
-            matchRelease(db, match);
-            return NULL;
+            goto fail;
         }
     }
     /* printf("\n"); */
     return match;
+ fail:
+    matchRelease(db, match);
+    return NULL;
 }
 
 void dbRetractStatements(Db* db, Clause* pattern) {

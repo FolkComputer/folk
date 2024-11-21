@@ -651,11 +651,11 @@ void workerRun(WorkQueueItem item) {
         if (!statementRefIsNull(newRef)) {
             reactToNewStatement(newRef);
         }
-        // TODO: We need to delay the react to removed statement until
-        // the estimated convergence time of the new statement has
-        // elapsed (a few milliseconds?)
         if (!statementRefIsNull(oldRef)) {
             if (item.hold.sustainMs > 0) {
+                // We need to delay the react to removed statement
+                // until the estimated convergence time of the new
+                // statement has elapsed (a few milliseconds?)
                 sysmonRemoveLater(oldRef, item.hold.sustainMs);
             } else {
                 Statement* stmt;
