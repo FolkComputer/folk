@@ -253,8 +253,13 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
     /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
     /*        clauseToString(stmt->clause)); */
     pthread_mutex_lock(&stmt->childMatchesMutex);
-    for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
-        MatchRef childRef = { .val = stmt->childMatches->edges[i] };
+    ListOfEdgeTo* childMatches = stmt->childMatches;
+    stmt->childMatches = NULL;
+    genRcMarkAsDead(&stmt->genRc);
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
+
+    for (size_t i = 0; i < childMatches->nEdges; i++) {
+        MatchRef childRef = { .val = childMatches->edges[i] };
         Match* child = matchAcquire(db, childRef);
         if (child != NULL) {
             // The removal of _any_ of a Match's statement parents
@@ -263,24 +268,26 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
             matchRelease(db, child);
         }
     }
-    // We mark as dead here to block addition of any new child matches
-    // henceforth.
-    genRcMarkAsDead(&stmt->genRc);
-    pthread_mutex_unlock(&stmt->childMatchesMutex);
+    free(childMatches);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
     // Walk through each child statement and remove this match as a
     // parent of that statement.
     pthread_mutex_lock(&match->childStatementsMutex);
-    for (size_t i = 0; i < match->childStatements->nEdges; i++) {
-        StatementRef childRef = { .val = match->childStatements->edges[i] };
+    ListOfEdgeTo* childStatements = match->childStatements;
+    match->childStatements = NULL;
+    genRcMarkAsDead(&match->genRc);
+    pthread_mutex_unlock(&match->childStatementsMutex);
+
+    for (size_t i = 0; i < childStatements->nEdges; i++) {
+        StatementRef childRef = { .val = childStatements->edges[i] };
         Statement* child = statementAcquire(db, childRef);
         if (child != NULL) {
             statementRemoveParentAndMaybeRemoveSelf(db, child);
             statementRelease(db, child);
         }
     }
-    pthread_mutex_unlock(&match->childStatementsMutex);
+    free(childStatements);
 
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorsMutex);
@@ -313,8 +320,8 @@ Statement* statementUnsafeGet(Db* db, StatementRef ref) {
 void statementRelease(Db* db, Statement* stmt) {
     if (genRcRelease(&stmt->genRc)) {
         stmt->parentCount = 0;
-        free(stmt->childMatches);
-        stmt->childMatches = NULL;
+        // They should have removed the children first.
+        assert(stmt->childMatches == NULL);
 
         Clause* stmtClause = statementClause(stmt);
         // Marks this statement slot as being fully free and ready for
@@ -406,11 +413,10 @@ void statementRemoveChildMatch(Statement* stmt, MatchRef to) {
 static bool matchChecker(void* db, uint64_t ref) {
     return matchCheck((Db*) db, (MatchRef) { .val = ref });
 }
-void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
-    pthread_mutex_lock(&stmt->childMatchesMutex);
+// You must call this with the childMatchesMutex held.
+static void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
     listOfEdgeToAdd(&matchChecker, db,
                     &stmt->childMatches, child.val);
-    pthread_mutex_unlock(&stmt->childMatchesMutex);
 }
 void statementAddParent(Statement* stmt) { stmt->parentCount++; }
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
@@ -451,8 +457,7 @@ Match* matchAcquire(Db* db, MatchRef ref) {
 }
 void matchRelease(Db* db, Match* match) {
     if (genRcRelease(&match->genRc)) {
-        free(match->childStatements);
-        match->childStatements = NULL;
+        assert(match->childStatements == NULL);
     }
 }
 
@@ -515,11 +520,10 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
 static bool statementChecker(void* db, uint64_t ref) {
     return statementCheck((Db*) db, (StatementRef) { .val = ref });
 }
-void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
-    pthread_mutex_lock(&match->childStatementsMutex);
+// You must call this with the childStatementsMutex held.
+static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
     listOfEdgeToAdd(statementChecker, db,
                     &match->childStatements, child.val);
-    pthread_mutex_unlock(&match->childStatementsMutex);
 }
 void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
     pthread_mutex_lock(&m->destructorsMutex);
@@ -542,7 +546,6 @@ void matchCompleted(Match* match) {
 }
 void matchRemoveSelf(Db* db, Match* match) {
     /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
-    genRcMarkAsDead(&match->genRc);
     reactToRemovedMatch(db, match);
 
     if (!match->isCompleted) {
@@ -624,12 +627,13 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 
     // Note that we're still holding the clauseToStatementId lock.
 
-    Match* parent = matchAcquire(db, parentMatchRef);
-    if (!matchRefIsNull(parentMatchRef) && parent == NULL) {
+    Match* parentMatch = matchAcquire(db, parentMatchRef);
+    if (!matchRefIsNull(parentMatchRef) && parentMatch == NULL) {
         // Parent match has been invalidated -- abort!
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
         return STATEMENT_REF_NULL;
     }
+
     if (existingRefsCount == 0) {
         // The clause doesn't exist in a statement yet. Make the new
         // statement.
@@ -640,17 +644,31 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         // lock, and then adds the new statement at the same time (so
         // we end up with 2 copies).
 
+        if (!matchRefIsNull(parentMatchRef)) {
+            // Need to set up parent match.
+            pthread_mutex_lock(&parentMatch->childStatementsMutex);
+            if (parentMatch->childStatements == NULL) {
+                pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+                pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+                matchRelease(db, parentMatch);
+                return STATEMENT_REF_NULL;
+            }
+        }
+
         StatementRef ref = statementNew(db, clause,
                                         sourceFileName,
                                         sourceLineNumber);
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
 
+        if (!matchRefIsNull(parentMatchRef)) {
+            matchAddChildStatement(db, parentMatch, ref);
+            pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+
+            matchRelease(db, parentMatch);
+        }
+
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
-        if (parent) {
-            matchAddChildStatement(db, parent, ref);
-            matchRelease(db, parent);
-        }
         return ref;
     }
 
@@ -663,18 +681,31 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         // reflect this parent (this isn't quite correct either but
         // better than nothing).
 
-        // We unlock the trie after acquiring the statement.
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
 
         /* printf("Reuse: (%s)\n", clauseToString(clause)); */
 
-        // FIXME: What if the parent has/will be destroyed?
-        if (parent) {
+        if (!matchRefIsNull(parentMatchRef)) {
+            pthread_mutex_lock(&parentMatch->childStatementsMutex);
+            if (parentMatch->childStatements == NULL) {
+                // Abort without adding to parentCount on stmt or
+                // childMatches on parentMatch.
+                pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+                matchRelease(db, parentMatch);
+                statementRelease(db, stmt);
+                return STATEMENT_REF_NULL;
+            }
+
             statementAddParent(stmt);
-            matchAddChildStatement(db, parent, existingRefs[0]);
-            matchRelease(db, parent);
+            matchAddChildStatement(db, parentMatch, existingRefs[0]);
+            pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+
+            matchRelease(db, parentMatch);
         }
+
         statementRelease(db, stmt);
+        // Return null because we aren't making a _new_ statement that
+        // the caller should trigger a reaction from.
         return STATEMENT_REF_NULL;
     }
 
@@ -685,37 +716,54 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
             clauseToString(clause)); exit(1);
 }
 
-Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
+Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      pthread_t workerThread) {
     MatchRef ref = matchNew(db, workerThread);
-    /* printf("dbInsertMatch: m%d:%d <- ", ref.idx, ref.gen); */
     Match* match = matchAcquire(db, ref);
-    for (size_t i = 0; i < nParents; i++) {
-        /* printf("s%d:%d ", parents[i].idx, parents[i].gen); */
-        Statement* parent = statementAcquire(db, parents[i]);
-        if (parent) {
-            pthread_mutex_lock(&parent->childMatchesMutex);
-            GenRc genRc = parent->genRc;
-            if (genRc.alive) {
-                statementAddChildMatch(db, parent, ref);
-            } else {
-                pthread_mutex_unlock(&parent->childMatchesMutex);
-                statementRelease(db, parent);
-                goto fail;
-            }
-            pthread_mutex_unlock(&parent->childMatchesMutex);
-            statementRelease(db, parent);
-        } else {
-            // The parent is dead; we should abort/reverse this
-            // whole thing.
-            goto fail;
+    assert(match);
+
+    // All parents need to be valid and need to have locked
+    // childMatches before we insert the match. Otherwise, abort.
+    bool failed = false;
+
+    Statement* parentStatements[nParents];
+    memset(parentStatements, 0, sizeof(parentStatements));
+    for (int i = 0; i < nParents; i++) {
+        parentStatements[i] = statementAcquire(db, parents[i]);
+        if (parentStatements[i] == NULL) {
+            failed = true; goto done;
+        }
+
+        pthread_mutex_lock(&parentStatements[i]->childMatchesMutex);
+        if (parentStatements[i]->childMatches == NULL) {
+            failed = true; goto done;
         }
     }
-    /* printf("\n"); */
-    return match;
- fail:
-    matchRelease(db, match);
-    return NULL;
+
+    // We have now acquired all parent statements and are holding
+    // their childMatchesMutexes, and none have childMatches == NULL.
+
+    // Now we can do the actual insertion.
+    for (int i = 0; i < nParents; i++) {
+        statementAddChildMatch(db, parentStatements[i], ref);
+    }
+
+done:
+    for (int i = nParents - 1; i >= 0; i--) {
+        if (parentStatements[i] == NULL) {
+            continue;
+        }
+        pthread_mutex_unlock(&parentStatements[i]->childMatchesMutex);
+        statementRelease(db, parentStatements[i]);
+    }
+
+    if (failed) {
+        matchRemoveSelf(db, match);
+        matchRelease(db, match);
+        return NULL;
+    } else {
+        return match;
+    }
 }
 
 void dbRetractStatements(Db* db, Clause* pattern) {

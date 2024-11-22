@@ -103,8 +103,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 // so that the thread can be interrupted if the match is
 // destroyed. The Match is returned acquired and needs to be released
 // by the caller.
-Match* dbInsertMatch(Db* db, size_t nParents, StatementRef parents[],
-                       pthread_t workerThread);
+Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
+                     pthread_t workerThread);
 
 void dbRetractStatements(Db* db, Clause* pattern);
 
