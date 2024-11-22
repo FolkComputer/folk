@@ -258,17 +258,19 @@ static void reactToRemovedStatement(Db* db, Statement* stmt) {
     genRcMarkAsDead(&stmt->genRc);
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 
-    for (size_t i = 0; i < childMatches->nEdges; i++) {
-        MatchRef childRef = { .val = childMatches->edges[i] };
-        Match* child = matchAcquire(db, childRef);
-        if (child != NULL) {
-            // The removal of _any_ of a Match's statement parents
-            // means the removal of that Match.
-            matchRemoveSelf(db, child);
-            matchRelease(db, child);
+    if (childMatches != NULL) {
+        for (size_t i = 0; i < childMatches->nEdges; i++) {
+            MatchRef childRef = { .val = childMatches->edges[i] };
+            Match* child = matchAcquire(db, childRef);
+            if (child != NULL) {
+                // The removal of _any_ of a Match's statement parents
+                // means the removal of that Match.
+                matchRemoveSelf(db, child);
+                matchRelease(db, child);
+            }
         }
+        free(childMatches);
     }
-    free(childMatches);
 }
 static void reactToRemovedMatch(Db* db, Match* match) {
     // Walk through each child statement and remove this match as a
@@ -279,15 +281,17 @@ static void reactToRemovedMatch(Db* db, Match* match) {
     genRcMarkAsDead(&match->genRc);
     pthread_mutex_unlock(&match->childStatementsMutex);
 
-    for (size_t i = 0; i < childStatements->nEdges; i++) {
-        StatementRef childRef = { .val = childStatements->edges[i] };
-        Statement* child = statementAcquire(db, childRef);
-        if (child != NULL) {
-            statementRemoveParentAndMaybeRemoveSelf(db, child);
-            statementRelease(db, child);
+    if (childStatements != NULL) {
+        for (size_t i = 0; i < childStatements->nEdges; i++) {
+            StatementRef childRef = { .val = childStatements->edges[i] };
+            Statement* child = statementAcquire(db, childRef);
+            if (child != NULL) {
+                statementRemoveParentAndMaybeRemoveSelf(db, child);
+                statementRelease(db, child);
+            }
         }
+        free(childStatements);
     }
-    free(childStatements);
 
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorsMutex);
