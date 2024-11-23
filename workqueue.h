@@ -28,7 +28,7 @@ typedef struct WorkQueueItem {
         struct {
             // Caller is also responsible for keeping key alive & for
             // freeing it on dequeue.
-            const char* key;
+            char* key;
             int64_t version;
             int sustainMs;
 

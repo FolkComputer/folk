@@ -168,7 +168,7 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
            .key = key, .version = ++latestVersion,
            .sustainMs = (int) sustainMs,
            .clause = clause,
-           .sourceFileName = "<unknown>",
+           .sourceFileName = strdup("<unknown>"),
            .sourceLineNumber = -1
        }
     });
@@ -638,6 +638,7 @@ void workerRun(WorkQueueItem item) {
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref);
         }
+        free(item.assert.sourceFileName);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
@@ -672,6 +673,8 @@ void workerRun(WorkQueueItem item) {
                 }
             }
         }
+        free(item.hold.key);
+        free(item.hold.sourceFileName);
 
     } else if (item.op == SAY) {
         /* printf("@%d: Say (%p) (%.100s)\n", self->index, item.say.clause, clauseToString(item.say.clause)); */
@@ -684,6 +687,7 @@ void workerRun(WorkQueueItem item) {
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref);
         }
+        free(item.say.sourceFileName);
 
     } else if (item.op == RUN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */

@@ -659,6 +659,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
             }
         }
 
+        // Transfers ownership of clause to the DB.
         StatementRef ref = statementNew(db, clause,
                                         sourceFileName,
                                         sourceLineNumber);
@@ -816,7 +817,7 @@ StatementRef dbHoldStatement(Db* db,
         for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
             if (db->holds[i].key == NULL) {
                 hold = &db->holds[i];
-                hold->key = key;
+                hold->key = strdup(key);
                 break;
             }
         }

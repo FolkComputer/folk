@@ -142,7 +142,7 @@ void sysmon() {
                 .version = currentTick,
                 .sustainMs = 0,
                 .clause = clockTimeClause,
-                .sourceFileName = "sysmon.c",
+                .sourceFileName = strdup("sysmon.c"),
                 .sourceLineNumber = __LINE__
             }
         });
