@@ -9,6 +9,14 @@
 
 #include "trie.h"
 
+Clause* clauseDup(Clause* c) {
+    Clause* ret = malloc(SIZEOF_CLAUSE(c->nTerms));
+    ret->nTerms = c->nTerms;
+    for (int i = 0; i < c->nTerms; i++) {
+        ret->terms[i] = strdup(c->terms[i]);
+    }
+    return ret;
+}
 void clauseFree(Clause* c) {
     c->nTerms = 0;
     for (int i = 0; i < c->nTerms; i++) {

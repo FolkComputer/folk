@@ -32,6 +32,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~port tag iters fix from folk1~~
 - ~~web stops working after a while~~
 - **marching ants animation**
-- **blinking of outlines**
-- **sticking of outlines**
+- ~~blinking of outlines~~
+- ~~sticking of outlines~~
 - is stealing too frequent? are we spending most of our time trying to steal?

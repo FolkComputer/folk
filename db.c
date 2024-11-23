@@ -614,10 +614,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
-// What happens if the parent match is removed at some point?  How do
-// we ensure that either this statement is retracted or it never
-// appears?
-// WARNING: This takes ownership of clause. It may be freed after you call this!
+// WARNING: This takes ownership of clause. You can't touch clause
+// after calling this!
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
@@ -635,6 +633,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     if (!matchRefIsNull(parentMatchRef) && parentMatch == NULL) {
         // Parent match has been invalidated -- abort!
         pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+        clauseFree(clause);
         return STATEMENT_REF_NULL;
     }
 
@@ -655,6 +654,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 pthread_mutex_unlock(&parentMatch->childStatementsMutex);
                 pthread_mutex_unlock(&db->clauseToStatementIdMutex);
                 matchRelease(db, parentMatch);
+                clauseFree(clause);
                 return STATEMENT_REF_NULL;
             }
         }
@@ -697,6 +697,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 pthread_mutex_unlock(&parentMatch->childStatementsMutex);
                 matchRelease(db, parentMatch);
                 statementRelease(db, stmt);
+                clauseFree(clause);
                 return STATEMENT_REF_NULL;
             }
 
@@ -708,6 +709,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         }
 
         statementRelease(db, stmt);
+        clauseFree(clause);
         // Return null because we aren't making a _new_ statement that
         // the caller should trigger a reaction from.
         return STATEMENT_REF_NULL;

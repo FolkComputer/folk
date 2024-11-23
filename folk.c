@@ -365,11 +365,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = statementClause(stmt);
 
-    // TODO: Free clauseToString
-    /* printf("runWhenBlock:\n  When: (%s)\n  Stmt: (%s)\n", */
-    /*        clauseToString(statementClause(when)), */
-    /*        clauseToString(statementClause(stmt))); */
-
     assert(whenClause->nTerms >= 6);
 
     // when the time is /t/ /lambda/ with environment /builtinEnv/
@@ -437,11 +432,13 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         interp->sigmask = 0;
     }
 }
+// Copies the whenPattern Clause and all terms so it can be owned (and
+// freed) by the eventual handler of the block.
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
     workQueuePush(self->workQueue, (WorkQueueItem) {
        .op = RUN,
        .thread = -1,
-       .run = { .when = when, .whenPattern = whenPattern, .stmt = stmt }
+       .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
     });
 }
 
@@ -535,6 +532,11 @@ static void reactToNewStatement(StatementRef ref) {
             }
             free(existingMatchingStatements);
         }
+
+        // pattern and claimizedPattern don't allocate any new terms,
+        // so just free the clause structs themselves.
+        free(pattern);
+        free(claimizedPattern);
     }
 
     // Add to DB <Claim Omar is a person>
@@ -575,9 +577,12 @@ static void reactToNewStatement(StatementRef ref) {
                 statementRelease(db, when);
 
                 pushRunWhenBlock(whenRef, whenPattern, ref);
+                free(whenPattern); // doesn't own any terms.
             }
         }
         free(existingReactingWhens);
+
+        free(whenizedClause); // doesn't own any terms.
     }
     if (clause->nTerms >= 2 && strcmp(clause->terms[1], "claims") == 0) {
         // Cut off `/x/ claims` from start of clause:
@@ -607,6 +612,7 @@ static void reactToNewStatement(StatementRef ref) {
 
                 pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
                 free(unwhenizedWhenPattern);
+                free(claimizedUnwhenizedWhenPattern);
             }
         }
         free(existingReactingWhens);
@@ -637,6 +643,7 @@ void workerRun(WorkQueueItem item) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
 
         dbRetractStatements(db, item.retract.pattern);
+        clauseFree(item.retract.pattern);
 
     } else if (item.op == HOLD) {
         /* printf("@%d: Hold (%s)\n", self->index, clauseToString(item.hold.clause)); */
@@ -679,10 +686,10 @@ void workerRun(WorkQueueItem item) {
         }
 
     } else if (item.op == RUN) {
-        /* printf("@%d: Run when (%.100s)\n", self->index, clauseToString(item.run.whenPattern)); */
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
+        clauseFree(item.run.whenPattern);
 
     } else if (item.op == EVAL) {
         // Used for destructors.
