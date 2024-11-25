@@ -109,12 +109,12 @@ $camc proc cameraInit {Camera* camera} void {
         streamparm.parm.capture.timeperframe.denominator = req_rate_denominator;
         if (xioctl(camera->fd, VIDIOC_S_PARM, &streamparm) == -1) { quit("VIDIOC_S_PARM"); }
 
-        if (streamparm.parm.capture.timeperframe.numerator != req_rate_denominator ||
-            streamparm.parm.capture.timeperframe.denominator != req_rate_numerator) {
+        if (streamparm.parm.capture.timeperframe.numerator != req_rate_numerator ||
+            streamparm.parm.capture.timeperframe.denominator != req_rate_denominator) {
             fprintf(stderr,
                     "the driver changed the time per frame from "
                     "%d/%d to %d/%d\n",
-                    req_rate_denominator, req_rate_numerator,
+                    req_rate_numerator, req_rate_denominator,
                     streamparm.parm.capture.timeperframe.numerator,
                     streamparm.parm.capture.timeperframe.denominator);
         }
@@ -326,7 +326,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         # perfEvent camera
 
         set frame [Camera::grayFrame $camObj]
-        Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 6
+        Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 16
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 50} {
             set oldFrames [lassign $oldFrames oldestFrame]
