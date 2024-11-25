@@ -23,6 +23,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - event statements
 - **fix memory leak (5MB/second)**
   - cache per-thread value copies?
+- match or statement arena allocator
+  - for camera images, at least
 - performance analysis
   - perf/speedscope
   - have some kind of label-based, cross-thread fps counter
@@ -33,5 +35,16 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~web stops working after a while~~
 - **marching ants animation**
 - ~~blinking of outlines~~
+  - still some blinking, need to adjust metastable timing
 - ~~sticking of outlines~~
-- is stealing too frequent? are we spending most of our time trying to steal?
+- is stealing too frequent? are we spending most of our time trying to
+  steal?
+- incremental tag detector
+- 60Hz camera
+- ports
+  - keyboard/editor port
+  - points-up port
+  - calibration process
+- infinite loop or one-lane syntax? `one-at-a-time`
+- Hold! with explicit version number?
+
