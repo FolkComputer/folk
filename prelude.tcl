@@ -72,30 +72,80 @@ proc unknown {cmdName args} {
     }
 }
 
+proc lsort_key_asc {key l} {
+    return [lsort -command [list apply {{key a b} {
+        expr {[dict get $a $key] < [dict get $b $key]}
+    }} $key] $l]
+}
 
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
     set body [lindex $args end]
-    set pattern [lreplace $args end end]
-    if {[lindex $pattern 0] eq "(non-capturing)"} {
+    set args [lreplace $args end end]
+
+    set isNonCapturing false
+    set isSerially false
+    set pattern [list]
+    foreach term $args {
+        if {$term eq "(non-capturing)"} {
+            set isNonCapturing true
+        } elseif {$term eq "(serially)"} {
+            set isSerially true
+        } else {
+            lappend pattern $term
+        }
+    }
+
+    if {$isNonCapturing} {
         set argNames [list]; set argValues [list]
-        set pattern [lreplace $pattern 0 0]
     } else {
         lassign [uplevel serializeEnvironment] argNames argValues
     }
 
+    if {$isSerially} {
+        lappend argNames __pattern __body
+        lappend argValues $pattern $body
+        tailcall Say when [list $argNames {
+            set __cache [dict create]
+            while true {
+                set __matches [Query! {*}$__pattern]
+                if {[llength $__pattern] < 2 || [lindex $__pattern 1] ni {claims wishes}} {
+                    lappend __matches {*}[Query! /someone/ claims {*}$__pattern]
+                }
+
+                set __matches [lmap __match $__matches {
+                    if {[dict exists $__cache [dict get $__match __ref]]} { continue }
+                    set __match
+                }]
+                # HACK: this assumes that claims are generally around.
+                if {[llength $__matches] == 0} {
+                    sleep 0.002
+                    continue
+                }
+                set __match [lindex $__matches end]
+
+                dict set __cache [dict get $__match __ref] true
+                if {[dict size $__cache] > 10} {
+                    dict unset __cache [lindex [dict keys $__cache] 0]
+                }
+
+                dict with __match $__body
+            }
+        }] with environment $argValues
+    }
+
     set varNamesWillBeBound [list]
-    set negate false
+    set isNegated false
     for {set i 0} {$i < [llength $pattern]} {incr i} {
-        set word [lindex $pattern $i]
-        if {$word eq "&"} {
+        set term [lindex $pattern $i]
+        if {$term eq "&"} {
             # Desugar this join into nested Whens.
             set remainingPattern [lrange $pattern $i+1 end]
             set pattern [lrange $pattern 0 $i-1]
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
-                set remainingWord [lindex $remainingPattern $j]
-                if {[regexp {^/([^/ ]+)/$} $remainingWord -> remainingVarName] &&
+                set remainingTerm [lindex $remainingPattern $j]
+                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
                     $remainingVarName in $varNamesWillBeBound} {
                     lset remainingPattern $j \$$remainingVarName
                 }
@@ -103,11 +153,11 @@ proc When {args} {
             set body [list When {*}$remainingPattern $body]
             break
 
-        } elseif {[set varName [__scanVariable $word]] != 0} {
+        } elseif {[set varName [__scanVariable $term]] != 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 # Rewrite this entire clause to be negated.
-                set negate true
+                set isNegated true
             } else {
                 # Rewrite subsequent instances of this variable name /x/
                 # (in joined clauses) to be bound $x.
@@ -116,12 +166,12 @@ proc When {args} {
                 }
                 lappend varNamesWillBeBound $varName
             }
-        } elseif {[__startsWithDollarSign $word]} {
-            lset pattern $i [uplevel [list subst $word]]
+        } elseif {[__startsWithDollarSign $term]} {
+            lset pattern $i [uplevel [list subst $term]]
         }
     }
 
-    if {$negate} {
+    if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
         tailcall Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues
     } else {
