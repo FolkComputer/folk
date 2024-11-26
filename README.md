@@ -40,7 +40,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - is stealing too frequent? are we spending most of our time trying to
   steal?
 - incremental tag detector
-- 60Hz camera
+- ~~60Hz camera~~
 - ports
   - keyboard/editor port
   - points-up port

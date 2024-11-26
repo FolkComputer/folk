@@ -353,19 +353,28 @@ static void eval(const char* code) {
 
 static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
-    Statement* when = statementAcquire(db, whenRef);
-    Statement* stmt = statementAcquire(db, stmtRef);
-    if (when == NULL || stmt == NULL) {
-        if (when != NULL) { statementRelease(db, when); }
-        if (stmt != NULL) { statementRelease(db, stmt); }
-        /* printf("Dead: when %p, stmt %p\n", when, stmt); */
-        return;
+    // Exception: stmtRef can be a null ref if and only if whenPattern
+    // is {}.
+    Statement* when = NULL;
+    Statement* stmt = NULL;
+    when = statementAcquire(db, whenRef);
+    if (when == NULL) { return; }
+
+    if (!statementRefIsNull(stmtRef)) {
+        stmt = statementAcquire(db, stmtRef);
+        if (stmt == NULL) {
+            statementRelease(db, when);
+            return;
+        }
     }
 
-    Clause* whenClause = statementClause(when);
-    Clause* stmtClause = statementClause(stmt);
+    // Now when is definitely non-null and stmt is non-null if
+    // applicable.
 
-    assert(whenClause->nTerms >= 6);
+    Clause* whenClause = statementClause(when);
+    Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
+
+    assert(whenClause->nTerms >= 5);
 
     // when the time is /t/ /lambda/ with environment /builtinEnv/
     const char* lambda = whenClause->terms[whenClause->nTerms - 4];
@@ -399,12 +408,16 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                            env->nBindings, envArgs);
     free(env);
 
-    statementRelease(db, stmt);
     statementRelease(db, when);
+    if (stmt != NULL) { statementRelease(db, stmt); }
 
-    StatementRef parents[] = { whenRef, stmtRef };
-
-    self->currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+    if (stmt != NULL) {
+        StatementRef parents[] = { whenRef, stmtRef };
+        self->currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+    } else {
+        StatementRef parents[] = { whenRef };
+        self->currentMatch = dbInsertMatch(db, 1, parents, pthread_self());
+    }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
         return;
@@ -509,34 +522,36 @@ static void reactToNewStatement(StatementRef ref) {
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
         Clause* pattern = unwhenizeClause(clause);
+        if (pattern->nTerms == 0) {
+            // Empty pattern: When { ... }
+            pushRunWhenBlock(ref, pattern, STATEMENT_REF_NULL);
+            free(pattern);
 
-        // Scan the existing statement set for any already-existing
-        // matching statements.
-        ResultSet* existingMatchingStatements = dbQuery(db, pattern);
-        /* trace("Adding when: existing matches (%d)", */
-        /*       existingMatchingStatements->nResults); */
-        for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-            pushRunWhenBlock(ref, pattern,
-                             existingMatchingStatements->results[i]);
-        }
-        free(existingMatchingStatements);
-
-        Clause* claimizedPattern = claimizeClause(pattern);
-        if (claimizedPattern) {
-            existingMatchingStatements = dbQuery(db, claimizedPattern);
-            /* trace("Adding when: claimized existing matches (%d)", */
-            /*       existingMatchingStatements->nResults); */
+        } else {
+            // Scan the existing statement set for any
+            // already-existing matching statements.
+            ResultSet* existingMatchingStatements = dbQuery(db, pattern);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                pushRunWhenBlock(ref, claimizedPattern,
+                pushRunWhenBlock(ref, pattern,
                                  existingMatchingStatements->results[i]);
             }
             free(existingMatchingStatements);
-        }
 
-        // pattern and claimizedPattern don't allocate any new terms,
-        // so just free the clause structs themselves.
-        free(pattern);
-        free(claimizedPattern);
+            Clause* claimizedPattern = claimizeClause(pattern);
+            if (claimizedPattern) {
+                existingMatchingStatements = dbQuery(db, claimizedPattern);
+                for (int i = 0; i < existingMatchingStatements->nResults; i++) {
+                    pushRunWhenBlock(ref, claimizedPattern,
+                                     existingMatchingStatements->results[i]);
+                }
+                free(existingMatchingStatements);
+            }
+
+            // pattern and claimizedPattern don't allocate any new terms,
+            // so just free the clause structs themselves.
+            free(pattern);
+            free(claimizedPattern);
+        }
     }
 
     // Add to DB <Claim Omar is a person>
