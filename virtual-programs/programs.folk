@@ -7,7 +7,7 @@ When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
 }
 
 When (non-capturing) /type/ /obj/ has a program {
-    puts "Added $type $obj"
+    puts stderr "Added $type $obj"
     # On unmatch { puts "Removed $type $obj" }
 
     try {

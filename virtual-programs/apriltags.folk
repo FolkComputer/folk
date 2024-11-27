@@ -73,46 +73,95 @@ proc makeAprilTagDetector {TAG_FAMILY} {
 }
 
 set tagFamily "tagStandard52h13"
+set entireFrameDetector [makeAprilTagDetector $tagFamily]
+set incrementalDetector [makeAprilTagDetector $tagFamily]
 
-# Plain detector. Runs on entire camera frame.
-set detector [makeAprilTagDetector $tagFamily]
+# Entire-frame tag detector:
+When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    set now [expr {[clock milliseconds] / 1000.0}]
+    # HACK: Do not process frames older than 25 frames (they're freed
+    # at 50 frames).
+    if {$now - $frameTs > 0.016 * 25} { return }
 
-# Split detection into individual tag claims:
-When /someone/ detects tags /tags/ on camera /camera/ at timestamp /ts/ in time /aprilTime/ {
-    foreach det $tags {
-        set id [dict get $det id]
-        Claim tag $id has detection $det on camera $camera at timestamp $ts
-    }
-    # Claim the AprilTag time is $::aprilTime
+    set aprilTime [time {
+        set tags [$entireFrameDetector detect $frame]
+    }]
+    perfEvent didDetect
+
+    Claim [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 }
 
-while true {
-    set results [Query! /someone/ claims camera /camera/ has frame /grayFrame/ at timestamp /ts/]
-    if {[llength $results] == 0} { continue }
+# Incremental tag detector (looks at regions where there were tags
+# seen recently):
+When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    set now [expr {[clock milliseconds] / 1000.0}]
+    # HACK: Do not process frames older than 25 frames (they're freed
+    # at 50 frames).
+    if {$now - $frameTs > 0.016 * 25} { return }
 
-    # Use highest timestamp (latest) camera frame.
-    set results [lsort -command [list apply {{a b} {
-        expr {[dict get $a ts] < [dict get $b ts]}
-    }}] $results]
-    set latestResult [lindex $results end]
-    dict with latestResult {
-        set now [expr {[clock milliseconds] / 1000.0}]
-
-        # puts stderr "now - ts: [expr {$now - $ts}]"
-        # Do not process frames older than 25 frames (they're freed at 50 frames).
-        if {$now - $ts > 0.016 * 25} { return }
-
-        # Need to have a `detector` object available from all threads,
-        # inside this scope.
-        set aprilTime [time {
-            set tags [$detector detect $grayFrame]
-        }]
-        # perfEvent didDetect
-
-        # Holding for 16ms so that the tag detections overlap so that
-        # you don't get re-Added.
-        Hold! apriltags \
-            [list virtual-programs/apriltags.folk claims $this detects tags $tags \
-                 on camera $camera at timestamp $ts in time $aprilTime] 16
+    # Query all the existing tag detections that are out there.
+    set rows [Query! /someone/ claims tag /id/ has detection /det/ \
+                  on camera $camera at timestamp /ts/]
+    # Find the most recent detection of each tag; will use these to
+    # give us regions of interest to do partial scans on the new
+    # camera frame.
+    set dets [dict create]
+    foreach row $rows {
+        dict with row {
+            if {([dict exists $dets $id] && [dict get $dets $id ts] < $ts) ||
+                ![dict exists $dets $id]} {
+                
+                dict set dets $id $det
+                dict set dets $id ts $ts
+            }
+        }
     }
+
+    proc subimage {im x y subwidth subheight} {
+        dict with im {
+            set x [expr {int($x)}]
+            set y [expr {int($y)}]
+            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            dict create \
+                width [int $subwidth] \
+                height [int $subheight] \
+                components $components \
+                bytesPerRow $bytesPerRow \
+                data [format "(uint8_t*) 0x%x" $subdata]
+        }
+    }
+
+    set tags [list]
+    set frameWidth [dict get $frame width]
+    set frameHeight [dict get $frame height]
+    set aprilTime 0
+    dict for {id prevDet} $dets {
+        set corners [dict get $prevDet p]
+
+        set x [min {*}[lmap corner $corners {lindex $corner 0}]]
+        set y [min {*}[lmap corner $corners {lindex $corner 1}]]
+        set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
+        set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
+
+        set width [- $x1 $x]; set height [- $y1 $y]
+        set x [max [- $x $width] 0]
+        set y [max [- $y $height] 0]
+        set x1 [min [+ $x1 $width] $frameWidth]
+        set y1 [min [+ $y1 $height] $frameHeight]
+
+        set subimage [subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set aprilTime [+ $aprilTime [baretime {
+            foreach tag [$incrementalDetector detect $subimage] {
+                dict with tag {
+                    set c [vec2 add $c [list $x $y]]
+                    set p [lmap corner $p {vec2 add $corner [list $x $y]}]
+                }
+                lappend tags $tag
+            }
+        }]]
+    }
+
+    Claim [list $this incremental] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 }
