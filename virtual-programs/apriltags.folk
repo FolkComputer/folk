@@ -89,7 +89,7 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     perfEvent entireFrameDetect
 
     Hold! [list $this entire-frame] \
-        [list [list $this entire-frame] detects tags $tags on camera $camera \
+        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
              at timestamp $frameTs in time $aprilTime] 16
 }
 
@@ -125,8 +125,8 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
             set y [expr {int($y)}]
             set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
             dict create \
-                width [int $subwidth] \
-                height [int $subheight] \
+                width [expr {int($subwidth)}] \
+                height [expr {int($subheight)}] \
                 components $components \
                 bytesPerRow $bytesPerRow \
                 data [format "(uint8_t*) 0x%x" $subdata]
@@ -168,13 +168,19 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
 }
 
 # Integrate all the tag detections.
-When the collected matches for [list /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/] are /matches/ {
+When the collected matches for \
+    [list /someone/ detects tags /tags/ on camera /camera/ \
+         at timestamp /timestamp/ in time /aprilTime/] are /matches/ {
+
     set now [expr {[clock milliseconds] / 1000.0}]
 
     set latestTagDets [dict create]
     foreach match $matches {
+        set timestamp [dict get $match timestamp]
         set camera [dict get $match camera]
         foreach tag [dict get $match tags] {
+            dict set tag timestamp $timestamp
+            dict set tag camera $camera
             dict with tag {
                 if {![dict exists $latestTagDets $id] ||
                     [dict get $latestTagDets $id timestamp] < $timestamp} {
@@ -186,8 +192,8 @@ When the collected matches for [list /someone/ detects tags /tags/ on /camera/ a
     }
 
     dict for {id tag} $latestTagDets {
-        Claim tag $id has detection $tag on [dict get $tag camera] \
-            at [dict get $tag timestamp]
+        Claim tag $id has detection $tag on camera [dict get $tag camera] \
+            at timestamp [dict get $tag timestamp]
     }
     set aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $aprilTime

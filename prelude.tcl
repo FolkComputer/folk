@@ -77,6 +77,19 @@ proc lsort_key_asc {key l} {
         expr {[dict get $a $key] < [dict get $b $key]}
     }} $key] $l]
 }
+proc min {args} {
+    if {[llength $args] == 0} { error "min: No args" }
+    set min infinity
+    foreach arg $args { if {$arg < $min} { set min $arg } }
+    return $min
+}
+proc max {args} {
+    if {[llength $args] == 0} { error "max: No args" }
+    set max -infinity
+    foreach arg $args { if {$arg > $max} { set max $arg } }
+    return $max
+}
+proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
