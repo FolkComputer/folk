@@ -56,7 +56,14 @@ Claim the db library is [apply {{} {
     }
     $cc proc childMatches {Db* db StatementRef stmtRef} Jim_Obj* {
         Statement* stmt = statementAcquire(db, stmtRef);
-        if (stmt == NULL) { return Jim_NewStringObj(interp, "", -1); }
+        if (stmt == NULL) { return Jim_NewEmptyStringObj(interp); }
+
+        pthread_mutex_lock(&stmt->childMatchesMutex);
+        if (stmt->childMatches == NULL) {
+            pthread_mutex_unlock(&stmt->childMatchesMutex);
+            statementRelease(db, stmt);
+            return Jim_NewEmptyStringObj(interp);
+        }
 
         int nChildren = 0;
         Jim_Obj* childObjs[stmt->childMatches->nEdges];
@@ -64,6 +71,8 @@ Claim the db library is [apply {{} {
             MatchRef child = { .val = stmt->childMatches->edges[i] };
             childObjs[nChildren++] = Jim_ObjPrintf("m%d:%d", child.idx, child.gen);
         }
+
+        pthread_mutex_unlock(&stmt->childMatchesMutex);
         statementRelease(db, stmt);
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
@@ -92,12 +101,21 @@ Claim the db library is [apply {{} {
         Match* match = matchAcquire(db, matchRef);
         if (match == NULL) { return Jim_NewStringObj(interp, "", -1); }
 
+        pthread_mutex_lock(&match->childStatementsMutex);
+        if (match->childStatements == NULL) {
+            pthread_mutex_unlock(&match->childStatementsMutex);
+            matchRelease(db, match);
+            return Jim_NewEmptyStringObj(interp);
+        }
+
         int nChildren = 0;
         Jim_Obj* childObjs[match->childStatements->nEdges];
         for (int i = 0; i < match->childStatements->nEdges; i++) {
             StatementRef child = { .val = match->childStatements->edges[i] };
             childObjs[nChildren++] = Jim_ObjPrintf("s%d:%d", child.idx, child.gen);
         }
+
+        pthread_mutex_unlock(&match->childStatementsMutex);
         matchRelease(db, match);
         return Jim_NewListObj(interp, childObjs, nChildren);
     }
