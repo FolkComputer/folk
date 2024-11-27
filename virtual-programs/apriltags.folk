@@ -86,10 +86,11 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    perfEvent didDetect
+    perfEvent entireFrameDetect
 
-    Claim [list $this entire-frame] detects tags $tags on camera $camera \
-        at timestamp $frameTs in time $aprilTime
+    Hold! [list $this entire-frame] \
+        [list [list $this entire-frame] detects tags $tags on camera $camera \
+             at timestamp $frameTs in time $aprilTime] 16
 }
 
 # Incremental tag detector (looks at regions where there were tags
@@ -102,18 +103,18 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
 
     # Query all the existing tag detections that are out there.
     set rows [Query! /someone/ claims tag /id/ has detection /det/ \
-                  on camera $camera at timestamp /ts/]
+                  on camera $camera at timestamp /timestamp/]
     # Find the most recent detection of each tag; will use these to
     # give us regions of interest to do partial scans on the new
     # camera frame.
     set dets [dict create]
     foreach row $rows {
         dict with row {
-            if {([dict exists $dets $id] && [dict get $dets $id ts] < $ts) ||
+            if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
                 ![dict exists $dets $id]} {
-                
+
                 dict set dets $id $det
-                dict set dets $id ts $ts
+                dict set dets $id timestamp $timestamp
             }
         }
     }
@@ -164,4 +165,30 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
 
     Claim [list $this incremental] detects tags $tags on camera $camera \
         at timestamp $frameTs in time $aprilTime
+}
+
+# Integrate all the tag detections.
+When the collected matches for [list /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/] are /matches/ {
+    set now [expr {[clock milliseconds] / 1000.0}]
+
+    set latestTagDets [dict create]
+    foreach match $matches {
+        set camera [dict get $match camera]
+        foreach tag [dict get $match tags] {
+            dict with tag {
+                if {![dict exists $latestTagDets $id] ||
+                    [dict get $latestTagDets $id timestamp] < $timestamp} {
+
+                    dict set latestTagDets $id $tag
+                }
+            }
+        }
+    }
+
+    dict for {id tag} $latestTagDets {
+        Claim tag $id has detection $tag on [dict get $tag camera] \
+            at [dict get $tag timestamp]
+    }
+    set aprilTime [lmap m $matches {dict get $m aprilTime}]
+    Claim the AprilTag time is $aprilTime
 }
