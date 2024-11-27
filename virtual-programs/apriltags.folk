@@ -165,8 +165,9 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
         }]]
     }
 
-    Claim [list $this incremental] detects tags $tags on camera $camera \
-        at timestamp $frameTs in time $aprilTime
+    Hold! [list $this incremental] \
+        [list $this claims [list $this incremental] detects tags $tags on camera $camera \
+             at timestamp $frameTs in time $aprilTime] 16
 }
 
 # Integrate all the tag detections.
@@ -194,8 +195,9 @@ When the collected matches for \
     }
 
     dict for {id tag} $latestTagDets {
-        Claim tag $id has detection $tag on camera [dict get $tag camera] \
-            at timestamp [dict get $tag timestamp]
+        Hold! [list tag $id detection] \
+            [list $this claims tag $id has detection $tag on camera [dict get $tag camera] \
+                 at timestamp [dict get $tag timestamp]] 16
     }
     set aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $aprilTime
