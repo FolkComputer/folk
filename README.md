@@ -45,6 +45,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - keyboard/editor port
   - points-up port
   - calibration process
-- infinite loop or one-lane syntax? `one-at-a-time`
+- ~~infinite loop or one-lane syntax? one-at-a-time~~
 - Hold! with explicit version number?
+- ~~reuse C module so perf events hold~~
+- report errors as statements
+- spinlock
+
 
