@@ -409,9 +409,31 @@ int statementSourceLineNumber(Statement* stmt) {
     return stmt->sourceLineNumber;
 }
 
-// TODO: do we use this? remove?
-void statementRemoveChildMatch(Statement* stmt, MatchRef to) {
-    listOfEdgeToRemove(stmt->childMatches, to.val);
+bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt, MatchRef otherThan) {
+    bool hasIncompleteChildMatch = false;
+
+    pthread_mutex_lock(&stmt->childMatchesMutex);
+    if (stmt->childMatches == NULL) {
+        hasIncompleteChildMatch = false; goto done;
+    }
+    for (size_t i = 0; i < stmt->childMatches->nEdges; i++) {
+        MatchRef childRef = { .val = stmt->childMatches->edges[i] };
+        if (childRef.val == otherThan.val) { continue; }
+
+        Match* child = matchAcquire(db, childRef);
+        if (child != NULL) {
+            if (!child->isCompleted) {
+                hasIncompleteChildMatch = true;
+                matchRelease(db, child);
+                goto done;
+            } else {
+                matchRelease(db, child);
+            }
+        }
+    }
+ done:    
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
+    return hasIncompleteChildMatch;
 }
 
 static bool matchChecker(void* db, uint64_t ref) {

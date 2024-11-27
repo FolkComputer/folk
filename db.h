@@ -47,7 +47,9 @@ Clause* statementClause(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
-void statementRemoveChildMatch(Statement* stmt, MatchRef to);
+bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
+                                           MatchRef otherThan);
+
 void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
 
 // Match

@@ -293,11 +293,35 @@ static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *con
     Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
     return JIM_OK;
 }
-static int __currentMatchIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     MatchRef ref = matchRef(db, self->currentMatch);
     char ret[100]; snprintf(ret, 100, "m%u:%u", ref.idx, ref.gen);
     Jim_SetResultString(interp, ret, strlen(ret));
+    return JIM_OK;
+}
+static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    StatementRef whenRef = STATEMENT_REF_NULL;
+    pthread_mutex_lock(&self->currentItemMutex);
+    if (self->currentItem.op == RUN) {
+        whenRef = self->currentItem.run.when;
+    }
+    pthread_mutex_unlock(&self->currentItemMutex);
+
+    if (statementRefIsNull(whenRef)) { return JIM_ERR; }
+
+    Statement* when = statementAcquire(db, whenRef);
+    if (when == NULL) {
+        // This shouldn't happen?
+        Jim_SetResultBool(interp, false);
+        return JIM_OK;
+    }
+
+    MatchRef currentMatchRef = matchRef(db, self->currentMatch);
+    Jim_SetResultBool(interp, statementHasOtherIncompleteChildMatch(db, when, currentMatchRef));
+
+    statementRelease(db, when);
     return JIM_OK;
 }
 static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -329,7 +353,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__currentMatchId", __currentMatchIdFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
@@ -726,7 +751,6 @@ void workerRun(WorkQueueItem item) {
         exit(1);
     }
 
-    // TODO: do we need this extra traffic?
     self->currentItemStartTimestamp = 0;
     pthread_mutex_lock(&self->currentItemMutex);
     self->currentItem = (WorkQueueItem) { .op = NONE };

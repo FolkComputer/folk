@@ -9,7 +9,7 @@ typedef struct ThreadControlBlock {
 
     WorkQueue* workQueue;
 
-    // Used for diagnostics/profiling.
+    // Used for (serially) and for profiling & diagnostics.
     WorkQueueItem currentItem;
     pthread_mutex_t currentItemMutex;
 

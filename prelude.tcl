@@ -104,35 +104,15 @@ proc When {args} {
     }
 
     if {$isSerially} {
-        lappend argNames __pattern __body
-        lappend argValues $pattern $body
-        tailcall Say when [list $argNames {
-            set __cache [dict create]
-            while true {
-                set __matches [Query! {*}$__pattern]
-                if {[llength $__pattern] < 2 || [lindex $__pattern 1] ni {claims wishes}} {
-                    lappend __matches {*}[Query! /someone/ claims {*}$__pattern]
-                }
-
-                set __matches [lmap __match $__matches {
-                    if {[dict exists $__cache [dict get $__match __ref]]} { continue }
-                    set __match
-                }]
-                # HACK: this assumes that claims are generally around.
-                if {[llength $__matches] == 0} {
-                    sleep 0.002
-                    continue
-                }
-                set __match [lindex $__matches end]
-
-                dict set __cache [dict get $__match __ref] true
-                if {[dict size $__cache] > 10} {
-                    dict unset __cache [lindex [dict keys $__cache] 0]
-                }
-
-                dict with __match $__body
+        # Serial prologue: find this When itself; see if that
+        # statement ref has any match children that are incomplete. If
+        # so, then die.
+        set prologue {
+            if {[__isWhenOfCurrentMatchAlreadyRunning]} {
+                return
             }
-        }] with environment $argValues
+        }
+        set body "$prologue\n$body"
     }
 
     set varNamesWillBeBound [list]
