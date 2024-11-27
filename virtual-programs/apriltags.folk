@@ -77,6 +77,7 @@ set entireFrameDetector [makeAprilTagDetector $tagFamily]
 set incrementalDetector [makeAprilTagDetector $tagFamily]
 
 # Entire-frame tag detector:
+set entireFrameDetectPerf [makePerfEvent didEntireFrameDetect]
 When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed
@@ -86,7 +87,7 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    perfEvent entireFrameDetect
+    $entireFrameDetectPerf didEntireFrameDetect
 
     Hold! [list $this entire-frame] \
         [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
@@ -95,6 +96,7 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
 
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
+set incrementalDetectPerf [makePerfEvent didIncrementalDetect]
 When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed

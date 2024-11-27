@@ -322,8 +322,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set camObj [Camera::new $camera $width $height 1]
 
     set oldFrames [list]
+    set cameraPerf [makePerfEvent camera]
     while 1 {
-        perfEvent camera
+        $cameraPerf camera
 
         set frame [Camera::grayFrame $camObj]
         Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 16
