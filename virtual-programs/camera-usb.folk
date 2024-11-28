@@ -323,7 +323,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
     set oldFrames [list]
     set cameraPerf [makePerfEvent camera]
-    while 1 {
+    while true {
         $cameraPerf camera
 
         set frame [Camera::grayFrame $camObj]

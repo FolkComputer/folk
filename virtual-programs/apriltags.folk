@@ -103,6 +103,8 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     # at 50 frames).
     if {$now - $frameTs > 0.016 * 25} { return }
 
+    $incrementalDetectPerf didIncrementalDetect
+
     # Query all the existing tag detections that are out there.
     set rows [Query! /someone/ claims tag /id/ has detection /det/ \
                   on camera $camera at timestamp /timestamp/]

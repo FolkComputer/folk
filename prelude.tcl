@@ -195,5 +195,8 @@ proc makePerfEvent {name} {
     puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
     return $perfEventLib
 }
+# HACK: removing this breaks everything ??
+set perf [C]
+$perf compile
 
 signal handle SIGUSR1

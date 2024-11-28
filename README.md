@@ -50,5 +50,4 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~reuse C module so perf events hold~~
 - report errors as statements
 - spinlock
-
-
+- wait until process death to start
