@@ -2,7 +2,7 @@ ifeq ($(shell uname -s),Linux)
 	override CFLAGS += -Wl,--export-dynamic
 endif
 folk: workqueue.c db.c trie.c sysmon.c folk.c vendor/jimtcl/libjim.a
-	cc -g -o$@ $(CFLAGS) \
+	cc -g -fno-omit-frame-pointer -o$@ $(CFLAGS) \
 		-I./vendor/jimtcl -L./vendor/jimtcl \
 		workqueue.c db.c trie.c sysmon.c folk.c \
 		-ljim -lm -lssl -lcrypto -lz
@@ -41,7 +41,7 @@ heapprofile-remote-svg:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --svg folk $(HEAPPROFILE)' > out.svg
 
 flamegraph:
-	sudo perf record -F 997 --call-graph dwarf --pid=$(shell pgrep folk) -g -- sleep 30
+	sudo perf record -F 997 --pid=$(shell pgrep folk) -g -- sleep 30
 	sudo perf script -f > out.perf
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
