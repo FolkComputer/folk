@@ -41,7 +41,7 @@ heapprofile-remote-svg:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --svg folk $(HEAPPROFILE)' > out.svg
 
 flamegraph:
-	sudo perf record -F 997 --pid=$(shell pgrep folk) -g -- sleep 30
+	sudo perf record -F 997 --call-graph dwarf --pid=$(shell pgrep folk) -g -- sleep 30
 	sudo perf script -f > out.perf
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
