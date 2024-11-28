@@ -20,8 +20,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 
-extern WorkQueue* globalWorkQueue;
-extern pthread_mutex_t globalWorkQueueMutex;
+extern void globalWorkQueuePush(WorkQueueItem item);
 
 void workerSpawn();
 
@@ -133,8 +132,7 @@ void sysmon() {
     asprintf(&clockTimeClause->terms[6], "%f",
              (double)timeNs / 1000000000.0);
 
-    pthread_mutex_lock(&globalWorkQueueMutex);
-    workQueuePush(globalWorkQueue, (WorkQueueItem) {
+    globalWorkQueuePush((WorkQueueItem) {
             .op = HOLD,
             .thread = -1,
             .hold = {
@@ -146,7 +144,6 @@ void sysmon() {
                 .sourceLineNumber = __LINE__
             }
         });
-    pthread_mutex_unlock(&globalWorkQueueMutex);
 }
 
 void *sysmonMain(void *ptr) {

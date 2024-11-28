@@ -23,7 +23,14 @@ __thread ThreadControlBlock* self;
 ThreadControlBlock* getSelf() { return self; }
 
 WorkQueue* globalWorkQueue;
-pthread_mutex_t globalWorkQueueMutex;
+pthread_spinlock_t globalWorkQueueLock;
+_Atomic int globalWorkQueueSize;
+void globalWorkQueuePush(WorkQueueItem item) {
+    pthread_spin_lock(&globalWorkQueueLock);
+    workQueuePush(globalWorkQueue, item);
+    globalWorkQueueSize++;
+    pthread_spin_unlock(&globalWorkQueueLock);
+}
 
 __thread Jim_Interp* interp = NULL;
 
@@ -220,19 +227,17 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 static void destructorHelper(void* arg) {
-    // This dispatches an evaluation task to the global queue, so it
-    // can be invoked from sysmon (which doesn't have its own Tcl
-    // interpreter).
+    // This dispatches an evaluation task to the global queue, so that
+    // this function can be invoked from sysmon (which doesn't have
+    // its own Tcl interpreter & work queue).
 
     char* code = (char*) arg;
 
-    pthread_mutex_lock(&globalWorkQueueMutex);
-    workQueuePush(globalWorkQueue, (WorkQueueItem) {
+    globalWorkQueuePush((WorkQueueItem) {
             .op = EVAL,
             .thread = -1,
             .eval = { .code = code }
         });
-    pthread_mutex_unlock(&globalWorkQueueMutex);
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
@@ -835,11 +840,14 @@ void workerLoop() {
     for (;;) {
         schedtick++;
 
-        WorkQueueItem item;
-        if (schedtick % 61 == 0) {
-            pthread_mutex_lock(&globalWorkQueueMutex);
-            item = workQueueTake(globalWorkQueue);
-            pthread_mutex_unlock(&globalWorkQueueMutex);
+        WorkQueueItem item = { .op = NONE };
+        if (schedtick % 61 == 0 && globalWorkQueueSize > 0) {
+            pthread_spin_lock(&globalWorkQueueLock);
+            WorkQueueItem taken = workQueueTake(globalWorkQueue);
+            if (item.op != NONE) {
+                globalWorkQueueSize--;
+            }
+            pthread_spin_unlock(&globalWorkQueueLock);
         } else {
             item = workQueueTake(self->workQueue);
         }
@@ -859,13 +867,19 @@ void workerLoop() {
             }
 
             // Steal failed? Try stealing from global queue.
-            pthread_mutex_lock(&globalWorkQueueMutex);
-            WorkQueueItem taken = workQueueTake(globalWorkQueue);
-            if (taken.op != NONE) {
-                workQueuePush(self->workQueue, taken);
+            WorkQueueItem taken = (WorkQueueItem) { .op = NONE };
+            if (globalWorkQueueSize > 0) {
+                pthread_spin_lock(&globalWorkQueueLock);
+                taken = workQueueTake(globalWorkQueue);
+                if (taken.op != NONE) {
+                    globalWorkQueueSize--;
+                }
+                pthread_spin_unlock(&globalWorkQueueLock);
             }
-            pthread_mutex_unlock(&globalWorkQueueMutex);
-            continue;
+
+            if (taken.op == NONE) { continue; }
+
+            item = taken;
         }
 
 #ifdef FOLK_TRACE
@@ -949,16 +963,15 @@ int main(int argc, char** argv) {
 
     // Set up database.
     db = dbNew();
-    // TODO: hack
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 
     workQueueInit();
+
     globalWorkQueue = workQueueNew();
-    pthread_mutex_init(&globalWorkQueueMutex, NULL);
+    pthread_spin_init(&globalWorkQueueLock, PTHREAD_PROCESS_PRIVATE);
+    globalWorkQueueSize = 0;
 
     atexit(exitHandler);
+
 
     {
         // Spawn the sysmon thread, which isn't managed the same way
