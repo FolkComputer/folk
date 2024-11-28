@@ -979,17 +979,9 @@ int main(int argc, char** argv) {
     sched_getaffinity(0, sizeof(cs), &cs);
     int cpuCount = CPU_COUNT(&cs);
     printf("main: CPU_COUNT = %d\n", cpuCount);
-    assert(cpuCount >= 2);
-
-    // Disable CPU 0 entirely; we will leave it to Linux. Goal:
-    // exclude one CPU from Folk, so that Linux can still accept ssh
-    // connections and stuff like that if Folk goes off the rails.
-    CPU_CLR(0, &cs);
-    sched_setaffinity(0, sizeof(cs), &cs);
-    int cpuUsableCount = cpuCount - 1;
 #else
     // HACK: for macOS.
-    int cpuUsableCount = 3;
+    int cpuCount = 3;
 #endif
 
     threadCount = 1; // i.e., this current thread.
@@ -1001,8 +993,8 @@ int main(int argc, char** argv) {
     threads[0].tid = gettid();
 #endif
 
-    // Now spawn cpuUsableCount-1 additional workers.
-    for (int i = 0; i < cpuUsableCount - 1; i++) { workerSpawn(); }
+    // Now spawn cpuCount-1 additional workers.
+    for (int i = 0; i < cpuCount - 1; i++) { workerSpawn(); }
 
     // Now we set up worker 0, which is this main thread itself, which
     // needs to be an active worker, in case we need to do things like
