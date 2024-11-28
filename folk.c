@@ -804,10 +804,11 @@ void trace(const char* format, ...) {
 }
 
 ssize_t unsafe_workQueueSize(WorkQueue* q);
+__thread unsigned int seedp;
 bool workerSteal() {
     int stealee;
     do {
-        stealee = rand() % threadCount;
+        stealee = rand_r(&seedp) % threadCount;
     } while (stealee == self->index);
     if (threads[stealee].tid == 0 || threads[stealee].workQueue == NULL) {
         return false;
@@ -888,7 +889,7 @@ void workerLoop() {
     self->tid = 0;
 }
 void workerInit(int index) {
-    srand(time(NULL) + index);
+    seedp = time(NULL) + index;
 
     self = &threads[index];
     if (self->workQueue == NULL) {
