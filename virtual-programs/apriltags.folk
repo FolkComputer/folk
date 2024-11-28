@@ -25,7 +25,7 @@ proc makeAprilTagDetector {TAG_FAMILY} {
         td = apriltag_detector_create();
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 1);
-        td->nthreads = 2;
+        td->nthreads = 1;
         pthread_mutex_init(&tmutex, NULL);
     }
     $cc proc detect {Image gray} Jim_Obj* {
