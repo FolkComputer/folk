@@ -39,7 +39,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~sticking of outlines~~
 - is stealing too frequent? are we spending most of our time trying to
   steal?
-- incremental tag detector
+- ~~incremental tag detector~~
 - ~~60Hz camera~~
 - ports
   - keyboard/editor port
@@ -49,5 +49,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - Hold! with explicit version number?
 - ~~reuse C module so perf events hold~~
 - report errors as statements
-- spinlock
+- ~~spinlock~~
+- **fix bottleneck around global queue lock dominating flamegraph**
+  - i think we're getting scheduled off CPU with the lock held
 - wait until process death to start

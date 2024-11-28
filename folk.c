@@ -11,6 +11,8 @@
 #define JIM_EMBEDDED
 #include <jim.h>
 
+#include "vendor/c11-queues/mpmc_queue.h"
+
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
@@ -22,14 +24,31 @@ __thread ThreadControlBlock* self;
 // helper function to get self from LLDB:
 ThreadControlBlock* getSelf() { return self; }
 
-WorkQueue* globalWorkQueue;
-pthread_spinlock_t globalWorkQueueLock;
+struct mpmc_queue globalWorkQueue;
 _Atomic int globalWorkQueueSize;
+void globalWorkQueueInit() {
+    mpmc_queue_init(&globalWorkQueue, 1024, &memtype_heap);
+    globalWorkQueueSize = 0;
+}
 void globalWorkQueuePush(WorkQueueItem item) {
-    pthread_spin_lock(&globalWorkQueueLock);
-    workQueuePush(globalWorkQueue, item);
+    WorkQueueItem* pushee = malloc(sizeof(item));
+    *pushee = item;
+    if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
+        fprintf(stderr, "globalWorkQueuePush: failed\n"); exit(1);
+    }
     globalWorkQueueSize++;
-    pthread_spin_unlock(&globalWorkQueueLock);
+}
+WorkQueueItem globalWorkQueueTake() {
+    WorkQueueItem ret = { .op = NONE };
+    if (globalWorkQueueSize > 0) {
+        WorkQueueItem* pullee;
+        if (mpmc_queue_pull(&globalWorkQueue, (void **)&pullee)) {
+            globalWorkQueueSize--;
+            ret = *pullee;
+            free(pullee);
+        }
+    }
+    return ret;
 }
 
 __thread Jim_Interp* interp = NULL;
@@ -841,17 +860,12 @@ void workerLoop() {
         schedtick++;
 
         WorkQueueItem item = { .op = NONE };
-        if (schedtick % 61 == 0 && globalWorkQueueSize > 0) {
-            pthread_spin_lock(&globalWorkQueueLock);
-            WorkQueueItem taken = workQueueTake(globalWorkQueue);
-            if (item.op != NONE) {
-                globalWorkQueueSize--;
-            }
-            pthread_spin_unlock(&globalWorkQueueLock);
-        } else {
+        if (schedtick % 61 == 0) {
+            item = globalWorkQueueTake();
+        }
+        if (item.op == NONE) {
             item = workQueueTake(self->workQueue);
         }
-
         if (item.op == NONE) {
             // If item is none, then steal from another thread's
             // workqueue:
@@ -866,20 +880,10 @@ void workerLoop() {
                 continue;
             }
 
-            // Steal failed? Try stealing from global queue.
-            WorkQueueItem taken = (WorkQueueItem) { .op = NONE };
-            if (globalWorkQueueSize > 0) {
-                pthread_spin_lock(&globalWorkQueueLock);
-                taken = workQueueTake(globalWorkQueue);
-                if (taken.op != NONE) {
-                    globalWorkQueueSize--;
-                }
-                pthread_spin_unlock(&globalWorkQueueLock);
-            }
-
-            if (taken.op == NONE) { continue; }
-
-            item = taken;
+            item = globalWorkQueueTake();
+        }
+        if (item.op == NONE) {
+            continue;
         }
 
 #ifdef FOLK_TRACE
@@ -966,9 +970,7 @@ int main(int argc, char** argv) {
 
     workQueueInit();
 
-    globalWorkQueue = workQueueNew();
-    pthread_spin_init(&globalWorkQueueLock, PTHREAD_PROCESS_PRIVATE);
-    globalWorkQueueSize = 0;
+    globalWorkQueueInit();
 
     atexit(exitHandler);
 
