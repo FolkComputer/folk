@@ -1726,6 +1726,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
         }
 
         $gpu drawStart
+        tracy frameMarkStart "gpu.folk"
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
             foreach displayCommand $layerDisplayList {
@@ -1733,6 +1734,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
                     on error e { puts stderr [errorInfo $e] }
             }
         }
+        tracy frameMarkEnd "gpu.folk"
         $gpu drawEnd
         $gpu poll
 

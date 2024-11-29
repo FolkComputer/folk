@@ -198,50 +198,53 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         set tracyCpp [C++]
         $tracyCpp cflags -I./vendor/tracy/public
         $tracyCpp include "TracyClient.cpp"
-        $tracyCpp include "tracy/Tracy.hpp"
+        $tracyCpp include "tracy/TracyC.h"
         $tracyCpp proc init {} void {
             fprintf(stderr, "Tracy on\n");
         }
-        $tracyCpp proc event {char* name} void {
-            fprintf(stderr, "event (%s)\n", name);
+        $tracyCpp proc message {char* x} void {
+            
         }
-        $tracyCpp compile $tracyCid
+        $tracyCpp proc frameMarkStart {char* x} void {
+            TracyCFrameMarkStart(x);
+        }
+        $tracyCpp proc frameMarkEnd {char* x} void {
+            TracyCFrameMarkEnd(x);
+        }
+        return [$tracyCpp compile $tracyCid]
     }
     proc tracyTryLoad {} {tracySo} {
         if {![file exists $tracySo]} {
             return false
         }
         $::tracyLib init
-        set ::tracyIsLoaded true
+        rename $::tracyLib tracy
         return true
     }
-    proc makePerfEvent {name} {
-        return [library create $name {name} {
-            set name [set [namespace current]::name]
-            puts stderr "NAME IS($name)"
-            proc $name {} {
-                variable name
-                if {![info exists ::tracyIsLoaded]} {
-                    tracyTryLoad
-                }
-                $::tracyLib event $name
-            }
-        }]
-    }
 
-    if {[__threadId] == 0} { tracyCompile }
+    if {[__threadId] == 0} {
+        set tracyTemp [tracyCompile]
+        $tracyTemp init
+        rename $tracyTemp ::tracy
+    } else {
+        namespace eval ::tracy {
+            proc unknown {args} {
+                if {[tracyTryLoad]} {
+                    {*}$args
+                }
+            }
+        }
+    }
 
 } else {
-    proc makePerfEvent {name} {
-        set perfEventCc [C]
-        $perfEventCc proc $name {} void {}
-        set perfEventLib [$perfEventCc compile]
-        puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
-        return $perfEventLib
+    namespace eval ::tracy {
+        proc message {msg} {}
+        proc frameMarkStart {x} {}
+        proc frameMarkEnd {x} {}
+        proc zoneStart {x} {}
+        proc zoneEnd {x} {}
+        namespace ensemble create
     }
-    # HACK: removing this breaks everything ??
-    set perf [C]
-    $perf compile
 }
 
 signal handle SIGUSR1
