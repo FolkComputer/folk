@@ -382,7 +382,11 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);
-    Jim_EvalFile(interp, "prelude.tcl");
+    if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
+        exit(1);
+    }
 }
 static void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
