@@ -507,12 +507,14 @@ C method proc {name arguments rtype body} {
 C method cflags {args} { lappend cflags {*}$args }
 C method endcflags {args} { lappend endcflags {*}$args }
 
-C method compile {} {
+C method compile {{cid {}}} {
     set cfile [file tempfile /tmp/cfileXXXXXX].c
 
     # A universally unique id that can be used as a global proc name
     # in every thread.
-    set cid [file rootname [file tail $cfile]]
+    if {$cid eq {}} {
+        set cid [file rootname [file tail $cfile]]
+    }
 
     set init [subst {
         int Jim_${cid}Init(Jim_Interp* intp) {
@@ -575,10 +577,10 @@ extern "C" \{
     while {![file exists [file rootname $cfile].o]} { sleep 0.0001 }
 
     exec $compiler -shared $ignoreUnresolved \
-        -o [file rootname $cfile].so [file rootname $cfile].o \
+        -o /tmp/$cid.so [file rootname $cfile].o \
         {*}$endcflags
     # HACK: Why do we need this / only when running in lldb?
-    while {![file exists [file rootname $cfile].so]} { sleep 0.0001 }
+    while {![file exists /tmp/$cid.so]} { sleep 0.0001 }
 
     return <C:$cid>
 }

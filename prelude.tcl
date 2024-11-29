@@ -188,15 +188,60 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 
-proc makePerfEvent {name} {
-    set perfEventCc [C]
-    $perfEventCc proc $name {} void {}
-    set perfEventLib [$perfEventCc compile]
-    puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
-    return $perfEventLib
+if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
+    set tracyCid "tracy_[pid]"
+    set ::tracyLib "<C:$tracyCid>"
+    set tracySo "/tmp/$tracyCid.so"
+    proc tracyCompile {} {tracyCid} {
+        # We should only compile this once, then load the same library
+        # everywhere in Folk (no matter what thread).
+        set tracyCpp [C++]
+        $tracyCpp cflags -I./vendor/tracy/public
+        $tracyCpp include "TracyClient.cpp"
+        $tracyCpp include "tracy/Tracy.hpp"
+        $tracyCpp proc init {} void {
+            fprintf(stderr, "Tracy on\n");
+        }
+        $tracyCpp proc event {char* name} void {
+            fprintf(stderr, "event (%s)\n", name);
+        }
+        $tracyCpp compile $tracyCid
+    }
+    proc tracyTryLoad {} {tracySo} {
+        if {![file exists $tracySo]} {
+            return false
+        }
+        $::tracyLib init
+        set ::tracyIsLoaded true
+        return true
+    }
+    proc makePerfEvent {name} {
+        return [library create $name {name} {
+            set name [set [namespace current]::name]
+            puts stderr "NAME IS($name)"
+            proc $name {} {
+                variable name
+                if {![info exists ::tracyIsLoaded]} {
+                    tracyTryLoad
+                }
+                $::tracyLib event $name
+            }
+        }]
+    }
+
+    if {[__threadId] == 0} { tracyCompile }
+
+} else {
+    proc makePerfEvent {name} {
+        set perfEventCc [C]
+        $perfEventCc proc $name {} void {}
+        set perfEventLib [$perfEventCc compile]
+        puts stderr "perfEvent: $name: sudo perf probe -x [file rootname [$perfEventCc get cfile]].so $name"
+        return $perfEventLib
+    }
+    # HACK: removing this breaks everything ??
+    set perf [C]
+    $perf compile
 }
-# HACK: removing this breaks everything ??
-set perf [C]
-$perf compile
 
 signal handle SIGUSR1
