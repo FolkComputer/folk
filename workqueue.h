@@ -87,7 +87,4 @@ WorkQueueItem workQueueSteal(WorkQueue* q);
 int workQueueStealHalf(WorkQueueItem* into, int maxn,
                        WorkQueue* q);
 
-// Waits on global semaphore for _any_ work queue to get new item.
-void workQueueAwaitAnyPush();
-
 #endif
