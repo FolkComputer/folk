@@ -184,7 +184,7 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
             return JIM_ERR;
         }
     }
-    const char* key = strdup(Jim_GetString(argv[1], NULL));
+    char* key = strdup(Jim_GetString(argv[1], NULL));
     Clause* clause = jimObjToClause(interp, argv[2]);
 
     workQueuePush(self->workQueue, (WorkQueueItem) {
@@ -973,7 +973,6 @@ int main(int argc, char** argv) {
     globalWorkQueueInit();
 
     atexit(exitHandler);
-
 
     {
         // Spawn the sysmon thread, which isn't managed the same way
