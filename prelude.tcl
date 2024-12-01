@@ -205,11 +205,23 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         $tracyCpp proc message {char* x} void {
             
         }
+        $tracyCpp proc frameMark {} void {
+            TracyCFrameMark;
+        }
         $tracyCpp proc frameMarkStart {char* x} void {
             TracyCFrameMarkStart(x);
         }
         $tracyCpp proc frameMarkEnd {char* x} void {
             TracyCFrameMarkEnd(x);
+        }
+        $tracyCpp code {
+            TracyCZoneCtx __zoneCtx;
+        }
+        $tracyCpp proc zoneStart {char* x} void {
+            TracyCZone(__zoneCtx, x);
+        }
+        $tracyCpp proc zoneEnd {char* x} void {
+            TracyCZoneEnd(__zoneCtx);
         }
         return [$tracyCpp compile $tracyCid]
     }
@@ -239,6 +251,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
 } else {
     namespace eval ::tracy {
         proc message {msg} {}
+        proc frameMark {} {}
         proc frameMarkStart {x} {}
         proc frameMarkEnd {x} {}
         proc zoneStart {x} {}
