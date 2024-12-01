@@ -571,6 +571,9 @@ extern "C" \{
     } elseif {$::tcl_platform(os) eq "darwin"} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
+    if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
+        lappend cflags -DTRACY_ENABLE=1
+    }
     exec $compiler -Wall -g -fno-omit-frame-pointer -fPIC \
         {*}$cflags $cfile -c -o [file rootname $cfile].o
     # HACK: Why do we need this / only when running in lldb?

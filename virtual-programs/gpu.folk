@@ -1726,7 +1726,6 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
         }
 
         $gpu drawStart
-        tracy zoneStart "gpu"
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
             foreach displayCommand $layerDisplayList {
@@ -1735,7 +1734,6 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
             }
         }
         $gpu drawEnd
-        tracy zoneEnd "gpu"
         tracy frameMark
         $gpu poll
 

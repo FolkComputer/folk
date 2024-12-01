@@ -196,7 +196,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         # We should only compile this once, then load the same library
         # everywhere in Folk (no matter what thread).
         set tracyCpp [C++]
-        $tracyCpp cflags -I./vendor/tracy/public
+        $tracyCpp cflags -std=c++20 -I./vendor/tracy/public
         $tracyCpp include "TracyClient.cpp"
         $tracyCpp include "tracy/TracyC.h"
         $tracyCpp proc init {} void {
@@ -218,7 +218,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
             TracyCZoneCtx __zoneCtx;
         }
         $tracyCpp proc zoneStart {char* x} void {
-            TracyCZone(__zoneCtx, x);
+            TracyCZone(__zoneCtx, 1);
         }
         $tracyCpp proc zoneEnd {char* x} void {
             TracyCZoneEnd(__zoneCtx);
