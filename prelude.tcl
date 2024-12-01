@@ -217,10 +217,10 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         $tracyCpp code {
             TracyCZoneCtx __zoneCtx;
         }
-        $tracyCpp proc zoneStart {char* x} void {
-            TracyCZone(__zoneCtx, 1);
+        $tracyCpp proc zoneStart {char* name} void {
+            TracyCZoneN(__zoneCtx, name, 1);
         }
-        $tracyCpp proc zoneEnd {char* x} void {
+        $tracyCpp proc zoneEnd {} void {
             TracyCZoneEnd(__zoneCtx);
         }
         return [$tracyCpp compile $tracyCid]
@@ -230,7 +230,8 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
             return false
         }
         $::tracyLib init
-        rename $::tracyLib tracy
+        rename ::tracy ""
+        rename $::tracyLib ::tracy
         return true
     }
 
@@ -239,11 +240,9 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         $tracyTemp init
         rename $tracyTemp ::tracy
     } else {
-        namespace eval ::tracy {
-            proc unknown {args} {
-                if {[tracyTryLoad]} {
-                    {*}$args
-                }
+        proc ::tracy {args} {
+            if {[tracyTryLoad]} {
+                ::tracy {*}$args
             }
         }
     }
@@ -254,8 +253,8 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         proc frameMark {} {}
         proc frameMarkStart {x} {}
         proc frameMarkEnd {x} {}
-        proc zoneStart {x} {}
-        proc zoneEnd {x} {}
+        proc zoneStart {name} {}
+        proc zoneEnd {} {}
         namespace ensemble create
     }
 }

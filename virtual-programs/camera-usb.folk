@@ -322,9 +322,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set camObj [Camera::new $camera $width $height 1]
 
     set oldFrames [list]
-    set cameraPerf [makePerfEvent camera]
     while true {
-        $cameraPerf camera
+        tracy zoneStart camera-usb
 
         set frame [Camera::grayFrame $camObj]
         Hold! camera [list $this claims camera $camera has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]] 16
@@ -334,5 +333,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             # puts stderr "freeing old frame ($oldestFrame)"
             $camLib freeImage $oldestFrame
         }
+
+        tracy zoneEnd
     }
 }

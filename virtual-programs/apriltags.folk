@@ -77,8 +77,9 @@ set entireFrameDetector [makeAprilTagDetector $tagFamily]
 set incrementalDetector [makeAprilTagDetector $tagFamily]
 
 # Entire-frame tag detector:
-set entireFrameDetectPerf [makePerfEvent didEntireFrameDetect]
 When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    tracy zoneStart entire-frame-detect
+
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed
     # at 50 frames).
@@ -87,23 +88,23 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    $entireFrameDetectPerf didEntireFrameDetect
 
     Hold! [list $this entire-frame] \
         [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
              at timestamp $frameTs in time $aprilTime] 16
+
+    tracy zoneEnd
 }
 
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
-set incrementalDetectPerf [makePerfEvent didIncrementalDetect]
 When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed
     # at 50 frames).
     if {$now - $frameTs > 0.016 * 25} { return }
 
-    $incrementalDetectPerf didIncrementalDetect
+    tracy zoneStart incremental-detect
 
     # Query all the existing tag detections that are out there.
     set rows [Query! /someone/ claims tag /id/ has detection /det/ \
@@ -170,6 +171,8 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     Hold! [list $this incremental] \
         [list $this claims [list $this incremental] detects tags $tags on camera $camera \
              at timestamp $frameTs in time $aprilTime] 16
+
+    tracy zoneEnd
 }
 
 # Integrate all the tag detections.

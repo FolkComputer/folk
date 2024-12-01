@@ -1734,6 +1734,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
             }
         }
         $gpu drawEnd
+
         tracy frameMark
         $gpu poll
 
