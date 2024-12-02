@@ -11,7 +11,7 @@
 #     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
 #
 
-package require math::linearalgebra
+package require linalg
 # rename ::scale scaleTk
 foreach p {add norm sub scale matmul
     getelem transpose determineSVD shape mkIdentity show
@@ -23,79 +23,82 @@ foreach p {add norm sub scale matmul
 # We try to use the AprilTag matrix library (instead of tcllib linalg)
 # to do matrix/homography operations in the live calibration inner
 # loop, to help with performance:
-set cc [c create]
-$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+set cc [C]
+$cc cflags -I./vendor/apriltag
 $cc include <common/matd.h>
 $cc include <common/homography.h>
 
 $cc code {
-    extern Tcl_ObjType matd_ObjType;
-    void matd_freeIntRepProc(Tcl_Obj *objPtr) {
-        matd_destroy((matd_t*) objPtr->internalRep.otherValuePtr);
+    extern Jim_ObjType matd_ObjType;
+    void matd_freeIntRepProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        matd_destroy((matd_t*) objPtr->internalRep.ptr);
     }
-    void matd_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
-        dupPtr->internalRep.otherValuePtr = (void*) matd_copy((matd_t*) srcPtr->internalRep.otherValuePtr);
+    void matd_dupIntRepProc(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
+        dupPtr->internalRep.ptr = (void*) matd_copy((matd_t*) srcPtr->internalRep.ptr);
     }
-    void matd_updateStringProc(Tcl_Obj *objPtr) {
-        matd_t* mat = (matd_t*) objPtr->internalRep.otherValuePtr;
+    void matd_updateStringProc(Jim_Obj *objPtr) {
+        matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
 
-        Tcl_DString ds; Tcl_DStringInit(&ds);
+        objPtr->bytes = calloc(mat->nrows, 1 + mat->ncols * 17 + 1);
+        char *s = objPtr->bytes;
+        int i = 0;
+        
         for (unsigned int row = 0; row < mat->nrows; row++) {
-            Tcl_DStringStartSublist(&ds);
+            s[i++] = '{';
             for (unsigned int col = 0; col < mat->ncols; col++) {
-                char el[16];
-                FOLK_ENSURE(snprintf(el, sizeof(el), "%f", MATD_EL(mat, row, col)) < 16);
-                Tcl_DStringAppendElement(&ds, el);
+                int n = snprintf(&s[i], 17,
+                                 "%f ", MATD_EL(mat, row, col));
+                FOLK_ENSURE(n <= 17); i += n;
             }
-            Tcl_DStringEndSublist(&ds);
+            s[i++] = '}';
         }
-
-        objPtr->length = Tcl_DStringLength(&ds);
-        objPtr->bytes = ckalloc(objPtr->length + 1);
-        snprintf(objPtr->bytes, objPtr->length + 1, "%s", Tcl_DStringValue(&ds));
-        Tcl_DStringFree(&ds);
+        objPtr->length = strlen(s);
     }
-    int matd_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+    int matd_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
         // shimmer into a list, then iterate
-        int nrows; Tcl_Obj** rowObjs;
-        __ENSURE_OK(Tcl_ListObjGetElements(interp, objPtr, &nrows, &rowObjs));
+        int nrows; Jim_Obj *rowObj0;
+        nrows = Jim_ListLength(interp, objPtr);
         __ENSURE(nrows > 0);
-        int ncols;
-        __ENSURE_OK(Tcl_ListObjLength(interp, rowObjs[0], &ncols));
+        __ENSURE_OK(Jim_ListIndex(interp, objPtr, 0, &rowObj0, false));
+        int ncols = Jim_ListLength(interp, rowObj0);
         __ENSURE(ncols > 0);
 
-        matd_t* mat = matd_create(nrows, ncols);
+        matd_t *mat = matd_create(nrows, ncols);
         for (int row = 0; row < nrows; row++) {
-            int rowCols; Tcl_Obj** elObjs;
-            __ENSURE_OK(Tcl_ListObjGetElements(interp, rowObjs[row], &rowCols, &elObjs));
+            Jim_Obj *rowObj;
+            __ENSURE_OK(Jim_ListIndex(interp, objPtr, row, &rowObj, false));
+            int rowCols = Jim_ListLength(interp, rowObj);
             __ENSURE(rowCols == ncols);
             for (int col = 0; col < ncols; col++) {
-                __ENSURE_OK(Tcl_GetDoubleFromObj(interp, elObjs[col], &MATD_EL(mat, row, col)));
+                Jim_Obj *elObj;
+                __ENSURE_OK(Jim_ListIndex(interp, rowObj, col, &elObj, false));
+                __ENSURE_OK(Jim_GetDouble(interp, elObj, &MATD_EL(mat, row, col)));
             }
         }
         objPtr->typePtr = &matd_ObjType;
-        objPtr->internalRep.otherValuePtr = mat;
-        return TCL_OK;
+        objPtr->internalRep.ptr = mat;
+        return JIM_OK;
     }
-    Tcl_ObjType matd_ObjType = (Tcl_ObjType) {
+    Jim_ObjType matd_ObjType = (Jim_ObjType) {
         .name = "matd_t*",
         .freeIntRepProc = matd_freeIntRepProc,
         .dupIntRepProc = matd_dupIntRepProc,
         .updateStringProc = matd_updateStringProc,
-        .setFromAnyProc = matd_setFromAnyProc,
+        /* .setFromAnyProc = matd_setFromAnyProc, */
     };
 }
 $cc argtype matd_t* {
-    __ENSURE_OK(Tcl_ConvertToType(interp, $obj, &matd_ObjType));
+    __ENSURE_OK(matd_setFromAnyProc(interp, $obj));
     matd_t* $argname;
-    $argname = (matd_t*) $obj->internalRep.otherValuePtr;
+    $argname = (matd_t*) $obj->internalRep.ptr;
 }
 $cc rtype matd_t* {
-    $robj = Tcl_NewObj();
+    $robj = Jim_NewObj(interp);
     $robj->bytes = NULL;
     $robj->typePtr = &matd_ObjType;
-    $robj->internalRep.otherValuePtr = $rvalue;
+    $robj->internalRep.ptr = $rvalue;
 }
+
 
 # Takes a list of at least 4 point pairs (model -> image) like
 #
@@ -122,17 +125,17 @@ $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* 
 proc estimateHomography {pointPairs} {
     estimateHomographyImpl [llength $pointPairs] $pointPairs
 }
-$cc proc applyHomography {matd_t* H double[2] xy} Tcl_Obj* {
+$cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
     double out[2];
     homography_project(H, xy[0], xy[1], &out[0], &out[1]);
 
-    Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
-    return Tcl_NewListObj(2, retObjs);
+    Jim_Obj* retObjs[2] = { Jim_NewDoubleObj(interp, out[0]), Jim_NewDoubleObj(interp, out[1]) };
+    return Jim_NewListObj(interp, retObjs, 2);
 }
 $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);
 }
-c loadlib $::env(HOME)/apriltag/libapriltag.so
+$cc endcflags ./vendor/apriltag/libapriltag.so
 $cc compile
 
 set ROWS 3
@@ -177,16 +180,8 @@ Claim the calibration unit model is $UNIT_MODEL
 fn isCalibrationTag {id} { expr {$id >= 48600 && $id < 48600 + $ROWS*$COLS} }
 fn isPrintedTag {id} {
     if {![isCalibrationTag $id]} { return false }
-    # We print tags on the outer perimeter of the grid, and we project
-    # tags in the interior.
     set idx [- $id 48600]
     return [expr {$idx % 2 == 0}] ;# for checkerboard
-
-    # for perimeter:
-    # set row [expr {$idx / $COLS}]
-    # set col [expr {$idx % $COLS}]
-    # return [expr {$row == 0 || $row == $ROWS - 1 ||
-    #               $col == 0 || $col == $COLS - 1}]
 }
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
@@ -198,8 +193,7 @@ Claim the calibration isPrintedTag is ${^isPrintedTag}
 fn isVersionTag {id} {
     if {![isProjectedTag $id]} { return false }
     set idx [- $id 48600]
-    # expr {$idx % 2 == 1} ;# for perimeter
-    expr {$idx % 4 == 1} ;# for checkerboard
+    return [expr {$idx % 4 == 1}] ;# for checkerboard
 }
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
 # according to version.
