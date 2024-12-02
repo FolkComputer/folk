@@ -58,14 +58,14 @@ proc unknown {cmdName args} {
         # Is it a C file? load it now.
         load /tmp/$cid.so
         proc <C:$cid> {procName args} {cid} { "<C:$cid> $procName" {*}$args }
-        $cmdName {*}$args
+        tailcall $cmdName {*}$args
 
     } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
         # Allow Tcl `library create` libraries to be callable from any
         # thread, because we load the library into the Tcl interpreter
         # for a given thread on demand.
         source $tclfile
-        $cmdName {*}$args
+        tailcall $cmdName {*}$args
 
     } else {
         error "Unknown command '$cmdName'"
