@@ -215,13 +215,34 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
             TracyCFrameMarkEnd(x);
         }
         $tracyCpp code {
-            TracyCZoneCtx __zoneCtx;
+            __thread TracyCZoneCtx __zoneCtx;
         }
         $tracyCpp proc zoneStart {char* name} void {
-            TracyCZoneN(__zoneCtx, name, 1);
+            Jim_Obj* scriptObj = interp->currentScriptObj;
+            const char* sourceFileName;
+            int sourceLineNumber;
+            if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
+                sourceFileName = "<unknown>";
+            }
+            if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
+                sourceLineNumber = -1;
+            }
+            Jim_CallFrame *frame = interp->framePtr->parent->parent;
+            const char *fnName = NULL;
+            if (frame != NULL && frame->argv != NULL) {
+                fnName = Jim_String(frame->argv[0]);
+            }
+            uint64_t loc = ___tracy_alloc_srcloc((uint32_t) sourceLineNumber,
+                                                 sourceFileName, strlen(sourceFileName),
+                                                 fnName != NULL ? fnName : "<unknown>",
+                                                 fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
+                                                 0);
+            __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
+
+            ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
         }
         $tracyCpp proc zoneEnd {} void {
-            TracyCZoneEnd(__zoneCtx);
+            ___tracy_emit_zone_end(__zoneCtx);
         }
         return [$tracyCpp compile $tracyCid]
     }
