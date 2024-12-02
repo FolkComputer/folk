@@ -120,11 +120,6 @@ $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* 
     return homography_compute(&correspondencesArr,
                               HOMOGRAPHY_COMPUTE_FLAG_SVD);
 }
-# HACK: wrapper because we have to give the array length as a separate
-# arg (at least for now).
-proc estimateHomography {pointPairs} {
-    estimateHomographyImpl [llength $pointPairs] $pointPairs
-}
 $cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
     double out[2];
     homography_project(H, xy[0], xy[1], &out[0], &out[1]);
@@ -136,7 +131,14 @@ $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);
 }
 $cc endcflags ./vendor/apriltag/libapriltag.so
-$cc compile
+set matLib [$cc compile]
+
+# HACK: wrapper because we have to give the array length as a separate
+# arg (at least for now).
+fn estimateHomography {pointPairs} {
+    $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
+}
+
 
 set ROWS 3
 set COLS 5
@@ -213,7 +215,6 @@ fn versionizeTags {tags version} {
     return $tags
 }
 
-package require math
 namespace import ::math::mean
 fn meanPoseDifference {pose1 pose2} {
     set tags1 [dict get $pose1 tags]
@@ -238,6 +239,9 @@ fn meanPoseDifference {pose1 pose2} {
 Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
+    package require linalg
+    namespace import ::math::linearalgebra::add
+
     set marginTop 72; set marginLeft 36
     set PageWidth 612; set PageHeight 792
 
@@ -270,13 +274,13 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
         $marginLeft $marginTop translate
 
         [set tagIdx -1]
-        [join [dict values [dict map {id modelTag} $model {
+        [join [lmap {id modelTag} $model {
             if {![apply $tagIdPredicate $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
             set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
-            lassign [applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            lassign [$matLib applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
             subst {
                 gsave
                 $psX [+ $psY $tagOuterLengthPs] translate
@@ -299,7 +303,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
                     grestore
                 } }]
             }
-        }]] "\n"]
+        }] "\n"]
     }]
 
     set fp [open [list |ps2pdf - - <<$ps] rb]
@@ -668,10 +672,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
     # UNIT_MODEL's 2D coordinates have inner tag side length of 1.0:
     # scale it to real-world coordinates.
-    set baseModel [dict map {id tag} $UNIT_MODEL {
-        dict create c [scale $printedSideLengthM [dict get $tag c]] \
-            p [scale $printedSideLengthM [dict get $tag p]]
-    }]
+    set baseModel [dict create]
+    dict for {id tag} $UNIT_MODEL {
+        dict set baseModel $id c [scale $printedSideLengthM [dict get $tag c]]
+        dict set baseModel $id p [scale $printedSideLengthM [dict get $tag p]]
+    }
 
     # A list of pose dictionaries. Each dictionary has entries `model`
     # and `H_modelToDisplay` ('prewarp' homography from model plane to

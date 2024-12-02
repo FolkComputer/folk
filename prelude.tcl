@@ -10,6 +10,15 @@ proc serializeEnvironment {} {
     }
     list $argNames $argValues
 }
+
+proc fn {name argNames body} {
+    # Creates a variable in the caller scope called ^$name. unknown
+    # implementation (later in this file) will try ^$name on call.
+    lassign [uplevel serializeEnvironment] envArgNames envArgValues
+    set argNames [linsert $argNames 0 {*}$envArgNames]
+    uplevel [list set ^$name [list apply [list $argNames $body] {*}$envArgValues]]
+}
+
 proc assert condition {
     if {![uplevel [list expr $condition]]} {
         return -code error "assertion failed: $condition"
@@ -68,8 +77,15 @@ proc unknown {cmdName args} {
         tailcall $cmdName {*}$args
 
     } else {
-        error "Unknown command '$cmdName'"
+        try {
+            set fnVar ^$cmdName; upvar $fnVar fn
+            if {[info exists fn]} {
+                tailcall {*}$fn {*}$args
+            }
+        } on error e {}
     }
+
+    error "Unknown command '$cmdName'"
 }
 
 proc lsort_key_asc {key l} {
@@ -77,17 +93,28 @@ proc lsort_key_asc {key l} {
         expr {[dict get $a $key] < [dict get $b $key]}
     }} $key] $l]
 }
-proc min {args} {
-    if {[llength $args] == 0} { error "min: No args" }
-    set min infinity
-    foreach arg $args { if {$arg < $min} { set min $arg } }
-    return $min
-}
-proc max {args} {
-    if {[llength $args] == 0} { error "max: No args" }
-    set max -infinity
-    foreach arg $args { if {$arg > $max} { set max $arg } }
-    return $max
+
+namespace eval ::math {
+    proc min {args} {
+        if {[llength $args] == 0} { error "min: No args" }
+        set min infinity
+        foreach arg $args { if {$arg < $min} { set min $arg } }
+        return $min
+    }
+    proc max {args} {
+        if {[llength $args] == 0} { error "max: No args" }
+        set max -infinity
+        foreach arg $args { if {$arg > $max} { set max $arg } }
+        return $max
+    }
+    proc mean {val args} {
+        set sum $val
+        set N [ expr { [ llength $args ] + 1 } ]
+        foreach val $args {
+            set sum [ expr { $sum + $val } ]
+        }
+        set mean [expr { double($sum) / $N }]
+    }
 }
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 

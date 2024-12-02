@@ -140,6 +140,7 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
         }
     }
 
+    namespace import ::math::min ::math::max
     set tags [list]
     set frameWidth [dict get $frame width]
     set frameHeight [dict get $frame height]
