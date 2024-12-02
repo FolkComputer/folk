@@ -1055,18 +1055,18 @@ badargs:
         if (phandle == 0) {
             /* Child */
             /* Set up stdin, stdout, stderr */
-            if (inputId != -1 && inputId != fileno(stdin)) {
-                dup2(inputId, fileno(stdin));
+            if (inputId != -1 && inputId != STDIN_FILENO) {
+                dup2(inputId, STDIN_FILENO);
                 close(inputId);
             }
-            if (outputId != -1 && outputId != fileno(stdout)) {
-                dup2(outputId, fileno(stdout));
+            if (outputId != -1 && outputId != STDOUT_FILENO) {
+                dup2(outputId, STDOUT_FILENO);
                 if (outputId != errorId) {
                     close(outputId);
                 }
             }
-            if (errorId != -1 && errorId != fileno(stderr)) {
-                dup2(errorId, fileno(stderr));
+            if (errorId != -1 && errorId != STDERR_FILENO) {
+                dup2(errorId, STDERR_FILENO);
                 close(errorId);
             }
             /* Close parent-only file descriptors */
