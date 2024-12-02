@@ -241,6 +241,8 @@ Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
     package require linalg
     namespace import ::math::linearalgebra::add
+    set printLib [dict get [lindex [Query! /someone/ claims the print library is /printLib/] 0] \
+                      printLib]
 
     set marginTop 72; set marginLeft 36
     set PageWidth 612; set PageHeight 792
@@ -285,7 +287,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
                 gsave
                 $psX [+ $psY $tagOuterLengthPs] translate
                 $tagOuterLengthPs -$tagOuterLengthPs scale
-                [::tagPsForId $id]
+                [$printLib tagPsForId $id]
                 grestore
 
                 % Label the inner side length:
@@ -312,12 +314,15 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 fn makeExampleProgramPng {} {
+    set ^programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
+                          programToPs]
+
     # HACK: we hard-code letter, since this is just for documentation
     # purposes, and we want to cut the bottom half off so we need
     # known dimensions.
     set format letter
     # HACK: we should import ::programToPs somehow instead.
-    set ps [::programToPs 0 {# This image is for illustration purposes; don't
+    set ps [programToPs 0 {# This image is for illustration purposes; don't
 # print it. You should print a program normally
 # through the Folk editor and measure that.} $format {{
 
@@ -373,13 +378,14 @@ fn makeExampleProgramPng {} {
 }
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPng} {
+    package require base64
+
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
 
     set exampleProgramPng [makeExampleProgramPng]
 
-    set defaultGeom [dict get [lindex [Statements::findMatches \
-                                           [list /someone/ claims the default program geometry is /defaultGeom/]] 0] defaultGeom]
+    set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
     upvar ^html ^html
@@ -410,7 +416,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[::base64::encode $calibrationBoardPdf]">
             </iframe>
             <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
             <script>
@@ -418,7 +424,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
                 ws.evaluate(`
-                  set boardPdf [binary decode base64 {\${boardSrc}}]
+                  set boardPdf [::base64::decode {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf w]
                   fconfigure \$fd -encoding binary -translation binary
                   puts \$fd \$boardPdf; close \$fd
@@ -579,7 +585,7 @@ Camera Controls
               if you don't have one already.</p>
 
             <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
-            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
+            <img width="306" src="data:image/png;base64,$[::base64::encode $exampleProgramPng]"
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>
