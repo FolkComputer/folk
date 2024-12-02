@@ -8,14 +8,17 @@ folk: workqueue.c db.c trie.c sysmon.c folk.c vendor/jimtcl/libjim.a
 		workqueue.c db.c trie.c sysmon.c folk.c \
 		-ljim -lm -lssl -lcrypto -lz
 
-.PHONY: test clean
+.PHONY: test clean deps
 test: folk
 	./folk test/test.folk
 clean:
 	rm -f folk
-
-debug-attach:
-	lldb --attach-name folk
+deps:
+	make -C vendor/jimtcl
+	make -C vendor/apriltag libapriltag.so
+	if [ "$$(uname)" = "Darwin" ]; then \
+		install_name_tool -id @executable_path/vendor/apriltag/libapriltag.so vendor/apriltag/libapriltag.so; \
+	fi
 
 FOLK_REMOTE_NODE := folk-live
 sync:
@@ -29,17 +32,17 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && gdb ./folk -ex=run'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk -ex=run'
 tracy-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 ./folk'
 debug-tracy-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 gdb ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 gdb ./folk'
 valgrind-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make -C vendor/jimtcl && make && valgrind --leak-check=yes ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make -C vendor/jimtcl && make -C vendor/apriltag libapriltag.so && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
 heapprofile-remote-show:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk $(HEAPPROFILE)'
 heapprofile-remote-svg:
