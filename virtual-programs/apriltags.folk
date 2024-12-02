@@ -78,7 +78,8 @@ set incrementalDetector [makeAprilTagDetector $tagFamily]
 
 # Entire-frame tag detector:
 When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
-    tracy zoneStart entire-frame-detect
+    tracy zoneStart
+    tracy zoneName "entireFrameDetect: $frameTs"
 
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed
@@ -104,7 +105,8 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     # at 50 frames).
     if {$now - $frameTs > 0.016 * 25} { return }
 
-    tracy zoneStart incremental-detect
+    tracy zoneStart
+    tracy zoneName "incrementalDetect: $frameTs"
 
     # Query all the existing tag detections that are out there.
     set rows [Query! /someone/ claims tag /id/ has detection /det/ \

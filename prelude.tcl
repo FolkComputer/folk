@@ -217,7 +217,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         $tracyCpp code {
             __thread TracyCZoneCtx __zoneCtx;
         }
-        $tracyCpp proc zoneStart {char* name} void {
+        $tracyCpp proc zoneStart {} void {
             Jim_Obj* scriptObj = interp->currentScriptObj;
             const char* sourceFileName;
             int sourceLineNumber;
@@ -238,7 +238,8 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
                                                  fnName != NULL ? strlen(fnName) : strlen("<unknown>"),
                                                  0);
             __zoneCtx = ___tracy_emit_zone_begin_alloc(loc, 1);
-
+        }
+        $tracyCpp proc zoneName {char* name} void {
             ___tracy_emit_zone_name(__zoneCtx, name, strlen(name));
         }
         $tracyCpp proc zoneEnd {} void {
@@ -269,15 +270,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
     }
 
 } else {
-    namespace eval ::tracy {
-        proc message {msg} {}
-        proc frameMark {} {}
-        proc frameMarkStart {x} {}
-        proc frameMarkEnd {x} {}
-        proc zoneStart {name} {}
-        proc zoneEnd {} {}
-        namespace ensemble create
-    }
+    proc ::tracy {args} {}
 }
 
 signal handle SIGUSR1
