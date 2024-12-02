@@ -66,7 +66,7 @@ void sysmon() {
         fprintf(stderr, "Check avail RAM: %d MB / %d MB\n",
                 freeRamMb,
                 totalRamMb);
-        if (freeRamMb < 100) {
+        if (freeRamMb < 200) {
             // Hard die if we are likely to run out of RAM, because
             // that will lock the system (making it hard to ssh in,
             // etc).
