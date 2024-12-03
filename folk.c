@@ -496,9 +496,12 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     {
 #ifdef TRACY_ENABLE
         const char *source = statementSourceFileName(when);
+        char name[1000];
+        int namesz = snprintf(name, 1000, "%s:%d",
+                              source, statementSourceLineNumber(when));
         uint64_t srcloc = ___tracy_alloc_srcloc(statementSourceLineNumber(when),
                                                source, strlen(source),
-                                               "<unknown>", strlen("<unknown>"),
+                                               name, namesz,
                                                0);
         TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
 #endif
