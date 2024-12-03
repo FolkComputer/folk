@@ -1,10 +1,24 @@
 # db
 
 ```
-$ cd vendor/jimtcl && ./configure CFLAGS=-g && make && cd -
-$ cd vendor/apriltag && make libapriltag.a libapriltag.so && cd -
+$ cd vendor/jimtcl && ./configure CFLAGS=-g && cd -
+$ make deps
+```
+
+then
+
+```
 $ make && ./folk
 ```
+
+or
+
+```
+$ make remote FOLK_REMOTE_NODE=folk-live
+```
+
+Init and update the submodule & you can pass `CFLAGS=-DTRACY_ENABLE`
+to `make` for Tracy.
 
 ## requirements
 
@@ -21,14 +35,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count
 - event statements
-- **fix memory leak (5MB/second)**
-  - cache per-thread value copies?
 - match or statement arena allocator
   - for camera images, at least
-- performance analysis
-  - perf/speedscope
-  - have some kind of label-based, cross-thread fps counter
-  - **pmap monitor for memory leak?**
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
 - ~~port tag iters fix from folk1~~
@@ -53,3 +61,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **fix bottleneck around global queue lock dominating flamegraph**
   - i think we're getting scheduled off CPU with the lock held
 - wait until process death to start
+- blinking on folk0
+- **fix memory leak (5MB/second)**
+  - cache per-thread value copies?

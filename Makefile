@@ -1,18 +1,37 @@
 ifeq ($(shell uname -s),Linux)
 	override CFLAGS += -Wl,--export-dynamic
 endif
-folk: workqueue.c db.c trie.c sysmon.c folk.c vendor/jimtcl/libjim.a
-	cc -g -fno-omit-frame-pointer -o$@ $(CFLAGS) \
-		-I./vendor/jimtcl -L./vendor/jimtcl \
-		vendor/c11-queues/mpmc_queue.c vendor/c11-queues/memory.c \
-		workqueue.c db.c trie.c sysmon.c folk.c \
+
+ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
+# Tracy is enabled
+	TRACY_TARGET = vendor/tracy/public/TracyClient.o
+	override CFLAGS += -I./vendor/tracy/public
+	override CPPFLAGS += -std=c++20 -DTRACY_ENABLE
+	LINKER := c++
+else
+	TRACY_CFLAGS :=
+	LINKER := cc
+endif
+
+folk: workqueue.o db.o trie.o sysmon.o folk.o \
+	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
+	vendor/jimtcl/libjim.a $(TRACY_TARGET)
+
+	$(LINKER) -g -fno-omit-frame-pointer -o$@ $(CFLAGS) $(TRACY_CFLAGS) \
+		-L./vendor/jimtcl \
+		$^ \
 		-ljim -lm -lssl -lcrypto -lz
+
+%.o: %.c
+	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
+		$(CFLAGS) $(TRACY_CFLAGS) \
+		$< -I./vendor/jimtcl
 
 .PHONY: test clean deps
 test: folk
 	./folk test/test.folk
 clean:
-	rm -f folk
+	rm -f folk *.o vendor/tracy/public/TracyClient.o
 deps:
 	make -C vendor/jimtcl
 	make -C vendor/apriltag libapriltag.so
@@ -35,10 +54,6 @@ remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk -ex=run'
-tracy-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 ./folk'
-debug-tracy-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && TRACY_ENABLE=1 gdb ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync

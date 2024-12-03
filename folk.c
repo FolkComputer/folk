@@ -8,6 +8,10 @@
 #include <stdatomic.h>
 #include <inttypes.h>
 
+#ifdef TRACY_ENABLE
+#include "tracy/TracyC.h"
+#endif
+
 #define JIM_EMBEDDED
 #include <jim.h>
 
@@ -479,7 +483,23 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // Rule: you should never be holding a lock while doing a Tcl
     // evaluation.
     interp->signal_level++;
-    int error = Jim_EvalObj(interp, expr);
+    int error;
+    {
+#ifdef TRACY_ENABLE
+        const char *source = statementSourceFileName(when);
+        uint64_t srcloc = ___tracy_alloc_srcloc(statementSourceLineNumber(when),
+                                               source, strlen(source),
+                                               "<unknown>", strlen("<unknown>"),
+                                               0);
+        TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#endif
+
+        error = Jim_EvalObj(interp, expr);
+
+#ifdef TRACY_ENABLE
+        ___tracy_emit_zone_end(ctx);
+#endif
+    }
     interp->signal_level--;
 
     matchCompleted(self->currentMatch);
@@ -1032,6 +1052,6 @@ int main(int argc, char** argv) {
     // lexically captured.
     eval("apply {{} {source virtual-programs/gpu.folk}}");
 #endif
-    
+
     workerLoop();
 }
