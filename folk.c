@@ -352,6 +352,14 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
     statementRelease(db, when);
     return JIM_OK;
 }
+static int __isTracyEnabledFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+#ifdef TRACY_ENABLE
+    Jim_SetResultBool(interp, true);
+#else
+    Jim_SetResultBool(interp, false);
+#endif
+    return JIM_OK;
+}
 static int __dbFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     char ret[100]; snprintf(ret, 100, "(Db*) %p", db);
     Jim_SetResultString(interp, ret, strlen(ret));
@@ -383,6 +391,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__exit", __exitFunc, NULL, NULL);

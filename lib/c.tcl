@@ -571,7 +571,7 @@ extern "C" \{
     } elseif {$::tcl_platform(os) eq "darwin"} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
-    if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
+    if {[__isTracyEnabled]} {
         lappend cflags -DTRACY_ENABLE=1
     }
     exec $compiler -Wall -g -fno-omit-frame-pointer -fPIC \

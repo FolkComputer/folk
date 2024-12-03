@@ -215,7 +215,7 @@ lappend ::auto_path "./vendor"
 source "lib/c.tcl"
 source "lib/math.tcl"
 
-if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
+if {[__isTracyEnabled]} {
     set tracyCid "tracy_[pid]"
     set ::tracyLib "<C:$tracyCid>"
     set tracySo "/tmp/$tracyCid.so"
@@ -224,7 +224,7 @@ if {[info exists ::env(TRACY_ENABLE)] && $::env(TRACY_ENABLE)} {
         # everywhere in Folk (no matter what thread).
         set tracyCpp [C++]
         $tracyCpp cflags -std=c++20 -I./vendor/tracy/public
-        $tracyCpp include "TracyClient.cpp"
+        $tracyCpp include <string.h>
         $tracyCpp include "tracy/TracyC.h"
         $tracyCpp proc init {} void {
             fprintf(stderr, "Tracy on\n");
