@@ -64,3 +64,4 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - blinking on folk0
 - **fix memory leak (5MB/second)**
   - cache per-thread value copies?
+- vulkan segfault (**this is just because we're out of RAM / called exit**)

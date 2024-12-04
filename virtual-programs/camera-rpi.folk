@@ -230,17 +230,27 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     puts "camera-rpi: $cameraPath ($options) booted at [clock milliseconds]"
 
     set oldFrames [list]
-    while 1 {
+    while true {
+        tracy zoneStart
+
         try {
             set frame [$camLib grayFrame]
-        } on error e { continue }
+        } on error e {
+            tracy zoneName "err: $e"
+            tracy zoneEnd
+            continue
+        }
 
-        Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]]
+        set timestamp [expr {[clock milliseconds] / 1000.0}]
+        tracy zoneName "camera-rpi: $timestamp"
+        Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp $timestamp]
 
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 10} {
             set oldFrames [lassign $oldFrames oldestFrame]
             $camLib freeImage $oldestFrame
         }
+
+        tracy zoneEnd
     }
 }
