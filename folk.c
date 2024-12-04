@@ -55,6 +55,19 @@ WorkQueueItem globalWorkQueueTake() {
     return ret;
 }
 
+// Pushes to either self or the global workqueue, depending on how
+// long the current work item has been running.
+void appropriateWorkQueuePush(WorkQueueItem item) {
+    int64_t now = timestamp_get(self->clockid);
+    if (self->currentItemStartTimestamp == 0 ||
+        now - self->currentItemStartTimestamp < 1000000) {
+        // This worker is responsive. Push to its queue.
+        workQueuePush(self->workQueue, item);
+    } else {
+        globalWorkQueuePush(item);
+    }
+}
+
 __thread Jim_Interp* interp = NULL;
 
 Db* db;
@@ -152,7 +165,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         sourceLineNumber = -1;
     }
 
-    workQueuePush(self->workQueue, (WorkQueueItem) {
+    appropriateWorkQueuePush((WorkQueueItem) {
        .op = ASSERT,
        .thread = -1,
        .assert = {
@@ -168,7 +181,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
-    workQueuePush(self->workQueue, (WorkQueueItem) {
+    appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
        .thread = -1,
        .retract = { .pattern = pattern }
@@ -191,7 +204,7 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     char* key = strdup(Jim_GetString(argv[1], NULL));
     Clause* clause = jimObjToClause(interp, argv[2]);
 
-    workQueuePush(self->workQueue, (WorkQueueItem) {
+    appropriateWorkQueuePush((WorkQueueItem) {
        .op = HOLD,
        .thread = -1,
        .hold = {
@@ -236,7 +249,7 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     }
     // TODO: dispatch to global injector queue if the current work
     // item is long-running.
-    workQueuePush(self->workQueue, (WorkQueueItem) {
+    appropriateWorkQueuePush((WorkQueueItem) {
        .op = SAY,
        .thread = thread,
        .say = {
