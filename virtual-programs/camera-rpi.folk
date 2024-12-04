@@ -9,6 +9,7 @@ set makeCamera {
     $cpp include <iostream>
     $cpp include <iomanip>
     $cpp include <mutex>
+    $cpp include <condition_variable>
     $cpp include <queue>
     $cpp include <sys/mman.h>
 
@@ -39,6 +40,7 @@ set makeCamera {
 
         std::mutex completedRequestsMutex;
         std::queue<Request *> completedRequests;
+        std::condition_variable completedRequestsCv;
 
         uint32_t frameWidth;
         uint32_t frameHeight;
@@ -135,6 +137,7 @@ set makeCamera {
             completedRequestsMutex.lock();
             completedRequests.push(request);
             completedRequestsMutex.unlock();
+            completedRequestsCv.notify_one();
         }
 
         static void processRequestAndCopyFrame(Request *request, Image im) {
@@ -183,7 +186,10 @@ set makeCamera {
         Request *latestRequest = nullptr;
 
         // We want to drain the queue of completed requests.
-        completedRequestsMutex.lock();
+        std::unique_lock lk(completedRequestsMutex);
+        completedRequestsCv.wait(lk, []{
+            return !completedRequests.empty();
+        });
         while (!completedRequests.empty()) {
             if (latestRequest != nullptr) {
                 // We're skipping this request, because we have a
@@ -194,7 +200,7 @@ set makeCamera {
             latestRequest = completedRequests.front();
             completedRequests.pop();
         }
-        completedRequestsMutex.unlock();
+        lk.unlock();
 
         if (latestRequest == nullptr) {
             FOLK_ERROR("No new frame yet");
