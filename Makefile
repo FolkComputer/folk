@@ -53,7 +53,7 @@ setup-remote:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk -ex=run'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync

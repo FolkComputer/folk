@@ -11,6 +11,7 @@
 #include <stdatomic.h>
 #ifdef __linux__
 #include <sys/sysinfo.h>
+#include <sys/resource.h>
 #endif
 
 #include "common.h"
@@ -60,16 +61,21 @@ void sysmon() {
         // every 2s.
         int freeRamMb = get_avphys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
         int totalRamMb = get_phys_pages() * sysconf(_SC_PAGESIZE) / 1000000;
-        // TODO: Check directly folk's own use of RAM, so we can
+        // Check directly folk's own use of RAM, so we can
         // detect leaks (I think system RAM is good for killing but
         // process RAM use is better for leak diagnosis).
-        fprintf(stderr, "Check avail RAM: %d MB / %d MB\n",
-                freeRamMb,
-                totalRamMb);
+        struct rusage ru; getrusage(RUSAGE_SELF, &ru);
+        fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
+                "Check self RAM usage: %d MB\n",
+                freeRamMb, totalRamMb,
+                ru.ru_maxrss / 1024);
         if (freeRamMb < 200) {
             // Hard die if we are likely to run out of RAM, because
             // that will lock the system (making it hard to ssh in,
             // etc).
+            fprintf(stderr, "--------------------\n"
+                    "OUT OF RAM, EXITING.\n"
+                    "--------------------\n");
             exit(1);
         }
     }
