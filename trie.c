@@ -18,7 +18,6 @@ Clause* clauseDup(Clause* c) {
     return ret;
 }
 void clauseFree(Clause* c) {
-    c->nTerms = 0;
     for (int i = 0; i < c->nTerms; i++) {
         tfree(c->terms[i]);
     }
