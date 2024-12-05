@@ -5,8 +5,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-// #if __has_include ("tracy/TracyC.h")
-#if 0
+#if __has_include ("tracy/TracyC.h")
 
 #include "tracy/TracyC.h"
 #include <string.h>
@@ -25,6 +24,7 @@ inline void tfree(void *ptr) {
     TracyCFreeS(ptr, 4);
     free(ptr);
 }
+
 #else
 
 #define tmalloc malloc

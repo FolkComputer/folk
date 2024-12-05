@@ -17,10 +17,14 @@ folk: workqueue.o db.o trie.o sysmon.o folk.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET)
 
-	$(LINKER) -g -fno-omit-frame-pointer -o$@ $(CFLAGS) $(TRACY_CFLAGS) \
+	$(LINKER) -g -fno-omit-frame-pointer -o$@ \
+		$(CFLAGS) $(TRACY_CFLAGS) \
 		-L./vendor/jimtcl \
 		$^ \
 		-ljim -lm -lssl -lcrypto -lz
+	if [ "$$(uname)" = "Darwin" ]; then \
+		dsymutil $@; \
+	fi
 
 %.o: %.c trie.h
 	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \

@@ -249,8 +249,7 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
                 clauseToString(clause));
     }
-    // TODO: dispatch to global injector queue if the current work
-    // item is long-running.
+
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = SAY,
        .thread = thread,
@@ -708,10 +707,6 @@ static void reactToNewStatement(StatementRef ref) {
         Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
 
         ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
-        /* trace("Adding stmt: unclaimized: existing reacting whens (%d)", */
-        /*       existingReactingWhens->nResults); */
-        // TODO: lease result statements so they don't get freed?
-        // hazard pointer?
         free(unclaimizedClause);
         free(whenizedUnclaimizedClause);
 
