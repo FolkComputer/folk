@@ -3,10 +3,6 @@
 #include <fcntl.h>
 #include <stdio.h>
 
-#if __has_include ("tracy/TracyC.h")
-#include "tracy/TracyC.h"
-#endif
-
 #include "workqueue.h"
 
 // https://fzn.fr/readings/ppopp13.pdf
@@ -71,8 +67,7 @@ WorkQueueItem workQueueTake(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x;
-    TracyCFreeS(x, 4); free(x);
+    WorkQueueItem item = *x; free(x);
     return item;
 }
 
@@ -100,7 +95,6 @@ static void workQueueResize(WorkQueue* q) {
 
 void workQueuePush(WorkQueue* q, WorkQueueItem item) {
     WorkQueueItem* x = (WorkQueueItem*) malloc(sizeof(WorkQueueItem));
-    TracyCAllocS(x, sizeof(*x), 4);
     *x = item;
 
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
@@ -136,7 +130,7 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x; TracyCFreeS(x, 4); free(x);
+    WorkQueueItem item = *x; free(x);
     return item;
 }
 
