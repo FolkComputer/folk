@@ -135,7 +135,8 @@ void sysmon() {
     clockTimeClause->terms[3] = tstrdup("clock");
     clockTimeClause->terms[4] = tstrdup("time");
     clockTimeClause->terms[5] = tstrdup("is");
-    asprintf(&clockTimeClause->terms[6], "%f",
+    clockTimeClause->terms[6] = tmalloc(100);
+    snprintf(clockTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 
     globalWorkQueuePush((WorkQueueItem) {

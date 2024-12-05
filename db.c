@@ -825,6 +825,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     }
 }
 
+// Takes ownership of clause.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
@@ -867,6 +868,7 @@ StatementRef dbHoldStatement(Db* db,
         if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
             statementRelease(db, oldStmtPtr);
             pthread_mutex_unlock(&db->holdsMutex);
+            clauseFree(clause);
             return STATEMENT_REF_NULL;
         }
 
@@ -909,6 +911,7 @@ StatementRef dbHoldStatement(Db* db,
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
         pthread_mutex_unlock(&db->holdsMutex);
+        clauseFree(clause);
         return STATEMENT_REF_NULL;
     }
 }
