@@ -10,6 +10,10 @@
 #include <signal.h>
 #include <stdatomic.h>
 
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
 #include "trie.h"
 #include "db.h"
 
