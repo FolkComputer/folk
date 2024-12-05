@@ -110,8 +110,9 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
     atomic_thread_fence(memory_order_seq_cst);
     size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
+    ssize_t size = b - t;
     WorkQueueItem* x = NULL;
-    if (t < b) {
+    if (size > 0) {
         /* Non-empty queue. */
         WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_acquire);
         x = atomic_load_explicit(&a->buffer[t % atomic_load_explicit(&a->size, memory_order_relaxed)], memory_order_relaxed);
