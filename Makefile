@@ -5,7 +5,6 @@ endif
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
 # Tracy is enabled
 	TRACY_TARGET = vendor/tracy/public/TracyClient.o
-	override CFLAGS += -I./vendor/tracy/public
 	override CPPFLAGS += -std=c++20 -DTRACY_ENABLE
 	LINKER := c++
 else
@@ -29,7 +28,7 @@ folk: workqueue.o db.o trie.o sysmon.o folk.o \
 %.o: %.c trie.h
 	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
 		$(CFLAGS) $(TRACY_CFLAGS) \
-		$< -I./vendor/jimtcl
+		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
 .PHONY: test clean deps
 test: folk
