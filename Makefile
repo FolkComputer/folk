@@ -22,7 +22,7 @@ folk: workqueue.o db.o trie.o sysmon.o folk.o \
 		$^ \
 		-ljim -lm -lssl -lcrypto -lz
 
-%.o: %.c
+%.o: %.c trie.h
 	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
 		$(CFLAGS) $(TRACY_CFLAGS) \
 		$< -I./vendor/jimtcl

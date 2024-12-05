@@ -5,13 +5,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#if __has_include ("tracy/TracyC.h")
+// #if __has_include ("tracy/TracyC.h")
+#if 0
 
 #include "tracy/TracyC.h"
 #include <string.h>
 inline void *tmalloc(size_t sz) {
     void *ptr = malloc(sz);
-    TracyCAlloc(ptr, sz);
+    TracyCAllocS(ptr, sz, 4);
     return ptr;
 }
 inline char *tstrdup(const char *s0) {
@@ -21,7 +22,7 @@ inline char *tstrdup(const char *s0) {
     return s;
 }
 inline void tfree(void *ptr) {
-    TracyCFree(ptr);
+    TracyCFreeS(ptr, 4);
     free(ptr);
 }
 #else

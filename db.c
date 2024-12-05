@@ -337,6 +337,7 @@ void statementRelease(Db* db, Statement* stmt) {
         stmt->clause = NULL;
 #ifdef FOLK_TRACE
 #else
+        /* TracyCFreeS(stmt, 4); */
         clauseFree(stmtClause);
 #endif
     }
@@ -388,6 +389,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // than the one here.
 
     stmt->clause = clause;
+    /* TracyCAllocS(stmt, sizeof(Statement), 4); */
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);

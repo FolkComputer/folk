@@ -3,6 +3,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
 #include "workqueue.h"
 
 // https://fzn.fr/readings/ppopp13.pdf
@@ -14,8 +18,15 @@ typedef struct WorkQueueArray {
 } WorkQueueArray;
 
 typedef struct WorkQueue {
-    size_t _Atomic top; // where items are stolen
-    size_t _Atomic bottom; // where new items are pushed & items are taken
+    // The top index indicates the topmost element in the deque (if
+    // there is any), and is incremented on every steal operation
+    size_t _Atomic top;
+
+    // the bottom index indicates the next available slot in the array
+    // where the next new element is pushed, and is incremented on
+    // every push
+    size_t _Atomic bottom;
+
     WorkQueueArray* _Atomic array;
 } WorkQueue;
 
@@ -60,7 +71,8 @@ WorkQueueItem workQueueTake(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x; /* free(x); */
+    WorkQueueItem item = *x;
+    TracyCFreeS(x, 4); free(x);
     return item;
 }
 
@@ -88,6 +100,7 @@ static void workQueueResize(WorkQueue* q) {
 
 void workQueuePush(WorkQueue* q, WorkQueueItem item) {
     WorkQueueItem* x = (WorkQueueItem*) malloc(sizeof(WorkQueueItem));
+    TracyCAllocS(x, sizeof(*x), 4);
     *x = item;
 
     size_t b = atomic_load_explicit(&q->bottom, memory_order_relaxed);
@@ -123,36 +136,8 @@ WorkQueueItem workQueueSteal(WorkQueue* q) {
     }
 
     if (x == NULL) { return (WorkQueueItem) { .op = NONE }; }
-    WorkQueueItem item = *x; /* free(x); */
+    WorkQueueItem item = *x; TracyCFreeS(x, 4); free(x);
     return item;
-}
-
-int workQueueStealHalf(WorkQueueItem* into, int maxn,
-                       WorkQueue* q) {
-    size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
-    atomic_thread_fence(memory_order_seq_cst);
-    size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
-
-    int nstolen = 0;
-    ssize_t count = b - t;
-    if (count > 0) {
-        /* Non-empty queue. */
-        WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_acquire);
-
-        ssize_t stealcount = count/2;
-        if (stealcount == 0) stealcount = 1;
-        for (size_t i = t; i < t + stealcount; i++) {
-            if (nstolen >= maxn) { break; }
-            into[nstolen++] = *(atomic_load_explicit(&a->buffer[i % a->size], memory_order_relaxed));
-        }
-
-        if (!atomic_compare_exchange_strong_explicit(&q->top, &t, t + nstolen, memory_order_seq_cst, memory_order_relaxed)) {
-            /* Failed race. */
-            nstolen = 0;
-        }
-    }
-
-    return nstolen;
 }
 
 // Used to peek into work queue for monitoring purposes. Copies items

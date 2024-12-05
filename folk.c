@@ -36,6 +36,7 @@ void globalWorkQueueInit() {
 }
 void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
+    TracyCAllocS(pushee, sizeof(*pushee), 4);
     *pushee = item;
     if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
         fprintf(stderr, "globalWorkQueuePush: failed\n"); exit(1);
@@ -49,6 +50,7 @@ WorkQueueItem globalWorkQueueTake() {
         if (mpmc_queue_pull(&globalWorkQueue, (void **)&pullee)) {
             globalWorkQueueSize--;
             ret = *pullee;
+            TracyCFreeS(pullee, 4);
             free(pullee);
         }
     }
@@ -878,30 +880,16 @@ void trace(const char* format, ...) {
 
 ssize_t unsafe_workQueueSize(WorkQueue* q);
 __thread unsigned int seedp;
-bool workerSteal() {
+WorkQueueItem workerSteal() {
     int stealee;
     do {
         stealee = rand_r(&seedp) % threadCount;
     } while (stealee == self->index);
     if (threads[stealee].tid == 0 || threads[stealee].workQueue == NULL) {
-        return false;
+        return (WorkQueueItem) { .op = NONE };
     }
 
-    WorkQueueItem items[50];
-    int nstolen = workQueueStealHalf(items,
-                                     sizeof(items)/sizeof(items[0]),
-                                     threads[stealee].workQueue);
-    for (int i = 0; i < nstolen; i++) {
-        workQueuePush(self->workQueue, items[i]);
-    }
-#ifdef FOLK_TRACE
-    trace("Tried stealing from thread %d (tid %d): n (%p) = %d; nstolen = %d",
-          stealee, threads[stealee].tid,
-          threads[stealee].workQueue,
-          unsafe_workQueueSize(threads[stealee].workQueue),
-          nstolen);
-#endif
-    return nstolen > 0;
+    return workQueueSteal(threads[stealee].workQueue);
 }
 void workerLoop() {
     int64_t schedtick = 0;
@@ -916,19 +904,9 @@ void workerLoop() {
             item = workQueueTake(self->workQueue);
         }
         if (item.op == NONE) {
-            // If item is none, then steal from another thread's
-            // workqueue:
-/* #ifdef FOLK_TRACE */
-/*             trace("Trying steal (schedtick %" PRId64 ")", schedtick); */
-/* #endif */
-            if (workerSteal()) {
-/* #ifdef FOLK_TRACE */
-/*                 trace("Stealing!"); */
-/* #endif */
-                // Then try again:
-                continue;
-            }
-
+            item = workerSteal();
+        }
+        if (item.op == NONE) {
             item = globalWorkQueueTake();
         }
         if (item.op == NONE) {
@@ -1032,7 +1010,6 @@ int main(int argc, char** argv) {
         sysmonInit();
         pthread_t sysmonTh;
         pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
-        // TODO: should the sysmon thread _only_ run on the free core?
     }
 
 #ifdef __linux__
