@@ -15,10 +15,6 @@ proc manage_folk {action} {
     }
 }
 
-proc calibrate_folk {} {
-    exec -ignorestderr tclsh8.6 ~/folk/calibrate.tcl >@stdout
-}
-
 if {$argc == 0} {
     puts "Usage: folk <command>"
     puts $availableActions
@@ -32,9 +28,6 @@ switch -- $command {
     "stop" -
     "restart" {
         manage_folk $command
-    }
-    "calibrate" {
-        calibrate_folk
     }
     default {
         puts $availableActions

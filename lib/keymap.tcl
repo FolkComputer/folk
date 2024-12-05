@@ -157,9 +157,9 @@ namespace eval keymap {
         }
 
         proc load {name} {
-            exec sudo loadkeys $name
-            set keytable [exec sudo dumpkeys -kf]
-            set unitable [exec sudo dumpkeys -kfn]
+            exec kbd_mode -u $name
+            set keytable [exec dumpkeys -kf]
+            set unitable [exec dumpkeys -kfn]
 
             set ksyms [dict create]
             set mods [_fillRange 0-15]

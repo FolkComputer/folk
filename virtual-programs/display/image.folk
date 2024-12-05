@@ -35,7 +35,7 @@ On process "display" {
                 variable CACHE_MAX_SIZE
                 if {[dict exists $cache $im]} {
                     lassign [dict get $cache $im] gim cachedVersion
-                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [Gpu::image_t data_ptr $im]]]
                     if {$version == $cachedVersion} {
                         # Bump this image to end of cache since it's
                         # most-recently-accessed.
@@ -53,7 +53,7 @@ On process "display" {
                 if {[dict size $cache] >= $CACHE_MAX_SIZE} {
                     puts stderr "image: Warning: Out of slots in GPU image cache."
                 }
-                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                set version [Heap::folkHeapGetVersion [string map {uint8_t void} [Gpu::image_t data_ptr $im]]]
                 set gim [Gpu::ImageManager::copyImageToGpu $im]
                 dict set cache $im [list $gim $version]
                 return $gim
@@ -67,7 +67,7 @@ On process "display" {
                 # Evict stale.
                 dict for {im v} $cache {
                     lassign $v gim expectedVersion
-                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [::image_t data_ptr $im]]]
+                    set version [Heap::folkHeapGetVersion [string map {uint8_t void} [Gpu::image_t data_ptr $im]]]
                     if {$expectedVersion != $version} {
                         Gpu::ImageManager::freeGpuImage $gim
                         lappend numEvicted $im
@@ -116,7 +116,7 @@ On process "display" {
         set gim [ImageCache::getOrInsert $im]
 
         Wish the GPU draws pipeline "image" with arguments \
-            [list $gim [list [image_t width $im] [image_t height $im]] \
+            [list $gim [list [Gpu::image_t width $im] [Gpu::image_t height $im]] \
                  $center $radians $scale $crop]
     }
 }

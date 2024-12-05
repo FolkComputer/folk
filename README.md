@@ -1,29 +1,34 @@
 **Note: Folk is in a *pre-alpha* state and isn't yet well-documented
 or well-exampled.**
 
-**We're making Folk's source code free and available to the public in
-a [read-only form](https://git.folk.computer/folk/about/), in case
-you're already excited about trying it, but we haven't formally
+**We're making Folk's source code free and available to the public, in
+case you're already excited about trying it, but we haven't formally
 announced it or made it ready for public use. We make no guarantee of
 support, of usability, or of continuing backward compatibility. Try at
 your own risk!**
 
-We're working on a more complete open-source release for 2024, which
-would open up our internal GitHub repository, document the
-installation process, and provide canonical examples/demos to show
-what's possible. If you don't know what this is, then you might want
-to wait for that release.
+We're working on a more formal announcement, which will talk
+more about the goals of the project & provide canonical examples/demos
+to show what's possible. If you don't know what this is, then you
+might want to wait for that release.
 
 -----
 
 # [Folk](https://folk.computer)
+
+[Folk](https://folk.computer) is a physical computing system: reactive
+database, programming environment, projection mapping. Instead
+of a phone/laptop/touchscreen/mouse/keyboard, your computational
+objects are physical objects in the real world, and you can program
+them inside the system itself. Folk is [written in a mix of C and
+Tcl](https://github.com/FolkComputer/folk/blob/main/docs/design.md).
 
 ## Hardware
 
 You'll need to set up a dedicated PC to run Folk and connect to
 webcam+projector+printer+etc.
 
-We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 4).
+We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
@@ -32,7 +37,7 @@ See <https://folk.computer/pilot/>
 **Experimental:** If you have an amd64 PC, you can use the live USB
 image which has Folk and all dependencies pre-installed.
 
-**See <https://github.com/FolkComputer/folk-live-build/releases> to
+**See <https://github.com/FolkComputer/folk/releases> to
 get the Linux live USB image.**
 
 You can update Folk by running `git pull` in the `folk` subfolder of
@@ -40,13 +45,13 @@ the FOLK-LIVE partition once you've flashed the live USB.
 
 ## Manual Linux tabletop installation
 
-Set up [Ubuntu **Server** 23.04 Lunar
-Lobster](https://ubuntu.com/download/server#releases).
+On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
+Numbat)](https://ubuntu.com/download/server#releases).
 
-(for a PC, get the amd64 version; for a Pi 4, use Raspberry Pi Imager
-and get the 64-bit version [also see [this
+(for a Pi 4/5, use Raspberry Pi Imager and get Raspberry Pi OS Lite
+64-bit version [also see [this
 issue](https://github.com/raspberrypi/rpi-imager/issues/466#issuecomment-1207107554)
-if flashing from a Mac])
+if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 
 1. Install Linux with username `folk`, hostname
    `folk-SOMETHING`? (check hosts.tcl in this repo to make sure
@@ -55,11 +60,7 @@ if flashing from a Mac])
    If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
-        sudo usermod -a -G adm,dialout,cdrom,sudo,audio,video,plugdev,games,users,input,render,netdev,lpadmin,gpio,i2c,spi folk
-
-   (If you get errors from usermod like `group 'gpio' does not exist`,
-   try running again omitting the groups that don't exist from the
-   command.)
+        for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
 1. `sudo apt update`
 
@@ -67,29 +68,18 @@ if flashing from a Mac])
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. `sudo adduser folk video` & `sudo adduser folk render` & `sudo
-   adduser folk input` (?) & log out and log back in (re-ssh)
-
 1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
-   git libjpeg-dev libpng-dev fbset libdrm-dev pkg-config v4l-utils
+   git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers console-data`
+   libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
 
    (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
 
-   (glslc may not be available if you're not on Ubuntu 23.04; on ARM
-   like Pi 4 you need to build it from source; [binaries are
-   available](https://github.com/google/shaderc/blob/main/downloads.md)
-   otherwise)
-
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
-          1. On a Pi 4, if vulkaninfo reports "Failed to detect any
-             valid GPUs in the current config", add
-             `dtoverlay=vc4-fkms-v3d` or `dtoverlay=vc4-kms-v3d` (I
-             think this one is more recommended now?) to the bottom of
-             `/boot/firmware/config.txt` or `/boot/config.txt`,
-             whichever exists
+          1. On a Pi, if vulkaninfo reports "Failed to detect any
+             valid GPUs in the current config", add `dtoverlay=vc4-kms-v3d` to the bottom of
+             `/boot/firmware/config.txt`.
              (<https://raspberrypi.stackexchange.com/questions/116507/open-dev-dri-card0-no-such-file-or-directory-on-rpi4>)
      1. Try `vkcube`:
 
@@ -109,10 +99,7 @@ if flashing from a Mac])
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
    control --reload-rules && sudo udevadm trigger`
 
-1. Get AprilTags: `cd ~ && git clone
-   https://github.com/FolkComputer/apriltag.git && cd apriltag && make`
-   (you can probably ignore errors at the end of this if they're just
-   for the OpenCV demo)
+1. Get AprilTags: `cd ~ && git clone https://github.com/FolkComputer/apriltag.git && cd apriltag && make libapriltag.so libapriltag.a`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
@@ -146,12 +133,14 @@ scripts from your laptop manage the Folk service by running
 Then, _on your laptop_, clone this repository:
 
 ```
-$ git clone https://git.folk.computer/folk
+$ git clone https://github.com/FolkComputer/folk.git
 ```
 
 And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
 will rsync folk to the tabletop and run it there as well as running it
 on your laptop.
+
+(or clone it onto the machine and run `sudo systemctl start folk` there)
 
 ### How to control tabletop Folk from your laptop
 
@@ -208,42 +197,14 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Print at least 4 AprilTags (either print throwaway programs from Folk or
-   manually print tagStandard52h13 tags yourself).
-
-1. Let's position the camera. Make sure Folk is running (ssh in, `cd
+1. Position the camera. Make sure Folk is running (ssh in, `cd
    ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
-   http://whatever.local:4273 and make a new program and save it:
-   
-   ```
-   When the camera frame is /im/ {
-     Wish the web server handles route "/frame-image/$" with handler [list apply {{im} {
-       # set width [dict get $im width]
-       # set height [dict get $im height]
-       set filename "/tmp/web-image-frame.jpg"
-       image saveAsJpeg $im $filename
-       set fsize [file size $filename]
-       set fd [open $filename r]
-       fconfigure $fd -encoding binary -translation binary
-       set body [read $fd $fsize]
-       close $fd
-       dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-     }} $im]
-   }
-   ```
+   http://whatever.local:4273/camera-frame to see a preview of what
+   the camera sees. Reposition your camera to cover your table.
 
-   Go to http://whatever.local:4273/frame-image/ to see the camera's
-   current field of view. Reposition your camera to cover your table.
-
-1. Place the 4 AprilTags around your table. On the tabletop, run
-   `./folk.tcl calibrate`. Wait.
-
-1. You should see red triangles projected on each of your 4 tags. Then
-   you're done! Run Folk! If not, rerun calibration until you do see a
-   red triangle on each tag.
-
-1. When you've successfully calibrated, start Folk back up with
-   `./folk.tcl start`.
+1. Go to the Folk calibration page at
+   http://whatever.local:4273/calibrate and follow the instructions
+   (print calibration board & run calibration process).
 
 ### Connect a keyboard
 
@@ -326,7 +287,7 @@ created. Therefore, it will eventually be useful for you to know
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
 These are all implemented in `main.tcl`. For most things, you'll
-probably only need `Wish`, `Claim`, `When`, and maybe `Commit`.
+probably only need `Wish`, `Claim`, `When`, and maybe `Hold`.
 
 ### Wish and Claim
 
@@ -425,25 +386,25 @@ cool`.
 first-class object. You can use `&` joins in that pattern as
 well.)
 
-### Commit
+### Hold
 
-Experimental: `Commit` is used to register claims that will stick
-around until you do another `Commit`. You can use this to create the
+Experimental: `Hold` is used to register claims that will stick
+around until you do another `Hold`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Commit { Claim $this has a ball at x 100 y 100 }
+Hold { Claim $this has a ball at x 100 y 100 }
 
 When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Commit { Claim $this has a ball at x $x y [expr {$y+1}] }
+        Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
 ```
 
-`Commit` will overwrite all statements made by the previous `Commit`
+`Hold` will overwrite all statements made by the previous `Hold`
 (scoped to the current `$this`).
 
 **Notice that you should scope your claim: it's `$this has a ball`, not `there
@@ -456,40 +417,41 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Commit ball position {
+Hold ball position {
   Claim $this has a ball at blahblah
 }
 ```
 
-and then future commits with that key, `ball position`, will
-overwrite this statement but not override different commits with
+and then future holds with that key, `ball position`, will
+overwrite this statement but not override different holds with
 different keys
 
-(there's currently no way to overwrite state from other pages, but we
-could probably add a way to provide an absolute key that would allow
-that if it was useful.)
+You can overwrite another program's Hold with the `on` parameter, like
+`Hold (on 852) { ... }` (if the Hold is from page 852) or `Hold (on
+virtual-programs/example.folk) { ... }` (if the Hold is from the
+example.folk virtual program)
 
 ### Every time
 
 Experimental: `Every time` works almost like `When`, but it's used to
-commit when an 'event' happens without causing a reaction cascade.
+hold when an 'event' happens without causing a reaction cascade.
 
 **You can't make Claims, Whens, or Wishes inside an `Every time`
-block. You can only Commit.**
+block. You can only Hold.**
 
 Example:
 
 ```
-Commit { Claim $this has seen 0 boops }
+Hold { Claim $this has seen 0 boops }
 
 Every time there is a boop & $this has seen /n/ boops {
-  Commit { Claim $this has seen [expr {$n + 1}] boops }
+  Hold { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
 If you had used `When` here, it wouldn't terminate, since the new
-`$this has seen n+1 boops` commit would cause the `When` to retrigger,
-resulting in a `$this has seen n+2 boops` commit, then another
+`$this has seen n+1 boops` hold would cause the `When` to retrigger,
+resulting in a `$this has seen n+2 boops` hold, then another
 retrigger, and so on.
 
 `Every time`, in contrast, will 'only react once' to the boop; nothing

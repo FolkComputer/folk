@@ -14,11 +14,11 @@ Assert when we are running {{} {
 Assert we are running
 Step
 
-Commit Omar { Claim tag 1 was seen by Omar at home }
-Commit Mom { Claim tag 1 was seen by Mom at restaurant }
+Hold Omar { Claim tag 1 was seen by Omar at home }
+Hold Mom { Claim tag 1 was seen by Mom at restaurant }
 Step
 
-Commit Omar { Claim tag 1 was seen by Omar at work }
+Hold Omar { Claim tag 1 was seen by Omar at work }
 Step
 
 # Statements::print

@@ -9,8 +9,9 @@ Wish the GPU compiles pipeline "fillTriangle" {
 
 When /someone/ wishes to draw a triangle with /...options/ {
     dict with options {
+        if {![info exists layer]} { set layer 0 }
         Wish the GPU draws pipeline "fillTriangle" with arguments \
-            [list $p0 $p1 $p2 [getColor $color]]
+            [list $p0 $p1 $p2 [getColor $color]] layer $layer
     }
 }
 When /someone/ wishes to draw a quad with /...options/ {
@@ -25,6 +26,7 @@ When /someone/ wishes to draw a quad with /...options/ {
 When /someone/ wishes to draw a polygon with /...options/ {
     set points [dict get $options points]
     set color [dict get $options color]
+    set layer [dict_getdef $options layer 0]
 
     set num_points [llength $points]
     if {$num_points < 3} {
@@ -32,11 +34,11 @@ When /someone/ wishes to draw a polygon with /...options/ {
     } elseif {$num_points == 3} {
         Wish to draw a triangle with \
             p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] \
-            color $color
+            color $color layer $layer
     } elseif {$num_points == 4} {
         Wish to draw a quad with \
             p0 [lindex $points 0] p1 [lindex $points 1] p2 [lindex $points 2] p3 [lindex $points 3] \
-            color $color
+            color $color layer $layer
     } else {
         # Get the first point in the list as the "base" point of the triangles
         set p0 [lindex $points 0]
@@ -45,7 +47,13 @@ When /someone/ wishes to draw a polygon with /...options/ {
             set p1 [lindex $points $i]
             set p2 [lindex $points [expr {$i+1}]]
             Wish the GPU draws pipeline "fillTriangle" with arguments \
-                [list $p0 $p1 $p2 [getColor $color]]
+                [list $p0 $p1 $p2 [getColor $color]] layer $layer
         }
     }
+}
+
+When /someone/ wishes /page/ is filled with /...options/ &\
+     /page/ has region /region/ {
+  set points [region vertices $region]
+  Wish to draw a polygon with points $points {*}$options
 }

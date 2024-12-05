@@ -1,3 +1,0 @@
-When keyboard /k/ claims key Meta_Escape is down with timestamp /any/ {
-	exec sudo systemctl restart folk
-}

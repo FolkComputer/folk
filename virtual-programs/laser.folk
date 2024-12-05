@@ -2,12 +2,12 @@ return
 
 source vendor/blobdetect/blobdetect.tcl
 
-When the camera frame is /grayFrame/ {
+When camera /any/ has frame /grayFrame/ at timestamp /timestamp/ {
     set blobTime [time {
         set threshold 250
         set blobs [::BlobDetect::detect $grayFrame $threshold]
     }]
-    Commit {
+    Hold {
         Claim the blob detection time is $blobTime
         foreach blob $blobs {
             Claim laser blob [dict get $blob id] has center [dict get $blob center] size [dict get $blob size]

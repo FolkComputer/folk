@@ -1,6 +1,3 @@
-When $this has neighbor /n/ {
-  Wish $this is labelled $n
-}
 
 When /someone/ wishes /p/ has neighbors & /p/ has region /r/ & /p2/ has region /r2/ {
   if {$p eq $p2} { return }

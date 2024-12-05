@@ -183,26 +183,53 @@ proc After {n unit body} {
         }]] {*}$argValues]
     } else { error }
 }
-set ::committed [dict create]
-set ::toCommit [dict create]
-proc Commit {args} {
-    upvar this this
+
+set ::held [dict create]
+set ::toHold [dict create]
+# Lower-level version of Hold that takes a single statement instead
+# of a whole program.
+proc Hold! {key stmt} { dict set ::toHold $key $stmt }
+# Higher-level version that takes a whole program (may deprecate).
+proc Hold {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set key [list]
     set body [lindex $args end]
-    if {[lindex $args 0] eq "(on"} {
-        set userSpecifiedThis [string range [lindex $args 1] 0 end-1]
-        set args [lreplace $args 0 1]
-        set key [list Commit $userSpecifiedThis {*}[lreplace $args end end]]
-    } else {
-        set key [list Commit [expr {[info exists this] ? $this : "<unknown>"}] {*}[lreplace $args end end]]
+    set isNonCapturing false
+    for {set i 0} {$i < [llength $args] - 1} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "(on"} {
+            incr i
+            set this [string range [lindex $args $i] 0 end-1]
+        } elseif {$arg eq "(non-capturing)"} {
+            set isNonCapturing true
+        } else {
+            lappend key $arg
+        }
     }
+    set key [list Hold $this {*}$key]
+
     if {$body eq ""} {
-        dict set ::toCommit $key $body
+        Hold! $key {}
     } else {
-        lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        if {$isNonCapturing} {
+            set argNames {}
+            set argValues {}
+        } else {
+            lassign [uplevel Evaluator::serializeEnvironment] argNames argValues
+        }
         set lambda [list {this} [list apply [list $argNames $body] {*}$argValues]]
-        dict set ::toCommit $key $lambda
+        Hold! $key [list $key has program $lambda]
     }
 }
+
+proc Commit {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+    set w "Commit was deprecated in July 2024; use Hold instead"
+    Claim $this has warning $w with info $w
+
+    uplevel [list Hold {*}$args]
+}
+
 
 set ::stepCount 0
 set ::stepTime -1
@@ -215,22 +242,18 @@ proc StepImpl {} {
     # Receive statements from all peers.
     foreach peerNs [namespace children ::Peers] {
         upvar ${peerNs}::process peer
-        Commit $peer [list Say $peer is sharing statements [${peerNs}::receive]]
+        Hold! $peer [list $peer is sharing statements [${peerNs}::receive]]
     }
-
-    while {[dict size $::toCommit] > 0 || ![Evaluator::LogIsEmpty]} {
-        dict for {key lambda} $::toCommit {
-            if {$lambda ne ""} {
-                Assert $key has program $lambda
+    
+    while {[dict size $::toHold] > 0 || ![Evaluator::LogIsEmpty]} {
+        dict for {key stmt} $::toHold {
+            if {$stmt ne ""} { Assert {*}$stmt }
+            if {[dict exists $::held $key] && [dict get $::held $key] ne $stmt} {
+                Retract {*}[dict get $::held $key]
             }
-            if {[dict exists $::committed $key] && [dict get $::committed $key] ne $lambda} {
-                Retract $key has program [dict get $::committed $key]
-            }
-            if {$lambda ne ""} {
-                dict set ::committed $key $lambda
-            }
+            if {$stmt ne ""} { dict set ::held $key $stmt }
         }
-        set ::toCommit [dict create]
+        set ::toHold [dict create]
         Evaluator::Evaluate
     }
 
@@ -263,7 +286,7 @@ proc StepImpl {} {
 
 set ::frames [list]
 proc Step {} {
-    set ::stepRunTime 0
+    Evaluator::resetTimers
     set stepTime [baretime StepImpl]
     
     set framesInLastSecond 0
@@ -276,14 +299,14 @@ proc Step {} {
     }
     set ::frames [lreplace $::frames 0 end-$framesInLastSecond]
 
-    set ::stepTime "$stepTime us (peer $::peerTime us, run $::stepRunTime us) ($framesInLastSecond fps)"
+    set ::stepTime "$stepTime us (peer $::peerTime us, run $Evaluator::stepRunTime us) ($framesInLastSecond fps)"
 }
 
 source "lib/math.tcl"
 
 
 # this defines $this in the contained scopes
-# it's also used to implement Commit
+# it's also used to implement Hold
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }}
@@ -574,6 +597,7 @@ namespace eval ::Mailbox {
     }
     $cc proc clear {char* from char* to} void {
         mailbox_t* mailbox = find(from, to);
+        fprintf(stderr, "Mailbox clear %s -> %s\n", from, to);
         pthread_mutex_lock(&mailbox->mutex); {
             mailbox->active = 0;
             mailbox->mail[0] = '\0';
@@ -600,13 +624,21 @@ if {[info exists ::entry]} {
             dict set ::rootVirtualPrograms $programFilename [read $fp]
             close $fp
         }
+
+        # Load the setup program -- setup.folk.default gets overridden
+        # if the user made their own setup.folk.
+        loadProgram [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                           "$::env(HOME)/folk-live/setup.folk" :
+                           "setup.folk.default"}]
+
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
                                      {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
                                      {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
             if {[string match "*/_archive/*" $programFilename] ||
-                [string match "*/folk-printed-programs/*" $programFilename]} { continue }
+                [string match "*/folk-printed-programs/*" $programFilename] ||
+                [string match "*/setup.folk" $programFilename]} { continue }
             loadProgram $programFilename
         }
         Assert $::thisNode is providing root virtual programs $::rootVirtualPrograms
@@ -643,17 +675,18 @@ if {[info exists ::entry]} {
         #     set fd [open "|fswatch virtual-programs" r]
         #     fconfigure $fd -buffering line
         #     fileevent $fd readable [list apply {{fd} {
-        #         set changedFilename [file tail [gets $fd]]
+        #         regexp {virtual-programs\/.*$} [gets $fd] changedPath
+
+        #         set changedFilename [file tail $changedPath]
         #         if {[string index $changedFilename 0] eq "." ||
         #             [string index $changedFilename 0] eq "#" ||
         #             [file extension $changedFilename] ne ".folk"} {
         #             return
         #         }
-        #         set changedProgramName "virtual-programs/$changedFilename"
-        #         puts "$changedProgramName updated, reloading."
 
-        #         set fp [open $changedProgramName r]; set programCode [read $fp]; close $fp
-        #         EditVirtualProgram $changedProgramName $programCode
+        #         puts "$changedPath updated, reloading."
+        #         set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+        #         EditVirtualProgram $changedPath $programCode
         #     }} $fd]
         # } on error err {
         #     puts stderr "Warning: could not invoke `fswatch` ($err)."

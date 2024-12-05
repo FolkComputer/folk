@@ -1,0 +1,10 @@
+#!/bin/sh
+
+set -e
+
+# Disable tmpfs on /tmp
+
+if [ -e /etc/default/rcS ]
+then
+	sed -i -e 's|^ *RAMTMP=.*|RAMTMP=no|' /etc/default/rcS
+fi

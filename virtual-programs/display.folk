@@ -15,12 +15,6 @@ Try doing `sudo adduser folk render`."
             }
         }
     }
-    
-    if {$::isLaptop} {
-        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
-    } else {
-        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
-    }
 
     catch {rename dc ""}
     rename [c create] dc
@@ -86,6 +80,7 @@ Try doing `sudo adduser folk render`."
     dc code {
         VkInstance instance;
         VkPhysicalDevice physicalDevice;
+        VkPhysicalDeviceFeatures physicalDeviceFeatures;
         VkDevice device;
 
         uint32_t computeQueueFamilyIndex;
@@ -166,6 +161,7 @@ Try doing `sudo adduser folk render`."
             vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices);
 
             physicalDevice = physicalDevices[0];
+            vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
         }
         
         uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
@@ -244,7 +240,7 @@ Try doing `sudo adduser folk render`."
                 fprintf(stderr, "Gpu: Failed to create GLFW window surface\n"); exit(1);
             }
         } : [csubst {
-            // TODO: support multiple displays, pick best display mode
+            // TODO: support multiple displays
 
             uint32_t displayCount;
             vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, NULL);
@@ -258,6 +254,8 @@ Try doing `sudo adduser folk render`."
 
             uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
             vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display, &modeCount, &modeProps);
+            // modeProps is now the 0th display mode, which is probably
+            // the best one (and we default to it for now).
 
             VkDisplaySurfaceCreateInfoKHR createInfo = {0};
             createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
@@ -265,7 +263,7 @@ Try doing `sudo adduser folk render`."
             createInfo.planeIndex = 0;
             createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
             createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-            createInfo.imageExtent = (VkExtent2D) { .width = $WIDTH, .height = $HEIGHT }; // TODO: find out
+            createInfo.imageExtent = modeProps.parameters.visibleRegion;
             if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
                 fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
             }
@@ -489,6 +487,11 @@ Try doing `sudo adduser folk render`."
             $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
         }
     }]
+    dc proc getWidth {} uint32_t { return swapchainExtent.width; }
+    dc proc getHeight {} uint32_t { return swapchainExtent.height; }
+    dc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
+        return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
+    }
 
     proc defineVulkanHandleType {cc type} {
         set cc [uplevel {namespace current}]::$cc
@@ -759,16 +762,15 @@ Try doing `sudo adduser folk render`."
                                pipeline.pushConstantsSize, pushConstantsData);
         }
 
-        // 1 quad -> 2 triangles -> 6 vertices
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        // 1 quad -> 2 triangles -> 4 vertices
+        vkCmdDraw(commandBuffer, 4, 1, 0, 0);
     }
 
     # Draw to the screen using pipeline `pipeline`. Each arg in `args`
     # should be a push-constant parameter of the pipeline. Can only be
     # called between `drawStart` and `drawEnd`.
     proc draw {pipeline args} {
-        variable WIDTH; variable HEIGHT
-        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
+        set args [linsert $args 0 [list [getWidth] [getHeight]]]
 
         drawImpl $pipeline [encodeArgs[Pipeline id $pipeline] {*}$args]
     }
@@ -1013,6 +1015,14 @@ Try doing `sudo adduser folk render`."
         # global sampler and multiple textures/images, because that's
         # the only way to allow each image to have its own dimensions
         # (dimensions are a property bound to the sampler).
+        #
+        # We have a whole code path basically just to handle v3dv
+        # (Raspberry Pi GPU), which doesn't support dynamic indexing
+        # (based on push constant) into the descriptor array. On GPUs
+        # like that, we manually emit an if ladder that checks each
+        # possible value of the push constant and uses the right
+        # statically-indexed descriptor.
+        set gpuSupportsDynamicIndexing [Gpu::getDoesSupportShaderSampledImageArrayDynamicIndexing]
         set fragShaderModule [createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
@@ -1031,22 +1041,56 @@ Try doing `sudo adduser folk render`."
                 }
             }]] "\n"]
 
-            $[join [lmap {argtype argname} $pushConstants {
-                if {$argtype eq "sampler2D"} {
-                    expr {"#define $argname _samplers\[args.$argname\]"}
-                }
-            }] "\n"]
-
-            vec4 frag() {
-                $[join [lmap {argtype argname} $pushConstants {
-                    if {$argname eq "_"} continue
-                    if {$argtype ne "sampler2D"} {
-                        expr {"$argtype $argname = args.$argname;"}
-                    }
-                }] " "]
+            vec4 frag($[join [lmap {argtype argname} $pushConstants {
+                if {$argname eq "_"} continue
+                expr {"$argtype $argname"}
+            }] ", "]) {
                 $fragBody
             }
-            void main() { outColor = frag(); }
+
+            $[eval {
+                set samplerIdxs [lsearch -all -exact $pushConstants sampler2D]
+                proc emitFragInvocation {gpuSupportsDynamicIndexing pushConstants} { subst {
+                    outColor = frag([join [lmap {argtype argname} $pushConstants {
+                        if {$argname eq "_"} continue
+                        if {$argtype eq "sampler2D"} {
+                            if {$gpuSupportsDynamicIndexing} {
+                                expr {"_samplers\[args.$argname\]"}
+                            } else {
+                                # This should have been patched to a
+                                # static expression like
+                                # `_samplers[3]` by the caller.
+                                expr {"$argname"}
+                            }
+                        } else {
+                            expr {"args.$argname"}
+                        }
+                    }] ", "]);
+                } }
+                list
+            }]
+            void main() {
+                $[if {$gpuSupportsDynamicIndexing || [llength $samplerIdxs] == 0} {
+                    emitFragInvocation $gpuSupportsDynamicIndexing $pushConstants
+
+                } elseif {[llength $samplerIdxs] == 1} {
+                    set samplerIdx [+ [lindex $samplerIdxs 0] 1]
+                    set samplerName [lindex $pushConstants $samplerIdx]
+                    set xs [list]
+                    for {set i 0} {$i < $ImageManager::GPU_MAX_IMAGES} {incr i} {
+                        set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
+                                                      _samplers\[$i\]]
+                        lappend xs [subst {
+                            [expr {$i == 0 ? "if" : "else if"}] (args.$samplerName == $i) {
+                                [emitFragInvocation $gpuSupportsDynamicIndexing $patchedPushConstants]
+                            }
+                        }]
+                    }
+                    join $xs "\n"
+                } else {
+                    error "display: Cannot currently compile a shader that has more than 1 sampler2D parameter on this GPU."
+                }]
+            }
         }]]]
 
         # pipeline needs to contain a specification of push constants,
@@ -1563,7 +1607,8 @@ proc Start-display-process {code} {
         Claim "fake-display-process" has program code \
             [list apply [list {makeGpu} $code] $makeGpu]
 
-        When the GPU is ready & /someone/ wishes program code /co/ runs on "display" {
+        When display /any/ has width /w/ height /h/ &\
+             /someone/ wishes program code /co/ runs on "display" {
             eval $co
         }
     } else {
@@ -1578,113 +1623,114 @@ Start-display-process {
     source "virtual-programs/images.folk"
     namespace eval Gpu $makeGpu
 
-    if {[info hostname] eq "gadget-blue" || [info hostname] eq "gadget-green"} {
-        # HACK: we use HDMI1 instead of HDMI0 on these
-        Gpu::init 1
-    } else {
-        Gpu::init 0
-    }
-    Gpu::ImageManager::imageManagerInit
-
     source "lib/colors.tcl"
 
+    Wish $::thisProcess receives statements like \
+        [list /someone/ wishes $::thisNode uses display /displayIdx/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
         [list /someone/ claims the display time is /displayTime/]
     Wish $::thisProcess shares statements like \
+        [list /someone/ claims display /any/ has width /w/ height /h/]
+    Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
-    set ::fns [dict create]
-    proc ::tryCompileFn {wisher name source} {
-        try {
-            dict with ::fns {
-                set fn [Gpu::fn {*}$source]
-            }
-            dict set ::fns $name $fn
+    When /someone/ wishes $::thisNode uses display /displayIdx/ {
+        Gpu::init $displayIdx
+        Gpu::ImageManager::imageManagerInit
 
-            # Technically a misnomer: the function is just stored, not
-            # compiled until it's been inlined into a shader.
-            Claim the GPU compiles function $name to $fn
+        Claim display $displayIdx has width [Gpu::getWidth] height [Gpu::getHeight]
 
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
-            When the GPU compiles function $notFoundName to /anything/ {
-                ::tryCompileFn $wisher $name $source
-            }
-        } on error e {
-            puts stderr "Error: GPU compiles function $name: $::errorInfo"
-            Say $wisher has error $e with info $::errorInfo
-        }
-    }
-    When /wisher/ wishes the GPU compiles function /name/ /source/ {
-        ::tryCompileFn $wisher $name $source
-    }
-
-    set ::pipelines [dict create]
-    proc ::tryCompilePipeline {wisher name source} {
-        try {
-            dict with ::fns {
-                dict set ::pipelines $name [Gpu::pipeline {*}$source]
-            }
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
-            When the GPU compiles function $notFoundName to /anything/ {
-                ::tryCompilePipeline $wisher $name $source
-            }
-        } on error e {
-            puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
-            Say $wisher has error $e with info $::errorInfo
-        }
-    }
-    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
-        ::tryCompilePipeline $wisher $name $source
-    }
-
-    Claim the GPU is ready
-
-    while true {
-        set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
-        Step
-        if {$macos} { update }
-
-        foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
+        set ::fns [dict create]
+        proc ::tryCompileFn {wisher name source} {
             try {
-                set name [dict get $match name]
-                set pipeline [dict get $::pipelines [dict get $match name]]
-
-                set options [dict get $match options]
-                set layer [dict_getdef $options layer 0]
-                if {[dict exists $options instances]} {
-                    set instances [dict get $options instances]
-                } else {
-                    set instances [list [dict get $options arguments]]
+                dict with ::fns {
+                    set fn [Gpu::fn {*}$source]
                 }
-                foreach instance $instances {
-                    dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
-                }
+                dict set ::fns $name $fn
 
+                # Technically a misnomer: the function is just stored, not
+                # compiled until it's been inlined into a shader.
+                Claim the GPU compiles function $name to $fn
+
+            } trap {FN_NOT_FOUND} {} {
+                set notFoundName [lindex $::errorCode 1]
+                When the GPU compiles function $notFoundName to /anything/ {
+                    ::tryCompileFn $wisher $name $source
+                }
             } on error e {
-                # FIXME: it's hard to report an error here, since this
-                # runs every frame.
-                puts stderr "display.folk: Error: [dict get $match wisher]: $e\n$::errorInfo"
+                puts stderr "Error: GPU compiles function $name: $::errorInfo"
+                Say $wisher has error $e with info $::errorInfo
             }
         }
+        When /wisher/ wishes the GPU compiles function /name/ /source/ {
+            ::tryCompileFn $wisher $name $source
+        }
 
-        set renderTime [baretime {
-            Gpu::drawStart
-            foreach layer [lsort -real [dict keys $::displayList]] {
-                set layerDisplayList [dict get $::displayList $layer]
-                foreach displayCommand $layerDisplayList {
-                    try { {*}$displayCommand } \
-                        on error e { puts stderr $::errorInfo }
+        set ::pipelines [dict create]
+        proc ::tryCompilePipeline {wisher name source} {
+            try {
+                dict with ::fns {
+                    dict set ::pipelines $name [Gpu::pipeline {*}$source]
+                }
+            } trap {FN_NOT_FOUND} {} {
+                set notFoundName [lindex $::errorCode 1]
+                When the GPU compiles function $notFoundName to /anything/ {
+                    ::tryCompilePipeline $wisher $name $source
+                }
+            } on error e {
+                puts stderr "Error: GPU compiles pipeline $name: $::errorInfo"
+                Say $wisher has error $e with info $::errorInfo
+            }
+        }
+        When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+            ::tryCompilePipeline $wisher $name $source
+        }
+
+        while true {
+            set ::displayList [dict create] ;# Keys are layer numbers; values are lists of commands
+            Step
+            if {$macos} { update }
+
+            foreach match [Statements::findMatches {/wisher/ wishes the GPU draws pipeline /name/ with /...options/}] {
+                try {
+                    set name [dict get $match name]
+                    set pipeline [dict get $::pipelines [dict get $match name]]
+
+                    set options [dict get $match options]
+                    set layer [dict_getdef $options layer 0]
+                    if {[dict exists $options instances]} {
+                        set instances [dict get $options instances]
+                    } else {
+                        set instances [list [dict get $options arguments]]
+                    }
+                    foreach instance $instances {
+                        dict lappend ::displayList $layer [list Gpu::draw $pipeline {*}$instance]
+                    }
+
+                } on error e {
+                    # FIXME: it's hard to report an error here, since this
+                    # runs every frame.
+                    puts stderr "display.folk: Error: [dict get $match wisher]: $e\n$::errorInfo"
                 }
             }
-            Gpu::drawEnd
-        }]
-        if {$macos} { Gpu::poll }
 
-        Commit { Claim the display time is "render $renderTime us ($::stepTime)" }
+            set renderTime [baretime {
+                Gpu::drawStart
+                foreach layer [lsort -real [dict keys $::displayList]] {
+                    set layerDisplayList [dict get $::displayList $layer]
+                    foreach displayCommand $layerDisplayList {
+                        try { {*}$displayCommand } \
+                            on error e { puts stderr $::errorInfo }
+                    }
+                }
+                Gpu::drawEnd
+            }]
+            if {$macos} { Gpu::poll }
+
+            Hold { Claim the display time is "render $renderTime us ($::stepTime)" }
+        }
     }
 }
 
@@ -1697,14 +1743,7 @@ When the display time is /displayTime/ {
 namespace eval ::Display {
     variable displayTime none
 
-    variable WIDTH
-    variable HEIGHT
     variable LAYER 0
-    if {$::tcl_platform(os) eq "Darwin"} {
-        set WIDTH [* 640 2]; set HEIGHT [* 480 2]
-    } else {
-        regexp {mode "(\d+)x(\d+)(?:-\d+)?"} [exec fbset] -> WIDTH HEIGHT
-    }
 
     # TODO: Remove these / expel them to a shim page; these are only
     # for backward compatibility now.
@@ -1743,6 +1782,10 @@ namespace eval ::Display {
         warnDeprecated
         Wish to draw an image with x $x y $y image $im radians $radians scale $scale
     }
+}
 
-    Claim the display Display has width $::Display::WIDTH height $::Display::HEIGHT
+# HACK: for backward compat
+When display /displayIdx/ has width /displayWidth/ height /displayHeight/ {
+    set ::Display::WIDTH $displayWidth
+    set ::Display::HEIGHT $displayHeight
 }

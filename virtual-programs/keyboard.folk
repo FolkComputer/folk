@@ -25,7 +25,7 @@ proc walkInputEventPaths {} {
             if {[file readable $device] == 0} {
                 puts "Device $device is not readable. Attempting to change permissions."
                 # Attempt to change permissions so that the file can be read
-                exec sudo chmod +r $device
+                exec chmod +r $device
             }
             lappend keyboards $device
         }
@@ -122,7 +122,8 @@ foreach keyboard $keyboardDevices {
 
                 set now [clock milliseconds]
                 set options [dict create timestamp $now]
-                if {$keychar ne ""} {
+                set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
+                if {$keychar ne "" && $modKeyNotHeld} {
                     dict set options printable $keychar
                 }
                 Assert keyboard $keyboard claims key $key is $keyState with {*}$options

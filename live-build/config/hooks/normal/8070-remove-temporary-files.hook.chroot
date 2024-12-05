@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+# Remove temporary files
+for _DIRECTORY in /tmp /var/tmp
+do
+	rm -rf ${_DIRECTORY}
+
+	mkdir -p ${_DIRECTORY}
+	chmod 1777 ${_DIRECTORY}
+done

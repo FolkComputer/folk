@@ -1,9 +1,9 @@
 Assert programBall has program {{this} {
-    Commit { Claim $this has a ball at x 100 y 100 }
+    Hold { Claim $this has a ball at x 100 y 100 }
 
     When $this has a ball at x /x/ y /y/ {
         After 10 milliseconds {
-            Commit { Claim $this has a ball at x $x y [expr {$y+1}] }
+            Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
             if {$y > 115} { set ::done true }
         }
     }
@@ -15,10 +15,10 @@ vwait ::done
 Retract programBall has program /something/
 
 Assert programUpdate has program {{this} {
-    Commit { Claim $this has seen 0 boops }
+    Hold { Claim $this has seen 0 boops }
 
     Every time there is a boop & $this has seen /n/ boops {
-        Commit { Claim $this has seen [expr {$n + 1}] boops }
+        Hold { Claim $this has seen [expr {$n + 1}] boops }
     }
 }}
 Assert there is a boop
@@ -36,9 +36,9 @@ assert {[dict get [lindex [Statements::findMatches [list /someone/ claims /thing
 
 Assert programTestReset has program {{this} {
     When $this has context color /color/ {
-        Commit { Claim $this has counter 0 }
+        Hold { Claim $this has counter 0 }
         Every time a button is pressed & $this has counter /counter/ {
-            Commit { Claim $this has counter [incr counter] }
+            Hold { Claim $this has counter [incr counter] }
         }
     }
 }}

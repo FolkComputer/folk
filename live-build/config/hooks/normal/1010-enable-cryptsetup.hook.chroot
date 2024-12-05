@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -e
+
+# Enable cryptsetup
+
+if [ -e /sbin/cryptsetup ]
+then
+	if [ ! -e /etc/initramfs-tools/conf.d/cryptsetup ]
+	then
+		mkdir -p /etc/initramfs-tools/conf.d
+
+		cat > /etc/initramfs-tools/conf.d/cryptsetup <<-EOF
+		# /etc/initramfs-tools/conf.d/cryptsetup
+
+		CRYPTSETUP=yes
+		export CRYPTSETUP
+		EOF
+
+	fi
+
+	if [ -e /etc/cryptsetup-initramfs/conf-hook ]; then
+		if grep -q '^#CRYPTSETUP=' /etc/cryptsetup-initramfs/conf-hook; then
+			sed -i -e 's/^#CRYPTSETUP=.*/CRYPTSETUP=y/' \
+			    /etc/cryptsetup-initramfs/conf-hook
+		else
+			echo "CRYPTSETUP=y" >>/etc/cryptsetup-initramfs/conf-hook
+		fi
+	fi
+fi

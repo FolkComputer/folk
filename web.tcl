@@ -60,40 +60,21 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 </html>
             }
         }
-        "/programs" {
-            set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
-            subst {
-                <html>
-                <head>
-                <link rel="stylesheet" href="/style.css">
-                <title>Running programs</title>
-                </head>
-                <body>
-                [join [lmap p $programs { dict with p {subst {
-                    <h2>$programName</h2>
-                    <pre><code>[htmlEscape [lindex $program 1]]</code></pre>
-                }} }] "\n"]
-                </body>
-                </html>
-            }
-        }
         "/timings" {
-            set totalTimes [list]
-            dict for {body totalTime} $Evaluator::totalTimesMap {
-                dict with totalTime {
-                    lappend totalTimes $body [expr {$loadTime + $runTime + $unloadTime}]
-                }
+            set runTimes [list]
+            dict for {lambda runTime} $Evaluator::runTimesMap {
+                lappend runTimes $lambda $runTime
             }
-            set totalTimes [lsort -integer -stride 2 -index 1 $totalTimes]
+            set runTimes [lsort -integer -stride 2 -index 1 $runTimes]
 
-            set totalFrameTime 0
+            set totalRunTime 0
             set l [list]
-            foreach {body totalTime} $totalTimes {
-                set runs [dict get $Evaluator::runsMap $body]
-                set totalFrameTime [expr {$totalFrameTime + $totalTime/$::stepCount}]
+            foreach {lambda runTime} $runTimes {
+                set runCount [dict get $Evaluator::runCountsMap $lambda]
+                set totalRunTime [+ $totalRunTime $runTime]
                 lappend l [subst {
                     <li>
-                    <pre>[htmlEscape $body]</pre> ($runs runs): [dict get $Evaluator::totalTimesMap $body]: $totalTime microseconds total ([expr {$totalTime/$::stepCount}] us per frame), $runs runs ([expr {$totalTime/$runs}] us per run; [expr {$runs/$::stepCount}] runs per frame)
+                    <pre>[htmlEscape $lambda]</pre> ($runCount runs): $runTime us
                     </li>
                 }]
             }
@@ -109,7 +90,7 @@ proc handlePage {path httpStatusVar contentTypeVar} {
                 <a href="/statementClauseToId.pdf">statementClauseToId graph</a>
                 <a href="/statements.pdf">statements graph</a>
                 </nav>
-                <h1>Timings (sum per-frame time $totalFrameTime us)</h1>
+                <h1>Timings (total frame run time $totalRunTime us)</h1>
                 <ul>[join $l "\n"]</ul>
                 </html>
             }
@@ -127,6 +108,14 @@ proc handlePage {path httpStatusVar contentTypeVar} {
         }
         "/statements.pdf" {
             getDotAsPdf [Statements::dot] contentType
+        }
+        "/lib/folk.js" {
+            set contentType "text/javascript"
+            readFile "lib/folk.js" contentType
+        }
+        "/vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" {
+            set contentType "text/javascript"
+            readFile "vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" contentType
         }
         default {
             upvar $httpStatusVar httpStatus
@@ -205,20 +194,15 @@ proc handleRead {chan addr port} {
 }
 
 proc handleWS {chan type msg} {
-    if {$type eq "connect" || $type eq "ping" || $type eq "pong"} {
-        # puts "Event $type from chan $chan"
+    if {$type eq "connect"} {
+        Assert websocket $chan is connected
+    } elseif {$type eq "close"} {
+        Retract websocket $chan is connected
+        Retract when websocket $chan is connected /...rest/
     } elseif {$type eq "text"} {
         eval $msg
-    } elseif {$type eq "disconnect"} {
-        Commit $chan statements {}
-        foreach peerNs [namespace children ::Peers] {
-            apply [list {disconnectedChan} {
-                variable chan
-                if {$chan eq $disconnectedChan} {
-                    namespace delete [namespace current]
-                }
-            } $peerNs] $chan
-        }
+    } elseif {$type eq "ping" || $type eq "pong" || $type eq "disconnect"} {
+        # puts "Event $type from chan $chan"
     } else {
         puts "$::thisProcess: Unhandled WS event $type on $chan ($msg)"
     }

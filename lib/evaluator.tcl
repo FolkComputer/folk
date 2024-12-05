@@ -15,7 +15,6 @@ namespace eval statement {
     # statements (which are the parents and children of the match).
 
     variable cc [c create]
-    namespace export $cc
 
     $cc include <string.h>
     $cc include <stdlib.h>
@@ -189,7 +188,7 @@ namespace eval statement {
     }
 
     variable negations [list nobody nothing]
-    variable blanks [list someone something anyone anything]
+    variable blanks [list someone something anyone anything any]
 
     # Splits a pattern by & into subpatterns, like
     #
@@ -758,6 +757,7 @@ namespace eval Statements { ;# singleton Statement store
                 expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
             }] "\n"]
             set label [string map {"\"" "\\\""} [string map {"\\" "\\\\"} $label]]
+            set label [string range $label 0 16383]
             lappend dot "<$id> \[label=\"$id: $label\"\];"
 
             dict for {matchId _} [statement parentMatchIds $stmt] {
@@ -889,7 +889,12 @@ namespace eval Evaluator {
 
         void tryRunInSerializedEnvironment(Tcl_Interp* interp, Tcl_Obj* lambda, Tcl_Obj* env) {
             int objc = 3; Tcl_Obj *objv[3];
-            objv[0] = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
+            static Tcl_Obj* tryRunInSerializedEnvironment = NULL;
+            if (tryRunInSerializedEnvironment == NULL) {
+                tryRunInSerializedEnvironment = Tcl_NewStringObj("Evaluator::tryRunInSerializedEnvironment", -1);
+                Tcl_IncrRefCount(tryRunInSerializedEnvironment);
+            }
+            objv[0] = tryRunInSerializedEnvironment;
             objv[1] = lambda;
             objv[2] = env;
             if (Tcl_EvalObjv(interp, objc, objv, 0) == TCL_ERROR) {
@@ -904,6 +909,8 @@ namespace eval Evaluator {
                                                      statement_handle_t whenId,
                                                      Tcl_Obj* whenPattern,
                                                      statement_handle_t statementId) {
+            static Tcl_Obj* matchIdVarName = NULL;
+
             if (!exists(whenId)) {
                 removeAllReactions(whenId);
                 return;
@@ -930,7 +937,11 @@ namespace eval Evaluator {
                 }
                 ckfree((char*)result);
 
-                Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
+                if (matchIdVarName == NULL) {
+                    matchIdVarName = Tcl_NewStringObj("::matchId", -1);
+                    Tcl_IncrRefCount(matchIdVarName);
+                }
+                Tcl_ObjSetVar2(interp, matchIdVarName, NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
                 tryRunInSerializedEnvironment(interp, lambda, env);
             }
         }
@@ -1009,7 +1020,11 @@ namespace eval Evaluator {
 
         // Trigger any reactions to the addition of this statement.
         Tcl_Obj* clauseWithReactingIdWildcard = Tcl_DuplicateObj(clause); {
-            Tcl_Obj* reactingIdWildcard = Tcl_ObjPrintf("/reactingId/");
+            static Tcl_Obj* reactingIdWildcard = NULL;
+            if (reactingIdWildcard == NULL) {
+                reactingIdWildcard = Tcl_NewStringObj("/reactingId/", -1);
+                Tcl_IncrRefCount(reactingIdWildcard);
+            }
             Tcl_ListObjReplace(interp, clauseWithReactingIdWildcard, clauseLength, 0,
                                1, &reactingIdWildcard);
         }
@@ -1173,7 +1188,12 @@ namespace eval Evaluator {
         // Run the When body within this new match.
         env = Tcl_DuplicateObj(env);
         Tcl_ListObjAppendElement(NULL, env, matches);
-        Tcl_ObjSetVar2(interp, Tcl_ObjPrintf("::matchId"), NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
+        static Tcl_Obj* matchIdVarName = NULL;
+        if (matchIdVarName == NULL) {
+            matchIdVarName = Tcl_NewStringObj("::matchId", -1);
+            Tcl_IncrRefCount(matchIdVarName);
+        }
+        Tcl_ObjSetVar2(interp, matchIdVarName, NULL, Tcl_ObjPrintf("m%d:%d", matchId.idx, matchId.gen), 0);
         tryRunInSerializedEnvironment(interp, lambda, env);
 
         // Finally, delete the old match child if any.

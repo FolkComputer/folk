@@ -1,8 +1,8 @@
 
 
 When (non-capturing) /type/ /obj/ has a program {
-    puts "Added $type $obj"
-    On unmatch { puts "Removed $type $obj" }
+    # puts "Added $type $obj"
+    # On unmatch { puts "Removed $type $obj" }
 
     try {
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
@@ -10,14 +10,16 @@ When (non-capturing) /type/ /obj/ has a program {
         } else {
             # HACK: localhost is folk-live for now. idk why.
             if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
-                ($::thisNode in [list "folk-beads" "folk-convivial" "localhost" "gadget-red" "gadget-blue"])} {
+                ($::thisNode in [list "folk-beads" "folk-convivial" "gadget-red" "gadget-blue" "gadget-pink"])} {
                 # HACK: 'Page fault' to folk0, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local
                 # network, or broadcasting out, and getting pages from
                 # there.
+                puts stderr "programs: WARNING: Faulting to folk0 to try to get program $obj.folk"
                 exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
-                    "http://folk0.local:4273/printed-programs/$obj.folk"
+                    "http://folk0.local:4273/printed-programs/$obj.folk" &
+                # HACK: It won't be reloaded until you redetect the tag.
             }
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
         }

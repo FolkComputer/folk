@@ -94,9 +94,14 @@ proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
 
         lassign [lindex $lines $i] linenum line
         set max [dict_getdef $linelenOverrides $i $linelen]
-        if {[string length $line] > $max} {
+        if {$max == 0} {
+            lset lines $i [list "" ""]
+            set lines [linsert $lines $i+1 [list $linenum $line]]
+
+        } elseif {[string length $line] > $max} {
             lset lines $i 1 [string range $line 0 $max]
             set lines [linsert $lines $i+1 [list "" [string range $line $max+1 end]]]
+
         } elseif {$linenum ne ""} {
             set safeline $i
         }
@@ -115,7 +120,7 @@ proc rangeDict {from to val} {
     return $res
 }
 
-proc ::programToPs {id text {format "letter"}} {
+proc ::programToPs {id text {format "letter"} {mixins {}}} {
     set defaults {
         margin 36
         fontsize 12
@@ -136,14 +141,16 @@ proc ::programToPs {id text {format "letter"}} {
             maxcharsOverride {[rangeDict 0 8 46]}
         }
         indexcard {
-            fontsize 8
+            fontsize 24
+            tagsize {300 300}
             pagesize {612 792}
-            maxlines 44
-            maxchars 68
+            maxlines 22
+            maxchars 34
+            maxcharsOverride {[rangeDict 0 9 0]}
         }
     }]
-
-    # TODO: indexcard layout exceptions
+    # indexcard (really receipt) assumes fake letter/A4 size:
+    # https://github.com/NaitLee/Cat-Printer/discussions/8#discussioncomment-2557843
 
     set params [dict merge $defaults [dict get $formats $format]]
     dict with params {
@@ -187,11 +194,19 @@ proc ::programToPs {id text {format "letter"}} {
                   grestore
 
                   /Helvetica-Narrow findfont
-                  10 scalefont
+                  [- $fontsize 2] scalefont
                   setfont
                   newpath
                   [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
                   ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+
+                  [join [lmap mixin $mixins {
+                      # We run mixins only on page 1 for now.  They
+                      # get access to everything in scope. Kind of
+                      # hacky, but OK for now.
+
+                      subst $mixin
+                  }] "\n"]
                 }] }]
                 showpage
             }]
@@ -201,8 +216,6 @@ proc ::programToPs {id text {format "letter"}} {
 
     return $out
 }
-
-if {$::isLaptop} { return }
 
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"
@@ -240,25 +253,52 @@ proc remotePrintRequest {remoteNode clause} {
     }} $clause]
 }
 
-When $::thisNode claims printer /name/ is a cups printer with url /url/ driver /driver/ {
-    puts "lpadmin -E -p $name -v $url -m $driver"
+When $::thisNode claims printer /name/ is a cups printer with /...options/ {
+    set command [list /usr/sbin/lpadmin -p $name -E]
+    if {[dict exists $options url]} {
+        lappend command -v [dict get $options url]
+    }
+
+    if {[dict exists $options driver]} {
+        lappend command -m [dict get $options driver]
+    }
+
+    if {[dict exists $options extra-args]} {
+        lappend command {*}[dict get $options extra-args]
+    }
+
+    exec {*}$command
 }
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with /...options/ {
+    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+        # HACK: Forward the print request to folk0.
+        remotePrintRequest "folk0" [list $::thisNode wishes to print $code with {*}$options]
+        return
+    }
+
     set id [nextId]
     Say $::thisNode wishes to print program $id with code $code {*}$options
 }
 When /someone/ wishes to print program /id/ with /...options/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
-        # HACK: Forward the print request to folk0.
-        remotePrintRequest "folk0" [list $::thisNode wishes to print program $id with {*}$options]
-        return
-    }
-
     set jobid [dict get $options job-id]
     if {[dict exists $::printjobs $jobid]} {return}
     puts "Wish to print jobid $jobid"
+
+    set code [dict get $options code]
+
+    set receiptMatches [Statements::findMatchesJoining\
+        [list \
+            {/someone/ claims /printer/ is a receipt printer} \
+            {/someone/ claims /printer/ is the default printer} \
+        ] {}]
+    if {[llength $receiptMatches] > 0} {
+        set matchDict [lindex $receiptMatches 0]
+        set printer [dict get $matchDict printer]
+        escpos printProgram $printer $id $code
+        return
+    }
 
     # find printer & format
     set defaultStatements ""
@@ -292,7 +332,6 @@ When /someone/ wishes to print program /id/ with /...options/ {
 
     dict set ::printjobs $jobid [list $id $args]
 
-    set code [dict get $options code]
     set ps [programToPs $id $code $format]
 
     # save code and ps to disk
@@ -316,5 +355,5 @@ When /someone/ wishes to print /code/ with job id /id/ {
     Say $::thisNode wishes to print $code with job-id $id
 }
 When /someone/ wishes to print program /id/ with /code/ with job id /id/ {
-    Say $::thisNode wishes to print program $id with $code with job-id $id
+    Say $::thisNode wishes to print program $id with code $code job-id $id
 }

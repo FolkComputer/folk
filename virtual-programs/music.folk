@@ -119,7 +119,8 @@ proc ::Music::finishSetup {} {
   catch {exec pkill ghci}
   catch {exec pkill sclang}
   after 500 {
-    ::Music::exec -ignorestderr xvfb-run --auto-servernum sclang $::Music::musicDir/startup.sc &
+    set ::env(QT_QPA_PLATFORM) offscreen
+    ::Music::exec -ignorestderr sclang $::Music::musicDir/startup.sc &
 
     set fifo $::Music::musicDir/tidal-input
     exec rm -f $fifo
