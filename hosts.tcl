@@ -13,8 +13,7 @@ if {[info exists ::env(FOLK_SHARE_NODE)]} {
 } else {
     try {
         if {$::tcl_platform(os) eq "Darwin"} {
-            set networksetup_output [exec /usr/sbin/networksetup -getairportnetwork en0]
-            regexp {Current Wi-Fi Network: (.*)} $networksetup_output -> wifi
+            set wifi [exec sh -c {ipconfig getsummary en0 | awk -F ' SSID : '  '/ SSID : / {print $2}'}]
         } elseif {$::tcl_platform(os) eq "Linux"} {
             set wifi [exec iwgetid -r]
         }
