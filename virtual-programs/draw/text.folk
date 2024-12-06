@@ -12,8 +12,8 @@ $cc struct Image {
 }
 $cc struct GlyphInfo {
     float advance;
-    Jim_Obj* planeBounds;
-    Jim_Obj* atlasBounds;
+    float planeBounds[4];
+    float atlasBounds[4];
 }
 $cc struct Font {
     Image atlasImage;
@@ -84,13 +84,27 @@ $cc proc textShape {Font* font char* text
         if (ch != ' ') {
             // Append to list of instances.
             Jim_Obj* pv[] = {Jim_NewDoubleObj(interp, p.x), Jim_NewDoubleObj(interp, p.y)};
-            Jim_Obj* pObj = Jim_NewListObj(interp, pv, 2);
+            Jim_Obj* atlasv[] = {
+                Jim_NewDoubleObj(interp, glyphInfo->atlasBounds[0]),
+                Jim_NewDoubleObj(interp, glyphInfo->atlasBounds[1]),
+                Jim_NewDoubleObj(interp, glyphInfo->atlasBounds[2]),
+                Jim_NewDoubleObj(interp, glyphInfo->atlasBounds[3])
+            };
+            Jim_Obj* planev[] = {
+                Jim_NewDoubleObj(interp, glyphInfo->planeBounds[0]),
+                Jim_NewDoubleObj(interp, glyphInfo->planeBounds[1]),
+                Jim_NewDoubleObj(interp, glyphInfo->planeBounds[2]),
+                Jim_NewDoubleObj(interp, glyphInfo->planeBounds[3])
+            };
             Jim_Obj* args[] = {
                 Jim_NewIntObj(interp, font->gpuAtlasImage),
                 gpuAtlasImageSize,
-                glyphInfo->atlasBounds,
-                glyphInfo->planeBounds,
-                pObj, Jim_NewDoubleObj(interp, radians), Jim_NewDoubleObj(interp, em), color
+                Jim_NewListObj(interp, atlasv, sizeof(atlasv)/sizeof(atlasv[0])),
+                Jim_NewListObj(interp, planev, sizeof(planev)/sizeof(planev[0])),
+                Jim_NewListObj(interp, pv, sizeof(pv)/sizeof(pv[0])),
+                Jim_NewDoubleObj(interp, radians),
+                Jim_NewDoubleObj(interp, em),
+                color
             };
             Jim_Obj* instance = Jim_NewListObj(interp, args, sizeof(args)/sizeof(args[0]));
             Jim_ListAppendElement(interp, instances, instance);

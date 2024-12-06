@@ -380,6 +380,7 @@ C method struct {type fields} {
                 }
             }] "\n"]
 
+            Jim_FreeIntRep(interp, objPtr);
             objPtr->typePtr = &$[set type]_ObjType;
             objPtr->internalRep.ptrIntValue.ptr = robj;
             objPtr->internalRep.ptrIntValue.int1 = 1;
