@@ -1453,6 +1453,8 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
         set cameraWidth [dict get $calibration camera intrinsics width]
         set cameraHeight [dict get $calibration camera intrinsics height]
         set projectorIntrinsics [dict get $calibration projector intrinsics]
+        set projectorWidth [dict get $calibration projector intrinsics width]
+        set projectorHeight [dict get $calibration projector intrinsics height]
         dict for {id det} [dict get $pose tags] {
             # Look through all the projected tags that we detected on
             # camera in this pose.
