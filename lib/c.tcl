@@ -327,11 +327,12 @@ C method struct {type fields} {
     # (by someone else like the statement store).
     dict set objtypes $type [csubst {
         $[join [lmap fieldname $fieldnames { subst {
-            Jim_Obj* k__${type}__${fieldname};
+            __thread Jim_Obj* k__${type}__${fieldname};
         } }] "\n"]
         void $[set type]_init(Jim_Interp* interp) {
             $[join [lmap fieldname $fieldnames { subst {
                 k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
+                Jim_IncrRefCount(k__${type}__${fieldname});
             } }] "\n"]
         }
 
@@ -361,6 +362,11 @@ C method struct {type fields} {
             objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
             objPtr->bytes = (char *) malloc(objPtr->length + 1);
             snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
+            $[join [lmap {fieldtype fieldname} $fields {
+                csubst {
+                    Jim_FreeNewObj(interp, robj_$fieldname);
+                }
+            }] "\n"]
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
