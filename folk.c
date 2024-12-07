@@ -112,8 +112,8 @@ typedef struct Environment {
 
 // This function lives in main.c and not trie.c (where most
 // Clause/matching logic lives) because it operates at the Tcl level,
-// building up a Tcl value which may be a singleton or a list. Caller
-// must free the returned Environment*.
+// building up a mapping of strings to Tcl objects. Caller must free
+// the returned Environment*.
 Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
     Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
     env->nBindings = 0;
@@ -454,36 +454,27 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /lambda/ with environment /builtinEnv/
-    const char* lambda = whenClause->terms[whenClause->nTerms - 4];
-    const char* builtinEnv = whenClause->terms[whenClause->nTerms - 1];
+    // when the time is /t/ /lambdaExpr/ with environment /capturedArgs/
+    const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
+    const char* capturedArgs = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj *capturedArgsObj = Jim_NewStringObj(interp, capturedArgs, -1);
 
-    Jim_Obj* expr = Jim_NewStringObj(interp, builtinEnv, -1);
-
-    // Prepend `apply $lambda` to expr:
-    Jim_Obj* lambdaObj = Jim_NewStringObj(interp, lambda, -1);
-    Jim_Obj* lambdaBody = Jim_ListGetIndex(interp, lambdaObj, 1);
-    Jim_SetSourceInfo(interp, lambdaBody,
+    Jim_Obj *lambdaExprObj = Jim_NewStringObj(interp, lambdaExpr, -1);
+    // Set the source info for the lambdaExpr:
+    Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
+    Jim_SetSourceInfo(interp, lambdaBodyObj,
                       Jim_NewStringObj(interp, statementSourceFileName(when), -1),
                       statementSourceLineNumber(when));
-    Jim_Obj* applyLambda[] = {
-        Jim_NewStringObj(interp, "apply", -1),
-        lambdaObj
-    };
-    Jim_ListInsertElements(interp, expr, 0,
-                           sizeof(applyLambda)/sizeof(applyLambda[0]),
-                           applyLambda);
 
-    // Postpend bound variables to expr:
+    // Figure out all the bound match variables by unifying when &
+    // stmt:
     Environment* env = clauseUnify(interp, whenPattern, stmtClause);
     assert(env != NULL);
-    Jim_Obj* envArgs[env->nBindings];
+    Jim_Obj *whenArgs[env->nBindings];
     for (int i = 0; i < env->nBindings; i++) {
-        envArgs[i] = env->bindings[i].value;
+        whenArgs[i] = env->bindings[i].value;
     }
-    Jim_ListInsertElements(interp, expr,
-                           Jim_ListLength(interp, expr),
-                           env->nBindings, envArgs);
+    Jim_Obj *whenArgsObj = Jim_NewListObj(interp, whenArgs, env->nBindings);
     free(env);
 
     statementRelease(db, when);
@@ -518,7 +509,14 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
 #endif
 
-        error = Jim_EvalObj(interp, expr);
+        Jim_Obj *objv[] = {
+            // TODO: pool this string?
+            Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
+            lambdaExprObj,
+            capturedArgsObj,
+            whenArgsObj
+        };
+        error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
 
 #ifdef TRACY_ENABLE
         ___tracy_emit_zone_end(ctx);
@@ -526,21 +524,21 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     interp->signal_level--;
 
-    matchCompleted(self->currentMatch);
-    matchRelease(db, self->currentMatch);
-    self->currentMatch = NULL;
-
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "Error: runWhenBlock: (%.100s) -> (%s)\n",
-                lambda,
-                Jim_GetString(Jim_GetResult(interp), NULL));
-        /* Jim_FreeInterp(interp); */
-        /* exit(EXIT_FAILURE); */
+        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
+                lambdaExpr, errorMessage);
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
     } else if (error == JIM_SIGNAL) {
         /* fprintf(stderr, "Signal\n"); */
         interp->sigmask = 0;
     }
+
+    matchCompleted(self->currentMatch);
+    matchRelease(db, self->currentMatch);
+    self->currentMatch = NULL;
 }
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.

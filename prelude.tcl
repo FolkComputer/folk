@@ -10,6 +10,18 @@ proc serializeEnvironment {} {
     }
     list $argNames $argValues
 }
+proc evaluateWhenBlock {lambdaExpr capturedArgs whenArgs} {
+    try {
+        apply $lambdaExpr {*}$capturedArgs {*}$whenArgs
+    } on error {err opts} {
+        set this [expr {[info exists ::this] ? $::this : "<unknown>"}]
+        puts stderr "Error in $this: $err"
+        # FIXME: how do I get this?  Recall that evaluateWhenBlock is
+        # being called _straight_ from runWhenBlock (C context) --
+        # there are no Tcl frames above it.
+        Say $this has error $err with info $opts
+    }
+}
 
 proc fn {name argNames body} {
     # Creates a variable in the caller scope called ^$name. unknown
@@ -121,7 +133,10 @@ proc baretime body { string map {" microseconds per iteration" ""} [uplevel [lis
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
-    set body [lindex $args end]
+    # This prologue is used for error reporting (so we can get $this
+    # from the error handler level).
+    set prologue {if {[info exists this]} {set ::this $this}}
+    set body "$prologue\n[lindex $args end]"
     set args [lreplace $args end end]
 
     set isNonCapturing false
