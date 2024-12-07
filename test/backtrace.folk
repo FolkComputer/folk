@@ -5,10 +5,9 @@ set errorMakingProc {{} {
 }}
 
 Assert! when we are on {{errorMakingProc} {
-    puts ok
     When the time is /t/ {
         if {$t % 5 == 0} {
-            apply $errorMakingProc ;# line 11
+            apply $errorMakingProc ;# line 10
         }
     }
 
@@ -17,7 +16,7 @@ Assert! when we are on {{errorMakingProc} {
         set filename [lindex $stacktrace 1]
         set lineno [lindex $stacktrace 2]
         assert {$filename eq "test/backtrace.folk"}
-        assert {$lineno == 11}
+        assert {$lineno == 10}
         __exit 0
     }
 

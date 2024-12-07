@@ -6,3 +6,5 @@ set coolLib [library create coolLib {
 }]
 
 assert {[$coolLib cool 20 10] == 200}
+
+__exit 0

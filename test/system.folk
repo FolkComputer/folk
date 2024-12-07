@@ -40,7 +40,11 @@ Assert! when we are on {{} {
     When we are on {
         while true {
             sleep 1
-            puts [Query! the local tick is /tick/]
+            set results [Query! the local tick is /tick/]
+            puts $results
+            if {[dict get [lindex $results end] tick] > 30} {
+                __exit 0
+            }
         }
     }
 }} with environment {}

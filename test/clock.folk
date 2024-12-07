@@ -1,9 +1,0 @@
-Assert! we are on
-Assert! when we are on {{} {
-    When the clock time is /t/ {
-        Claim the rounded clock time is $(round($t))
-    }
-    When the rounded clock time is /t/ {
-        puts stderr "hello $t: ([Query! /someone/ claims the rounded clock time is /t/])"
-    }
-}} with environment {}

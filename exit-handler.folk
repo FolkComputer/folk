@@ -1,5 +1,3 @@
-puts "EXIT HANDLER"
-
 if 0 {
 static void trieWriteToPdf() {
     char code[500];

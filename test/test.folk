@@ -15,19 +15,25 @@ Assert! when we are on {{} {
 
     When we are on {
         puts "RUNNING HOLDS"
-        for {set i 0} {$i < 200} {incr i} {
+        for {set i 0} {$i <= 89} {incr i} {
             Hold! counter [list X claims the counter is $i]
             Hold! counter [list X claims the counter is $i]
         }
 
         sleep 2
 
-        puts "DONE: ([Query! /someone/ claims the counter is /t/])"
+        set results [Query! /someone/ claims the counter is /t/]
+        puts stderr "counter: ($results)"
 
-        source virtual-programs/web/trace.folk
-        source virtual-programs/web/dep-graph.folk
-        source virtual-programs/web/index.folk
-        source virtual-programs/web/web.folk
-        # __exit 0
+        When {
+            source virtual-programs/web/trace.folk
+            source virtual-programs/web/dep-graph.folk
+            source virtual-programs/web/index.folk
+            source virtual-programs/web/web.folk
+        }
+
+        if {[dict get [lindex $results end] t] == 89} {
+            __exit 0
+        }
     }
 }} with environment {}
