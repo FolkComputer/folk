@@ -1644,6 +1644,8 @@ if {$macos} {
 When /someone/ wishes $::thisNode uses display /displayIdx/ {
     if {$displayIdx eq "glfw"} { set displayIdx -1 }
 
+    tracy setThreadName "gpu"
+
     set gpu [apply $makeGpu $gpuLib]
     $gpu init $displayIdx
     $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
@@ -1726,6 +1728,8 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
         }
 
         $gpu drawStart
+        tracy zoneStart
+        tracy zoneName "gpu-draw"
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
             foreach displayCommand $layerDisplayList {
@@ -1733,6 +1737,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
                     on error e { puts stderr [errorInfo $e] }
             }
         }
+        tracy zoneEnd
         $gpu drawEnd
 
         tracy frameMark

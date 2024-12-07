@@ -241,6 +241,9 @@ if {[__isTracyEnabled]} {
         $tracyCpp proc frameMarkEnd {char* x} void {
             TracyCFrameMarkEnd(x);
         }
+        $tracyCpp proc setThreadName {char* name} void {
+            TracyCSetThreadName(strdup(name));
+        }
         $tracyCpp code {
             __thread TracyCZoneCtx __zoneCtx;
         }
