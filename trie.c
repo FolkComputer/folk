@@ -10,18 +10,18 @@
 #include "trie.h"
 
 Clause* clauseDup(Clause* c) {
-    Clause* ret = tmalloc(SIZEOF_CLAUSE(c->nTerms));
+    Clause* ret = malloc(SIZEOF_CLAUSE(c->nTerms));
     ret->nTerms = c->nTerms;
     for (int i = 0; i < c->nTerms; i++) {
-        ret->terms[i] = tstrdup(c->terms[i]);
+        ret->terms[i] = strdup(c->terms[i]);
     }
     return ret;
 }
 void clauseFree(Clause* c) {
     for (int i = 0; i < c->nTerms; i++) {
-        tfree(c->terms[i]);
+        free(c->terms[i]);
     }
-    tfree(c);
+    free(c);
 }
 
 char* clauseToString(Clause* c) {

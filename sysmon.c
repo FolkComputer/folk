@@ -127,15 +127,15 @@ void sysmon() {
     // Fourth: update the clock time statement in the database.
     // sysmon.c claims the clock time is <TIME>
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
-    Clause* clockTimeClause = tmalloc(SIZEOF_CLAUSE(7));
+    Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
     clockTimeClause->nTerms = 7;
-    clockTimeClause->terms[0] = tstrdup("sysmon.c");
-    clockTimeClause->terms[1] = tstrdup("claims");
-    clockTimeClause->terms[2] = tstrdup("the");
-    clockTimeClause->terms[3] = tstrdup("clock");
-    clockTimeClause->terms[4] = tstrdup("time");
-    clockTimeClause->terms[5] = tstrdup("is");
-    clockTimeClause->terms[6] = tmalloc(100);
+    clockTimeClause->terms[0] = strdup("sysmon.c");
+    clockTimeClause->terms[1] = strdup("claims");
+    clockTimeClause->terms[2] = strdup("the");
+    clockTimeClause->terms[3] = strdup("clock");
+    clockTimeClause->terms[4] = strdup("time");
+    clockTimeClause->terms[5] = strdup("is");
+    clockTimeClause->terms[6] = malloc(100);
     snprintf(clockTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 

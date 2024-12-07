@@ -36,7 +36,6 @@ void globalWorkQueueInit() {
 }
 void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
-    TracyCAllocS(pushee, sizeof(*pushee), 4);
     *pushee = item;
     if (!mpmc_queue_push(&globalWorkQueue, pushee)) {
         fprintf(stderr, "globalWorkQueuePush: failed\n"); exit(1);
@@ -50,7 +49,6 @@ WorkQueueItem globalWorkQueueTake() {
         if (mpmc_queue_pull(&globalWorkQueue, (void **)&pullee)) {
             globalWorkQueueSize--;
             ret = *pullee;
-            TracyCFreeS(pullee, 4);
             free(pullee);
         }
     }
@@ -79,19 +77,19 @@ char traceTail[TRACE_TAIL_COUNT][TRACE_ENTRY_SIZE];
 int _Atomic traceNextIdx = 0;
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
-    Clause* clause = tmalloc(SIZEOF_CLAUSE(argc - 1));
+    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
     clause->nTerms = argc - 1;
     for (int i = 1; i < argc; i++) {
-        clause->terms[i - 1] = tstrdup(Jim_GetString(argv[i], NULL));
+        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
     }
     return clause;
 }
 static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
-    Clause* clause = tmalloc(SIZEOF_CLAUSE(objc));
+    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
     for (int i = 0; i < objc; i++) {
-        clause->terms[i] = tstrdup(Jim_GetString(Jim_ListGetIndex(interp, obj, i), NULL));
+        clause->terms[i] = strdup(Jim_GetString(Jim_ListGetIndex(interp, obj, i), NULL));
     }
     return clause;
 }

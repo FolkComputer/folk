@@ -5,34 +5,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#if __has_include ("tracy/TracyC.h")
-
-#include "tracy/TracyC.h"
-#include <string.h>
-inline void *tmalloc(size_t sz) {
-    void *ptr = malloc(sz);
-    TracyCAllocS(ptr, sz, 4);
-    return ptr;
-}
-inline char *tstrdup(const char *s0) {
-    int sz = strlen(s0) + 1;
-    char *s = tmalloc(sz);
-    memcpy(s, s0, sz);
-    return s;
-}
-inline void tfree(void *ptr) {
-    TracyCFreeS(ptr, 4);
-    free(ptr);
-}
-
-#else
-
-#define tmalloc malloc
-#define tstrdup strdup
-#define tfree free
-
-#endif
-
 typedef struct Clause {
     int32_t nTerms;
     char* terms[];
