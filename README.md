@@ -58,10 +58,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~reuse C module so perf events hold~~
 - report errors as statements
 - ~~spinlock~~
-- **fix bottleneck around global queue lock dominating flamegraph**
-  - i think we're getting scheduled off CPU with the lock held
 - wait until process death to start
 - blinking on folk0
-- **fix memory leak (5MB/second)**
-  - cache per-thread value copies?
-- vulkan segfault (**this is just because we're out of RAM / called exit**)
+- fix small memory leak
+- todo:
+  - trace the db lock, figure out why collect is slow
+  - name zones to figure out actual latency
+

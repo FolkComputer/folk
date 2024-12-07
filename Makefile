@@ -32,7 +32,12 @@ folk: workqueue.o db.o trie.o sysmon.o folk.o \
 
 .PHONY: test clean deps
 test: folk
-	./folk test/test.folk
+	for test in test/*.folk; do \
+		echo "===================="; \
+		echo "Running test: $$test"; \
+		echo "--------------------"; \
+		./folk $$test ; \
+	done
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o
 deps:
@@ -51,7 +56,7 @@ sync:
 setup-remote:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; ./configure CFLAGS=-g'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
