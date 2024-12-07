@@ -55,6 +55,8 @@ setup-remote:
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
+sudo-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; killall -9 folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 valgrind-remote: sync
