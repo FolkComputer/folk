@@ -145,7 +145,7 @@ void sysmon() {
             .hold = {
                 .key = strdup("clock-time"),
                 .version = currentTick,
-                .sustainMs = 0,
+                .sustainMs = 5,
                 .clause = clockTimeClause,
                 .sourceFileName = strdup("sysmon.c"),
                 .sourceLineNumber = __LINE__
