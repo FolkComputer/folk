@@ -1049,9 +1049,13 @@ int main(int argc, char** argv) {
     }
 
 #ifdef __APPLE__
-    // Hard-coded. Run in apply so that there's a local scope to be
-    // lexically captured.
-    eval("apply {{} {source virtual-programs/gpu.folk}}");
+    if (argc == 1) {
+        // Hard-coded. If there's no specific script to run, so we're
+        // just running the full boot, then make sure to run the GPU
+        // on the main thread. Run the GPU in apply so that there's a
+        // local scope to be lexically captured.
+        eval("apply {{} {source virtual-programs/gpu.folk}}");
+    }
 #endif
 
     workerLoop();

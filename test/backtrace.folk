@@ -1,0 +1,33 @@
+Assert! we are on
+
+set errorMakingProc {{} {
+    error "making an error (this is expected & will be caught)"
+}}
+
+Assert! when we are on {{errorMakingProc} {
+    puts ok
+    When the time is /t/ {
+        if {$t % 5 == 0} {
+            apply $errorMakingProc ;# line 11
+        }
+    }
+
+    When /someone/ has error /err/ with info /info/ {
+        set stacktrace [dict get $info -errorinfo]
+        set filename [lindex $stacktrace 1]
+        set lineno [lindex $stacktrace 2]
+        assert {$filename eq "test/backtrace.folk"}
+        assert {$lineno == 11}
+        __exit 0
+    }
+
+    set t 0
+    while true {
+        Assert! the time is [incr t]
+        Retract! the time is [- $t 1]
+        sleep 0.3
+    }
+
+}} with environment [list $errorMakingProc]
+
+

@@ -15,7 +15,7 @@ proc evaluateWhenBlock {lambdaExpr capturedArgs whenArgs} {
         apply $lambdaExpr {*}$capturedArgs {*}$whenArgs
     } on error {err opts} {
         set this [expr {[info exists ::this] ? $::this : "<unknown>"}]
-        puts stderr "Error in $this: $err"
+        puts stderr "Error in $this: $err\n  [errorInfo $err [dict get $opts -errorinfo]]"
         # FIXME: how do I get this?  Recall that evaluateWhenBlock is
         # being called _straight_ from runWhenBlock (C context) --
         # there are no Tcl frames above it.
@@ -136,7 +136,9 @@ proc When {args} {
     # This prologue is used for error reporting (so we can get $this
     # from the error handler level).
     set prologue {if {[info exists this]} {set ::this $this}}
-    set body "$prologue\n[lindex $args end]"
+    # Make sure we don't put it on a new line (it'd throw line numbers
+    # off).
+    set body "$prologue;[lindex $args end]"
     set args [lreplace $args end end]
 
     set isNonCapturing false
