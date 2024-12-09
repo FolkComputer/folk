@@ -942,7 +942,7 @@ void workerInit(int index) {
     self->index = index;
 
     char threadName[100]; snprintf(threadName, 100, "folk worker %d", index);
-    TracyCSetThreadName(threadName)
+    TracyCSetThreadName(threadName);
 
     interpBoot();
 }

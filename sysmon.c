@@ -154,6 +154,8 @@ void sysmon() {
 }
 
 void *sysmonMain(void *ptr) {
+    TracyCSetThreadName("sysmon");
+
     struct timespec tickTime;
     tickTime.tv_sec = 0;
     tickTime.tv_nsec = SYSMON_TICK_MS * 1000 * 1000;
