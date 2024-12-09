@@ -941,6 +941,9 @@ void workerInit(int index) {
     self->currentItemStartTimestamp = 0;
     self->index = index;
 
+    char threadName[100]; snprintf(threadName, 100, "folk worker %d", index);
+    TracyCSetThreadName(threadName)
+
     interpBoot();
 }
 void* workerMain(void* arg) {

@@ -247,7 +247,7 @@ if {[__isTracyEnabled]} {
             fprintf(stderr, "Tracy on\n");
         }
         $tracyCpp proc message {char* x} void {
-            
+            TracyCMessage(x, strlen(x));
         }
 
         $tracyCpp proc frameMark {} void {
@@ -264,6 +264,9 @@ if {[__isTracyEnabled]} {
         }
         $tracyCpp proc frameMarkEnd {uint8_t* str} void {
             TracyCFrameMarkEnd((char *)str);
+        }
+        $tracyCpp proc plot {uint8_t* str double val} void {
+            TracyCPlot((char *)str, val);
         }
 
         $tracyCpp proc setThreadName {char* name} void {
