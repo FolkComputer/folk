@@ -249,15 +249,23 @@ if {[__isTracyEnabled]} {
         $tracyCpp proc message {char* x} void {
             
         }
+
         $tracyCpp proc frameMark {} void {
             TracyCFrameMark;
         }
-        $tracyCpp proc frameMarkStart {char* x} void {
-            TracyCFrameMarkStart(x);
+        $tracyCpp proc makeString {char* x} uint8_t* {
+            return (uint8_t *)strdup(x);
         }
-        $tracyCpp proc frameMarkEnd {char* x} void {
-            TracyCFrameMarkEnd(x);
+        $tracyCpp proc frameMarkNamed {uint8_t* str} void {
+            TracyCFrameMarkNamed((char *)str);
         }
+        $tracyCpp proc frameMarkStart {uint8_t* str} void {
+            TracyCFrameMarkStart((char *)str);
+        }
+        $tracyCpp proc frameMarkEnd {uint8_t* str} void {
+            TracyCFrameMarkEnd((char *)str);
+        }
+
         $tracyCpp proc setThreadName {char* name} void {
             TracyCSetThreadName(strdup(name));
         }

@@ -1662,7 +1662,14 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
     # Dictionary where key is image object and value is GPU image handle.
     set gpuImages [dict create]
 
-    while 1 {
+    set kGpu [tracy makeString "gpu"]
+    while true {
+        # This blocks until the start of the next frame.
+        $gpu drawStart
+
+        # We do the queries now (when we are about to draw) so we get
+        # the most up-to-date information.
+
         set displayList [dict create]
         foreach match [Query! /wisher/ wishes the GPU loads image /im/] {
             dict with match {
@@ -1727,7 +1734,6 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
             }
         }
 
-        $gpu drawStart
         tracy zoneStart
         tracy zoneName "gpu-draw"
         foreach layer [lsort -real [dict keys $displayList]] {
@@ -1740,7 +1746,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
         tracy zoneEnd
         $gpu drawEnd
 
-        tracy frameMark
+        tracy frameMarkNamed $kGpu
         $gpu poll
 
         # TODO: sleep for 5ms or something?
