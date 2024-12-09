@@ -1,7 +1,16 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
 #include "workqueue.h"
+
+typedef struct Mutex {
+    TracyCLockCtx tracyCtx;
+    pthread_mutex_t mutex;
+} Mutex;
 
 typedef struct ThreadControlBlock {
     int index;
@@ -11,7 +20,7 @@ typedef struct ThreadControlBlock {
 
     // Used for (serially) and for profiling & diagnostics.
     WorkQueueItem currentItem;
-    pthread_mutex_t currentItemMutex;
+    Mutex currentItemMutex;
 
     // Used for managing the threadpool.
     clockid_t clockid;
@@ -31,5 +40,21 @@ static inline int64_t timestamp_get(clockid_t clk_id) {
     }
     return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
 }
+
+#define mutexInit(m) do {                               \
+        pthread_mutex_init(&((m)->mutex), NULL);        \
+        TracyCLockAnnounce((m)->tracyCtx);              \
+    } while (0)
+
+#define mutexLock(m) do {            \
+        TracyCLockBeforeLock((m)->tracyCtx);    \
+        pthread_mutex_lock(&((m)->mutex));      \
+        TracyCLockAfterLock((m)->tracyCtx);     \
+    } while (0)
+
+#define mutexUnlock(m) do {                     \
+        pthread_mutex_unlock(&((m)->mutex));    \
+        TracyCLockAfterUnlock((m)->tracyCtx);   \
+    } while (0)
 
 #endif

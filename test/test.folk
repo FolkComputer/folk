@@ -1,5 +1,3 @@
-puts Hello
-
 Assert! we are on
 Assert! when we are on {{} {
     puts "In --"

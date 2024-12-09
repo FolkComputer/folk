@@ -14,6 +14,7 @@
 #include "tracy/TracyC.h"
 #endif
 
+#include "common.h"
 #include "trie.h"
 #include "db.h"
 
@@ -168,7 +169,7 @@ typedef struct Db {
 
     // Primary trie (index) used for queries.
     Trie* clauseToStatementId;
-    pthread_mutex_t clauseToStatementIdMutex;
+    Mutex clauseToStatementIdMutex;
 
     // One for each Hold key, which always stores the highest-version
     // held statement for that key. We keep this map so that we can
@@ -176,7 +177,7 @@ typedef struct Db {
     // comes in, without having to actually emit and react to the
     // statement.
     Hold holds[256];
-    pthread_mutex_t holdsMutex;
+    Mutex holdsMutex;
 } Db;
 
 ////////////////////////////////////////////////////////////
@@ -456,10 +457,10 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     if (--stmt->parentCount == 0) {
         // Deindex the statement:
         uint64_t results[100];
-        pthread_mutex_lock(&db->clauseToStatementIdMutex);
+        mutexLock(&db->clauseToStatementIdMutex);
         int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
                                   (uint64_t*) results, sizeof(results)/sizeof(results[0]));
-        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+        mutexUnlock(&db->clauseToStatementIdMutex);
         if (nResults != 1) {
             /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
             /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
@@ -600,22 +601,22 @@ Db* dbNew() {
     ret->matchPoolNextIdx = 1;
 
     ret->clauseToStatementId = trieNew();
-    pthread_mutex_init(&ret->clauseToStatementIdMutex, NULL);
+    mutexInit(&ret->clauseToStatementIdMutex);
 
-    pthread_mutex_init(&ret->holdsMutex, NULL);
+    mutexInit(&ret->holdsMutex);
 
     return ret;
 }
 
 // Used by trie-graph.folk. Avoid if you can.
 void dbLockClauseToStatementId(Db* db) {
-    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+    mutexLock(&db->clauseToStatementIdMutex);
 }
 Trie* dbGetClauseToStatementId(Db* db) {
     return db->clauseToStatementId;
 }
 void dbUnlockClauseToStatementId(Db* db) {
-    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+    mutexUnlock(&db->clauseToStatementIdMutex);
 }
 
 // Query
@@ -623,10 +624,10 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
-    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+    mutexLock(&db->clauseToStatementIdMutex);
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
                                  (uint64_t*) results, maxResults);
-    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+    mutexUnlock(&db->clauseToStatementIdMutex);
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -646,7 +647,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
-    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+    mutexLock(&db->clauseToStatementIdMutex);
 
     // Is this clause already present among the existing statements?
     StatementRef existingRefs[10];
@@ -659,7 +660,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     Match* parentMatch = matchAcquire(db, parentMatchRef);
     if (!matchRefIsNull(parentMatchRef) && parentMatch == NULL) {
         // Parent match has been invalidated -- abort!
-        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+        mutexUnlock(&db->clauseToStatementIdMutex);
         clauseFree(clause);
         return STATEMENT_REF_NULL;
     }
@@ -679,7 +680,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
             pthread_mutex_lock(&parentMatch->childStatementsMutex);
             if (parentMatch->childStatements == NULL) {
                 pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-                pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+                mutexUnlock(&db->clauseToStatementIdMutex);
                 matchRelease(db, parentMatch);
                 clauseFree(clause);
                 return STATEMENT_REF_NULL;
@@ -699,7 +700,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
             matchRelease(db, parentMatch);
         }
 
-        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+        mutexUnlock(&db->clauseToStatementIdMutex);
 
         return ref;
     }
@@ -713,7 +714,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         // reflect this parent (this isn't quite correct either but
         // better than nothing).
 
-        pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+        mutexUnlock(&db->clauseToStatementIdMutex);
 
         /* printf("Reuse: (%s)\n", clauseToString(clause)); */
 
@@ -806,10 +807,10 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 
     // TODO: Should we accept a StatementRef and enforce that is what
     // gets removed?
-    pthread_mutex_lock(&db->clauseToStatementIdMutex);
+    mutexLock(&db->clauseToStatementIdMutex);
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
                                  (uint64_t*) results, maxResults);
-    pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+    mutexUnlock(&db->clauseToStatementIdMutex);
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -832,7 +833,7 @@ StatementRef dbHoldStatement(Db* db,
                              StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
-    pthread_mutex_lock(&db->holdsMutex);
+    mutexLock(&db->holdsMutex);
 
     Hold* hold = NULL;
     for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
@@ -866,7 +867,7 @@ StatementRef dbHoldStatement(Db* db,
         Statement* oldStmtPtr = statementAcquire(db, oldStmt);
         if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
             statementRelease(db, oldStmtPtr);
-            pthread_mutex_unlock(&db->holdsMutex);
+            mutexUnlock(&db->holdsMutex);
             clauseFree(clause);
             return STATEMENT_REF_NULL;
         }
@@ -886,11 +887,11 @@ StatementRef dbHoldStatement(Db* db,
             // We deindex the old statement immediately, but we
             // leave it to the caller to actually remove it (and
             // therefore remove all its children).
-            pthread_mutex_lock(&db->clauseToStatementIdMutex);
+            mutexLock(&db->clauseToStatementIdMutex);
             trieRemove(db->clauseToStatementId,
                        statementClause(oldStmtPtr),
                        results, maxResults);
-            pthread_mutex_unlock(&db->clauseToStatementIdMutex);
+            mutexUnlock(&db->clauseToStatementIdMutex);
 
             statementRelease(db, oldStmtPtr);
         } else if (oldStmt.idx != 0) {
@@ -903,13 +904,13 @@ StatementRef dbHoldStatement(Db* db,
 
         if (outOldStatement) { *outOldStatement = oldStmt; }
 
-        pthread_mutex_unlock(&db->holdsMutex);
+        mutexUnlock(&db->holdsMutex);
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
-        pthread_mutex_unlock(&db->holdsMutex);
+        mutexUnlock(&db->holdsMutex);
         clauseFree(clause);
         return STATEMENT_REF_NULL;
     }

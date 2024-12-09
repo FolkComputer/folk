@@ -343,11 +343,11 @@ static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *a
 static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
-    pthread_mutex_lock(&self->currentItemMutex);
+    mutexLock(&self->currentItemMutex);
     if (self->currentItem.op == RUN) {
         whenRef = self->currentItem.run.when;
     }
-    pthread_mutex_unlock(&self->currentItemMutex);
+    mutexUnlock(&self->currentItemMutex);
 
     if (statementRefIsNull(whenRef)) { return JIM_ERR; }
 
@@ -729,9 +729,9 @@ static void reactToNewStatement(StatementRef ref) {
 void workerRun(WorkQueueItem item) {
     self->currentItemStartTimestamp = timestamp_get(self->clockid);
 
-    pthread_mutex_lock(&self->currentItemMutex);
+    mutexLock(&self->currentItemMutex);
     self->currentItem = item;
-    pthread_mutex_unlock(&self->currentItemMutex);
+    mutexUnlock(&self->currentItemMutex);
 
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
@@ -818,9 +818,9 @@ void workerRun(WorkQueueItem item) {
     }
 
     self->currentItemStartTimestamp = 0;
-    pthread_mutex_lock(&self->currentItemMutex);
+    mutexLock(&self->currentItemMutex);
     self->currentItem = (WorkQueueItem) { .op = NONE };
-    pthread_mutex_unlock(&self->currentItemMutex);
+    mutexUnlock(&self->currentItemMutex);
 }
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
@@ -931,7 +931,7 @@ void workerInit(int index) {
     if (self->workQueue == NULL) {
         self->workQueue = workQueueNew();
         self->currentItem = (WorkQueueItem) { .op = NONE };
-        pthread_mutex_init(&self->currentItemMutex, NULL);
+        mutexInit(&self->currentItemMutex);
     }
 #ifdef __linux__
     pthread_getcpuclockid(pthread_self(), &self->clockid);
