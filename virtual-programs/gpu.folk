@@ -1663,6 +1663,8 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
     set gpuImages [dict create]
 
     set kGpu [tracy makeString "gpu"]
+    set kLatency [tracy makeString "latency"]
+    set kDrawCount [tracy makeString "drawCount"]
     while true {
         # This blocks until the start of the next frame.
         $gpu drawStart
@@ -1736,13 +1738,16 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
 
         tracy zoneStart
         tracy zoneName "gpu-draw"
+        set drawCount 0
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
             foreach displayCommand $layerDisplayList {
+                incr drawCount
                 try { {*}$displayCommand } \
                     on error e { puts stderr [errorInfo $e] }
             }
         }
+        tracy plot $kDrawCount $drawCount
         tracy zoneEnd
         $gpu drawEnd
 
