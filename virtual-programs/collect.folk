@@ -21,5 +21,7 @@ When /someone/ wishes to collect matches for /clause/ {
         On unmatch ${Recollect!}
     }
     {*}${Recollect!}
-    On unmatch ${Recollect!}
+    On unmatch {
+        Hold! [list recollect $clause] {}
+    }
 }

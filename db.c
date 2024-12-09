@@ -853,7 +853,10 @@ StatementRef dbHoldStatement(Db* db,
     }
 
     if (hold == NULL) {
-        fprintf(stderr, "dbHoldStatement: Ran out of hold slots\n");
+        fprintf(stderr, "dbHoldStatement: Ran out of hold slots:\n");
+        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
+            fprintf(stderr, "  %d. {%s}\n", i, db->holds[i].key);
+        }
         exit(1);
     }
 
@@ -872,13 +875,20 @@ StatementRef dbHoldStatement(Db* db,
             return STATEMENT_REF_NULL;
         }
 
-        hold->version = version;
+        StatementRef newStmt = STATEMENT_REF_NULL;
+        if (clause->nTerms > 0) {
+            hold->version = version;
 
-        StatementRef newStmt = dbInsertOrReuseStatement(db, clause,
-                                                        sourceFileName,
-                                                        sourceLineNumber,
-                                                        MATCH_REF_NULL);
-        hold->statement = newStmt;
+            newStmt = dbInsertOrReuseStatement(db, clause,
+                                               sourceFileName,
+                                               sourceLineNumber,
+                                               MATCH_REF_NULL);
+            hold->statement = newStmt;
+        } else {
+            clauseFree(clause);
+            hold->statement = STATEMENT_REF_NULL;
+            hold->key = NULL;
+        }
 
         uint64_t results[10];
         size_t maxResults = sizeof(results)/sizeof(results[0]);
