@@ -231,22 +231,20 @@ static void trieLookupImpl(bool isLiteral,
     }
 }
 
-// The returned bool `didMatchAllBranches` is used for removal,
-// to know that the subtrie can be removed at the caller.
 static const Trie* trieRemoveImpl(bool isLiteral,
                                   const Trie* trie, Clause* pattern, int patternIdx,
                                   uint64_t* results, size_t maxResults,
-                                  int* resultsIdx, bool* didMatchAllSubtries) {
+                                  int* resultsIdx) {
     int wordc = pattern->nTerms - patternIdx;
-    fprintf(stderr, "lookup (%s) (%d / %d)\n", clauseToString(pattern), wordc, pattern->nTerms);
     if (wordc == 0) {
+        for (int i = 0; i < patternIdx; i++) printf(" ");
+        printf("removing leaf (%s)\n", trie->key);
+        
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
                 results[(*resultsIdx)++] = trie->value;
             }
-            // TODO: Report if there are more than maxResults results?
-            *didMatchAllSubtries = true;
-            return trie;
+            return NULL;
         }
         return trie;
     }
@@ -260,13 +258,13 @@ static const Trie* trieRemoveImpl(bool isLiteral,
         } else { termType = TERM_TYPE_VARIABLE; }
     } else { termType = TERM_TYPE_LITERAL; }
 
-    bool mustMakeNewTrie = false;
     const Trie* newBranches[trie->branchesCount];
     int newBranchesCount = 0;
 
-    bool allSubtriesMatched = true;
     for (int j = 0; j < trie->branchesCount; j++) {
-        const Trie* newBranch = trie->branches[j];
+        for (int i = 0; i < patternIdx; i++) printf(" ");
+        printf("remove: branch (%s)\n", trie->branches[j]->key);
+        const Trie* newBranch;
         // Easy cases:
         bool subtrieMatched = false;
         if (trie->branches[j]->key == term || // Is there an exact pointer match?
@@ -275,13 +273,13 @@ static const Trie* trieRemoveImpl(bool isLiteral,
             newBranch = trieRemoveImpl(isLiteral,
                                        trie->branches[j], pattern, patternIdx + 1,
                                        results, maxResults,
-                                       resultsIdx, &subtrieMatched);
+                                       resultsIdx);
 
         } else if (termType == TERM_TYPE_REST_VARIABLE) {
             trieLookupAll(trie->branches[j],
                           results, maxResults,
                           resultsIdx);
-            subtrieMatched = true;
+            newBranch = NULL;
 
         } else {
             char keyVarName[100];
@@ -291,13 +289,13 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                 if (keyVarName[0] == '.' && keyVarName[1] == '.' && keyVarName[2] == '.') {
                     trieLookupAll(trie->branches[j],
                                   results, maxResults, resultsIdx);
-                    subtrieMatched = true;
+                    newBranch = NULL;
 
                 } else { // Or is the trie node a normal variable?
                     newBranch = trieRemoveImpl(isLiteral, trie->branches[j],
                                                pattern, patternIdx + 1,
                                                results, maxResults,
-                                               resultsIdx, &subtrieMatched);
+                                               resultsIdx);
                 }
             } else {
                 const char *keyString = trie->branches[j]->key;
@@ -306,38 +304,27 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                     newBranch = trieRemoveImpl(isLiteral, trie->branches[j],
                                                pattern, patternIdx + 1,
                                                results, maxResults,
-                                               resultsIdx, &subtrieMatched);
+                                               resultsIdx);
+                } else {
+                    newBranch = trie->branches[j];
                 }
             }
         }
-
-        if (trie->branches[j] != newBranch) {
-            mustMakeNewTrie = true;
+        if (newBranch != NULL) {
+            newBranches[newBranchesCount++] = newBranch;
         }
-        if (mustMakeNewTrie) {
-            if (!subtrieMatched) {
-                newBranches[newBranchesCount++] = newBranch;
-            } else {
-                // TODO: free newBranch
-                fprintf(stderr, "RUBSEU\n");
-            }
-        }
-
-        allSubtriesMatched &= subtrieMatched;
     }
+    for (int i = 0; i < patternIdx; i++) printf(" ");
+    printf("remove: branches %d -> new branches %d\n",
+            trie->branchesCount, newBranchesCount);
 
-    if (mustMakeNewTrie) {
-        const Trie* oldTrie = trie;
-        Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
-        memcpy(newTrie, oldTrie, SIZEOF_TRIE(0));
-        memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
-        trie = newTrie;
+    if (newBranchesCount == 0) {
+        return NULL;
     }
-
-    if (didMatchAllSubtries != NULL) {
-        *didMatchAllSubtries = allSubtriesMatched;
-    }
-    return trie;
+    Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
+    memcpy(newTrie, trie, SIZEOF_TRIE(0));
+    memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
+    return newTrie;
 }
 
 int trieLookup(const Trie* trie, Clause* pattern,
@@ -359,11 +346,11 @@ int trieLookupLiteral(const Trie* trie, Clause* pattern,
     return resultCount;
 }
 
+// Note: does _literal_ matching only, for now.
 const Trie* trieRemove(const Trie* trie, Clause* pattern,
                        uint64_t* results, size_t maxResults,
                        int* resultCount) {
-    fprintf(stderr, "trieRemove\n");
     return trieRemoveImpl(true, trie, pattern, 0,
                           results, maxResults,
-                          resultCount, NULL);
+                          resultCount);
 }

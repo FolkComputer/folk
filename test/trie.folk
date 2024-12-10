@@ -3,7 +3,7 @@ proc snap {trie} {trieDotify trieLib getDotAsPdf} {
     set dot [apply $trieDotify $trieLib $trie];
     set filename trie-[exec uuidgen].pdf
     set fd [open $filename w]; puts $fd [apply $getDotAsPdf $dot]; close $fd;
-    puts stderr $filename
+    puts $filename
 }
 
 set trie [$trieLib new]
