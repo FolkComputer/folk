@@ -154,7 +154,9 @@ void sysmon() {
 }
 
 void *sysmonMain(void *ptr) {
+#ifdef ENABLE_TRACY
     TracyCSetThreadName("sysmon");
+#endif
 
     struct timespec tickTime;
     tickTime.tv_sec = 0;

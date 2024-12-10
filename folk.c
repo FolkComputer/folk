@@ -413,7 +413,7 @@ static void interpBoot() {
         exit(1);
     }
 }
-static void eval(const char* code) {
+void eval(const char* code) {
     if (interp == NULL) { interpBoot(); }
 
     int error = Jim_Eval(interp, code);
@@ -941,8 +941,10 @@ void workerInit(int index) {
     self->currentItemStartTimestamp = 0;
     self->index = index;
 
+#ifdef TRACY_ENABLE
     char threadName[100]; snprintf(threadName, 100, "folk worker %d", index);
     TracyCSetThreadName(threadName);
+#endif
 
     interpBoot();
 }
@@ -979,10 +981,6 @@ void workerSpawn() {
     pthread_create(&th, NULL, workerMain, NULL);
 }
 
-static void exitHandler() {
-    eval("source exit-handler.folk");
-}
-
 int main(int argc, char** argv) {
     // Do all setup.
 
@@ -992,8 +990,6 @@ int main(int argc, char** argv) {
     workQueueInit();
 
     globalWorkQueueInit();
-
-    atexit(exitHandler);
 
     {
         // Spawn the sysmon thread, which isn't managed the same way

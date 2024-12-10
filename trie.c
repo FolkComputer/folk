@@ -1,6 +1,3 @@
-// Plan: we'll use locks for the trie at first, then switch to some
-// sort of RCU scheme.
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -50,67 +47,73 @@ bool clauseIsEqual(Clause* a, Clause* b) {
     return true;
 }
 
-Trie* trieNew() {
-    size_t size = sizeof(Trie) + 10*sizeof(Trie*);
+const Trie* trieNew() {
+    size_t size = sizeof(Trie);
     Trie* ret = (Trie*) calloc(size, 1);
     *ret = (Trie) {
         .key = NULL,
         .hasValue = false,
         .value = 0,
-        .capacityBranches = 10
+        .branchesCount = 0
     };
     return ret;
 }
 
-static Trie* trieAddImpl(Trie* trie, int32_t nTerms, char* terms[], uint64_t value) {
+static const Trie* trieAddImpl(const Trie* trie, int32_t nTerms, char* terms[], uint64_t value) {
     if (nTerms == 0) {
-        trie->value = value;
-        trie->hasValue = true;
-        return trie;
+        Trie* newTrie = calloc(SIZEOF_TRIE(trie->branchesCount), 1);
+        memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
+        newTrie->value = value;
+        newTrie->hasValue = true;
+        return newTrie;
     }
     char* term = terms[0];
 
-    // This is a double-pointer in case we resize a node and want to
-    // re-point the trie to the new resized node.
-    Trie** match = NULL;
+    const Trie* addToBranch = NULL;
 
+    // Is there an existing branch that already matches the first
+    // term?
     int j;
-    for (j = 0; j < trie->capacityBranches; j++) {
-        Trie* branch = trie->branches[j];
+    for (j = 0; j < trie->branchesCount; j++) {
+        const Trie* branch = trie->branches[j];
         if (branch == NULL) { break; }
 
         if (branch->key == term || strcmp(branch->key, term) == 0) {
-            match = &trie->branches[j];
+            addToBranch = trie->branches[j];
             break;
         }
     }
 
-    if (match == NULL) { // add new branch
-        if (j == trie->capacityBranches) {
-            // We're out of room; need to grow trie.
-            trie = realloc(trie, SIZEOF_TRIE(2*trie->capacityBranches));
-            trie->capacityBranches *= 2;
-            memset(&trie->branches[j], 0, (trie->capacityBranches/2)*sizeof(Trie*));
-        }
-
-        Trie* branch = calloc(SIZEOF_TRIE(10), 1);
-        branch->key = strdup(term);
-        branch->value = 0;
-        branch->hasValue = false;
-        branch->capacityBranches = 10;
-
-        // TODO: Want to change trie if branch changes, so it's
-        // immutable.
-        trie->branches[j] = branch;
-        match = &trie->branches[j];
+    // We'll need to allocate a new trie no matter what -- how many
+    // branches should it have?
+    int32_t newBranchesCount = trie->branchesCount;
+    if (addToBranch == NULL) { 
+        // Need to add a new branch.
+        newBranchesCount++;
+        j = newBranchesCount - 1;
     }
 
-    *match = trieAddImpl(*match, nTerms - 1, terms + 1, value);
-    return trie;
+    Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
+    memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
+    newTrie->branchesCount = newBranchesCount;
+
+    if (addToBranch == NULL) { 
+        Trie* newBranch = calloc(SIZEOF_TRIE(0), 1);
+        newBranch->key = strdup(term);
+        newBranch->value = 0;
+        newBranch->hasValue = false;
+        newBranch->branchesCount = 0;
+        addToBranch = newBranch;
+    }
+
+    newTrie->branches[j] = trieAddImpl(addToBranch, nTerms - 1, terms + 1, value);
+    return newTrie;
 }
 
-Trie* trieAdd(Trie* trie, Clause* c, uint64_t value) {
-    return trieAddImpl(trie, c->nTerms, c->terms, value);
+const Trie* trieAdd(const Trie* trie, Clause* c, uint64_t value) {
+    /* fprintf(stderr, "trieAdd: (%s)\n", clauseToString(c)); */
+    const Trie* ret = trieAddImpl(trie, c->nTerms, c->terms, value);
+    return ret;
 }
 
 
@@ -144,15 +147,15 @@ bool trieVariableNameIsNonCapturing(const char* varName) {
     return false;
 }
 
-static void trieLookupAll(Trie* trie,
-                          uint64_t* results, size_t maxResults, int* resultsIdx) {
+static void trieLookupAll(const Trie* trie,
+                          uint64_t* results, size_t maxResults,
+                          int* resultsIdx) {
     if (trie->hasValue) {
         if (*resultsIdx < maxResults) {
             results[(*resultsIdx)++] = trie->value;
         }
     }
-    for (int j = 0; j < trie->capacityBranches; j++) {
-        if (trie->branches[j] == NULL) { break; }
+    for (int j = 0; j < trie->branchesCount; j++) {
         trieLookupAll(trie->branches[j],
                       results, maxResults, resultsIdx);
     }
@@ -160,23 +163,23 @@ static void trieLookupAll(Trie* trie,
 // Recursive helper function. This might have too many bells and
 // whistles, but it's there so that we only have the lookup logic in
 // one place (including implementations of wildcards, variables,
-// etc). Returns true if and only if the lookup matched everything in
-// the given subtrie (this is used for removal, to know that the
-// subtrie can be removed at the caller).
-static bool trieLookupImpl(bool doRemove, bool isLiteral,
-                           Trie* trie, Clause* pattern, int patternIdx,
-                           uint64_t* results, size_t maxResults, int* resultsIdx) {
+// etc). The returned bool `didMatchAllBranches` is used for removal,
+// to know that the subtrie can be removed at the caller.
+static const Trie* trieLookupImpl(bool doRemove, bool isLiteral,
+                                  const Trie* trie, Clause* pattern, int patternIdx,
+                                  uint64_t* results, size_t maxResults,
+                                  int* resultsIdx, bool* didMatchAllSubtries) {
     int wordc = pattern->nTerms - patternIdx;
     if (wordc == 0) {
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
                 results[(*resultsIdx)++] = trie->value;
             }
-            // TODO: Report that there are more than maxResults
-            // results?
-            return true;
+            // TODO: Report if there are more than maxResults results?
+            *didMatchAllSubtries = true;
+            return trie;
         }
-        return false;
+        return trie;
     }
 
     const char* term = pattern->terms[patternIdx];
@@ -188,19 +191,22 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
         } else { termType = TERM_TYPE_VARIABLE; }
     } else { termType = TERM_TYPE_LITERAL; }
 
-    bool subtriesMatched[trie->capacityBranches];
-    bool allSubtriesMatched = true;
-    for (int j = 0; j < trie->capacityBranches; j++) {
-        if (trie->branches[j] == NULL) { break; }
+    bool mustMakeNewTrie = false;
+    const Trie* newBranches[trie->branchesCount];
+    int newBranchesCount = 0;
 
+    bool allSubtriesMatched = true;
+    for (int j = 0; j < trie->branchesCount; j++) {
+        const Trie* newBranch = trie->branches[j];
         // Easy cases:
         bool subtrieMatched = false;
         if (trie->branches[j]->key == term || // Is there an exact pointer match?
             termType == TERM_TYPE_VARIABLE) { // Is the current lookup term a variable?
 
-            subtrieMatched = trieLookupImpl(doRemove, isLiteral,
-                                            trie->branches[j], pattern, patternIdx + 1,
-                                            results, maxResults, resultsIdx);
+            newBranch = trieLookupImpl(doRemove, isLiteral,
+                                       trie->branches[j], pattern, patternIdx + 1,
+                                       results, maxResults,
+                                       resultsIdx, &subtrieMatched);
 
         } else if (termType == TERM_TYPE_REST_VARIABLE) {
             trieLookupAll(trie->branches[j],
@@ -218,66 +224,74 @@ static bool trieLookupImpl(bool doRemove, bool isLiteral,
                     subtrieMatched = true;
 
                 } else { // Or is the trie node a normal variable?
-                    subtrieMatched = trieLookupImpl(doRemove, isLiteral,
-                                                    trie->branches[j], pattern, patternIdx + 1,
-                                                    results, maxResults, resultsIdx);
+                    newBranch = trieLookupImpl(doRemove, isLiteral,
+                                               trie->branches[j], pattern, patternIdx + 1,
+                                               results, maxResults,
+                                               resultsIdx, &subtrieMatched);
                 }
             } else {
                 const char *keyString = trie->branches[j]->key;
                 const char *termString = term;
                 if (strcmp(keyString, termString) == 0) {
-                    subtrieMatched = trieLookupImpl(doRemove, isLiteral,
-                                                    trie->branches[j], pattern, patternIdx + 1,
-                                                    results, maxResults, resultsIdx);
+                    newBranch = trieLookupImpl(doRemove, isLiteral,
+                                               trie->branches[j], pattern, patternIdx + 1,
+                                               results, maxResults,
+                                               resultsIdx, &subtrieMatched);
                 }
             }
         }
 
-        subtriesMatched[j] = subtrieMatched;
+        if (trie->branches[j] != newBranch) {
+            mustMakeNewTrie = true;
+        }
+        if (mustMakeNewTrie) {
+            if (!subtrieMatched) {
+                newBranches[newBranchesCount++] = newBranch;
+            } else {
+                // TODO: free newBranch
+            }
+        }
+
         allSubtriesMatched &= subtrieMatched;
     }
 
-    if (doRemove) {
-        // Recopy and compact the branches without the deleted
-        // (matched) subtries.
-        Trie* newBranches[trie->capacityBranches];
-        int newBranchesCount = 0;
-        for (int j = 0; j < trie->capacityBranches; j++) {
-            if (trie->branches[j] == NULL) { break; }
-            if (subtriesMatched[j]) {
-                free(trie->branches[j]->key);
-                free(trie->branches[j]);
-            } else {
-                newBranches[newBranchesCount++] = trie->branches[j];
-            }
-        }
-        memset(trie->branches, 0, trie->capacityBranches*sizeof(Trie*));
-        memcpy(trie->branches, newBranches, newBranchesCount*sizeof(Trie*));
+    if (mustMakeNewTrie) {
+        const Trie* oldTrie = trie;
+        Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
+        memcpy(newTrie, oldTrie, SIZEOF_TRIE(0));
+        memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
+        trie = newTrie;
     }
 
-    return allSubtriesMatched;
+    if (didMatchAllSubtries != NULL) {
+        *didMatchAllSubtries = allSubtriesMatched;
+    }
+    return trie;
 }
 
-int trieLookup(Trie* trie, Clause* pattern,
+int trieLookup(const Trie* trie, Clause* pattern,
                uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     trieLookupImpl(false, false, trie, pattern, 0,
-                   results, maxResults, &resultCount);
+                   results, maxResults,
+                   &resultCount, NULL);
+    fprintf(stderr, "trieLookup: (%s) -> %d\n", clauseToString(pattern), resultCount);
     return resultCount;
 }
 
-int trieLookupLiteral(Trie* trie, Clause* pattern,
+int trieLookupLiteral(const Trie* trie, Clause* pattern,
                       uint64_t* results, size_t maxResults) {
     int resultCount = 0;
     trieLookupImpl(false, true, trie, pattern, 0,
-                   results, maxResults, &resultCount);
+                   results, maxResults,
+                   &resultCount, NULL);
     return resultCount;
 }
 
-int trieRemove(Trie* trie, Clause* pattern,
-               uint64_t* results, size_t maxResults) {
-    int resultCount = 0;
-    trieLookupImpl(true, false, trie, pattern, 0,
-                   results, maxResults, &resultCount);
-    return resultCount;
+const Trie* trieRemove(const Trie* trie, Clause* pattern,
+                       uint64_t* results, size_t maxResults,
+                       int* resultCount) {
+    return trieLookupImpl(true, false, trie, pattern, 0,
+                          results, maxResults,
+                          resultCount, NULL);
 }

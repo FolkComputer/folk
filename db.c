@@ -101,7 +101,6 @@ typedef struct Statement {
     // Used for debugging (and stack traces for When bodies).
     char sourceFileName[100];
     int sourceLineNumber;
-    pthread_mutex_t sourceMutex;
 
     // Mutable statement properties:
     // -----
@@ -168,8 +167,7 @@ typedef struct Db {
     _Atomic uint16_t matchPoolNextIdx;
 
     // Primary trie (index) used for queries.
-    Trie* clauseToStatementId;
-    Mutex clauseToStatementIdMutex;
+    const Trie* _Atomic clauseToStatementId;
 
     // One for each Hold key, which always stores the highest-version
     // held statement for that key. We keep this map so that we can
@@ -456,12 +454,14 @@ void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
         // Deindex the statement:
-        uint64_t results[100];
-        mutexLock(&db->clauseToStatementIdMutex);
-        int nResults = trieRemove(db->clauseToStatementId, stmt->clause,
-                                  (uint64_t*) results, sizeof(results)/sizeof(results[0]));
-        mutexUnlock(&db->clauseToStatementIdMutex);
-        if (nResults != 1) {
+        uint64_t results[100]; int resultsCount;
+        epochBegin();
+        db->clauseToStatementId =
+            trieRemove(db->clauseToStatementId, stmt->clause,
+                       (uint64_t*) results, sizeof(results)/sizeof(results[0]),
+                       &resultsCount);
+        epochEnd();
+        if (resultsCount != 1) {
             /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
             /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
             /*         clauseToString(stmt->clause), */
@@ -601,7 +601,6 @@ Db* dbNew() {
     ret->matchPoolNextIdx = 1;
 
     ret->clauseToStatementId = trieNew();
-    mutexInit(&ret->clauseToStatementIdMutex);
 
     mutexInit(&ret->holdsMutex);
 
@@ -610,13 +609,13 @@ Db* dbNew() {
 
 // Used by trie-graph.folk. Avoid if you can.
 void dbLockClauseToStatementId(Db* db) {
-    mutexLock(&db->clauseToStatementIdMutex);
+    epochBegin();
 }
-Trie* dbGetClauseToStatementId(Db* db) {
+const Trie* dbGetClauseToStatementId(Db* db) {
     return db->clauseToStatementId;
 }
 void dbUnlockClauseToStatementId(Db* db) {
-    mutexUnlock(&db->clauseToStatementIdMutex);
+    epochEnd();
 }
 
 // Query
@@ -624,10 +623,11 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     StatementRef results[500];
     size_t maxResults = sizeof(results)/sizeof(results[0]);
 
-    mutexLock(&db->clauseToStatementIdMutex);
-    size_t nResults = trieLookup(db->clauseToStatementId, pattern,
-                                 (uint64_t*) results, maxResults);
-    mutexUnlock(&db->clauseToStatementIdMutex);
+    epochBegin();
+    size_t nResults =
+        trieLookup(db->clauseToStatementId, pattern,
+                   (uint64_t*) results, maxResults);
+    epochEnd();
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -642,25 +642,24 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
+void eval(const char* code);
 // WARNING: This takes ownership of clause. You can't touch clause
 // after calling this!
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
-    mutexLock(&db->clauseToStatementIdMutex);
-
     // Is this clause already present among the existing statements?
     StatementRef existingRefs[10];
-    int existingRefsCount = trieLookupLiteral(db->clauseToStatementId, clause,
-                                              (uint64_t*) existingRefs,
-                                              sizeof(existingRefs)/sizeof(existingRefs[0]));
-
-    // Note that we're still holding the clauseToStatementId lock.
+    epochBegin();
+    int existingRefsCount =
+        trieLookupLiteral(db->clauseToStatementId, clause,
+                          (uint64_t*) existingRefs,
+                          sizeof(existingRefs)/sizeof(existingRefs[0]));
+    epochEnd();
 
     Match* parentMatch = matchAcquire(db, parentMatchRef);
     if (!matchRefIsNull(parentMatchRef) && parentMatch == NULL) {
         // Parent match has been invalidated -- abort!
-        mutexUnlock(&db->clauseToStatementIdMutex);
         clauseFree(clause);
         return STATEMENT_REF_NULL;
     }
@@ -669,18 +668,18 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         // The clause doesn't exist in a statement yet. Make the new
         // statement.
 
-        // We need to keep the clauseToStatementId trie locked until
-        // we've added the new statement, so that no one else also
-        // does the same check, gets 0 existing refs, releases the
-        // lock, and then adds the new statement at the same time (so
-        // we end up with 2 copies).
+        // FIXME: We need to check after we added the new statement
+        // that another new statement wasn't added in the meantime
+        // that is identical? so that no one else also does the same
+        // check, gets 0 existing refs, releases the lock, and then
+        // adds the new statement at the same time (so we end up with
+        // 2 copies).
 
         if (!matchRefIsNull(parentMatchRef)) {
             // Need to set up parent match.
             pthread_mutex_lock(&parentMatch->childStatementsMutex);
             if (parentMatch->childStatements == NULL) {
                 pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-                mutexUnlock(&db->clauseToStatementIdMutex);
                 matchRelease(db, parentMatch);
                 clauseFree(clause);
                 return STATEMENT_REF_NULL;
@@ -691,7 +690,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         StatementRef ref = statementNew(db, clause,
                                         sourceFileName,
                                         sourceLineNumber);
+        epochBegin();
         db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
+        epochEnd();
 
         if (!matchRefIsNull(parentMatchRef)) {
             matchAddChildStatement(db, parentMatch, ref);
@@ -699,8 +700,6 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 
             matchRelease(db, parentMatch);
         }
-
-        mutexUnlock(&db->clauseToStatementIdMutex);
 
         return ref;
     }
@@ -713,8 +712,6 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
         // TODO: Update the sourceFileName and sourceLineNumber to
         // reflect this parent (this isn't quite correct either but
         // better than nothing).
-
-        mutexUnlock(&db->clauseToStatementIdMutex);
 
         /* printf("Reuse: (%s)\n", clauseToString(clause)); */
 
@@ -748,7 +745,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     // the same clause already in the db?
     fprintf(stderr, "Error: Clause duplicate (existingRefsCount = %d) (%.100s)\n",
             existingRefsCount,
-            clauseToString(clause)); exit(1);
+            clauseToString(clause));
+    eval("source exit-handler.folk");
+    exit(1);
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
@@ -807,10 +806,10 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 
     // TODO: Should we accept a StatementRef and enforce that is what
     // gets removed?
-    mutexLock(&db->clauseToStatementIdMutex);
+    epochBegin();
     size_t nResults = trieLookup(db->clauseToStatementId, pattern,
                                  (uint64_t*) results, maxResults);
-    mutexUnlock(&db->clauseToStatementIdMutex);
+    epochEnd();
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
@@ -894,14 +893,16 @@ StatementRef dbHoldStatement(Db* db,
         size_t maxResults = sizeof(results)/sizeof(results[0]);
 
         if (oldStmtPtr) {
-            // We deindex the old statement immediately, but we
-            // leave it to the caller to actually remove it (and
-            // therefore remove all its children).
-            mutexLock(&db->clauseToStatementIdMutex);
-            trieRemove(db->clauseToStatementId,
-                       statementClause(oldStmtPtr),
-                       results, maxResults);
-            mutexUnlock(&db->clauseToStatementIdMutex);
+            // We deindex (trieRemove) the old statement immediately,
+            // but we leave it to the caller to actually destroy the
+            // statement itself (and therefore remove all its
+            // children).
+            epochBegin();
+            int resultsCount;
+            db->clauseToStatementId = trieRemove(db->clauseToStatementId,
+                                                 statementClause(oldStmtPtr),
+                                                 results, maxResults, &resultsCount);
+            epochEnd();
 
             statementRelease(db, oldStmtPtr);
         } else if (oldStmt.idx != 0) {

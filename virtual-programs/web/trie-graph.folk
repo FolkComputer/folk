@@ -14,12 +14,12 @@ set trieLib [apply {{} {
         extern Trie* dbGetClauseToStatementId(Db* db);
     }
     $cc proc trieTclify {Trie* trie} Jim_Obj* {
-        int objc = 3 + trie->capacityBranches;
+        int objc = 3 + trie->branchesCount;
         Jim_Obj* objv[objc];
         objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
         objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
         objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
-        for (int i = 0; i < trie->capacityBranches; i++) {
+        for (int i = 0; i < trie->branchesCount; i++) {
             objv[3+i] = trie->branches[i] ? trieTclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
         }
         return Jim_NewListObj(interp, objv, objc);
@@ -47,36 +47,6 @@ set trieLib [apply {{} {
             termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
-    }
-    $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
-        Clause* pattern = jimObjToClause(patternObj);
-        return trieAdd(trie, pattern, value);
-    }
-    $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
-        uint64_t results[50];
-        Clause* pattern = jimObjToClause(patternObj);
-        int resultCount = trieLookup(trie, pattern, results, 50);
-        free(pattern);
-
-        Jim_Obj* resultObjs[resultCount];
-        for (int i = 0; i < resultCount; i++) {
-            resultObjs[i] = Jim_NewIntObj(interp, results[i]);
-        }
-
-        return Jim_NewListObj(interp, resultObjs, resultCount);
-    }
-    $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
-        uint64_t results[50];
-        Clause* pattern = jimObjToClause(patternObj);
-        int resultCount = trieRemove(trie, pattern, results, 50);
-        free(pattern);
-
-        Jim_Obj* resultObjs[resultCount];
-        for (int i = 0; i < resultCount; i++) {
-            resultObjs[i] = Jim_NewIntObj(interp, results[i]);
-        }
-
-        return Jim_NewListObj(interp, resultObjs, resultCount);
     }
     $cc code {
         Clause* clause(char* first, ...) {
