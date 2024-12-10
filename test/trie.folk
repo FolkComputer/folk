@@ -14,5 +14,6 @@ snap $trie
 
 set trie [$trieLib remove_ $trie [list hello i am here]]
 snap $trie
+assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1004}}
 
 __exit 0
