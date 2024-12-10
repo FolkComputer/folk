@@ -237,9 +237,6 @@ static const Trie* trieRemoveImpl(bool isLiteral,
                                   int* resultsIdx) {
     int wordc = pattern->nTerms - patternIdx;
     if (wordc == 0) {
-        for (int i = 0; i < patternIdx; i++) printf(" ");
-        printf("removing leaf (%s)\n", trie->key);
-        
         if (trie->hasValue) {
             if (*resultsIdx < maxResults) {
                 results[(*resultsIdx)++] = trie->value;
@@ -262,8 +259,6 @@ static const Trie* trieRemoveImpl(bool isLiteral,
     int newBranchesCount = 0;
 
     for (int j = 0; j < trie->branchesCount; j++) {
-        for (int i = 0; i < patternIdx; i++) printf(" ");
-        printf("remove: branch (%s)\n", trie->branches[j]->key);
         const Trie* newBranch;
         // Easy cases:
         bool subtrieMatched = false;
@@ -314,15 +309,13 @@ static const Trie* trieRemoveImpl(bool isLiteral,
             newBranches[newBranchesCount++] = newBranch;
         }
     }
-    for (int i = 0; i < patternIdx; i++) printf(" ");
-    printf("remove: branches %d -> new branches %d\n",
-            trie->branchesCount, newBranchesCount);
-
     if (newBranchesCount == 0) {
         return NULL;
     }
+
     Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
     memcpy(newTrie, trie, SIZEOF_TRIE(0));
+    newTrie->branchesCount = newBranchesCount;
     memcpy(newTrie->branches, newBranches, newBranchesCount*sizeof(Trie*));
     return newTrie;
 }
