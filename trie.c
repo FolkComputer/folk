@@ -275,7 +275,7 @@ int trieLookup(const Trie* trie, Clause* pattern,
     trieLookupImpl(false, false, trie, pattern, 0,
                    results, maxResults,
                    &resultCount, NULL);
-    fprintf(stderr, "trieLookup: (%s) -> %d\n", clauseToString(pattern), resultCount);
+    /* fprintf(stderr, "trieLookup: (%s) -> %d\n", clauseToString(pattern), resultCount); */
     return resultCount;
 }
 

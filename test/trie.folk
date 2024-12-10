@@ -1,0 +1,18 @@
+proc Wish {args} {}; source virtual-programs/web/trie-graph.folk;
+proc snap {trie} {trieDotify trieLib getDotAsPdf} {
+    set dot [apply $trieDotify $trieLib $trie];
+    set filename trie-[exec uuidgen].pdf
+    set fd [open $filename w]; puts $fd [apply $getDotAsPdf $dot]; close $fd;
+    puts stderr $filename
+}
+
+set trie [$trieLib new]
+set trie [$trieLib add $trie [list hello i am here] 1003]
+set trie [$trieLib add $trie [list hello i am there] 1004]
+assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1003 1004}}
+snap $trie
+
+set trie [$trieLib remove_ $trie [list hello i am here]]
+snap $trie
+
+__exit 0

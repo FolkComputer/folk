@@ -13,21 +13,21 @@ set trieLib [apply {{} {
         extern void dbUnlockClauseToStatementId(Db* db);
         extern Trie* dbGetClauseToStatementId(Db* db);
     }
-    $cc proc trieTclify {Trie* trie} Jim_Obj* {
+    $cc proc tclify {Trie* trie} Jim_Obj* {
         int objc = 3 + trie->branchesCount;
         Jim_Obj* objv[objc];
         objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
         objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
         objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
         for (int i = 0; i < trie->branchesCount; i++) {
-            objv[3+i] = trie->branches[i] ? trieTclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
+            objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
         }
         return Jim_NewListObj(interp, objv, objc);
     }
     $cc proc dbTrieTclify {} Jim_Obj* {
         dbLockClauseToStatementId(db);
         Trie* trie = dbGetClauseToStatementId(db);
-        Jim_Obj* ret = trieTclify(trie);
+        Jim_Obj* ret = tclify(trie);
         dbUnlockClauseToStatementId(db);
         return ret;
     }
@@ -47,6 +47,33 @@ set trieLib [apply {{} {
             termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
         }
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
+    }
+    $cc proc new {} Trie* {
+        return trieNew();
+    }
+    $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
+        Clause* pattern = jimObjToClause(patternObj);
+        return trieAdd(trie, pattern, value);
+    }
+    $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
+        uint64_t results[50];
+        Clause* pattern = jimObjToClause(patternObj);
+        int resultCount = trieLookup(trie, pattern, results, 50);
+        free(pattern);
+
+        Jim_Obj* resultObjs[resultCount];
+        for (int i = 0; i < resultCount; i++) {
+            resultObjs[i] = Jim_NewIntObj(interp, results[i]);
+        }
+
+        return Jim_NewListObj(interp, resultObjs, resultCount);
+    }
+    $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
+        uint64_t results[50];
+        Clause* pattern = jimObjToClause(patternObj);
+        int resultCount; trie = trieRemove(trie, pattern, results, 50, &resultCount);
+        free(pattern);
+        return trie;
     }
     $cc code {
         Clause* clause(char* first, ...) {
@@ -70,7 +97,7 @@ set trieLib [apply {{} {
     return [$cc compile]
 }}]
 
-set trieDotify {{trieLib} {
+set trieDotify {{trieLib trie} {
     local proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
         regsub -all {\W+} $word "_"
@@ -95,7 +122,7 @@ set trieDotify {{trieLib} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot [$trieLib dbTrieTclify]] }"
+    return "digraph { rankdir=LR; [subdot [$trieLib tclify $trie]] }"
 }}
 
 set getDotAsPdf {{dot} {
