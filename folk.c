@@ -774,7 +774,7 @@ void workerRun(WorkQueueItem item) {
             } else {
                 Statement* stmt;
                 if ((stmt = statementAcquire(db, oldRef))) {
-                    statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+                    statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
                     statementRelease(db, stmt);
                 }
             }

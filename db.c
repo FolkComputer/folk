@@ -34,6 +34,10 @@ typedef struct GenRc {
     int16_t rc;
 
     int gen: 15;
+
+    // The object also cannot be freed/invalidated as long as alive is
+    // true; alive indicates that the object is alive in the database
+    // (has supporting parent).
     bool alive: 1;
 } GenRc;
 
@@ -289,7 +293,7 @@ static void reactToRemovedMatch(Db* db, Match* match) {
             StatementRef childRef = { .val = childStatements->edges[i] };
             Statement* child = statementAcquire(db, childRef);
             if (child != NULL) {
-                statementRemoveParentAndMaybeRemoveSelf(db, child);
+                statementDecrParentCountAndMaybeRemoveSelf(db, child);
                 statementRelease(db, child);
             }
         }
@@ -448,8 +452,8 @@ static void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
     listOfEdgeToAdd(&matchChecker, db,
                     &stmt->childMatches, child.val);
 }
-void statementAddParent(Statement* stmt) { stmt->parentCount++; }
-void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt) {
+void statementIncrParentCount(Statement* stmt) { stmt->parentCount++; }
+void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
@@ -727,7 +731,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 return STATEMENT_REF_NULL;
             }
 
-            statementAddParent(stmt);
+            statementIncrParentCount(stmt);
             matchAddChildStatement(db, parentMatch, existingRefs[0]);
             pthread_mutex_unlock(&parentMatch->childStatementsMutex);
 
@@ -819,7 +823,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     for (size_t i = 0; i < nResults; i++) {
         Statement* stmt = statementAcquire(db, results[i]);
 
-        statementRemoveParentAndMaybeRemoveSelf(db, stmt);
+        statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
         statementRelease(db, stmt);
     }
 }

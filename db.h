@@ -50,7 +50,8 @@ int statementSourceLineNumber(Statement* stmt);
 bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
                                            MatchRef otherThan);
 
-void statementRemoveParentAndMaybeRemoveSelf(Db* db, Statement* stmt);
+void statementIncrParentCount(Statement* stmt);
+void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt);
 
 // Match
 // -----
