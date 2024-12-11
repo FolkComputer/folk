@@ -9,14 +9,14 @@ proc snap {trie} {trieDotify trieLib getDotAsPdf} {
 set trie [$trieLib new]
 set trie [$trieLib add $trie [list hello i am here] 1003]
 set trie [$trieLib add $trie [list hello i am there] 1004]
-snap $trie
-set trie [$trieLib add $trie [list hello i am there] 1005] ;# this should fail
-snap $trie
+
+set trie1 [$trieLib add $trie [list hello i am there] 1005] ;# this should not do anything
+assert {$trie eq $trie1}
+set trie $trie1
+
 assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1003 1004}}
-snap $trie
 
 set trie [$trieLib remove_ $trie [list hello i am here]]
-snap $trie
 assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1004}}
 
 __exit 0

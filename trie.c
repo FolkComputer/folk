@@ -59,8 +59,14 @@ const Trie* trieNew() {
     return ret;
 }
 
+// This will return the original trie if the clause is already present
+// in it.
 static const Trie* trieAddImpl(const Trie* trie, int32_t nTerms, char* terms[], uint64_t value) {
     if (nTerms == 0) {
+        if (trie->hasValue) {
+            // This clause is already present.
+            return trie;
+        }
         Trie* newTrie = calloc(SIZEOF_TRIE(trie->branchesCount), 1);
         memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
         newTrie->value = value;
@@ -68,8 +74,6 @@ static const Trie* trieAddImpl(const Trie* trie, int32_t nTerms, char* terms[], 
         return newTrie;
     }
     char* term = terms[0];
-
-    const Trie* addToBranch = NULL;
 
     // Is there an existing branch that already matches the first
     // term?
@@ -79,37 +83,50 @@ static const Trie* trieAddImpl(const Trie* trie, int32_t nTerms, char* terms[], 
         if (branch == NULL) { break; }
 
         if (branch->key == term || strcmp(branch->key, term) == 0) {
-            addToBranch = trie->branches[j];
             break;
         }
     }
 
-    // We'll need to allocate a new trie no matter what -- how many
-    // branches should it have?
-    int32_t newBranchesCount = trie->branchesCount;
-    if (addToBranch == NULL) { 
+    const Trie* addToBranch;
+    Trie* newBranch = NULL;
+    if (j == trie->branchesCount) {
         // Need to add a new branch.
-        newBranchesCount++;
-        j = newBranchesCount - 1;
-    }
-
-    Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
-    memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
-    newTrie->branchesCount = newBranchesCount;
-
-    if (addToBranch == NULL) { 
-        Trie* newBranch = calloc(SIZEOF_TRIE(0), 1);
+        newBranch = calloc(SIZEOF_TRIE(0), 1);
         newBranch->key = strdup(term);
         newBranch->value = 0;
         newBranch->hasValue = false;
         newBranch->branchesCount = 0;
         addToBranch = newBranch;
+    } else {
+        addToBranch = trie->branches[j];
     }
 
-    newTrie->branches[j] = trieAddImpl(addToBranch, nTerms - 1, terms + 1, value);
+    const Trie* addedToBranch =
+        trieAddImpl(addToBranch, nTerms - 1, terms + 1, value);
+    if (addedToBranch == addToBranch) {
+        // Subtrie was unchanged by the addition (meaning that the
+        // clause is already in the trie). Return the original trie.
+        if (newBranch != NULL) { free(newBranch); }
+        return trie;
+    }
+
+    // We'll need to allocate a new trie -- how many branches should
+    // it have?
+    int32_t newBranchesCount = trie->branchesCount;
+    if (j == trie->branchesCount) { 
+        // Need to add a new branch.
+        newBranchesCount++;
+    }
+
+    Trie* newTrie = calloc(SIZEOF_TRIE(newBranchesCount), 1);
+    memcpy(newTrie, trie, SIZEOF_TRIE(trie->branchesCount));
+    newTrie->branchesCount = newBranchesCount;
+    newTrie->branches[j] = addedToBranch;
     return newTrie;
 }
 
+// This will return the original trie if the clause is already present
+// in it.
 const Trie* trieAdd(const Trie* trie, Clause* c, uint64_t value) {
     /* fprintf(stderr, "trieAdd: (%s)\n", clauseToString(c)); */
     const Trie* ret = trieAddImpl(trie, c->nTerms, c->terms, value);
