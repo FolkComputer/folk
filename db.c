@@ -452,7 +452,23 @@ static void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
     listOfEdgeToAdd(&matchChecker, db,
                     &stmt->childMatches, child.val);
 }
-void statementIncrParentCount(Statement* stmt) { stmt->parentCount++; }
+
+// Fails to increment parentCount & returns false if parentCount is 0,
+// meaning that the statement is in the process of being destroyed by
+// someone else and you should back off.
+bool statementTryIncrParentCount(Statement* stmt) {
+    int oldParentCount;
+    int newParentCount;
+    do {
+        oldParentCount = stmt->parentCount;
+        if (oldParentCount == 0) {
+            return false;
+        }
+        newParentCount = oldParentCount + 1;
+    } while (!atomic_compare_exchange_weak(&stmt->parentCount, &oldParentCount,
+                                           newParentCount));
+    return true;
+}
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
@@ -646,112 +662,146 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return ret;
 }
 
-void eval(const char* code);
-// WARNING: This takes ownership of clause. You can't touch clause
-// after calling this!
+// parentMatch is allowed to be NULL (meaning that no parent match is
+// specified; the statement impulse comes directly from Assert! or
+// Hold!). If parentMatch is not NULL, then you need to have
+// (obviously) acquired the match _and_ to be holding its
+// childStatementsMutex when you call this function.
+static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
+    if (parentMatch != NULL) {
+        // TODO: Update the sourceFileName and sourceLineNumber of the
+        // stmt to reflect this new parent? (this isn't quite correct
+        // either but better than nothing)
+
+        if (!statementTryIncrParentCount(stmt)) {
+            // We still want to insert/reuse the statement, but this
+            // one is on the way out, so tell the caller to retry.
+            return false;
+        }
+        matchAddChildStatement(db, parentMatch, statementRef(db, stmt));
+        return true;
+    }
+
+    if (!statementTryIncrParentCount(stmt)) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+// Inserts a new statement with clause `clause` and returns a ref to
+// that newly created statement, UNLESS:
+// 
+//   - a statement is already present with that clause, in which case
+//     we increment that statement's parent count and return a null
+//     ref
+//
+//   - parentMatchRef has been invalidated, or its parentMatch has
+//     childStatements invalidated, in which case we do nothing and
+//     return a null ref
+// 
+// (both of these mean that the caller won't trigger a reaction, since
+// no new statement is being created).
+//
+// Takes ownership of clause (i.e., you can't touch clause at the
+// caller after calling this!).
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
-    // Is this clause already present among the existing statements?
-    StatementRef existingRefs[10];
+    // acquire parent match first? abort if can't acquire
+    // acquire parent match's child statements lock first? abort if null
+    // we want to abort or lock the pointable down before we go through the effort of adding the new statement, which is not easy to reverse.
+    Match* parentMatch = NULL;
+    if (!matchRefIsNull(parentMatchRef)) {
+        // Need to set up parent match.
+        parentMatch = matchAcquire(db, parentMatchRef);
+        if (parentMatch == NULL) {
+            return STATEMENT_REF_NULL; // Abort!
+        }
+
+        pthread_mutex_lock(&parentMatch->childStatementsMutex);
+        if (parentMatch->childStatements == NULL) {
+            pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+            matchRelease(db, parentMatch);
+            return STATEMENT_REF_NULL; // Abort!
+        }
+
+        // Given that we have a parent match, if we've reached this
+        // point, we now have a guarantee that the parentMatch is
+        // acquired and we hold its childStatementsMutex and can add
+        // to its childStatements list.
+    }
+
+    // Now try to add: the trieAdd operation will atomically detect if
+    // the clause is already present.
+    //
+    // We'll provisionally create a new statement to add.
+    // 
+    // Also transfers ownership of clause to the DB.
+    StatementRef ref = statementNew(db, clause,
+                                    sourceFileName, sourceLineNumber);
     epochBegin();
-    int existingRefsCount =
-        trieLookupLiteral(db->clauseToStatementId, clause,
-                          (uint64_t*) existingRefs,
-                          sizeof(existingRefs)/sizeof(existingRefs[0]));
+    const Trie* oldClauseToStatementId;
+    const Trie* newClauseToStatementId;
+    do {
+        oldClauseToStatementId = db->clauseToStatementId;
+        newClauseToStatementId = trieAdd(oldClauseToStatementId, clause, ref.val);
+
+        if (newClauseToStatementId == oldClauseToStatementId) {
+            // The statement is possibly already present in the db --
+            // trieAdd reported that it did not add anything -- so we
+            // should try to reuse the existing statement.
+            StatementRef existingRefs[10];
+            int existingRefsCount = 
+                trieLookupLiteral(oldClauseToStatementId, clause,
+                                  (uint64_t*)existingRefs,
+                                  sizeof(existingRefs)/sizeof(existingRefs[0]));
+            Statement* stmt;
+            if (existingRefsCount == 1 && (stmt = statementAcquire(db, existingRefs[0]))) {
+                // This is sort of the expected case. The statement is
+                // indeed already present in the db, and we've been
+                // able to acquire it.
+                if (tryReuseStatement(db, stmt, parentMatch)) {
+                    // FIXME: destroy ref
+                    epochEnd();
+                    if (parentMatch != NULL) {
+                        pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+                        matchRelease(db, parentMatch);
+                    }
+                    return STATEMENT_REF_NULL;
+                } else {
+                    // Reuse failed, but not for operation-aborting
+                    // reasons -- we just need to actually make the
+                    // new statement, probably.
+                    continue; // Retry.
+                }
+
+            } else if (existingRefsCount > 1) {
+                // The database invariant has been violated.
+                fprintf(stderr, "dbInsertOrReuseStatement: FATAL: "
+                        "More than 1 statement with same clause.\n");
+                exit(1);
+            } else {
+                // Something changed and now that duplicate statement
+                // is gone (existingRefsCount == 0 or acquire
+                // failed). Let's start over and try to add again.
+                continue;
+            }
+        }
+    } while (!atomic_compare_exchange_weak(&db->clauseToStatementId,
+                                           &oldClauseToStatementId,
+                                           newClauseToStatementId));
     epochEnd();
 
-    Match* parentMatch = matchAcquire(db, parentMatchRef);
-    if (!matchRefIsNull(parentMatchRef) && parentMatch == NULL) {
-        // Parent match has been invalidated -- abort!
-        clauseFree(clause);
-        return STATEMENT_REF_NULL;
+    // OK, we've made a new statement. trieAdd added the statement to
+    // the db and we committed the new db.
+    if (parentMatch != NULL) {
+        matchAddChildStatement(db, parentMatch, ref);
+
+        pthread_mutex_unlock(&parentMatch->childStatementsMutex);
+        matchRelease(db, parentMatch);
     }
-
-    if (existingRefsCount == 0) {
-        // The clause doesn't exist in a statement yet. Make the new
-        // statement.
-
-        // FIXME: We need to check after we added the new statement
-        // that another new statement wasn't added in the meantime
-        // that is identical? so that no one else also does the same
-        // check, gets 0 existing refs, releases the lock, and then
-        // adds the new statement at the same time (so we end up with
-        // 2 copies).
-
-        if (!matchRefIsNull(parentMatchRef)) {
-            // Need to set up parent match.
-            pthread_mutex_lock(&parentMatch->childStatementsMutex);
-            if (parentMatch->childStatements == NULL) {
-                pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-                matchRelease(db, parentMatch);
-                clauseFree(clause);
-                return STATEMENT_REF_NULL;
-            }
-        }
-
-        // Transfers ownership of clause to the DB.
-        StatementRef ref = statementNew(db, clause,
-                                        sourceFileName,
-                                        sourceLineNumber);
-        epochBegin();
-        db->clauseToStatementId = trieAdd(db->clauseToStatementId, clause, ref.val);
-        epochEnd();
-
-        if (!matchRefIsNull(parentMatchRef)) {
-            matchAddChildStatement(db, parentMatch, ref);
-            pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-
-            matchRelease(db, parentMatch);
-        }
-
-        return ref;
-    }
-
-    Statement* stmt;
-    if (existingRefsCount == 1 && (stmt = statementAcquire(db, existingRefs[0]))) {
-        // The clause already exists. We'll add the parents to the
-        // existing statement instead of making a new statement.
-
-        // TODO: Update the sourceFileName and sourceLineNumber to
-        // reflect this parent (this isn't quite correct either but
-        // better than nothing).
-
-        /* printf("Reuse: (%s)\n", clauseToString(clause)); */
-
-        if (!matchRefIsNull(parentMatchRef)) {
-            pthread_mutex_lock(&parentMatch->childStatementsMutex);
-            if (parentMatch->childStatements == NULL) {
-                // Abort without adding to parentCount on stmt or
-                // childMatches on parentMatch.
-                pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-                matchRelease(db, parentMatch);
-                statementRelease(db, stmt);
-                clauseFree(clause);
-                return STATEMENT_REF_NULL;
-            }
-
-            statementIncrParentCount(stmt);
-            matchAddChildStatement(db, parentMatch, existingRefs[0]);
-            pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-
-            matchRelease(db, parentMatch);
-        }
-
-        statementRelease(db, stmt);
-        clauseFree(clause);
-        // Return null because we aren't making a _new_ statement that
-        // the caller should trigger a reaction from.
-        return STATEMENT_REF_NULL;
-    }
-
-    // Invariant has been violated: somehow we have 2+ copies of
-    // the same clause already in the db?
-    fprintf(stderr, "Error: Clause duplicate (existingRefsCount = %d) (%.100s)\n",
-            existingRefsCount,
-            clauseToString(clause));
-    eval("source exit-handler.folk");
-    exit(1);
+    return ref;
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
