@@ -97,7 +97,7 @@ set trieLib [apply {{} {
     return [$cc compile]
 }}]
 
-set trieDotify {{trieLib trie} {
+set trieDotify {{trieLib tclifiedTrie} {
     local proc idify {word} {
         # generate id-able word by eliminating all non-alphanumeric
         regsub -all {\W+} $word "_"
@@ -122,7 +122,7 @@ set trieDotify {{trieLib trie} {
         }
         return [join $dot "\n"]
     }
-    return "digraph { rankdir=LR; [subdot [$trieLib tclify $trie]] }"
+    return "digraph { rankdir=LR; [subdot $tclifiedTrie] }"
 }}
 
 set getDotAsPdf {{dot} {
@@ -132,7 +132,8 @@ set getDotAsPdf {{dot} {
 }}
 
 Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{trieLib trieDotify getDotAsPdf} {
-    set dot [apply $trieDotify $trieLib]
+    set trie []
+    set dot [apply $trieDotify $trieLib [$trieLib dbTrieTclify]]
 
     dict create statusAndHeaders "HTTP/1.1 200 OK
 Connection: close

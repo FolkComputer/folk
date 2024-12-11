@@ -1,6 +1,6 @@
 proc Wish {args} {}; source virtual-programs/web/trie-graph.folk;
 proc snap {trie} {trieDotify trieLib getDotAsPdf} {
-    set dot [apply $trieDotify $trieLib $trie];
+    set dot [apply $trieDotify $trieLib [$trieLib tclify $trie]];
     set filename trie-[exec uuidgen].pdf
     set fd [open $filename w]; puts $fd [apply $getDotAsPdf $dot]; close $fd;
     puts $filename
