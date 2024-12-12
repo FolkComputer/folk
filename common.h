@@ -7,10 +7,14 @@
 
 #include "workqueue.h"
 
+#ifdef TRACY_ENABLE
 typedef struct Mutex {
     TracyCLockCtx tracyCtx;
     pthread_mutex_t mutex;
 } Mutex;
+#else
+typedef pthread_mutex_t Mutex;
+#endif
 
 typedef struct ThreadControlBlock {
     int index;
@@ -41,6 +45,7 @@ static inline int64_t timestamp_get(clockid_t clk_id) {
     return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
 }
 
+#ifdef TRACY_ENABLE
 #define mutexInit(m) do {                               \
         pthread_mutex_init(&((m)->mutex), NULL);        \
         TracyCLockAnnounce((m)->tracyCtx);              \
@@ -56,5 +61,10 @@ static inline int64_t timestamp_get(clockid_t clk_id) {
         pthread_mutex_unlock(&((m)->mutex));    \
         TracyCLockAfterUnlock((m)->tracyCtx);   \
     } while (0)
+#else
+#define mutexInit(m) pthread_mutex_init(m, NULL)
+#define mutexLock pthread_mutex_lock
+#define mutexUnlock pthread_mutex_unlock
+#endif
 
 #endif
