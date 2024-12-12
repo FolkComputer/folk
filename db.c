@@ -171,7 +171,7 @@ typedef struct Db {
     _Atomic uint16_t matchPoolNextIdx;
 
     // Primary trie (index) used for queries.
-    const Trie* _Atomic clauseToStatementId;
+    const Trie* _Atomic clauseToStatementRef;
 
     // One for each Hold key, which always stores the highest-version
     // held statement for that key. We keep this map so that we can
@@ -476,11 +476,24 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         // Deindex the statement:
         uint64_t results[100]; int resultsCount;
         epochBegin();
-        db->clauseToStatementId =
-            trieRemove(db->clauseToStatementId, stmt->clause,
-                       (uint64_t*) results, sizeof(results)/sizeof(results[0]),
-                       &resultsCount);
+
+        const Trie* oldClauseToStatementRef;
+        const Trie* newClauseToStatementRef;
+        do {
+            oldClauseToStatementRef = db->clauseToStatementRef;
+            newClauseToStatementRef =
+                trieRemove(db->clauseToStatementRef, stmt->clause,
+                           (uint64_t*) results, sizeof(results)/sizeof(results[0]),
+                           &resultsCount);
+            if (newClauseToStatementRef == oldClauseToStatementRef) {
+                break;
+            }
+        } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
+                                               &oldClauseToStatementRef,
+                                               newClauseToStatementRef));
+
         epochEnd();
+
         if (resultsCount != 1) {
             /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
             /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
@@ -620,7 +633,7 @@ Db* dbNew() {
     ret->matchPool[0].genRc = (GenRc) { .gen = -1, .rc = 0 };
     ret->matchPoolNextIdx = 1;
 
-    ret->clauseToStatementId = trieNew();
+    ret->clauseToStatementRef = trieNew();
 
     mutexInit(&ret->holdsMutex);
 
@@ -628,13 +641,13 @@ Db* dbNew() {
 }
 
 // Used by trie-graph.folk. Avoid if you can.
-void dbLockClauseToStatementId(Db* db) {
+void dbLockClauseToStatementRef(Db* db) {
     epochBegin();
 }
-const Trie* dbGetClauseToStatementId(Db* db) {
-    return db->clauseToStatementId;
+const Trie* dbGetClauseToStatementRef(Db* db) {
+    return db->clauseToStatementRef;
 }
-void dbUnlockClauseToStatementId(Db* db) {
+void dbUnlockClauseToStatementRef(Db* db) {
     epochEnd();
 }
 
@@ -645,13 +658,21 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 
     epochBegin();
     size_t nResults =
-        trieLookup(db->clauseToStatementId, pattern,
+        trieLookup(db->clauseToStatementRef, pattern,
                    (uint64_t*) results, maxResults);
     epochEnd();
 
     if (nResults == maxResults) {
         // TODO: Try again with a larger maxResults?
-        fprintf(stderr, "dbQuery: Hit max results\n"); exit(1);
+        fprintf(stderr, "dbQuery: Hit max results for query (%s):\n",
+                clauseToString(pattern));
+        for (size_t i = 0; i < nResults; i++) {
+            Statement* stmt = statementAcquire(db, results[i]);
+            fprintf(stderr, "%zu: (%s)\n",
+                    i,
+                    stmt == NULL ? NULL : clauseToString(statementClause(stmt)));
+        }
+        exit(1);
     }
 
     ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
@@ -741,19 +762,19 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     StatementRef ref = statementNew(db, clause,
                                     sourceFileName, sourceLineNumber);
     epochBegin();
-    const Trie* oldClauseToStatementId;
-    const Trie* newClauseToStatementId;
+    const Trie* oldClauseToStatementRef;
+    const Trie* newClauseToStatementRef;
     do {
-        oldClauseToStatementId = db->clauseToStatementId;
-        newClauseToStatementId = trieAdd(oldClauseToStatementId, clause, ref.val);
+        oldClauseToStatementRef = db->clauseToStatementRef;
+        newClauseToStatementRef = trieAdd(oldClauseToStatementRef, clause, ref.val);
 
-        if (newClauseToStatementId == oldClauseToStatementId) {
+        if (newClauseToStatementRef == oldClauseToStatementRef) {
             // The statement is possibly already present in the db --
             // trieAdd reported that it did not add anything -- so we
             // should try to reuse the existing statement.
             StatementRef existingRefs[10];
             int existingRefsCount = 
-                trieLookupLiteral(oldClauseToStatementId, clause,
+                trieLookupLiteral(oldClauseToStatementRef, clause,
                                   (uint64_t*)existingRefs,
                                   sizeof(existingRefs)/sizeof(existingRefs[0]));
             Statement* stmt;
@@ -788,9 +809,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 continue;
             }
         }
-    } while (!atomic_compare_exchange_weak(&db->clauseToStatementId,
-                                           &oldClauseToStatementId,
-                                           newClauseToStatementId));
+    } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
+                                           &oldClauseToStatementRef,
+                                           newClauseToStatementRef));
     epochEnd();
 
     // OK, we've made a new statement. trieAdd added the statement to
@@ -861,7 +882,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     // TODO: Should we accept a StatementRef and enforce that is what
     // gets removed?
     epochBegin();
-    size_t nResults = trieLookup(db->clauseToStatementId, pattern,
+    size_t nResults = trieLookup(db->clauseToStatementRef, pattern,
                                  (uint64_t*) results, maxResults);
     epochEnd();
 
@@ -943,8 +964,6 @@ StatementRef dbHoldStatement(Db* db,
             hold->key = NULL;
         }
 
-        uint64_t results[10];
-        size_t maxResults = sizeof(results)/sizeof(results[0]);
 
         if (oldStmtPtr) {
             // We deindex (trieRemove) the old statement immediately,
@@ -952,10 +971,24 @@ StatementRef dbHoldStatement(Db* db,
             // statement itself (and therefore remove all its
             // children).
             epochBegin();
-            int resultsCount;
-            db->clauseToStatementId = trieRemove(db->clauseToStatementId,
-                                                 statementClause(oldStmtPtr),
-                                                 results, maxResults, &resultsCount);
+
+            uint64_t results[10]; int resultsCount;
+
+            const Trie* oldClauseToStatementRef;
+            const Trie* newClauseToStatementRef;
+            do {
+                oldClauseToStatementRef = db->clauseToStatementRef;
+                newClauseToStatementRef =
+                    trieRemove(db->clauseToStatementRef, statementClause(oldStmtPtr),
+                               (uint64_t*) results, sizeof(results)/sizeof(results[0]),
+                               &resultsCount);
+                if (newClauseToStatementRef == oldClauseToStatementRef) {
+                    break;
+                }
+            } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
+                                                   &oldClauseToStatementRef,
+                                                   newClauseToStatementRef));
+
             epochEnd();
 
             statementRelease(db, oldStmtPtr);

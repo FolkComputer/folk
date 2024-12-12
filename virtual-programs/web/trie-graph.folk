@@ -9,9 +9,9 @@ set trieLib [apply {{} {
         typedef struct Db Db;
         extern Db* db;
 
-        extern void dbLockClauseToStatementId(Db* db);
-        extern void dbUnlockClauseToStatementId(Db* db);
-        extern Trie* dbGetClauseToStatementId(Db* db);
+        extern void dbLockClauseToStatementRef(Db* db);
+        extern void dbUnlockClauseToStatementRef(Db* db);
+        extern Trie* dbGetClauseToStatementRef(Db* db);
     }
     $cc proc tclify {Trie* trie} Jim_Obj* {
         int objc = 3 + trie->branchesCount;
@@ -25,10 +25,10 @@ set trieLib [apply {{} {
         return Jim_NewListObj(interp, objv, objc);
     }
     $cc proc dbTrieTclify {} Jim_Obj* {
-        dbLockClauseToStatementId(db);
-        Trie* trie = dbGetClauseToStatementId(db);
+        dbLockClauseToStatementRef(db);
+        Trie* trie = dbGetClauseToStatementRef(db);
         Jim_Obj* ret = tclify(trie);
-        dbUnlockClauseToStatementId(db);
+        dbUnlockClauseToStatementRef(db);
         return ret;
     }
     $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {

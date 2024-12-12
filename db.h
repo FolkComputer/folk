@@ -78,7 +78,7 @@ MatchRef matchRef(Db* db, Match* m);
 typedef struct Clause Clause;
 
 Db* dbNew();
-const Trie* dbGetClauseToStatementId(Db* db);
+const Trie* dbGetClauseToStatementRef(Db* db);
 
 typedef struct ResultSet {
     size_t nResults;
