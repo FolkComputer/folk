@@ -941,7 +941,9 @@ void workerInit(int index) {
         mutexInit(&self->currentItemMutex);
     }
 #ifdef __linux__
-    pthread_getcpuclockid(pthread_self(), &self->clockid);
+    if (pthread_getcpuclockid(pthread_self(), &self->clockid)) {
+        perror("workerInit: pthread_getcpuclockid failed");
+    }
 #else
     self->clockid = CLOCK_MONOTONIC;
 #endif
