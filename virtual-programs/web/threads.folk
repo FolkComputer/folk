@@ -1,6 +1,6 @@
 set threadMonitorLib [apply {{} {
     set cc [C]
-    $cc cflags -I.
+    $cc cflags -I. -I./vendor/tracy/public
     $cc include "workqueue.h"
     $cc include "common.h"
     $cc code {
