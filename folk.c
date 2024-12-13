@@ -34,6 +34,7 @@ void globalWorkQueueInit() {
     mpmc_queue_init(&globalWorkQueue, 1024, &memtype_heap);
     globalWorkQueueSize = 0;
 }
+void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void globalWorkQueuePush(WorkQueueItem item) {
     WorkQueueItem* pushee = malloc(sizeof(item));
     *pushee = item;
@@ -41,7 +42,7 @@ void globalWorkQueuePush(WorkQueueItem item) {
         fprintf(stderr, "globalWorkQueuePush: failed\n");
         while (mpmc_queue_available(&globalWorkQueue)) {
             WorkQueueItem* x;
-            mpmc_queue_pull(&globalWorkQueue, &x);
+            mpmc_queue_pull(&globalWorkQueue, (void **)&x);
             char s[1000]; traceItem(s, 1000, *x);
             fprintf(stderr, "(%s)\n", s);
         }
