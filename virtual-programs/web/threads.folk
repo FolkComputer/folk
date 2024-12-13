@@ -71,6 +71,30 @@ set threadMonitorLib [apply {{} {
         }
         return Jim_NewEmptyStringObj(interp);
     }
+
+    $cc code {
+        #include "vendor/c11-queues/mpmc_queue.h"
+        extern struct mpmc_queue globalWorkQueue;
+        extern _Atomic int globalWorkQueueSize;
+    }
+    $cc proc globalWorkQueueAvailable {} size_t {
+        return mpmc_queue_available(&globalWorkQueue);
+    }
+    # Unsafely peeks at the queue.
+    $cc proc globalWorkQueueItems {} Jim_Obj* {
+        Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+
+        size_t head = globalWorkQueue.head;
+        for (size_t i = head; i < globalWorkQueue.tail; i++) {
+            struct mpmc_queue_cell *cell = &globalWorkQueue.buffer[i & globalWorkQueue.buffer_mask];
+            WorkQueueItem *ptr = cell->data;
+            WorkQueueItem item = *ptr;
+
+            Jim_ListAppendElement(interp, ret, itemToStringObj(item));
+        }
+        return ret;
+    }
+
     return [$cc compile]
 }}]
 
@@ -149,6 +173,13 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>
             </li>}
         }] "\n"]
+        </ol>
+
+        <h2>Global workqueue ([$threadMonitorLib globalWorkQueueAvailable])</h2>
+        <ol start="0">
+        [lmap item [$threadMonitorLib globalWorkQueueItems] {
+            subst { <li>$item</li> }
+        }]
         </ol>
 
         </body>
