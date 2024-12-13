@@ -65,14 +65,14 @@ On process "display" {
                     ret.data[y * ret.bytesPerRow + x * ret.components + 3] = A; // A
                 }
             }
-            printf("returning fake image");
+            printf("returning generated image");
             return ret;
         }
-        $cc proc generateWhiteImage {} image_t {
-            return generateImage(255, 255, 255, 255);
+        $cc proc generateDebugImage {} image_t {
+            return generateImage(255, 0, 255, 255);
         }
 
-        $cc proc video {char* filename} image_t {
+        $cc proc video {char* filename int time} image_t {
             AVFormatContext *pFormatContext = avformat_alloc_context();
             if (!pFormatContext) { exit(1); }
 
@@ -100,6 +100,8 @@ On process "display" {
 
             const AVCodec *pCodec = NULL;
             const AVCodecParameters *pCodecParameters =  NULL;
+            int video_stream_index = -1;
+            int total_frames = -1;
             for (int i = 0; i < pFormatContext->nb_streams; i++) {
                 AVCodecParameters *pLocalCodecParameters = pFormatContext->streams[i]->codecpar;
                 const AVCodec *pLocalCodec = avcodec_find_decoder(pLocalCodecParameters->codec_id);
@@ -107,6 +109,17 @@ On process "display" {
                     fprintf(stderr, "Video Codec: resolution %d x %d\n", pLocalCodecParameters->width, pLocalCodecParameters->height);
                     pCodec = pLocalCodec;
                     pCodecParameters = pLocalCodecParameters;
+                    video_stream_index = i;
+                    total_frames = pFormatContext->streams[video_stream_index]->nb_frames;
+                    fprintf(stderr, "Total frames: %d\n", total_frames);
+                    // Estimate total frames if not available
+                    if (total_frames == 0) {
+                        double fps = av_q2d(pFormatContext->streams[video_stream_index]->avg_frame_rate);
+                        double duration = pFormatContext->streams[video_stream_index]->duration * 
+                                        av_q2d(pFormatContext->streams[video_stream_index]->time_base);
+                        total_frames = (int)(fps * duration);
+                        fprintf(stderr, "Estimated frames: %d (fps: %f, duration: %f)\n", total_frames, fps, duration);
+                    }
                 } else if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_AUDIO) {
                     fprintf(stderr, "Audio Codec: sample rate %d\n", pLocalCodecParameters->sample_rate);
                 }
@@ -123,8 +136,16 @@ On process "display" {
             avcodec_parameters_to_context(pCodecContext, pCodecParameters);
             avcodec_open2(pCodecContext, pCodec, NULL);
 
+            int current_frame = (1 + (time % total_frames));
+            fprintf(stderr, "========= Current frame: %d\n", current_frame);
+
             AVPacket *pPacket = av_packet_alloc();
             AVFrame *pFrame = av_frame_alloc();
+
+
+            // timeBase = (int64_t(pCodecCtx->time_base.num) * AV_TIME_BASE) / int64_t(pCodecCtx->time_base.den);
+            // ret = av_seek_frame(pFormatContext, video_stream_index, current_frame, AVSEEK_FLAG_BACKWARD);
+
             while (av_read_frame(pFormatContext, pPacket) >= 0) {
                 ret = avcodec_send_packet(pCodecContext, pPacket);
                 if (ret < 0) {
@@ -145,8 +166,8 @@ On process "display" {
                         exit(1);
                     }
 
-                    if (pCodecContext->frame_number == 1) {
-                        fprintf(stderr, "!!!!! On frame one ...\n");
+                    if (pCodecContext->frame_number == current_frame) {
+                        fprintf(stderr, "!!!!! On frame  %d...\n", current_frame);
 
                         AVFrame* pRGBFrame = av_frame_alloc();
                         if (!pRGBFrame) {
@@ -210,7 +231,7 @@ On process "display" {
                     }
                 }
                 av_packet_unref(pPacket);
-                if (pCodecContext->frame_number > 1) break;  // Exit after processing the first frame
+                // if (pCodecContext->frame_number > 1) break;  // Exit after processing the first frame
             }
 
             av_frame_free(&pFrame);
@@ -218,7 +239,7 @@ On process "display" {
             avcodec_free_context(&pCodecContext);
             avformat_close_input(&pFormatContext);
             avformat_free_context(pFormatContext);
-            return generateWhiteImage();
+            return generateDebugImage();
         }
 
         $cc compile
@@ -228,7 +249,6 @@ On process "display" {
         namespace ensemble create
     }
 
-    puts "====== kicked off display video ====== [info procs ::video]"
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes /thing/ displays video /videoSrc/]
     # Note: need to adjust these receive statements to allow region info to be passed here as well
@@ -238,12 +258,13 @@ On process "display" {
         [list /someone/ wishes to draw an image with center /c/ image /im/ radians /radians/]
     Wish $::thisProcess shares statements like \
         [list /someone/ wishes /thing/ is titled /title/]
+    Wish $::thisProcess receives statements like \
+        [list /someone/ claims the clock time is /t/]
 
-    When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
-        puts "---- go video $videoSrc"
-
+    # TODO: Keep a clock so that this alwasys starts the video at frame 1 each time instead of whatever the global clock is
+    When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ & the clock time is /t/ {
         set center [region centroid $r]
-        set firstFrame [video video $videoSrc]
+        set firstFrame [video video $videoSrc [expr {int($t)}]]
         # Make this a result of a when eventually, hard coded rn 
         Wish to draw an image with center $center image $firstFrame radians 0
         Wish $thing is titled "should be displaying the first frame of $videoSrc"
