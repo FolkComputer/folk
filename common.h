@@ -1,6 +1,9 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <stdio.h>
+#include <errno.h>
+
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
 #endif
@@ -35,6 +38,9 @@ typedef struct ThreadControlBlock {
 } ThreadControlBlock;
 
 #define THREADS_MAX 100
+extern ThreadControlBlock threads[THREADS_MAX];
+extern int _Atomic threadCount;
+extern __thread ThreadControlBlock* self;
 
 static inline int64_t timestamp_get(clockid_t clk_id) {
     // Returns timestamp in nanoseconds.

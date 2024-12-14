@@ -15,6 +15,7 @@
 #endif
 
 #include "common.h"
+#include "epoch.h"
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
@@ -47,6 +48,8 @@ void sysmonInit() {
 }
 
 void sysmon() {
+    epochThreadInit();
+
     /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
 

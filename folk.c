@@ -17,6 +17,7 @@
 
 #include "vendor/c11-queues/mpmc_queue.h"
 
+#include "epoch.h"
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
@@ -798,6 +799,7 @@ void workerRun(WorkQueueItem item) {
                                        item.say.sourceFileName,
                                        item.say.sourceLineNumber,
                                        item.say.parent);
+
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref);
         }
@@ -941,6 +943,9 @@ void workerInit(int index) {
         self->currentItem = (WorkQueueItem) { .op = NONE };
         mutexInit(&self->currentItemMutex);
     }
+
+    epochThreadInit();
+
 #ifdef __linux__
     if (pthread_getcpuclockid(pthread_self(), &self->clockid)) {
         perror("workerInit: pthread_getcpuclockid failed");
