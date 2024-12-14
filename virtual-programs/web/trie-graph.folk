@@ -89,7 +89,7 @@ void tfree(void *ptr) {
     }
     $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
         Clause* pattern = jimObjToClause(patternObj);
-        return trieAdd(trie, free, pattern, value);
+        return trieAdd(trie, tmalloc, tfree, pattern, value);
     }
     $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
         uint64_t results[50];
@@ -107,7 +107,8 @@ void tfree(void *ptr) {
     $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
         uint64_t results[50];
         Clause* pattern = jimObjToClause(patternObj);
-        int resultCount; trie = trieRemove(trie, free, pattern, results, 50, &resultCount);
+        int resultCount; trie = trieRemove(trie, tmalloc, tfree,
+                                           pattern, results, 50, &resultCount);
         free(pattern);
         return trie;
     }
