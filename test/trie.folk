@@ -19,4 +19,10 @@ assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1003 1004}}
 set trie [$trieLib remove_ $trie [list hello i am here]]
 assert {[$trieLib lookup $trie [list hello i am /x/]] eq {1004}}
 
+# This is testing memory leak.
+set trie [$trieLib remove_ $trie [list hello i am there]]
+# TODO: check alloc count
+
+# snap $trie
+
 __exit 0

@@ -5,6 +5,39 @@
 #include "tracy/TracyC.h"
 #endif
 
+#ifdef TRACY_ENABLE
+
+#include <string.h>
+inline void *tmalloc(size_t sz) {
+    void *ptr = malloc(sz);
+    TracyCAllocS(ptr, sz, 4);
+    return ptr;
+}
+inline void *tcalloc(size_t s1, size_t s2) {
+    void *ptr = calloc(s1, s2);
+    TracyCAllocS(ptr, s1 * s2, 4);
+    return ptr;
+}
+inline char *tstrdup(const char *s0) {
+    int sz = strlen(s0) + 1;
+    char *s = tmalloc(sz);
+    memcpy(s, s0, sz);
+    return s;
+}
+inline void tfree(void *ptr) {
+    TracyCFreeS(ptr, 4);
+    free(ptr);
+}
+
+#else
+
+#define tmalloc malloc
+#define tcalloc calloc
+#define tstrdup strdup
+#define tfree free
+
+#endif
+
 #include "epoch.h"
 
 // See: https://aturon.github.io/blog/2015/08/27/epoch/#epoch-based-reclamation
@@ -32,9 +65,14 @@ static _Atomic int threadCount;
 static __thread EpochThreadState *threadState;
 
 // Thread-local state that no one else reads.
-#define MARKS_MAX 1024
-static __thread void *marks[MARKS_MAX];
-static __thread int marksNextIdx = 0;
+
+#define FREES_MAX 1024
+static __thread void *frees[FREES_MAX];
+static __thread int freesNextIdx = 0;
+
+#define ALLOCS_MAX 1024
+static __thread void *allocs[ALLOCS_MAX];
+static __thread int allocsNextIdx = 0;
 
 void epochThreadInit() {
     int threadIdx = threadCount++;
@@ -49,20 +87,38 @@ void epochBegin() {
     threadState->epochCounter = epochGlobalCounter;
 }
 
-void epochMark(void *ptr) {
-    int idx = marksNextIdx++;
-    if (idx >= MARKS_MAX) {
-        fprintf(stderr, "epochMark: ran out of mark slots\n");
+void *epochAlloc(size_t sz) {
+    int idx = allocsNextIdx++;
+    if (idx >= ALLOCS_MAX) {
+        fprintf(stderr, "epochAlloc: ran out of alloc slots\n");
         exit(1);
     }
-    marks[idx] = ptr;
+    allocs[idx] = tmalloc(sz);
+    return allocs[idx];
 }
-void epochUnmarkAll() { marksNextIdx = 0; }
-#include <pthread.h>
-void epochRetireAll() {
-    // Move all to global garbage list.
+void epochFree(void *ptr) {
+    int idx = freesNextIdx++;
+    if (idx >= FREES_MAX) {
+        fprintf(stderr, "epochFree: ran out of free slots\n");
+        exit(1);
+    }
+    frees[idx] = ptr;
+}
+void epochReset() {
+    // Free every allocation we've done this epoch.
+    for (int i = 0; i < allocsNextIdx; i++) {
+        tfree(allocs[i]);
+    }
+    allocsNextIdx = 0;
+
+    // Throw away the whole frees list so it doesn't actually get
+    // retired by the collector later.
+    freesNextIdx = 0;
+}
+static void epochRetireAll() {
+    // Move all frees to global garbage list.
     EpochGlobalGarbage *g = &epochGlobalGarbage[epochGlobalCounter % 3];
-    for (int i = 0; i < marksNextIdx; i++) {
+    for (int i = 0; i < freesNextIdx; i++) {
         // TODO: Can we batch this operation?
         int gidx = g->garbageNextIdx++;
         if (gidx >= EPOCH_GARBAGE_MAX) {
@@ -75,17 +131,20 @@ void epochRetireAll() {
             }
             exit(1);
         }
-        g->garbage[gidx] = marks[i];
+        g->garbage[gidx] = frees[i];
     }
-    marksNextIdx = 0;
+    freesNextIdx = 0;
 }
 
 void epochEnd() {
+    allocsNextIdx = 0;
+    epochRetireAll();
+
     threadState->active = false;
 }
 
 // This should be called from just one thread ever.
-void epochCollect() {
+void epochGlobalCollect() {
     for (int i = 0; i < threadCount; i++) {
         EpochThreadState *st = &threadStates[i];
         if (st->active && st->epochCounter != epochGlobalCounter) {

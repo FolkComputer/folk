@@ -481,10 +481,11 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         const Trie* oldClauseToStatementRef;
         const Trie* newClauseToStatementRef;
         do {
-            epochUnmarkAll();
+            epochReset();
             oldClauseToStatementRef = db->clauseToStatementRef;
             newClauseToStatementRef =
-                trieRemove(db->clauseToStatementRef, epochMark,
+                trieRemove(db->clauseToStatementRef,
+                           epochAlloc, epochFree,
                            stmt->clause,
                            (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                            &resultsCount);
@@ -494,7 +495,6 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
                                                &oldClauseToStatementRef,
                                                newClauseToStatementRef));
-        epochRetireAll();
         epochEnd();
 
         if (resultsCount != 1) {
@@ -768,9 +768,10 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     const Trie* oldClauseToStatementRef;
     const Trie* newClauseToStatementRef;
     do {
-        epochUnmarkAll();
+        epochReset();
         oldClauseToStatementRef = db->clauseToStatementRef;
-        newClauseToStatementRef = trieAdd(oldClauseToStatementRef, epochMark,
+        newClauseToStatementRef = trieAdd(oldClauseToStatementRef,
+                                          epochAlloc, epochFree,
                                           clause, ref.val);
 
         if (newClauseToStatementRef == oldClauseToStatementRef) {
@@ -788,7 +789,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 // indeed already present in the db, and we've been
                 // able to acquire it.
                 if (tryReuseStatement(db, stmt, parentMatch)) {
-                    // FIXME: destroy ref
+                    epochReset();
                     epochEnd();
                     if (parentMatch != NULL) {
                         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
@@ -817,7 +818,6 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
                                            &oldClauseToStatementRef,
                                            newClauseToStatementRef));
-    epochRetireAll();
     epochEnd();
 
     // OK, we've made a new statement. trieAdd added the statement to
@@ -983,10 +983,11 @@ StatementRef dbHoldStatement(Db* db,
             const Trie* oldClauseToStatementRef;
             const Trie* newClauseToStatementRef;
             do {
-                epochUnmarkAll();
+                epochReset();
                 oldClauseToStatementRef = db->clauseToStatementRef;
                 newClauseToStatementRef =
-                    trieRemove(db->clauseToStatementRef, epochMark,
+                    trieRemove(db->clauseToStatementRef,
+                               epochAlloc, epochFree,
                                statementClause(oldStmtPtr),
                                (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                                &resultsCount);
@@ -996,7 +997,6 @@ StatementRef dbHoldStatement(Db* db,
             } while (!atomic_compare_exchange_weak(&db->clauseToStatementRef,
                                                    &oldClauseToStatementRef,
                                                    newClauseToStatementRef));
-            epochRetireAll();
             epochEnd();
 
             statementRelease(db, oldStmtPtr);

@@ -11,6 +11,43 @@ set trieLib [apply {{} {
         extern void dbLockClauseToStatementRef(Db* db);
         extern void dbUnlockClauseToStatementRef(Db* db);
         extern Trie* dbGetClauseToStatementRef(Db* db);
+
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
+#ifdef TRACY_ENABLE
+
+#include <string.h>
+void *tmalloc(size_t sz) {
+    void *ptr = malloc(sz);
+    TracyCAllocS(ptr, sz, 4);
+    return ptr;
+}
+void *tcalloc(size_t s1, size_t s2) {
+    void *ptr = calloc(s1, s2);
+    TracyCAllocS(ptr, s1 * s2, 4);
+    return ptr;
+}
+char *tstrdup(const char *s0) {
+    int sz = strlen(s0) + 1;
+    char *s = tmalloc(sz);
+    memcpy(s, s0, sz);
+    return s;
+}
+void tfree(void *ptr) {
+    TracyCFreeS(ptr, 4);
+    free(ptr);
+}
+
+#else
+
+#define tmalloc malloc
+#define tcalloc calloc
+#define tstrdup strdup
+#define tfree free
+
+#endif
     }
     $cc proc tclify {Trie* trie} Jim_Obj* {
         int objc = 3 + trie->branchesCount;

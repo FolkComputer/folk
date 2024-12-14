@@ -154,7 +154,7 @@ void sysmon() {
         });
 
     // Fifth: collect garbage.
-    epochCollect();
+    epochGlobalCollect();
 }
 
 void *sysmonMain(void *ptr) {

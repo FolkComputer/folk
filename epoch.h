@@ -9,18 +9,25 @@ void epochThreadInit();
 
 void epochBegin();
 
+// You can call this whenever, as long as it's always from the same
+// thread.
+void epochGlobalCollect();
+
 // You should only do the below while in an epoch:
 
-// Mark a pointer for potential retirement at the end of the epoch.
-void epochMark(void *ptr);
-// Undo all the markings so far in this epoch, if you're backtracking
-// and don't actually want to free these pointers anymore.
-void epochUnmarkAll();
-// Retire all the marked points from this epoch.
-void epochRetireAll();
+// Reversible operations:
+// Allocate from the heap.
+void *epochAlloc(size_t sz);
+// 'Pseudo-free' a pointer (mark it for potential retirement at the
+// end of the epoch).
+void epochFree(void *ptr);
 
+// Undo all allocations and frees on this thread since it called
+// epochBegin. You're still in the epoch when this returns.
+void epochReset();
+
+// Also commits all allocations and frees (pointer retirements) from
+// the current epoch.
 void epochEnd();
-
-void epochCollect();
 
 #endif
