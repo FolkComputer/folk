@@ -16,6 +16,7 @@
 
 #include "common.h"
 #include "trie.h"
+#include "epoch.h"
 #include "db.h"
 
 typedef struct ListOfEdgeTo {

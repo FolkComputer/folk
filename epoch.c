@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
 #include "epoch.h"
 
 // See: https://aturon.github.io/blog/2015/08/27/epoch/#epoch-based-reclamation
 
-#define EPOCH_GARBAGE_MAX (1024*1024)
+#define EPOCH_GARBAGE_MAX 32768
 
 static _Atomic int epochGlobalCounter;
 typedef struct EpochGlobalGarbage {
@@ -84,7 +88,7 @@ void epochEnd() {
 void epochCollect() {
     for (int i = 0; i < threadCount; i++) {
         EpochThreadState *st = &threadStates[i];
-        if (st->epochCounter != epochGlobalCounter) {
+        if (st->active && st->epochCounter != epochGlobalCounter) {
             return;
         }
     }
@@ -92,7 +96,11 @@ void epochCollect() {
     // Free garbage from 2 epochs ago, which is guaranteed to be
     // untouchable by any active thread:
     EpochGlobalGarbage *g = &epochGlobalGarbage[freeableEpoch % 3];
-    for (int i = 0; i < g->garbageNextIdx; i++) {
+    int garbageCount = g->garbageNextIdx;
+    for (int i = 0; i < garbageCount; i++) {
+#ifdef TRACY_ENABLE
+        TracyCFree(g->garbage[i]);
+#endif
         free(g->garbage[i]);
     }
     g->garbageNextIdx = 0;
