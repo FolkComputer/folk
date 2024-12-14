@@ -1,10 +1,9 @@
 set trieLib [apply {{} {
     set cc [C]
-    $cc cflags -I.
+    $cc cflags -I. -I./vendor/tracy/public trie.o
     $cc include <stdlib.h>
     $cc include <string.h>
     $cc include "trie.h"
-    $cc include "trie.c"
     $cc code {
         typedef struct Db Db;
         extern Db* db;
