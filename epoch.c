@@ -5,7 +5,7 @@
 
 // See: https://aturon.github.io/blog/2015/08/27/epoch/#epoch-based-reclamation
 
-#define EPOCH_GARBAGE_MAX 4096
+#define EPOCH_GARBAGE_MAX (1024*1024)
 
 static _Atomic int epochGlobalCounter;
 typedef struct EpochGlobalGarbage {
@@ -33,7 +33,9 @@ static __thread void *marks[MARKS_MAX];
 static __thread int marksNextIdx = 0;
 
 void epochThreadInit() {
-    threadState = &threadStates[threadCount++];
+    int threadIdx = threadCount++;
+    fprintf(stderr, "thread %d: epochThreadInit\n", threadIdx);
+    threadState = &threadStates[threadIdx];
     threadState->active = false;
     threadState->epochCounter = 0;
 }
@@ -52,6 +54,7 @@ void epochMark(void *ptr) {
     marks[idx] = ptr;
 }
 void epochUnmarkAll() { marksNextIdx = 0; }
+#include <pthread.h>
 void epochRetireAll() {
     // Move all to global garbage list.
     EpochGlobalGarbage *g = &epochGlobalGarbage[epochGlobalCounter % 3];
@@ -59,7 +62,13 @@ void epochRetireAll() {
         // TODO: Can we batch this operation?
         int gidx = g->garbageNextIdx++;
         if (gidx >= EPOCH_GARBAGE_MAX) {
-            fprintf(stderr, "epochRetireAll: ran out of global garbage slots\n");
+            fprintf(stderr, "epochRetireAll: ran out of global garbage slots (epoch %d)\n",
+                    epochGlobalCounter);
+            for (int i = 0; i < threadCount; i++) {
+                EpochThreadState *st = &threadStates[i];
+                fprintf(stderr, "  thread %d: epoch %d\n",
+                        i, st->epochCounter);
+            }
             exit(1);
         }
         g->garbage[gidx] = marks[i];

@@ -48,8 +48,6 @@ void sysmonInit() {
 }
 
 void sysmon() {
-    epochThreadInit();
-
     /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
 
@@ -154,12 +152,17 @@ void sysmon() {
                 .sourceLineNumber = __LINE__
             }
         });
+
+    // Fifth: collect garbage.
+    epochCollect();
 }
 
 void *sysmonMain(void *ptr) {
 #ifdef ENABLE_TRACY
     TracyCSetThreadName("sysmon");
 #endif
+
+    epochThreadInit();
 
     struct timespec tickTime;
     tickTime.tv_sec = 0;
