@@ -458,25 +458,24 @@ static void statementRemoveSelf(Db* db, Statement* stmt) {
     /*        clauseToString(stmt->clause)); */
     pthread_mutex_lock(&stmt->childMatchesMutex);
     ListOfEdgeTo* childMatches = stmt->childMatches;
+    assert(childMatches != NULL);
     // Guarantees that no further matches can be added (we would be
     // unable to remove those).
     stmt->childMatches = NULL;
     genRcMarkAsDead(&stmt->genRc);
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 
-    if (childMatches != NULL) {
-        for (size_t i = 0; i < childMatches->nEdges; i++) {
-            MatchRef childRef = { .val = childMatches->edges[i] };
-            Match* child = matchAcquire(db, childRef);
-            if (child != NULL) {
-                // The removal of _any_ of a Match's statement parents
-                // means the removal of that Match.
-                matchRemoveSelf(db, child);
-                matchRelease(db, child);
-            }
+    for (size_t i = 0; i < childMatches->nEdges; i++) {
+        MatchRef childRef = { .val = childMatches->edges[i] };
+        Match* child = matchAcquire(db, childRef);
+        if (child != NULL) {
+            // The removal of _any_ of a Match's statement parents
+            // means the removal of that Match.
+            matchRemoveSelf(db, child);
+            matchRelease(db, child);
         }
-        free(childMatches);
     }
+    free(childMatches);
 }
 
 ////////////////////////////////////////////////////////////
@@ -625,8 +624,6 @@ void matchRemoveSelf(Db* db, Match* match) {
         }
     }
     pthread_mutex_unlock(&match->destructorsMutex);
-
-    TracyCFreeS(match, 3);
 
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
@@ -802,8 +799,16 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 // able to acquire it.
                 if (tryReuseStatement(db, stmt, parentMatch)) {
                     statementRelease(db, stmt);
+
                     epochReset();
                     epochEnd();
+
+                    // Free the new statement `ref` that we created,
+                    // since we won't be using it.
+                    Statement* newStmt = statementAcquire(db, ref);
+                    statementDecrParentCountAndMaybeRemoveSelf(db, newStmt);
+                    statementRelease(db, newStmt);
+
                     if (parentMatch != NULL) {
                         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
                         matchRelease(db, parentMatch);
