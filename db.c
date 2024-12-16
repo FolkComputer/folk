@@ -254,65 +254,6 @@ static void listOfEdgeToDefragment(ListEdgeCheckerFn checker, void* checkerArg,
 }
 
 ////////////////////////////////////////////////////////////
-// Removal:
-////////////////////////////////////////////////////////////
-
-static void reactToRemovedStatement(Db* db, Statement* stmt) {
-    /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
-    /*        clauseToString(stmt->clause)); */
-    pthread_mutex_lock(&stmt->childMatchesMutex);
-    ListOfEdgeTo* childMatches = stmt->childMatches;
-    stmt->childMatches = NULL;
-    genRcMarkAsDead(&stmt->genRc);
-    pthread_mutex_unlock(&stmt->childMatchesMutex);
-
-    if (childMatches != NULL) {
-        for (size_t i = 0; i < childMatches->nEdges; i++) {
-            MatchRef childRef = { .val = childMatches->edges[i] };
-            Match* child = matchAcquire(db, childRef);
-            if (child != NULL) {
-                // The removal of _any_ of a Match's statement parents
-                // means the removal of that Match.
-                matchRemoveSelf(db, child);
-                matchRelease(db, child);
-            }
-        }
-        free(childMatches);
-    }
-}
-static void reactToRemovedMatch(Db* db, Match* match) {
-    // Walk through each child statement and remove this match as a
-    // parent of that statement.
-    pthread_mutex_lock(&match->childStatementsMutex);
-    ListOfEdgeTo* childStatements = match->childStatements;
-    match->childStatements = NULL;
-    genRcMarkAsDead(&match->genRc);
-    pthread_mutex_unlock(&match->childStatementsMutex);
-
-    if (childStatements != NULL) {
-        for (size_t i = 0; i < childStatements->nEdges; i++) {
-            StatementRef childRef = { .val = childStatements->edges[i] };
-            Statement* child = statementAcquire(db, childRef);
-            if (child != NULL) {
-                statementDecrParentCountAndMaybeRemoveSelf(db, child);
-                statementRelease(db, child);
-            }
-        }
-        free(childStatements);
-    }
-
-    // Fire any destructors.
-    pthread_mutex_lock(&match->destructorsMutex);
-    for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
-        if (match->destructors[i].fn != NULL) {
-            match->destructors[i].fn(match->destructors[i].arg);
-            match->destructors[i].fn = NULL;
-        }
-    }
-    pthread_mutex_unlock(&match->destructorsMutex);
-}
-
-////////////////////////////////////////////////////////////
 // Statement:
 ////////////////////////////////////////////////////////////
 
@@ -470,6 +411,8 @@ bool statementTryIncrParentCount(Statement* stmt) {
                                            newParentCount));
     return true;
 }
+
+static void statementRemoveSelf(Db* db, Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
@@ -504,8 +447,35 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             /*         nResults); */
         }
 
-        // This call will also mark the GenRc as dead:
-        reactToRemovedStatement(db, stmt);
+        statementRemoveSelf(db, stmt);
+    }
+}
+
+// Call statementRemoveSelf when ALL of the statement's parents
+// (matches or other) are removed (parentCount has hit 0).
+static void statementRemoveSelf(Db* db, Statement* stmt) {
+    /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
+    /*        clauseToString(stmt->clause)); */
+    pthread_mutex_lock(&stmt->childMatchesMutex);
+    ListOfEdgeTo* childMatches = stmt->childMatches;
+    // Guarantees that no further matches can be added (we would be
+    // unable to remove those).
+    stmt->childMatches = NULL;
+    genRcMarkAsDead(&stmt->genRc);
+    pthread_mutex_unlock(&stmt->childMatchesMutex);
+
+    if (childMatches != NULL) {
+        for (size_t i = 0; i < childMatches->nEdges; i++) {
+            MatchRef childRef = { .val = childMatches->edges[i] };
+            Match* child = matchAcquire(db, childRef);
+            if (child != NULL) {
+                // The removal of _any_ of a Match's statement parents
+                // means the removal of that Match.
+                matchRemoveSelf(db, child);
+                matchRelease(db, child);
+            }
+        }
+        free(childMatches);
     }
 }
 
@@ -612,9 +582,51 @@ void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
 void matchCompleted(Match* match) {
     match->isCompleted = true;
 }
+// Call matchRemoveSelf when ANY of the match's parent statements is
+// removed.
+//
+// FIXME: Make this thread-safe (if called by multiple removers at the
+// same time, it shouldn't double-free).
 void matchRemoveSelf(Db* db, Match* match) {
-    /* printf("matchRemoveSelf: m%ld:%d\n", match - &db->matchPool[0], match->gen); */
-    reactToRemovedMatch(db, match);
+    /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
+
+    // Walk through each child statement and remove this match as a
+    // parent of that statement.
+    pthread_mutex_lock(&match->childStatementsMutex);
+    ListOfEdgeTo* childStatements = match->childStatements;
+    if (childStatements == NULL) {
+        // Someone else has done / is doing removal. Abort.
+        pthread_mutex_unlock(&match->childStatementsMutex);
+        return;
+    }
+    // This blocks further child statements from being added to this
+    // match (if they were added, then we wouldn't be able to remove
+    // them).
+    match->childStatements = NULL;
+    genRcMarkAsDead(&match->genRc);
+    pthread_mutex_unlock(&match->childStatementsMutex);
+
+    for (size_t i = 0; i < childStatements->nEdges; i++) {
+        StatementRef childRef = { .val = childStatements->edges[i] };
+        Statement* child = statementAcquire(db, childRef);
+        if (child != NULL) {
+            statementDecrParentCountAndMaybeRemoveSelf(db, child);
+            statementRelease(db, child);
+        }
+    }
+    free(childStatements);
+
+    // Fire any destructors.
+    pthread_mutex_lock(&match->destructorsMutex);
+    for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
+        if (match->destructors[i].fn != NULL) {
+            match->destructors[i].fn(match->destructors[i].arg);
+            match->destructors[i].fn = NULL;
+        }
+    }
+    pthread_mutex_unlock(&match->destructorsMutex);
+
+    TracyCFreeS(match, 3);
 
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
