@@ -741,9 +741,6 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                                       char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
-    // acquire parent match first? abort if can't acquire
-    // acquire parent match's child statements lock first? abort if null
-    // we want to abort or lock the pointable down before we go through the effort of adding the new statement, which is not easy to reverse.
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
         // Need to set up parent match.
@@ -773,6 +770,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     // Also transfers ownership of clause to the DB.
     StatementRef ref = statementNew(db, clause,
                                     sourceFileName, sourceLineNumber);
+
     epochBegin();
     const Trie* oldClauseToStatementRef;
     const Trie* newClauseToStatementRef;

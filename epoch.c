@@ -82,7 +82,10 @@ void epochThreadInit() {
     threadState->epochCounter = 0;
 }
 
+static __thread TracyCZoneCtx __zoneCtx;
 void epochBegin() {
+    static const struct ___tracy_source_location_data TracyConcat(__tracy_source_location,TracyLine) = { "Epoch", __func__,  TracyFile, (uint32_t)TracyLine, 0 }; __zoneCtx = ___tracy_emit_zone_begin(&TracyConcat(__tracy_source_location,TracyLine), 1);
+
     threadState->active = true;
     threadState->epochCounter = epochGlobalCounter;
 }
@@ -93,7 +96,8 @@ void *epochAlloc(size_t sz) {
         fprintf(stderr, "epochAlloc: ran out of alloc slots\n");
         exit(1);
     }
-    allocs[idx] = tmalloc(sz);
+    allocs[idx] = malloc(sz);
+    // TracyCAlloc(allocs[idx], sz);
     return allocs[idx];
 }
 void epochFree(void *ptr) {
@@ -107,7 +111,8 @@ void epochFree(void *ptr) {
 void epochReset() {
     // Free every allocation we've done this epoch.
     for (int i = 0; i < allocsNextIdx; i++) {
-        tfree(allocs[i]);
+        /* TracyCFree(allocs[i]); */
+        free(allocs[i]);
     }
     allocsNextIdx = 0;
 
@@ -141,6 +146,7 @@ void epochEnd() {
     epochRetireAll();
 
     threadState->active = false;
+    ___tracy_emit_zone_end(__zoneCtx);
 }
 
 // This should be called from just one thread ever.
@@ -158,7 +164,7 @@ void epochGlobalCollect() {
     int garbageCount = g->garbageNextIdx;
     for (int i = 0; i < garbageCount; i++) {
 #ifdef TRACY_ENABLE
-        TracyCFree(g->garbage[i]);
+        // TracyCFree(g->garbage[i]);
 #endif
         free(g->garbage[i]);
     }
