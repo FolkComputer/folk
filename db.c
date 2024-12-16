@@ -789,6 +789,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 // indeed already present in the db, and we've been
                 // able to acquire it.
                 if (tryReuseStatement(db, stmt, parentMatch)) {
+                    statementRelease(db, stmt);
                     epochReset();
                     epochEnd();
                     if (parentMatch != NULL) {
@@ -800,6 +801,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                     // Reuse failed, but not for operation-aborting
                     // reasons -- we just need to actually make the
                     // new statement, probably.
+                    statementRelease(db, stmt);
                     continue; // Retry.
                 }
 
