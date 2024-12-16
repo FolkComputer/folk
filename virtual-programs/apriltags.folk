@@ -84,7 +84,10 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set now [expr {[clock milliseconds] / 1000.0}]
     # HACK: Do not process frames older than 25 frames (they're freed
     # at 50 frames).
-    if {$now - $frameTs > 0.016 * 25} { return }
+    if {$now - $frameTs > 0.016 * 25} {
+        tracy zoneEnd
+        return
+    }
 
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
