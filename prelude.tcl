@@ -78,7 +78,7 @@ proc unknown {cmdName args} {
 
         # Is it a C file? load it now.
         load /tmp/$cid.so
-        proc <C:$cid> {procName args} {cid} { "<C:$cid> $procName" {*}$args }
+        proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
         tailcall $cmdName {*}$args
 
     } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
