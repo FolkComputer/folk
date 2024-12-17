@@ -323,7 +323,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
     set oldFrames [list]
     while true {
-        tracy zoneStart
+        tracy zoneBegin
 
         set frame [Camera::grayFrame $camObj]
         set timestamp [expr {[clock milliseconds] / 1000.0}]

@@ -275,7 +275,7 @@ if {[__isTracyEnabled]} {
         $tracyCpp code {
             __thread TracyCZoneCtx __zoneCtx;
         }
-        $tracyCpp proc zoneStart {} void {
+        $tracyCpp proc zoneBegin {} void {
             Jim_Obj* scriptObj = interp->currentScriptObj;
             const char* sourceFileName;
             int sourceLineNumber;

@@ -237,7 +237,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set oldFrames [list]
     while true {
-        tracy zoneStart
+        tracy zoneBegin
 
         try {
             set frame [$camLib grayFrame]

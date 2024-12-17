@@ -1736,7 +1736,7 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
             }
         }
 
-        tracy zoneStart
+        tracy zoneBegin
         tracy zoneName "gpu-draw"
         set drawCount 0
         foreach layer [lsort -real [dict keys $displayList]] {
