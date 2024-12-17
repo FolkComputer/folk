@@ -10,7 +10,6 @@ apply {{this} {
         if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
-            puts "READING CALIB"
             Hold! calibration \
                 [list $this claims the calibration is $calibration]
         }
