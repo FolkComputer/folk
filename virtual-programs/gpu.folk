@@ -1664,7 +1664,10 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
 
     set kGpu [tracy makeString "gpu"]
     set kLatency [tracy makeString "latency"]
+    set kQuadCount [tracy makeString "quadCount"]
+    set kRegionCount [tracy makeString "regionCount"]
     set kDrawCount [tracy makeString "drawCount"]
+
     while true {
         # This blocks until the start of the next frame.
         $gpu drawStart
@@ -1747,6 +1750,9 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
                     on error e { puts stderr [errorInfo $e] }
             }
         }
+
+        tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
+        tracy plot $kRegionCount [llength [Query! /someone/ claims /tag/ has region /r/]]
         tracy plot $kDrawCount $drawCount
         tracy zoneEnd
         $gpu drawEnd

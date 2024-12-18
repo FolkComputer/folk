@@ -550,6 +550,10 @@ When tag /tag/ has quad /q/ &\
 When display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ &\
      tag /tag/ is a tag & /tag/ has quad /q/ {
+
+    tracy zoneBegin
+    tracy zoneName "region($tag)"
+
     package require linalg
     namespace import \
         ::math::linearalgebra::sub
@@ -569,4 +573,6 @@ When display /proj/ has width /projWidth/ height /projHeight/ &\
     set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
 
     Claim $tag has region [region create $vertices $edges $angle]
+
+    tracy zoneEnd
 }
