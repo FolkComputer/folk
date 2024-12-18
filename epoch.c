@@ -84,7 +84,9 @@ void epochThreadInit() {
 
 static __thread TracyCZoneCtx __zoneCtx;
 void epochBegin() {
+#ifdef TRACY_ENABLE
     static const struct ___tracy_source_location_data TracyConcat(__tracy_source_location,TracyLine) = { "Epoch", __func__,  TracyFile, (uint32_t)TracyLine, 0 }; __zoneCtx = ___tracy_emit_zone_begin(&TracyConcat(__tracy_source_location,TracyLine), 1);
+#endif
 
     threadState->active = true;
     threadState->epochCounter = epochGlobalCounter;
@@ -146,7 +148,9 @@ void epochEnd() {
     epochRetireAll();
 
     threadState->active = false;
+#ifdef TRACY_ENABLE
     ___tracy_emit_zone_end(__zoneCtx);
+#endif
 }
 
 // This should be called from just one thread ever.
