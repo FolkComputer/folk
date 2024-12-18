@@ -158,7 +158,7 @@ void sysmon() {
 }
 
 void *sysmonMain(void *ptr) {
-#ifdef ENABLE_TRACY
+#ifdef TRACY_ENABLE
     TracyCSetThreadName("sysmon");
 #endif
 
