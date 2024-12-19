@@ -736,6 +736,26 @@ static void reactToNewStatement(StatementRef ref) {
 }
 
 void workerRun(WorkQueueItem item) {
+#ifdef TRACY_ENABLE
+    TracyCZoneCtx zone;
+    if (item.op == ASSERT) {
+        TracyCZoneN(ctx, "ASSERT", 1); zone = ctx;
+    } else if (item.op == RETRACT) {
+        TracyCZoneN(ctx, "RETRACT", 1); zone = ctx;
+    } else if (item.op == HOLD) {
+        TracyCZoneN(ctx, "HOLD", 1); zone = ctx;
+    } else if (item.op == SAY) {
+        TracyCZoneN(ctx, "SAY", 1); zone = ctx;
+    } else if (item.op == RUN) {
+        TracyCZoneN(ctx, "RUN", 1); zone = ctx;
+    } else if (item.op == EVAL) {
+        TracyCZoneN(ctx, "EVAL", 1); zone = ctx;
+    } else {
+        fprintf(stderr, "workerRun: Unknown item type\n");
+        exit(1);
+    }
+#endif
+
     self->currentItemStartTimestamp = timestamp_get(self->clockid);
 
     mutexLock(&self->currentItemMutex);
@@ -831,6 +851,10 @@ void workerRun(WorkQueueItem item) {
     mutexLock(&self->currentItemMutex);
     self->currentItem = (WorkQueueItem) { .op = NONE };
     mutexUnlock(&self->currentItemMutex);
+
+#ifdef TRACY_ENABLE
+    TracyCZoneEnd(zone);
+#endif
 }
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);

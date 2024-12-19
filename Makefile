@@ -40,6 +40,8 @@ test: folk
 	done
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o
+remote-clean:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make clean'
 deps:
 	make -C vendor/jimtcl
 	make -C vendor/apriltag libapriltag.so
@@ -59,11 +61,11 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; pkill folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo pkill folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 sudo-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo pkill folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; pkill folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo pkill folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; pkill folk; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
