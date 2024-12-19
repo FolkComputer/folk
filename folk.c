@@ -782,7 +782,11 @@ void workerRun(WorkQueueItem item) {
         clauseFree(item.retract.pattern);
 
     } else if (item.op == HOLD) {
-        /* printf("@%d: Hold (%s)\n", self->index, clauseToString(item.hold.clause)); */
+        /* printf("@%d: Hold (%s)\n", self->index,  clauseToString(item.hold.clause)); */
+        // TODO: Inject message for hold
+        char *s = clauseToString(item.hold.clause);
+        int len = strlen(s);
+        TracyCMessage(s, len < 300 ? len : 300); free(s);
 
         StatementRef oldRef; StatementRef newRef;
 
