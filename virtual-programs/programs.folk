@@ -19,6 +19,8 @@ When (non-capturing) /type/ /obj/ has a program {
                 puts stderr "programs: WARNING: Faulting to folk0 to try to get program $obj.folk"
                 exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
                     "http://folk0.local:4273/printed-programs/$obj.folk" &
+                exec curl --output "$::env(HOME)/folk-printed-programs/$obj.meta.folk" \
+                    "http://folk0.local:4273/printed-programs/$obj.meta.folk" &
                 # HACK: It won't be reloaded until you redetect the tag.
             }
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
@@ -27,6 +29,12 @@ When (non-capturing) /type/ /obj/ has a program {
         close $fd
 
         Claim $obj has program code $code
+
+        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.meta.folk"]} {
+            set mfd [open "$::env(HOME)/folk-printed-programs/$obj.meta.folk" r]
+            set metacode [read $mfd]; close $mfd
+            apply [list {this} $metacode] $obj
+        }
     } on error error {
         puts stderr "No code for $type $obj"
     }
