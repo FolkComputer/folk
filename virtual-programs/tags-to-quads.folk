@@ -513,24 +513,31 @@ namespace eval ::quad {
 Claim the tags-to-quads C library is $cc
 $cc compile
 
-When when tag /tag/ has geometry /geomVar/ /any/ with environment /any/ {
+# This (resolved geometry) feels like a hack.
+
+When when tag /tag/ has resolved geometry /geomVar/ /any/ with environment /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 48600} { return }
 
-    Wish tag $tag has geometry
+    Wish tag $tag has resolved geometry
 }
 When the default program geometry is /defaultGeom/ &\
-     /someone/ wishes tag /tag/ has geometry {
+     /someone/ wishes tag /tag/ has resolved geometry {
 
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {$tag >= 48600} { return }
 
-    if {[file exists "$::env(HOME)/folk-printed-programs/$tag.folkgeom"]} {
-        set fd [open "$::env(HOME)/folk-printed-programs/$tag.folkgeom" r]
-        set geom [read $fd]; close $fd
-        Claim tag $tag has geometry $geom
-    } else {
-        Claim tag $tag has geometry $defaultGeom
+    When the collected matches for [list /someone/ claims tag $tag has geometry /geom/] are /matches/ {
+        if {[llength $matches] == 1} {
+            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
+
+        } elseif {[llength $matches] == 0} {
+            Claim tag $tag has resolved geometry $defaultGeom
+
+        } else {
+            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
+            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
+        }
     }
 }
 
@@ -539,7 +546,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set ::prevTagPoses [dict create]
     When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
-         tag /tag/ has geometry /geom/ {
+         tag /tag/ has resolved geometry /geom/ {
 
         set tagSize [expr {[string map {mm ""} [dict get $geom tagSize]] / 1000.0}]
 
@@ -585,7 +592,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 }
 
 When tag /tag/ has quad /q/ &\
-     tag /tag/ has geometry /geom/ {
+     tag /tag/ has resolved geometry /geom/ {
 
     set pageQuad [quad buffer $q \
                       top [dict_getdef $geom top 0] \

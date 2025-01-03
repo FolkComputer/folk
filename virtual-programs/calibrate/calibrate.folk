@@ -626,9 +626,9 @@ Claim the default program geometry is \$geom
               different size, or you manually cut and pasted the tag
               30 somewhere and want to create a specially sized region
               around that, you can set tag 30's geometry manually by making a
-              30.folkgeom text file in ~/folk-printed-programs, with content like this:</p>
+              30.meta.folk text file in ~/folk-printed-programs, with content like this:</p>
 
-              <pre>tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm</pre>
+              <pre>Claim tag \$this has geometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}</pre>
             </details>
           </li>
 
