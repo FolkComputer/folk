@@ -72,13 +72,13 @@ Wish the web server handles route {/page/(.*)$} with handler {
             const code = document.getElementById("code").value;
             ws.send(tcl`
               set fp [open file_name w]
-              puts -nonewline $fp ${code}
+              puts -nonewline $fp [binary decode base64 ${btoa(code)}]
               close $fp
               puts "Saved program_id.folk"
             `);
 
             if (isVirtualProgram) {
-              ws.send(tcl`EditVirtualProgram file_name ${code}`)
+              ws.send(tcl`EditVirtualProgram file_name [binary decode base64 ${btoa(code)}`)
             }
           }
 
@@ -86,7 +86,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           function handlePrint() {
             const code = document.getElementById("code").value;
             jobid = String(Math.random());
-            ws.send(tcl`Wish to print program program_id with code ${code} job-id ${jobid}`);
+            ws.send(tcl`Wish to print program program_id with code [binary decode base64 ${btoa(code)}] job-id ${jobid}`);
           }
         </script>
         </body>
