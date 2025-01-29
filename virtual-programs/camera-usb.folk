@@ -298,7 +298,25 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
+    if {[dict exists $options crop]} {
+        set crop [dict get $options crop]
+    }
     Start process "camera $cameraPath $options" {
+        # HACK: we should share this
+        proc subimage {im x y subwidth subheight} {
+            dict with im {
+                set x [expr {int($x)}]
+                set y [expr {int($y)}]
+                set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+                dict create \
+                    width $subwidth \
+                    height $subheight \
+                    components $components \
+                    bytesPerRow $bytesPerRow \
+                    data [format "(uint8_t*) 0x%x" $subdata]
+            }
+        }
+
         Wish $::thisProcess shares statements like \
             [list /someone/ claims camera $cameraPath /...anything/]
 
@@ -313,9 +331,16 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {
             set frame [Camera::grayFrame $camera]
+            if {[info exists crop]} {
+                dict with crop {
+                    set cropped [subimage $frame $x $y $width $height]
+                }
+            } else {
+                set cropped $frame
+            }
             Hold {
                 Claim camera $cameraPath has camera time $::stepTime
-                Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
+                Claim camera $cameraPath has frame $cropped at timestamp [expr {[clock milliseconds] / 1000.0}]
             }
             lappend ::oldFrames $frame
             if {[llength $::oldFrames] >= 10} {
