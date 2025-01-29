@@ -117,10 +117,6 @@ proc handlePage {path httpStatusVar contentTypeVar} {
             set contentType "text/javascript"
             readFile "vendor/gstwebrtc/gstwebrtc-api-2.0.0.min.js" contentType
         }
-        "/folk_calibration_demo_video_2x_speed.mp4" {
-            set contentType "video/mp4"
-            readFile "assets/folk_calibration_demo_video_2x_speed.mp4" contentType
-        }
         default {
             upvar $httpStatusVar httpStatus
             set httpStatus "HTTP/1.1 404 Not Found"

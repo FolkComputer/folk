@@ -468,7 +468,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
 
-            <video autoplay controls muted width="100%" src="/folk_calibration_demo_video_2x_speed.mp4"></video>
+            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
             <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibration the Folk0 system (playing at 2x speed).</p>
 
