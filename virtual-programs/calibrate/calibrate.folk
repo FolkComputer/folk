@@ -468,6 +468,10 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
 
+            <video autoplay controls muted width="100%" src="/folk_calibration_demo_video_2x_speed.mp4"></video>
+
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibration the Folk0 system (playing at 2x speed).</p>
+
             <p>Are the projected tags too big to fit in the gaps between printed tags? Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
             </p>
