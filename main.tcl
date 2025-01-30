@@ -627,9 +627,11 @@ if {[info exists ::entry]} {
 
         # Load the setup program -- setup.folk.default gets overridden
         # if the user made their own setup.folk.
-        loadProgram [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
-                           "$::env(HOME)/folk-live/setup.folk" :
-                           "setup.folk.default"}]
+        set folkConfig [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                              "$::env(HOME)/folk-live/setup.folk" :
+                              "setup.folk.default"}]
+        puts "Using config at $folkConfig"
+        loadProgram $folkConfig
 
         foreach programFilename [list {*}[glob virtual-programs/*.folk] \
                                      {*}[glob virtual-programs/*/*.folk] \
