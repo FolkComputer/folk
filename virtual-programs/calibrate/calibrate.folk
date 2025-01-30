@@ -438,7 +438,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <li>
             <h3>Measure your calibration board.</h3>
 
-            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
+            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> (indicated on calibration PDF) of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
 
             <p>Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</p>
           </li>
@@ -486,7 +486,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
-          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so and hold it still again to capture another pose.</p>
+          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
           <p>Repeat this process of dragging the board around and
           capturing a new pose. You'll need to record 10 different
