@@ -61,15 +61,15 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 $(shell cat folk.pid); make deps && make CFLAGS=$(CFLAGS) && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 $(shell cat folk.pid); make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 $(shell cat folk.pid); make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 valgrind-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 $(shell cat folk.pid); ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 $(shell cat folk.pid); make deps && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
 heapprofile-remote-show:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk $(HEAPPROFILE)'
 heapprofile-remote-svg:
