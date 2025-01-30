@@ -6,6 +6,7 @@
 // Call this at startup from each thread that will use epoch-based
 // reclamation.
 void epochThreadInit();
+void epochThreadDestroy();
 
 void epochBegin();
 

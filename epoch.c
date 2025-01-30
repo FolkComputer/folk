@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -54,13 +55,14 @@ static EpochGlobalGarbage epochGlobalGarbage[3];
 // Thread-specific state that needs to also be readable from the
 // collector thread.
 typedef struct EpochThreadState {
+    _Atomic bool inUse;
+
     _Atomic bool active;
     _Atomic int epochCounter;
 } EpochThreadState;
 
 #define EPOCH_THREADS_MAX 100
 static EpochThreadState threadStates[EPOCH_THREADS_MAX];
-static _Atomic int threadCount;
 
 static __thread EpochThreadState *threadState;
 
@@ -68,18 +70,37 @@ static __thread EpochThreadState *threadState;
 
 #define FREES_MAX 1024
 static __thread void *frees[FREES_MAX];
-static __thread int freesNextIdx = 0;
+static __thread int freesNextIdx;
 
 #define ALLOCS_MAX 1024
 static __thread void *allocs[ALLOCS_MAX];
-static __thread int allocsNextIdx = 0;
+static __thread int allocsNextIdx;
 
 void epochThreadInit() {
-    int threadIdx = threadCount++;
+    int threadIdx = -1;
+    for (int i = 0; i < EPOCH_THREADS_MAX; i++) {
+        bool notInUse = false;
+        if (atomic_compare_exchange_weak(&threadStates[i].inUse, &notInUse, true)) {
+            threadIdx = i;
+            break;
+        }
+    }
+    if (threadIdx == -1) {
+        fprintf(stderr, "epochThreadInit: no more thread slots\n");
+        exit(1);
+    }
+
     fprintf(stderr, "thread %d: epochThreadInit\n", threadIdx);
     threadState = &threadStates[threadIdx];
+    threadState->inUse = true;
     threadState->active = false;
     threadState->epochCounter = 0;
+
+    freesNextIdx = 0;
+    allocsNextIdx = 0;
+}
+void epochThreadDestroy() {
+    threadState->inUse = false;
 }
 
 static __thread TracyCZoneCtx __zoneCtx;
@@ -131,8 +152,9 @@ static void epochRetireAll() {
         if (gidx >= EPOCH_GARBAGE_MAX) {
             fprintf(stderr, "epochRetireAll: ran out of global garbage slots (epoch %d)\n",
                     epochGlobalCounter);
-            for (int i = 0; i < threadCount; i++) {
+            for (int i = 0; i < EPOCH_THREADS_MAX; i++) {
                 EpochThreadState *st = &threadStates[i];
+                if (!st->inUse) { continue; }
                 fprintf(stderr, "  thread %d: epoch %d\n",
                         i, st->epochCounter);
             }
@@ -155,8 +177,10 @@ void epochEnd() {
 
 // This should be called from just one thread ever.
 void epochGlobalCollect() {
-    for (int i = 0; i < threadCount; i++) {
+    for (int i = 0; i < EPOCH_THREADS_MAX; i++) {
         EpochThreadState *st = &threadStates[i];
+        if (!st->inUse) { continue; }
+
         if (st->active && st->epochCounter != epochGlobalCounter) {
             return;
         }

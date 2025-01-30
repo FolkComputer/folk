@@ -70,7 +70,8 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
     int64_t now = timestamp_get(self->clockid);
     if (self->currentItemStartTimestamp == 0 ||
         now - self->currentItemStartTimestamp < 1000000) {
-        // This worker is responsive. Push to its queue.
+        // The current worker is responsive (hasn't been running that
+        // long). Push to its queue.
         workQueuePush(self->workQueue, item);
     } else {
         globalWorkQueuePush(item);
@@ -849,6 +850,25 @@ void workerRun(WorkQueueItem item) {
         fprintf(stderr, "workerRun: Unknown work item op: %d\n",
                 item.op);
         exit(1);
+    }
+
+    // Did this work item take more than 10ms to run? If so, then
+    // we'll terminate this worker thread, because we assume that
+    // sysmon spawned a new thread that's more responsive & we don't
+    // want to overcrowd the CPUs with threads (they'd start
+    // preempting each other and introduce latency).
+    if (timestamp_get(self->clockid) - self->currentItemStartTimestamp > 10000000) {
+        self->tid = 0;
+
+        // Empty out our workqueue before we exit this thread.
+        while (true) {
+            WorkQueueItem item = workQueueTake(self->workQueue);
+            if (item.op == NONE) { break; }
+            globalWorkQueuePush(item);
+        }
+
+        epochThreadDestroy();
+        pthread_exit(NULL);
     }
 
     self->currentItemStartTimestamp = 0;
