@@ -1,4 +1,20 @@
-puts Boot
+puts "boot: Boot (PID [pid])"
+apply {{} {
+    catch {
+        set fp [open "folk.pid" r]
+        set oldPid [read $fp]; close $fp
+        try {
+            exec ps -p $oldPid
+            puts stderr "boot: ERROR: Another Folk (PID $oldPid) already running."
+            __exit 1
+        } on error e {
+            puts stderr $e
+        }
+    }
+
+    set fp [open "folk.pid" w]
+    puts -nonewline $fp [pid]; close $fp
+}}
 
 Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {
     set __programCode [info source $__programCode $__this 1]
