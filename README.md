@@ -61,7 +61,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - wait until process death to start
 - blinking on folk0
 - fix small memory leak
-- todo:
-  - trace the db lock, figure out why collect is slow
-  - name zones to figure out actual latency
+- remove live queries from region generation
+- remove Say and Hold from workqueue, just do them on thread? esp
+  sysmon
+- why isn't region running in time?
+  - thread migration?
 
