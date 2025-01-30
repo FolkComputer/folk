@@ -4,7 +4,7 @@ apply {{} {
         set fp [open "folk.pid" r]
         set oldPid [read $fp]; close $fp
         try {
-            exec ps -p $oldPid
+            exec ps -p $oldPid >/dev/null
             puts stderr "boot: ERROR: Another Folk (PID $oldPid) already running."
             __exit 1
         } on error e {
