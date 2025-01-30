@@ -85,3 +85,6 @@ remote-flamegraph:
 	ssh -t $(FOLK_REMOTE_NODE) -- make -C folk2 flamegraph
 	scp $(FOLK_REMOTE_NODE):~/folk2/out.svg .
 	scp $(FOLK_REMOTE_NODE):~/folk2/out.perf .
+
+run-tracy:
+	vendor/tracy/profiler/build/tracy-profiler
