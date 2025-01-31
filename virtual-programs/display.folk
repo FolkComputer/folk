@@ -105,7 +105,7 @@ Try doing `sudo adduser folk render`."
         VkSemaphore renderFinishedSemaphore;
         VkFence inFlightFence;
     }
-    dc proc init {int displayIdx} void [csubst {
+    dc proc init {int displayIdx uint32_t swapchainPadding} void [csubst {
         $[vktry volkInitialize()]
         $[if {$macos} { expr {"glfwInit();"} }]
 
@@ -298,7 +298,7 @@ Try doing `sudo adduser folk render`."
                 } : {} }]
             }
 
-            imageCount = capabilities.minImageCount + 1;
+            imageCount = capabilities.minImageCount + swapchainPadding;
             if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
                 imageCount = capabilities.maxImageCount;
             }
@@ -359,6 +359,10 @@ Try doing `sudo adduser folk render`."
 
         // Set up uint32_t swapchainImageCount:
         vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
+
+        printf("LATENCY: Display swapchain image count: %d\n", swapchainImageCount);
+        fflush(stdout);
+
         VkImage swapchainImages[swapchainImageCount];
         VkFormat swapchainImageFormat;
         // Set up VkExtent2D swapchainExtent:
@@ -1626,7 +1630,7 @@ Start-display-process {
     source "lib/colors.tcl"
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ wishes $::thisNode uses display /displayIdx/]
+        [list /someone/ wishes $::thisNode uses display /displayIdx/ /...anything/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
@@ -1636,8 +1640,10 @@ Start-display-process {
     Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
-    When /someone/ wishes $::thisNode uses display /displayIdx/ {
-        Gpu::init $displayIdx
+    When /someone/ wishes $::thisNode uses display /displayIdx/ with /...options/ {
+        set swapchainPadding [dict get $options swapchainPadding]
+
+        Gpu::init $displayIdx $swapchainPadding
         Gpu::ImageManager::imageManagerInit
 
         Claim display $displayIdx has width [Gpu::getWidth] height [Gpu::getHeight]
