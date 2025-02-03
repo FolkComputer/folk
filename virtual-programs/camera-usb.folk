@@ -301,7 +301,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
-    set bufferCount [dict get $options bufferCount]
+    set bufferCount [dict_getdef $options bufferCount 4]
 
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
