@@ -103,25 +103,29 @@ void sysmon() {
     }
 
     // Third: manage the pool of worker threads.
-    // How many workers are 'available'?
-    int availableWorkersCount = 0;
+    // How many workers are not blocked on I/O?
+    int notBlockedWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
         pid_t tid = threads[i].tid;
         if (tid == 0) { continue; }
 
-        // Check work item start timestamp. Been working for less than
-        // 10 ms? We'll count it as available.
-        int64_t now = timestamp_get(threads[i].clockid);
-        if (threads[i].currentItemStartTimestamp == 0 ||
-            now - threads[i].currentItemStartTimestamp < 10000000) {
+        char path[100]; snprintf(path, 100, "/proc/%d/stat", tid);
+        FILE *fp = fopen(path, "r");
+        if (fp == NULL) { continue; }
+        int _pid; char _name[100]; char state;
+        // TODO: doesn't deal with name with space in it.
+        fscanf(fp, "%d %s %c ", &_pid, _name, &state);
+        fclose(fp);
 
-            availableWorkersCount++;
+        // If it's running, then we'll count it as non-blocked.
+        if (state == 'R') {
+            notBlockedWorkersCount++;
         }
     }
-    if (availableWorkersCount < 2) {
+    if (notBlockedWorkersCount < 2) {
         // new worker spawns should be safe, legal, and rare.
-        fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
+        // fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
         workerSpawn();
     }
 
