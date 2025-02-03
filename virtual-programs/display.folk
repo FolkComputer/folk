@@ -1630,7 +1630,7 @@ Start-display-process {
     source "lib/colors.tcl"
 
     Wish $::thisProcess receives statements like \
-        [list /someone/ wishes $::thisNode uses display /displayIdx/ /...anything/]
+        [list /someone/ wishes $::thisNode uses display /...anything/]
     Wish $::thisProcess receives statements like \
         [list /someone/ wishes the GPU /...anything/]
     Wish $::thisProcess shares statements like \
@@ -1639,6 +1639,11 @@ Start-display-process {
         [list /someone/ claims display /any/ has width /w/ height /h/]
     Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
+
+    # for backwards compatibility
+    When /someone/ wishes $::thisNode uses display /displayIdx/ {
+        Wish $::thisNode uses display $displayIdx with swapchainPadding 1
+    }
 
     When /someone/ wishes $::thisNode uses display /displayIdx/ with /...options/ {
         set swapchainPadding [dict get $options swapchainPadding]
