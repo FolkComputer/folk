@@ -1020,8 +1020,8 @@ void* workerMain(void* arg) {
 
     int threadIndex = -1;
     int i;
-    pid_t zero = 0;
     for (i = 0; i < THREADS_MAX; i++) {
+        pid_t zero = 0;
         if (atomic_compare_exchange_weak(&threads[i].tid, &zero, tid)) {
             threadIndex = i;
             break;
