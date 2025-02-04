@@ -852,23 +852,23 @@ void workerRun(WorkQueueItem item) {
         exit(1);
     }
 
-    // Did this work item take more than 10ms to run? If so, then
-    // we'll terminate this worker thread, because we assume that
-    // sysmon spawned a new thread that's more responsive & we don't
-    // want to overcrowd the CPUs with threads (they'd start
+    // Was this work item marked as I/O-blocked by sysmon? If so, then
+    // we'll deactivate this worker thread, because we assume
+    // that sysmon spawned a new thread that's more responsive & we
+    // don't want to overcrowd the CPUs with threads (they'd start
     // preempting each other and introduce latency).
-    if (timestamp_get(self->clockid) - self->currentItemStartTimestamp > 10000000) {
-        self->tid = 0;
-
-        // Empty out our workqueue before we exit this thread.
+    if (self->wasObservedAsBlocked) {
+        self->wasObservedAsBlocked = false;
+        // Donate our entire workqueue before we deactivate.
         while (true) {
             WorkQueueItem item = workQueueTake(self->workQueue);
             if (item.op == NONE) { break; }
             globalWorkQueuePush(item);
         }
 
-        epochThreadDestroy();
-        pthread_exit(NULL);
+        self->isDeactivated = true;
+        sem_wait(&self->reactivate);
+        self->isDeactivated = false;
     }
 
     self->currentItemStartTimestamp = 0;
@@ -990,6 +990,9 @@ void workerInit(int index) {
         self->workQueue = workQueueNew();
         self->currentItem = (WorkQueueItem) { .op = NONE };
         mutexInit(&self->currentItemMutex);
+
+        self->isDeactivated = false;
+        sem_init(&self->reactivate, 0, 0);
     }
 
     epochThreadInit();
@@ -1042,6 +1045,16 @@ void* workerMain(void* arg) {
 void workerSpawn() {
     pthread_t th;
     pthread_create(&th, NULL, workerMain, NULL);
+}
+void workerReactivateOrSpawn() {
+    for (int i = 0; i < THREADS_MAX; i++) {
+        if (threads[i].tid != 0 && threads[i].isDeactivated) {
+            sem_post(&threads[i].reactivate);
+            return;
+        }
+    }
+    fprintf(stderr, "workerSpawn\n");
+    workerSpawn();
 }
 
 int main(int argc, char** argv) {

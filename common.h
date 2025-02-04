@@ -1,6 +1,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <semaphore.h>
 #include <stdio.h>
 #include <errno.h>
 
@@ -32,6 +33,12 @@ typedef struct ThreadControlBlock {
     // Used for managing the threadpool.
     clockid_t clockid;
     int64_t _Atomic currentItemStartTimestamp;
+    bool _Atomic wasObservedAsBlocked;
+    // We may deactivate (block on semaphore indefinitely) threads if
+    // they got caught on some I/O-bound task and there are enough
+    // non-benched threads to utilize the CPUs.
+    bool _Atomic isDeactivated;
+    sem_t reactivate;
 
     // Current match being constructed (if applicable).
     Match* currentMatch;

@@ -24,7 +24,7 @@ extern void trace(const char* format, ...);
 
 extern void globalWorkQueuePush(WorkQueueItem item);
 
-void workerSpawn();
+void workerReactivateOrSpawn();
 
 // HACK: ncpus - 1
 #define THREADS_ACTIVE_TARGET 3
@@ -103,12 +103,12 @@ void sysmon() {
     }
 
     // Third: manage the pool of worker threads.
-    // How many workers are not blocked on I/O?
+    // How many workers are _not_ blocked on I/O?
     int notBlockedWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
         pid_t tid = threads[i].tid;
-        if (tid == 0) { continue; }
+        if (tid == 0 || threads[i].isDeactivated) { continue; }
 
         char path[100]; snprintf(path, 100, "/proc/%d/stat", tid);
         FILE *fp = fopen(path, "r");
@@ -121,12 +121,19 @@ void sysmon() {
         // If it's running, then we'll count it as non-blocked.
         if (state == 'R') {
             notBlockedWorkersCount++;
+            threads[i].wasObservedAsBlocked = false;
+        } else {
+            // Mark that the thread was blocked on I/O so that the
+            // thread can deactivate when done with its current work
+            // item (so we don't get overcrowding of threads for the #
+            // of CPUs).
+            threads[i].wasObservedAsBlocked = true;
         }
     }
     if (notBlockedWorkersCount < 2) {
-        // new worker spawns should be safe, legal, and rare.
-        // fprintf(stderr, "workerSpawn (count = %d)\n", availableWorkersCount);
-        workerSpawn();
+        // Too many threads are blocked on I/O. Let's pull in another
+        // one to occupy a CPU and do Folk work.
+        workerReactivateOrSpawn();
     }
 
     // Fourth: update the clock time statement in the database.
