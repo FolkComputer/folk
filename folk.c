@@ -852,6 +852,15 @@ void workerRun(WorkQueueItem item) {
         exit(1);
     }
 
+    self->currentItemStartTimestamp = 0;
+    mutexLock(&self->currentItemMutex);
+    self->currentItem = (WorkQueueItem) { .op = NONE };
+    mutexUnlock(&self->currentItemMutex);
+
+#ifdef TRACY_ENABLE
+    TracyCZoneEnd(zone);
+#endif
+
     // Was this work item marked as I/O-blocked by sysmon? If so, then
     // we'll deactivate this worker thread, because we assume
     // that sysmon spawned a new thread that's more responsive & we
@@ -870,15 +879,6 @@ void workerRun(WorkQueueItem item) {
         sem_wait(&self->reactivate);
         self->isDeactivated = false;
     }
-
-    self->currentItemStartTimestamp = 0;
-    mutexLock(&self->currentItemMutex);
-    self->currentItem = (WorkQueueItem) { .op = NONE };
-    mutexUnlock(&self->currentItemMutex);
-
-#ifdef TRACY_ENABLE
-    TracyCZoneEnd(zone);
-#endif
 }
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
