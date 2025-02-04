@@ -331,47 +331,196 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
     return ret;
 }
 
-$cc proc stabilizedPose { TagPose[] poses int n_poses double largeMovementThreshold } TagPose {
-    TagPose averagePose = {0};
+$cc struct PoseMetadata {
+    double quat_wxyz[4];
+    double delta_dist;
+    double total_dist;
+}
 
-    double largeMovementThresholdSq = largeMovementThreshold * largeMovementThreshold;
-    double totalDistanceTravelled = 0.0;
+$cc proc createLatestMetadata { TagPose[] poses int n_poses PoseMetadata[] meta int n_meta } PoseMetadata {
+    PoseMetadata ret = {0};
 
-    for (int i = 0; i < n_poses; i++) {
-        // add up travel distance between every point in history
-        // that way it won't glitch forward, then play catch up
-        if (i > 0) {
-            double diff_x = poses[i].t[0][0] - poses[i - 1].t[0][0];
-            double diff_y = poses[i].t[1][0] - poses[i - 1].t[1][0];
-            double diff_z = poses[i].t[2][0] - poses[i - 1].t[2][0];
+    // overview: the front of metadata will not be calculated yet, as it was just prepended
+    // so we'll extract the rotation from the front pose and put it in the metadata
+    // as well as calculate delta distance and total distance travelled
 
-            double diffSq = diff_x * diff_x + diff_y * diff_y + diff_z * diff_z;
-            totalDistanceTravelled += diffSq;
-        }
+    double R[3][3];
+    memcpy(R, poses[0].R, sizeof(R));
 
-        for (int y = 0; y < 3; y++) {
-            for (int x = 0; x < 3; x++) {
-                averagePose.R[y][x] += poses[i].R[y][x];
-            }
+    // step 1: orthonormal matrix -> quaternion
+    // from https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/
 
-            averagePose.t[y][0] += poses[i].t[y][0];
+    double w, x, y, z = 0.0;
+
+    double trace = R[0][0] + R[1][1] + R[2][2];
+    if (trace > 0.0) {
+        double s = 0.5 / sqrt(trace + 1.0);
+        w = 0.25 / s;
+        x = (R[2][1] - R[1][2]) * s;
+        y = (R[0][2] - R[2][0]) * s;
+        z = (R[1][0] - R[0][1]) * s;
+    } else {
+        if (R[0][0] > R[1][1] && R[0][0] > R[2][2]) {
+            double s = 2.0 * sqrt(1.0 + R[0][0] - R[1][1] - R[2][2]);
+            w = (R[2][1] - R[1][2]) / s;
+            x = 0.25 * s;
+            y = (R[0][1] + R[1][0]) / s;
+            z = (R[0][2] + R[2][0]) / s;
+        } else if (R[1][1] > R[2][2]) {
+            double s = 2.0 * sqrt(1.0 + R[1][1] - R[0][0] - R[2][2]);
+            w = (R[0][2] - R[2][0]) / s;
+            x = (R[0][1] + R[1][0]) / s;
+            y = 0.25 * s;
+            z = (R[1][2] + R[2][1]) / s;
+        } else {
+            double s = 2.0 * sqrt(1.0 + R[2][2] - R[0][0] - R[1][1]);
+            w = (R[1][0] - R[0][1]) / s;
+            x = (R[0][2] + R[2][0]) / s;
+            y = (R[1][2] + R[2][1]) / s;
+            z = 0.25 * s;
         }
     }
 
-    for (int y = 0; y < 3; y++) {
-        for (int x = 0; x < 3; x++) {
-            averagePose.R[y][x] /= (double) n_poses;
+    ret.quat_wxyz[0] = w;
+    ret.quat_wxyz[1] = x;
+    ret.quat_wxyz[2] = y;
+    ret.quat_wxyz[3] = z;
+
+    // do this later as metadata needs to be initialized for the first pose
+    if (n_poses < 2) return ret;
+
+    // step 2: calculate distance from last position
+    double last[3][1];
+    memcpy(last, poses[1].t, sizeof(last));
+    double current[3][1];
+    memcpy(current, poses[0].t, sizeof(current));
+
+    double delta_x = current[0][0] - last[0][0];
+    double delta_y = current[1][0] - last[1][0];
+    double delta_z = current[2][0] - last[2][0];
+
+    ret.delta_dist = sqrt(
+        delta_x * delta_x +
+        delta_y * delta_y +
+        delta_z * delta_z
+    );
+
+    // step 3: calculate total distance
+    double distance_sum = ret.delta_dist;
+
+    // `n_meta - 1` as otherwise we'd count one extra delta
+    for (intptr_t i = 0; i < n_meta - 1; i++) {
+        distance_sum += meta[i].delta_dist;
+    }
+
+    ret.total_dist = distance_sum;
+
+    return ret;
+}
+
+$cc struct PoseAndMeta {
+    TagPose pose;
+    PoseMetadata meta;
+}
+
+$cc proc smoothedPose { TagPose[] poses int n_poses PoseMetadata[] meta int n_meta
+                        double largeMovementThreshold } PoseAndMeta {
+    PoseAndMeta ret = {0};
+
+    if (n_poses < 1) return ret;
+
+    // current metadata
+    PoseMetadata cur_meta = createLatestMetadata(poses, n_poses, meta, n_meta);
+    ret.meta = cur_meta;
+    
+    if (n_poses < 2 || n_meta < 1) {
+        ret.pose = poses[0];
+
+       return ret;
+    }
+
+    // If at any point in the past there was a large movement, we will return the latest pose.
+    // That way it doesn't jump forward, and then halfway through jump back to the average
+    // that's catching up
+
+    if (cur_meta.total_dist > largeMovementThreshold) {
+        ret.pose = poses[0];
+
+        return ret;
+    }
+
+    for (intptr_t i = 0; i < n_meta; i++) {
+        if (meta[i].total_dist > largeMovementThreshold) {
+            ret.pose = poses[0];
+
+            return ret;
         }
-
-        averagePose.t[y][0] /= (double) n_poses;
     }
 
-    if (totalDistanceTravelled >= largeMovementThresholdSq) {
-        // return latest tag pose as history can't be trusted
-        return poses[0];
+    TagPose pose = {0};
+
+    // So, technically, quaternion averaging is really tricky, but I'm pretty sure that for a subset of
+    // the problem space (q[0] dot q[1..] is all > 0) we can cheat and just sum everything up, and normalize after
+
+    for (intptr_t i = 0; i < n_meta; i++) {
+        double dot_product = (
+            cur_meta.quat_wxyz[0] * meta[i].quat_wxyz[0] +
+            cur_meta.quat_wxyz[1] * meta[i].quat_wxyz[1] +
+            cur_meta.quat_wxyz[2] * meta[i].quat_wxyz[2] +
+            cur_meta.quat_wxyz[3] * meta[i].quat_wxyz[3]
+        );
+
+        if (dot_product <= 0.0) {
+            ret.pose = poses[0];
+
+            return ret; // averaging won't work this time
+        }
     }
 
-    return averagePose;
+    double w = cur_meta.quat_wxyz[0];
+    double x = cur_meta.quat_wxyz[1];
+    double y = cur_meta.quat_wxyz[2];
+    double z = cur_meta.quat_wxyz[3];
+
+    for (intptr_t i = 0; i < n_meta; i++) {
+        w += meta[i].quat_wxyz[0];
+        x += meta[i].quat_wxyz[1];
+        y += meta[i].quat_wxyz[2];
+        z += meta[i].quat_wxyz[3];
+    }
+
+    // normalize quaternion
+    double magnitude = sqrt(w * w + x * x + y * y + z * z);
+    w /= magnitude;
+    x /= magnitude;
+    y /= magnitude;
+    z /= magnitude;
+
+    // quaterion -> matrix
+    // from https://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/index.htm
+    double R[3][3] = {
+        {1.0 - 2.0*y*y - 2.0*z*z, 2.0*x*y - 2.0*z*w,       2.0*x*z + 2.0*y*w    },
+        {2.0*x*y + 2.0*z*w,       1.0 - 2.0*x*x - 2.0*z*z, 2.0*y*z - 2.0*x*w    },
+        {2.0*x*z - 2.0*y*w,       2.0*y*z + 2.0*x*w,       1.0 - 2.0*x*x - 2*y*y}
+    };
+    
+    memcpy(pose.R, R, sizeof(pose.R));
+
+    // average position
+    for (intptr_t i = 0; i < n_poses; i++) {
+        pose.t[0][0] += poses[i].t[0][0];
+        pose.t[1][0] += poses[i].t[1][0];
+        pose.t[2][0] += poses[i].t[2][0];
+    }
+
+    pose.t[0][0] /= (double) n_poses;
+    pose.t[1][0] /= (double) n_poses;
+    pose.t[2][0] /= (double) n_poses;
+
+    ret.pose = pose;
+    ret.meta = cur_meta;
+
+    return ret;
 }
 
 
@@ -625,22 +774,24 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # list of last recorded positions for this tag
         set lastPositions [dict_getdef $::tagHistory $tag poses [list]]
+        set lastMetadata [dict_getdef $::tagHistory $tag metadata [list]]
 
         # add current pose
         set lastPositions [linsert $lastPositions 0 $tagPose]
 
-        # can't start smoothing until we have enough data points
+        set poseAndMeta [smoothedPose $lastPositions [llength $lastPositions] $lastMetadata [llength $lastMetadata] 0.03]
+        set tagPose [dict get $poseAndMeta pose]
+
+        set lastMetadata [linsert $lastMetadata 0 [dict get $poseAndMeta meta]]
+
         if {[llength $lastPositions] >= $historyLen} {
-            # average poses
-            set average [stabilizedPose $lastPositions [llength $lastPositions] 0.01]
-
-            set tagPose $average
-
             # trim the end of the list
             set lastPositions [lreplace $lastPositions $historyLen [llength $lastPositions]]
+            set lastMetadata [lreplace $lastMetadata [expr {$historyLen - 1}] [llength $lastMetadata]]
         }
 
         dict set ::tagHistory $tag poses $lastPositions
+        dict set ::tagHistory $tag metadata $lastMetadata
 
         set tagToCameraSpaceChanger [list apply {{tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
