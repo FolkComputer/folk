@@ -15,7 +15,7 @@ apply {{} {
     set fp [open "folk.pid" w]
     puts -nonewline $fp [pid]; close $fp
     # in case we're running as root:
-    exec chown folk folk.pid
+    catch { exec chown folk folk.pid }
 }}
 
 Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {

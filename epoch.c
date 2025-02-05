@@ -188,7 +188,7 @@ void epochGlobalCollect() {
     int freeableEpoch = (epochGlobalCounter++) - 1;
     // Free garbage from 2 epochs ago, which is guaranteed to be
     // untouchable by any active thread:
-    EpochGlobalGarbage *g = &epochGlobalGarbage[freeableEpoch % 3];
+    EpochGlobalGarbage *g = &epochGlobalGarbage[((freeableEpoch % 3) + 3) % 3];
     int garbageCount = g->garbageNextIdx;
     for (int i = 0; i < garbageCount; i++) {
 #ifdef TRACY_ENABLE

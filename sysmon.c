@@ -104,6 +104,7 @@ void sysmon() {
 
     // Third: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
+#ifdef __linux__
     int notBlockedWorkersCount = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         // We can be a little sketchy with the counting.
@@ -130,11 +131,12 @@ void sysmon() {
             threads[i].wasObservedAsBlocked = true;
         }
     }
-    if (notBlockedWorkersCount < 2) {
+    if (notBlockedWorkersCount < 3) {
         // Too many threads are blocked on I/O. Let's pull in another
         // one to occupy a CPU and do Folk work.
         workerReactivateOrSpawn();
     }
+#endif
 
     // Fourth: update the clock time statement in the database.
     // sysmon.c claims the clock time is <TIME>
