@@ -90,7 +90,7 @@ void epochThreadInit() {
         exit(1);
     }
 
-    fprintf(stderr, "thread %d: epochThreadInit\n", threadIdx);
+    /* fprintf(stderr, "thread %d: epochThreadInit\n", threadIdx); */
     threadState = &threadStates[threadIdx];
     threadState->inUse = true;
     threadState->active = false;
