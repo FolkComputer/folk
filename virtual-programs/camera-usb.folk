@@ -63,7 +63,7 @@ set makeCamera {
         return camera;
     }
 
-    camc proc cameraInit {camera_t* camera} void {
+    camc proc cameraInit {camera_t* camera uint32_t requested_buffer_count } void {
         struct v4l2_capability cap;
         if (xioctl(camera->fd, VIDIOC_QUERYCAP, &cap) == -1) quit("VIDIOC_QUERYCAP");
         if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) quit("no capture");
@@ -91,12 +91,15 @@ set makeCamera {
         /* } */
 
         struct v4l2_requestbuffers req = {0};
-        req.count = 4;
+        req.count = requested_buffer_count;
         req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         req.memory = V4L2_MEMORY_MMAP;
         if (xioctl(camera->fd, VIDIOC_REQBUFS, &req) == -1) quit("VIDIOC_REQBUFS");
         camera->buffer_count = req.count;
         camera->buffers = calloc(req.count, sizeof (buffer_t));
+
+        printf("LATENCY: Camera buffer count: %d\n", req.count);
+        fflush(stdout);
 
         struct v4l2_streamparm streamparm = {0};
         streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -265,9 +268,9 @@ set makeCamera {
     }
     camc compile
 
-    proc new {device width height} {
+    proc new {device width height bufferCount } {
         set camera [cameraOpen $device $width $height]
-        cameraInit $camera
+        cameraInit $camera $bufferCount
         cameraStart $camera
         # skip 5 frames for booting a cam
         for {set i 0} {$i < 5} {incr i} {
@@ -298,6 +301,8 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
+    set bufferCount [dict_getdef $options bufferCount 4]
+
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
     }
@@ -321,7 +326,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
             [list /someone/ claims camera $cameraPath /...anything/]
 
         namespace eval Camera $makeCamera
-        set camera [Camera::new $cameraPath $width $height]
+        set camera [Camera::new $cameraPath $width $height $bufferCount]
 
         # TODO: report actual width and height from v4l2
         Claim camera $cameraPath has width $width height $height
