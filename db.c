@@ -804,7 +804,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                     // Free the new statement `ref` that we created,
                     // since we won't be using it.
                     Statement* newStmt = statementAcquire(db, ref);
-                    statementDecrParentCountAndMaybeRemoveSelf(db, newStmt);
+                    statementRemoveSelf(db, newStmt);
                     statementRelease(db, newStmt);
 
                     if (parentMatch != NULL) {
