@@ -328,7 +328,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         set frame [Camera::grayFrame $camObj]
         set timestamp [expr {[clock milliseconds] / 1000.0}]
         tracy zoneName "camera-usb: $timestamp"
-        Hold! camera [list $this claims camera $camera has frame $frame at timestamp $timestamp] 16
+        Hold! camera [list $this claims camera $camera has frame $frame at timestamp $timestamp]
 
         lappend oldFrames $frame
         if {[llength $oldFrames] >= 50} {
