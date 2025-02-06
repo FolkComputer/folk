@@ -331,247 +331,13 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
     return ret;
 }
 
-$cc struct PoseMetadata {
-    double quat_wxyz[4];
-    double delta_dist;
-    double total_dist;
+$cc proc poseDistSq { TagPose p1 TagPose p2 } double {
+    double delta_x = p2.t[0][0] - p1.t[0][0];
+    double delta_y = p2.t[1][0] - p1.t[1][0];
+    double delta_z = p2.t[2][0] - p1.t[2][0];
+
+    return delta_x * delta_x + delta_y * delta_y + delta_z * delta_z;
 }
-
-$cc proc hermiteInterp { double x0 double x1 double x2 double x3 double t } double {
-    double diff = x1 - x2;
-    double c1 = x2 - x0;
-    double c3 = x3 - x0 + 3.0 * diff;
-    double c2 = -(2.0 * diff + c1 + c3);
-
-    return 0.5 * ((c3 * t + c2) * t + c1) * t + x1;
-}
-
-$cc proc createLatestMetadata { TagPose[] poses int n_poses PoseMetadata[] meta int n_meta } PoseMetadata {
-    PoseMetadata ret = {0};
-
-    // overview: the front of metadata will not be calculated yet, as it was just prepended
-    // so we'll extract the rotation from the front pose and put it in the metadata
-    // as well as calculate delta distance and total distance travelled
-
-    double R[3][3];
-    memcpy(R, poses[0].R, sizeof(R));
-
-    // step 1: orthonormal matrix -> quaternion
-    // from https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/
-
-    double w, x, y, z = 0.0;
-
-    double trace = R[0][0] + R[1][1] + R[2][2];
-    if (trace > 0.0) {
-        double s = 0.5 / sqrt(trace + 1.0);
-        w = 0.25 / s;
-        x = (R[2][1] - R[1][2]) * s;
-        y = (R[0][2] - R[2][0]) * s;
-        z = (R[1][0] - R[0][1]) * s;
-    } else {
-        if (R[0][0] > R[1][1] && R[0][0] > R[2][2]) {
-            double s = 2.0 * sqrt(1.0 + R[0][0] - R[1][1] - R[2][2]);
-            w = (R[2][1] - R[1][2]) / s;
-            x = 0.25 * s;
-            y = (R[0][1] + R[1][0]) / s;
-            z = (R[0][2] + R[2][0]) / s;
-        } else if (R[1][1] > R[2][2]) {
-            double s = 2.0 * sqrt(1.0 + R[1][1] - R[0][0] - R[2][2]);
-            w = (R[0][2] - R[2][0]) / s;
-            x = (R[0][1] + R[1][0]) / s;
-            y = 0.25 * s;
-            z = (R[1][2] + R[2][1]) / s;
-        } else {
-            double s = 2.0 * sqrt(1.0 + R[2][2] - R[0][0] - R[1][1]);
-            w = (R[1][0] - R[0][1]) / s;
-            x = (R[0][2] + R[2][0]) / s;
-            y = (R[1][2] + R[2][1]) / s;
-            z = 0.25 * s;
-        }
-    }
-
-    ret.quat_wxyz[0] = w;
-    ret.quat_wxyz[1] = x;
-    ret.quat_wxyz[2] = y;
-    ret.quat_wxyz[3] = z;
-
-    // do this later as metadata needs to be initialized for the first pose
-    if (n_poses < 2) return ret;
-
-    // step 2: calculate distance from last position
-    double last[3][1];
-    memcpy(last, poses[1].t, sizeof(last));
-    double current[3][1];
-    memcpy(current, poses[0].t, sizeof(current));
-
-    double delta_x = current[0][0] - last[0][0];
-    double delta_y = current[1][0] - last[1][0];
-    double delta_z = current[2][0] - last[2][0];
-
-    ret.delta_dist = sqrt(
-        delta_x * delta_x +
-        delta_y * delta_y +
-        delta_z * delta_z
-    );
-
-    // step 3: calculate total distance
-    double distance_sum = ret.delta_dist;
-
-    // `n_meta - 1` as otherwise we'd count one extra delta
-    for (intptr_t i = 0; i < n_meta - 1; i++) {
-        distance_sum += meta[i].delta_dist;
-    }
-
-    ret.total_dist = distance_sum;
-
-    return ret;
-}
-
-$cc struct PoseAndMeta {
-    TagPose pose;
-    PoseMetadata meta;
-}
-
-$cc proc smoothedPose { TagPose[] poses int n_poses PoseMetadata[] meta int n_meta
-                        double largeMovementThreshold } PoseAndMeta {
-    PoseAndMeta ret = {0};
-
-    if (n_poses < 1) return ret;
-
-    // current metadata
-    PoseMetadata cur_meta = createLatestMetadata(poses, n_poses, meta, n_meta);
-    ret.meta = cur_meta;
-    
-    if (n_poses < 4 || n_meta < 3) {
-        ret.pose = poses[0];
-
-       return ret;
-    }
-
-    // If at any point in the past there was a large movement, we will return the latest pose.
-    // That way it doesn't jump forward, and then halfway through jump back to the average
-    // that's catching up
-
-    if (cur_meta.total_dist > largeMovementThreshold) {
-        ret.pose = poses[0];
-
-        return ret;
-    }
-
-    for (intptr_t i = 0; i < n_meta; i++) {
-        if (meta[i].total_dist > largeMovementThreshold) {
-            ret.pose = poses[0];
-
-            return ret;
-        }
-    }
-
-    TagPose pose = {0};
-
-    // So, technically, quaternion averaging is really tricky, but I'm pretty sure that for a subset of
-    // the problem space (q[0] dot q[1..] is all > 0) we can cheat and just sum everything up, and normalize after
-
-    for (intptr_t i = 0; i < n_meta; i++) {
-        double dot_product = (
-            cur_meta.quat_wxyz[0] * meta[i].quat_wxyz[0] +
-            cur_meta.quat_wxyz[1] * meta[i].quat_wxyz[1] +
-            cur_meta.quat_wxyz[2] * meta[i].quat_wxyz[2] +
-            cur_meta.quat_wxyz[3] * meta[i].quat_wxyz[3]
-        );
-
-        if (dot_product <= 0.0) {
-            ret.pose = poses[0];
-
-            return ret; // averaging won't work this time
-        }
-    }
-
-    double t = 0.5;
-
-    double w = hermiteInterp(
-        meta[2].quat_wxyz[0],
-        meta[1].quat_wxyz[0],
-        meta[0].quat_wxyz[0],
-        cur_meta.quat_wxyz[0],
-        t
-    );
-
-    double x = hermiteInterp(
-        meta[2].quat_wxyz[1],
-        meta[1].quat_wxyz[1],
-        meta[0].quat_wxyz[1],
-        cur_meta.quat_wxyz[1],
-        t
-    );
-
-    double y = hermiteInterp(
-        meta[2].quat_wxyz[2],
-        meta[1].quat_wxyz[2],
-        meta[0].quat_wxyz[2],
-        cur_meta.quat_wxyz[2],
-        t
-    );
-
-    double z = hermiteInterp(
-        meta[2].quat_wxyz[3],
-        meta[1].quat_wxyz[3],
-        meta[0].quat_wxyz[3],
-        cur_meta.quat_wxyz[3],
-        t
-    );
-
-    // normalize quaternion
-    double magnitude = sqrt(w * w + x * x + y * y + z * z);
-    w /= magnitude;
-    x /= magnitude;
-    y /= magnitude;
-    z /= magnitude;
-
-    // quaterion -> matrix
-    // from https://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToMatrix/index.htm
-    double R[3][3] = {
-        {1.0 - 2.0*y*y - 2.0*z*z, 2.0*x*y - 2.0*z*w,       2.0*x*z + 2.0*y*w    },
-        {2.0*x*y + 2.0*z*w,       1.0 - 2.0*x*x - 2.0*z*z, 2.0*y*z - 2.0*x*w    },
-        {2.0*x*z - 2.0*y*w,       2.0*y*z + 2.0*x*w,       1.0 - 2.0*x*x - 2*y*y}
-    };
-    
-    memcpy(pose.R, R, sizeof(pose.R));
-
-    // average position (yes, we're reusing x y z)
-    x = hermiteInterp(
-        poses[3].t[0][0],
-        poses[2].t[0][0],
-        poses[1].t[0][0],
-        poses[0].t[0][0],
-        t
-    );
-
-    y = hermiteInterp(
-        poses[3].t[1][0],
-        poses[2].t[1][0],
-        poses[1].t[1][0],
-        poses[0].t[1][0],
-        t
-    );
-
-    z = hermiteInterp(
-        poses[3].t[2][0],
-        poses[2].t[2][0],
-        poses[1].t[2][0],
-        poses[0].t[2][0],
-        t
-    );
-
-    pose.t[0][0] = x;
-    pose.t[1][0] = y;
-    pose.t[2][0] = z;
-
-    ret.pose = pose;
-    ret.meta = cur_meta;
-
-    return ret;
-}
-
 
 
 namespace eval ::space {
@@ -789,9 +555,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set ::prevTagPoses [dict create]
 
-    # for position smoothing
+    # for position stabilization
     set ::tagHistory [dict create]
-    set historyLen 4
+    set unfreezeThreshold 0.007
+    set unfreezeThresholdSq [expr {$unfreezeThreshold * $unfreezeThreshold}]
+    set unfreezeLength 0.3 ;# in seconds
 
     When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
          tag /tag/ has resolved geometry /geom/ {
@@ -819,28 +587,34 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         dict set ::prevTagPoses $tag timestamp $timestamp
         dict set ::prevTagPoses $tag pose $tagPose
 
-        ## tag smoothing ##
+        ## tag stabilization ##
+        if {[dict exists $::tagHistory $tag state]} {
+            dict with ::tagHistory $tag state {
+                set distSq [poseDistSq $frozenPose $tagPose]
 
-        # list of last recorded positions for this tag
-        set lastPositions [dict_getdef $::tagHistory $tag poses [list]]
-        set lastMetadata [dict_getdef $::tagHistory $tag metadata [list]]
+                if {$distSq > $unfreezeThresholdSq} {
+                    set frozenPose $tagPose
+                    # reset timestamp even if it's already unfrozen to keep it unfrozen
+                    set unfreezeTime $timestamp
+                    set frozen 0
+                } elseif {!$frozen && $timestamp - $unfreezeTime > $unfreezeLength} {
+                    set frozenPose $tagPose
+                    set frozen 1
+                }
 
-        # add current pose
-        set lastPositions [linsert $lastPositions 0 $tagPose]
-
-        set poseAndMeta [smoothedPose $lastPositions [llength $lastPositions] $lastMetadata [llength $lastMetadata] 0.03]
-        set tagPose [dict get $poseAndMeta pose]
-
-        set lastMetadata [linsert $lastMetadata 0 [dict get $poseAndMeta meta]]
-
-        if {[llength $lastPositions] >= $historyLen} {
-            # trim the end of the list
-            set lastPositions [lreplace $lastPositions $historyLen [llength $lastPositions]]
-            set lastMetadata [lreplace $lastMetadata [expr {$historyLen - 1}] [llength $lastMetadata]]
+                if {$frozen} {
+                    set tagPose $frozenPose
+                }
+            }
+        } else {
+            # first time, so we'll init some stuff
+            # (starts unfrozen)
+            dict set ::tagHistory $tag state [dict create \
+                frozen 0 \
+                frozenPose $tagPose \
+                unfreezeTime $timestamp]
         }
 
-        dict set ::tagHistory $tag poses $lastPositions
-        dict set ::tagHistory $tag metadata $lastMetadata
 
         set tagToCameraSpaceChanger [list apply {{tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
