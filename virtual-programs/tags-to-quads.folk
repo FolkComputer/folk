@@ -337,6 +337,15 @@ $cc struct PoseMetadata {
     double total_dist;
 }
 
+$cc proc hermiteInterp { double x0 double x1 double x2 double x3 double t } double {
+    double diff = x1 - x2;
+    double c1 = x2 - x0;
+    double c3 = x3 - x0 + 3.0 * diff;
+    double c2 = -(2.0 * diff + c1 + c3);
+
+    return 0.5 * ((c3 * t + c2) * t + c1) * t + x1;
+}
+
 $cc proc createLatestMetadata { TagPose[] poses int n_poses PoseMetadata[] meta int n_meta } PoseMetadata {
     PoseMetadata ret = {0};
 
@@ -433,7 +442,7 @@ $cc proc smoothedPose { TagPose[] poses int n_poses PoseMetadata[] meta int n_me
     PoseMetadata cur_meta = createLatestMetadata(poses, n_poses, meta, n_meta);
     ret.meta = cur_meta;
     
-    if (n_poses < 2 || n_meta < 1) {
+    if (n_poses < 4 || n_meta < 3) {
         ret.pose = poses[0];
 
        return ret;
@@ -477,17 +486,39 @@ $cc proc smoothedPose { TagPose[] poses int n_poses PoseMetadata[] meta int n_me
         }
     }
 
-    double w = cur_meta.quat_wxyz[0];
-    double x = cur_meta.quat_wxyz[1];
-    double y = cur_meta.quat_wxyz[2];
-    double z = cur_meta.quat_wxyz[3];
+    double t = 0.5;
 
-    for (intptr_t i = 0; i < n_meta; i++) {
-        w += meta[i].quat_wxyz[0];
-        x += meta[i].quat_wxyz[1];
-        y += meta[i].quat_wxyz[2];
-        z += meta[i].quat_wxyz[3];
-    }
+    double w = hermiteInterp(
+        meta[2].quat_wxyz[0],
+        meta[1].quat_wxyz[0],
+        meta[0].quat_wxyz[0],
+        cur_meta.quat_wxyz[0],
+        t
+    );
+
+    double x = hermiteInterp(
+        meta[2].quat_wxyz[1],
+        meta[1].quat_wxyz[1],
+        meta[0].quat_wxyz[1],
+        cur_meta.quat_wxyz[1],
+        t
+    );
+
+    double y = hermiteInterp(
+        meta[2].quat_wxyz[2],
+        meta[1].quat_wxyz[2],
+        meta[0].quat_wxyz[2],
+        cur_meta.quat_wxyz[2],
+        t
+    );
+
+    double z = hermiteInterp(
+        meta[2].quat_wxyz[3],
+        meta[1].quat_wxyz[3],
+        meta[0].quat_wxyz[3],
+        cur_meta.quat_wxyz[3],
+        t
+    );
 
     // normalize quaternion
     double magnitude = sqrt(w * w + x * x + y * y + z * z);
@@ -506,16 +537,34 @@ $cc proc smoothedPose { TagPose[] poses int n_poses PoseMetadata[] meta int n_me
     
     memcpy(pose.R, R, sizeof(pose.R));
 
-    // average position
-    for (intptr_t i = 0; i < n_poses; i++) {
-        pose.t[0][0] += poses[i].t[0][0];
-        pose.t[1][0] += poses[i].t[1][0];
-        pose.t[2][0] += poses[i].t[2][0];
-    }
+    // average position (yes, we're reusing x y z)
+    x = hermiteInterp(
+        poses[3].t[0][0],
+        poses[2].t[0][0],
+        poses[1].t[0][0],
+        poses[0].t[0][0],
+        t
+    );
 
-    pose.t[0][0] /= (double) n_poses;
-    pose.t[1][0] /= (double) n_poses;
-    pose.t[2][0] /= (double) n_poses;
+    y = hermiteInterp(
+        poses[3].t[1][0],
+        poses[2].t[1][0],
+        poses[1].t[1][0],
+        poses[0].t[1][0],
+        t
+    );
+
+    z = hermiteInterp(
+        poses[3].t[2][0],
+        poses[2].t[2][0],
+        poses[1].t[2][0],
+        poses[0].t[2][0],
+        t
+    );
+
+    pose.t[0][0] = x;
+    pose.t[1][0] = y;
+    pose.t[2][0] = z;
 
     ret.pose = pose;
     ret.meta = cur_meta;
@@ -742,7 +791,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     # for position smoothing
     set ::tagHistory [dict create]
-    set historyLen 10
+    set historyLen 4
 
     When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
          tag /tag/ has resolved geometry /geom/ {
