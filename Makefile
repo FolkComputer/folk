@@ -27,7 +27,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
 
 %.o: %.c trie.h
 	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
-		$(CFLAGS) $(TRACY_CFLAGS) \
+		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
 .PHONY: test clean deps

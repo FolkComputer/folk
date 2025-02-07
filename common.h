@@ -1,8 +1,8 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include <semaphore.h>
 #include <stdio.h>
+#include <semaphore.h>
 #include <errno.h>
 
 #if __has_include ("tracy/TracyC.h")
@@ -10,6 +10,16 @@
 #endif
 
 #include "workqueue.h"
+
+#ifdef TRACY_ENABLE
+#define TracyCMessageFmt(fmt, ...) do { \
+        char *msg; \
+        int len = asprintf(&msg, fmt, ##__VA_ARGS__); \
+        TracyCMessage(msg, len); free(msg); \
+    } while (0)
+#else
+#define TracyCMessageFmt(fmt, ...)
+#endif
 
 #ifdef TRACY_ENABLE
 typedef struct Mutex {
