@@ -1,6 +1,5 @@
 // Inspired by Golang's sysmon. Gotta catch 'em all...
 
-#define _GNU_SOURCE
 #include <unistd.h>
 #include <stdio.h>
 
@@ -26,14 +25,12 @@ extern void globalWorkQueuePush(WorkQueueItem item);
 
 void workerReactivateOrSpawn();
 
-// HACK: ncpus - 1
-#define THREADS_ACTIVE_TARGET 3
-
+// How many ms are in each tick?
 #define SYSMON_TICK_MS 2
 
 typedef struct RemoveLater {
-    _Atomic StatementRef stmt;
-    int64_t canRemoveAtTick;
+    StatementRef _Atomic stmt;
+    int64_t _Atomic canRemoveAtTick;
 } RemoveLater;
 
 #define REMOVE_LATER_MAX 1000
@@ -197,8 +194,7 @@ void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
         StatementRef oldStmtRef = removeLater[i].stmt;
         if (statementRefIsNull(oldStmtRef) &&
             atomic_compare_exchange_weak(&removeLater[i].stmt,
-                                         &oldStmtRef,
-                                         stmtRef)) {
+                                         &oldStmtRef, stmtRef)) {
 
             removeLater[i].canRemoveAtTick = tick + laterTicks;
             break;
