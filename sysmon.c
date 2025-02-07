@@ -84,7 +84,7 @@ void sysmon() {
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
         StatementRef stmtRef = removeLater[i].stmt;
         if (!statementRefIsNull(stmtRef)) {
-            if (removeLater[i].canRemoveAtTick >= currentTick) {
+            if (currentTick >= removeLater[i].canRemoveAtTick) {
                 // Remove immediately on sysmon thread so there's no
                 // pileup.
                 Statement* stmt;
