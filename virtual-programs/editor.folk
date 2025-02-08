@@ -11,6 +11,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   /page/ is an editor &\
   /page/ has region /r/ &\
   the clock time is /t/ {
+  Wish tag $page is stabilized
   set id "$page$kbPath"
   Claim $id has region [region move $r up 210%]
   When /nobody/ claims $id has program code /c/ {

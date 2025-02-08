@@ -331,6 +331,17 @@ $cc proc baseEstimateTagPose {Intrinsics cameraIntrinsics
     return ret;
 }
 
+$cc proc poseDistSq { TagPose p1 TagPose p2 } double {
+    double delta_x = p2.t[0][0] - p1.t[0][0];
+    double delta_y = p2.t[1][0] - p1.t[1][0];
+    double delta_z = p2.t[2][0] - p1.t[2][0];
+
+    return delta_x * delta_x + delta_y * delta_y + delta_z * delta_z;
+}
+
+# All spaces are in meters. To transform a point from one space to another, it will execute
+# a partially evaluated function located in `changers` (all implementations currently just
+# translate and rotate)
 namespace eval ::space {
     set changers [dict create]
 
@@ -545,6 +556,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
 
     set ::prevTagPoses [dict create]
+
+    # for position stabilization
+    set ::tagHistory [dict create]
+    set unfreezeThreshold 0.01
+    set unfreezeThresholdSq [expr {$unfreezeThreshold * $unfreezeThreshold}]
+    set unfreezeLength 0.3 ;# in seconds
+
     When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
          tag /tag/ has resolved geometry /geom/ {
 
@@ -571,6 +589,42 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         dict set ::prevTagPoses $tag timestamp $timestamp
         dict set ::prevTagPoses $tag pose $tagPose
 
+        ## tag stabilization ##
+        # (can't use When here as it can't exfiltrate info). Is there a better way to do this?
+        set stabilizedMatches [Statements::findMatches [list /someone/ wishes tag $tag is stabilized]]
+        set isTagStabilized [expr {[llength $stabilizedMatches] > 0}]
+
+        if {$isTagStabilized} {
+            if {[dict exists $::tagHistory $tag state]} {
+                dict with ::tagHistory $tag state {
+                    set distSq [poseDistSq $frozenPose $tagPose]
+
+                    if {$distSq > $unfreezeThresholdSq} {
+                        set frozenPose $tagPose
+                        # reset timestamp even if it's already unfrozen to keep it unfrozen
+                        set unfreezeTime $timestamp
+                        set frozen 0
+                    } elseif {!$frozen && $timestamp - $unfreezeTime > $unfreezeLength} {
+                        set frozenPose $tagPose
+                        set frozen 1
+                    }
+
+                    if {$frozen} {
+                        set tagPose $frozenPose
+                    }
+                }
+            } else {
+                # first time, so we'll init some stuff
+                # (starts unfrozen)
+                dict set ::tagHistory $tag state [dict create \
+                    frozen 0 \
+                    frozenPose $tagPose \
+                    unfreezeTime $timestamp]
+            }
+        }
+
+        # this creates a partially evaluated function that converts tag space (in meters) to its position
+        # and rotation in camera space (also in meters) using the pose info we previously calculated
         set tagToCameraSpaceChanger [list apply {{tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
             add [matmul $R $v] $t
@@ -617,6 +671,7 @@ When tag /tag/ has quad /q/ &\
 When display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ &\
      /tag/ has quad /q/ {
+    # convert tag space -> camera space -> projector space -> projector coords
     set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
         intrinsics project $projectorIntrinsics \
             $projWidth $projHeight $v
