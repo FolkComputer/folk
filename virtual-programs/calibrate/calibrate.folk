@@ -1025,7 +1025,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
         exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        image saveAsJpeg [dict get [lindex [Statements::findMatches [list /someone/ claims camera /any/ has frame /frame/ at timestamp /any/]] 0] frame] \
+        image saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
 
         # OK, let's save this calibration pose.

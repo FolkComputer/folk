@@ -9,7 +9,7 @@ namespace eval escpos {
         writeFolkFile $id $code
         writeGeomFile $printer $id
 
-        set matches [Statements::findMatches [list /someone/ claims $printer is at /address/]]
+        set matches [Query! /someone/ claims $printer is at /address/]
         set matchDict [lindex $matches 0]
         if {![dict exists $matchDict address]} { return }
         set address [dict get $matchDict address]
@@ -44,7 +44,7 @@ namespace eval escpos {
     }
 
     proc writeGeomFile {printer id} {
-        set matches [Statements::findMatches [list /someone/ claims $printer has tag geometry /geometry/]]
+        set matches [Query! /someone/ claims $printer has tag geometry /geometry/]
         set matchDict [lindex $matches 0]
         if {![dict exists $matchDict geometry]} { return }
         set geometry [dict get $matchDict geometry]
