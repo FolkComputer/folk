@@ -214,3 +214,13 @@ When the collected matches for \
     set aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $aprilTime
 }
+
+# Reap old detections (e.g., pages that have been flipped over):
+When tag /id/ has detection /det/ on camera /camera/ at timestamp /timestamp/ {
+    When the clock time is /t/ {
+        if {$t - $timestamp > 0.1} {
+            Hold! [list tag $id detection] {}
+        }
+    }
+}
+
