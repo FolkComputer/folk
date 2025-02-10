@@ -664,9 +664,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **fix camera-rpi corruption**
 - ~~port tag iters fix from folk1~~
 - ~~web stops working after a while~~
-- **marching ants animation**
+- ~~marching ants animation~~
 - ~~blinking of outlines~~
-  - still some blinking, need to adjust metastable timing
 - ~~sticking of outlines~~
 - ~~is stealing too frequent? are we spending most of our time trying to
   steal?~~
@@ -689,4 +688,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   sysmon~~
 - ~~why isn't region running in time?~~
   - ~~thread migration?~~
-
+- fix programs page
+- restore smj cam/display parameters
+- fix remaining display/ primitives
+- replace findMatches with Query
+- replace Assert/Retract/Hold
+- port angle & any other changes to new.folk
+- credits in README
+- fix systemd service spec to make && ./folk
+- rebuild live image
