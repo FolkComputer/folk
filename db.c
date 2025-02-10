@@ -926,7 +926,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
-                             char* sourceFileName, int sourceLineNumber,
+                             const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 

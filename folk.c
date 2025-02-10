@@ -281,8 +281,10 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         parent = matchRef(db, self->currentMatch);
     } else {
         parent = MATCH_REF_NULL;
+        char *s = clauseToString(clause);
         fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
-                clauseToString(clause));
+                s);
+        free(s);
     }
 
 

@@ -150,7 +150,7 @@ void sysmon() {
     snprintf(clockTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 
-    Hold(strdup("clock-time"), currentTick,
+    Hold("clock-time", currentTick,
          clockTimeClause, 5,
          "sysmon.c", __LINE__);
 
