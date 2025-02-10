@@ -97,7 +97,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // MatchRef if this is an assertion. Returns a null StatementRef if no
 // new statement was created. 
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                      char* sourceFileName, int sourceLineNumber,
+                                      const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parent);
 
 // Call when you're about to begin a match (i.e., evaluating the body
@@ -118,7 +118,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
-                             char* sourceFileName, int sourceLineNumber,
+                             const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement);
 
 #endif

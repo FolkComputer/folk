@@ -67,15 +67,17 @@ WorkQueueItem globalWorkQueueTake() {
 // Pushes to either self or the global workqueue, depending on how
 // long the current work item has been running.
 void appropriateWorkQueuePush(WorkQueueItem item) {
-    int64_t now = timestamp_get(self->clockid);
-    if (self->currentItemStartTimestamp == 0 ||
-        now - self->currentItemStartTimestamp < 1000000) {
-        // The current worker is responsive (hasn't been running that
-        // long). Push to its queue.
-        workQueuePush(self->workQueue, item);
-    } else {
-        globalWorkQueuePush(item);
+    if (self) {
+        int64_t now = timestamp_get(self->clockid);
+        if (self->currentItemStartTimestamp == 0 ||
+            now - self->currentItemStartTimestamp < 1000000) {
+            // The current worker is responsive (hasn't been running that
+            // long). Push to its queue.
+            workQueuePush(self->workQueue, item);
+            return;
+        }
     }
+    globalWorkQueuePush(item);
 }
 
 __thread Jim_Interp* interp = NULL;
@@ -199,8 +201,41 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     return (JIM_OK);
 }
+
+static void reactToNewStatement(StatementRef ref);
+
 // Hold! {Omar's time} {the time is 3}
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
+void Hold(const char *key, int64_t version,
+          Clause *clause, long sustainMs,
+          const char *sourceFileName, int sourceLineNumber) {
+    char *s = clauseToString(clause);
+    TracyCMessageFmt("hold: %.300s", s); free(s);
+
+    StatementRef oldRef; StatementRef newRef;
+
+    newRef = dbHoldStatement(db, key, version,
+                             clause,
+                             sourceFileName, sourceLineNumber,
+                             &oldRef);
+    if (!statementRefIsNull(newRef)) {
+        reactToNewStatement(newRef);
+    }
+    if (!statementRefIsNull(oldRef)) {
+        if (sustainMs > 0) {
+            // We need to delay the react to removed statement
+            // until the estimated convergence time of the new
+            // statement has elapsed (a few milliseconds?)
+            sysmonRemoveLater(oldRef, sustainMs);
+        } else {
+            Statement* stmt;
+            if ((stmt = statementAcquire(db, oldRef))) {
+                statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+                statementRelease(db, stmt);
+            }
+        }
+    }
+}
 static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 3 || argc == 4);
     long sustainMs;
@@ -211,25 +246,16 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
             return JIM_ERR;
         }
     }
-    char* key = strdup(Jim_GetString(argv[1], NULL));
-    Clause* clause = jimObjToClause(interp, argv[2]);
+    const char *key = Jim_GetString(argv[1], NULL);
+    int64_t version = ++latestVersion;
+    Clause *clause = jimObjToClause(interp, argv[2]);
 
-    appropriateWorkQueuePush((WorkQueueItem) {
-       .op = HOLD,
-       .thread = -1,
-       .hold = {
-           .key = key, .version = ++latestVersion,
-           .sustainMs = (int) sustainMs,
-           .clause = clause,
-           .sourceFileName = strdup("<unknown>"),
-           .sourceLineNumber = -1
-       }
-    });
-
+    Hold(key, version,
+         clause, sustainMs,
+         "<unknown>", -1);
     return (JIM_OK);
 }
 
-static void reactToNewStatement(StatementRef ref);
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
@@ -553,7 +579,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
-    workQueuePush(self->workQueue, (WorkQueueItem) {
+    appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN,
        .thread = -1,
        .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
@@ -743,8 +769,6 @@ void workerRun(WorkQueueItem item) {
         TracyCZoneN(ctx, "ASSERT", 1); zone = ctx;
     } else if (item.op == RETRACT) {
         TracyCZoneN(ctx, "RETRACT", 1); zone = ctx;
-    } else if (item.op == HOLD) {
-        TracyCZoneN(ctx, "HOLD", 1); zone = ctx;
     } else if (item.op == RUN) {
         TracyCZoneN(ctx, "RUN", 1); zone = ctx;
     } else if (item.op == EVAL) {
@@ -779,40 +803,6 @@ void workerRun(WorkQueueItem item) {
 
         dbRetractStatements(db, item.retract.pattern);
         clauseFree(item.retract.pattern);
-
-    } else if (item.op == HOLD) {
-        /* printf("@%d: Hold (%s)\n", self->index,  clauseToString(item.hold.clause)); */
-        // TODO: Inject message for hold
-        char *s = clauseToString(item.hold.clause);
-        int len = strlen(s);
-        TracyCMessage(s, len < 300 ? len : 300); free(s);
-
-        StatementRef oldRef; StatementRef newRef;
-
-        newRef = dbHoldStatement(db, item.hold.key, item.hold.version,
-                                 item.hold.clause,
-                                 item.hold.sourceFileName,
-                                 item.hold.sourceLineNumber,
-                                 &oldRef);
-        if (!statementRefIsNull(newRef)) {
-            reactToNewStatement(newRef);
-        }
-        if (!statementRefIsNull(oldRef)) {
-            if (item.hold.sustainMs > 0) {
-                // We need to delay the react to removed statement
-                // until the estimated convergence time of the new
-                // statement has elapsed (a few milliseconds?)
-                sysmonRemoveLater(oldRef, item.hold.sustainMs);
-            } else {
-                Statement* stmt;
-                if ((stmt = statementAcquire(db, oldRef))) {
-                    statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
-                    statementRelease(db, stmt);
-                }
-            }
-        }
-        free(item.hold.key);
-        free(item.hold.sourceFileName);
 
     } else if (item.op == RUN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
@@ -874,10 +864,6 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
     } else if (item.op == RETRACT) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
-    } else if (item.op == HOLD) {
-        snprintf(buf, bufsz, "Hold (%.100s) (%" PRId64 ") (%.100s)",
-                 item.hold.key, item.hold.version,
-                 clauseToString(item.hold.clause));
     } else if (item.op == RUN) {
         Statement* stmt = statementUnsafeGet(db, item.run.stmt);
         snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",

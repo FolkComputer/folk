@@ -307,7 +307,7 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
 static StatementRef statementNew(Db* db, Clause* clause,
-                                 char* sourceFileName,
+                                 const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
@@ -739,7 +739,7 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // Takes ownership of clause (i.e., you can't touch clause at the
 // caller after calling this!).
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
-                                      char* sourceFileName, int sourceLineNumber,
+                                      const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {

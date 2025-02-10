@@ -20,10 +20,10 @@
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
-
-extern void globalWorkQueuePush(WorkQueueItem item);
-
-void workerReactivateOrSpawn();
+extern void Hold(const char *key, int64_t version,
+                 Clause *clause, long sustainMs,
+                 const char *sourceFileName, int sourceLineNumber);
+extern void workerReactivateOrSpawn();
 
 // How many ms are in each tick?
 #define SYSMON_TICK_MS 2
@@ -150,18 +150,9 @@ void sysmon() {
     snprintf(clockTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 
-    globalWorkQueuePush((WorkQueueItem) {
-            .op = HOLD,
-            .thread = -1,
-            .hold = {
-                .key = strdup("clock-time"),
-                .version = currentTick,
-                .sustainMs = 5,
-                .clause = clockTimeClause,
-                .sourceFileName = strdup("sysmon.c"),
-                .sourceLineNumber = __LINE__
-            }
-        });
+    Hold(strdup("clock-time"), currentTick,
+         clockTimeClause, 5,
+         "sysmon.c", __LINE__);
 
     // Fifth: collect garbage.
     epochGlobalCollect();
