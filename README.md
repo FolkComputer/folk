@@ -130,34 +130,33 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-Then, _on your laptop_, clone this repository:
+To compile Folk:
 
 ```
-$ git clone https://github.com/FolkComputer/folk.git
+$ cd vendor/jimtcl && ./configure CFLAGS=-g && cd -
+$ make deps
 ```
 
-And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
-will rsync folk to the tabletop and run it there as well as running it
-on your laptop.
+then to compile and run Folk:
 
-(or clone it onto the machine and run `sudo systemctl start folk` there)
+```
+$ make && ./folk
+```
+
+or (if remote machine):
+
+```
+$ make remote FOLK_REMOTE_NODE=<your remote hostname here>
+```
+
+Init and update the submodule & you can pass `CFLAGS=-DTRACY_ENABLE`
+to `make` for Tracy.
 
 ### How to control tabletop Folk from your laptop
 
 On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
 click New Program, hit Save, drag it around. You should see the
 program move on your table as you drag it around on your laptop.
-
-Does it work? Add your tabletop to hosts.tcl! Send in a patch!
-Celebrate!
-
-### General debugging
-
-You can run `make journal` to see stdout/stderr output from the
-tabletop machine. If you need to pass in a specific hostname, `make
-journal FOLK_SHARE_NODE=folk-whatever.local`.
-
-`make repl` will give you a dialed-in Tcl REPL.
 
 ### Printer support
 
@@ -639,3 +638,55 @@ create`.
 #### Singletons
 
 Capitalized namespace, like `Statements`.
+
+-----
+
+# folk2 notes
+
+## requirements
+
+on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
+`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`, `libwslay-dev`, `console-data`
+
+for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
+`libgoogle-perftools-dev`
+
+## todo
+
+- adjust stack record if When is multiline
+- consistent name for sustain/ttl/remove-later
+- ~~reap threads that got caught up on some long-running activity so
+  that we aren't just monotonically growing thread count~~
+- event statements
+- match or statement arena allocator
+  - for camera images, at least
+- clean up shader reference errors (use trick from main?)
+- **fix camera-rpi corruption**
+- ~~port tag iters fix from folk1~~
+- ~~web stops working after a while~~
+- **marching ants animation**
+- ~~blinking of outlines~~
+  - still some blinking, need to adjust metastable timing
+- ~~sticking of outlines~~
+- ~~is stealing too frequent? are we spending most of our time trying to
+  steal?~~
+- ~~incremental tag detector~~
+- ~~60Hz camera~~
+- ports
+  - keyboard/editor port
+  - points-up port
+  - calibration process
+- ~~infinite loop or one-lane syntax? one-at-a-time~~
+- Hold! with explicit version number?
+- ~~reuse C module so perf events hold~~
+- report errors as statements
+- ~~spinlock~~
+- wait until process death to start
+- ~~blinking on folk0~~
+- fix small memory leak
+- remove live queries from region generation
+- ~~remove Say and Hold from workqueue, just do them on thread? esp
+  sysmon~~
+- ~~why isn't region running in time?~~
+  - ~~thread migration?~~
+

@@ -17,38 +17,49 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
-set cc [c create]
-$cc cflags -I$::env(HOME)/apriltag -Wall -Werror $::env(HOME)/apriltag/libapriltag.a
-c loadlib $::env(HOME)/apriltag/libapriltag.so
-::defineImageType $cc
+set cc [C]
+$cc cflags -I./vendor/apriltag -Wall -Werror
+$cc endcflags ./vendor/apriltag/libapriltag.so
 
+# TODO: Factor this out.
+$cc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    uint8_t* data;
+}
 $cc code {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
     apriltag_family_t *tf = NULL;
-
-    #define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
 }
 
 # HACK (osnr): This is used when someone wants to draw an AprilTag
 # (often for calibration/cnc preview purposes); I put it here because
 # we already have a whole AprilTag family and C compiler object setup
 # here. The returned image_t's data needs to be freed by the caller.
-$cc proc ::tagImageForId {int id} image_t {
+$cc proc tagImageForId {int id} Image {
     if (tf == NULL) tf = tagStandard52h13_create();
 
     image_u8_t* image = apriltag_to_image(tf, id);
-    image_t ret = (image_t) { .width = image->width, .height = image->height, .components = 1, .bytesPerRow = image->stride, .data = image->buf };
+    Image ret = {
+        .width = image->width, .height = image->height,
+        .components = 1, .bytesPerRow = image->stride,
+        .data = image->buf
+    };
     free(image); // doesn't free data
     return ret;
 }
 
-$cc proc ::tagPsForId {int id} char* {
+$cc proc tagPsForId {int id} char* {
     if (tf == NULL) tf = tagStandard52h13_create();
 
     image_u8_t* image = apriltag_to_image(tf, id);
 
-    char* ret = Tcl_Alloc(10000);
+    char* ret = malloc(10000);
+#define emit(...) i += sprintf(&ret[i], __VA_ARGS__)
     int i = 0;
     emit("gsave\n");
     emit("0 1 translate\n");
@@ -67,13 +78,15 @@ $cc proc ::tagPsForId {int id} char* {
         emit("\n");
     }
     emit("grestore\n");
+#undef emit
     ret[i++] = '\0';
     image_u8_destroy(image);
     return ret;
 }
-$cc compile
+set printLib [$cc compile]
+Claim the print library is $printLib
 
-proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
+fn paginate {text maxlines linelen {linelenOverrides {}}} {
     set lines [split $text "\n"]
 
     for {set i 0} {$i < [llength $lines]} {incr i} {
@@ -93,7 +106,7 @@ proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
         }
 
         lassign [lindex $lines $i] linenum line
-        set max [dict_getdef $linelenOverrides $i $linelen]
+        set max [dict getdef $linelenOverrides $i $linelen]
         if {$max == 0} {
             lset lines $i [list "" ""]
             set lines [linsert $lines $i+1 [list $linenum $line]]
@@ -112,7 +125,7 @@ proc ::paginate {text maxlines linelen {linelenOverrides {}}} {
     return $pages
 }
 
-proc rangeDict {from to val} {
+fn rangeDict {from to val} {
     set res ""
     for {set i $from} {$i < $to} {incr i} {
         lappend res $i $val
@@ -120,7 +133,7 @@ proc rangeDict {from to val} {
     return $res
 }
 
-proc ::programToPs {id text {format "letter"} {mixins {}}} {
+fn programToPs {id text {format "letter"} {mixins {}}} {
     set defaults {
         margin 36
         fontsize 12
@@ -158,7 +171,7 @@ proc ::programToPs {id text {format "letter"} {mixins {}}} {
         lassign $tagsize tagwidth tagheight
         set lineheight [expr $fontsize*1.5]
 
-        set image [::tagPsForId $id]
+        set image [$printLib tagPsForId $id]
 
         set pages [paginate $text $maxlines $maxchars $maxcharsOverride]
 
@@ -198,7 +211,7 @@ proc ::programToPs {id text {format "letter"} {mixins {}}} {
                   setfont
                   newpath
                   [expr $PageWidth-$tagwidth-$margin] [expr $PageHeight-$tagheight-16-$margin] moveto
-                  ($id ([clock format [clock seconds] -timezone :America/New_York -format "%a, %d %b %Y, %r"])) show
+                  ($id ([clock format [clock seconds] -format "%a, %d %b %Y, %r"])) show
 
                   [join [lmap mixin $mixins {
                       # We run mixins only on page 1 for now.  They
@@ -216,6 +229,7 @@ proc ::programToPs {id text {format "letter"} {mixins {}}} {
 
     return $out
 }
+Claim the programToPs is ${^programToPs}
 
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"

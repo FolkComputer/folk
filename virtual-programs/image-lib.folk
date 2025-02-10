@@ -1,0 +1,211 @@
+Claim the image library is [apply {{} {
+    set cc [C]
+    $cc endcflags -ljpeg -lpng
+    $cc include <stdlib.h>
+    $cc include <string.h>
+
+    $cc code {
+        #undef EXTERN
+        #include <jpeglib.h>
+        #include <png.h>
+        #include <stdint.h>
+        #include <unistd.h>
+
+        void 
+    jpeg(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height, int quality)
+    {
+        JSAMPARRAY image;
+        if (components == 1) {
+            image = calloc(height, sizeof (JSAMPROW));
+            for (size_t i = 0; i < height; i++) {
+                image[i] = calloc(width * 3, sizeof (JSAMPLE));
+                for (size_t j = 0; j < width; j++) {
+                    image[i][j * 3 + 0] = data[(i*bytesPerRow + j)];
+                    image[i][j * 3 + 1] = data[(i*bytesPerRow + j)];
+                    image[i][j * 3 + 2] = data[(i*bytesPerRow + j)];
+                }
+            }
+        } else if (components == 3) {
+            image = calloc(height, sizeof (JSAMPROW));
+            for (size_t i = 0; i < height; i++) {
+                image[i] = calloc(width * 3, sizeof (JSAMPLE));
+                for (size_t j = 0; j < width; j++) {
+                    image[i][j * 3 + 0] = data[i*bytesPerRow + j*3];
+                    image[i][j * 3 + 1] = data[i*bytesPerRow + j*3 + 1];
+                    image[i][j * 3 + 2] = data[i*bytesPerRow + j*3 + 2];
+                }
+            }
+        } else { exit(1); }
+
+      struct jpeg_compress_struct compress;
+      struct jpeg_error_mgr error;
+      compress.err = jpeg_std_error(&error);
+      jpeg_create_compress(&compress);
+      jpeg_stdio_dest(&compress, dest);
+
+      compress.image_width = width;
+      compress.image_height = height;
+      compress.input_components = 3;
+      compress.in_color_space = JCS_RGB;
+      jpeg_set_defaults(&compress);
+      jpeg_set_quality(&compress, quality, TRUE);
+      jpeg_start_compress(&compress, TRUE);
+      jpeg_write_scanlines(&compress, image, height);
+      jpeg_finish_compress(&compress);
+      jpeg_destroy_compress(&compress);
+
+      for (size_t i = 0; i < height; i++) {
+        free(image[i]);
+      }
+      free(image);
+    }
+
+    void png(FILE* dest, uint8_t* data, uint32_t components, uint32_t bytesPerRow, uint32_t width, uint32_t height) {
+        png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        png_infop info_w = png_create_info_struct(png_w);
+
+        if (components == 3)
+            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_RGB,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        else if (components == 1)
+            png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        else exit(1);
+
+        png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
+        for (int i = 0; i < height; i++) {
+            row_pointers[i] = data + i * bytesPerRow;
+        }
+
+        png_init_io(png_w, dest);
+        png_set_rows(png_w, info_w, row_pointers);
+        png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
+
+        free(row_pointers);
+    }
+
+    }
+
+    # TODO: Factor this out.
+    $cc struct Image {
+        uint32_t width;
+        uint32_t height;
+        int components;
+        uint32_t bytesPerRow;
+
+        uint8_t* data;
+    }
+
+    $cc proc saveAsJpeg {Image im char* filename} void {
+        FILE* out = fopen(filename, "w");
+        jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
+        fclose(out);
+    }
+    $cc proc saveAsPng {Image im char* filename} void {
+        FILE* out = fopen(filename, "wb");
+        png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
+        fclose(out);
+    }
+
+    $cc proc loadJpeg {char* filename} Image {
+        FILE* file = fopen(filename, "rb");
+        if (!file) {
+            fprintf(stderr, "Error opening file: %s\n", filename);
+            exit(1);
+        }
+
+        struct jpeg_decompress_struct cinfo;
+        struct jpeg_error_mgr jerr;
+
+        cinfo.err = jpeg_std_error(&jerr);
+        jpeg_create_decompress(&cinfo);
+        jpeg_stdio_src(&cinfo, file);
+        jpeg_read_header(&cinfo, TRUE);
+        jpeg_start_decompress(&cinfo);
+
+        Image ret;
+        ret.width = cinfo.output_width;
+        ret.height = cinfo.output_height;
+        ret.components = cinfo.output_components;
+        ret.bytesPerRow = ret.width * ret.components;
+        ret.data = malloc(ret.bytesPerRow * ret.height);
+
+        JSAMPROW row_pointer[1];
+        while (cinfo.output_scanline < cinfo.output_height) {
+            row_pointer[0] = (JSAMPLE*)ret.data + cinfo.output_scanline * ret.bytesPerRow;
+            jpeg_read_scanlines(&cinfo, row_pointer, 1);
+        }
+
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+        fclose(file);
+
+        return ret;
+    }
+
+    $cc proc loadPng {char* filename} Image {
+        FILE* file = fopen(filename, "rb");
+        if (!file) {
+            fprintf(stderr, "Error opening file: %s\n", filename);
+            exit(1);
+        }
+
+        png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if(!png) {
+            fprintf(stderr, "Error reading png from file: %s it's not a png\n", filename);
+            exit(1);
+        }
+
+        png_infop info = png_create_info_struct(png);
+        if(!info) {
+            fprintf(stderr, "Error reading png from file: %s no info?\n", filename);
+            exit(1);
+        }
+
+        if(setjmp(png_jmpbuf(png))) {
+            fprintf(stderr, "Error reading png from file: %s setjmp error?\n", filename);
+            exit(1);
+        }
+
+        png_init_io(png, file);
+        png_read_info(png, info);
+
+        Image ret;
+        ret.width = png_get_image_width(png, info);
+        ret.height = png_get_image_height(png, info);
+        int bytes_per_pixel =  png_get_channels(png, info);
+        ret.components = png_get_channels(png, info);
+        ret.bytesPerRow = ret.width * bytes_per_pixel;
+        ret.data = malloc(ret.bytesPerRow * ret.height);
+
+        // Iterate over the rows and read the image data into the buffer.
+        for (int i = 0; i < ret.height; i++) {
+            png_read_row(png, ret.data + (i * ret.bytesPerRow), NULL);
+        }
+
+        // Close the PNG file.
+        png_destroy_read_struct(&png, &info, NULL);
+
+        if (ret.components == 4) {
+            // Transcode from RGBA to RGB (we don't support RGBA yet.)
+            for(int i=0; i < ret.width*ret.height; i++) {
+                int r = ret.data[i*4+0],
+                    g = ret.data[i*4+1], 
+                    b = ret.data[i*4+2], 
+                    a = ret.data[i*4+3];
+
+                ret.data[i*3+0] = r * a / 255;
+                ret.data[i*3+1] = g * a / 255;
+                ret.data[i*3+2] = b * a / 255;
+            }
+            ret.components = 3;
+            ret.bytesPerRow = ret.width * ret.components;
+        }
+
+        return ret;
+    }
+
+    return [$cc compile]
+}}]

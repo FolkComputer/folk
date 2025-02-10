@@ -1,0 +1,23 @@
+set loopRegion {{colorMap edges vertices width color} {
+    set instances [list]
+    set color [dict getdef $colorMap $color $color]
+    foreach edge $edges {
+        set from [lindex $vertices [lindex $edge 0]]
+        set to [lindex $vertices [lindex $edge 1]]
+        lappend instances [list $from $to $width $color]
+    }
+    Wish the GPU draws pipeline "line" with instances $instances
+}}
+
+When the color map is /colorMap/ {
+    When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /region/ {
+        lassign $region vertices edges
+        apply $loopRegion $colorMap $edges $vertices 3 $color
+    }
+
+    When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
+        # FIXME: assumes path
+        lassign $region vertices edges
+        apply $loopRegion $colorMap $edges $vertices 6 $color
+    }
+}

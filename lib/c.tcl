@@ -1,10 +1,22 @@
+# lib/c.tcl --
+#
+#     Implements the C 'FFI' that lets you embed arbitrary C/C++ code
+#     into a Tcl program. Especially useful for calling existing C
+#     APIs and libraries (i.e., almost anything involving hardware or
+#     the OS -- graphics, webcams, multithreading). Shells out to the
+#     C compiler to build a shared library and then uses Tcl `load` to
+#     load it immediately.
+#
+# Copyright (c) 2022-2024 Folk Computer, Inc.
+
+# Much like `subst`, but you invoke a Tcl fn with $[whatever] instead
+# of [whatever], so that the [] syntax is freed up to be used for C
+# arrays as in normal C.
 proc csubst {s} {
-    # much like subst, but you invoke a Tcl fn with $[whatever]
-    # instead of [whatever]
     set result [list]
     for {set i 0} {$i < [string length $s]} {incr i} {
         set c [string index $s $i]
-        switch $c {
+        switch -- $c {
             "\\" {
                 incr i; set next [string index $s $i]
                 # TODO: This is a hack to deal with \n and \0.
@@ -36,561 +48,564 @@ proc csubst {s} {
     }
     join $result ""
 }
+::proc cstyle {type name} {
+    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
+        list $basetype $name$arraysuffix
+    } else {
+        list $type $name
+    }
+}
+::proc typestyle {type name} {
+    if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
+        list $type$arraysuffix $basename
+    } else {
+        list $type $name
+    }
+}
 
-namespace eval c {
-    variable nextHandle 0
-    proc create {} {
-        variable nextHandle
-        set handle "::c[incr nextHandle]"
-        uplevel [list namespace eval $handle {
-            variable compiler cc
-            variable prelude {
-                #include <tcl.h>
-                #include <inttypes.h>
-                #include <stdint.h>
-                #include <stdbool.h>
-                #include <setjmp.h>
+package require oo
 
-                jmp_buf __onError;
-                Tcl_Interp* __interp;
+class C {
+    compiler cc
+    prelude {
+        #include <jim.h>
+        #include <inttypes.h>
+        #include <stdint.h>
+        #include <stdbool.h>
+        #include <stdio.h>
+        #include <setjmp.h>
 
-                #define __ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(interp, "failed to convert argument from Tcl to C in: " #EXPR, NULL); longjmp(__onError, 0); }
-                #define __ENSURE_OK(EXPR) if ((EXPR) != TCL_OK) { longjmp(__onError, 0); }
+        jmp_buf __thread __onError;
+        static __thread Jim_Interp* interp;
 
-                #define FOLK_ERROR(MSG) do { Tcl_SetResult(__interp, MSG, NULL); longjmp(__onError, 0); } while (0)
-                #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Tcl_SetResult(__interp, "assertion failed: " #EXPR, NULL); longjmp(__onError, 0); }
-                #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
+        #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
+        #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
+
+        #define FOLK_ERROR(MSG) do { Jim_SetResultString(interp, MSG, -1); longjmp(__onError, 0); } while (0)
+        #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
+        #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
+
+        Jim_Obj* Jim_ObjPrintf(const char* format, ...) {
+            va_list args;
+            va_start(args, format);
+            char buf[10000]; vsnprintf(buf, 10000, format, args);
+            va_end(args);
+            return Jim_NewStringObj(interp, buf, -1);
+        }
+    }
+    code {}
+    procs {}
+
+    objtypes {}
+
+    ___argtypes_comment {
+        # Tcl->C conversion logic, when a value is passed from Tcl
+        # to a C function as an argument.
+    }
+    argtypes {
+        int { expr {{ long _$argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &_$argname)); int $argname = (int)_$argname; }}}
+        double { expr {{ double $argname; __ENSURE_OK(Jim_GetDouble(interp, $obj, &$argname)); }}}
+        float { expr {{ double _$argname; __ENSURE_OK(Jim_GetDouble(interp, $obj, &_$argname)); float $argname = (float)_$argname; }}}
+        bool { expr {{ bool $argname; __ENSURE_OK(Jim_GetBoolean(interp, $obj, &$argname)) }}}
+        int32_t { expr {{ long _$argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &_$argname)); int32_t $argname = (int)_$argname; }}}
+        char { expr {{
+            char $argname;
+            {
+                int _len_$argname;
+                char* _tmp_$argname = Jim_GetStringFromObj($obj, &_len_$argname);
+                __ENSURE(_len_$argname >= 1);
+                $argname = _tmp_$argname[0];
             }
-            variable code [list]
-            variable objtypes [list]
-            variable procs [dict create]
-
-            ::proc cstyle {type name} {
-                if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $type -> basetype arraysuffix]} {
-                    list $basetype $name$arraysuffix
+        }}}
+        size_t { expr {{ size_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
+        intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (long *)&$argname)); }}}
+        uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, (int *)&$argname)); }}}
+        uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu32, &$argname) == 1); }}}
+        uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Jim_String($obj), "%" PRIu64, &$argname) == 1); }}}
+        char* { expr {{ char* $argname = (char*) Jim_String($obj); }} }
+        Jim_Obj* { expr {{ Jim_Obj* $argname = $obj; }}}
+        default {
+            if {[string index $argtype end] == "*"} {
+                set basetype [string range $argtype 0 end-1]
+                if {[dict exists $argtypes $basetype]} {
+                    expr {{
+                        $argtype $argname;
+                        // First, try to read the obj as a raw pointer.
+                        if (sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) != 1) {
+                            // No? Then try to coerce to a Tcl object.
+#if $[dict exists $objtypes $basetype]
+                                __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
+                                $argname = $obj->internalRep.ptrIntValue.ptr;
+#else
+                                FOLK_ERROR("Unable to convert $[set basetype]");
+#endif
+                        }
+                    }}
                 } else {
-                    list $type $name
+                    expr {{
+                        $argtype $argname;
+                        __ENSURE(sscanf(Jim_String($obj), "($argtype) 0x%p", &$argname) == 1);
+                    }}
                 }
-            }
-            ::proc typestyle {type name} {
-                if {[regexp {([^\[]+)(\[\d*\](\[\d*\])?)$} $name -> basename arraysuffix]} {
-                    list $type$arraysuffix $basename
-                } else {
-                    list $type $name
-                }
-            }
-
-            # Tcl->C conversion logic, when a value is passed from Tcl
-            # to a C function as an argument.
-            variable argtypes {
-                int { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
-                double { expr {{ double $argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &$argname)); }}}
-                float { expr {{ double _$argname; __ENSURE_OK(Tcl_GetDoubleFromObj(interp, $obj, &_$argname)); float $argname = (float)_$argname; }}}
-                bool { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
-                int32_t { expr {{ int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }}}
-                char { expr {{
-                    char $argname;
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
+                # note: arraylen can be ""
+                if {$basetype eq "char"} { expr {{
+                    char $argname[$arraylen]; memcpy($argname, Jim_String($obj), $arraylen);
+                }} } else { expr {{
+                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$[set argname]_objc];
                     {
-                        int _len_$argname;
-                        char* _tmp_$argname = Tcl_GetStringFromObj($obj, &_len_$argname);
-                        __ENSURE(_len_$argname >= 1);
-                        $argname = _tmp_$argname[0];
-                    }
-                }}}
-                size_t { expr {{ size_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
-                intptr_t { expr {{ intptr_t $argname; __ENSURE_OK(Tcl_GetLongFromObj(interp, $obj, (long *)&$argname)); }}}
-                uint16_t { expr {{ uint16_t $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, (int *)&$argname)); }}}
-                uint32_t { expr {{ uint32_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%" PRIu32, &$argname) == 1); }}}
-                uint64_t { expr {{ uint64_t $argname; __ENSURE(sscanf(Tcl_GetString($obj), "%" PRIu64, &$argname) == 1); }}}
-                char* { expr {{ char* $argname = Tcl_GetString($obj); }} }
-                Tcl_Obj* { expr {{ Tcl_Obj* $argname = $obj; }}}
-                default {
-                    if {[string index $argtype end] == "*"} {
-                        expr {{
-                            $argtype $argname;
-                            __ENSURE(sscanf(Tcl_GetString($obj), "($argtype) 0x%p", &$argname) == 1);
-                        }}
-                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $argtype -> basetype arraylen]} {
-                        # note: arraylen can be ""
-                        if {$basetype eq "char"} { expr {{
-                            char $argname[$arraylen]; memcpy($argname, Tcl_GetString($obj), $arraylen);
-                        }} } else { 
-                            expr {{
-                                int $[set argname]_objc;
-                                Tcl_Obj** $[set argname]_objv;
-                                __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
-
-                                $basetype $argname[$[set argname]_objc];
-                                {
-                                    for (int i = 0; i < $[set argname]_objc; i++) {
-                                        $[arg $basetype ${argname}_i ${argname}_objv\[i\]]
-                                        $argname[i] = $[set argname]_i;
-                                    }
-                                }
-                            }} 
+                        for (int i = 0; i < $[set argname]_objc; i++) {
+                            $[$self arg $basetype ${argname}_i "Jim_ListGetIndex(interp, $obj, i)"]
+                            $argname[i] = $[set argname]_i;
                         }
-                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
-                        expr {{
-                            int $[set argname]_objc;
-                            Tcl_Obj** $[set argname]_objv;
-                            __ENSURE_OK(Tcl_ListObjGetElements(interp, $obj, &$[set argname]_objc, &$[set argname]_objv));
-
-                            $basetype $argname[$[set argname]_objc][$arraylen2];
-                            {
-                                for (int i = 0; i < $[set argname]_objc; i++) {
-                                    $[arg ${basetype}\[\] ${argname}_i ${argname}_objv\[i\]]
-                                    memcpy(${argname}[i], ${argname}_i, sizeof(${argname}_i));
-                                }
-                            }
-                        }}
-                    } else {
-                        error "Unrecognized argtype $argtype"
                     }
-                }
-            }
-            ::proc argtype {t h} {
-                variable argtypes
-                set argtypes [linsert $argtypes 0 $t [csubst {expr {{$h}}}]]
-            }
-            ::proc arg {argtype argname obj} {
-                variable argtypes
-                csubst [switch $argtype $argtypes]
-            }
-
-            # C->Tcl conversion logic, when a value is returned from a
-            # C function to Tcl.
-            variable rtypes {
-                int { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                int32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                double { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
-                float { expr {{ $robj = Tcl_NewDoubleObj($rvalue); }}}
-                char { expr {{ $robj = Tcl_ObjPrintf("%c", $rvalue); }}}
-                bool { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                uint8_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                uint16_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                uint32_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                uint64_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
-                size_t { expr {{ $robj = Tcl_NewLongObj($rvalue); }}}
-                intptr_t { expr {{ $robj = Tcl_NewIntObj($rvalue); }}}
-                char* { expr {{ $robj = Tcl_NewStringObj($rvalue, -1); }} }
-                Tcl_Obj* { expr {{ $robj = $rvalue; }}}
-                default {
-                    if {[string index $rtype end] == "*"} {
-                        expr {{ $robj = Tcl_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
-                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
-                        if {$basetype eq "char"} { expr {{
-                            $robj = Tcl_ObjPrintf("%s", $rvalue);
-                        }} } else { expr {{
-                            {
-                                Tcl_Obj* objv[$arraylen];
-                                for (int i = 0; i < $arraylen; i++) {
-                                    $[ret $basetype objv\[i\] $rvalue\[i\]]
-                                }
-                                $robj = Tcl_NewListObj($arraylen, objv);
-                            }
-                        }} }
-                    } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
-                        {
-                            Tcl_Obj* objv[$arraylen];
-                            for (int i = 0; i < $arraylen; i++) {
-                                $basetype* rrow = $rvalue[i];
-                                Tcl_Obj** objrow = &objv[i];
-                                $[ret ${basetype}\[${arraylen2}\] *objrow rrow]
-                            }
-                            $robj = Tcl_NewListObj($arraylen, objv);
+                }} }
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $argtype -> basetype arraylen arraylen2]} {
+                expr {{
+                    int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                    $basetype $argname[$[set argname]_objc][$arraylen2];
+                    {
+                        for (int j = 0; j < $[set argname]_objc; j++) {
+                            $[$self arg $basetype\[\] ${argname}_j "Jim_ListGetIndex(interp, $obj, j)"]
+                            memcpy(${argname}[j], ${argname}_j, sizeof(${argname}_j));
                         }
-                    }} } else {
-                        error "Unrecognized rtype $rtype"
                     }
+                }}
+            } else {
+                error "Unrecognized argtype $argtype"
+            }
+        }
+    }
+
+    ___rtypes_comment {
+        # C->Tcl conversion logic, when a value is returned from a
+        # C function to Tcl.
+    }
+    rtypes {
+        int { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        int32_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        double { expr {{ $robj = Jim_NewDoubleObj(interp, $rvalue); }}}
+        float { expr {{ $robj = Jim_NewDoubleObj(interp, $rvalue); }}}
+        char { expr {{ $robj = Jim_NewStringObj(&$rvalue, 1); }}}
+        bool { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        uint8_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        uint16_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        uint32_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        uint64_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        size_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        intptr_t { expr {{ $robj = Jim_NewIntObj(interp, $rvalue); }}}
+        char* { expr {{ $robj = Jim_NewStringObj(interp, $rvalue, -1); }} }
+        Jim_Obj* { expr {{ $robj = $rvalue; }}}
+        default {
+            if {[string index $rtype end] == "*"} {
+                expr {{ $robj = Jim_ObjPrintf("($rtype) 0x%" PRIxPTR, (uintptr_t) $rvalue); }}
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]$} $rtype -> basetype arraylen]} {
+                if {$basetype eq "char"} { expr {{
+                    $robj = Jim_ObjPrintf($rvalue);
+                }} } else { expr {{
+                    {
+                        Jim_Obj* objv[$arraylen];
+                        for (int i = 0; i < $arraylen; i++) {
+                            $[$self ret $basetype objv\[i\] $rvalue\[i\]]
+                        }
+                        $robj = Jim_NewListObj(interp, objv, $arraylen);
+                    }
+                }} }
+            } elseif {[regexp {(^[^\[]+)\[(\d*)\]\[(\d*)\]$} $rtype -> basetype arraylen arraylen2]} { expr {{
+                    {
+                        Jim_Obj* objv[$arraylen];
+                        for (int i = 0; i < $arraylen; i++) {
+                            $basetype* rrow = $rvalue[i];
+                            Jim_Obj** objrow = &objv[i];
+                            $[$self ret ${basetype}\[${arraylen2}\] *objrow rrow]
+                        }
+                        $robj = Jim_NewListObj(interp, objv, $arraylen);
+                    }
+            }} } else {
+                error "Unrecognized rtype $rtype"
+            }
+        }
+    }
+
+    cflags {-I./vendor/jimtcl}
+    endcflags {}
+
+    cfile {}
+
+    ___addrs_comment {
+        # Used to store function pointers so you can import them
+        # across modules.
+    }
+    addrs {}
+}
+
+# Registers a new argtype.
+C method argtype {t h} {
+    set argtypes [linsert $argtypes 0 $t [csubst {expr {{$h}}}]]
+}
+# Looks up the argtype and returns C code to convert it.
+C method arg {argtype argname obj} {
+    csubst [switch $argtype $argtypes]
+}
+
+# Registers a new rtype.
+C method rtype {t h} {
+    set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
+}
+C method ret {rtype robj rvalue} {
+    csubst [switch $rtype $rtypes]
+}
+
+C method typedef {t newt} {
+    $self code "typedef $t $newt;"
+    set argtype $t; set rtype $t
+
+    $self argtype $newt [switch $argtype $argtypes]
+    $self rtype $newt [switch $rtype $rtypes]
+}
+
+C method include {h} {
+    if {[string index $h 0] eq "<"} {
+        lappend code "#include $h"
+    } else {
+        lappend code "#include \"$h\""
+    }
+}
+
+C method linedirective {} {
+    set frame [info frame -2]
+    if {[dict exists $frame line] && [dict exists $frame file] &&
+        [dict get $frame line] >= 0} {
+        #subst {#line [dict get $frame line] "[dict get $frame file]"}
+    } else { list }
+}
+
+C method code {newcode} {
+    lappend code [subst {
+        [$self linedirective]
+        $newcode
+    }]
+    list
+}
+
+C method enum {type values} {
+    lappend code [subst {
+        typedef enum $type $type;
+        enum $type {$values};
+    }]
+
+    regsub -all {,} $values "" values
+    argtype $type [switch int $argtypes]
+    rtype $type [switch int $rtypes]
+}
+
+C method struct {type fields} {
+    lappend code [subst {
+        typedef struct $type $type;
+        struct $type {$fields};
+    }]
+
+    regsub -all -line {/\*.*?\*/} $fields "" fields
+    regsub -all -line {//.*$} $fields "" fields
+    set fields [string map {";" ""} $fields]
+
+    set fieldnames [list]
+    for {set i 0} {$i < [llength $fields]} {incr i 2} {
+        set fieldtype [lindex $fields $i]
+        set fieldname [lindex $fields $i+1]
+        lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
+        lappend fieldnames $fieldname
+        lset fields $i $fieldtype
+        lset fields $i+1 $fieldname
+    }
+
+    $self include <string.h>
+    # ptrAndLongRep.value = 1 means the data is owned by
+    # the Jim_ObjType and should be freed by this
+    # code. value = 0 means the data is owned externally
+    # (by someone else like the statement store).
+    dict set objtypes $type [csubst {
+        $[join [lmap fieldname $fieldnames { subst {
+            __thread Jim_Obj* k__${type}__${fieldname};
+        } }] "\n"]
+        void $[set type]_init(Jim_Interp* interp) {
+            $[join [lmap fieldname $fieldnames { subst {
+                k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
+                Jim_IncrRefCount(k__${type}__${fieldname});
+            } }] "\n"]
+        }
+
+        extern Jim_ObjType $[set type]_ObjType;
+        void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
+            if (objPtr->internalRep.ptrIntValue.int1 == 1) {
+                free((char*)objPtr->internalRep.ptrIntValue.ptr);
+            }
+        }
+        void $[set type]_dupIntRepProc(Jim_Interp* interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
+            dupPtr->internalRep.ptrIntValue.ptr = malloc(sizeof($type));
+            dupPtr->internalRep.ptrIntValue.int1 = 1;
+            memcpy(dupPtr->internalRep.ptrIntValue.ptr, srcPtr->internalRep.ptrIntValue.ptr, sizeof($type));
+        }
+        void $[set type]_updateStringProc(Jim_Obj *objPtr) {
+            $[set type] *robj = ($[set type] *) objPtr->internalRep.ptrIntValue.ptr;
+
+            const char *format = "$[join [lmap fieldname $fieldnames {
+                subst {$fieldname {%s}}
+                }] { }]";
+            $[join [lmap {fieldtype fieldname} $fields {
+                csubst {
+                    Jim_Obj* robj_$fieldname;
+                    $[$self ret $fieldtype robj_$fieldname robj->$fieldname]
                 }
-            }
-            # Defines a new rtype.
-            ::proc rtype {t h} {
-                variable rtypes
-                set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
-            }
-            # Gets and monomorphizes(?) an rtype (used during code
-            # emit).
-            ::proc ret {rtype robj rvalue} {
-                variable rtypes
-                csubst [switch $rtype $rtypes]
-            }
+            }] "\n"]
+            objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
+            objPtr->bytes = (char *) malloc(objPtr->length + 1);
+            snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
+            $[join [lmap {fieldtype fieldname} $fields {
+                csubst {
+                    Jim_FreeNewObj(interp, robj_$fieldname);
+                }
+            }] "\n"]
+        }
+        int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+            $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
+            $[join [lmap {fieldtype fieldname} $fields {
+                csubst {
+                    Jim_Obj* obj_$fieldname;
+                    __ENSURE_OK(Jim_DictKey(interp, objPtr, k__$[set type]__$fieldname, &obj_$fieldname, JIM_ERRMSG));
 
-            ::proc typedef {t newt} {
-                code "typedef $t $newt;"
-                set argtype $t; set rtype $t
-                variable argtypes
-                argtype $newt [switch $argtype $argtypes]
-                variable rtypes
-                rtype $newt [switch $rtype $rtypes]
-            }
+                    $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
+                    memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
+                }
+            }] "\n"]
 
-            ::proc include {h} {
-                variable code
-                if {[string index $h 0] eq "<"} {
-                    lappend code "#include $h"
+            Jim_FreeIntRep(interp, objPtr);
+            objPtr->typePtr = &$[set type]_ObjType;
+            objPtr->internalRep.ptrIntValue.ptr = robj;
+            objPtr->internalRep.ptrIntValue.int1 = 1;
+            return JIM_OK;
+        }
+        Jim_ObjType $[set type]_ObjType = (Jim_ObjType) {
+            .name = "$type",
+            .freeIntRepProc = $[set type]_freeIntRepProc,
+            .dupIntRepProc = $[set type]_dupIntRepProc,
+            .updateStringProc = $[set type]_updateStringProc
+            // .setFromAnyProc = $[set type]_setFromAnyProc
+        };
+    }]
+
+    $self argtype $type [csubst {
+        __ENSURE_OK($[set type]_setFromAnyProc(interp, \$obj));
+        \$argtype \$argname;
+        \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
+    }]
+
+    $self rtype $type {
+        $robj = Jim_NewObj(interp);
+        $robj->bytes = NULL;
+        $robj->typePtr = &$[set rtype]_ObjType;
+        $robj->internalRep.ptrIntValue.ptr = malloc(sizeof($[set rtype]));
+        $robj->internalRep.ptrIntValue.int1 = 1;
+        memcpy($robj->internalRep.ptrIntValue.ptr, &$rvalue, sizeof($[set rtype]));
+    }
+
+    # Generate Tcl getter functions for each field:
+    set ns [uplevel {namespace current}]::$type
+    namespace eval $ns {}
+    foreach {fieldtype fieldname} $fields {
+        try {
+            if {$fieldtype ne "Jim_Obj*" &&
+                [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
+                if {$basefieldtype eq "char"} {
+                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                        __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
+                        return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
+                    }
                 } else {
-                    lappend code "#include \"$h\""
-                }
-            }
-            ::proc linedirective {} {
-                set frame [info frame -2]
-                if {[dict exists $frame line] && [dict exists $frame file] &&
-                    [dict get $frame line] >= 0} {
-                    # subst {#line [dict get $frame line] "[dict get $frame file]"}
-                } else { list }
-            }
-            ::proc code {newcode} {
-                variable code
-                lappend code [subst {
-                    [linedirective]
-                    $newcode
-                }]
-                list
-            }
-
-            ::proc enum {type values} {
-                variable code
-                lappend code [subst {
-                    typedef enum $type $type;
-                    enum $type {$values};
-                }]
-
-                regsub -all {,} $values "" values
-                variable argtypes; argtype $type [switch int $argtypes]
-                variable rtypes; rtype $type [switch int $rtypes]
-            }
-
-            ::proc struct {type fields} {
-                variable code
-                lappend code [subst {
-                    typedef struct $type $type;
-                    struct $type {$fields};
-                }]
-
-                regsub -all -line {/\*.*?\*/} $fields "" fields
-                regsub -all -line {//.*$} $fields "" fields
-                set fields [string map {";" ""} $fields]
-
-                set fieldnames [list]
-                for {set i 0} {$i < [llength $fields]} {incr i 2} {
-                    set fieldtype [lindex $fields $i]
-                    set fieldname [lindex $fields $i+1]
-                    lassign [typestyle $fieldtype $fieldname] fieldtype fieldname
-                    lappend fieldnames $fieldname
-                    lset fields $i $fieldtype
-                    lset fields $i+1 $fieldname
-                }
-
-                variable objtypes
-                include <string.h>
-                # ptrAndLongRep.value = 1 means the data is owned by
-                # the Tcl_ObjType and should be freed by this
-                # code. value = 0 means the data is owned externally
-                # (by someone else like the statement store).
-                lappend objtypes [csubst {
-                    extern Tcl_ObjType $[set type]_ObjType;
-                    void $[set type]_freeIntRepProc(Tcl_Obj *objPtr) {
-                        if (objPtr->internalRep.ptrAndLongRep.value == 1) {
-                            ckfree((char*)objPtr->internalRep.ptrAndLongRep.ptr);
+                    if {$arraylen2 eq ""} {
+                        $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                            __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
+                            return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                         }
-                    }
-                    void $[set type]_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
-                        dupPtr->internalRep.ptrAndLongRep.ptr = ckalloc(sizeof($type));
-                        dupPtr->internalRep.ptrAndLongRep.value = 1;
-                        memcpy(dupPtr->internalRep.ptrAndLongRep.ptr, srcPtr->internalRep.ptrAndLongRep.ptr, sizeof($type));
-                    }
-                    void $[set type]_updateStringProc(Tcl_Obj *objPtr) {
-                        $[set type] *robj = ($[set type] *)objPtr->internalRep.ptrAndLongRep.ptr;
-
-                        const char *format = "$[join [lmap fieldname $fieldnames {
-                            subst {$fieldname {%s}}
-                        }] { }]";
-                        $[join [lmap {fieldtype fieldname} $fields {
-                            csubst {
-                                Tcl_Obj* robj_$fieldname;
-                                $[ret $fieldtype robj_$fieldname robj->$fieldname]
-                            }
-                        }] "\n"]
-                        objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
-                        objPtr->bytes = (char *)ckalloc(objPtr->length + 1);
-                        snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Tcl_GetString(robj_$fieldname)"}}] ", "]);
-                    }
-                    int $[set type]_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
-                        $[set type] *robj = ($[set type] *)ckalloc(sizeof($[set type]));
-                        $[join [lmap {fieldtype fieldname} $fields {
-                            csubst {
-                                Tcl_Obj* obj_$fieldname;
-                                Tcl_DictObjGet(interp, objPtr, Tcl_ObjPrintf("%s", "$fieldname"), &obj_$fieldname);
-                                $[arg $fieldtype robj_$fieldname obj_${fieldname}]
-                                memcpy(&robj->$fieldname, &robj_$fieldname, sizeof(robj->$fieldname));
-                            }
-                        }] "\n"]
-
-                        objPtr->typePtr = &$[set type]_ObjType;
-                        objPtr->internalRep.ptrAndLongRep.ptr = robj;
-                        objPtr->internalRep.ptrAndLongRep.value = 1;
-                        return TCL_OK;
-                    }
-                    Tcl_ObjType $[set type]_ObjType = (Tcl_ObjType) {
-                        .name = "$type",
-                        .freeIntRepProc = $[set type]_freeIntRepProc,
-                        .dupIntRepProc = $[set type]_dupIntRepProc,
-                        .updateStringProc = $[set type]_updateStringProc,
-                        .setFromAnyProc = $[set type]_setFromAnyProc
-                    };
-                }]
-
-                argtype $type [csubst {
-                    __ENSURE_OK(Tcl_ConvertToType(interp, \$obj, &$[set type]_ObjType));
-                    \$argtype \$argname;
-                    \$argname = *(($type *)\$obj->internalRep.ptrAndLongRep.ptr);
-                }]
-                argtype $type* [csubst {
-                    \$argtype \$argname;
-                    if (\$obj->bytes != NULL && \$obj->bytes[0] == '(') {
-                        // If it has a string repr and starts with (.
-                        __ENSURE(sscanf(Tcl_GetString(\$obj), "(\$argtype) 0x%p", &\$argname) == 1);
-
+                        set elementtype $basefieldtype
                     } else {
-                        // Otherwise, try to coerce from struct.
-                        __ENSURE_OK(Tcl_ConvertToType(interp, \$obj, &$[set type]_ObjType));
-                        \$argname = ($type *)\$obj->internalRep.ptrAndLongRep.ptr;
+                        set elementtype $basefieldtype\[$arraylen2\]
                     }
-                }]
-
-                rtype $type {
-                    $robj = Tcl_NewObj();
-                    $robj->bytes = NULL;
-                    $robj->typePtr = &$[set rtype]_ObjType;
-                    $robj->internalRep.ptrAndLongRep.ptr = ckalloc(sizeof($[set rtype]));
-                    $robj->internalRep.ptrAndLongRep.value = 1;
-                    memcpy($robj->internalRep.ptrAndLongRep.ptr, &$rvalue, sizeof($[set rtype]));
-                }
-
-                # Generate Tcl getter functions for each field:
-                set ns [uplevel {namespace current}]::$type
-                namespace eval $ns {}
-                foreach {fieldtype fieldname} $fields {
-                    try {
-                        if {$fieldtype ne "Tcl_Obj*" &&
-                            [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
-                            if {$basefieldtype eq "char"} {
-                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} char* {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
-                                }
-                            } else {
-                                if {$arraylen2 eq ""} {
-                                    proc ${ns}::${fieldname}_ptr {Tcl_Interp* interp Tcl_Obj* obj} $basefieldtype* {
-                                        __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                        return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
-                                    }
-                                    set elementtype $basefieldtype
-                                } else {
-                                    set elementtype $basefieldtype\[$arraylen2\]
-                                }
-                                # If fieldtype is a pointer or an array,
-                                # then make a getter that takes an index.
-                                proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj int idx} $elementtype {
-                                    __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                    return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname[idx];
-                                }
-                            }
-                        } else {
-                            proc ${ns}::$fieldname {Tcl_Interp* interp Tcl_Obj* obj} $fieldtype {
-                                __ENSURE_OK(Tcl_ConvertToType(interp, obj, &$[set type]_ObjType));
-                                return (($type *)obj->internalRep.ptrAndLongRep.ptr)->$fieldname;
-                            }
-                        }
-                    } on error e {
-                        puts stderr "Warning: Unable to generate getter for `$type $fieldname`: $e"
+                    # If fieldtype is a pointer or an array,
+                    # then make a getter that takes an index.
+                    $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
+                        __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
+                        return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
-                namespace eval $ns {
-                    namespace export *
-                    namespace ensemble create
+            } else {
+                $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                    __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
+                    return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
             }
+        } on error e {
+            puts stderr "Warning: Unable to generate getter for `$type $fieldname`: $e"
+        }
+    }
+    namespace eval $ns {
+        namespace export *
+        namespace ensemble create
+    }
+}
 
-            ::proc "proc" {name args rtype body} {
+C method proc {name arguments rtype body} {
+    set cname [string map {":" "_"} $name]
+    set body [uplevel 2 [list csubst $body]]
+
+    set arglist [list]
+    set argnames [list]
+    set loadargs [list]
+    foreach {argtype argname} $arguments {
+        lassign [typestyle $argtype $argname] argtype argname
+        lappend arglist [join [cstyle $argtype $argname] " "]
+        lappend argnames $argname
+
+        if {$argtype == "Jim_Interp*" && $argname == "interp"} { continue }
+
+        set obj [subst {objv\[1 + [llength $loadargs]\]}]
+        lappend loadargs [$self arg {*}[typestyle $argtype $argname] $obj]
+    }
+    regsub {\[\d*\]} $rtype * decayedRtype
+    if {$rtype == "void"} {
+        set saverv [subst {
+            $cname ([join $argnames ", "]);
+            return JIM_OK;
+        }]
+    } else {
+        set saverv [subst {
+            $decayedRtype rvalue = $cname ([join $argnames ", "]);
+            Jim_Obj* robj;
+            [$self ret $rtype robj rvalue]
+            Jim_SetResult(interp, robj);
+            return JIM_OK;
+        }]
+    }
+
+    if {[dict exists $procs $name]} { error "C proc: Name collision: $name" }
+    dict set procs $name rtype $rtype
+    dict set procs $name arglist $arglist
+    dict set procs $name code [subst {
+        static $decayedRtype $cname ([join $arglist ", "]) {
+            [$self linedirective]
+            $body
+        }
+
+        static int [set cname]_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
+            if (objc != 1 + [llength $loadargs]) {
+                Jim_SetResultFormatted(interp, "Wrong number of arguments to $name");
+                return JIM_ERR;
+            }
+            int __r = setjmp(__onError);
+            if (__r != 0) { return JIM_ERR; }
+
+            [join $loadargs "\n"]
+            $saverv
+        }
+    }]
+}
+
+C method cflags {args} { lappend cflags {*}$args }
+C method endcflags {args} { lappend endcflags {*}$args }
+
+C method compile {{cid {}}} {
+    set cfile [file tempfile /tmp/cfileXXXXXX].c
+
+    # A universally unique id that can be used as a global proc name
+    # in every thread.
+    if {$cid eq {}} {
+        set cid [file rootname [file tail $cfile]]
+    }
+
+    set init [subst {
+        int Jim_${cid}Init(Jim_Interp* intp) {
+            interp = intp;
+
+            [join [lmap name [dict keys $procs] {
                 set cname [string map {":" "_"} $name]
-                set body [uplevel [list csubst $body]]
+                set tclname $name
+                # puts "Creating C command: $tclname"
+                csubst {{
+                    char script[1000];
+                    snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
+                    Jim_Eval(interp, script);
 
-                # puts "$name $args $rtype"
-                set arglist [list]
-                set argnames [list]
-                set loadargs [list]
-                foreach {argtype argname} $args {
-                    lassign [typestyle $argtype $argname] argtype argname
-                    lappend arglist [join [cstyle $argtype $argname] " "]
-                    lappend argnames $argname
+                    Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
+                }}
+            }] "\n"]
 
-                    if {$argtype == "Tcl_Interp*" && $argname == "interp"} { continue }
-
-                    set obj [subst {objv\[1 + [llength $loadargs]\]}]
-                    lappend loadargs [arg {*}[typestyle $argtype $argname] $obj]
-                }
-                regsub {\[\d*\]} $rtype * decayedRtype
-                if {$rtype == "void"} {
-                    set saverv [subst {
-                        $cname ([join $argnames ", "]);
-                        return TCL_OK;
-                    }]
-                } else {
-                    set saverv [subst {
-                        $decayedRtype rvalue = $cname ([join $argnames ", "]);
-                        Tcl_Obj* robj;
-                        [ret $rtype robj rvalue]
-                        Tcl_SetObjResult(interp, robj);
-                        return TCL_OK;
-                    }]
-                }
-
-                variable procs
-                if {[dict exists $procs $name]} { error "Name collision: $name" }
-                dict set procs $name rtype $rtype
-                dict set procs $name arglist $arglist
-                dict set procs $name ns [uplevel {namespace current}]
-                dict set procs $name code [subst {
-                    static $decayedRtype $cname ([join $arglist ", "]) {
-                        [linedirective]
-                        $body
-                    }
-
-                    static int [set cname]_Cmd(ClientData cdata, Tcl_Interp* interp, int objc, Tcl_Obj* const objv\[\]) {
-                        if (objc != 1 + [llength $loadargs]) {
-                            Tcl_SetResult(interp, "Wrong number of arguments to $name", NULL);
-                            return TCL_ERROR;
-                        }
-                        __interp = interp;
-                        int __r = setjmp(__onError);
-                        if (__r != 0) { return TCL_ERROR; }
-
-                        [join $loadargs "\n"]
-                        $saverv
-                    }
-                }]
-            }
-
-            variable cflags [switch $tcl_platform(os) {
-                Darwin { expr { [file exists "$::tcl_library/../../Tcl"] ?
-                                [list -I$::tcl_library/../../Headers $::tcl_library/../../Tcl] :
-                                [list -I$::tcl_library/../../include \
-                                       $::tcl_library/../libtcl8.6.dylib \
-                                       -mmacosx-version-min=$tcl_platform(osVersion) \
-                                ]
-                            } }
-                Linux { list -I/usr/include/tcl8.6 -ltcl8.6 }
-            }]
-            ::proc cflags {args} { variable cflags; lappend cflags {*}$args }
-            cflags -I./vendor
-
-            ::proc compile {} {
-                variable prelude
-                variable code
-                variable objtypes
-                variable procs
-                variable cflags
-                variable compiler
-
-                set init [subst {
-                    int Cfile_Init(Tcl_Interp* interp) {
-                        [join [lmap name [dict keys $procs] {
-                            set cname [string map {":" "_"} $name]
-                            set tclname $name
-                            if {[string first :: $tclname] != 0} {
-                                set tclname [dict get $procs $name ns]::$name
-                            }
-                            # puts "Creating C command: $tclname"
-                            csubst {
-                                char $[set cname]_addr[100]; snprintf($[set cname]_addr, 100, "%p", $cname);
-                                Tcl_SetVar(interp, "$[namespace current]::$[set cname]_addr", $[set cname]_addr, 0);
-
-                                Tcl_CreateObjCommand(interp, "$tclname", $[set cname]_Cmd, NULL, NULL);
-                            }
-                        }] "\n"]
-                        return TCL_OK;
-                    }
-                }]
-
-                set externC [subst {
+            [join [lmap type [dict keys $objtypes] { subst {
+                ${type}_init(interp);
+            } }] "\n"]
+            return JIM_OK;
+        }
+    }]
+    set externC [subst {
 #ifdef __cplusplus
 extern "C" \{
 #endif
 }]
-                set unexternC [subst {
+    set unexternC [subst {
 #ifdef __cplusplus
 \}
 #endif
 }]
-                set sourcecode [join [list \
-                                          $externC \
-                                          $prelude \
-                                          $unexternC \
-                                          \
-                                          {*}$code \
-                                          \
-                                          $externC \
-                                          {*}$objtypes \
-                                          {*}[lmap p [dict values $procs] {dict get $p code}] \
-                                          $init \
-                                          $unexternC
-                                         ] "\n"]
+    set sourcecode [join [list \
+                              $externC \
+                              $prelude \
+                              $unexternC \
+                              \
+                              {*}$code \
+                              \
+                              $externC \
+                              {*}[dict values $objtypes] \
+                              {*}[lmap p [dict values $procs] {dict get $p code}] \
+                              $init \
+                              $unexternC \
+                             ] "\n"]
 
-                # puts "=====================\n$sourcecode\n====================="
+    # puts "=====================\n$sourcecode\n====================="
 
-                set cfd [file tempfile cfile cfile.c]; puts $cfd $sourcecode; close $cfd
-                exec $compiler -Wall -g -shared -fno-omit-frame-pointer -fPIC {*}$cflags $cfile -o [file rootname $cfile][info sharedlibextension]
-                load [file rootname $cfile][info sharedlibextension] cfile
-            }
-            ::proc import {sccVar sname as dest} {
-                upvar $sccVar scc
-                set procinfo [dict get [set ${scc}::procs] $sname]
-                set rtype [dict get $procinfo rtype]
-                set arglist [dict get $procinfo arglist]
-                set addr [set [set scc]::[set sname]_addr]
-                code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
-            }
-
-            namespace export *
-            namespace ensemble create
-        }]
-        return $handle
+    set cfd [open $cfile w]; puts $cfd $sourcecode; close $cfd
+    set ignoreUnresolved {}; if {$::tcl_platform(os) eq "linux"} {
+        set ignoreUnresolved -Wl,--unresolved-symbols=ignore-all
+    } elseif {$::tcl_platform(os) eq "darwin"} {
+        set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
+    if {[__isTracyEnabled]} {
+        lappend cflags -DTRACY_ENABLE=1
+    }
+    exec $compiler -Wall -g -fno-omit-frame-pointer -fPIC \
+        {*}$cflags $cfile -c -o [file rootname $cfile].o
+    # HACK: Why do we need this / only when running in lldb?
+    while {![file exists [file rootname $cfile].o]} { sleep 0.0001 }
 
-    set loader [create]
-    $loader include <dlfcn.h>
-    $loader proc loadlibImpl {char* filename} void* {
-        // TODO: report dlerror error
-        // TODO: better shadowing handling
-        return dlopen(filename, RTLD_NOW | RTLD_GLOBAL);
-    }
-    $loader proc loadlibError {} char* { return dlerror(); }
-    $loader compile
-    proc loadlib {filename} {
-        if {[loadlibImpl $filename] == "(void*) 0x0"} {
-            error "c loadlib: Failed to dlopen $filename: [loadlibError]"
-        }
-    }
-    proc loadlibLd {libname} {
-        set candidates [split [exec /usr/sbin/ldconfig -p | grep $libname] "\n"]
-        if {[llength $candidates] == 0} {
-            error "c loadlibLd: Could not find library $libname"
-        } elseif {[llength $candidates] > 1} {
-            # Is it greater than 1? if so, filter by arch
-            set candidates [lsearch -all -inline $candidates *$::tcl_platform(machine)*]
-        }
-        loadlib [lindex $candidates 0 end]
-    }
+    exec $compiler -shared $ignoreUnresolved \
+        -o /tmp/$cid.so [file rootname $cfile].o \
+        {*}$endcflags
+    # HACK: Why do we need this / only when running in lldb?
+    while {![file exists /tmp/$cid.so]} { sleep 0.0001 }
 
-    namespace export *
-    namespace ensemble create
+    return <C:$cid>
+}
+
+C method import {scc sname as dest} {
+    set procinfo [dict get [$scc eval {set procs}] $sname]
+    set rtype [dict get $procinfo rtype]
+    set arglist [dict get $procinfo arglist]
+    set addr [dict get [$scc eval {set addrs}] $sname]
+    $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
 proc ::C++ {} {
-    set cpp [c create]
-    set ${cpp}::compiler c++
+    set cpp [C]
+    $cpp eval [list set compiler c++]
     $cpp cflags -Wno-write-strings
     return $cpp
 }

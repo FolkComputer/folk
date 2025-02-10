@@ -1,61 +1,90 @@
-start:
-	tclsh8.6 main.tcl
-debug:
-	gdb --args tclsh8.6 main.tcl
-remote-debug: sync
-	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl stop folk && make -C /home/folk/folk debug'
-remote-valgrind: sync
-	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'cd folk; sudo systemctl stop folk && valgrind --leak-check=yes tclsh8.6 main.tcl'
+ifeq ($(shell uname -s),Linux)
+	override CFLAGS += -Wl,--export-dynamic
+endif
 
-FOLK_SHARE_NODE := $(shell tclsh8.6 hosts.tcl shareNode)
+ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
+# Tracy is enabled
+	TRACY_TARGET = vendor/tracy/public/TracyClient.o
+	override CPPFLAGS += -std=c++20 -DTRACY_ENABLE
+	LINKER := c++
+else
+	TRACY_CFLAGS :=
+	LINKER := cc
+endif
 
+folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
+	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
+	vendor/jimtcl/libjim.a $(TRACY_TARGET)
+
+	$(LINKER) -g -fno-omit-frame-pointer -o$@ \
+		$(CFLAGS) $(TRACY_CFLAGS) \
+		-L./vendor/jimtcl \
+		$^ \
+		-ljim -lm -lssl -lcrypto -lz
+	if [ "$$(uname)" = "Darwin" ]; then \
+		dsymutil $@; \
+	fi
+
+%.o: %.c trie.h
+	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
+		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
+		$< -I./vendor/jimtcl -I./vendor/tracy/public
+
+.PHONY: test clean deps
+test: folk
+	for test in test/*.folk; do \
+		echo "===================="; \
+		echo "Running test: $$test"; \
+		echo "--------------------"; \
+		./folk $$test ; \
+	done
+clean:
+	rm -f folk *.o vendor/tracy/public/TracyClient.o
+remote-clean:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
+deps:
+	make -C vendor/jimtcl
+	make -C vendor/apriltag libapriltag.so
+	if [ "$$(uname)" = "Darwin" ]; then \
+		install_name_tool -id @executable_path/vendor/apriltag/libapriltag.so vendor/apriltag/libapriltag.so; \
+	fi
+
+FOLK_REMOTE_NODE := folk-live
 sync:
-	rsync --delete --timeout=5 -e "ssh -o StrictHostKeyChecking=no" -a --no-links . folk@$(FOLK_SHARE_NODE):/home/folk/folk
+	rsync --timeout=5 -e "ssh -o StrictHostKeyChecking=no" --archive \
+		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
+		. $(FOLK_REMOTE_NODE):~/folk \
+		--delete-after
+setup-remote:
+	ssh-copy-id $(FOLK_REMOTE_NODE)
+	make sync
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk/vendor/jimtcl; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
-sync-restart: sync
-	ssh -tt folk@$(FOLK_SHARE_NODE) -- 'sudo systemctl restart folk'
+remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && ./folk'
+sudo-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
+debug-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
+valgrind-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; ps aux | grep valgrind | grep -v bash | tr -s " " | cut -d " " -f 2 | xargs kill -9; make deps && make && valgrind --leak-check=yes ./folk'
+heapprofile-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; sudo systemctl stop folk; sudo kill -9 `cat folk.pid`; make deps && make CFLAGS=$(CFLAGS) && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+heapprofile-remote-show:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; google-pprof --text folk $(HEAPPROFILE)'
+heapprofile-remote-svg:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; google-pprof --svg folk $(HEAPPROFILE)' > out.svg
 
-test:
-	for testfile in test/*.tcl; do echo; echo $${testfile}; echo --------; make FOLK_ENTRY=$${testfile}; done
-
-test/%.debug:
-	FOLK_ENTRY=test/$*.tcl lldb -- tclsh8.6 main.tcl
-
-test/%:
-	make FOLK_ENTRY=$@.tcl
-
-repl:
-	tclsh8.6 replmain.tcl
-
-journal:
-	ssh folk@$(FOLK_SHARE_NODE) -- journalctl -f -n 100 -u folk
-
-ssh:
-	ssh folk@$(FOLK_SHARE_NODE)
-
-FLAMEGRAPH_TID := $(shell pgrep tclsh8.6 | head -1)
 flamegraph:
-	sudo perf record -F 997 --tid=$(FLAMEGRAPH_TID) -g -- sleep 30
+	sudo perf record --freq=997 --call-graph lbr --pid=$(shell cat folk.pid) -g -- sleep 30
 	sudo perf script -f > out.perf
 	~/FlameGraph/stackcollapse-perf.pl out.perf > out.folded
 	~/FlameGraph/flamegraph.pl out.folded > out.svg
 
-# You can use the Web server to check the pid of display.folk,
-# apriltags.folk, camera.folk, etc.
 remote-flamegraph:
-	ssh -t folk@$(FOLK_SHARE_NODE) -- make -C /home/folk/folk flamegraph $(if $(REMOTE_FLAMEGRAPH_TID),FLAMEGRAPH_TID=$(REMOTE_FLAMEGRAPH_TID),)
-	scp folk@$(FOLK_SHARE_NODE):~/folk/out.svg .
-	scp folk@$(FOLK_SHARE_NODE):~/folk/out.perf .
+	ssh -t $(FOLK_REMOTE_NODE) -- make -C folk flamegraph
+	scp $(FOLK_REMOTE_NODE):~/folk/out.svg .
+	scp $(FOLK_REMOTE_NODE):~/folk/out.perf .
 
-backup-printed-programs:
-	cd ~/folk-printed-programs && timestamp=$$(date '+%Y-%m-%d_%H-%M-%S%z') && tar -zcvf ~/"folk-printed-programs_$$timestamp.tar.gz" . && echo "Saved to: ~/folk-printed-programs_$$timestamp.tar.gz"
-
-.PHONY: test sync start journal repl enable-pubkey install-deps
-
-enable-pubkey:
-	ssh folk-live -- 'sudo sed -i "s/.*PubkeyAuthentication.*/PubkeyAuthentication yes/g" /etc/ssh/sshd_config && sudo systemctl restart ssh'
-	sleep 1
-	ssh-copy-id folk-live
-
-install-deps:
-	sudo apt install console-data
+run-tracy:
+	vendor/tracy/profiler/build/tracy-profiler

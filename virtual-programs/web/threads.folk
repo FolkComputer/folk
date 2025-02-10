@@ -1,0 +1,188 @@
+set threadMonitorLib [apply {{} {
+    set cc [C]
+    $cc cflags -I. -I./vendor/tracy/public
+    $cc include "workqueue.h"
+    $cc include "common.h"
+    $cc code {
+        extern ThreadControlBlock threads[];
+        extern int _Atomic threadCount;
+
+        extern Db* db;
+
+        extern int unsafe_workQueueCopy(WorkQueueItem* into, int maxn, WorkQueue* q);
+        extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
+
+        Jim_Obj* itemToStringObj(WorkQueueItem item) {
+            char buf[10000]; traceItem(buf, sizeof(buf), item);
+            return Jim_NewStringObj(interp, buf, -1);
+        }
+    }
+    $cc proc workerTids {} Jim_Obj* {
+        // Fallback on macOS, where we don't have /proc to query all
+        // threads of the Folk process.
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        for (int i = 0; i < threadCount; i++) {
+            if (threads[i].tid != 0) {
+                Jim_ListAppendElement(interp, ret,
+                                      Jim_NewIntObj(interp, threads[i].tid));
+            }
+        }
+        return ret;
+    }
+    $cc proc workerInfo {int threadIndex} Jim_Obj* {
+        if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
+            return Jim_NewEmptyStringObj(interp);
+        }
+        ThreadControlBlock *thread = &threads[threadIndex];
+
+        Jim_Obj* ret = Jim_NewDictObj(interp, NULL, 0);
+
+        WorkQueueItem item = thread->currentItem;
+        Jim_DictAddElement(interp, ret, Jim_NewStringObj(interp, "op", -1),
+                           itemToStringObj(item));
+
+        WorkQueueItem items[100];
+        int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
+        Jim_Obj* workQueueObj = Jim_NewListObj(interp, NULL, 0);
+        for (int i = 0; i < nitems; i++) {
+            Jim_ListAppendElement(interp, workQueueObj,
+                                  itemToStringObj(items[i]));
+        }
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "workQueue", -1),
+                           workQueueObj);
+
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "currentItemStartTimestamp", -1),
+                           Jim_ObjPrintf("%" PRId64, thread->currentItemStartTimestamp));
+
+        int64_t now = timestamp_get(thread->clockid);
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "elapsed", -1),
+                           Jim_NewDoubleObj(interp, (double)(now - thread->currentItemStartTimestamp) / 1000.0));
+
+        return ret;
+    }
+    $cc proc workerInfoFromTid {int tid} Jim_Obj* {
+        for (int i = 0; i < threadCount; i++) {
+            if (threads[i].tid == tid) {
+                return workerInfo(i);
+            }
+        }
+        return Jim_NewEmptyStringObj(interp);
+    }
+
+    $cc code {
+        #include "vendor/c11-queues/mpmc_queue.h"
+        extern struct mpmc_queue globalWorkQueue;
+        extern _Atomic int globalWorkQueueSize;
+    }
+    $cc proc globalWorkQueueAvailable {} size_t {
+        return mpmc_queue_available(&globalWorkQueue);
+    }
+    # Unsafely peeks at the queue.
+    $cc proc globalWorkQueueItems {} Jim_Obj* {
+        Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+
+        size_t head = globalWorkQueue.head;
+        for (size_t i = head; i < globalWorkQueue.tail; i++) {
+            struct mpmc_queue_cell *cell = &globalWorkQueue.buffer[i & globalWorkQueue.buffer_mask];
+            WorkQueueItem *ptr = cell->data;
+            WorkQueueItem item = *ptr;
+
+            Jim_ListAppendElement(interp, ret, itemToStringObj(item));
+        }
+        return ret;
+    }
+
+    return [$cc compile]
+}}]
+
+Wish the web server handles route "/threads" with handler [list apply {{threadMonitorLib} {
+    set pid [pid]
+    try {
+        set tids [glob -tails -directory /proc/$pid/task *]
+
+        set userStacks [dict create]
+
+        set euStackOutput [exec eu-stack --pid=[pid] --verbose]
+        set currentTid none
+        foreach line [split $euStackOutput "\n"] {
+            if {[regexp {TID ([0-9]+):} $line -> tid]} {
+                set currentTid $tid
+            } else {
+                dict set userStacks $currentTid \
+                    "[dict getdef $userStacks $currentTid {}]\n$line"
+            }
+        }
+    } on error e {
+        set tids [$threadMonitorLib workerTids]
+    }
+
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Threads</title>
+        </head>
+
+        <body>
+
+        <h2>Threads</h2>
+
+        <ol start="0">
+        [join [lmap tid $tids {
+            set taskdir /proc/$pid/task/$tid
+
+            try {
+                set statusFd [open $taskdir/status r]
+                set status [read $statusFd]; close $statusFd
+            } on error e {
+                set status "<status unknown>"
+            }
+
+            set workerInfo [$threadMonitorLib workerInfoFromTid $tid]
+
+            try {
+                set userStack [dict get $userStacks $tid]
+            } on error e {
+                set userStack "<not found>"
+            }
+            try {
+                set stackFd [open $taskdir/stack r]
+                set kernelStack [read $stackFd]; close $stackFd
+            } on error e {
+                set kernelStack "<not permitted>"
+            }
+
+            subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
+                $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
+                  [if {$workerInfo eq ""} {subst {
+                      (Not a Folk worker thread)<br>
+                  }} else {
+                      set workQueue [dict get $workerInfo workQueue]
+                      subst {
+                          [htmlEscape [dict get $workerInfo op]] (elapsed: [dict get $workerInfo elapsed] us)<br>
+                          <details>
+                            <summary>Work queue ([llength $workQueue] items):</summary>
+                            <pre>[htmlEscape [join $workQueue "\n"]]</pre>
+                          </details>
+                      }
+                  }]
+                <details><summary>User stack:</summary><pre>[htmlEscape $userStack]</pre></details>
+                <details><summary>Kernel stack:</summary><pre>[htmlEscape $kernelStack]</pre></details>
+            </li>}
+        }] "\n"]
+        </ol>
+
+        <h2>Global workqueue ([$threadMonitorLib globalWorkQueueAvailable])</h2>
+        <ol start="0">
+        [lmap item [$threadMonitorLib globalWorkQueueItems] {
+            subst { <li>$item</li> }
+        }]
+        </ol>
+
+        </body>
+        </html>
+    }]
+}} $threadMonitorLib]

@@ -1,0 +1,134 @@
+set cc [C]
+# TODO: Factor this out.
+$cc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    uint8_t* data;
+}
+
+$cc code {
+    #include <pthread.h>
+
+    typedef struct ImageCacheEntry {
+        char* name;
+        Image im;
+    } ImageCacheEntry;
+
+    ImageCacheEntry imageCache[1000];
+    pthread_rwlock_t imageCacheLock;
+}
+$cc proc cacheInit {} void {
+    pthread_rwlock_init(&imageCacheLock, NULL);
+}
+$cc proc cacheExists {char* name} bool {
+    pthread_rwlock_rdlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (imageCache[i].name == NULL) break;
+        if (strcmp(imageCache[i].name, name) == 0) {
+            pthread_rwlock_unlock(&imageCacheLock);
+            return true;
+        }
+    }
+    pthread_rwlock_unlock(&imageCacheLock);
+    return false;
+}
+$cc proc cacheGet {char* name} Image {
+    pthread_rwlock_rdlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (strcmp(imageCache[i].name, name) == 0) {
+            Image im = imageCache[i].im;
+            pthread_rwlock_unlock(&imageCacheLock);
+            return im;
+        }
+    }
+    fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
+}
+$cc proc cachePut {char* name Image im} void {
+    pthread_rwlock_wrlock(&imageCacheLock);
+    for (int i = 0; i < 1000; i++) {
+        if (imageCache[i].name == NULL) {
+            imageCache[i].name = strdup(name);
+            imageCache[i].im = im;
+            break;
+        }
+    }
+    pthread_rwlock_unlock(&imageCacheLock);
+}
+
+set cacheLib [$cc compile]
+$cacheLib cacheInit
+
+When the image library is /imageLib/ {
+    set loadImage [list apply {{cacheLib imageLib im} {
+        if {[$cacheLib cacheExists $im]} {
+            return [$cacheLib cacheGet $im]
+        }
+
+        set impath $im
+        if {[string match "http*://*" $impath]} {
+            set im /tmp/[regsub -all {\W+} $impath "_"]
+            exec -ignorestderr curl -o$im $impath
+        }
+        if {[string match "*jpg" $im] ||
+            [string match "*jpeg" $im] ||
+            [string match "*png" $im]} {
+            set path [expr {[string index $im 0] eq "/" ?
+                            $im : "$::env(HOME)/folk-images/$im"}]
+            if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
+                set im [$imageLib loadJpeg $path]
+            } else {
+                set im [$imageLib loadPng $path]
+            }
+            $cacheLib cachePut $impath $im
+        }
+        return $im
+    }} $cacheLib $imageLib]
+    Claim the image loader is $loadImage
+}
+
+Wish the GPU compiles pipeline "image" {
+    {sampler2D image vec2 imageSize vec2 pos float radians vec2 scale
+     fn rotate} {
+        vec2 a = pos + rotate(scale*-imageSize/2, -radians);
+        vec2 b = pos + rotate(scale*vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(scale*imageSize/2, -radians);
+        vec2 d = pos + rotate(scale*vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 vertices[4] = vec2[4](a, b, d, c);
+        return vertices[gl_VertexIndex];
+} {fn invBilinear fn rotate} {
+        vec2 a = pos + rotate(scale*-imageSize/2, -radians);
+        vec2 b = pos + rotate(scale*vec2(imageSize.x, -imageSize.y)/2, -radians);
+        vec2 c = pos + rotate(scale*imageSize/2, -radians);
+        vec2 d = pos + rotate(scale*vec2(-imageSize.x, imageSize.y)/2, -radians);
+        vec2 p = gl_FragCoord.xy;
+        vec2 uv = invBilinear(p, a, b, c, d);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(image, uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
+}}
+When the image library is /imageLib/ &\
+     /someone/ wishes to draw an image with /...options/ {
+    if {[dict exists $options center]} {
+        set center [dict get $options center]
+    } else {
+        set center [list [dict get $options x] [dict get $options y]]
+    }
+    set im [dict get $options image]
+    set radians [dict getdef $options radians 0]
+    set scale [dict getdef $options scale 1.0]
+    if {[llength $scale] == 1} {
+        set scale [list $scale $scale] 
+    }
+
+    Wish the GPU loads image $im
+    When the GPU has loaded image $im as /gim/ {
+        Wish the GPU draws pipeline "image" with arguments \
+            [list $gim [list [$imageLib Image_width $im] [$imageLib Image_height $im]] \
+                 $center $radians $scale]
+    }
+}
+# Wish to draw an image with center {200 200} image [{*}$loadImage "[pwd]/vendor/fonts/CourierPrimeCode.png"]

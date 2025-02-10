@@ -11,8 +11,8 @@
 #     http://www.ok.sc.e.titech.ac.jp/res/PCS/publications/procams2009.pdf
 #
 
-package require math::linearalgebra
-# rename ::scale scaleTk
+package require linalg
+
 foreach p {add norm sub scale matmul
     getelem transpose determineSVD shape mkIdentity show
     solvePGauss crossproduct getcol setcol unitLengthVector det
@@ -23,79 +23,82 @@ foreach p {add norm sub scale matmul
 # We try to use the AprilTag matrix library (instead of tcllib linalg)
 # to do matrix/homography operations in the live calibration inner
 # loop, to help with performance:
-set cc [c create]
-$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+set cc [C]
+$cc cflags -I./vendor/apriltag
 $cc include <common/matd.h>
 $cc include <common/homography.h>
 
 $cc code {
-    extern Tcl_ObjType matd_ObjType;
-    void matd_freeIntRepProc(Tcl_Obj *objPtr) {
-        matd_destroy((matd_t*) objPtr->internalRep.otherValuePtr);
+    extern Jim_ObjType matd_ObjType;
+    void matd_freeIntRepProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        matd_destroy((matd_t*) objPtr->internalRep.ptr);
     }
-    void matd_dupIntRepProc(Tcl_Obj *srcPtr, Tcl_Obj *dupPtr) {
-        dupPtr->internalRep.otherValuePtr = (void*) matd_copy((matd_t*) srcPtr->internalRep.otherValuePtr);
+    void matd_dupIntRepProc(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
+        dupPtr->internalRep.ptr = (void*) matd_copy((matd_t*) srcPtr->internalRep.ptr);
     }
-    void matd_updateStringProc(Tcl_Obj *objPtr) {
-        matd_t* mat = (matd_t*) objPtr->internalRep.otherValuePtr;
+    void matd_updateStringProc(Jim_Obj *objPtr) {
+        matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
 
-        Tcl_DString ds; Tcl_DStringInit(&ds);
+        objPtr->bytes = calloc(mat->nrows, 1 + mat->ncols * 17 + 1);
+        char *s = objPtr->bytes;
+        int i = 0;
+        
         for (unsigned int row = 0; row < mat->nrows; row++) {
-            Tcl_DStringStartSublist(&ds);
+            s[i++] = '{';
             for (unsigned int col = 0; col < mat->ncols; col++) {
-                char el[16];
-                FOLK_ENSURE(snprintf(el, sizeof(el), "%f", MATD_EL(mat, row, col)) < 16);
-                Tcl_DStringAppendElement(&ds, el);
+                int n = snprintf(&s[i], 17,
+                                 "%f ", MATD_EL(mat, row, col));
+                FOLK_ENSURE(n <= 17); i += n;
             }
-            Tcl_DStringEndSublist(&ds);
+            s[i++] = '}';
         }
-
-        objPtr->length = Tcl_DStringLength(&ds);
-        objPtr->bytes = ckalloc(objPtr->length + 1);
-        snprintf(objPtr->bytes, objPtr->length + 1, "%s", Tcl_DStringValue(&ds));
-        Tcl_DStringFree(&ds);
+        objPtr->length = strlen(s);
     }
-    int matd_setFromAnyProc(Tcl_Interp *interp, Tcl_Obj *objPtr) {
+    int matd_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
         // shimmer into a list, then iterate
-        int nrows; Tcl_Obj** rowObjs;
-        __ENSURE_OK(Tcl_ListObjGetElements(interp, objPtr, &nrows, &rowObjs));
+        int nrows; Jim_Obj *rowObj0;
+        nrows = Jim_ListLength(interp, objPtr);
         __ENSURE(nrows > 0);
-        int ncols;
-        __ENSURE_OK(Tcl_ListObjLength(interp, rowObjs[0], &ncols));
+        __ENSURE_OK(Jim_ListIndex(interp, objPtr, 0, &rowObj0, false));
+        int ncols = Jim_ListLength(interp, rowObj0);
         __ENSURE(ncols > 0);
 
-        matd_t* mat = matd_create(nrows, ncols);
+        matd_t *mat = matd_create(nrows, ncols);
         for (int row = 0; row < nrows; row++) {
-            int rowCols; Tcl_Obj** elObjs;
-            __ENSURE_OK(Tcl_ListObjGetElements(interp, rowObjs[row], &rowCols, &elObjs));
+            Jim_Obj *rowObj;
+            __ENSURE_OK(Jim_ListIndex(interp, objPtr, row, &rowObj, false));
+            int rowCols = Jim_ListLength(interp, rowObj);
             __ENSURE(rowCols == ncols);
             for (int col = 0; col < ncols; col++) {
-                __ENSURE_OK(Tcl_GetDoubleFromObj(interp, elObjs[col], &MATD_EL(mat, row, col)));
+                Jim_Obj *elObj;
+                __ENSURE_OK(Jim_ListIndex(interp, rowObj, col, &elObj, false));
+                __ENSURE_OK(Jim_GetDouble(interp, elObj, &MATD_EL(mat, row, col)));
             }
         }
         objPtr->typePtr = &matd_ObjType;
-        objPtr->internalRep.otherValuePtr = mat;
-        return TCL_OK;
+        objPtr->internalRep.ptr = mat;
+        return JIM_OK;
     }
-    Tcl_ObjType matd_ObjType = (Tcl_ObjType) {
+    Jim_ObjType matd_ObjType = (Jim_ObjType) {
         .name = "matd_t*",
         .freeIntRepProc = matd_freeIntRepProc,
         .dupIntRepProc = matd_dupIntRepProc,
         .updateStringProc = matd_updateStringProc,
-        .setFromAnyProc = matd_setFromAnyProc,
+        /* .setFromAnyProc = matd_setFromAnyProc, */
     };
 }
 $cc argtype matd_t* {
-    __ENSURE_OK(Tcl_ConvertToType(interp, $obj, &matd_ObjType));
+    __ENSURE_OK(matd_setFromAnyProc(interp, $obj));
     matd_t* $argname;
-    $argname = (matd_t*) $obj->internalRep.otherValuePtr;
+    $argname = (matd_t*) $obj->internalRep.ptr;
 }
 $cc rtype matd_t* {
-    $robj = Tcl_NewObj();
+    $robj = Jim_NewObj(interp);
     $robj->bytes = NULL;
     $robj->typePtr = &matd_ObjType;
-    $robj->internalRep.otherValuePtr = $rvalue;
+    $robj->internalRep.ptr = $rvalue;
 }
+
 
 # Takes a list of at least 4 point pairs (model -> image) like
 #
@@ -117,23 +120,25 @@ $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* 
     return homography_compute(&correspondencesArr,
                               HOMOGRAPHY_COMPUTE_FLAG_SVD);
 }
-# HACK: wrapper because we have to give the array length as a separate
-# arg (at least for now).
-proc estimateHomography {pointPairs} {
-    estimateHomographyImpl [llength $pointPairs] $pointPairs
-}
-$cc proc applyHomography {matd_t* H double[2] xy} Tcl_Obj* {
+$cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
     double out[2];
     homography_project(H, xy[0], xy[1], &out[0], &out[1]);
 
-    Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
-    return Tcl_NewListObj(2, retObjs);
+    Jim_Obj* retObjs[2] = { Jim_NewDoubleObj(interp, out[0]), Jim_NewDoubleObj(interp, out[1]) };
+    return Jim_NewListObj(interp, retObjs, 2);
 }
 $cc proc matdMul {matd_t* a matd_t* b} matd_t* {
     return matd_multiply(a, b);
 }
-c loadlib $::env(HOME)/apriltag/libapriltag.so
-$cc compile
+$cc endcflags ./vendor/apriltag/libapriltag.so
+set matLib [$cc compile]
+
+# HACK: wrapper because we have to give the array length as a separate
+# arg (at least for now).
+fn estimateHomography {pointPairs} {
+    $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
+}
+
 
 set ROWS 3
 set COLS 5
@@ -177,16 +182,8 @@ Claim the calibration unit model is $UNIT_MODEL
 fn isCalibrationTag {id} { expr {$id >= 48600 && $id < 48600 + $ROWS*$COLS} }
 fn isPrintedTag {id} {
     if {![isCalibrationTag $id]} { return false }
-    # We print tags on the outer perimeter of the grid, and we project
-    # tags in the interior.
     set idx [- $id 48600]
     return [expr {$idx % 2 == 0}] ;# for checkerboard
-
-    # for perimeter:
-    # set row [expr {$idx / $COLS}]
-    # set col [expr {$idx % $COLS}]
-    # return [expr {$row == 0 || $row == $ROWS - 1 ||
-    #               $col == 0 || $col == $COLS - 1}]
 }
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
@@ -198,8 +195,7 @@ Claim the calibration isPrintedTag is ${^isPrintedTag}
 fn isVersionTag {id} {
     if {![isProjectedTag $id]} { return false }
     set idx [- $id 48600]
-    # expr {$idx % 2 == 1} ;# for perimeter
-    expr {$idx % 4 == 1} ;# for checkerboard
+    return [expr {$idx % 4 == 1}] ;# for checkerboard
 }
 # Takes a dictionary of tag ID => {p, c} and rotates version tags
 # according to version.
@@ -219,7 +215,6 @@ fn versionizeTags {tags version} {
     return $tags
 }
 
-package require math
 namespace import ::math::mean
 fn meanPoseDifference {pose1 pose2} {
     set tags1 [dict get $pose1 tags]
@@ -244,6 +239,11 @@ fn meanPoseDifference {pose1 pose2} {
 Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 
 fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
+    package require linalg
+    namespace import ::math::linearalgebra::add
+    set printLib [dict get [lindex [Query! /someone/ claims the print library is /printLib/] 0] \
+                      printLib]
+
     set marginTop 72; set marginLeft 36
     set PageWidth 612; set PageHeight 792
 
@@ -276,18 +276,18 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
         $marginLeft $marginTop translate
 
         [set tagIdx -1]
-        [join [dict values [dict map {id modelTag} $model {
+        [join [lmap {id modelTag} $model {
             if {![apply $tagIdPredicate $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
             set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
-            lassign [applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            lassign [$matLib applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
             subst {
                 gsave
                 $psX [+ $psY $tagOuterLengthPs] translate
                 $tagOuterLengthPs -$tagOuterLengthPs scale
-                [::tagPsForId $id]
+                [$printLib tagPsForId $id]
                 grestore
 
                 % Label the inner side length:
@@ -305,7 +305,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
                     grestore
                 } }]
             }
-        }]] "\n"]
+        }] "\n"]
     }]
 
     set fp [open [list |ps2pdf - - <<$ps] rb]
@@ -314,12 +314,14 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 fn makeExampleProgramPng {} {
+    set ^programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
+                          programToPs]
+
     # HACK: we hard-code letter, since this is just for documentation
     # purposes, and we want to cut the bottom half off so we need
     # known dimensions.
     set format letter
-    # HACK: we should import ::programToPs somehow instead.
-    set ps [::programToPs 0 {# This image is for illustration purposes; don't
+    set ps [programToPs 0 {# This image is for illustration purposes; don't
 # print it. You should print a program normally
 # through the Folk editor and measure that.} $format {{
 
@@ -375,13 +377,14 @@ fn makeExampleProgramPng {} {
 }
 
 Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPng} {
+    package require base64
+
     set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
                                  {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
 
     set exampleProgramPng [makeExampleProgramPng]
 
-    set defaultGeom [dict get [lindex [Statements::findMatches \
-                                           [list /someone/ claims the default program geometry is /defaultGeom/]] 0] defaultGeom]
+    set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
     upvar ^html ^html
@@ -412,7 +415,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p>Print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[::base64::encode $calibrationBoardPdf]">
             </iframe>
             <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
             <script>
@@ -420,7 +423,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
                 ws.evaluate(`
-                  set boardPdf [binary decode base64 {\${boardSrc}}]
+                  set boardPdf [::base64::decode {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf w]
                   fconfigure \$fd -encoding binary -translation binary
                   puts \$fd \$boardPdf; close \$fd
@@ -585,7 +588,7 @@ Camera Controls
               if you don't have one already.</p>
 
             <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
-            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
+            <img width="306" src="data:image/png;base64,$[::base64::encode $exampleProgramPng]"
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>
@@ -673,7 +676,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     # HACK: hard-coded for now; assumes dark room. Won't work on USB
     # webcams yet, either (just Pi).
-    Wish camera $camera uses exposure time 16000 us
+    # Wish camera $camera uses exposure time 16000 us
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -682,10 +685,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set printedSideLengthM [/ $printedSideLengthMm 1000.0]
     # UNIT_MODEL's 2D coordinates have inner tag side length of 1.0:
     # scale it to real-world coordinates.
-    set baseModel [dict map {id tag} $UNIT_MODEL {
-        dict create c [scale $printedSideLengthM [dict get $tag c]] \
-            p [scale $printedSideLengthM [dict get $tag p]]
-    }]
+    set baseModel [dict create]
+    dict for {id tag} $UNIT_MODEL {
+        dict set baseModel $id c [scale $printedSideLengthM [dict get $tag c]]
+        dict set baseModel $id p [scale $printedSideLengthM [dict get $tag p]]
+    }
 
     # A list of pose dictionaries. Each dictionary has entries `model`
     # and `H_modelToDisplay` ('prewarp' homography from model plane to
@@ -1319,95 +1323,6 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
     return $calibration
 }
 
-# We use `apply` to seal this code's local variables in so they don't
-# get captured by any of the Whens below.
-apply {{this} {
-    try {
-        set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
-        set calibrationPoses [read $fd]; close $fd
-
-        if {[file exists "$::env(HOME)/folk-live/calibration-DISABLED.yaml"]} {
-            # Calibration to import from ProCamCalib.
-            puts "READING YAML CALIB"
-            package require yaml
-            
-            set fd [open "$::env(HOME)/folk-live/calibration.yaml" r]
-            set calibrationYaml [read $fd]; close $fd
-            set calibrationYaml [string map {!!opencv-matrix ""} $calibrationYaml]
-
-            set cinfo [::yaml::yaml2dict $calibrationYaml]
-
-            package require math::linearalgebra
-            namespace import ::math::linearalgebra::*
-
-            set calibration [dict create]
-            proc makeIntrinsics {struct} {
-                dict with struct {
-                    set intr [dict get $cameraMatrix data]
-                    set distortion [dict get $distortionCoeffs data]
-                    dict create \
-                        width $imageWidth  \
-                        height $imageHeight \
-                        fx [lindex $intr 0] \
-                        fy [lindex $intr 4] \
-                        cx [lindex $intr 2] \
-                        cy [lindex $intr 5] \
-                        s 0.0 \
-                        k1 [lindex $distortion 0] \
-                        k2 [lindex $distortion 1]
-                }
-            }
-
-            dict set calibration camera name /dev/video0
-            dict set calibration camera intrinsics \
-                [makeIntrinsics [dict get $cinfo {Camera  0}]]
-
-            dict set calibration projector name 0
-            dict set calibration projector intrinsics \
-                [makeIntrinsics [dict get $cinfo {Projector  0}]]
-
-            set R [dict get $cinfo {Projector  0} R data]
-            set R_cameraToProjector \
-                [list [lrange $R 0 2] \
-                     [lrange $R 3 5] \
-                     [lrange $R 6 8]]
-            dict set calibration R_cameraToProjector \
-                $R_cameraToProjector
-
-            set t_cameraToProjector \
-                [dict get $cinfo {Projector  0} T data]
-
-            set tagMeterSize 0.016
-            set tagPixelSize 200
-            dict set calibration t_cameraToProjector \
-                [scale [expr {1.0 / $tagPixelSize * $tagMeterSize}] \
-                     $t_cameraToProjector]
-
-            puts "Yaml calib ($calibration)"
-            Hold calibration {
-                Claim the calibration poses are $calibrationPoses
-                Claim the calibration is $calibration
-            }
-
-        } elseif {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
-            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
-            set calibration [read $fd]; close $fd
-            puts "READING CALIB"
-            Hold calibration {
-                Claim the calibration poses are $calibrationPoses
-                Claim the calibration is $calibration
-            }
-        } else {
-            puts "NO CALIBRATION, JUST CALIB POSES"
-            Hold calibration {
-                Claim the calibration poses are $calibrationPoses
-            }
-        }
-    } on error e {
-        puts stderr "Failed to load calibration poses: $e"
-    }
-}} $this
-
 When the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration refiner is /refineCalibration/ {
@@ -1518,47 +1433,3 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
 }
-
-When display /disp/ has width /displayWidth/ height /displayHeight/ &\
-     the calibration is /nothing/ {
-    set warning "WARNING: Folk hasn't been calibrated!"
-
-    puts stderr "calibrate: $warning"
-    set cx [/ $displayWidth 2.0]
-    Wish to draw text with x $cx y [* $displayHeight 0.3] text $warning color red
-    Wish to draw text with x $cx y [* $displayHeight 0.7] text $warning color red
-}
-
-When the calibration is /calibration/ {
-    puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
-    set camera [dict get $calibration camera name]
-    set display [dict get $calibration projector name]
-    Claim camera $camera has intrinsics \
-        [dict get $calibration camera intrinsics]
-    Claim display $display has intrinsics \
-        [dict get $calibration projector intrinsics]
-
-    set extrinsics [dict create \
-                        R [dict get $calibration R_cameraToProjector] \
-                        t [dict get $calibration t_cameraToProjector]]
-    Claim camera $camera to display $display has extrinsics $extrinsics
-}
-
-# Read the default program geometry (create a default default if it
-# doesn't exist).
-apply {{this} {
-    if {![file exists "$::env(HOME)/folk-printed-programs"]} {
-        exec mkdir -p "$::env(HOME)/folk-printed-programs"
-    }
-    if {[file exists "$::env(HOME)/folk-printed-programs/default.folkgeom"]} {
-        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" r]
-        set defaultGeom [read $fd]; close $fd
-    } else {
-        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" w]
-        set defaultGeom {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
-        puts $fd $defaultGeom; close $fd
-    }
-
-    Hold (non-capturing) (on <global>) {default program geometry} \
-        [list Claim the default program geometry is $defaultGeom]
-}} $this

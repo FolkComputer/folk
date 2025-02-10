@@ -64,206 +64,6 @@ namespace eval ::region {
     # quadrilateral area of space that is covered by that page. A
     # region is defined by a set of vertices and a set of edges among
     # those vertices. (TODO: Allow areas to be filled/unfilled.)
-    
-    set cc [c create]
-    $cc include <string.h>
-
-    $cc code {
-
-        typedef struct Point Point;
-        struct Point {
-            float x;
-            float y;
-        };
-
-        typedef struct Edge Edge;
-        struct Edge {
-            int32_t from;
-            int32_t to;
-        };
-
-        typedef struct Region Region;
-        struct Region {
-
-            int32_t n_points;
-            Point* points;
-
-            int32_t n_edges;
-            Edge* edges;
-
-        };
-
-        float dist2(Point start, Point end) {
-            return (
-                (start.x - end.x) * (start.x - end.x) +
-                (start.y - end.y) * (start.y - end.y)
-            );
-        }
-
-        float orientation(Point start, Point end, Point candidate) {
-            return (
-                (end.x - start.x) * (candidate.y - start.y) - 
-                (end.y - start.y) * (candidate.x - start.x)
-            );
-        }
-    }
-
-    $cc proc create_convex_region {float[][2] point_list int N} Region* {
-        // Takes any number of points
-        // Computes the convex-hull
-        // Defines the edges such that they are the border of the convex hull
-
-        // Initialize a Region struct on the heap
-        size_t r_sz = sizeof(Region);
-        Region* ret = (Region *) ckalloc(r_sz);
-        memset(ret, 0, r_sz);
-
-        // Construct Points
-        size_t p_sz = N * sizeof(Point);
-        Point* points = (Point*) ckalloc(p_sz);
-        memset(points, 0, p_sz);
-        for (int i = 0; i < N; i++) {
-            points[i].x = point_list[i][0];
-            points[i].y = point_list[i][1];
-        }
-
-        // Construct edges
-        size_t e_sz = N * sizeof(Edge);
-        Edge* edges = (Edge*) ckalloc(e_sz);
-        memset(edges, 0, e_sz);
-        
-        if (N == 0) {
-            *ret = (Region) {
-                .n_points = 0,
-                .points = points,
-                .n_edges = 0,
-                .edges = edges,
-            };
-            return ret;
-        }
-
-        // Convex-Hull
-        // Start with the point with smallest x coordinate.
-        // You're guaranteed this point is on the convex-hull.
-        int from = 0;
-        for (int i = 0; i < N; i++) {
-            if (points[i].x < points[from].x) {
-                from = i;
-            }
-        }
-        int to = (from + 1) % N;
-
-        // Iteratively, find the following point that's smallest
-        // counter-clockwise turn from the current edge.
-        // Repeat until you're back where you started.
-        int num_edges = 0;
-        while (true) {
-            for (int cand = 0; cand < N; cand++) {
-                if (cand == from) {
-                    continue;
-                }
-                float o = orientation(points[from], points[to], points[cand]);
-                if (o > 0) {
-                    to = cand;
-                } else if (
-                    o == 0 && 
-                    dist2(points[from], points[cand]) > dist2(points[from], points[to])
-                ) {
-                    to = cand;
-                }
-            }
-            edges[num_edges].from = from;
-            edges[num_edges].to = to;
-            num_edges += 1;
-
-            if (num_edges > N) {
-                // If all points are on the perimeter, then there should be
-                // only N edges. More than N, you have a bug.
-                break;
-            }
-
-            from = to;
-            to = (from + 1) % N;
-            if (from == edges[0].from) {
-                break;
-            }
-        }
-
-        *ret = (Region) {
-            .n_points = N,
-            .points = points,
-            .n_edges = num_edges,
-            .edges = edges,
-        };
-
-        return ret;
-    }
-
-    $cc proc free_region {Region* region} void {
-        ckfree((char*) region->points);
-        ckfree((char*) region->edges);
-        ckfree((char*) region);
-    }
-
-    $cc proc pprint {Region* region} void {
-        for (int i = 0; i < region->n_points; i++) {
-            printf("Point %d: [%f, %f]\n", i, region->points[i].x, region->points[i].y);
-        }
-        for (int i = 0; i < region->n_edges; i++) {
-            printf("Edge %d: %d -> %d\n", i, region->edges[i].from, region->edges[i].to);
-        }
-    }
-
-    $cc proc to_tcl {Region* region} Tcl_Obj* {
-
-        Tcl_Obj* points;
-        if (region->n_edges) {
-            Tcl_Obj* _points[region->n_points];
-            for (int i = 0; i < region->n_points; i++) {
-                Tcl_Obj* p[] = {
-                    Tcl_NewDoubleObj(region->points[i].x),
-                    Tcl_NewDoubleObj(region->points[i].y),
-                };
-                _points[i] = Tcl_NewListObj(2, p);
-            }
-            points = Tcl_NewListObj(region->n_points, _points);
-        } else {
-            points = Tcl_NewListObj(0, NULL);
-        }
-
-        Tcl_Obj* edges;
-        if (region->n_edges) {
-            Tcl_Obj* _edges[region->n_edges];
-            for (int i = 0; i < region->n_edges; i++) {
-                Tcl_Obj* e[] = {
-                    Tcl_NewIntObj(region->edges[i].from),
-                    Tcl_NewIntObj(region->edges[i].to),
-                };
-                _edges[i] = Tcl_NewListObj(2, e);
-            }
-            edges = Tcl_NewListObj(region->n_edges, _edges);
-        } else {
-            edges = Tcl_NewListObj(0, NULL);
-        }
-
-        Tcl_Obj* _robj[3] = {
-            points,
-            edges,
-            Tcl_NewDoubleObj(0)
-        };
-        Tcl_Obj* robj;
-        robj = Tcl_NewListObj(3, _robj);
-        return robj;
-    }
-
-    $cc compile
-
-    proc convexHull {points} {
-        set ch [region create_convex_region $points [llength $points]]
-        set r [region to_tcl $ch]
-        region free_region $ch
-        return $r
-    }
 
     proc create {vertices edges {angle 0}} {
         list $vertices $edges $angle
@@ -309,6 +109,18 @@ namespace eval ::region {
         expr { $maxYp - $minYp }
     }
 
+    proc lsort-indices {index itemL} {
+        set pairL [list]
+        foreach item $itemL {
+            lappend pairL [list $item [llength $pairL]]
+        }
+        set indexL [list]
+        foreach pair [lsort -index [list 0 $index] -real $pairL] {
+            lappend indexL [lindex $pair 1]
+        }
+        set indexL
+    } 
+
     proc top {r} {
         # Returns the vec2 point at the top of the region.
         set rp [rotate $r [- [angle $r]]]
@@ -318,7 +130,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the topmost midpoint y-coordinate?
-        set topEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] 0]
+        set topEdgeIndex [lindex [lsort-indices 1 $edgeMidpoints] 0]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $topEdgeIndex]]
     }
     proc left {r} {
@@ -330,7 +142,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the leftmost midpoint y-coordinate?
-        set leftEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] 0]
+        set leftEdgeIndex [lindex [lsort-indices 0 $edgeMidpoints] 0]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $leftEdgeIndex]]
     }
     proc right {r} {
@@ -342,7 +154,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the rightmost midpoint y-coordinate?
-        set rightEdgeIndex [lindex [lsort -indices -real -index 0 $edgeMidpoints] end]
+        set rightEdgeIndex [lindex [lsort-indices 0 $edgeMidpoints] end]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $rightEdgeIndex]]
     }
     proc bottom {r} {
@@ -354,7 +166,7 @@ namespace eval ::region {
             vec2 midpoint $p1 $p2
         }]
         # Which edge has the bottommost midpoint y-coordinate?
-        set bottomEdgeIndex [lindex [lsort -indices -real -index 1 $edgeMidpoints] end]
+        set bottomEdgeIndex [lindex [lsort-indices 1 $edgeMidpoints] end]
         vec2 midpoint {*}[edgeToLineSegment $r [lindex [edges $r] $bottomEdgeIndex]]
     }
     proc bottomleft {r} {
@@ -522,81 +334,3 @@ namespace eval ::region {
     namespace export *
     namespace ensemble create
 }
-
-proc rectanglesOverlap {P1 P2 Q1 Q2 strict} {
-    set b1x1 [lindex $P1 0]
-    set b1y1 [lindex $P1 1]
-    set b1x2 [lindex $P2 0]
-    set b1y2 [lindex $P2 1]
-    set b2x1 [lindex $Q1 0]
-    set b2y1 [lindex $Q1 1]
-    set b2x2 [lindex $Q2 0]
-    set b2y2 [lindex $Q2 1]
-    # ensure b1x1<=b1x2 etc.
-    if {$b1x1 > $b1x2} {
-	set temp $b1x1
-	set b1x1 $b1x2
-	set b1x2 $temp
-    }
-    if {$b1y1 > $b1y2} {
-	set temp $b1y1
-	set b1y1 $b1y2
-	set b1y2 $temp
-    }
-    if {$b2x1 > $b2x2} {
-	set temp $b2x1
-	set b2x1 $b2x2
-	set b2x2 $temp
-    }
-    if {$b2y1 > $b2y2} {
-	set temp $b2y1
-	set b2y1 $b2y2
-	set b2y2 $temp
-    }
-    # Check if the boxes intersect
-    # (From: Cormen, Leiserson, and Rivests' "Algorithms", page 889)
-    if {$strict} {
-	return [expr {($b1x2>$b2x1) && ($b2x2>$b1x1) \
-		&& ($b1y2>$b2y1) && ($b2y2>$b1y1)}]
-    } else {
-	return [expr {($b1x2>=$b2x1) && ($b2x2>=$b1x1) \
-		&& ($b1y2>=$b2y1) && ($b2y2>=$b1y1)}]
-    }
-}
-
-# TODO: verticesToBbox is better name
-# It only really uses the first thing in the region
-proc regionToBbox {region} {
-    set vertices [lindex $region 0]
-    set minX 100000
-    set minY 100000
-    set maxX -100000
-    set maxY -100000
-    foreach vertex $vertices {
-        set x [lindex $vertex 0]
-        set y [lindex $vertex 1]
-        if {$x < $minX} {set minX $x}
-        if {$y < $minY} {set minY $y}
-        if {$x > $maxX} {set maxX $x}
-        if {$y > $maxY} {set maxY $y}
-    }
-    return [list $minX $minY $maxX $maxY]
-}
-proc boxCentroid {box} {
-    # TODO: assert that it's actually a box
-    lassign $box minX minY maxX maxY
-    set x [expr {($minX + $maxX)/2}]
-    set y [expr {($minY + $maxY)/2}]
-    return [list $x $y]
-}
-proc boxWidth {box} {
-    lassign $box minX minY maxX maxY
-    return [expr {$maxX - $minX}]
-}
-proc boxHeight {box} {
-    lassign $box minX minY maxX maxY
-    return [expr {$maxY - $minY}]
-}
-# TODO: write in C
-# TODO: triangulate the region
-# TODO: average the centroids of all triangles in the region

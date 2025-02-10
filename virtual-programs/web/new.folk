@@ -1,0 +1,172 @@
+Wish the web server handles route "/new" with handler {
+    html {
+<html>
+    <head>
+	<style>
+	    body { overflow: hidden; }
+	</style>
+    </head>
+    <body>
+	<div id="dragme" style="cursor: move; position: absolute; user-select: none; background-color: #ccc; padding: 1em">
+	    <textarea id="code" cols="50" rows="20" style="font-family: monospace">Wish $this is outlined blue</textarea>
+	    <p>
+	      <button onclick="handleSave()">Save</button>
+	      <button onclick="handlePrint()">Print</button>
+	      <button id="printback" style="font-size: 50%; display: none" onclick="handlePrintBack()">Print Back</button>
+	    </p>
+	    <pre id="error"></pre>
+	</div>
+
+	<script>
+	// The current position of mouse
+	let x = 0;
+	let y = 0;
+
+	// Query the element
+	const ele = document.getElementById('dragme');
+	const codeEle = document.getElementById("code");
+
+	// Handle the mousedown event
+	// that's triggered when user drags the element
+	const mouseDownHandler = function (e) {
+	  if (e.target == codeEle) return;
+
+	  // Get the current mouse position
+	  x = e.clientX;
+	  y = e.clientY;
+
+	  // Attach the listeners to `document`
+	  document.addEventListener('pointermove', mouseMoveHandler);
+	  document.addEventListener('pointerup', mouseUpHandler);
+	};
+
+	const mouseMoveHandler = function (e) {
+	  if (e.target == codeEle) return;
+
+	  // How far the mouse has been moved
+	  const dx = e.clientX - x;
+	  const dy = e.clientY - y;
+
+	  // Set the position of element
+	  const [top, left] = [ele.offsetTop + dy, ele.offsetLeft + dx];
+	  ele.style.top = `${top}px`;
+	  ele.style.left = `${left}px`;
+	  handleDrag();
+
+	  // Reassign the position of mouse
+	  x = e.clientX;
+	  y = e.clientY;
+	};
+
+	const mouseUpHandler = function () {
+	  // Remove the handlers of `mousemove` and `mouseup`
+	  document.removeEventListener('pointermove', mouseMoveHandler);
+	  document.removeEventListener('pointerup', mouseUpHandler);
+	};
+
+	// Cmd + S || Ctrl + S => Save
+	document.addEventListener('keydown', function(e) {
+	  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 83) {
+	    e.preventDefault();
+	    handleSave();
+	  }
+	}, false);
+	// Cmd + P || Ctrl + P => Print
+	document.addEventListener('keydown', function(e) {
+	  if ((window.navigator.platform.match('Mac') ? e.metaKey : e.ctrlKey)  && e.keyCode == 80) {
+	    e.preventDefault();
+	    handlePrint();
+	  }
+	}, false);
+
+	ele.addEventListener('pointerdown', mouseDownHandler);
+
+	function uuidv4() {
+	  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+	    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+	  );
+	  }
+	const program = "web-program-" + uuidv4();
+
+        async function send(s) {
+           console.log('send', s);
+           const response = await fetch(window.location.origin + "/eval", {
+             method: "POST",
+             headers: { "Content-Type": "text/plain" },
+             body: s,
+           });
+           return response.text();
+        }
+
+        window.onbeforeunload = () => {
+           send(`
+Retract! web claims {${program}} has region /something/
+Retract! web claims {${program}} has program code /something/
+           `);
+        };
+
+	function handleDrag() {
+          let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
+          send(`
+            set dims [lindex [Query! /someone/ claims display /disp/ has width /displayWidth/ height /displayHeight/] 0]
+            set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
+	    set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
+	    set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
+	    proc handleConfigure {program x y w h} {
+		set vertices [list [list [expr {$x+$w}] $y] \
+				   [list $x $y] \
+				   [list $x [expr {$y+$h}]] \
+				   [list [expr {$x+$w}] [expr {$y+$h}]]]
+		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
+		Hold! [list $program region] [list web claims $program has region [region create $vertices $edges]]
+	    }
+	    handleConfigure {${program}} $left $top {${w}} {${h}}
+	`);
+	}
+	function handleSave() {
+	  const code = document.getElementById("code").value;
+          send(`
+            Hold! {${program} code} {web claims ${program} has program code {${code}}}
+	  `);
+           [500, 1000, 3000].forEach(timeout => {
+             setTimeout(async () => {
+               const errors = await send(`
+set errors [Query! {${program}} has error /err/ with info /errorInfo/]
+join [list "Error:" {*}[lmap e $errors {dict get $e errorInfo}]] "\n"
+               `);
+
+	       const errorEl = document.getElementById("error");
+	       if (errors === "Error:") {
+		 errorEl.style.backgroundColor = "";
+		 errorEl.innerText = "";
+	       } else {
+		 errorEl.style.backgroundColor = "#f55";
+		 errorEl.innerText = msg.data;
+	       }
+             }, timeout);
+          });
+	}
+	let jobid;
+	function handlePrint() {
+	  const code = document.getElementById("code").value;
+	  jobid = String(Math.random());
+	  send(`Assert! web wishes to print {${code}} with job id {${jobid}}`);
+	  setTimeout(500, () => {
+	    send(`Retract! web wishes to print {${code}} with job id {${jobid}}`);
+	  });
+	  document.getElementById('printback').style.display = '';
+	}
+	function handlePrintBack() {
+	  send(`Assert! web wishes to print the back of job id {${jobid}}`);
+	  setTimeout(500, () => {
+	    send(`Retract! web wishes to print the back of job id {${jobid}}`);
+	  });
+	}
+
+        handleDrag();
+	</script>
+    </body>
+</html>
+    }
+}
+

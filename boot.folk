@@ -1,0 +1,52 @@
+puts "boot: Boot (PID [pid])"
+apply {{} {
+    catch {
+        set fp [open "folk.pid" r]
+        set oldPid [read $fp]; close $fp
+        try {
+            exec ps -p $oldPid >/dev/null
+            puts stderr "boot: ERROR: Another Folk (PID $oldPid) already running."
+            __exit 1
+        } on error e {
+            puts stderr $e
+        }
+    }
+
+    set fp [open "folk.pid" w]
+    puts -nonewline $fp [pid]; close $fp
+    # in case we're running as root:
+    catch { exec chown folk folk.pid }
+}}
+
+Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {
+    set __programCode [info source $__programCode $__this 1]
+
+    apply [list {this} $__programCode] $__this
+}} with environment {}
+
+proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    Assert! boot.folk claims $programFilename has program code [read $fp]
+    close $fp
+
+    # TODO: Detect edits
+}
+
+# Load the setup program -- setup.folk.default gets overridden
+# if the user made their own setup.folk.
+set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                         "$::env(HOME)/folk-live/setup.folk" :
+                         "setup.folk.default"}]
+puts stderr "boot: Using config at $setupFilename"
+LoadProgram! $setupFilename
+
+foreach programFilename [list $setupFilename \
+                             {*}[glob -nocomplain virtual-programs/*.folk] \
+                             {*}[glob -nocomplain virtual-programs/*/*.folk] \
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+    if {[string match "*/_archive/*" $programFilename] ||
+        [string match "*/folk-printed-programs/*" $programFilename] ||
+        [string match "*/setup.folk" $programFilename]} { continue }
+
+    LoadProgram! $programFilename
+}

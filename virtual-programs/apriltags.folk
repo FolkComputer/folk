@@ -1,113 +1,133 @@
-set makeAprilTagDetector {{TAG_FAMILY} {
-    set detector AprilTagDetector_${TAG_FAMILY}
-    namespace eval $detector {
-        set TAG_FAMILY [uplevel {set TAG_FAMILY}]
+proc makeAprilTagDetector {TAG_FAMILY} {
+    set cc [C]
+    $cc cflags -I./vendor/apriltag
+    $cc endcflags ./vendor/apriltag/libapriltag.so
+    $cc include <apriltag.h>
+    $cc include <$TAG_FAMILY.h>
+    $cc include <math.h>
+    $cc include <assert.h>
+    $cc code {
+        static apriltag_detector_t *td;
+        static apriltag_family_t *tf;
+        static pthread_mutex_t tmutex;
+    }
+    # TODO: Factor this out.
+    $cc struct Image {
+        uint32_t width;
+        uint32_t height;
+        int components;
+        uint32_t bytesPerRow;
 
-        set cc [c create]
-
-        $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
-        $cc include <apriltag.h>
-        $cc include <$TAG_FAMILY.h>
-        $cc include <math.h>
-        $cc include <assert.h>
-        $cc code {
-            apriltag_detector_t *td;
-            apriltag_family_t *tf;
-        }
-        ::defineImageType $cc
-
-        $cc proc detectInit {} void [csubst {
-            td = apriltag_detector_create();
-            tf = ${TAG_FAMILY}_create();
-            apriltag_detector_add_family_bits(td, tf, 1);
-            td->nthreads = 2;
-        }]
-        $cc proc detect {image_t gray} Tcl_Obj* {
-            assert(gray.components == 1);
-            image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
-
-            zarray_t *detections = apriltag_detector_detect(td, &im);
-            int detectionCount = zarray_size(detections);
-
-            Tcl_Obj* detectionObjs[detectionCount];
-            for (int i = 0; i < detectionCount; i++) {
-                apriltag_detection_t *det;
-                zarray_get(detections, i, &det);
-
-                detectionObjs[i] =
-                    Tcl_ObjPrintf("id %d "
-                                  "H {%f %f %f %f %f %f %f %f %f} "
-                                  "c {%f %f} "
-                                  "p {{%f %f} {%f %f} {%f %f} {%f %f}}",
-                                  det->id,
-                                  det->H->data[0], det->H->data[1], det->H->data[2],
-                                  det->H->data[3], det->H->data[4], det->H->data[5],
-                                  det->H->data[6], det->H->data[7], det->H->data[8],
-                                  det->c[0], det->c[1],
-                                  det->p[0][0], det->p[0][1],
-                                  det->p[1][0], det->p[1][1],
-                                  det->p[2][0], det->p[2][1],
-                                  det->p[3][0], det->p[3][1]);
-            }
-
-            apriltag_detections_destroy(detections);
-            Tcl_Obj* result = Tcl_NewListObj(detectionCount, detectionObjs);
-            return result;
-        }
-        $cc proc detectCleanup {} void [csubst {
-            ${TAG_FAMILY}_destroy(tf);
-            apriltag_detector_destroy(td);
-        }]
-
-        c loadlib $::env(HOME)/apriltag/libapriltag.so
-        $cc compile
-
-        namespace export *
-        namespace ensemble create
+        uint8_t* data;
     }
 
+    $cc proc detectInit {} void {
+        td = apriltag_detector_create();
+        tf = ${TAG_FAMILY}_create();
+        apriltag_detector_add_family_bits(td, tf, 1);
+        td->nthreads = 1;
+        pthread_mutex_init(&tmutex, NULL);
+    }
+    $cc proc detect {Image gray} Jim_Obj* {
+        // FIXME: this mutex holds up the whole system.
+        pthread_mutex_lock(&tmutex);
+
+        assert(gray.components == 1);
+        image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
+
+        zarray_t *detections = apriltag_detector_detect(td, &im);
+        int detectionCount = zarray_size(detections);
+
+        Jim_Obj* detectionObjs[detectionCount];
+        for (int i = 0; i < detectionCount; i++) {
+            apriltag_detection_t *det;
+            zarray_get(detections, i, &det);
+
+            int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
+            double angle = atan2(-1 * (det->p[1][1] - det->p[0][1]), det->p[1][0] - det->p[0][0]);
+            detectionObjs[i] = Jim_ObjPrintf("id %d c {%f %f} p {{%f %f} {%f %f} {%f %f} {%f %f}} size %d angle %f",
+                                             det->id,
+                                             det->c[0], det->c[1],
+                                             det->p[0][0], det->p[0][1],
+                                             det->p[1][0], det->p[1][1],
+                                             det->p[2][0], det->p[2][1],
+                                             det->p[3][0], det->p[3][1],
+                                             size, angle);
+        }
+
+        zarray_destroy(detections);
+
+        pthread_mutex_unlock(&tmutex);
+
+        Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
+        return result;
+    }
+    $cc proc detectCleanup {} void {
+        ${TAG_FAMILY}_destroy(tf);
+        apriltag_detector_destroy(td);
+    }
+
+    set detector [$cc compile]
     $detector detectInit
     return $detector
-}}
-
-Claim the AprilTag detector maker is $makeAprilTagDetector
-
-set tagFamily "tagStandard52h13"
-
-# Plain detector. Runs on entire camera frame.
-Start process {
-    set detector [apply $makeAprilTagDetector $tagFamily]
-
-    Wish $::thisProcess receives statements like \
-        [list /someone/ claims camera /any/ has frame /grayFrame/ at timestamp /timestamp/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims /someone/ detects tags /tags/ on /camera/ \
-             at /timestamp/ in time /aprilTime/]
-
-    When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ {
-        set aprilTime [time {
-            set tags [$detector detect $grayFrame]
-        }]
-        Claim main-detector detects tags $tags on $camera \
-            at $timestamp in time $aprilTime
-    }
 }
 
-# Incremental detector. Looks at regions where there were tags in the
-# old camera frame.
-Start process {
-    set detector [apply $makeAprilTagDetector $tagFamily]
+set tagFamily "tagStandard52h13"
+set entireFrameDetector [makeAprilTagDetector $tagFamily]
+set incrementalDetector [makeAprilTagDetector $tagFamily]
 
-    Wish $::thisProcess receives statements like \
-        [list /someone/ claims camera /any/ has frame /grayFrame/ at timestamp /timestamp/]
-    Wish $::thisProcess receives statements like \
-        [list /someone/ claims main-detector detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ claims incremental-detector detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ wishes /something/ is labelled /text/]
-    Wish $::thisProcess shares statements like \
-        [list /someone/ wishes /something/ displays camera slice /slice/]
+# Entire-frame tag detector:
+When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    tracy zoneBegin
+    tracy zoneName "entireFrameDetect: $frameTs"
+
+    set now [expr {[clock milliseconds] / 1000.0}]
+    # HACK: Do not process frames older than 25 frames (they're freed
+    # at 50 frames).
+    if {$now - $frameTs > 0.016 * 25} {
+        tracy zoneEnd
+        return
+    }
+
+    set aprilTime [time {
+        set tags [$entireFrameDetector detect $frame]
+    }]
+
+    Hold! [list $this entire-frame] \
+        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
+             at timestamp $frameTs in time $aprilTime]
+
+    tracy zoneEnd
+}
+
+# Incremental tag detector (looks at regions where there were tags
+# seen recently):
+When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+    set now [expr {[clock milliseconds] / 1000.0}]
+    # HACK: Do not process frames older than 25 frames (they're freed
+    # at 50 frames).
+    if {$now - $frameTs > 0.016 * 25} { return }
+
+    tracy zoneBegin
+    tracy zoneName "incrementalDetect: $frameTs"
+
+    # Query all the existing tag detections that are out there.
+    set rows [Query! /someone/ claims tag /id/ has detection /det/ \
+                  on camera $camera at timestamp /timestamp/]
+    # Find the most recent detection of each tag; will use these to
+    # give us regions of interest to do partial scans on the new
+    # camera frame.
+    set dets [dict create]
+    foreach row $rows {
+        dict with row {
+            if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
+                ![dict exists $dets $id]} {
+
+                dict set dets $id $det
+                dict set dets $id timestamp $timestamp
+            }
+        }
+    }
 
     proc subimage {im x y subwidth subheight} {
         dict with im {
@@ -115,85 +135,92 @@ Start process {
             set y [expr {int($y)}]
             set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
             dict create \
-                width [int $subwidth] \
-                height [int $subheight] \
+                width [expr {int($subwidth)}] \
+                height [expr {int($subheight)}] \
                 components $components \
                 bytesPerRow $bytesPerRow \
                 data [format "(uint8_t*) 0x%x" $subdata]
         }
     }
 
-    When camera /camera/ has frame /grayFrame/ at timestamp /timestamp/ & \
-         main-detector detects tags /prevTags/ on /camera/ at /something/ in time /something/ {
+    namespace import ::math::min ::math::max
+    set tags [list]
+    set frameWidth [dict get $frame width]
+    set frameHeight [dict get $frame height]
+    set aprilTime 0
+    dict for {id prevDet} $dets {
+        set corners [dict get $prevDet p]
 
-        set tags [list]
-        set frameWidth [dict get $grayFrame width]
-        set frameHeight [dict get $grayFrame height]
-        set aprilTime 0
-        foreach prevTag $prevTags {
-            set corners [dict get $prevTag p]
-            set x [min {*}[lmap corner $corners {lindex $corner 0}]]
-            set y [min {*}[lmap corner $corners {lindex $corner 1}]]
-            set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
-            set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
+        set x [min {*}[lmap corner $corners {lindex $corner 0}]]
+        set y [min {*}[lmap corner $corners {lindex $corner 1}]]
+        set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
+        set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
 
-            set width [- $x1 $x]; set height [- $y1 $y]
-            set x [max [- $x $width] 0]
-            set y [max [- $y $height] 0]
-            set x1 [min [+ $x1 $width] $frameWidth]
-            set y1 [min [+ $y1 $height] $frameHeight]
+        set width [- $x1 $x]; set height [- $y1 $y]
+        set x [max [- $x $width] 0]
+        set y [max [- $y $height] 0]
+        set x1 [min [+ $x1 $width] $frameWidth]
+        set y1 [min [+ $y1 $height] $frameHeight]
 
-            set subimage [subimage $grayFrame $x $y [- $x1 $x] [- $y1 $y]]
-            set aprilTime [+ $aprilTime [baretime {
-                foreach tag [$detector detect $subimage] {
-                    dict with tag {
-                        set c [vec2 add $c [list $x $y]]
-                        set p [lmap corner $p {vec2 add $corner [list $x $y]}]
-                    }
-                    lappend tags $tag
+        set subimage [subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set aprilTime [+ $aprilTime [baretime {
+            foreach tag [$incrementalDetector detect $subimage] {
+                dict with tag {
+                    set c [vec2 add $c [list $x $y]]
+                    set p [lmap corner $p {vec2 add $corner [list $x $y]}]
                 }
-            }]]
-        }
-
-        Claim incremental-detector detects tags $tags on $camera \
-            at $timestamp in time $aprilTime
-    }
-}
-
-# This cache is used to remember the last seen position of each tag,
-# so that if the incremental detector blinks out, we still use the
-# tag's last-found position from it, instead of the older position
-# from the full detector, so as you move a tag its position doesn't
-# glitch backward.
-set ::tagsCache [dict create]
-# TODO: Garbage-collect this cache.
-
-set ::aprilTime none
-When the collected matches for [list /someone/ detects tags /tags/ on /camera/ at /timestamp/ in time /aprilTime/] are /matches/ {
-    set tagsSeen [dict create]
-    foreach match $matches {
-        set camera [dict get $match camera]
-        set timestamp [dict get $match timestamp]
-        foreach tag [dict get $match tags] {
-            set id [dict get $tag id]
-
-            dict set tag camera $camera
-            dict set tag timestamp $timestamp
-
-            if {[dict exists $::tagsCache $id] &&
-                [dict get $::tagsCache $id timestamp] > $timestamp} {
-                set tag [dict get $::tagsCache $id]
-            } else {
-                dict set ::tagsCache $id $tag
+                lappend tags $tag
             }
-            dict set tagsSeen $id $tag
+        }]]
+    }
+
+    Hold! [list $this incremental] \
+        [list $this claims [list $this incremental] detects tags $tags on camera $camera \
+             at timestamp $frameTs in time $aprilTime]
+
+    tracy zoneEnd
+}
+
+# Integrate all the tag detections.
+When the collected matches for \
+    [list /someone/ detects tags /tags/ on camera /camera/ \
+         at timestamp /timestamp/ in time /aprilTime/] are /matches/ {
+
+    set now [expr {[clock milliseconds] / 1000.0}]
+
+    set latestTagDets [dict create]
+    foreach match $matches {
+        set timestamp [dict get $match timestamp]
+        set camera [dict get $match camera]
+        foreach tag [dict get $match tags] {
+            dict set tag timestamp $timestamp
+            dict set tag camera $camera
+            dict with tag {
+                if {![dict exists $latestTagDets $id] ||
+                    [dict get $latestTagDets $id timestamp] < $timestamp} {
+
+                    dict set latestTagDets $id $tag
+                }
+            }
         }
     }
 
-    dict for {id tag} $tagsSeen {
-        Claim tag $id has detection $tag on [dict get $tag camera] \
-            at [dict get $tag timestamp]
+    dict for {id det} $latestTagDets {
+        Hold! [list tag $id detection] \
+            [list $this claims tag $id has detection $det on camera [dict get $det camera] \
+                 at timestamp [dict get $det timestamp]] \
+            8
     }
-    set ::aprilTime [lmap m $matches {dict get $m aprilTime}]
-    Claim the AprilTag time is $::aprilTime
+    set aprilTime [lmap m $matches {dict get $m aprilTime}]
+    Claim the AprilTag time is $aprilTime
 }
+
+# Reap old detections (e.g., pages that have been flipped over):
+When tag /id/ has detection /det/ on camera /camera/ at timestamp /timestamp/ {
+    When the clock time is /t/ {
+        if {$t - $timestamp > 0.1} {
+            Hold! [list tag $id detection] {}
+        }
+    }
+}
+

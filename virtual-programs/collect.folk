@@ -1,0 +1,27 @@
+When when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
+    Wish to collect matches for $clause
+}
+When /someone/ wishes to collect matches for /clause/ {
+    When /someone/ wishes to recollect matches for $clause with timestamp /ts/ {
+        set matches [Query! {*}$clause]
+        if {[llength $clause] < 2 || [lindex $clause 1] ni {claims wishes}} {
+            lappend matches {*}[Query! /someone/ claims {*}$clause]
+        }
+        Say the collected matches for $clause are $matches
+    }
+
+    # the Hold! should hopefully dedupe
+    set Recollect! [list apply {{clause} {
+        Hold! [list recollect $clause] \
+            [list virtual-programs/collect.folk wishes to recollect matches for $clause with timestamp [clock milliseconds]]
+    }} $clause]
+
+    When {*}$clause {
+        {*}${Recollect!}
+        On unmatch ${Recollect!}
+    }
+    {*}${Recollect!}
+    On unmatch {
+        Hold! [list recollect $clause] {}
+    }
+}

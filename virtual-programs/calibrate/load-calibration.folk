@@ -1,0 +1,63 @@
+# We use `apply` to seal this code's local variables in so they don't
+# get captured by any Whens.
+apply {{this} {
+    try {
+        set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
+        set calibrationPoses [read $fd]; close $fd
+        Hold! {calibration poses} \
+            [list $this claims the calibration poses are $calibrationPoses]
+
+        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
+            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
+            set calibration [read $fd]; close $fd
+            Hold! calibration \
+                [list $this claims the calibration is $calibration]
+        }
+    } on error e {
+        puts stderr "Failed to load calibration: $e"
+    }
+}} $this
+
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     the calibration is /nothing/ {
+    set warning "WARNING: Folk hasn't been calibrated!"
+
+    puts stderr "calibrate: $warning"
+    set cx [/ $displayWidth 2.0]
+    Wish to draw text with x $cx y [* $displayHeight 0.3] text $warning color red
+    Wish to draw text with x $cx y [* $displayHeight 0.7] text $warning color red
+}
+
+When the calibration is /calibration/ {
+    puts "\n\n====NEW CALIBRATION ([string range $calibration 0 100])=====\n\n"
+    set camera [dict get $calibration camera name]
+    set display [dict get $calibration projector name]
+    Claim camera $camera has intrinsics \
+        [dict get $calibration camera intrinsics]
+    Claim display $display has intrinsics \
+        [dict get $calibration projector intrinsics]
+
+    set extrinsics [dict create \
+                        R [dict get $calibration R_cameraToProjector] \
+                        t [dict get $calibration t_cameraToProjector]]
+    Claim camera $camera to display $display has extrinsics $extrinsics
+}
+
+# Read the default program geometry (create a default default if it
+# doesn't exist).
+apply {{this} {
+    if {![file exists "$::env(HOME)/folk-printed-programs"]} {
+        exec mkdir -p "$::env(HOME)/folk-printed-programs"
+    }
+    if {[file exists "$::env(HOME)/folk-printed-programs/default.folkgeom"]} {
+        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" r]
+        set defaultGeom [read $fd]; close $fd
+    } else {
+        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" w]
+        set defaultGeom {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
+        puts $fd $defaultGeom; close $fd
+    }
+
+    Hold! {default program geometry} \
+        [list $this claims the default program geometry is $defaultGeom]
+}} $this

@@ -1,3 +1,0 @@
-When $::thisProcess has step count /t/ {
-    Claim the clock time is [/ [clock milliseconds] 1000.0]
-}

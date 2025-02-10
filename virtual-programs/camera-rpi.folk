@@ -1,23 +1,32 @@
-if {$::isLaptop} return
+# camera-usb.folk --
+#
+#     Hardware interface with Pi webcams (libcamera).
 
-if {[file exists "$::env(HOME)/libcamera-pi5.yaml"]} {
-    set ::env(LIBCAMERA_RPI_CONFIG_FILE) "$::env(HOME)/libcamera-pi5.yaml"
-}
+if {$::tcl_platform(os) eq "darwin"} { return }
 
 set makeCamera {
     set cpp [C++]
     $cpp include <iostream>
     $cpp include <iomanip>
     $cpp include <mutex>
+    $cpp include <condition_variable>
     $cpp include <queue>
     $cpp include <sys/mman.h>
 
     $cpp include <libcamera/libcamera.h>
     # osnr: HACK: just throwing any possible path in.
     $cpp cflags -I/usr/local/include/libcamera -I/usr/include/libcamera
-    c loadlibLd libcamera
+    $cpp endcflags -lcamera
 
-    defineImageType $cpp
+    # TODO: Factor this out.
+    $cpp struct Image {
+        uint32_t width;
+        uint32_t height;
+        int components;
+        uint32_t bytesPerRow;
+
+        uint8_t* data;
+    }
     $cpp code {
         using namespace libcamera;
 
@@ -31,6 +40,7 @@ set makeCamera {
 
         std::mutex completedRequestsMutex;
         std::queue<Request *> completedRequests;
+        std::condition_variable completedRequestsCv;
 
         uint32_t frameWidth;
         uint32_t frameHeight;
@@ -48,6 +58,7 @@ set makeCamera {
         }
 
         camera = cm->get(id);
+        FOLK_ENSURE(camera != nullptr);
         camera->acquire();
 
         config = camera->generateConfiguration({ StreamRole::Viewfinder });
@@ -73,12 +84,12 @@ set makeCamera {
             size_t allocated = allocator->buffers(cfg.stream()).size();
             std::cout << "camera-rpi: Allocated " << allocated << " buffers for stream" << std::endl;
 
-            /* for (PixelFormat &format : cfg.formats().pixelformats()) { */
-            /*     std::cout << "camera-rpi: Stream supports format " << format << std::endl; */
-                /* for (Size &size : cfg.formats().sizes(format)) { */
-                /*     std::cout << "  -> supports size " << size << std::endl; */
-                /* } */
-            /* } */
+            // for (PixelFormat &format : cfg.formats().pixelformats()) {
+                // std::cout << "camera-rpi: Stream supports format " << format << std::endl;
+                // for (Size &size : cfg.formats().sizes(format)) {
+                //     std::cout << "  -> supports size " << size << std::endl;
+                // }
+            // }
 	}
 
         Stream *stream = streamConfig.stream();
@@ -100,11 +111,11 @@ set makeCamera {
                 ControlList &controls = request->controls();
 
                 controls.set(controls::AeEnable, false);
-                controls.set(controls::ExposureTime, 25000);
+                controls.set(controls::ExposureTime, 35000);
 
                 controls.set(controls::AfMode, controls::AfModeManual);
-                // Focus 40cm away (0.4m -> 1/0.4 = 2.5).
-                controls.set(controls::LensPosition, 2.5);
+                // Focus 30cm away (0.3m -> 1/0.3 = 3.3).
+                controls.set(controls::LensPosition, 1.6);
 
 		requests.push_back(std::move(request));
 	}
@@ -126,9 +137,10 @@ set makeCamera {
             completedRequestsMutex.lock();
             completedRequests.push(request);
             completedRequestsMutex.unlock();
+            completedRequestsCv.notify_one();
         }
 
-        static void processRequestAndCopyFrame(Request *request, image_t im) {
+        static void processRequestAndCopyFrame(Request *request, Image im) {
             const Request::BufferMap &buffers = request->buffers();
             assert(buffers.size() == 1);
             for (auto bufferPair : buffers) {
@@ -153,15 +165,12 @@ set makeCamera {
         }
     }
 
-    $cpp import ::Heap::cc folkHeapAlloc as folkHeapAlloc
-    $cpp import ::Heap::cc folkHeapFree as folkHeapFree
-
-    $cpp proc newImage {} image_t {
+    $cpp proc newImage {} Image {
         uint32_t width = frameWidth;
         uint32_t height = frameHeight;
         int components = 1;
-        uint8_t *data = (uint8_t *)folkHeapAlloc(width*components*height);
-        return (image_t) {
+        uint8_t *data = (uint8_t *) malloc(width*components*height);
+        return (Image) {
             .width = width,
             .height = height,
             .components = components,
@@ -169,15 +178,18 @@ set makeCamera {
             .data = data
         };
     }
-    $cpp proc freeImage {image_t image} void {
-        folkHeapFree(image.data);
+    $cpp proc freeImage {Image image} void {
+        free(image.data);
     }
 
-    $cpp proc grayFrame {int exposureTimeUs} image_t {
+    $cpp proc grayFrame {} Image {
         Request *latestRequest = nullptr;
 
         // We want to drain the queue of completed requests.
-        completedRequestsMutex.lock();
+        std::unique_lock lk(completedRequestsMutex);
+        completedRequestsCv.wait(lk, []{
+            return !completedRequests.empty();
+        });
         while (!completedRequests.empty()) {
             if (latestRequest != nullptr) {
                 // We're skipping this request, because we have a
@@ -188,19 +200,17 @@ set makeCamera {
             latestRequest = completedRequests.front();
             completedRequests.pop();
         }
-        completedRequestsMutex.unlock();
+        lk.unlock();
 
         if (latestRequest == nullptr) {
             FOLK_ERROR("No new frame yet");
         }
 
-        image_t im = newImage();
+        Image im = newImage();
         processRequestAndCopyFrame(latestRequest, im);
 
         /* Re-queue the Request to the camera. */
         latestRequest->reuse(Request::ReuseBuffers);
-        ControlList &controls = latestRequest->controls();
-        controls.set(controls::ExposureTime, exposureTimeUs);
         camera->queueRequest(latestRequest);
 
         return im;
@@ -216,48 +226,37 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
-    Start process "camera $cameraPath $options" {
-        puts "Camera pid: [pid]"
 
-        Wish $::thisProcess shares statements like \
-            [list /someone/ claims camera $cameraPath /...anything/]
-        Wish $::thisProcess receives statements like                  \
-            [list /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us]
+    set camLib [eval $makeCamera]
+    $camLib cameraOpen $cameraPath $width $height
 
-        namespace eval Camera $makeCamera
-        Camera::cameraOpen $cameraPath $width $height
+    # TODO: report actual width and height from libcamera
+    Claim camera $cameraPath has width $width height $height
 
-        # TODO: report actual width and height from libcamera
-        Claim camera $cameraPath has width $width height $height
+    puts "camera-rpi: $cameraPath ($options) booted at [clock milliseconds]"
 
-        puts "camera-rpi: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+    set oldFrames [list]
+    while true {
+        tracy zoneBegin
 
-        set ::oldFrames [list]
-        set ::exposureTimeUs 25000
-        When /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us {
-            set ::exposureTimeUs $exposureTimeUs
+        try {
+            set frame [$camLib grayFrame]
+        } on error e {
+            tracy zoneName "err: $e"
+            tracy zoneEnd
+            continue
         }
-        When $::thisProcess has step count /c/ {
-            try {
-                set frame [Camera::grayFrame $::exposureTimeUs]
-            } on error e { return }
 
-            Hold {
-                Claim camera $cameraPath has camera time $::stepTime
-                Claim camera $cameraPath has frame $frame at timestamp [expr {[clock milliseconds] / 1000.0}]
-            }
-            lappend ::oldFrames $frame
-            if {[llength $::oldFrames] >= 10} {
-                set ::oldFrames [lassign $::oldFrames oldestFrame]
-                Camera::freeImage $oldestFrame
-            }
+        set timestamp [expr {[clock milliseconds] / 1000.0}]
+        tracy zoneName "camera-rpi: $timestamp"
+        Hold! camera [list $this claims camera $cameraPath has frame $frame at timestamp $timestamp]
+
+        lappend oldFrames $frame
+        if {[llength $oldFrames] >= 10} {
+            set oldFrames [lassign $oldFrames oldestFrame]
+            $camLib freeImage $oldestFrame
         }
+
+        tracy zoneEnd
     }
-}
-
-# TODO: remove this; useful for compatibility with current metrics but
-# doesn't work for multicam
-set ::cameraTime none
-When camera /any/ has camera time /cameraTime/ {
-    set ::cameraTime $cameraTime
 }

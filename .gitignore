@@ -1,6 +1,3 @@
-.DS_Store
-statements.pdf
-statements.dot
-trie.pdf
-trie.dot
-
+folk
+folk.pid
+*.o

@@ -1,0 +1,73 @@
+set traceLib [apply {{} {
+    set cc [C]
+    $cc cflags -I.
+    $cc include "workqueue.h"
+    $cc include "trace.h"
+    $cc code {
+        extern Db* db;
+    }
+    $cc proc getTraceHead {} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        int traceMaxIdx = traceNextIdx;
+        if (traceMaxIdx > TRACE_HEAD_COUNT) { traceMaxIdx = TRACE_HEAD_COUNT; }
+
+        for (int i = 0; i < traceMaxIdx; i++) {
+            Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, traceHead[i], -1));
+        }
+        return ret;
+    }
+    $cc proc getTraceTail {} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        int traceMaxIdx = traceNextIdx;
+        if (traceMaxIdx < TRACE_HEAD_COUNT) { return ret; }
+
+        // What entries do I want to copy?
+        int tailStartIdx = (traceMaxIdx - TRACE_HEAD_COUNT) - TRACE_TAIL_COUNT;
+        if (tailStartIdx < 0) { tailStartIdx = 0; }
+        int tailMaxIdx = (traceMaxIdx - TRACE_HEAD_COUNT);
+        if (tailMaxIdx < 0) { tailMaxIdx = 0; }
+
+        for (int i = tailStartIdx; i < tailMaxIdx; i++) {
+            Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, traceHead[i % TRACE_TAIL_COUNT], -1));
+        }
+        return ret;
+    }
+    return [$cc compile]
+}}]
+
+Wish the web server handles route "/trace" with handler [list apply {{traceLib} {
+    html [subst {
+        <html>
+        <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Trace</title>
+        </head>
+
+        <body>
+
+        <h2>Trace</h2>
+
+        <h3>Head</h3>
+
+        <ol start="0">
+        [join [lmap traceItem [$traceLib getTraceHead] {
+            subst {<li>
+                <pre>[htmlEscape $traceItem]</pre>
+            </li>}
+        }] "\n"]
+        </ol>
+
+        <h3>Tail</h3>
+
+        <ol start="0">
+        [join [lmap traceItem [$traceLib getTraceTail] {
+            subst {<li>
+                <pre>[htmlEscape $traceItem]</pre>
+            </li>}
+        }] "\n"]
+        </ol>
+
+        </body>
+        </html>
+    }]
+}} $traceLib]
