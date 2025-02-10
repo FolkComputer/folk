@@ -4,7 +4,7 @@
 #include "db.h"
 #include "trie.h"
 
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, SAY, RUN, EVAL } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, RUN, EVAL } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
 
@@ -39,19 +39,6 @@ typedef struct WorkQueueItem {
             char* sourceFileName;
             int sourceLineNumber;
         } hold;
-        struct {
-            // This MatchRef may be invalidated while this Say is
-            // still in the workqueue -- we detect that when we
-            // process the Say and invalidate the Say in that case.
-            MatchRef parent;
-
-            Clause* clause;
-
-            // Caller is also responsible for freeing sourceFileName
-            // on dequeue.
-            char* sourceFileName;
-            int sourceLineNumber;
-        } say;
         struct {
             // The StatementRefs may be invalidated while this Run is
             // still in the workqueue -- if either is invalidated,

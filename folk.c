@@ -229,6 +229,7 @@ static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return (JIM_OK);
 }
 
+static void reactToNewStatement(StatementRef ref);
 static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
@@ -258,17 +259,16 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
                 clauseToString(clause));
     }
 
-    appropriateWorkQueuePush((WorkQueueItem) {
-       .op = SAY,
-       .thread = thread,
-       .say = {
-           .parent = parent,
-           .clause = clause,
-           .sourceFileName = strdup(sourceFileName),
-           .sourceLineNumber = sourceLineNumber
-       }
-    });
 
+    StatementRef ref;
+    ref = dbInsertOrReuseStatement(db, clause,
+                                   sourceFileName,
+                                   sourceLineNumber,
+                                   parent);
+
+    if (!statementRefIsNull(ref)) {
+        reactToNewStatement(ref);
+    }
     return (JIM_OK);
 }
 static void destructorHelper(void* arg) {
@@ -745,8 +745,6 @@ void workerRun(WorkQueueItem item) {
         TracyCZoneN(ctx, "RETRACT", 1); zone = ctx;
     } else if (item.op == HOLD) {
         TracyCZoneN(ctx, "HOLD", 1); zone = ctx;
-    } else if (item.op == SAY) {
-        TracyCZoneN(ctx, "SAY", 1); zone = ctx;
     } else if (item.op == RUN) {
         TracyCZoneN(ctx, "RUN", 1); zone = ctx;
     } else if (item.op == EVAL) {
@@ -816,20 +814,6 @@ void workerRun(WorkQueueItem item) {
         free(item.hold.key);
         free(item.hold.sourceFileName);
 
-    } else if (item.op == SAY) {
-        /* printf("@%d: Say (%p) (%.100s)\n", self->index, item.say.clause, clauseToString(item.say.clause)); */
-
-        StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.say.clause,
-                                       item.say.sourceFileName,
-                                       item.say.sourceLineNumber,
-                                       item.say.parent);
-
-        if (!statementRefIsNull(ref)) {
-            reactToNewStatement(ref);
-        }
-        free(item.say.sourceFileName);
-
     } else if (item.op == RUN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
@@ -894,9 +878,6 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Hold (%.100s) (%" PRId64 ") (%.100s)",
                  item.hold.key, item.hold.version,
                  clauseToString(item.hold.clause));
-    } else if (item.op == SAY) {
-        snprintf(buf, bufsz, "Say (%.100s)",
-                 clauseToString(item.say.clause));
     } else if (item.op == RUN) {
         Statement* stmt = statementUnsafeGet(db, item.run.stmt);
         snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
