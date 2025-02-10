@@ -32,8 +32,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 - adjust stack record if When is multiline
 - consistent name for sustain/ttl/remove-later
-- reap threads that got caught up on some long-running activity so
-  that we aren't just monotonically growing thread count
+- ~~reap threads that got caught up on some long-running activity so
+  that we aren't just monotonically growing thread count~~
 - event statements
 - match or statement arena allocator
   - for camera images, at least
@@ -45,8 +45,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~blinking of outlines~~
   - still some blinking, need to adjust metastable timing
 - ~~sticking of outlines~~
-- is stealing too frequent? are we spending most of our time trying to
-  steal?
+- ~~is stealing too frequent? are we spending most of our time trying to
+  steal?~~
 - ~~incremental tag detector~~
 - ~~60Hz camera~~
 - ports
@@ -59,11 +59,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - report errors as statements
 - ~~spinlock~~
 - wait until process death to start
-- blinking on folk0
+- ~~blinking on folk0~~
 - fix small memory leak
 - remove live queries from region generation
-- remove Say and Hold from workqueue, just do them on thread? esp
-  sysmon
-- why isn't region running in time?
-  - thread migration?
+- ~~remove Say and Hold from workqueue, just do them on thread? esp
+  sysmon~~
+- ~~why isn't region running in time?~~
+  - ~~thread migration?~~
 

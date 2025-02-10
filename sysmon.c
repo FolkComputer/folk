@@ -128,6 +128,7 @@ void sysmon() {
             threads[i].wasObservedAsBlocked = true;
         }
     }
+    // TODO: Use NCPUS for this.
     if (notBlockedWorkersCount < 3) {
         // Too many threads are blocked on I/O. Let's pull in another
         // one to occupy a CPU and do Folk work.

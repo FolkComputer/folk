@@ -209,7 +209,7 @@ When the collected matches for \
         Hold! [list tag $id detection] \
             [list $this claims tag $id has detection $det on camera [dict get $det camera] \
                  at timestamp [dict get $det timestamp]] \
-            6
+            8
     }
     set aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $aprilTime
