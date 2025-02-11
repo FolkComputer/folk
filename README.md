@@ -281,7 +281,7 @@ created. Therefore, it will eventually be useful for you to know
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
 These are all implemented in `main.tcl`. For most things, you'll
-probably only need `Wish`, `Claim`, `When`, and maybe `Hold`.
+probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
 
@@ -380,25 +380,25 @@ cool`.
 first-class object. You can use `&` joins in that pattern as
 well.)
 
-### Hold
+### Hold!
 
-Experimental: `Hold` is used to register claims that will stick
-around until you do another `Hold`. You can use this to create the
+Experimental: `Hold!` is used to register claims that will stick
+around until you do another `Hold!`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Hold { Claim $this has a ball at x 100 y 100 }
+Hold! { Claim $this has a ball at x 100 y 100 }
 
 When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
+        Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
 ```
 
-`Hold` will overwrite all statements made by the previous `Hold`
+`Hold!` will overwrite all statements made by the previous `Hold!`
 (scoped to the current `$this`).
 
 **Notice that you should scope your claim: it's `$this has a ball`, not `there
@@ -411,7 +411,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold ball position {
+Hold! ball position {
   Claim $this has a ball at blahblah
 }
 ```
@@ -420,9 +420,9 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold with the `on` parameter, like
-`Hold (on 852) { ... }` (if the Hold is from page 852) or `Hold (on
-virtual-programs/example.folk) { ... }` (if the Hold is from the
+You can overwrite another program's Hold! with the `on` parameter, like
+`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
+virtual-programs/example.folk) { ... }` (if the Hold! is from the
 example.folk virtual program)
 
 ### Every time
@@ -431,15 +431,15 @@ Experimental: `Every time` works almost like `When`, but it's used to
 hold when an 'event' happens without causing a reaction cascade.
 
 **You can't make Claims, Whens, or Wishes inside an `Every time`
-block. You can only Hold.**
+block. You can only Hold!.**
 
 Example:
 
 ```
-Hold { Claim $this has seen 0 boops }
+Hold! { Claim $this has seen 0 boops }
 
 Every time there is a boop & $this has seen /n/ boops {
-  Hold { Claim $this has seen [expr {$n + 1}] boops }
+  Hold! { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
@@ -488,21 +488,11 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On and Start
+#### On
 
-FIXME: General note: the `On` and `Start` blocks are used for weird
+FIXME: General note: the `On` block is used for weird
 non-reactive behavior. Need to fill this out more.
 
-##### Start process
-
-```
-Start process A {
-  while true {
-    puts "Hello! Another second has passed"
-    exec sleep 1
-  }
-}
-```
 
 ##### On unmatch
 
@@ -534,12 +524,12 @@ When (non-capturing) /p/ is cool {
 }
 ```
 
-#### Assert and Retract
+#### Assert! and Retract!
 
-General note: `Assert` and `Retract` are used for weird non-reactive
+General note: `Assert!` and `Retract!` are used for weird non-reactive
 behavior.
 
-You should generally _not_ use `Assert` and `Retract` inside a `When`
+You should generally _not_ use `Assert!` and `Retract!` inside a `When`
 block. Use `Claim`, `Wish`, and `When` instead.
 
 ## Tcl for JavaScripters
@@ -675,7 +665,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~reuse C module so perf events hold~~
 - report errors as statements
 - ~~spinlock~~
-- wait until process death to start
+- ~~wait until process death to start~~
 - ~~blinking on folk0~~
 - fix small memory leak
 - remove live queries from region generation
@@ -694,3 +684,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - rebuild live image
 - base64-encode edit program
 - fix camera slice
+- why is web endpoints so slow?
+- **fix jittering** (it's because of incremental)
+- **fix doubling**
+

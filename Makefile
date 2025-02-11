@@ -62,7 +62,7 @@ kill-folk:
 
 FOLK_REMOTE_NODE := folk-live
 sync:
-	rsync --timeout=5 -e "ssh -o StrictHostKeyChecking=no" --archive \
+	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
 		. $(FOLK_REMOTE_NODE):~/folk \
 		--delete-after
