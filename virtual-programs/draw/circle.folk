@@ -31,6 +31,3 @@ When the color map is /colorMap/ &\
     Wish the GPU draws pipeline "circle" with arguments \
         [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
 }
-
-Wish to draw a circle with x 20 y 30 radius 20 thickness 2 color orange
-
