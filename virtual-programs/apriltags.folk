@@ -151,10 +151,10 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     dict for {id prevDet} $dets {
         set corners [dict get $prevDet p]
 
-        set x [min {*}[lmap corner $corners {lindex $corner 0}]]
-        set y [min {*}[lmap corner $corners {lindex $corner 1}]]
-        set x1 [max {*}[lmap corner $corners {lindex $corner 0}]]
-        set y1 [max {*}[lmap corner $corners {lindex $corner 1}]]
+        set x $(floor([min {*}[lmap corner $corners {lindex $corner 0}]]))
+        set y $(floor([min {*}[lmap corner $corners {lindex $corner 1}]]))
+        set x1 $(ceil([max {*}[lmap corner $corners {lindex $corner 0}]]))
+        set y1 $(ceil([max {*}[lmap corner $corners {lindex $corner 1}]]))
 
         set width [- $x1 $x]; set height [- $y1 $y]
         set x [max [- $x $width] 0]
