@@ -1,5 +1,3 @@
-return
-
 # Function to check if the device is a keyboard
 proc isKeyboard {device} {
     set properties [exec udevadm info --query=property --name=$device]
