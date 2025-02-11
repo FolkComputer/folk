@@ -308,8 +308,15 @@ source "lib/math.tcl"
 # this defines $this in the contained scopes
 # it's also used to implement Hold
 Assert when /this/ has program /__program/ {{this __program} {
-    apply $__program $this
+    set pattern [list /nobody/ wishes program $this is supressed]
+
+    Say when the collected matches for $pattern are /__matches/ {{this __program __matches} {
+        if {[llength $__matches] == 0} {
+            apply $__program $this
+        }
+    }} with environment [list $this $__program]
 }}
+
 # For backward compat(?):
 Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
