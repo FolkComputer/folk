@@ -690,4 +690,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **fix doubling**
 - drop support for multiarg Hold keys
 - **use quads instead of regions**
+- optimize jpeg decoding
+- vendor wslay?
+- fix horrible lexical pileup in calibration?
+  - or serialize/cache the object graph in a nicer way?
 

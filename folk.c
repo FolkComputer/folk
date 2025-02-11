@@ -318,10 +318,9 @@ static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
     ResultSet* rs = dbQuery(db, pattern);
-
     int nResults = (int) rs->nResults;
-    Jim_Obj* resultObjs[nResults];
-    size_t resultObjsCount = 0;
+
+    Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
@@ -337,13 +336,17 @@ static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
             envDict[(j+1)*2+1] = env->bindings[j].value;
         }
 
-        resultObjs[resultObjsCount++] = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
+        Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
+        Jim_ListAppendElement(interp, ret, resultObj);
+
         free(env);
         statementRelease(db, result);
     }
+
     clauseFree(pattern);
     free(rs);
-    Jim_SetResult(interp, Jim_NewListObj(interp, resultObjs, resultObjsCount));
+
+    Jim_SetResult(interp, ret);
     return JIM_OK;
 }
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {

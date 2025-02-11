@@ -665,34 +665,31 @@ void dbUnlockClauseToStatementRef(Db* db) {
 
 // Query
 ResultSet* dbQuery(Db* db, Clause* pattern) {
-    StatementRef results[500];
-    size_t maxResults = sizeof(results)/sizeof(results[0]);
+    ResultSet *resultSet;
+    size_t maxResults = 500;
+    do {
+        resultSet = malloc(SIZEOF_RESULTSET(maxResults));
 
-    epochBegin();
-    size_t nResults =
-        trieLookup(db->clauseToStatementRef, pattern,
-                   (uint64_t*) results, maxResults);
-    epochEnd();
+        epochBegin();
+        resultSet->nResults =
+            trieLookup(db->clauseToStatementRef, pattern,
+                       (uint64_t*) resultSet->results, maxResults);
+        epochEnd();
 
-    if (nResults == maxResults) {
-        // TODO: Try again with a larger maxResults?
-        fprintf(stderr, "dbQuery: Hit max results for query (%s):\n",
-                clauseToString(pattern));
-        for (size_t i = 0; i < nResults; i++) {
-            Statement* stmt = statementAcquire(db, results[i]);
-            fprintf(stderr, "%zu: (%s)\n",
-                    i,
-                    stmt == NULL ? NULL : clauseToString(statementClause(stmt)));
+        if (resultSet->nResults < maxResults) {
+            break;
         }
-        exit(1);
-    }
 
-    ResultSet* ret = malloc(SIZEOF_RESULTSET(nResults));
-    ret->nResults = nResults;
-    for (size_t i = 0; i < nResults; i++) {
-        ret->results[i] = results[i];
-    }
-    return ret;
+        maxResults *= 2;
+        if (maxResults > 10 * 1000) {
+            fprintf(stderr, "dbQuery: Too many results for query (%s)\n",
+                    clauseToString(pattern));
+            exit(1);
+        }
+        free(resultSet);
+    } while (true);
+
+    return resultSet;
 }
 
 // parentMatch is allowed to be NULL (meaning that no parent match is
