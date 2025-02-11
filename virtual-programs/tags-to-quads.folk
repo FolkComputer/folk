@@ -568,7 +568,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Note that (for now) the pose is only imperatively queried
         # (by future frames), not reacted to. No need to give it a
-        # sustain time.
+        # keep time.
         HoldStatement! [list tag pose $tag] \
             [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
 

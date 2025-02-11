@@ -78,7 +78,8 @@ When /keyboard/ is a keyboard device {
     fconfigure $keyboardChannel -translation binary
     set keyboardFileno [$grabber getFileno $keyboardChannel]
 
-    Hold! local-keymaps [list $this claims $keyboard has keymaps [dict create]]
+    HoldStatement! local-keymaps \
+        [list $this claims $keyboard has keymaps [dict create]]
 
     When /page/ is a keyboard with path $keyboard locale /locale/ {
         if {![exists -command keymap]} {
@@ -89,13 +90,15 @@ When /keyboard/ is a keyboard device {
 
         set map [keymap load $locale]
         dict set localKeymaps $map true
-        Hold! local-keymaps [list $this claims $keyboard has keymaps $localKeymaps]
+        HoldStatement! local-keymaps \
+            [list $this claims $keyboard has keymaps $localKeymaps]
 
         $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
 
         On unmatch {
             dict unset localKeymaps $map
-            Hold! local-keymaps [list $this claims $keyboard has keymaps $localKeymaps]
+            HoldStatement! local-keymaps \
+                [list $this claims $keyboard has keymaps $localKeymaps]
 
             # keymap destroy $map
             $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]

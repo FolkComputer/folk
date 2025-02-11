@@ -21,7 +21,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, int64_t version,
-                                  Clause *clause, long sustainMs,
+                                  Clause *clause, long keepMs,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();
 
@@ -80,7 +80,8 @@ void sysmon() {
     }
 #endif
 
-    // Second: deal with any remove-later (sustains).
+    // Second: deal with any remove-later statements that we should
+    // remove.
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
         StatementRef stmtRef = removeLater[i].stmt;

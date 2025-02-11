@@ -4,7 +4,7 @@
 #include "db.h"
 #include "trie.h"
 
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, HOLD, RUN, EVAL } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, RUN, EVAL } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
 
@@ -25,20 +25,6 @@ typedef struct WorkQueueItem {
             int sourceLineNumber;
         } assert;
         struct { Clause* pattern; } retract;
-        struct {
-            // Caller is also responsible for keeping key alive & for
-            // freeing it on dequeue.
-            char* key;
-            int64_t version;
-            int sustainMs;
-
-            Clause* clause;
-
-            // Caller is also responsible for freeing sourceFileName
-            // on dequeue.
-            char* sourceFileName;
-            int sourceLineNumber;
-        } hold;
         struct {
             // The StatementRefs may be invalidated while this Run is
             // still in the workqueue -- if either is invalidated,

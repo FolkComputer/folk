@@ -639,7 +639,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 ## todo
 
 - adjust stack record if When is multiline
-- consistent name for sustain/ttl/remove-later
+- ~~consistent name for sustain/ttl/remove-later~~
 - ~~reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count~~
 - event statements
@@ -673,14 +673,15 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   sysmon~~
 - ~~why isn't region running in time?~~
   - ~~thread migration?~~
-- fix programs page
+- ~~fix programs page~~
 - restore smj cam/display parameters
 - fix remaining display/ primitives
-- replace findMatches with Query
+- ~~replace findMatches with Query!~~
+  - replace findMatchesJoining with Query!
 - replace Assert/Retract/Hold
 - port angle & any other changes to new.folk
 - credits in README
-- fix systemd service spec to make && ./folk
+- ~~fix systemd service spec to make && ./folk~~
 - rebuild live image
 - base64-encode edit program
 - fix camera slice
