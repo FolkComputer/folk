@@ -25,8 +25,9 @@ extern void Hold(const char *key, int64_t version,
                  const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();
 
-// How many ms are in each tick?
-#define SYSMON_TICK_MS 2
+// How many ms are in each tick? You probably want this to be less
+// than half of 16ms (1 frame).
+#define SYSMON_TICK_MS 4
 
 typedef struct RemoveLater {
     StatementRef _Atomic stmt;
