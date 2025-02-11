@@ -36,20 +36,19 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ {
   }
 }
 
-proc updateCursor {oldCursor updates} {
+fn x {vector} { lindex $vector 0 }
+fn y {vector} { lindex $vector 1 }
+
+fn updateCursor {oldCursor updates} {
   set newCursor $oldCursor
   if {[dict exists $updates x]} {
-    lset newCursor 0 [expr {max(0, [dict get $updates x] + [x $oldCursor])}]
+      lset newCursor 0 [max 0 $([dict get $updates x] + [x $oldCursor])]
   }
   if {[dict exists $updates y]} {
-    lset newCursor 1 [expr {max(0, [dict get $updates y] + [y $oldCursor])}]
+      lset newCursor 1 [max 0 $([dict get $updates y] + [y $oldCursor])]
   }
   return $newCursor
 }
-
-# NOTE: Should this go into a common-functions file?
-proc x {vector} { lindex $vector 0 }
-proc y {vector} { lindex $vector 1 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id [list editing $page $kbPath]
@@ -60,7 +59,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
   }
 }
 
-proc insertCharacter {code newCharacter cursor} {
+fn insertCharacter {code newCharacter cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   set x [- $x 1]
@@ -77,7 +76,7 @@ proc insertCharacter {code newCharacter cursor} {
   }
 }
 
-proc deleteCharacter {code cursor} {
+fn deleteCharacter {code cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   if {$x == 0 && $y > 0} {
@@ -101,7 +100,7 @@ proc deleteCharacter {code cursor} {
   return [join $lines "\n"]
 }
 
-proc deleteToBeginning {code cursor} {
+fn deleteToBeginning {code cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   set line [lindex $lines $y]
@@ -110,7 +109,7 @@ proc deleteToBeginning {code cursor} {
   return [join $lines "\n"]
 }
 
-proc insertNewline {code cursor} {
+fn insertNewline {code cursor} {
   set lines [split $code "\n"]
   lassign $cursor x y
   set line [lindex $lines $y]
@@ -121,7 +120,7 @@ proc insertNewline {code cursor} {
   return [join $lines "\n"]
 }
 
-proc getLineLength {code cursor} {
+fn getLineLength {code cursor} {
   set lines [split $code "\n"]
   set line [lindex $lines [lindex $cursor 1]]
   set ll [string length $line]
@@ -182,7 +181,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
   }
 }
 
-proc getCurrentLineLength {lines cursor} {
+fn getCurrentLineLength {lines cursor} {
   set splitLines [split $lines "\n"]
   set currentLine [lindex $splitLines [y $cursor]]
   string length $currentLine
