@@ -25,6 +25,7 @@ const textarea = document.querySelector("#code");
 
 var currentKeyboard = null;
 var programCode = ""; // not the same as editor code
+var cursorPosition = [0, 0];
 
 // temporarily disable event processing after sending new code to prevent recursive event sends
 var allowLocalEventsToProcess = true;
@@ -49,9 +50,29 @@ function disableLocalEventProcessing(durationMs) {
     }, durationMs);
 }
 
+function updateProgramCode() {
+    disableRemoteEventProcessing(500);
+
+    const { page, kbPath } = currentKeyboard;
+
+    const currentCode = textarea.value;
+    programCode = currentCode;
+
+    const id = page + kbPath;
+    ws.evaluate(tcl`
+        Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
+            Claim the ${kbPath} cursor is [list ${cursorPosition[0]} ${cursorPosition[1]}]
+            Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
+                Claim ${id} has program code [binary decode base64 ${btoa(currentCode)}]
+                Claim ${id} has editor code [binary decode base64 ${btoa(currentCode)}]
+            }
+        }
+    `);
+}
+
 function updateCursorAndCode(ev) {
     if (!allowLocalEventsToProcess) return;
-    disableRemoteEventProcessing(100);
+    disableRemoteEventProcessing(500);
 
     const { page, kbPath } = currentKeyboard;
 
@@ -62,6 +83,8 @@ function updateCursorAndCode(ev) {
     const linesBefore = newCode.substring(0, currentPosition).split("\n");
     const y = linesBefore.length - 1;
     const x = linesBefore[linesBefore.length - 1].length;
+
+    cursorPosition = [x, y];
 
     const id = page + kbPath;
     ws.evaluate(tcl`
@@ -77,8 +100,14 @@ function updateCursorAndCode(ev) {
 
 textarea.addEventListener("input", updateCursorAndCode);
 textarea.addEventListener("selectionchange", updateCursorAndCode);
+textarea.addEventListener("keydown", ev => {
+    if(ev.keyCode === 83 /* s */ && (navigator.platform.match("Mac") ? ev.metaKey : ev.ctrlKey)) {
+        ev.preventDefault();
+        updateProgramCode();
+    }
+});
 
-var lastKeyboard;
+var lastKeyboard; // to clean up the previous keyboard when another is picked
 async function selectKeyboard({ page, kbPath }) {
     if (lastKeyboard) lastKeyboard.stop();
 
@@ -88,7 +117,7 @@ async function selectKeyboard({ page, kbPath }) {
     lastKeyboard = await ws.watch(`${id} has base64 editor code /editorCode/ program code /programCode/ & the ${kbPath} cursor is /cursor/`, {
         add: ({ editorCode, programCode: _programCode, cursor }) => {
             if (!allowRemoteEventsToProcess) return;
-            disableLocalEventProcessing(100);
+            disableLocalEventProcessing(500);
 
             programCode = atob(_programCode);
 
@@ -98,6 +127,8 @@ async function selectKeyboard({ page, kbPath }) {
             // figure out where the cursor is
             let [x, y] = loadList(cursor);
             x = parseInt(x); y = parseInt(y);
+
+            cursorPosition = [x, y];
 
             const lines = editorCode.split("\n");
 
@@ -132,19 +163,6 @@ ws.watchCollected("/page/ is an editor & /page/ is a keyboard with path /kbPath/
 keyboardSelect.addEventListener("input", (ev) => {
     selectKeyboard(JSON.parse(ev.target.value));
 });
-
-var editorMatches;
-var selectedKeyboard;
-
-function updateTextarea() {
-    if (!editorMatches) return;
-    const editor = editorMatches.find(x => x.editor === selectedKeyboard);
-
-    if (editor) {
-        code.innerText = editor.code;
-        console.log(editor.code);
-    }
-}
         </script>
     </body>
 </html>
