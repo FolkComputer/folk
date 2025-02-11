@@ -9,7 +9,7 @@ When /thing/ has region /region/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
     
-        set scale [dict_getdef $match scale 1.0]
+        set scale [dict getdef $match scale 1.0]
         set pos [region top [region move $region up 10px]]
         Wish to draw text with position $pos scale $scale text $text radians $radians anchor bottom
     }
@@ -18,7 +18,7 @@ When /thing/ has region /region/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
 
-        set scale [dict_getdef $match scale 0.75]
+        set scale [dict getdef $match scale 0.75]
         set pos [region bottomleft [region move $region down 20px]]
         Wish to draw text with position $pos scale $scale text $text radians $radians anchor topleft
     }
@@ -27,7 +27,7 @@ When /thing/ has region /region/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
     
-        set scale [dict_getdef $match scale 0.75]
+        set scale [dict getdef $match scale 0.75]
         set pos [region right [region move $region right 10px]]
         Wish to draw text with position $pos scale $scale text $text radians $radians anchor left
     }
@@ -36,7 +36,7 @@ When /thing/ has region /region/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
     
-        set scale [dict_getdef $match scale 0.75]
+        set scale [dict getdef $match scale 0.75]
         set pos [region left [region move $region left 10px]]
         Wish to draw text with position $pos scale $scale text $text radians $radians anchor right
     }
