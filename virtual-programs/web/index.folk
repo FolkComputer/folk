@@ -34,8 +34,8 @@ When the db library is /dbLib/ {
         </head>
         <nav>
           <a href="/new"><button>New program</button></a>
-          <!-- <a href="/programs">Running programs</a> -->
-          <!-- <a href="/timings">Timings</a> -->
+          <a href="/calibrate">Calibrate</a>
+          <a href="/programs">Running programs</a>
           <!-- <a href="/keyboards">Keyboards</a> -->
           <a href="/threads">Threads</a>
           <a href="/trace">Trace</a>
