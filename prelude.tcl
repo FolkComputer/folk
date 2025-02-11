@@ -130,11 +130,59 @@ namespace eval ::math {
 }
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
+proc HoldStatement! {args} {
+    set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
+
+    set key [list $this]
+    set clause [lindex $args end]
+    set isNonCapturing false
+    set keepMs 0
+    for {set i 0} {$i < [llength $args] - 1} {incr i} {
+        set arg [lindex $args $i]
+        if {$arg eq "(on"} {
+            incr i
+            set this [string range [lindex $args $i] 0 end-1]
+        } elseif {$arg eq "(keep"} {
+            incr i
+            set keep [lindex $args $i]
+            if {[string match {*ms)} $keep]} {
+                set keepMs [string range $keep 0 end-3]
+            } else {
+                error "HoldStatement!: invalid keep value [string range $keep 0 end-1]"
+            }
+        } else {
+            lappend key $arg
+        }
+    }
+
+    tailcall HoldStatementGlobally! $key $clause $keepMs
+}
+proc Hold! {args} {
+    set body [lindex $args end]
+    if {$body eq ""} {
+        tailcall HoldStatement! {*}$args {}
+    }
+
+    set isNonCapturing false
+    set args [lmap arg [lreplace $args end end] {
+        if {$arg eq "(non-capturing)"} {
+            set isNonCapturing true; continue
+        } else { set arg }
+    }]
+
+    if {$isNonCapturing} {
+        set argNames {}; set argValues {}
+    } else {
+        lassign [uplevel serializeEnvironment] argNames argValues
+    }
+    tailcall HoldStatement! {*}$args \
+        [list when [list $argNames $body] with environment $argValues]
+}
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
-    # This prologue is used for error reporting (so we can get $this
-    # from the error handler level).
+    # HACK: This prologue is used for error reporting (so we can get
+    # $this from the error handler level).
     set prologue {if {[info exists this]} {set ::this $this}}
     # Make sure we don't put it on a new line (it'd throw line numbers
     # off).

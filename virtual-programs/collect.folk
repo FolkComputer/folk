@@ -12,7 +12,7 @@ When /someone/ wishes to collect matches for /clause/ {
 
     # the Hold! should hopefully dedupe
     set Recollect! [list apply {{clause} {
-        Hold! [list recollect $clause] \
+        HoldStatement! [list recollect $clause] \
             [list virtual-programs/collect.folk wishes to recollect matches for $clause with timestamp [clock milliseconds]]
     }} $clause]
 
@@ -22,6 +22,6 @@ When /someone/ wishes to collect matches for /clause/ {
     }
     {*}${Recollect!}
     On unmatch {
-        Hold! [list recollect $clause] {}
+        HoldStatement! [list recollect $clause] {}
     }
 }

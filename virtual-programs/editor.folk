@@ -9,28 +9,29 @@ When /page/ is a keyboard with path /...anything/ {
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   /page/ is an editor &\
-  /page/ has region /r/ &\
-  the clock time is /t/ {
+  /page/ has region /r/ {
+
   Wish tag $page is stabilized
-  set id "$page$kbPath"
+
+  set id [list editing $page $kbPath]
   Claim $id has region [region move $r up 210%]
   When /nobody/ claims $id has program code /c/ {
-    Hold "code$kbPath" {
-      Claim $id has program code $baseCode
-      Claim $id has editor code $baseCode
-    }
+      Hold! [list $id code] {
+          Claim $id has program code $baseCode
+          Claim $id has editor code $baseCode
+      }
   }
 
   When /nobody/ claims $id has start time /startTime/ {
-    Hold "time$kbPath" {
-      Claim $id has start time $t
-    }
+      Hold! [list $id start time] {
+          Claim $id has start time [expr {[clock milliseconds] / 1000.0}]
+      }
   }
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ {
   On unmatch {
-    Hold "time$kbPath" {}
+    Hold! "time$kbPath" {}
   }
 }
 
@@ -50,9 +51,9 @@ proc x {vector} { lindex $vector 0 }
 proc y {vector} { lindex $vector 1 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
+  set id [list editing $page $kbPath]
   When /nobody/ claims $id has program code /c/ {
-    Hold "cursor$kbPath" {
+    Hold! "cursor$kbPath" {
       Claim the $kbPath cursor is [list 0 0]
     }
   }
@@ -140,7 +141,7 @@ proc debug {position color} {
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
+  set id [list editing $page $kbPath]
   When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set intTime [expr {int($t * 10)}]
     set scale 0.60
@@ -198,7 +199,7 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
+  set id [list editing $page $kbPath]
 
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
              the $kbPath cursor is /cursor/ &\
@@ -209,15 +210,15 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
 
     if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {
       if {[dict exists $options printable]} {
-        Hold "cursor$kbPath" {
+        Hold! "cursor$kbPath" {
           Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-          Hold "code$kbPath" {
+          Hold! "code$kbPath" {
             Claim $id has program code $code
             Claim $id has editor code [insertCharacter $editorCode [dict get $options printable] $cursor]
           }
         }
       } else {
-        Hold "cursor$kbPath" {
+        Hold! "cursor$kbPath" {
           switch $key {
             Up {
               set updatedCursor [updateCursor $cursor {y -1}]
@@ -277,14 +278,14 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               } else {
                 Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
               }
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteCharacter $editorCode $cursor]
               }
             }
             Remove {
               Claim the $kbPath cursor is $cursor
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteCharacter $editorCode [updateCursor $cursor {x 1}]]
               }
@@ -292,7 +293,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
             Return {
               set updatedCursor [updateCursor $cursor {y 1}]
               Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [insertNewline $editorCode $cursor]
               }
@@ -305,7 +306,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               #       Perhaps `Wish $system volume is 0.5` or something
               When $id has printed /lastPrintedCode/ at /previousTime/ {
                 if {($timestamp - $previousTime) < 1000} {
-                  Hold "code$kbPath" {
+                  Hold! "code$kbPath" {
                     Claim $id has program code $code
                     Claim $id has editor code $editorCode
                   }
@@ -313,38 +314,38 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
                 }
               }
 
-              Hold print { Claim $id has printed $code at $timestamp}
+              Hold! print { Claim $id has printed $code at $timestamp}
               set jobid [expr {rand()}]
               Wish to print $code with job-id $jobid
-              Hold print-${jobid} {
+              Hold! print-${jobid} {
                 Claim $id' is printing $jobid
               }
               After 2000 milliseconds {
-                Hold print-${jobid} {}
+                Hold! print-${jobid} {}
               }
 
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
               Claim the $kbPath cursor is $cursor
             }
             Control_r {
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $baseCode
                 Claim $id has editor code $baseCode
               }
               Claim the $kbPath cursor is [list 0 0]
             }
             Control_s {
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $editorCode
                 Claim $id has editor code $editorCode
               }
               Claim the $kbPath cursor is $cursor
             }
             Control_a {
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
@@ -352,7 +353,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               Claim the $kbPath cursor is [list 0 $y]
             }
             Control_e {
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
@@ -361,7 +362,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
             }
             Control_u {
               # delete from cursor back to 0 and move cursor to 0
-              Hold "code$kbPath" {
+              Hold! "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteToBeginning $editorCode $cursor]
               }

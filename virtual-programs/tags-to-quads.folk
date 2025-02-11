@@ -539,7 +539,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             if {[llength $stateResults] > 0} {
                 set state [dict get [lindex $stateResults 0] state]
                 dict with state {
-                    set distSq [poseDistSq $frozenPose $tagPose]
+                    set distSq [$poseLib poseDistSq $frozenPose $tagPose]
 
                     if {$distSq > $unfreezeThresholdSq} {
                         set frozenPose $tagPose
@@ -562,14 +562,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                                unfreezeTime $timestamp]
             }
 
-            Hold! [list tag $tag stabilization] \
+            HoldStatement! [list tag $tag stabilization] \
                 [list $this claims tag $tag is stabilized with state $state]
         }
 
         # Note that (for now) the pose is only imperatively queried
         # (by future frames), not reacted to. No need to give it a
         # sustain time.
-        Hold! [list tag pose $tag] \
+        HoldStatement! [list tag pose $tag] \
             [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
 
         # this creates a partially evaluated function that converts tag space (in meters) to its position

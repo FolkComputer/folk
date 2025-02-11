@@ -3,7 +3,7 @@ Assert! when we are on {{} {
     When we are on {
         set tick 0
         while true {
-            Hold! time [list the local tick is $tick]
+            Hold! time [list Claim the local tick is $tick]
             incr tick
             sleep 0.1
         }

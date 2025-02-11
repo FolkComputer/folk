@@ -204,13 +204,14 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static void reactToNewStatement(StatementRef ref);
 
-// Hold! {Omar's time} {the time is 3}
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
-void Hold(const char *key, int64_t version,
-          Clause *clause, long sustainMs,
-          const char *sourceFileName, int sourceLineNumber) {
+void HoldStatementGlobally(const char *key, int64_t version,
+                           Clause *clause, long keepMs,
+                           const char *sourceFileName, int sourceLineNumber) {
+#ifdef TRACY_ENABLE
     char *s = clauseToString(clause);
     TracyCMessageFmt("hold: %.300s", s); free(s);
+#endif
 
     StatementRef oldRef; StatementRef newRef;
 
@@ -222,11 +223,11 @@ void Hold(const char *key, int64_t version,
         reactToNewStatement(newRef);
     }
     if (!statementRefIsNull(oldRef)) {
-        if (sustainMs > 0) {
+        if (keepMs > 0) {
             // We need to delay the react to removed statement
             // until the estimated convergence time of the new
             // statement has elapsed (a few milliseconds?)
-            sysmonRemoveLater(oldRef, sustainMs);
+            sysmonRemoveAfter(oldRef, keepMs);
         } else {
             Statement* stmt;
             if ((stmt = statementAcquire(db, oldRef))) {
@@ -236,23 +237,17 @@ void Hold(const char *key, int64_t version,
         }
     }
 }
-static int HoldFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3 || argc == 4);
-    long sustainMs;
-    if (argc == 3) {
-        sustainMs = 0;
-    } else if (argc == 4) {
-        if (Jim_GetLong(interp, argv[3], &sustainMs) != JIM_OK) {
-            return JIM_ERR;
-        }
-    }
+static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 4);
+
     const char *key = Jim_GetString(argv[1], NULL);
     int64_t version = ++latestVersion;
     Clause *clause = jimObjToClause(interp, argv[2]);
+    long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
 
-    Hold(key, version,
-         clause, sustainMs,
-         "<unknown>", -1);
+    HoldStatementGlobally(key, version,
+                          clause, keepMs,
+                          "<unknown>", -1);
     return (JIM_OK);
 }
 
@@ -430,12 +425,16 @@ static void interpBoot() {
     interp = Jim_CreateInterp();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
+
     Jim_CreateCommand(interp, "Assert!", AssertFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "Hold!", HoldFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "Query!", QueryFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);

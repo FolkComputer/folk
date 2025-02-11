@@ -685,6 +685,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - base64-encode edit program
 - fix camera slice
 - why is web endpoints so slow?
-- **fix jittering** (it's because of incremental)
+- ~~fix jittering (it's because of incremental)~~
 - **fix doubling**
+- drop support for multiarg Hold keys
+- **use quads instead of regions**
 

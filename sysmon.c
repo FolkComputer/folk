@@ -20,9 +20,9 @@
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
-extern void Hold(const char *key, int64_t version,
-                 Clause *clause, long sustainMs,
-                 const char *sourceFileName, int sourceLineNumber);
+extern void HoldStatementGlobally(const char *key, int64_t version,
+                                  Clause *clause, long sustainMs,
+                                  const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();
 
 // How many ms are in each tick? You probably want this to be less
@@ -152,9 +152,9 @@ void sysmon() {
     snprintf(clockTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 
-    Hold("clock-time", currentTick,
-         clockTimeClause, 5,
-         "sysmon.c", __LINE__);
+    HoldStatementGlobally("clock-time", currentTick,
+                          clockTimeClause, 5,
+                          "sysmon.c", __LINE__);
 
     // Fifth: collect garbage.
     epochGlobalCollect();
@@ -179,8 +179,8 @@ void *sysmonMain(void *ptr) {
     return NULL;
 }
 // This gets called from other threads.
-void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
-    int laterTicks = laterMs / SYSMON_TICK_MS;
+void sysmonRemoveAfter(StatementRef stmtRef, int afterMs) {
+    int afterTicks = afterMs / SYSMON_TICK_MS;
 
     int i;
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
@@ -189,7 +189,7 @@ void sysmonRemoveLater(StatementRef stmtRef, int laterMs) {
             atomic_compare_exchange_weak(&removeLater[i].stmt,
                                          &oldStmtRef, stmtRef)) {
 
-            removeLater[i].canRemoveAtTick = tick + laterTicks;
+            removeLater[i].canRemoveAtTick = tick + afterTicks;
             break;
         }
     }

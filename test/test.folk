@@ -14,8 +14,8 @@ Assert! when we are on {{} {
     When we are on {
         puts "RUNNING HOLDS"
         for {set i 0} {$i <= 89} {incr i} {
-            Hold! counter [list X claims the counter is $i]
-            Hold! counter [list X claims the counter is $i]
+            Hold! counter {Claim the counter is $i}
+            Hold! counter {Claim the counter is $i}
         }
 
         sleep 2

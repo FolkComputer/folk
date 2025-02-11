@@ -118,7 +118,7 @@ Retract! web claims {${program}} has program code /something/
 				   [list $x [expr {$y+$h}]] \
 				   [list [expr {$x+$w}] [expr {$y+$h}]]]
 		set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-		Hold! [list $program region] [list web claims $program has region [region create $vertices $edges]]
+		HoldStatement! [list $program region] [list web claims $program has region [region create $vertices $edges]]
 	    }
 	    handleConfigure {${program}} $left $top {${w}} {${h}}
 	`);
@@ -126,7 +126,7 @@ Retract! web claims {${program}} has program code /something/
 	function handleSave() {
 	  const code = document.getElementById("code").value;
           send(`
-            Hold! {${program} code} {web claims ${program} has program code {${code}}}
+            HoldStatement! {${program} code} {web claims ${program} has program code {${code}}}
 	  `);
            [500, 1000, 3000].forEach(timeout => {
              setTimeout(async () => {
