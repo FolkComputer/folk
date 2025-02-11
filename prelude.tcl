@@ -160,7 +160,7 @@ proc HoldStatement! {args} {
 proc Hold! {args} {
     set body [lindex $args end]
     if {$body eq ""} {
-        tailcall HoldStatement! {*}$args {}
+        tailcall HoldStatement! {*}$args
     }
 
     set isNonCapturing false
