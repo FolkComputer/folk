@@ -264,6 +264,28 @@ proc When {args} {
         tailcall Say when {*}$pattern [list $argNames $body] with environment $argValues
     }
 }
+proc Every {_time args} {
+    if {$_time eq "time"} {
+        # Unwrap the outermost match, get its match ref, then unmatch
+        # at the end of the body of the innermost match.
+        set body [lindex $args end]
+        set pattern [lreplace $args end end]
+
+        set andIdx [lsearch $pattern &]
+        if {$andIdx != -1} {
+            set firstPattern [lrange $pattern 0 $andIdx-1]
+            set restPatterns [lrange $pattern $andIdx+1 end]
+            set body "set _unmatchRef \[__currentMatchRef]; When $restPatterns {$body; Unmatch! \$_unmatchRef}"
+        } else {
+            set firstPattern $pattern
+            set body "set _unmatchRef \[__currentMatchRef]; $body; Unmatch! \$_unmatchRef"
+        }
+        tailcall When {*}$firstPattern $body
+    } else {
+        error "Every: Unknown first argument '$_time'"
+    }
+}
+
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]

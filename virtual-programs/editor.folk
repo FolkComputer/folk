@@ -16,22 +16,23 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   set id [list editing $page $kbPath]
   Claim $id has region [region move $r up 210%]
   When /nobody/ claims $id has program code /c/ {
-      Hold! [list $id code] {
+      Hold! "code$kbPath" {
           Claim $id has program code $baseCode
           Claim $id has editor code $baseCode
       }
   }
 
   When /nobody/ claims $id has start time /startTime/ {
-      Hold! [list $id start time] {
+      Hold! [list $id start-time] {
           Claim $id has start time [expr {[clock milliseconds] / 1000.0}]
       }
   }
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ {
+  set id [list editing $page $kbPath]
   On unmatch {
-    Hold! "time$kbPath" {}
+      Hold! [list $id start-time] {}
   }
 }
 
@@ -127,17 +128,13 @@ proc getLineLength {code cursor} {
   return $ll
 }
 
-proc lineNumberView {ystart linecount} {
+fn lineNumberView {ystart linecount} {
   set yend [expr {$ystart + $linecount}]
   set numbers [list]
   for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
     lappend numbers $i
   }
   join $numbers "\n"
-}
-
-proc debug {position color} {
-  Display::circle {*}$position 5 2 $color true
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
@@ -201,11 +198,15 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id [list editing $page $kbPath]
 
+  # Desired behavior: query all the other stuff every time you hit a
+  # key, then destroy the when (don't want _any_ reaction after the
+  # original firing, and don't want to keep the match around).
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
              the $kbPath cursor is /cursor/ &\
              $id has program code /code/ &\
              $id has editor code /editorCode/ &\
              $id has start time /startTime/ {
+
     set timestamp [dict get $options timestamp]
 
     if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {

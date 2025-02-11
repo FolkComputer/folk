@@ -314,6 +314,23 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
                        strdup(Jim_GetString(argv[1], NULL)));
     return JIM_OK;
 }
+static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+
+    const char *unmatchRefStr = Jim_GetString(argv[1], NULL);
+    MatchRef unmatchRef;
+    if (sscanf(unmatchRefStr, "m%u:%u", &unmatchRef.idx, &unmatchRef.gen) != 2) {
+        return JIM_ERR;
+    }
+
+    Match *unmatch = matchAcquire(db, unmatchRef);
+    if (unmatch == NULL) { return JIM_OK; }
+
+    matchRemoveSelf(db, unmatch);
+    matchRelease(db, unmatch);
+    return JIM_OK;
+}
+
 static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
@@ -435,6 +452,7 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "Query!", QueryFunc, NULL, NULL);
 
