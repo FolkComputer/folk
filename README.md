@@ -117,7 +117,8 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
        Restart=always
        RestartSec=1
        User=folk
-       ExecStart=make -C /home/folk/folk
+       WorkingDirectory=/home/folk/folk
+       ExecStart=make && ./folk
 
        [Install]
        WantedBy=multi-user.target
@@ -130,27 +131,21 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-To compile Folk:
+To compile and run Folk:
 
 ```
-$ cd vendor/jimtcl && ./configure CFLAGS=-g && cd -
 $ make deps
-```
-
-then to compile and run Folk:
-
-```
 $ make && ./folk
 ```
 
 or (if remote machine):
 
 ```
-$ make remote FOLK_REMOTE_NODE=<your remote hostname here>
+$ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
-Init and update the submodule & you can pass `CFLAGS=-DTRACY_ENABLE`
-to `make` for Tracy.
+(To use Tracy, init and update the submodule & you can pass
+`CFLAGS=-DTRACY_ENABLE` to `make`.)
 
 ### How to control tabletop Folk from your laptop
 
@@ -697,3 +692,5 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - credits in README
 - fix systemd service spec to make && ./folk
 - rebuild live image
+- base64-encode edit program
+- fix camera slice
