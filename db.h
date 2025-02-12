@@ -85,10 +85,9 @@ typedef struct ResultSet {
     StatementRef results[];
 } ResultSet;
 #define SIZEOF_RESULTSET(NRESULTS) (sizeof(ResultSet) + (NRESULTS)*sizeof(Statement*))
-// dbQuery only temporarily locks the trie while doing the query, so
-// you're getting a snapshot of whatever statements happened to be in
-// there in the moment. The StatementRefs in it may already be invalid
-// by the time dbQuery returns. Caller must free the returned
+// You're querying a snapshot of whatever statements happened to be in
+// the trie in the moment. The StatementRefs in it may already be
+// invalid by the time dbQuery returns. Caller must free the returned
 // ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
@@ -112,9 +111,9 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
 void dbRetractStatements(Db* db, Clause* pattern);
 
 // If version is negative, then this statement will always stomp the
-// previous version. Note: once you call this, clause and key
-// ownership transfer to the DB, and it is responsible for freeing
-// them later.
+// previous version. Note: once you call this, clause ownership
+// transfers to the DB, and it is responsible for freeing the clause
+// later.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause,
