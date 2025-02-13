@@ -13,18 +13,19 @@ Wish the GPU compiles pipeline "apriltag" {
     }
 }
 
-When /someone/ wishes to draw an AprilTag with /...options/ {
+When the image library is /imageLib/ & the print library is /printLib/ &\
+     /someone/ wishes to draw an AprilTag with /...options/ {
     set id [dict get $options id]
     set corners [dict get $options corners]
-    set layer [dict_getdef $options layer 0]
+    set layer [dict getdef $options layer 0]
 
-    set tagImage [::tagImageForId $id]
+    set tagImage [$printLib tagImageForId $id]
     set tagBits [list]
     # 10x10 AprilTag -> 100 bits
     for {set y 0} {$y < 10} {incr y} {
         for {set x 0} {$x < 10} {incr x} {
-            set j [expr {$y * [image_t bytesPerRow $tagImage] + $x}]
-            set bit [== [image_t data $tagImage $j] 255]
+            set j [expr {$y * [$imageLib Image_bytesPerRow $tagImage] + $x}]
+            set bit $([$imageLib Image_data $tagImage $j] == 255)
             lappend tagBits $bit
         }
     }

@@ -187,7 +187,7 @@ fn isPrintedTag {id} {
 }
 fn isProjectedTag {id} {
     if {![isCalibrationTag $id]} { return false }
-    ! [isPrintedTag $id]
+    return [expr {![isPrintedTag $id]}]
 }
 Claim the calibration isProjectedTag is ${^isProjectedTag}
 Claim the calibration isPrintedTag is ${^isPrintedTag}
@@ -462,7 +462,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                 // retracted when calibration is done)
                 ws.send(tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Assert \${self} wishes to calibrate
+                  Assert! \${self} wishes to calibrate
                 `);
               });
             </script>
@@ -570,7 +570,7 @@ Camera Controls
                 // retracted when calibration is done)
                 ws.send(tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Assert \${self} wishes to do table refinement
+                  Assert! \${self} wishes to do table refinement
                 `);
               });
             </script>
@@ -668,11 +668,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
 
     if {$cameraWidth < 1920} {
-        Retract /someone/ wishes $::thisNode uses camera $camera \
+        Retract! /someone/ wishes $::thisNode uses camera $camera \
             with width $cameraWidth height $cameraHeight
-        Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
+        Assert! $this wishes $::thisNode uses camera $camera with width 1920 height 1080
         # TODO: restore old camera resolution later
     }
+
+    namespace import ::math::linearalgebra::scale
 
     # HACK: hard-coded for now; assumes dark room. Won't work on USB
     # webcams yet, either (just Pi).
@@ -695,7 +697,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # and `H_modelToDisplay` ('prewarp' homography from model plane to
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
-    # `displayResolution` and `cameraResolution` and `tagSize`.
+    # `displayResolution` and `cameraResolution` and `tagsSize`.
     set ::seenPoses [list]
     set SEEN_POSES_MAX 3
 
@@ -712,6 +714,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     When the calibration model-to-display homography is /H_modelToDisplay/ with \
          model /model/ version /anything/ timestamp /anything/ {
 
+        namespace import ::math::linearalgebra::scale \
+            ::math::linearalgebra::add ::math::linearalgebra::sub
         fn innerToOuter {center corner} {
             set r [sub $corner $center]
             return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
@@ -724,7 +728,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelCenter [dict get $modelTag c]
 
             set projectorOuterCorners [lmap modelInnerCorner $modelInnerCorners {
-                applyHomography $H_modelToDisplay \
+                $matLib applyHomography $H_modelToDisplay \
                     [innerToOuter $modelCenter $modelInnerCorner]
             }]
             Wish to draw an AprilTag with id $id corners $projectorOuterCorners layer 100
@@ -759,24 +763,24 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelPosition [add [scale 0.5 [add $start $end]] \
                                    [scale [* -1.0 $printedSideLengthM] $normal]]
 
-            set dispSeg [sub [applyHomography $H_modelToDisplay $end] \
-                             [applyHomography $H_modelToDisplay $start]]
+            set dispSeg [sub [$matLib applyHomography $H_modelToDisplay $end] \
+                             [$matLib applyHomography $H_modelToDisplay $start]]
             set radians [- [atan2 [lindex $dispSeg 1] [lindex $dispSeg 0]]]
 
             Wish to draw text with text $text radians $radians \
-                position [applyHomography $H_modelToDisplay $modelPosition] \
+                position [$matLib applyHomography $H_modelToDisplay $modelPosition] \
                 anchor center color black layer 100 scale 2.0
         }
     }
 
-    # HACK: This is made a global utility function so it can also be
-    # called by the Web page when the user hits the slider to adjust
-    # projected tag scale.
-    fn HoldDefaultModel {scale} {
+    # FIXME: HACK: This is made a global utility function so it can
+    # also be called by the Web page when the user hits the slider to
+    # adjust projected tag scale.
+    fn HoldDefaultModel! {scale} {
         # Default model: just makes the tags fill most of the middle
         # of the projector area.
-        set tagSideLengthPixels [expr {min($displayWidth/($COLS * ($tagOuterLength + $pad)),
-                                           $displayHeight/($ROWS * ($tagOuterLength + $pad)))}]
+        set tagSideLengthPixels [::math::min $($displayWidth/($COLS * ($tagOuterLength + $pad))) \
+                                     $($displayHeight/($ROWS * ($tagOuterLength + $pad)))]
         set tagSideLengthPixels [expr {$tagSideLengthPixels * $scale}]
 
         # TODO: Center this on the projector area.
@@ -786,18 +790,17 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             {0 $printedSideLengthM 0 $tagSideLengthPixels}
             {0 0 0 0}
         }]]
-        Hold H_modelToDisplay {
+        Hold! H_modelToDisplay {
             # Default model and version: nothing rotated.
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
                 model $baseModel version -1 timestamp [expr {[clock milliseconds] / 1000.0}]
         }
     }
-    set ::HoldDefaultModel ${^HoldDefaultModel}
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
                          model /anything/ version /anything/ timestamp /anything/ {
-        HoldDefaultModel 1.0
+        HoldDefaultModel! 1.0
     }
-    On unmatch { Hold H_modelToDisplay {} }
+    On unmatch { Hold! H_modelToDisplay {} }
 
     When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
@@ -836,10 +839,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
         set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
         set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
-        set printedCalibrationBoard [list {*}[applyHomography $H_modelToCameraViaPs $modelTopLeft] \
-                                         {*}[applyHomography $H_modelToCameraViaPs $modelTopRight] \
-                                         {*}[applyHomography $H_modelToCameraViaPs $modelBottomRight] \
-                                         {*}[applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
+        set printedCalibrationBoard [list {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopLeft] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelTopRight] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomRight] \
+                                         {*}[$matLib applyHomography $H_modelToCameraViaPs $modelBottomLeft]]
         set boardMinX 100000; set boardMinY 100000
         set boardMaxX -100000; set boardMaxY -100000
         foreach {cornerX cornerY} $printedCalibrationBoard {
@@ -918,7 +921,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelTag [dict get $model $id]
             foreach modelCorner [dict get $modelTag p] \
                 cameraCorner [dict get $projectedTag p] {
-                    set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+                    set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
                     lappend projectedPointPairs [list {*}$cameraCorner {*}$displayCorner]
                 }
         }
@@ -936,7 +939,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        Hold H_modelToDisplay {
+        Hold! H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
             set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
@@ -965,7 +968,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 cameraCorner [dict get $projectedTag p] {
                     lassign $cameraCorner cx cy
                     # Predicted camera x and y.
-                    lassign [applyHomography $H_modelToCameraViaPs $modelCorner] px py
+                    lassign [$matLib applyHomography $H_modelToCameraViaPs $modelCorner] px py
                     set dx [- $cx $px]; set dy [- $cy $py]
                     set err [expr {$dx*$dx + $dy*$dy}]
                     set totalError [+ $totalError $err]
@@ -1035,11 +1038,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Hold reporting info for the Web page.
         set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $::calibrationPoses {subst {
-            <li>RMSE [dict_getdef $pose rmse (unavailable)]</li>
+            <li>RMSE [dict getdef $pose rmse (unavailable)]</li>
         }}] \n]
         [string repeat {<li>Not detected yet</li>} [- 10 [llength $::calibrationPoses]]]
         </ol>"
-        Hold (non-capturing) calibration report \
+        Hold! (non-capturing) calibration report \
             [list Claim the calibration report is $calibrationReport]
 
         # If we have enough poses, then stop the calibration process
@@ -1053,7 +1056,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $::calibrationPoses; close $fd
 
-            Hold calibration {
+            Hold! calibration {
                 Claim the calibration poses are $::calibrationPoses
             }
             Retract /someone/ wishes to calibrate
@@ -1295,7 +1298,7 @@ fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
         dict for {id modelTag} $model {
             if {![isProjectedTag $id]} continue
             foreach modelCorner [dict get $modelTag p] {
-                set displayCorner [applyHomography $H_modelToDisplay $modelCorner]
+                set displayCorner [$matLib applyHomography $H_modelToDisplay $modelCorner]
                 lappend pointPairs [list {*}$modelCorner {*}$displayCorner]
             }
         }
@@ -1343,7 +1346,7 @@ When the calibration poses are /calibrationPoses/ &\
 
     set calibrationReport "<p>Poses:</p><ol>
         [join [lmap pose $calibrationPoses {subst {
-            <li>RMSE [dict_getdef $pose rmse (unavailable)]</li>
+            <li>RMSE [dict getdef $pose rmse (unavailable)]</li>
         }}] \n]
         [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
         </ol>
@@ -1351,17 +1354,17 @@ When the calibration poses are /calibrationPoses/ &\
 Camera intrinsics --------
 [join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
 
-Camera RMSE [dict_getdef $calibration camera rmse (unavailable)]
+Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
 
 Projector intrinsics -----
 [join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
 
-Projector RMSE [dict_getdef $calibration projector rmse (unavailable)]
+Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
 
 ----
-Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
+Stereo RMSE [dict getdef $calibration rmse (unavailable)]
 </pre>"
-    Hold (non-capturing) calibration report \
+    Hold! (non-capturing) calibration report \
         [list Claim the calibration report is $calibrationReport]
 
     When the printed calibration tag size is /tagSizeMm/ mm {
@@ -1416,7 +1419,7 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
             set modelTag [dict get $pose model $id]
             for {set i 0} {$i < 4} {incr i} {
                 set modelCorner [lindex [dict get $modelTag p] $i]
-                lassign [applyHomography [dict get $pose H_modelToDisplay] $modelCorner] px py
+                lassign [$matLib applyHomography [dict get $pose H_modelToDisplay] $modelCorner] px py
                 puts [format "Corner $i (real)  : (%.3f %.3f)" $px $py]
 
                 set v [lindex $projectorVertices $i]
@@ -1428,7 +1431,7 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
         }
     }
 
-    Hold calibration { Claim the calibration is $calibration }
+    Hold! calibration { Claim the calibration is $calibration }
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
