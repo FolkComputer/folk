@@ -812,9 +812,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     }
     On unmatch { Hold! H_modelToDisplay {} }
 
-    When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
+    When /detector/ detects tags /tags/ on camera $camera \
+             at timestamp /timestamp/ in time /something/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
+
+        if {[lindex $detector 1] ne "entire-frame"} { return }
 
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
@@ -938,7 +941,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-        if {[abs [det $H_cameraToDisplay]] < 0.001} {
+        if {abs([det $H_cameraToDisplay]) < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
@@ -948,7 +951,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
-        set nextH_modelToDisplay [matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
+        set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
         Hold! H_modelToDisplay {
             set nextVersion [+ $version 1]
             set nextModel [versionizeTags $baseModel $nextVersion]
