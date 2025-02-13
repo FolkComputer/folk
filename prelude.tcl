@@ -137,7 +137,7 @@ proc baretime body { string map {" microseconds per iteration" ""} [uplevel [lis
 proc HoldStatement! {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
 
-    set key [list $this]
+    set key [list]
     set clause [lindex $args end]
     set isNonCapturing false
     set keepMs 0
@@ -158,6 +158,7 @@ proc HoldStatement! {args} {
             lappend key $arg
         }
     }
+    set key [list $this {*}$key]
 
     tailcall HoldStatementGlobally! $key $clause $keepMs
 }

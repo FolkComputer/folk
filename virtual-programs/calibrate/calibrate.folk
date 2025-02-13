@@ -699,12 +699,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagsSize`.
-    Hold! (non-capturing) seenPoses { Claim the calibration last-seen poses are [list] }
+    Hold! (non-capturing) (on calibration) seenPoses \
+        { Claim the calibration last-seen poses are [list] }
     set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    Hold! (non-capturing) calibrationPoses { Claim the calibration poses are [list] }
+    Hold! (non-capturing) (on calibration) poses \
+        { Claim the calibration poses are [list] }
     set CALIBRATION_POSES_MAX 10
 
     Hold! (non-capturing) cycleTime { Claim the calibration cycle time is 0 }
@@ -1046,7 +1048,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        HoldStatement! calibrationPoses [list $this claims the calibration poses are $calibrationPoses]
+        HoldStatement! (on calibration) poses \
+            [list $this claims the calibration poses are $calibrationPoses]
 
         # Hold reporting info for the Web page.
         set calibrationReport "<p>Poses:</p><ol>
@@ -1069,7 +1072,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $calibrationPoses; close $fd
 
-            HoldStatement! calibration \
+            HoldStatement! (on calibration) calibration \
                 [list $this claims the calibration poses are $calibrationPoses]
             Retract! /someone/ wishes to calibrate
         }
