@@ -65,7 +65,7 @@ void sysmon() {
         // process RAM use is better for leak diagnosis).
         struct rusage ru; getrusage(RUSAGE_SELF, &ru);
         fprintf(stderr, "Check avail system RAM: %d MB / %d MB\n"
-                "Check self RAM usage: %d MB\n",
+                "Check self RAM usage: %ld MB\n",
                 freeRamMb, totalRamMb,
                 ru.ru_maxrss / 1024);
         if (freeRamMb < 200) {
@@ -115,7 +115,9 @@ void sysmon() {
         if (fp == NULL) { continue; }
         int _pid; char _name[100]; char state;
         // TODO: doesn't deal with name with space in it.
-        fscanf(fp, "%d %s %c ", &_pid, _name, &state);
+        if (fscanf(fp, "%d %s %c ", &_pid, _name, &state) != 3) {
+            fprintf(stderr, "sysmon: /proc/%d/stat scan failed\n", tid);
+        }
         fclose(fp);
 
         // If it's running, then we'll count it as non-blocked.

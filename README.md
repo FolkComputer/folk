@@ -656,10 +656,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   steal?~~
 - ~~incremental tag detector~~
 - ~~60Hz camera~~
-- ports
-  - keyboard/editor port
-  - points-up port
-  - calibration process
 - ~~infinite loop or one-lane syntax? one-at-a-time~~
 - Hold! with explicit version number?
 - ~~reuse C module so perf events hold~~
@@ -694,6 +690,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - vendor wslay?
 - fix horrible lexical pileup in calibration?
   - or serialize/cache the object graph in a nicer way?
-- fix editor resetting on movement
-
+- ~~fix editor resetting on movement~~
+- ports
+  - ~~keyboard/editor port~~
+  - points-up port
+  - calibration process
+    - fix close-tab
+    - fix stdout
 
