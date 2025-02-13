@@ -658,8 +658,21 @@ Claim the default program geometry is \$geom
   }]
 }} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPng}]
 
+fn lsort-indices {itemL} {
+    set pairL [list]
+    foreach item $itemL {
+      lappend pairL [list $item [llength $pairL]]
+    }
+    set indexL [list]
+    foreach pair [lsort -index 0 -real $pairL] {
+      lappend indexL [lindex $pair 1]
+    }
+    set indexL
+}
+
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
+     the image library is /imageLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      /someone/ wishes to calibrate {
     # Project projected tags once the printed side length has been
@@ -917,7 +930,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                      -1  0 \
                       0 -1]
             # Which of the possibleVersions is versionAngle closest to?
-            set detectedVersion [lindex [lsort -indices [lmap {x y} $possibleVersions {
+            set detectedVersion [lindex [lsort-indices [lmap {x y} $possibleVersions {
                 expr {sqrt(($x - cos($versionAngle))**2 + ($y - sin($versionAngle))**2)}
             }]] 0]
 
@@ -941,7 +954,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # puts "point pairs (camera -> display): {$projectedPointPairs}"
         set H_cameraToDisplay [estimateHomography $projectedPointPairs]
-        if {abs([det $H_cameraToDisplay]) < 0.001} {
+        if {abs([::math::linearalgebra::det $H_cameraToDisplay]) < 0.001} {
             # Garbage homography that just shrinks the points way down
             # (https://stackoverflow.com/questions/10972438/detecting-garbage-homographies-from-findhomography-in-opencv).
             # It's sort of 'overfitted' and just has a big y-intercept
@@ -1004,12 +1017,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
-        set seenPoses [Query! /someone/ claims the calibration last-seen poses are /seenPoses/]
+        set seenPoses [dict get [lindex [Query! /someone/ claims the calibration last-seen poses are /seenPoses/] 0] seenPoses]
         lappend seenPoses $pose
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        HoldStatement! seenPoses \
+        HoldStatement! (on calibration) seenPoses \
             [list $this claims the calibration last-seen poses are $seenPoses]
 
         # Next, we check if projected tag corners have been pretty
@@ -1045,7 +1058,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
         exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        image saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
+        $imageLib saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
             "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $calibrationPoses].jpeg"
 
         # OK, let's save this calibration pose.
@@ -1132,7 +1145,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
 
     # Solve Vb = 0:
     lassign [determineSVD [matmul [transpose $V] $V]] U S V
-    set b [lindex [transpose $V] [lindex [lsort -real -indices $S] 0]]
+    set b [lindex [transpose $V] [lindex [lsort-indices $S] 0]]
 
     # Compute camera intrinsic matrix A:
     lassign $b B11 B12 B22 B13 B23 B33
