@@ -18,14 +18,14 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
     Claim $id has region [region move $r up 210%]
   }
 
-  When /nobody/ claims $id has program code /c/ {
+  if {[llength [Query! /someone/ claims $id has program code /c/]] == 0} {
       Hold! "code$kbPath" {
           Claim $id has program code $baseCode
           Claim $id has editor code $baseCode
       }
   }
 
-  When /nobody/ claims $id has start time /startTime/ {
+  if {[llength [Query! /someone/ claims $id has start time /startTime/]] == 0} {
       Hold! [list $id start-time] {
           Claim $id has start time [expr {[clock milliseconds] / 1000.0}]
       }
@@ -55,7 +55,7 @@ fn updateCursor {oldCursor updates} {
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id [list editing $page $kbPath]
-  When /nobody/ claims $id has program code /c/ {
+  if {[llength [Query! /someone/ claims the $kbPath cursor is /anything/]] == 0} {
     Hold! "cursor$kbPath" {
       Claim the $kbPath cursor is [list 0 0]
     }

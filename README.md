@@ -667,7 +667,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~spinlock~~
 - ~~wait until process death to start~~
 - ~~blinking on folk0~~
-- fix small memory leak
+- ~~fix small memory leak~~
 - remove live queries from region generation
 - ~~remove Say and Hold from workqueue, just do them on thread? esp
   sysmon~~
