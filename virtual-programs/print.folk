@@ -297,42 +297,38 @@ When /someone/ wishes to print /code/ with /...options/ {
 }
 When /someone/ wishes to print program /id/ with /...options/ {
     set jobid [dict get $options job-id]
-    if {[dict exists $::printjobs $jobid]} {return}
+    # TODO: ensure we're not already printing job-id
     puts "Wish to print jobid $jobid"
 
     set code [dict get $options code]
 
-    set receiptMatches [Statements::findMatchesJoining\
-        [list \
-            {/someone/ claims /printer/ is a receipt printer} \
-            {/someone/ claims /printer/ is the default printer} \
-        ] {}]
-    if {[llength $receiptMatches] > 0} {
-        set matchDict [lindex $receiptMatches 0]
-        set printer [dict get $matchDict printer]
-        escpos printProgram $printer $id $code
-        return
+    set receiptMatches [Query! /someone/ claims printer /printer/ is a receipt printer]
+    foreach receiptMatch $receiptMatches {
+        set printer [dict get $receiptMatch printer]
+        if {[llength [Query! /someone/ claims printer $printer is the default printer]] > 0} {
+            escpos printProgram $printer $id $code
+            return
+        }
     }
 
-    # find printer & format
-    set defaultStatements ""
     if {![dict exists $options printer]} {
-        lappend defaultStatements & /someone/ claims printer /printer/ is the default printer
+        set defaultPrinterMatches [Query! /someone/ claims printer /printer/ is the default printer]
+        if {[llength $defaultPrinterMatches] > 0} {
+            dict set options printer [dict get [lindex $defaultPrinterMatches 0] printer]
+        }
     }
 
     if {![dict exists $options format]} {
-        lappend defaultStatements & /someone/ claims paper format /format/ is the default paper format
+        set defaultFormatMatches [Query! /someone/ claims paper format /format/ is the default paper format]
+        if {[llength $defaultFormatMatches] > 0} {
+            dict set options format [dict get [lindex $defaultFormatMatches 0] format]
+        }
     }
+
+    set printer [dict getdef $options printer /printer/]
+    set format [dict getdef $options format /format/]
     # TODO: we don't use /sided/ for anything right now.
-    set query {/someone/ claims printer /printer/ can print /sided/ /format/ paper}
-
-    # first try to satisfy given constraints and any remaining defaults
-    set results [Statements::findMatchesJoining [list $query $defaultStatements] $options]
-    if {[llength $results] == 0} {
-        # fall back to solving only for explicit constraints
-        set results [Statements::findMatchesJoining [list $query] $options]
-    }
-
+    set results [Query! /someone/ claims printer $printer can print /sided/ $format paper]
     if {[llength $results] > 0} {
         set result [lindex $results 0]
         dict with result {
@@ -344,7 +340,7 @@ When /someone/ wishes to print program /id/ with /...options/ {
         set format letter
     }
 
-    dict set ::printjobs $jobid [list $id $args]
+    # TODO: assert job id
 
     set ps [programToPs $id $code $format]
 
