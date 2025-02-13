@@ -699,21 +699,23 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagsSize`.
-    set ::seenPoses [list]
+    Hold! (non-capturing) seenPoses { Claim the calibration last-seen poses are [list] }
     set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    set ::calibrationPoses [list]
+    Hold! (non-capturing) calibrationPoses { Claim the calibration poses are [list] }
     set CALIBRATION_POSES_MAX 10
 
-    set ::cycleTime 0
+    Hold! (non-capturing) cycleTime { Claim the calibration cycle time is 0 }
 
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
     When the calibration model-to-display homography is /H_modelToDisplay/ with \
-         model /model/ version /anything/ timestamp /anything/ {
+             model /model/ version /anything/ timestamp /anything/ &\
+         the calibration poses are /calibrationPoses/ &\
+         the calibration cycle time is /cycleTime/ {
 
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
@@ -754,9 +756,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list $modelBottomLeft $modelTopLeft] \
                  [list $modelTopRight $modelBottomRight]]
 
-        # HACK: imperatively checks ::calibrationPoses every
-        # frame.
-        set text "[llength $::calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($::cycleTime*1000)}] ms)"
+        set text "[llength $calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($cycleTime*1000)}] ms)"
+        foreach p {add norm sub scale matmul
+            getelem transpose determineSVD shape mkIdentity show
+            solvePGauss crossproduct getcol setcol unitLengthVector det
+        } {
+            namespace import ::math::linearalgebra::$p
+        }
         foreach side $sides {
             lassign $side start end
             set segment [sub $end $start]
@@ -766,7 +772,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
             set dispSeg [sub [$matLib applyHomography $H_modelToDisplay $end] \
                              [$matLib applyHomography $H_modelToDisplay $start]]
-            set radians [- [atan2 [lindex $dispSeg 1] [lindex $dispSeg 0]]]
+            set radians $(-1 * atan2([lindex $dispSeg 1], [lindex $dispSeg 0]))
 
             Wish to draw text with text $text radians $radians \
                 position [$matLib applyHomography $H_modelToDisplay $modelPosition] \
@@ -947,7 +953,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
             Claim the calibration model-to-display homography is $nextH_modelToDisplay with \
                 model $nextModel version $nextVersion timestamp $nextTimestamp
-            set ::cycleTime [- $nextTimestamp $hTimestamp]
+            Claim the calibration cycle time is $($nextTimestamp - $hTimestamp)
         }
 
         # Should we record the points we just saw as a calibration
@@ -993,22 +999,25 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
-        lappend ::seenPoses $pose
-        if {[llength $::seenPoses] > $SEEN_POSES_MAX} {
-            set ::seenPoses [lreplace $::seenPoses 0 0]
+        set seenPoses [Query! /someone/ claims the calibration last-seen poses are /seenPoses/]
+        lappend seenPoses $pose
+        if {[llength $seenPoses] > $SEEN_POSES_MAX} {
+            set seenPoses [lreplace $seenPoses 0 0]
         }
+        HoldStatement! seenPoses \
+            [list $this claims the calibration last-seen poses are $seenPoses]
 
         # Next, we check if projected tag corners have been pretty
         # stable in the last few frames.
 
-        if {[llength $::seenPoses] < 3} {
+        if {[llength $seenPoses] < 3} {
             return
         }
 
         # If the corners have moved a lot since last frame, we're not
         # stable enough and shouldn't record this as a calibration
         # pose.
-        foreach seenPose [lrange $::seenPoses 0 end-1] {
+        foreach seenPose [lrange $seenPoses 0 end-1] {
             # Decreasing this threshold to 1 helps with data
             # accuracy. TODO: Use an _older_ frame?
             if {[meanPoseDifference $pose $seenPose] > 5} {
@@ -1021,8 +1030,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
-        if {[llength $::calibrationPoses] > 0} {
-            set prevCalibrationPose [lindex $::calibrationPoses end]
+        set calibrationPoses [dict get [lindex [Query! /someone/ claims the calibration poses are /calibrationPoses/] 0] calibrationPoses]
+        if {[llength $calibrationPoses] > 0} {
+            set prevCalibrationPose [lindex $calibrationPoses end]
             if {[meanPoseDifference $pose $prevCalibrationPose] < 50} {
                 return
             }
@@ -1031,37 +1041,37 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Save the pose / camera image to a jpeg (for debugging purposes)
         exec mkdir -p "$::env(HOME)/folk-calibration-poses"
         image saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
-            "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $::calibrationPoses].jpeg"
+            "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $calibrationPoses].jpeg"
 
         # OK, let's save this calibration pose.
-        lappend ::calibrationPoses $pose
-        puts "APPENDED CALIBRATION TO POSES ([llength $::calibrationPoses] poses collected)"
+        lappend calibrationPoses $pose
+        puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
+        HoldStatement! calibrationPoses [list $this claims the calibration poses are $calibrationPoses]
 
         # Hold reporting info for the Web page.
         set calibrationReport "<p>Poses:</p><ol>
-        [join [lmap pose $::calibrationPoses {subst {
+        [join [lmap pose $calibrationPoses {subst {
             <li>RMSE [dict getdef $pose rmse (unavailable)]</li>
         }}] \n]
-        [string repeat {<li>Not detected yet</li>} [- 10 [llength $::calibrationPoses]]]
+        [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
         </ol>"
         Hold! (non-capturing) calibration report \
             [list Claim the calibration report is $calibrationReport]
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
-        if {[llength $::calibrationPoses] >= $CALIBRATION_POSES_MAX} {
+        if {[llength $calibrationPoses] >= $CALIBRATION_POSES_MAX} {
             puts "READY CALIBRATION POSES!"
 
             catch { exec mkdir "$::env(HOME)/folk-live" }
             catch {exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"}
 
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
-            puts $fd $::calibrationPoses; close $fd
+            puts $fd $calibrationPoses; close $fd
 
-            Hold! calibration {
-                Claim the calibration poses are $::calibrationPoses
-            }
-            Retract /someone/ wishes to calibrate
+            HoldStatement! calibration \
+                [list $this claims the calibration poses are $calibrationPoses]
+            Retract! /someone/ wishes to calibrate
         }
     }
 }
