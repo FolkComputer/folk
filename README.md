@@ -144,8 +144,27 @@ or (if remote machine):
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
-(To use Tracy, init and update the submodule & you can pass
-`CFLAGS=-DTRACY_ENABLE` to `make`.)
+### Tracy profiling
+
+To use Tracy, first do `git submodule update --init` here.
+
+Pass `CFLAGS=-DTRACY_ENABLE` to `make` when compiling Folk (you might
+need to clean first if you already built Folk).
+
+Ideally, run Folk as root with `sudo ./folk` or `make sudo-remote`.
+
+Build the profiler client on your laptop/other PC:
+
+```
+$ cmake -B vendor/tracy/profiler/build -S vendor/tracy/profiler -DCMAKE_BUILD_TYPE=Release
+$ make -C vendor/tracy/profiler/build
+```
+
+Run the profiler client on your laptop/other PC and connect to a running Folk:
+
+```
+$ make run-tracy
+```
 
 ### How to control tabletop Folk from your laptop
 
