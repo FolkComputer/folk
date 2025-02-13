@@ -77,7 +77,11 @@ proc unknown {cmdName args} {
         # on demand.
 
         # Is it a C file? load it now.
-        load /tmp/$cid.so
+        if {[llength [info commands $cmdName]] == 0} {
+            # HACK: somehow this keeps getting called repeatedly which
+            # causes a leak??
+            load /tmp/$cid.so
+        }
         proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
         tailcall $cmdName {*}$args
 
