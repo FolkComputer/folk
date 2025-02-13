@@ -37,7 +37,7 @@ proc LoadProgram! {programFilename} {
 set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
                          "$::env(HOME)/folk-live/setup.folk" :
                          "setup.folk.default"}]
-puts stderr "boot: Using config at $setupFilename"
+puts "boot: Using config at $setupFilename"
 LoadProgram! $setupFilename
 
 foreach programFilename [list $setupFilename \

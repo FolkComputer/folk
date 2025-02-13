@@ -1,3 +1,5 @@
+stdout buffering line
+
 proc serializeEnvironment {} {
     set argNames [list]
     set argValues [list]

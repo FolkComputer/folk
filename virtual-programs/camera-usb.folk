@@ -291,7 +291,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
         proc new {device width height bufferCount} {
             set camera [cameraOpen $device $width $height]
-            puts stderr "camera: Loaded $camera"
+            puts "camera: Loaded $camera"
             cameraInit $camera $bufferCount
             cameraStart $camera
             # skip 5 frames for booting a cam

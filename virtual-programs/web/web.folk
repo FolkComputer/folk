@@ -60,7 +60,7 @@ proc handleRead {chan addr} {
     gets $chan line; set line [string range $line 0 end-1]
     set firstline $line
 
-    puts stderr "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
+    puts "Http ([clock format [clock seconds] -format "%H:%M:%S"]): $chan $addr: $line"
     set headers [list]
     while true {
         gets $chan line; set line [string range $line 0 end-1]
@@ -134,7 +134,7 @@ proc handleRead {chan addr} {
         close $chan
 
     } elseif {[info exists path] && $path eq "/ws"} {
-        puts stderr "web: Request for /ws ($headers)"
+        puts "web: Request for /ws ($headers)"
         WsConnection upgrade $chan [dict get $headers Sec-WebSocket-Key]
         Assert! websocket $chan is connected
         # TODO: Retract! on disconnect
@@ -152,7 +152,7 @@ while true {
         break
     } on error e {
         # Handles failure to bind to :4273. We try again in a second.
-        puts stderr "web.folk: $e"
+        puts stderr "web: $e"
         sleep 1
     }
 }

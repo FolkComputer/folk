@@ -696,5 +696,5 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - points-up port
   - calibration process
     - fix close-tab
-    - fix stdout
+    - ~~fix stdout~~
 
