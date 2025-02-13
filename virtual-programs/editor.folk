@@ -8,13 +8,16 @@ When /page/ is a keyboard with path /...anything/ {
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ &\
-  /page/ is an editor &\
-  /page/ has region /r/ {
+     /page/ is an editor {
 
   Wish tag $page is stabilized
 
   set id [list editing $page $kbPath]
-  Claim $id has region [region move $r up 210%]
+
+  When $page has region /r/ {
+    Claim $id has region [region move $r up 210%]
+  }
+
   When /nobody/ claims $id has program code /c/ {
       Hold! "code$kbPath" {
           Claim $id has program code $baseCode
@@ -177,7 +180,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
 
     # Draw cursor
     Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
-    Wish to draw a stroke with points [list $x1 $x2] width $s color green
+    Wish to draw a line with points [list $x1 $x2] width $s color green
   }
 }
 

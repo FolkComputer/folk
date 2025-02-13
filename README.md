@@ -694,4 +694,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - vendor wslay?
 - fix horrible lexical pileup in calibration?
   - or serialize/cache the object graph in a nicer way?
+- fix editor resetting on movement
+
 
