@@ -1,20 +1,169 @@
 stdout buffering line
 
-proc serializeEnvironment {} {
-    set argNames [list]
-    set argValues [list]
-    # Get all variables and serialize them, to fake lexical scope.
-    foreach name [uplevel {info locals}] {
-        if {![string match "__*" $name]} {
-            lappend argNames $name
-            lappend argValues [uplevel [list set $name]]
+lappend ::auto_path "./vendor"
+source "lib/c.tcl"
+source "lib/math.tcl"
+
+proc unknown {cmdName args} {
+    if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
+        # Allow C libraries to be callable from any thread, because we
+        # load the library into the Tcl interpreter for a given thread
+        # on demand.
+
+        # Is it a C file? load it now.
+        if {[llength [info commands $cmdName]] == 0} {
+            # HACK: somehow this keeps getting called repeatedly which
+            # causes a leak??
+            load /tmp/$cid.so
+        }
+        proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
+        tailcall $cmdName {*}$args
+
+    } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
+        # Allow Tcl `library create` libraries to be callable from any
+        # thread, because we load the library into the Tcl interpreter
+        # for a given thread on demand.
+        source $tclfile
+        tailcall $cmdName {*}$args
+
+    } else {
+        try {
+            set fnVar ^$cmdName; upvar $fnVar fn
+            if {[info exists fn]} {
+                tailcall {*}$fn {*}$args
+            }
+        } on error e {}
+    }
+
+    error "Unknown command '$cmdName'"
+}
+
+# Set up the global environment store.
+set ::envLib [apply {{} {
+    set envCid "env_[pid]"
+    set envLib "<C:$envCid>"
+    set envSo "/tmp/$envCid.so"
+
+    if {[__threadId] != 0} {
+        # If not on thread 0, wait for thread 0 to compile envLib,
+        # then load it.
+        while {![file exists $envSo]} {
+            sleep 0.2
+        }
+        return $envLib
+    }
+
+    set cc [C]
+    $cc cflags -I.
+    $cc include <string.h>
+    $cc include <stdatomic.h>
+    $cc include "epoch.h"
+    $cc code {
+        #define ENVS_MAX 16384
+        char * _Atomic envs[ENVS_MAX];
+        int _Atomic envsNextIdx;
+    }
+    # insert can be called from any thread at any time.
+    $cc proc insert {char* value} int {
+        char *s = strdup(value);
+        while (1) {
+            int idx = envsNextIdx++;
+            char *nil = NULL;
+            if (atomic_compare_exchange_weak(&envs[idx % ENVS_MAX],
+                                             &nil, s)) {
+                return idx;
+            }
         }
     }
-    list $argNames $argValues
+    # update can only be called from the same thread that did the
+    # original insert and got that idx.
+    $cc proc update {int idx char* value} void {
+        epochBegin();
+
+        char *oldValue = envs[idx % ENVS_MAX];
+        char *newValue = strdup(value);
+        if (atomic_compare_exchange_weak(&envs[idx % ENVS_MAX],
+                                         &oldValue, newValue)) {
+            epochFree(oldValue);
+        } else {
+            // If not, then it must have been removed already.
+            FOLK_ENSURE(oldValue == NULL);
+        }
+
+        epochEnd();
+    }
+    # get can be called from any thread at any time.
+    $cc proc get {int idx} Jim_Obj* {
+        epochBegin();
+        Jim_Obj *ret = Jim_NewStringObj(interp, envs[idx % ENVS_MAX], -1);
+        epochEnd();
+        return ret;
+    }
+    # delete can be called from any thread at any time.
+    $cc proc delete {int idx} void {
+        epochBegin();
+        
+        epochFree(envs[idx % ENVS_MAX]);
+        envs[idx % ENVS_MAX] = NULL;
+
+        epochEnd();
+    }
+    return [$cc compile $envCid]
+}}]
+
+proc captureEnv {} {
+    # Capture the lexical environment at the caller, then store it in
+    # the environment store.
+    set envId [uplevel {
+        set locals [info locals]
+
+        set envNames [list]
+        set envValues [list]
+        # Get all variables and serialize them, to fake lexical scope.
+        foreach name $locals {
+            if {![string match "__*" $name]} {
+                lappend envNames $name
+                lappend envValues [set $name]
+            }
+        }
+        set env [list $envNames $envValues]
+
+        # Put the captured environment into the env store:
+        if {[info exists __envId]} {
+            # Update env in the environment store.
+            $::envLib update $__envId $env
+        } else {
+            # Insert env into the environment store.
+            set __envId [$::envLib insert $env]
+            # On unmatch, delete env from the environment store.
+            Destructor [list $::envLib delete $__envId]
+        }
+
+        unset locals envNames envValues env
+        set __envId
+    }]
+    return $envId
 }
-proc evaluateWhenBlock {lambdaExpr capturedArgs whenArgs} {
+
+proc applyBlock {lambdaExpr capturedEnvId args} {
+    # Get env from the environment store.
+    if {$capturedEnvId ne ""} {
+        lassign [$::envLib get $capturedEnvId] \
+            capturedNames capturedValues
+    } else {
+        set capturedNames [list]
+        set capturedValues [list]
+    }
+
+    lset lambdaExpr 0 \
+        [list {*}$capturedNames {*}[lindex $lambdaExpr 0]]
+    tailcall apply $lambdaExpr {*}$capturedValues {*}$args
+}
+
+proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
     try {
-        apply $lambdaExpr {*}$capturedArgs {*}$whenArgs
+        applyBlock $whenLambdaExpr $capturedEnvId {*}$whenArgValues
+
     } on error {err opts} {
         set this [expr {[info exists ::this] ? $::this : "<unknown>"}]
         puts stderr "\nError in $this: $err\n  [errorInfo $err [dict get $opts -errorinfo]]"
@@ -28,9 +177,8 @@ proc evaluateWhenBlock {lambdaExpr capturedArgs whenArgs} {
 proc fn {name argNames body} {
     # Creates a variable in the caller scope called ^$name. unknown
     # implementation (later in this file) will try ^$name on call.
-    lassign [uplevel serializeEnvironment] envArgNames envArgValues
-    set argNames [linsert $argNames 0 {*}$envArgNames]
-    uplevel [list set ^$name [list apply [list $argNames $body] {*}$envArgValues]]
+    set capturedEnv [uplevel captureEnv]
+    uplevel [list set ^$name [list applyBlock [list $argNames $body] $capturedEnv]]
 }
 
 proc assert condition {
@@ -70,40 +218,6 @@ namespace eval ::library {
         return "<library:$tclfile>"
     }
     namespace ensemble create
-}
-
-proc unknown {cmdName args} {
-    if {[regexp {<C:([^ ]+)>} $cmdName -> cid]} {
-        # Allow C libraries to be callable from any thread, because we
-        # load the library into the Tcl interpreter for a given thread
-        # on demand.
-
-        # Is it a C file? load it now.
-        if {[llength [info commands $cmdName]] == 0} {
-            # HACK: somehow this keeps getting called repeatedly which
-            # causes a leak??
-            load /tmp/$cid.so
-        }
-        proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
-        tailcall $cmdName {*}$args
-
-    } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {
-        # Allow Tcl `library create` libraries to be callable from any
-        # thread, because we load the library into the Tcl interpreter
-        # for a given thread on demand.
-        source $tclfile
-        tailcall $cmdName {*}$args
-
-    } else {
-        try {
-            set fnVar ^$cmdName; upvar $fnVar fn
-            if {[info exists fn]} {
-                tailcall {*}$fn {*}$args
-            }
-        } on error e {}
-    }
-
-    error "Unknown command '$cmdName'"
 }
 
 proc lsort_key_asc {key l} {
@@ -178,12 +292,12 @@ proc Hold! {args} {
     }]
 
     if {$isNonCapturing} {
-        set argNames {}; set argValues {}
+        set env {}
     } else {
-        lassign [uplevel serializeEnvironment] argNames argValues
+        set env [uplevel captureEnv]
     }
     tailcall HoldStatement! {*}$args \
-        [list when [list $argNames $body] with environment $argValues]
+        [list when [list $argNames $body] with environment $env]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
@@ -210,9 +324,9 @@ proc When {args} {
     }
 
     if {$isNonCapturing} {
-        set argNames [list]; set argValues [list]
+        set env {}
     } else {
-        lassign [uplevel serializeEnvironment] argNames argValues
+        set env [uplevel captureEnv]
     }
 
     if {$isSerially} {
@@ -265,10 +379,9 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        tailcall Say when the collected matches for $pattern are /__matches/ [list [list {*}$argNames __matches] $negateBody] with environment $argValues
+        tailcall Say when the collected matches for $pattern are /__matches/ [list [list __matches] $negateBody] with environment $env
     } else {
-        lappend argNames {*}$varNamesWillBeBound
-        tailcall Say when {*}$pattern [list $argNames $body] with environment $argValues
+        tailcall Say when {*}$pattern [list $varNamesWillBeBound $body] with environment $env
     }
 }
 proc Every {_time args} {
@@ -296,18 +409,14 @@ proc Every {_time args} {
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        lassign [uplevel serializeEnvironment] argNames argValues
-        Destructor [list apply [list $argNames $body] {*}$argValues]
+        set env [uplevel captureEnv]
+        Destructor [list evaluateWhenBlock [list {} $body] $env {}]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }
 }
 
 set ::thisNode [info hostname]
-
-lappend ::auto_path "./vendor"
-source "lib/c.tcl"
-source "lib/math.tcl"
 
 if {[__isTracyEnabled]} {
     set tracyCid "tracy_[pid]"
@@ -398,6 +507,8 @@ if {[__isTracyEnabled]} {
         rename $tracyTemp ::tracy
     } else {
         proc ::tracy {args} {
+            # HACK: We pretty much just throw away all tracing calls
+            # until tracy is loaded.
             if {[tracyTryLoad]} {
                 ::tracy {*}$args
             }

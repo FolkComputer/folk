@@ -512,10 +512,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /lambdaExpr/ with environment /capturedArgs/
+    // when the time is /t/ /lambdaExpr/ with environment /capturedEnv/
     const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedArgs = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *capturedArgsObj = Jim_NewStringObj(interp, capturedArgs, -1);
+    const char* capturedEnv = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj *capturedEnvObj = Jim_NewStringObj(interp, capturedEnv, -1);
 
     Jim_Obj *lambdaExprObj = Jim_NewStringObj(interp, lambdaExpr, -1);
     // Set the source info for the lambdaExpr:
@@ -571,7 +571,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
             // TODO: pool this string?
             Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
             lambdaExprObj,
-            capturedArgsObj,
+            capturedEnvObj,
             whenArgsObj
         };
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);

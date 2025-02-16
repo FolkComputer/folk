@@ -21,10 +21,10 @@ bool clauseIsEqual(Clause* a, Clause* b);
 
 typedef struct Trie Trie;
 struct Trie {
-    // This key string is owned by the trie.
+    // This term string is owned by the trie.
     char* key;
 
-    // In practice, we store a statement ID in this slot.
+    // In practice, we store a statement ref in this slot.
     bool hasValue;
     uint64_t value;
 
@@ -49,7 +49,9 @@ const Trie* trieNew();
 // have your `retire` implementation defer reclamation until it's
 // guaranteed that no one else is accessing the old trie.
 
-// Returns a new Trie that is like `trie` with `clause` added.
+// Returns a new Trie that is like `trie` with `clause` added. Copies
+// all the terms in `clause` into trie-owned structures, so the caller
+// doesn't need to worry about ownership.
 const Trie* trieAdd(const Trie* trie,
                     void *(*alloc)(size_t), void (*retire)(void*),
                     Clause* c, uint64_t value);
