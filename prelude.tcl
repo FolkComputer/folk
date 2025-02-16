@@ -297,7 +297,7 @@ proc Hold! {args} {
         set env [uplevel captureEnv]
     }
     tailcall HoldStatement! {*}$args \
-        [list when [list $argNames $body] with environment $env]
+        [list when [list {} $body] with environment $env]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
