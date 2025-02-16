@@ -141,8 +141,7 @@ fn lineNumberView {ystart linecount} {
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
   set id [list editing $page $kbPath]
-  When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
-    set intTime [expr {int($t * 10)}]
+  When $id has program code /code/ & $id has editor code /editorCode/ & & the $kbPath cursor is /cursor/ & $id has region /r/ {
     set scale 0.60
 
     set relativeRegion [region move $r down 105%]
