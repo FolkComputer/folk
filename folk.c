@@ -308,10 +308,11 @@ static void destructorHelper(void* arg) {
         });
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 2);
-    matchAddDestructor(self->currentMatch,
+    assert(argc == 3);
+    bool addAtEnd; Jim_GetBoolean(interp, argv[1], &addAtEnd);
+    matchAddDestructor(self->currentMatch, addAtEnd,
                        destructorHelper,
-                       strdup(Jim_GetString(argv[1], NULL)));
+                       strdup(Jim_GetString(argv[2], NULL)));
     return JIM_OK;
 }
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {

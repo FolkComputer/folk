@@ -136,7 +136,7 @@ proc captureEnv {} {
             # Insert env into the environment store.
             set __envId [$::envLib insert $env]
             # On unmatch, delete env from the environment store.
-            Destructor [list $::envLib delete $__envId]
+            Destructor true [list $::envLib delete $__envId]
         }
 
         unset locals envNames envValues env
@@ -410,7 +410,7 @@ proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
         set env [uplevel captureEnv]
-        Destructor [list evaluateWhenBlock [list {} $body] $env {}]
+        Destructor false [list applyBlock [list {} $body] $env]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }
