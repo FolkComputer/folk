@@ -4,11 +4,13 @@ apply {{} {
         set fp [open "folk.pid" r]
         set oldPid [read $fp]; close $fp
         try {
-            exec ps -p $oldPid >/dev/null
-            puts stderr "boot: ERROR: Another Folk (PID $oldPid) already running."
+            if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
+                error "Zombie Folk process exists (PID $oldPid)"
+            }
+            puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
             __exit 1
         } on error e {
-            puts stderr $e
+            puts stderr "boot: $e; this is OK; continuing."
         }
     }
 
