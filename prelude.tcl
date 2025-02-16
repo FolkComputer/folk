@@ -120,10 +120,10 @@ proc captureEnv {} {
         set envNames [list]
         set envValues [list]
         # Get all variables and serialize them, to fake lexical scope.
-        foreach name $locals {
-            if {![string match "__*" $name]} {
-                lappend envNames $name
-                lappend envValues [set $name]
+        foreach __name $locals {
+            if {![string match "__*" $__name]} {
+                lappend envNames $__name
+                lappend envValues [set $__name]
             }
         }
         set env [list $envNames $envValues]
