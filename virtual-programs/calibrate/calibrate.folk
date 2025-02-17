@@ -438,7 +438,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <li>
             <h3>Measure your calibration board.</h3>
 
-            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
+            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> (indicated on calibration PDF) of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
 
             <p>Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</p>
           </li>
@@ -468,6 +468,10 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
 
+            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibration the Folk0 system (playing at 2x speed).</p>
+
             <p>Are the projected tags too big to fit in the gaps between printed tags? Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
             </p>
@@ -482,7 +486,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
-          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so and hold it still again to capture another pose.</p>
+          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
           <p>Repeat this process of dragging the board around and
           capturing a new pose. You'll need to record 10 different
@@ -626,9 +630,9 @@ Claim the default program geometry is \$geom
               different size, or you manually cut and pasted the tag
               30 somewhere and want to create a specially sized region
               around that, you can set tag 30's geometry manually by making a
-              30.folkgeom text file in ~/folk-printed-programs, with content like this:</p>
+              30.meta.folk text file in ~/folk-printed-programs, with content like this:</p>
 
-              <pre>tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm</pre>
+              <pre>Claim tag \$this has geometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}</pre>
             </details>
           </li>
 
@@ -1453,6 +1457,8 @@ Stereo RMSE [dict_getdef $calibration rmse (unavailable)]
         set cameraWidth [dict get $calibration camera intrinsics width]
         set cameraHeight [dict get $calibration camera intrinsics height]
         set projectorIntrinsics [dict get $calibration projector intrinsics]
+        set projectorWidth [dict get $calibration projector intrinsics width]
+        set projectorHeight [dict get $calibration projector intrinsics height]
         dict for {id det} [dict get $pose tags] {
             # Look through all the projected tags that we detected on
             # camera in this pose.

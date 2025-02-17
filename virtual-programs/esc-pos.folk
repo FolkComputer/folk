@@ -48,9 +48,9 @@ namespace eval escpos {
         set matchDict [lindex $matches 0]
         if {![dict exists $matchDict geometry]} { return }
         set geometry [dict get $matchDict geometry]
-        set geomFile [open "$::env(HOME)/folk-printed-programs/$id.folkgeom" w]
-        puts $geomFile $geometry
-        close $geomFile
+        set metaFile [open "$::env(HOME)/folk-printed-programs/$id.meta.folk" w]
+        puts $metaFile [subst -novariables {Claim tag $this has geometry {[read $fd]}}]
+        close $metaFile
     }
 
     proc cut {} {

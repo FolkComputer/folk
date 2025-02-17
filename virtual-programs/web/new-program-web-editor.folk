@@ -134,14 +134,17 @@ Wish the web server handles route "/new" with handler {
   }
   function handleSave() {
     const code = document.getElementById("code").value;
+    // base64-encoding the code ensures that backslash-newlines are
+    // preserved in the code and printout (otherwise, braced-string-parsing
+    // would elide them: https://www.tcl.tk/man/tcl8.7/TclCmd/Tcl.html#M10)
     ws.hold('code', tcl`
-      Claim ${program} has program code ${code}
+      Claim ${program} has program code [binary decode base64 ${btoa(code)}]
     `);
   }
   function handlePrint() {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
-    ws.send(tcl`Wish to print ${code} with job-id ${jobid}`);
+    ws.send(tcl`Wish to print [binary decode base64 ${btoa(code)}] with job-id ${jobid}`);
     let printBtn = document.getElementById("printBtn")
     printBtn.innerText = "Printing";
     printBtn.disabled = true;
