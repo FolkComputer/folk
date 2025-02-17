@@ -398,6 +398,8 @@ if {[__isTracyEnabled]} {
         rename $tracyTemp ::tracy
     } else {
         proc ::tracy {args} {
+            # HACK: We pretty much just throw away all tracing calls
+            # until tracy is loaded.
             if {[tracyTryLoad]} {
                 ::tracy {*}$args
             }

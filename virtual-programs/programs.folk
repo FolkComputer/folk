@@ -39,7 +39,7 @@ When (non-capturing) /type/ /obj/ has a program {
             set metacode [read $mfd]; close $mfd
             apply [list {this} $metacode] $obj
         }
-    } on error error {
-        puts stderr "No code for $type $obj"
+    } on error err {
+        puts stderr "No code for $type $obj ($err)"
     }
 }
