@@ -33,11 +33,6 @@ static void cacheHTKeyDestructor(void *privdata, void *key) {
     free(key);
 }
 static void cacheHTValDestructor(void *privdata, void *val) {
-    /* if (((Jim_Obj*)val)->refCount == 1) { */
-    /*     printf("decr (%s) (%d)\n", Jim_String((Jim_Obj*)val), */
-    /*            ((Jim_Obj*)val)->refCount); */
-    /* } */
-
     Jim_DecrRefCount((Jim_Interp *)privdata, (Jim_Obj *)val);
 }
 
@@ -80,21 +75,25 @@ Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
         return Jim_GetHashEntryVal(ent);
     }
 
-    ent = Jim_FindHashEntry(&cache->oldTable, term);
-    if (ent != NULL) {
-        Jim_Obj* obj = Jim_GetHashEntryVal(ent);
-        Jim_AddHashEntry(&cache->newTable, term, obj);
-        Jim_DeleteHashEntry(&cache->oldTable, term);
-        cache->size++;
-        cacheTryEvict(cache, interp);
-        return obj;
-    }
-
-    // Not in cache yet. Insert into cache.
     Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
     Jim_AddHashEntry(&cache->newTable, term, obj);
-    cache->size++;
-    cacheTryEvict(cache, interp);
-
     return obj;
+
+    /* ent = Jim_FindHashEntry(&cache->oldTable, term); */
+    /* if (ent != NULL) { */
+    /*     Jim_Obj* obj = Jim_GetHashEntryVal(ent); */
+    /*     Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /*     Jim_DeleteHashEntry(&cache->oldTable, term); */
+    /*     cache->size++; */
+    /*     cacheTryEvict(cache, interp); */
+    /*     return obj; */
+    /* } */
+
+    /* // Not in cache yet. Insert into cache. */
+    /* Jim_Obj* obj = Jim_NewStringObj(interp, term, -1); */
+    /* Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /* cache->size++; */
+    /* cacheTryEvict(cache, interp); */
+
+    /* return obj; */
 }

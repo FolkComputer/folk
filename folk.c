@@ -524,10 +524,13 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
     // Set the source info for the lambdaExpr:
     Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
-    /* printf("lambdaBody (%.100s) has type %s\n", lambdaExpr, lambdaBodyObj->typePtr ? lambdaBodyObj->typePtr->name : "<none>"); */
-    Jim_SetSourceInfo(interp, lambdaBodyObj,
-                      Jim_NewStringObj(interp, statementSourceFileName(when), -1),
-                      statementSourceLineNumber(when));
+    if (strcmp(lambdaBodyObj->typePtr->name, "script") != 0) {
+        printf("lambdaBody (%.450s) has type %s\n", lambdaExpr, lambdaBodyObj->typePtr ? lambdaBodyObj->typePtr->name : "<none>");
+    }
+
+    /* Jim_SetSourceInfo(interp, lambdaBodyObj, */
+    /*                   Jim_NewStringObj(interp, statementSourceFileName(when), -1), */
+    /*                   statementSourceLineNumber(when)); */
 
     // Figure out all the bound match variables by unifying when &
     // stmt:
