@@ -22,6 +22,7 @@
 #include "common.h"
 #include "sysmon.h"
 #include "trace.h"
+#include "cache.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -81,6 +82,7 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 }
 
 __thread Jim_Interp* interp = NULL;
+__thread Cache* cache = NULL;
 
 Db* db;
 
@@ -108,7 +110,7 @@ static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
 static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
     Jim_Obj* termObjs[nTerms];
     for (int i = 0; i < nTerms; i++) {
-        termObjs[i] = Jim_NewStringObj(interp, terms[i], -1);
+        termObjs[i] = cacheGetOrInsert(cache, interp, terms[i]);
     }
     return Jim_NewListObj(interp, termObjs, nTerms);
 }
@@ -140,7 +142,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = Jim_NewStringObj(interp, b->terms[i], -1);
+                binding->value = cacheGetOrInsert(cache, interp, b->terms[i]);
             }
         } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
@@ -150,7 +152,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = Jim_NewStringObj(interp, a->terms[i], -1);
+                binding->value = cacheGetOrInsert(cache, interp, a->terms[i]);
             }
         } else if (!(a->terms[i] == b->terms[i] ||
                      strcmp(a->terms[i], b->terms[i]) == 0)) {
@@ -443,6 +445,7 @@ static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static void interpBoot() {
     interp = Jim_CreateInterp();
+    cache = cacheNew();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
@@ -515,9 +518,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // when the time is /t/ /lambdaExpr/ with environment /capturedArgs/
     const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
     const char* capturedArgs = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *capturedArgsObj = Jim_NewStringObj(interp, capturedArgs, -1);
+    // TODO: split further?
+    Jim_Obj *capturedArgsObj = cacheGetOrInsert(cache, interp, capturedArgs);
 
-    Jim_Obj *lambdaExprObj = Jim_NewStringObj(interp, lambdaExpr, -1);
+    Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
     // Set the source info for the lambdaExpr:
     Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
     Jim_SetSourceInfo(interp, lambdaBodyObj,
