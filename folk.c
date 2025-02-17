@@ -110,7 +110,7 @@ static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
 static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
     Jim_Obj* termObjs[nTerms];
     for (int i = 0; i < nTerms; i++) {
-        termObjs[i] = cacheGetOrInsert(cache, interp, terms[i]);
+        termObjs[i] = Jim_NewStringObj(interp, terms[i], -1);
     }
     return Jim_NewListObj(interp, termObjs, nTerms);
 }
@@ -142,7 +142,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, b->terms[i]);
+                binding->value = Jim_NewStringObj(interp, b->terms[i], -1);
             }
         } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
@@ -152,7 +152,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, a->terms[i]);
+                binding->value = Jim_NewStringObj(interp, a->terms[i], -1);
             }
         } else if (!(a->terms[i] == b->terms[i] ||
                      strcmp(a->terms[i], b->terms[i]) == 0)) {
@@ -445,7 +445,7 @@ static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static void interpBoot() {
     interp = Jim_CreateInterp();
-    cache = cacheNew();
+    cache = cacheNew(interp);
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
@@ -519,11 +519,12 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
     const char* capturedArgs = whenClause->terms[whenClause->nTerms - 1];
     // TODO: split further?
-    Jim_Obj *capturedArgsObj = cacheGetOrInsert(cache, interp, capturedArgs);
+    Jim_Obj *capturedArgsObj = Jim_NewStringObj(interp, capturedArgs, -1);
 
     Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
     // Set the source info for the lambdaExpr:
     Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
+    /* printf("lambdaBody (%.100s) has type %s\n", lambdaExpr, lambdaBodyObj->typePtr ? lambdaBodyObj->typePtr->name : "<none>"); */
     Jim_SetSourceInfo(interp, lambdaBodyObj,
                       Jim_NewStringObj(interp, statementSourceFileName(when), -1),
                       statementSourceLineNumber(when));

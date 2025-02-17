@@ -8,9 +8,9 @@
 
 // TODO: should we keep a hash alongside each term?
 
-typedef Jim_HashTable Cache;
+typedef struct Cache Cache;
 
-Cache* cacheNew();
+Cache* cacheNew(Jim_Interp* interp);
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term);
 

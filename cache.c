@@ -1,5 +1,11 @@
 #include <string.h>
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
 #include "cache.h"
+
+// Based on this algorithm: https://github.com/dominictarr/hashlru
 
 /* Generic string hash function from jim.c */
 static unsigned int cacheGenHashFunction(const unsigned char *string, int length) {
@@ -13,8 +19,12 @@ static unsigned int cacheGenHashFunction(const unsigned char *string, int length
 static unsigned int cacheHTHashFunction(const void *key) {
     return cacheGenHashFunction(key, strlen(key));
 }
-static void *cacheHTDup(void *privdata, const void *key) {
+static void *cacheHTKeyDup(void *privdata, const void *key) {
     return strdup(key);
+}
+static void *cacheHTValDup(void *privdata, const void *val) {
+    Jim_IncrRefCount((Jim_Obj *)val);
+    return val;
 }
 static int cacheHTKeyCompare(void *privdata, const void *key1, const void *key2) {
     return strcmp(key1, key2) == 0;
@@ -22,42 +32,69 @@ static int cacheHTKeyCompare(void *privdata, const void *key1, const void *key2)
 static void cacheHTKeyDestructor(void *privdata, void *key) {
     free(key);
 }
-static void cacheHTValDestructor(void *privdata, void *key) {
-    //    Jim_DecrRefCount(interp, );
+static void cacheHTValDestructor(void *privdata, void *val) {
+    /* if (((Jim_Obj*)val)->refCount == 1) { */
+    /*     printf("decr (%s) (%d)\n", Jim_String((Jim_Obj*)val), */
+    /*            ((Jim_Obj*)val)->refCount); */
+    /* } */
+
+    Jim_DecrRefCount((Jim_Interp *)privdata, (Jim_Obj *)val);
 }
 
 static const Jim_HashTableType cacheHashTableType = {
     .hashFunction = cacheHTHashFunction,
-    .keyDup = cacheHTDup,
-    .valDup = NULL,
+    .keyDup = cacheHTKeyDup,
+    .valDup = cacheHTValDup,
     .keyCompare = cacheHTKeyCompare,
     .keyDestructor = cacheHTKeyDestructor,
-    .valDestructor = NULL
+    .valDestructor = cacheHTValDestructor
 };
 
-Cache* cacheNew() {
+typedef struct Cache {
+    Jim_HashTable oldTable;
+    Jim_HashTable newTable;
+    int size;
+} Cache;
+
+Cache* cacheNew(Jim_Interp* interp) {
     Cache* cache = malloc(sizeof(Cache));
-    Jim_InitHashTable(cache, &cacheHashTableType, NULL);
+    Jim_InitHashTable(&cache->oldTable, &cacheHashTableType, interp);
+    Jim_InitHashTable(&cache->newTable, &cacheHashTableType, interp);
     return cache;
 }
 
 #define CACHE_MAX 256
+static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
+    if (cache->size > CACHE_MAX) {
+        Jim_FreeHashTable(&cache->oldTable);
+        memcpy(&cache->oldTable, &cache->newTable, sizeof(Jim_HashTable));
+        cache->size = 0;
+        Jim_InitHashTable(&cache->newTable, &cacheHashTableType, interp);
+    }
+}
+
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term) {
-    Jim_HashEntry* ent = Jim_FindHashEntry(cache, term);
+    Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term);
     if (ent != NULL) {
-        // TODO: do LRU reordering
         return Jim_GetHashEntryVal(ent);
     }
 
-    Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
-    Jim_AddHashEntry(cache, term, obj);
-    Jim_IncrRefCount(obj);
-
-    // TODO: check and evict
-    if (Jim_GetHashTableUsed(cache) > CACHE_MAX) {
-        
+    ent = Jim_FindHashEntry(&cache->oldTable, term);
+    if (ent != NULL) {
+        Jim_Obj* obj = Jim_GetHashEntryVal(ent);
+        Jim_AddHashEntry(&cache->newTable, term, obj);
+        Jim_DeleteHashEntry(&cache->oldTable, term);
+        cache->size++;
+        cacheTryEvict(cache, interp);
+        return obj;
     }
+
+    // Not in cache yet. Insert into cache.
+    Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
+    Jim_AddHashEntry(&cache->newTable, term, obj);
+    cache->size++;
+    cacheTryEvict(cache, interp);
 
     return obj;
 }
