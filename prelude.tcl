@@ -58,55 +58,60 @@ set ::envLib [apply {{} {
     $cc include <string.h>
     $cc include <stdatomic.h>
     $cc include "epoch.h"
+
     $cc code {
-        #define ENVS_MAX 16384
-        char * _Atomic envs[ENVS_MAX];
-        int _Atomic envsNextIdx;
+        typedef struct Env {
+            int _Atomic rc;
+            char* _Atomic data;
+        } Env;
     }
     # insert can be called from any thread at any time.
-    $cc proc insert {char* value} int {
-        char *s = strdup(value);
-        while (1) {
-            int idx = envsNextIdx++;
-            char *nil = NULL;
-            if (atomic_compare_exchange_weak(&envs[idx % ENVS_MAX],
-                                             &nil, s)) {
-                return idx;
-            }
-        }
+    $cc proc insert {char* data} Env* {
+        Env *env = malloc(sizeof(Env));
+        env->data = strdup(data);
+        env->rc = 1;
+        return env;
     }
     # update can only be called from the same thread that did the
     # original insert and got that idx.
-    $cc proc update {int idx char* value} void {
+    $cc proc update {Env* env char* data} void {
         epochBegin();
 
-        char *oldValue = envs[idx % ENVS_MAX];
-        char *newValue = strdup(value);
-        if (atomic_compare_exchange_weak(&envs[idx % ENVS_MAX],
-                                         &oldValue, newValue)) {
-            epochFree(oldValue);
+        char *oldData = env->data;
+        char *newData = strdup(data);
+        if (atomic_compare_exchange_weak(&env->data,
+                                         &oldData, newData)) {
+            epochFree(oldData);
         } else {
             // If not, then it must have been removed already.
-            FOLK_ENSURE(oldValue == NULL);
+            FOLK_ENSURE(oldData == NULL);
         }
 
         epochEnd();
     }
     # get can be called from any thread at any time.
-    $cc proc get {int idx} Jim_Obj* {
+    $cc proc get {Env* env} Jim_Obj* {
         epochBegin();
-        Jim_Obj *ret = Jim_NewStringObj(interp, envs[idx % ENVS_MAX], -1);
+
+        // We have to copy the env while still in the epoch to ensure
+        // that the env doesn't get invalidated.
+        Jim_Obj *ret = Jim_NewStringObj(interp, env->data, -1);
+
         epochEnd();
         return ret;
     }
-    # delete can be called from any thread at any time.
-    $cc proc delete {int idx} void {
-        epochBegin();
-        
-        epochFree(envs[idx % ENVS_MAX]);
-        envs[idx % ENVS_MAX] = NULL;
+    $cc proc incrRefCount {Env* env} void {
+        env->rc++;
+    }
+    $cc proc decrRefCount {Env* env} void {
+        if (--env->rc == 0) {
+            epochBegin();
 
-        epochEnd();
+            epochFree(env->data);
+            epochFree(env);
+
+            epochEnd();
+        }
     }
     return [$cc compile $envCid]
 }}]
@@ -135,8 +140,8 @@ proc captureEnv {} {
         } else {
             # Insert env into the environment store.
             set __envId [$::envLib insert $env]
-            # On unmatch, delete env from the environment store.
-            Destructor true [list $::envLib delete $__envId]
+
+            Destructor true [list $::envLib decrRefCount $__envId]
         }
 
         unset locals envNames envValues env
@@ -148,8 +153,9 @@ proc captureEnv {} {
 proc applyBlock {lambdaExpr capturedEnvId args} {
     # Get env from the environment store.
     if {$capturedEnvId ne ""} {
-        lassign [$::envLib get $capturedEnvId] \
-            capturedNames capturedValues
+        set env [$::envLib get $capturedEnvId]
+        if {$env eq ""} { error "Environment invalidated" }
+        lassign $env capturedNames capturedValues
     } else {
         set capturedNames [list]
         set capturedValues [list]
@@ -255,7 +261,6 @@ proc HoldStatement! {args} {
 
     set key [list]
     set clause [lindex $args end]
-    set isNonCapturing false
     set keepMs 0
     for {set i 0} {$i < [llength $args] - 1} {incr i} {
         set arg [lindex $args $i]
@@ -292,12 +297,16 @@ proc Hold! {args} {
     }]
 
     if {$isNonCapturing} {
-        set env {}
+        set envId {}
     } else {
-        set env [uplevel captureEnv]
+        set envId [uplevel captureEnv]
+
+        $::envLib incrRefCount $envId
+        append body "
+Destructor true \[list \$::envLib decrRefCount {$envId}]"
     }
     tailcall HoldStatement! {*}$args \
-        [list when [list {} $body] with environment $env]
+        [list when [list {} $body] with environment $envId]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
