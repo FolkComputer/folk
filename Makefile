@@ -44,7 +44,7 @@ remote-clean:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
-		cd vendor/jimtcl && ./configure CFLAGS=-g && cd -; \
+		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer' && cd -; \
 	fi
 	make -C vendor/jimtcl
 	make -C vendor/apriltag libapriltag.so

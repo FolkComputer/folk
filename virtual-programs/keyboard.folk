@@ -141,24 +141,25 @@ When /keyboard/ is a keyboard device {
                 dict set modifiers $key [expr {$isDown * $weight}]
             }
 
-            set now [clock milliseconds]
+            set now $([clock milliseconds] / 1000.0)
             set options [dict create timestamp $now]
             set modKeyNotHeld [expr {$mods <= 1}] ;# excluding Shift
             if {$keychar ne "" && $modKeyNotHeld} {
                 dict set options printable $keychar
             }
             Assert! keyboard $keyboard claims key $key is $keyState with {*}$options
-            # puts stderr [list keyboard $keyboard claims key $key is $keyState with {*}$options]
+        }
+    }
+}
 
-            # Retract all key events that are more than 5 seconds old.
-            set events [Query! keyboard $keyboard claims key /key/ is /keyState/ with /...options/]
-            foreach event $events {
-                dict with event {
-                    set timestamp [dict get $options timestamp]
-                    if {$now - $timestamp > 5000} {
-                        Retract! keyboard $keyboard claims key $key is $keyState with {*}$options
-                    }
-                }
+# Reap old keyboard events:
+When the clock time is /t/ {
+    set events [Query! keyboard /keyboard/ claims key /key/ is /keyState/ with /...options/]
+    foreach event $events {
+        dict with event {
+            set timestamp [dict get $options timestamp]
+            if {$t - $timestamp > 5} {
+                Retract! keyboard $keyboard claims key $key is $keyState with {*}$options
             }
         }
     }

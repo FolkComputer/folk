@@ -3178,7 +3178,7 @@ void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj *fileNameObj, int lineNumber)
 {
     JimPanic((Jim_IsShared(objPtr), "Jim_SetSourceInfo called with shared object"));
-    JimPanic((objPtr->typePtr != NULL, "Jim_SetSourceInfo called with typed object"));
+    Jim_FreeIntRep(interp, objPtr);
     Jim_IncrRefCount(fileNameObj);
     objPtr->internalRep.sourceValue.fileNameObj = fileNameObj;
     objPtr->internalRep.sourceValue.lineNumber = lineNumber;
