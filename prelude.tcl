@@ -373,6 +373,7 @@ proc When {args} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
                 # Rewrite this entire clause to be negated.
                 set isNegated true
+                lset pattern $i "/any/"
             } else {
                 # Rewrite subsequent instances of this variable name /x/
                 # (in joined clauses) to be bound $x.
@@ -395,19 +396,25 @@ proc When {args} {
 }
 proc Every {_time args} {
     if {$_time eq "time"} {
-        # Unwrap the outermost match, get its match ref, then unmatch
-        # at the end of the body of the innermost match.
+        # Set up a When for the outermost match, then query for any
+        # inner matches, then unmatch at the end.
         set body [lindex $args end]
         set pattern [lreplace $args end end]
-
         set andIdx [lsearch $pattern &]
         if {$andIdx != -1} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]
-            set body "set _unmatchRef \[__currentMatchRef]; When $restPatterns {$body; Unmatch! \$_unmatchRef}"
+            set body "set _unmatchRef \[__currentMatchRef]
+set __results \[Query! {*}$restPatterns]
+foreach __result \$__results { dict with __result {
+$body
+} }
+Unmatch! \$_unmatchRef"
         } else {
             set firstPattern $pattern
-            set body "set _unmatchRef \[__currentMatchRef]; $body; Unmatch! \$_unmatchRef"
+            set body "set _unmatchRef \[__currentMatchRef]
+$body
+Unmatch! \$_unmatchRef"
         }
         tailcall When {*}$firstPattern $body
     } else {
@@ -466,9 +473,11 @@ proc Query! {args} {
         }
     }
 
+    # TODO: don't test the claimized version in some cases
     if {[info exists remainingPattern]} {
         set results [list]
-        foreach result0 [QuerySimple! {*}$pattern] {
+        foreach result0 [concat [QuerySimple! {*}$pattern] \
+                             [QuerySimple! /someone/ claims {*}$pattern]] {
             dict with result0 {
                 foreach result [Query! {*}$remainingPattern] {
                     lappend results [dict merge $result0 $result]
@@ -477,7 +486,8 @@ proc Query! {args} {
         }
         return $results
     } else {
-        return [QuerySimple! {*}$pattern]
+        return [concat [QuerySimple! {*}$pattern] \
+                    [QuerySimple! /someone/ claims {*}$pattern]]
     }
 }
 
