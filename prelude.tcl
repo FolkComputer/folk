@@ -425,6 +425,62 @@ proc On {event args} {
     }
 }
 
+# Query! is like QuerySimple! but with added support for & joins.
+proc Query! {args} {
+    # HACK: this (parsing &s and filling resolved vars) is mostly
+    # copy-and-pasted from When.
+
+    # TODO: refactor common logic out? is it worth it?
+
+    set pattern $args
+    set varNamesWillBeBound [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set term [lindex $args $i]
+        if {$term eq "&"} {
+            set remainingPattern [lrange $pattern $i+1 end]
+            set pattern [lrange $pattern 0 $i-1]
+            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
+                set remainingTerm [lindex $remainingPattern $j]
+                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
+                    $remainingVarName in $varNamesWillBeBound} {
+                    lset remainingPattern $j \$$remainingVarName
+                }
+            }
+            break
+
+        } elseif {[set varName [__scanVariable $term]] != 0} {
+            if {[__variableNameIsNonCapturing $varName]} {
+            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
+                error "Query!: negation is not supported"
+
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                if {[string range $varName 0 2] eq "..."} {
+                    set varName [string range $varName 3 end]
+                }
+                lappend varNamesWillBeBound $varName
+            }
+        } elseif {[__startsWithDollarSign $term]} {
+            lset pattern $i [uplevel subst $term]
+        }
+    }
+
+    if {[info exists remainingPattern]} {
+        set results [list]
+        foreach result0 [QuerySimple! {*}$pattern] {
+            dict with result0 {
+                foreach result [Query! {*}$remainingPattern] {
+                    lappend results [dict merge $result0 $result]
+                }
+            }
+        }
+        return $results
+    } else {
+        return [QuerySimple! {*}$pattern]
+    }
+}
+
 set ::thisNode [info hostname]
 
 if {[__isTracyEnabled]} {

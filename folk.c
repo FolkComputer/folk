@@ -332,7 +332,7 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int QueryFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
 
     ResultSet* rs = dbQuery(db, pattern);
@@ -455,7 +455,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "Query!", QueryFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);
