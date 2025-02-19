@@ -272,7 +272,7 @@ When $::thisNode claims printer /name/ is a cups printer with /...options/ {
 
 if {![info exists ::printjobs]} {set ::printjobs [dict create]}
 When /someone/ wishes to print /code/ with /...options/ {
-    if {$::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial"} {
+    if {$::thisNode eq "folk-beads"} {
         # HACK: Forward the print request to folk0.
         remotePrintRequest "folk0" [list $::thisNode wishes to print $code with {*}$options]
         return

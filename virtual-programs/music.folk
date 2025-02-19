@@ -107,7 +107,7 @@ proc ::Music::exec {args} {
 proc ::Music::finishSetup {} {
   variable musicDir
 
-  if {$::thisNode ne "folk-beads"} {
+  if {$::thisNode eq "folk0"} {
     exec jack_control start
     exec jack_control ds alsa
     exec jack_control dps device hw:HDMI,10

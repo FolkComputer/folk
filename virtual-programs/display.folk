@@ -1622,6 +1622,7 @@ proc Start-display-process {code} {
 
 Start-display-process {
     puts "Display pid: [pid]"
+    exec sleep 2
     set macos [expr {$::tcl_platform(os) eq "Darwin"}]
 
     source "virtual-programs/images.folk"
