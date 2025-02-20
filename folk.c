@@ -242,6 +242,16 @@ void HoldStatementGlobally(const char *key, int64_t version,
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 4);
 
+    Jim_Obj* scriptObj = interp->currentScriptObj;
+    const char* sourceFileName;
+    int sourceLineNumber;
+    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
+        sourceFileName = "<unknown>";
+    }
+    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
+        sourceLineNumber = -1;
+    }
+
     const char *key = Jim_GetString(argv[1], NULL);
     int64_t version = ++latestVersion;
     Clause *clause = jimObjToClause(interp, argv[2]);
@@ -249,7 +259,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     HoldStatementGlobally(key, version,
                           clause, keepMs,
-                          "<unknown>", -1);
+                          sourceFileName, sourceLineNumber);
     return (JIM_OK);
 }
 
