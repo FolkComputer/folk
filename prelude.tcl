@@ -35,7 +35,7 @@ proc unknown {cmdName args} {
         } on error e {}
     }
 
-    error "Unknown command '$cmdName'"
+    tailcall error "Unknown command '$cmdName'"
 }
 
 # Set up the global environment store.
@@ -171,8 +171,9 @@ proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
         applyBlock $whenLambdaExpr $capturedEnvId {*}$whenArgValues
 
     } on error {err opts} {
-        set this [expr {[info exists ::this] ? $::this : "<unknown>"}]
-        puts stderr "\nError in $this: $err\n  [errorInfo $err [dict get $opts -errorinfo]]"
+        set errorInfo [dict get $opts -errorinfo]
+        set this [lindex $errorInfo 1]
+        puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
         # FIXME: how do I get this?  Recall that evaluateWhenBlock is
         # being called _straight_ from runWhenBlock (C context) --
         # there are no Tcl frames above it.
@@ -311,12 +312,9 @@ Destructor true \[list \$::envLib decrRefCount {$envId}]"
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
-    # HACK: This prologue is used for error reporting (so we can get
-    # $this from the error handler level).
-    set prologue {if {[info exists this]} {set ::this $this}}
     # Make sure we don't put it on a new line (it'd throw line numbers
     # off).
-    set body "$prologue;[lindex $args end]"
+    set body [lindex $args end]
     set args [lreplace $args end end]
 
     set isNonCapturing false
