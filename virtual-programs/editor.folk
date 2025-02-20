@@ -45,10 +45,10 @@ fn y {vector} { lindex $vector 1 }
 fn updateCursor {oldCursor updates} {
   set newCursor $oldCursor
   if {[dict exists $updates x]} {
-      lset newCursor 0 [max 0 $([dict get $updates x] + [x $oldCursor])]
+      lset newCursor 0 [::math::max 0 $([dict get $updates x] + [x $oldCursor])]
   }
   if {[dict exists $updates y]} {
-      lset newCursor 1 [max 0 $([dict get $updates y] + [y $oldCursor])]
+      lset newCursor 1 [::math::max 0 $([dict get $updates y] + [y $oldCursor])]
   }
   return $newCursor
 }
