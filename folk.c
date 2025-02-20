@@ -22,6 +22,7 @@
 #include "common.h"
 #include "sysmon.h"
 #include "trace.h"
+#include "cache.h"
 
 ThreadControlBlock threads[THREADS_MAX];
 int _Atomic threadCount;
@@ -81,6 +82,7 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 }
 
 __thread Jim_Interp* interp = NULL;
+__thread Cache* cache = NULL;
 
 Db* db;
 
@@ -444,6 +446,7 @@ static int __exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static void interpBoot() {
     interp = Jim_CreateInterp();
+    cache = cacheNew(interp);
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
@@ -518,12 +521,16 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     const char* capturedEnv = whenClause->terms[whenClause->nTerms - 1];
     Jim_Obj *capturedEnvObj = Jim_NewStringObj(interp, capturedEnv, -1);
 
-    Jim_Obj *lambdaExprObj = Jim_NewStringObj(interp, lambdaExpr, -1);
+    Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
     // Set the source info for the lambdaExpr:
     Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
-    Jim_SetSourceInfo(interp, lambdaBodyObj,
-                      Jim_NewStringObj(interp, statementSourceFileName(when), -1),
-                      statementSourceLineNumber(when));
+    if (strcmp(lambdaBodyObj->typePtr->name, "script") != 0) {
+        printf("lambdaBody (%.450s) has type %s\n", lambdaExpr, lambdaBodyObj->typePtr ? lambdaBodyObj->typePtr->name : "<none>");
+    }
+
+    /* Jim_SetSourceInfo(interp, lambdaBodyObj, */
+    /*                   Jim_NewStringObj(interp, statementSourceFileName(when), -1), */
+    /*                   statementSourceLineNumber(when)); */
 
     // Figure out all the bound match variables by unifying when &
     // stmt:

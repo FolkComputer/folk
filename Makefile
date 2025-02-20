@@ -12,7 +12,7 @@ else
 	LINKER := cc
 endif
 
-folk: workqueue.o db.o trie.o sysmon.o epoch.o folk.o \
+folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET)
 
@@ -74,7 +74,7 @@ setup-remote:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk TRACY_SAMPLING_HZ=40000 ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 valgrind-remote: sync
