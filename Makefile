@@ -97,5 +97,8 @@ remote-flamegraph:
 	scp $(FOLK_REMOTE_NODE):~/folk/out.svg .
 	scp $(FOLK_REMOTE_NODE):~/folk/out.perf .
 
+start: folk
+	./folk
+
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
