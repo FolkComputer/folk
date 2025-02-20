@@ -524,10 +524,17 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
     // Set the source info for the lambdaExpr:
     Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
+    char *ptr;
+    if (Jim_ScriptGetSourceFileName(interp, lambdaExprObj, &ptr) == JIM_ERR) {
+        // HACK: We only set the source info if it's not already
+        // there, because setting the source info destroys the
+        // internal script representation and forces the code to be
+        // reparsed (why??).
+        Jim_SetSourceInfo(interp, lambdaBodyObj,
+                          Jim_NewStringObj(interp, statementSourceFileName(when), -1),
+                          statementSourceLineNumber(when));
+    }
 
-    /* Jim_SetSourceInfo(interp, lambdaBodyObj, */
-    /*                   Jim_NewStringObj(interp, statementSourceFileName(when), -1), */
-    /*                   statementSourceLineNumber(when)); */
 
     // Figure out all the bound match variables by unifying when &
     // stmt:
