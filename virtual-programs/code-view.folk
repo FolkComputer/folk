@@ -1,0 +1,29 @@
+When /view/ is a code view &\
+     /view/ has region /r/ {
+  Hold {
+    Claim $view has selected program "virtual-programs/shapes.folk"
+  }
+
+  Wish tag $view is stabilized
+
+  # shift region
+  lassign $r vertices edges angle
+  set vertices [concat \
+    [lrange $vertices 3 3] \
+    [lrange $vertices 0 2] \
+  ]
+  set angle [expr {fmod($angle + 3.1415 + (3.1415/2), 6.2831)}]
+  set r [list $vertices $edges $angle]
+  Claim $view has rotated region $r
+}
+
+When /view/ is a code view &\
+     /view/ has rotated region /r/ {
+  When $view has selected program /page/ &\
+       /page/ has program code /code/ {
+    lassign $r vertices edges angle
+    set pos [region topleft [region move $r down 0px right 100px]]
+    Wish to draw text with position $pos text $code \
+      scale 0.6 radians $angle anchor topleft
+  }
+}
