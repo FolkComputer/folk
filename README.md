@@ -210,8 +210,8 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Position the camera. Make sure Folk is running (ssh in, `cd
-   ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
+1. Position the camera. Make sure Folk is running (ssh in, `make &&
+   ./folk`). Go to your Folk server's Web page
    http://whatever.local:4273/camera-frame to see a preview of what
    the camera sees. Reposition your camera to cover your table.
 
@@ -647,6 +647,16 @@ Capitalized namespace, like `Statements`.
 
 # folk2 notes
 
+## thanks
+
+- Omar Rizwan: evaluator; display, AprilTag, camera subsystems
+- Andrés Cuervo: keyboard library and code editor, sprites
+- Naveen Michaud-Agrawal: connections, points-at, 
+- Jacob Haip: web endpoints, tag masking, blob detection
+- Arcade Wise: fonts
+- s-ol bekic: WebSocket library, keyboard locale support
+- terminal subsystem
+
 ## requirements
 
 on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
@@ -662,7 +672,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count~~
 - event statements
-- match or statement arena allocator
+- statement (owning $p) so pointers can get freed on statement
+  deletion
+  - or statement destructors?
   - for camera images, at least
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
@@ -716,4 +728,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - calibration process
     - fix close-tab
     - ~~fix stdout~~
+- don't deserialize whole keymap on every keypress (10ms)
+- editor render loop is slow
+
 
