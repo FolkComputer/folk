@@ -58,7 +58,7 @@ Cache* cacheNew(Jim_Interp* interp) {
     return cache;
 }
 
-#define CACHE_MAX 256
+#define CACHE_MAX 2048
 static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
     if (cache->size > CACHE_MAX) {
         Jim_FreeHashTable(&cache->oldTable);
