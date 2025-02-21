@@ -176,8 +176,19 @@ proc applyBlock {lambdaExpr capturedEnvId args} {
         set capturedValues [list]
     }
 
-    lset lambdaExpr 0 \
-        [list {*}$capturedNames {*}[lindex $lambdaExpr 0]]
+    set names [list]
+    foreach capturedName $capturedNames {
+        if {[string index $capturedName 0] eq "^"} {
+            # Delete any old version of the fn.
+            try {
+                rename [string index $capturedName 1 end] {}
+            } on error e {}
+        }
+        lappend names $capturedName
+    }
+    lappend names {*}[lindex $lambdaExpr 0]
+    lset lambdaExpr 0 $names
+
     tailcall apply $lambdaExpr {*}$capturedValues {*}$args
 }
 
