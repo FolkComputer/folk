@@ -446,7 +446,8 @@ proc On {event args} {
     }
 }
 
-# Query! is like QuerySimple! but with added support for & joins.
+# Query! is like QuerySimple! but with added support for & joins, and
+# it'll automatically also test /someone/ claims.
 proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
@@ -487,21 +488,28 @@ proc Query! {args} {
         }
     }
 
-    # TODO: don't test the claimized version in some cases
-    if {[info exists remainingPattern]} {
-        set results [list]
-        foreach result0 [concat [QuerySimple! {*}$pattern] \
-                             [QuerySimple! /someone/ claims {*}$pattern]] {
-            dict with result0 {
-                foreach result [Query! {*}$remainingPattern] {
-                    lappend results [dict merge $result0 $result]
-                }
+    if {[llength $pattern] >= 2 && ([lindex $pattern 1] eq "claims" ||
+                                    [lindex $pattern 1] eq "wishes")} {
+        set results0 [QuerySimple! {*}$pattern]
+    } else {
+        # If the pattern doesn't already have `claims` or `wishes` in
+        # second position, then automatically query for the claimized
+        # version of the pattern as well.
+        set results0 [concat [QuerySimple! {*}$pattern] \
+                          [QuerySimple! /someone/ claims {*}$pattern]]
+    }
+
+    if {![info exists remainingPattern]} {
+        return $results0
+    }
+
+    set results [list]
+    foreach result0 $results0 {
+        dict with result0 {
+            foreach result [Query! {*}$remainingPattern] {
+                lappend results [dict merge $result0 $result]
             }
         }
-        return $results
-    } else {
-        return [concat [QuerySimple! {*}$pattern] \
-                    [QuerySimple! /someone/ claims {*}$pattern]]
     }
 }
 
