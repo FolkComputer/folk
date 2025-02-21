@@ -256,19 +256,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
     return (JIM_OK);
 }
 
-static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_Obj* scriptObj = interp->currentScriptObj;
-    const char* sourceFileName;
-    int sourceLineNumber;
-    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-        sourceFileName = "<unknown>";
-    }
-    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-        sourceLineNumber = -1;
-    }
 
-    Clause* clause = jimArgsToClause(argc, argv);
-
+static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
@@ -289,8 +278,39 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     if (!statementRefIsNull(ref)) {
         reactToNewStatement(ref);
     }
-    return (JIM_OK);
 }
+
+static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Jim_Obj* scriptObj = interp->currentScriptObj;
+    const char* sourceFileName;
+    int sourceLineNumber;
+    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
+        sourceFileName = "<unknown>";
+    }
+    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
+        sourceLineNumber = -1;
+    }
+
+    Clause* clause = jimArgsToClause(argc, argv);
+
+    Say(clause, sourceFileName, sourceLineNumber);
+    return JIM_OK;
+}
+static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* clause = jimArgsToClause(argc - 2, argv + 2);
+
+    const char* sourceFileName;
+    long sourceLineNumber;
+    sourceFileName = Jim_String(argv[1]);
+    if (sourceFileName == NULL) { return JIM_ERR; }
+    if (Jim_GetLong(interp, argv[2], &sourceLineNumber) == JIM_ERR) {
+        return JIM_ERR;
+    }
+
+    Say(clause, sourceFileName, (int) sourceLineNumber);
+    return JIM_OK;
+}
+
 static void destructorHelper(void* arg) {
     // This dispatches an evaluation task to the global queue, so that
     // this function can be invoked from sysmon (which doesn't have
@@ -449,6 +469,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 

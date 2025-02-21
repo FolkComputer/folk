@@ -324,9 +324,9 @@ Destructor true \[list \$::envLib decrRefCount {$envId}]"
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
-    # Make sure we don't put it on a new line (it'd throw line numbers
-    # off).
     set body [lindex $args end]
+    set sourceInfo [info source $body]
+
     set args [lreplace $args end end]
 
     set isNonCapturing false
@@ -399,9 +399,13 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        tailcall Say when the collected matches for $pattern are /__matches/ [list [list __matches] $negateBody] with environment $env
+        tailcall SayWithSource {*}$sourceInfo \
+            when the collected matches for $pattern are /__matches/ \
+            [list [list __matches] $negateBody] with environment $env
     } else {
-        tailcall Say when {*}$pattern [list $varNamesWillBeBound $body] with environment $env
+        tailcall SayWithSource {*}$sourceInfo \
+            when {*}$pattern \
+            [list $varNamesWillBeBound $body] with environment $env
     }
 }
 proc Every {_time args} {
