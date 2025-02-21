@@ -280,11 +280,9 @@ void statementRelease(Db* db, Statement* stmt) {
         // Marks this statement slot as being fully free and ready for
         // reuse.
         stmt->clause = NULL;
-#ifdef FOLK_TRACE
-#else
+
         /* TracyCFreeS(stmt, 4); */
         clauseFree(stmtClause);
-#endif
     }
 }
 

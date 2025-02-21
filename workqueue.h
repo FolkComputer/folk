@@ -8,10 +8,6 @@ typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, RUN, EVAL } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
 
-    // Thread constraint: if thread is >= 0, then this work item will
-    // only be processed on the thread with that thread ID.
-    int thread;
-
     // Clause pointers are the responsibility of the user of the
     // workqueue to keep alive (and to free once a work item is
     // processed). The workqueue does not itself copy or own or free

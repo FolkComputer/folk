@@ -21,7 +21,6 @@
 #include "db.h"
 #include "common.h"
 #include "sysmon.h"
-#include "trace.h"
 #include "cache.h"
 
 ThreadControlBlock threads[THREADS_MAX];
@@ -85,10 +84,6 @@ __thread Jim_Interp* interp = NULL;
 __thread Cache* cache = NULL;
 
 Db* db;
-
-char traceHead[TRACE_HEAD_COUNT][TRACE_ENTRY_SIZE];
-char traceTail[TRACE_TAIL_COUNT][TRACE_ENTRY_SIZE];
-int _Atomic traceNextIdx = 0;
 
 static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
@@ -181,7 +176,6 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = ASSERT,
-       .thread = -1,
        .assert = {
            .clause = clause,
            .sourceFileName = strdup(sourceFileName),
@@ -197,7 +191,6 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
-       .thread = -1,
        .retract = { .pattern = pattern }
     });
 
@@ -274,14 +267,7 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         sourceLineNumber = -1;
     }
 
-    Clause* clause;
-    int thread = -1;
-    if (Jim_String(argv[1])[0] == '@') {
-        clause = jimArgsToClause(argc - 1, argv + 1);
-        thread = atoi(Jim_String(argv[1]));
-    } else {
-        clause = jimArgsToClause(argc, argv);
-    }
+    Clause* clause = jimArgsToClause(argc, argv);
 
     MatchRef parent;
     if (self->currentMatch) {
@@ -293,7 +279,6 @@ static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
                 s);
         free(s);
     }
-
 
     StatementRef ref;
     ref = dbInsertOrReuseStatement(db, clause,
@@ -315,7 +300,6 @@ static void destructorHelper(void* arg) {
 
     globalWorkQueuePush((WorkQueueItem) {
             .op = EVAL,
-            .thread = -1,
             .eval = { .code = code }
         });
 }
@@ -625,7 +609,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN,
-       .thread = -1,
        .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
     });
 }
@@ -921,22 +904,6 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "???");
     }
 }
-void trace(const char* format, ...) {
-    int traceIdx = traceNextIdx++;
-
-    char* dest = (traceIdx < TRACE_HEAD_COUNT) ?
-        traceHead[traceIdx] :
-        traceTail[(traceIdx - TRACE_HEAD_COUNT) % TRACE_TAIL_COUNT];
-    size_t n = TRACE_ENTRY_SIZE;
-    n -= snprintf(dest, n, "%d: ", self == NULL ? -1 : self->index);
-
-    dest += TRACE_ENTRY_SIZE - n;
-
-    va_list args;
-    va_start(args, format);
-    vsnprintf(dest, n, format, args);
-    va_end(args);
-}
 
 ssize_t unsafe_workQueueSize(WorkQueue* q);
 __thread unsigned int seedp;
@@ -971,19 +938,6 @@ void workerLoop() {
         }
         if (item.op == NONE) {
             continue;
-        }
-
-#ifdef FOLK_TRACE
-        char buf[1000]; traceItem(buf, sizeof(buf), item);
-        trace("%s", buf);
-#endif
-
-        if (item.op != NONE &&
-            item.thread != -1 &&
-            item.thread != self->index) {
-
-            fprintf(stderr, "folk: UNIMPLEMENTED: wrong thread for item\n");
-            exit(1);
         }
 
         workerRun(item);
