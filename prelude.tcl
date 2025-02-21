@@ -431,7 +431,7 @@ proc Every {_time args} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]
             set body "set _unmatchRef \[__currentMatchRef]
-set __results \[Query! {*}$restPatterns]
+set __results \[Query! {*}{$restPatterns}]
 foreach __result \$__results { dict with __result {
 $body
 } }
@@ -459,7 +459,8 @@ proc On {event args} {
 }
 
 # Query! is like QuerySimple! but with added support for & joins, and
-# it'll automatically also test /someone/ claims.
+# it'll automatically also test the claimized pattern (with `/someone/
+# claims` prepended).
 proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
@@ -523,6 +524,7 @@ proc Query! {args} {
             }
         }
     }
+    return $results
 }
 
 set ::thisNode [info hostname]
