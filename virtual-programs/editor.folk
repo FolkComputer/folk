@@ -69,6 +69,7 @@ fn insertCharacter {code newCharacter cursor} {
   set line [lindex $lines $y]
 
   if {$x < 0} {
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
     lset lines $y [string cat $newCharacter $line]
     return [join $lines "\n"]
   } else {
@@ -98,6 +99,8 @@ fn deleteCharacter {code cursor} {
   } else {
     set line [lindex $lines $y]
     set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
     lset lines $y $line
   }
   return [join $lines "\n"]
@@ -119,6 +122,8 @@ fn insertNewline {code cursor} {
   set beforeCursor [string range $line 0 [expr {$x - 1}]]
   set afterCursor [string range $line $x end]
   set newLines [list $beforeCursor $afterCursor]
+
+  if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
   lset lines $y [join $newLines "\n"]
   return [join $lines "\n"]
 }
