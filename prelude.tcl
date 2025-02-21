@@ -27,12 +27,27 @@ proc unknown {cmdName args} {
         tailcall $cmdName {*}$args
 
     } else {
-        try {
-            set fnVar ^$cmdName; upvar $fnVar fn
-            if {[info exists fn]} {
-                tailcall {*}$fn {*}$args
+        upvar ^$cmdName fn
+        if {[info exists fn]} {
+            lassign $fn argNames body sourceInfo capturedEnvId
+            if {[info source $body] ne $sourceInfo} {
+                set body [info source $body {*}$sourceInfo]
             }
-        } on error e {}
+
+            set env [$::envLib get $capturedEnvId]
+            if {$env eq ""} { error "Environment invalidated" }
+            lassign $env capturedNames capturedValues
+
+            set capturedEnv [dict create]
+            foreach name $capturedNames value $capturedValues {
+                dict set capturedEnv $name $value
+            }
+
+            dict with capturedEnv {
+                proc $cmdName $argNames $capturedNames $body
+            }
+            tailcall $cmdName {*}$args
+        }
     }
 
     tailcall error "Unknown command '$cmdName'"
@@ -174,18 +189,15 @@ proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
         puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
-        # FIXME: how do I get this?  Recall that evaluateWhenBlock is
-        # being called _straight_ from runWhenBlock (C context) --
-        # there are no Tcl frames above it.
         Say $this has error $err with info $opts
     }
 }
 
 proc fn {name argNames body} {
-    # Creates a variable in the caller scope called ^$name. unknown
-    # implementation (later in this file) will try ^$name on call.
-    set capturedEnv [uplevel captureEnv]
-    uplevel [list set ^$name [list applyBlock [list $argNames $body] $capturedEnv]]
+    # Creates a variable in the caller scope called ^$name. Our custom
+    # unknown implementation will check ^$name on call.
+    set capturedEnvId [uplevel captureEnv]
+    uplevel [list set ^$name [list $argNames $body [info source $body] $capturedEnvId]]
 }
 
 proc assert condition {
