@@ -122,8 +122,8 @@ set ::envLib [apply {{} {
         if (--env->rc == 0) {
             epochBegin();
 
-            epochFree(env->data);
-            epochFree(env);
+//            epochFree(env->data);
+//            epochFree(env);
 
             epochEnd();
         }
