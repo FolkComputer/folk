@@ -156,6 +156,7 @@ proc captureEnv {} {
             # Insert env into the environment store.
             set __envId [$::envLib insert $env]
 
+            # FIXME: what about when this is called from fn?
             Destructor true [list $::envLib decrRefCount $__envId]
         }
 
