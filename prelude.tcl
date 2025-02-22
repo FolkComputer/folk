@@ -134,36 +134,54 @@ set ::envLib [apply {{} {
 proc captureEnv {} {
     # Capture the lexical environment at the caller, then store it in
     # the environment store.
-    set envId [uplevel {
-        set locals [info locals]
 
-        set envNames [list]
-        set envValues [list]
-        # Get all variables and serialize them, to fake lexical scope.
-        foreach __name $locals {
-            if {![string match "__*" $__name]} {
-                lappend envNames $__name
-                lappend envValues [set $__name]
+    set envNames [list]
+    set envValues [list]
+
+    set fnEnvIds [dict create]
+
+    # Get all variables and serialize them, to fake lexical scope.
+    foreach name [uplevel {info locals}] {
+        if {[string match "__*" $name]} { continue }
+
+        lappend envNames $name
+
+        upvar $name value
+        lappend envValues $value
+
+        if {[string index $name 0] eq "^"} {
+            # This is a function with its own captured
+            # environment. We want to retain that captured
+            # environment as long as this _new_ environment we're
+            # capturing now lives.
+            set fnEnvId [lindex $value 3]
+            dict set fnEnvIds $fnEnvId {}
+        }
+    }
+    set env [list $envNames $envValues]
+
+    dict for {fnEnvId _} $fnEnvIds {
+        $::envLib incrRefCount $fnEnvId
+    }
+
+    # Put the captured environment into the env store and store it in
+    # the caller's scope:
+    upvar __envId __envId
+    if {[info exists __envId]} {
+        # Update the existing env in the environment store.
+        $::envLib update $__envId $env
+    } else {
+        # Insert env into the environment store.
+        set __envId [$::envLib insert $env]
+
+        uplevel [list Destructor true [list apply {{envId fnEnvIds} {
+            $::envLib decrRefCount $envId
+            dict for {fnEnvId _} $fnEnvIds {
+                $::envLib decrRefCount $fnEnvId
             }
-        }
-        set env [list $envNames $envValues]
-
-        # Put the captured environment into the env store:
-        if {[info exists __envId]} {
-            # Update env in the environment store.
-            $::envLib update $__envId $env
-        } else {
-            # Insert env into the environment store.
-            set __envId [$::envLib insert $env]
-
-            # FIXME: what about when this is called from fn?
-            Destructor true [list $::envLib decrRefCount $__envId]
-        }
-
-        unset locals envNames envValues env
-        set __envId
-    }]
-    return $envId
+        }} $__envId $fnEnvIds]]
+    }
+    return $__envId
 }
 
 proc applyBlock {lambdaExpr capturedEnvId args} {
@@ -178,9 +196,12 @@ proc applyBlock {lambdaExpr capturedEnvId args} {
     }
 
     set names [list]
-    foreach capturedName $capturedNames {
+    for {set i 0} {$i < [llength $capturedNames]} {incr i} {
+        set capturedName [lindex $capturedNames $i]
         if {[string index $capturedName 0] eq "^"} {
-            # Delete any old version of the fn.
+            # Delete any old version of the fn that may exist in
+            # command-space. We want to reload this one when it gets
+            # called.
             try {
                 rename [string index $capturedName 1 end] {}
             } on error e {}
