@@ -730,8 +730,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     - fix close-tab
     - ~~fix stdout~~
 - ~~don't deserialize whole keymap on every keypress (10ms)~~
-- editor render loop blinks out sometimes
-- fn env retention is broken
+- **editor render loop blinks out sometimes**
+- ~~fn env retention is broken~~
 - only intern long strings?
+- fix new memory leak
+- **fix ebr double free with envs?**
+
 
 

@@ -1,13 +1,13 @@
 Assert! we are on
 
-set errorMakingProc {{} {
+fn errorMakingProc {} {
     error "making an error (this is expected & will be caught)"
-}}
+}
 
-Assert! when we are on {{errorMakingProc} {
+When we are on {
     When the time is /t/ {
         if {$t % 5 == 0} {
-            apply $errorMakingProc ;# line 10
+            errorMakingProc ;# line 10
         }
     }
 
@@ -16,7 +16,8 @@ Assert! when we are on {{errorMakingProc} {
         set filename [lindex $stacktrace 1]
         set lineno [lindex $stacktrace 2]
         assert {$filename eq "test/backtrace.folk"}
-        assert {$lineno == 10}
+        assert {$lineno == 4}
+        puts "SUCCESS!"
         __exit 0
     }
 
@@ -27,6 +28,4 @@ Assert! when we are on {{errorMakingProc} {
         sleep 0.3
     }
 
-}} with environment [list $errorMakingProc]
-
-
+}

@@ -38,6 +38,9 @@ test: folk
 		echo "--------------------"; \
 		./folk $$test ; \
 	done
+test/%: test/%.folk folk
+	./folk $<
+
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o
 remote-clean:

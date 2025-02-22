@@ -1081,7 +1081,7 @@ int main(int argc, char** argv) {
     int cpuUsableCount = cpuCount - 1;
 #else
     // HACK: for macOS.
-    int cpuUsableCount = 3;
+    int cpuUsableCount = 4;
 #endif
 
     threadCount = 1; // i.e., this current thread.
@@ -1102,12 +1102,13 @@ int main(int argc, char** argv) {
 
     workerInit(0);
 
-    if (argc == 1) {
-        eval("source boot.folk");
-    } else {
-        char code[100]; snprintf(code, 100, "source %s", argv[1]);
-        eval(code);
-    }
+    // We wrap the boot program in an empty When so that it lives in a
+    // context that can run When/Claim/Wish right away.
+    char code[1024];
+    snprintf(code, sizeof(code),
+             "Assert! when {{} {source {%s}}} with environment {}",
+             argc == 1 ? "boot.folk" : argv[1]);
+    eval(code);
 
 #ifdef __APPLE__
     if (argc == 1) {
