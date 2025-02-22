@@ -57,7 +57,7 @@ kill-folk:
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
 		sudo kill -9 $$OLD_PID; \
-		while kill -0 $$OLD_PID; do sleep 0.2; done; \
+		while sudo kill -0 $$OLD_PID; do sleep 0.2; done; \
 	fi
 
 FOLK_REMOTE_NODE := folk-live

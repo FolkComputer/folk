@@ -76,20 +76,31 @@ set ::envLib [apply {{} {
 
     $cc code {
         typedef struct Env {
+            // other threads may read & write.
             int _Atomic rc;
+
+            // other threads may read.
             char* _Atomic data;
+
+            // only owning thread & destroyer will read and write.
+            struct Env* pointsTo[50];
         } Env;
     }
     # insert can be called from any thread at any time.
-    $cc proc insert {char* data} Env* {
-        Env *env = malloc(sizeof(Env));
-        env->data = strdup(data);
+    $cc proc insert {char* data Env*[] pointsTo int pointsToCount} Env* {
+        Env *env = calloc(sizeof(Env), 1);
         env->rc = 1;
+
+        env->data = strdup(data);
+        assert(pointsToCount < 50);
+        for (int i = 0; i < pointsToCount; i++) {
+            env->pointsTo[i] = pointsTo[i];
+        }
         return env;
     }
     # update can only be called from the same thread that did the
     # original insert and got that idx.
-    $cc proc update {Env* env char* data} void {
+    $cc proc update {Env* env char* data Env*[] pointsTo int pointsToCount} void {
         epochBegin();
 
         char *oldData = env->data;
@@ -97,6 +108,11 @@ set ::envLib [apply {{} {
         if (atomic_compare_exchange_weak(&env->data,
                                          &oldData, newData)) {
             epochFree(oldData);
+
+            memset(env->pointsTo, 0, sizeof(env->pointsTo));
+            for (int i = 0; i < pointsToCount; i++) {
+                env->pointsTo[i] = pointsTo[i];
+            }
         } else {
             // If not, then it must have been removed already.
             FOLK_ENSURE(oldData == NULL);
@@ -120,10 +136,16 @@ set ::envLib [apply {{} {
     }
     $cc proc decrRefCount {Env* env} void {
         if (--env->rc == 0) {
+            for (int i = 0; i < 50; i++) {
+                if (env->pointsTo[i] != NULL) {
+                    decrRefCount(env->pointsTo[i]);
+                }
+            }
+
             epochBegin();
 
-//            epochFree(env->data);
-//            epochFree(env);
+            epochFree(env->data);
+            epochFree(env);
 
             epochEnd();
         }
@@ -160,7 +182,8 @@ proc captureEnv {} {
     }
     set env [list $envNames $envValues]
 
-    dict for {fnEnvId _} $fnEnvIds {
+    set fnEnvIds [dict keys $fnEnvIds]
+    foreach fnEnvId $fnEnvIds {
         $::envLib incrRefCount $fnEnvId
     }
 
@@ -169,17 +192,14 @@ proc captureEnv {} {
     upvar __envId __envId
     if {[info exists __envId]} {
         # Update the existing env in the environment store.
-        $::envLib update $__envId $env
+        $::envLib update $__envId $env $fnEnvIds [llength $fnEnvIds]
     } else {
         # Insert env into the environment store.
-        set __envId [$::envLib insert $env]
+        set __envId [$::envLib insert $env $fnEnvIds [llength $fnEnvIds]]
 
-        uplevel [list Destructor true [list apply {{envId fnEnvIds} {
+        uplevel [list Destructor true [list apply {{envId} {
             $::envLib decrRefCount $envId
-            dict for {fnEnvId _} $fnEnvIds {
-                $::envLib decrRefCount $fnEnvId
-            }
-        }} $__envId $fnEnvIds]]
+        }} $__envId]]
     }
     return $__envId
 }

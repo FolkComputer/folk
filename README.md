@@ -656,6 +656,7 @@ Capitalized namespace, like `Statements`.
 - Arcade Wise: fonts
 - s-ol bekic: WebSocket library, keyboard locale support
 - terminal subsystem
+- Mason Jones: tag stabilization
 
 ## requirements
 
@@ -667,7 +668,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 ## todo
 
-- adjust stack record if When is multiline
+- ~~adjust stack record if When is multiline~~
 - ~~consistent name for sustain/ttl/remove-later~~
 - ~~reap threads that got caught up on some long-running activity so
   that we aren't just monotonically growing thread count~~
@@ -719,8 +720,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **use quads instead of regions**
 - optimize jpeg decoding
 - vendor wslay?
-- fix horrible lexical pileup in calibration?
-  - or serialize/cache the object graph in a nicer way?
+- ~~fix horrible lexical pileup in calibration?~~
+  - ~~or serialize/cache the object graph in a nicer way?~~
 - ~~fix editor resetting on movement~~
 - ports
   - ~~keyboard/editor port~~
@@ -728,7 +729,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - calibration process
     - fix close-tab
     - ~~fix stdout~~
-- don't deserialize whole keymap on every keypress (10ms)
-- editor render loop is slow
+- ~~don't deserialize whole keymap on every keypress (10ms)~~
+- editor render loop blinks out sometimes
+- fn env retention is broken
+- only intern long strings?
 
 
