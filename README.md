@@ -735,6 +735,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - only intern long strings?
 - fix new memory leak
 - **fix ebr double free with envs?**
+- try the shimmer hack where shimmers ('set from any') allocate a copy
+  for the lifetime of the current function w/ cleanup attribute &
+  macro hackery
 
 
 

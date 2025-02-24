@@ -143,7 +143,6 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *const 
     Jim_Obj **resultObj, int flags);
 static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands);
 static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr);
-static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr);
 static void JimSetFailedEnumResult(Jim_Interp *interp, const char *arg, const char *badtype,
     const char *prefix, const char *const *tablePtr, const char *name);
 static int JimCallProcedure(Jim_Interp *interp, Jim_Cmd *cmd, int argc, Jim_Obj *const *argv);
@@ -2391,11 +2390,44 @@ static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_
     Jim_IncrRefCount(dupPtr->internalRep.dictSubstValue.indexObjPtr);
 }
 
+static __thread Jim_Obj *transient_objs[1024];
+static __thread int next_transient_obj_idx = 0;
+
+static Jim_Obj *TransientDuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    Jim_Obj *retObj = Jim_DuplicateObj(interp, objPtr);
+    JimPanic((next_transient_obj_idx >= sizeof(transient_objs)/sizeof(transient_objs[0]),
+              "ran out of transient obj slots"));
+    transient_objs[next_transient_obj_idx++] = retObj;
+    return retObj;
+}
+
+void Jim_FreeTransientObjs(Jim_Interp *interp)
+{
+    for (int i = 0; i < next_transient_obj_idx; i++) {
+        Jim_DecrRefCount(interp, transient_objs[i]);
+    }
+    next_transient_obj_idx = 0;
+}
+
+#define SetXFromAny(X, interp, objPtr) \
+    ((objPtr = Jim_IsImmortal(objPtr) ? \
+      TransientDuplicateObj(interp, objPtr) : \
+      objPtr), \
+     Set##X##FromAnyInPlace(interp, objPtr))
+#define SetXFromAnyWithFlags(X, interp, objPtr, flags) \
+    ((objPtr = Jim_IsImmortal(objPtr) ? \
+      TransientDuplicateObj(interp, objPtr) : \
+      objPtr), \
+     Set##X##FromAnyInPlace(interp, objPtr, flags))
+
 /* -----------------------------------------------------------------------------
  * String Object
  * ---------------------------------------------------------------------------*/
 static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+
+/* static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetStringFromAny(interp, objPtr) SetXFromAny(String, interp, objPtr)
 
 static const Jim_ObjType stringObjType = {
     "string",
@@ -2418,7 +2450,7 @@ static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *d
     dupPtr->internalRep.strValue.charLength = srcPtr->internalRep.strValue.charLength;
 }
 
-static int SetStringFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static int SetStringFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->typePtr != &stringObjType) {
         /* Get a fresh string representation. */
@@ -3328,7 +3360,9 @@ typedef struct ScriptObj
     int missing;                /* Missing char if script failed to parse, (or space or backslash if OK) */
 } ScriptObj;
 
-static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define JimSetScriptFromAny(interp, objPtr) SetXFromAny(Script, interp, objPtr)
+
 static int JimParseCheckMissing(Jim_Interp *interp, int ch);
 static ScriptObj *JimGetScript(Jim_Interp *interp, Jim_Obj *objPtr);
 
@@ -3699,7 +3733,7 @@ static void SubstObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
  * On parse error, sets an error message and returns JIM_ERR
  * (Note: the object is still converted to a script, even if an error occurs)
  */
-static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static void SetScriptFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int scriptTextLen;
     const char *scriptText = Jim_GetString(objPtr, &scriptTextLen);
@@ -4466,7 +4500,8 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 
 #define JIM_DICT_SUGAR 100      /* Only returned by SetVariableFromAny() */
 
-static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetVariableFromAny(interp, objPtr) SetXFromAny(Variable, interp, objPtr)
 
 static const Jim_ObjType variableObjType = {
     "variable",
@@ -4481,7 +4516,7 @@ static const Jim_ObjType variableObjType = {
  * JIM_ERR if it does not exist, JIM_DICT_SUGAR if it's not
  * a variable name, but syntax glue for [dict] i.e. the last
  * character is ')' */
-static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetVariableFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     const char *varName;
     Jim_CallFrame *framePtr;
@@ -4917,6 +4952,10 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
 
 /* ----------  Dict syntax sugar (similar to array Tcl syntax) -------------- */
 
+static void SetDictSubstFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr);
+/* static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr); */
+#define SetDictSubstFromAny(interp, objPtr) SetXFromAny(DictSubst, interp, objPtr)
+
 /* Given a variable name for [dict] operation syntax sugar,
  * this function returns two objects, the first with the name
  * of the variable to set, and the second with the respective key.
@@ -5044,7 +5083,7 @@ static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj
 }
 
 /* Note: The object *must* be in dict-sugar format */
-static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static void SetDictSubstFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->typePtr != &dictSubstObjType) {
         Jim_Obj *varObjPtr, *keyObjPtr;
@@ -5357,7 +5396,9 @@ static int isrefchar(int c)
     return (c == '_' || isalnum(c));
 }
 
-static int SetReferenceFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+/* static int SetReferenceFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetReferenceFromAny(interp, objPtr) SetXFromAny(Reference, interp, objPtr)
+static int SetReferenceFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     unsigned long value;
     int i, len;
@@ -6063,7 +6104,9 @@ int Jim_GetExitCode(Jim_Interp *interp)
  * Integer object
  * ---------------------------------------------------------------------------*/
 static void UpdateStringOfInt(struct Jim_Obj *objPtr);
-static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+/* static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags); */
+#define SetIntFromAny(interp, objPtr, flags) \
+    SetXFromAnyWithFlags(Int, interp, objPtr, flags)
 
 static const Jim_ObjType intObjType = {
     "int",
@@ -6126,7 +6169,7 @@ static void UpdateStringOfInt(struct Jim_Obj *objPtr)
     JimSetStringBytes(objPtr, buf);
 }
 
-static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
+static int SetIntFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     jim_wide wideValue;
     const char *str;
@@ -6243,7 +6286,8 @@ Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
 #define JIM_DOUBLE_SPACE 30
 
 static void UpdateStringOfDouble(struct Jim_Obj *objPtr);
-static int SetDoubleFromAny(Jim_Interp *interp, Jim_Obj *objPtr);
+/* static int SetDoubleFromAny(Jim_Interp *interp, Jim_Obj *objPtr); */
+#define SetDoubleFromAny(interp, objPtr) SetXFromAny(Double, interp, objPtr)
 
 static const Jim_ObjType doubleObjType = {
     "double",
@@ -6310,7 +6354,7 @@ static void UpdateStringOfDouble(struct Jim_Obj *objPtr)
     }
 }
 
-static int SetDoubleFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static int SetDoubleFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     double doubleValue;
     jim_wide wideValue;
@@ -6388,7 +6432,10 @@ Jim_Obj *Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue)
 /* -----------------------------------------------------------------------------
  * Boolean conversion
  * ---------------------------------------------------------------------------*/
-static int SetBooleanFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+static int SetBooleanFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+/* static int SetBooleanFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags); */
+#define SetBooleanFromAny(interp, objPtr, flags) \
+    SetXFromAnyWithFlags(Boolean, interp, objPtr, flags)
 
 int Jim_GetBoolean(Jim_Interp *interp, Jim_Obj *objPtr, int * booleanPtr)
 {
@@ -6408,7 +6455,7 @@ static const int jim_true_false_lens[8] = {
     1, 5, 2, 3,
 };
 
-static int SetBooleanFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
+static int SetBooleanFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     int index = Jim_FindByName(Jim_String(objPtr), jim_true_false_strings,
         sizeof(jim_true_false_strings) / sizeof(*jim_true_false_strings));
@@ -6435,7 +6482,8 @@ static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr);
 static void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfList(struct Jim_Obj *objPtr);
-static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetListFromAny(interp, objPtr) SetXFromAny(List, interp, objPtr)
 
 /* Note that while the elements of the list may contain references,
  * the list object itself can't. This basically means that the
@@ -6726,7 +6774,7 @@ static void UpdateStringOfList(struct Jim_Obj *objPtr)
     JimMakeListStringRep(objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
 }
 
-static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetListFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     struct JimParserCtx parser;
     const char *str;
@@ -7387,7 +7435,8 @@ Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstOb
 static void FreeDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfDict(struct Jim_Obj *objPtr);
-static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetDictFromAny(interp, objPtr) SetXFromAny(Dict, interp, objPtr)
 
 /* Dict Type.
  *
@@ -7634,7 +7683,7 @@ static void UpdateStringOfDict(struct Jim_Obj *objPtr)
     JimMakeListStringRep(objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
 }
 
-static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetDictFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int listlen;
 
@@ -7973,7 +8022,8 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
  * Index object
  * ---------------------------------------------------------------------------*/
 static void UpdateStringOfIndex(struct Jim_Obj *objPtr);
-static int SetIndexFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static int SetIndexFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetIndexFromAny(interp, objPtr) SetXFromAny(Index, interp, objPtr)
 
 static const Jim_ObjType indexObjType = {
     "index",
@@ -8001,7 +8051,7 @@ static void UpdateStringOfIndex(struct Jim_Obj *objPtr)
     }
 }
 
-static int SetIndexFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static int SetIndexFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     jim_wide idx;
     int end = 0;
@@ -8130,7 +8180,8 @@ const char *Jim_ReturnCode(int code)
     }
 }
 
-static int SetReturnCodeFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+#define SetReturnCodeFromAny(interp, objPtr) SetXFromAny(ReturnCode, interp, objPtr)
+static int SetReturnCodeFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int returnCode;
     jim_wide wideValue;
@@ -9262,7 +9313,8 @@ const char *jim_tt_name(int type)
  * ---------------------------------------------------------------------------*/
 static void FreeExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupExprInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+/* static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
+#define SetExprFromAny(interp, objPtr) SetXFromAny(Expr, interp, objPtr)
 
 static const Jim_ObjType exprObjType = {
     "expression",
@@ -9669,7 +9721,7 @@ static struct ExprTree *ExprTreeCreateTree(Jim_Interp *interp, const ParseTokenL
 
 /* This method takes the string representation of an expression
  * and generates a program for the expr engine */
-static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetExprFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int exprTextLen;
     const char *exprText;
@@ -10096,7 +10148,8 @@ static void UpdateStringOfScanFmt(Jim_Obj *objPtr)
  * JIM_ERR to indicate unsucessful parsing (aka. malformed scanformat
  * specification */
 
-static int SetScanFmtFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+#define SetScanFmtFromAny(interp, objPtr) SetXFromAny(ScanFmt, interp, objPtr)
+static int SetScanFmtFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     ScanFmtStringObj *fmtObj;
     char *buffer;
@@ -11768,7 +11821,10 @@ static void JimParseSubst(struct JimParserCtx *pc, int flags)
 /* This method takes the string representation of an object
  * as a Tcl string where to perform [subst]itution, and generates
  * the pre-parsed internal representation. */
-static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags)
+
+#define SetSubstFromAny(interp, objPtr, flags) \
+    SetXFromAnyWithFlags(Subst, interp, objPtr, flags)
+static int SetSubstFromAnyInPlace(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags)
 {
     int scriptTextLen;
     const char *scriptText = Jim_GetString(objPtr, &scriptTextLen);
@@ -16030,15 +16086,16 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         Jim_WrongNumArgs(interp, 1, argv, "string format ?varName varName ...?");
         return JIM_ERR;
     }
-    if (argv[2]->typePtr != &scanFmtStringObjType)
-        SetScanFmtFromAny(interp, argv[2]);
-    if (FormatGetError(argv[2]) != 0) {
-        Jim_SetResultString(interp, FormatGetError(argv[2]), -1);
+    Jim_Obj *argv2 = argv[2];
+    if (argv2->typePtr != &scanFmtStringObjType)
+        SetScanFmtFromAny(interp, argv2);
+    if (FormatGetError(argv2) != 0) {
+        Jim_SetResultString(interp, FormatGetError(argv2), -1);
         return JIM_ERR;
     }
     if (argc > 3) {
-        int maxPos = FormatGetMaxPos(argv[2]);
-        int count = FormatGetCnvCount(argv[2]);
+        int maxPos = FormatGetMaxPos(argv2);
+        int count = FormatGetCnvCount(argv2);
 
         if (maxPos > argc - 3) {
             Jim_SetResultString(interp, "\"%n$\" argument index out of range", -1);
@@ -16055,7 +16112,7 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             return JIM_ERR;
         }
     }
-    listPtr = Jim_ScanString(interp, argv[1], argv[2], JIM_ERRMSG);
+    listPtr = Jim_ScanString(interp, argv[1], argv2, JIM_ERRMSG);
     if (listPtr == 0)
         return JIM_ERR;
     if (argc > 3) {

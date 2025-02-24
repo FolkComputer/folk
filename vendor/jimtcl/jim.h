@@ -366,6 +366,8 @@ typedef struct Jim_Obj {
     if (--(objPtr)->refCount <= 0) Jim_FreeObj(interp, objPtr)
 #define Jim_IsShared(objPtr) \
     ((objPtr)->refCount > 1)
+#define Jim_IsImmortal(objPtr) \
+    ((objPtr)->refCount == INT_MAX)
 
 /* This macro is used when we allocate a new object using
  * Jim_New...Obj(), but for some error we need to destroy it.
