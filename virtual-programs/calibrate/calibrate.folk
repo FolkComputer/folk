@@ -384,6 +384,9 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                                            [list /someone/ claims the default program geometry is /defaultGeom/]] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
+    set camera [dict get [lindex [Statements::findMatches \
+                                      [list /someone/ claims camera /camera/ has width /cameraWidth/ height /cameraHeight/]] 0] camera]
+
     upvar ^html ^html
     html [csubst {
       <html>
@@ -464,15 +467,15 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               });
             </script>
 
-            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <strong>so that at least one projected tag sits inside the gap between printed AprilTags</strong>, wait a second for the projected tags to refit into the grid,
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
           then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
 
             <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
-            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibration the Folk0 system (playing at 2x speed).</p>
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
 
-            <p>Are the projected tags too big to fit in the gaps between printed tags? Adjust this slider to reset & adjust the default projected tag size:
+            <p><strong>Are the projected tags too big to fit in the gaps between printed tags?</strong> Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
             </p>
             <script>
@@ -486,7 +489,25 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
-          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
+          <p><strong>Is the projection too bright and washing out the camera?</strong> Adjust this slider to adjust camera exposure:
+            <input type="range" min="10" max="160" value="100" class="slider" id="camera-exposure-slider">
+          </p>
+          <script>
+           let lastRefreshTimeout = null;
+           document.getElementById('camera-exposure-slider').addEventListener('input', (e) => {
+             ws.evaluate(tcl`
+                  Wish camera $camera uses exposure time \${e.target.value*100} us
+             `);
+             if (lastRefreshTimeout != null) {
+               window.clearTimeout(lastRefreshTimeout);
+             }
+             lastRefreshTimeout = setTimeout(() => {
+               cameraFrame.src = cameraFrame.src + '0';
+             }, 500);
+           });
+          </script>
+
+          <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
           <p>Repeat this process of dragging the board around and
           capturing a new pose. You'll need to record 10 different
@@ -670,10 +691,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
         # TODO: restore old camera resolution later
     }
-
-    # HACK: hard-coded for now; assumes dark room. Won't work on USB
-    # webcams yet, either (just Pi).
-    Wish camera $camera uses exposure time 16000 us
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
