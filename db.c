@@ -560,14 +560,11 @@ static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
     listOfEdgeToAdd(statementChecker, db,
                     &match->childStatements, child.val);
 }
-void matchAddDestructor(Match* m, bool addAtEnd,
-                        void (*fn)(void*), void* arg) {
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
     pthread_mutex_lock(&m->destructorsMutex);
     int destructorsMax = sizeof(m->destructors)/sizeof(m->destructors[0]);
-    int start = addAtEnd ? destructorsMax - 1 : -1;
-    int end = addAtEnd ? 0 : destructorsMax;
     int i;
-    for (i = start; i != end; addAtEnd ? i-- : i++) {
+    for (i = 0; i < destructorsMax; i++) {
         if (m->destructors[i].fn == NULL) {
             m->destructors[i].fn = fn;
             m->destructors[i].arg = arg;
@@ -575,7 +572,7 @@ void matchAddDestructor(Match* m, bool addAtEnd,
         }
     }
     pthread_mutex_unlock(&m->destructorsMutex);
-    if (i == end) {
+    if (i == destructorsMax) {
         fprintf(stderr, "matchAddDestructor: Failed\n"); exit(1);
     }
 }

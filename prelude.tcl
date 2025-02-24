@@ -157,6 +157,11 @@ proc captureEnv {} {
     # Capture the lexical environment at the caller, then store it in
     # the environment store.
 
+    # TODO/HACK: if any previously-captured variable values have
+    # changed, we could allocate a new env so that it presents as a
+    # fresh statement term and triggers actions. it is OK if new
+    # variables have been added, though.
+
     set envNames [list]
     set envValues [list]
 
@@ -170,6 +175,10 @@ proc captureEnv {} {
 
         upvar $name value
         lappend envValues $value
+
+        # if {[dict exists $prevEnv $name] && $prevValue ne $value} {
+        #     # TODO: allocate a new environment.
+        # }
 
         if {[string index $name 0] eq "^"} {
             # This is a function with its own captured
@@ -197,7 +206,7 @@ proc captureEnv {} {
         # Insert env into the environment store.
         set __envId [$::envLib insert $env $fnEnvIds [llength $fnEnvIds]]
 
-        uplevel [list Destructor true [list apply {{envId} {
+        uplevel [list Destructor [list apply {{envId} {
             $::envLib decrRefCount $envId
         }} $__envId]]
     }
@@ -369,7 +378,7 @@ proc Hold! {args} {
 
         $::envLib incrRefCount $envId
         append body "
-Destructor true \[list \$::envLib decrRefCount {$envId}]"
+Destructor \[list \$::envLib decrRefCount {$envId}]"
     }
     tailcall HoldStatement! {*}$args \
         [list when [list {} $body] with environment $envId]
@@ -492,8 +501,10 @@ Unmatch! \$_unmatchRef"
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        set env [uplevel captureEnv]
-        Destructor false [list applyBlock [list {} $body] $env]
+        set envId [uplevel captureEnv]
+        $::envLib incrRefCount $envId
+        Destructor "applyBlock {{} {$body}} {$envId}
+\$::envLib decrRefCount {$envId}"
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }

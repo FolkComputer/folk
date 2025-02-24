@@ -324,11 +324,10 @@ static void destructorHelper(void* arg) {
         });
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3);
-    int addAtEnd; Jim_GetBoolean(interp, argv[1], &addAtEnd);
-    matchAddDestructor(self->currentMatch, addAtEnd,
+    assert(argc == 2);
+    matchAddDestructor(self->currentMatch,
                        destructorHelper,
-                       strdup(Jim_GetString(argv[2], NULL)));
+                       strdup(Jim_GetString(argv[1], NULL)));
     return JIM_OK;
 }
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -864,7 +863,8 @@ void workerRun(WorkQueueItem item) {
         int error = Jim_Eval(interp, code);
         if (error == JIM_ERR) {
             Jim_MakeErrorMessage(interp);
-            fprintf(stderr, "destructorHelper: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+            fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
+                    code, Jim_String(Jim_GetResult(interp)));
         }
         free(code);
 

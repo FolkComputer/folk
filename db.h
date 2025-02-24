@@ -65,8 +65,7 @@ void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
 
-void matchAddDestructor(Match* m, bool addAtEnd,
-                        void (*fn)(void*), void* arg);
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg);
 
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
