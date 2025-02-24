@@ -668,76 +668,45 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 ## todo
 
-- ~~adjust stack record if When is multiline~~
-- ~~consistent name for sustain/ttl/remove-later~~
-- ~~reap threads that got caught up on some long-running activity so
-  that we aren't just monotonically growing thread count~~
-- event statements
+- event statements?
 - statement (owning $p) so pointers can get freed on statement
   deletion
   - or statement destructors?
-  - for camera images, at least
+  - for camera images, at least 
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- ~~port tag iters fix from folk1~~
-- ~~web stops working after a while~~
-- ~~marching ants animation~~
-- ~~blinking of outlines~~
-- ~~sticking of outlines~~
-- ~~is stealing too frequent? are we spending most of our time trying to
-  steal?~~
-- ~~incremental tag detector~~
-- ~~60Hz camera~~
-- ~~infinite loop or one-lane syntax? one-at-a-time~~
 - Hold! with explicit version number?
-- ~~reuse C module so perf events hold~~
 - report errors as statements
-- ~~spinlock~~
-- ~~wait until process death to start~~
-- ~~blinking on folk0~~
-- ~~fix small memory leak~~
-- remove live queries from region generation
-- ~~remove Say and Hold from workqueue, just do them on thread? esp
-  sysmon~~
-- ~~why isn't region running in time?~~
-  - ~~thread migration?~~
-- ~~fix programs page~~
+- remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
-- ~~replace findMatches with Query!~~
-  - ~~replace findMatchesJoining with Query!~~
-- ~~replace Assert/Retract/Hold~~
 - port angle & any other changes to new.folk
 - credits in README
-- ~~fix systemd service spec to make && ./folk~~
 - rebuild live image
 - base64-encode edit program
 - fix camera slice
 - why is web endpoints so slow?
-- ~~fix jittering (it's because of incremental)~~
 - **fix outline doubling**
 - drop support for multiarg Hold keys
 - **use quads instead of regions**
 - optimize jpeg decoding
 - vendor wslay?
-- ~~fix horrible lexical pileup in calibration?~~
-  - ~~or serialize/cache the object graph in a nicer way?~~
-- ~~fix editor resetting on movement~~
 - ports
-  - ~~keyboard/editor port~~
   - points-up port
   - calibration process
     - fix close-tab
-    - ~~fix stdout~~
-- ~~don't deserialize whole keymap on every keypress (10ms)~~
-- ~~fn env retention is broken~~
 - only intern long strings?
-- ~~fix new memory leak~~
-- ~~fix ebr double free with envs?~~
 - fix C stack traces
+- delay sysmon for a few seconds to reduce extra threads
 
 ### editor bugs
 
 - **editor render loop blinks out sometimes**
+  - use keep?
   - editor code block not converging
 - editor doubles keys sometimes
+- editor turns all keys to whitespace sometimes
+- editor revert bug
+- editor 'crash'/unresponsive bug
+- running program bugs out
+  - recollect happening at weird time maybe?
