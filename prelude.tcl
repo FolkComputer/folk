@@ -92,7 +92,7 @@ set ::envLib [apply {{} {
         env->rc = 1;
 
         env->data = strdup(data);
-        assert(pointsToCount < 50);
+        FOLK_ENSURE(pointsToCount < 50);
         for (int i = 0; i < pointsToCount; i++) {
             env->pointsTo[i] = pointsTo[i];
         }
