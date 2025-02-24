@@ -705,8 +705,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - ~~replace findMatches with Query!~~
-  - replace findMatchesJoining with Query!
-- replace Assert/Retract/Hold
+  - ~~replace findMatchesJoining with Query!~~
+- ~~replace Assert/Retract/Hold~~
 - port angle & any other changes to new.folk
 - credits in README
 - ~~fix systemd service spec to make && ./folk~~
@@ -715,7 +715,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - fix camera slice
 - why is web endpoints so slow?
 - ~~fix jittering (it's because of incremental)~~
-- **fix doubling**
+- **fix outline doubling**
 - drop support for multiarg Hold keys
 - **use quads instead of regions**
 - optimize jpeg decoding
@@ -730,11 +730,14 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     - fix close-tab
     - ~~fix stdout~~
 - ~~don't deserialize whole keymap on every keypress (10ms)~~
-- **editor render loop blinks out sometimes**
 - ~~fn env retention is broken~~
 - only intern long strings?
-- fix new memory leak
-- **fix ebr double free with envs?**
+- ~~fix new memory leak~~
+- ~~fix ebr double free with envs?~~
+- fix C stack traces
 
+### editor bugs
 
-
+- **editor render loop blinks out sometimes**
+  - editor code block not converging
+- editor doubles keys sometimes
