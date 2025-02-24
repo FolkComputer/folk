@@ -61,6 +61,15 @@ Cache* cacheNew(Jim_Interp* interp) {
 #define CACHE_MAX 2048
 static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
     if (cache->size > CACHE_MAX) {
+#ifdef TRACY_ENABLE
+        Jim_HashTableIterator *iter = Jim_GetHashTableIterator(&cache->oldTable);
+        Jim_HashEntry *he;
+        while ((he = Jim_NextHashEntry(iter)) != NULL) {
+            TracyCFree(Jim_GetHashEntryVal(he));
+        }
+        Jim_FreeHashTableIterator(iter);
+#endif
+
         Jim_FreeHashTable(&cache->oldTable);
         memcpy(&cache->oldTable, &cache->newTable, sizeof(Jim_HashTable));
         cache->size = 0;
@@ -75,25 +84,25 @@ Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
         return Jim_GetHashEntryVal(ent);
     }
 
+    ent = Jim_FindHashEntry(&cache->oldTable, term);
+    if (ent != NULL) {
+        Jim_Obj* obj = Jim_GetHashEntryVal(ent);
+        Jim_AddHashEntry(&cache->newTable, term, obj);
+        Jim_DeleteHashEntry(&cache->oldTable, term);
+        cache->size++;
+        cacheTryEvict(cache, interp);
+        return obj;
+    }
+
+    // Not in cache yet. Insert into cache.
     Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
+#ifdef TRACY_ENABLE
+    TracyCAlloc(obj, sizeof(Jim_Obj));
+#endif
+
     Jim_AddHashEntry(&cache->newTable, term, obj);
+    cache->size++;
+    cacheTryEvict(cache, interp);
+
     return obj;
-
-    /* ent = Jim_FindHashEntry(&cache->oldTable, term); */
-    /* if (ent != NULL) { */
-    /*     Jim_Obj* obj = Jim_GetHashEntryVal(ent); */
-    /*     Jim_AddHashEntry(&cache->newTable, term, obj); */
-    /*     Jim_DeleteHashEntry(&cache->oldTable, term); */
-    /*     cache->size++; */
-    /*     cacheTryEvict(cache, interp); */
-    /*     return obj; */
-    /* } */
-
-    /* // Not in cache yet. Insert into cache. */
-    /* Jim_Obj* obj = Jim_NewStringObj(interp, term, -1); */
-    /* Jim_AddHashEntry(&cache->newTable, term, obj); */
-    /* cache->size++; */
-    /* cacheTryEvict(cache, interp); */
-
-    /* return obj; */
 }
