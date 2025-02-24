@@ -490,12 +490,12 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
           <p><strong>Is the projection too bright and washing out the camera?</strong> Adjust this slider to adjust camera exposure:
-            <input type="range" min="10" max="160" value="100" class="slider" id="camera-exposure-slider">
+            <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
           </p>
           <script>
            let lastRefreshTimeout = null;
            document.getElementById('camera-exposure-slider').addEventListener('input', (e) => {
-             ws.evaluate(tcl`
+             ws.hold('exposure', tcl`
                   Wish camera $camera uses exposure time \${e.target.value*100} us
              `);
              if (lastRefreshTimeout != null) {
