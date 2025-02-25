@@ -491,13 +491,16 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
 
           <p><strong>Is the projection too bright and washing out the camera?</strong> Adjust this slider to adjust camera exposure:
             <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
+            <span id="camera-exposure-slider-value">10000 us</span>
           </p>
           <script>
            let lastRefreshTimeout = null;
            document.getElementById('camera-exposure-slider').addEventListener('input', (e) => {
+             document.getElementById('camera-exposure-slider-value').innerText =
+               `\${Math.round(e.target.value*100)} us`;
              ws.hold('exposure', tcl`
                   Wish camera $camera uses exposure time \${e.target.value*100} us
-             `);
+             `, 'virtual-programs/calibrate/calibrate.folk');
              if (lastRefreshTimeout != null) {
                window.clearTimeout(lastRefreshTimeout);
              }
@@ -810,7 +813,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                          model /anything/ version /anything/ timestamp /anything/ {
         HoldDefaultModel 1.0
     }
-    On unmatch { Hold H_modelToDisplay {} }
+    On unmatch {
+        Hold H_modelToDisplay {}
+        Hold exposure {
+            Wish camera $camera uses exposure time auto us
+        }
+    }
 
     When main-detector detects tags /tags/ on $camera at /timestamp/ in time /something/ & \
          the calibration model-to-display homography is /H_modelToDisplay/ with \
