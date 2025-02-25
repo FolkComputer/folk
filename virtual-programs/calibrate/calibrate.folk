@@ -522,7 +522,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <details>
               <summary>Troubleshooting</summary>
               <p>Look at ~/folk-calibration-poses to see images of the captured poses (maybe tags are distorted or washed out?).</p>
-              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, but you might also want to turn off autoexposure and set a manual exposure time. For example:</p>
+              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, and you might also want to check that your camera actually has an exposure setting and focus setting. For example:</p>
               <pre>
 \$ v4l2-ctl --device=/dev/video0 --list-ctrls
 
@@ -548,9 +548,10 @@ Camera Controls
                  focus_absolute 0x009a090a (int)    : min=0 max=250 step=5 default=0 value=30
      focus_automatic_continuous 0x009a090c (bool)   : default=1 value=0
                   zoom_absolute 0x009a090d (int)    : min=100 max=500 step=1 default=100 value=100
-\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1 # to set them manually from terminal
 \$ v4l2-ctl --device=/dev/video0 --set-ctrl=exposure_time_absolute=25
               </pre>
+              <p>Camera needs to have auto_exposure and exposure_time_absolute settings listed for Folk to be able to set them.</p>
             </details>
           </li>
 
