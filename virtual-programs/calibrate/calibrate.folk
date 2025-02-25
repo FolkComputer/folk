@@ -485,30 +485,67 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                   {*}\$::HoldDefaultModel \${scale}
                 `);
               });
+
+              function advanceCamera() {
+                cameraFrame.src = cameraFrame.src + '0'
+              }
             </script>
 
-          <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
+            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
+  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
-          <p><strong>Is the projection too bright and washing out the camera?</strong> Adjust this slider to adjust camera exposure:
-            <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
-            <span id="camera-exposure-slider-value">10000 us</span>
-          </p>
-          <script>
-           let lastRefreshTimeout = null;
-           document.getElementById('camera-exposure-slider').addEventListener('input', (e) => {
-             document.getElementById('camera-exposure-slider-value').innerText =
-               `\${Math.round(e.target.value*100)} us`;
-             ws.hold('exposure', tcl`
-                  Wish camera $camera uses exposure time \${e.target.value*100} us
-             `, 'virtual-programs/calibrate/calibrate.folk');
-             if (lastRefreshTimeout != null) {
-               window.clearTimeout(lastRefreshTimeout);
-             }
-             lastRefreshTimeout = setTimeout(() => {
-               cameraFrame.src = cameraFrame.src + '0';
-             }, 500);
-           });
-          </script>
+            <script>
+                const refreshButton = document.getElementById('refreshButton');
+                const autoRefreshCheckbox = document.getElementById('auto-refresh-checkbox');
+                setInterval(() => {
+                     if (autoRefreshCheckbox.checked) {
+                        refreshButton.click()
+                     } 
+                     console.log("checked?", autoRefreshCheckbox.checked)
+                }, 100)
+            </script>
+
+
+            <p><strong>Is the projection too bright and washing out the camera?</strong>
+            <br/>
+            Adjust camera exposure:
+                <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
+                <input type="number" min="1000" max="320000" step="100" value="10000" id="camera-exposure-number">μs
+            </p>
+
+            <script>
+            const slider = document.getElementById('camera-exposure-slider');
+            const numberInput = document.getElementById('camera-exposure-number');
+            let lastRefreshTimeout = null;
+            
+            function updateExposure(valueInMicroseconds) {
+                const sliderValue = valueInMicroseconds / 100;
+                
+                slider.value = sliderValue;
+                numberInput.value = valueInMicroseconds;
+                
+                ws.hold('exposure', tcl`
+                    Wish camera $camera uses exposure time \${valueInMicroseconds} us
+                `, 'virtual-programs/calibrate/calibrate.folk');
+                
+                if (lastRefreshTimeout != null) {
+                    window.clearTimeout(lastRefreshTimeout);
+                }
+                lastRefreshTimeout = setTimeout(() => { advanceCamera() }, 500);
+            }
+            
+            slider.addEventListener('input', (e) => {
+                const exposureValue = Math.round(e.target.value * 100);
+                updateExposure(exposureValue);
+            });
+            
+            numberInput.addEventListener('input', (e) => {
+                const exposureValue = parseInt(e.target.value);
+                updateExposure(exposureValue);
+            });
+            
+            updateExposure(10000);
+            </script>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
