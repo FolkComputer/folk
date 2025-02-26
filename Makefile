@@ -43,7 +43,7 @@ test/%: test/%.folk folk
 
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o
-remote-clean:
+remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
