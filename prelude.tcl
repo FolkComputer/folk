@@ -29,22 +29,13 @@ proc unknown {cmdName args} {
     } else {
         upvar ^$cmdName fn
         if {[info exists fn]} {
-            lassign $fn argNames body sourceInfo capturedEnvId
+            lassign $fn argNames body sourceInfo env
             if {[info source $body] ne $sourceInfo} {
                 set body [info source $body {*}$sourceInfo]
             }
 
-            set env [$::envLib get $capturedEnvId]
-            if {$env eq ""} { error "Environment invalidated" }
-            lassign $env capturedNames capturedValues
-
-            set capturedEnv [dict create]
-            foreach name $capturedNames value $capturedValues {
-                dict set capturedEnv $name $value
-            }
-
-            dict with capturedEnv {
-                proc $cmdName $argNames $capturedNames $body
+            dict with env {
+                proc $cmdName $argNames [dict keys $env] $body
             }
             tailcall $cmdName {*}$args
         }
@@ -53,178 +44,37 @@ proc unknown {cmdName args} {
     tailcall error "Unknown command '$cmdName'"
 }
 
-# Set up the global environment store.
-set ::envLib [apply {{} {
-    set envCid "env_[pid]"
-    set envLib "<C:$envCid>"
-    set envSo "/tmp/$envCid.so"
-
-    if {[__threadId] != 0} {
-        # If not on thread 0, wait for thread 0 to compile envLib,
-        # then load it.
-        while {![file exists $envSo]} {
-            sleep 0.2
-        }
-        return $envLib
-    }
-
-    set cc [C]
-    $cc cflags -I.
-    $cc include <string.h>
-    $cc include <stdatomic.h>
-    $cc include "epoch.h"
-
-    $cc code {
-        typedef struct Env {
-            // other threads may read & write.
-            int _Atomic rc;
-
-            // other threads may read.
-            char* _Atomic data;
-
-            // only owning thread & destroyer will read and write.
-            struct Env* pointsTo[50];
-        } Env;
-    }
-    # insert can be called from any thread at any time.
-    $cc proc insert {char* data Env*[] pointsTo int pointsToCount} Env* {
-        Env *env = calloc(sizeof(Env), 1);
-        env->rc = 1;
-
-        env->data = strdup(data);
-        FOLK_ENSURE(pointsToCount < 50);
-        for (int i = 0; i < pointsToCount; i++) {
-            env->pointsTo[i] = pointsTo[i];
-        }
-        return env;
-    }
-    # update can only be called from the same thread that did the
-    # original insert and got that idx.
-    $cc proc update {Env* env char* data Env*[] pointsTo int pointsToCount} void {
-        epochBegin();
-
-        char *oldData = env->data;
-        char *newData = strdup(data);
-        if (atomic_compare_exchange_weak(&env->data,
-                                         &oldData, newData)) {
-            epochFree(oldData);
-
-            memset(env->pointsTo, 0, sizeof(env->pointsTo));
-            for (int i = 0; i < pointsToCount; i++) {
-                env->pointsTo[i] = pointsTo[i];
-            }
-        } else {
-            // If not, then it must have been removed already.
-            FOLK_ENSURE(oldData == NULL);
-        }
-
-        epochEnd();
-    }
-    # get can be called from any thread at any time.
-    $cc proc get {Env* env} Jim_Obj* {
-        epochBegin();
-
-        // We have to copy the env while still in the epoch to ensure
-        // that the env doesn't get invalidated.
-        Jim_Obj *ret = Jim_NewStringObj(interp, env->data, -1);
-
-        epochEnd();
-        return ret;
-    }
-    $cc proc incrRefCount {Env* env} void {
-        env->rc++;
-    }
-    $cc proc decrRefCount {Env* env} void {
-        if (--env->rc == 0) {
-            for (int i = 0; i < 50; i++) {
-                if (env->pointsTo[i] != NULL) {
-                    decrRefCount(env->pointsTo[i]);
-                }
-            }
-
-            epochBegin();
-
-            epochFree(env->data);
-            epochFree(env);
-
-            epochEnd();
-        }
-    }
-    return [$cc compile $envCid]
-}}]
-
 proc captureEnv {} {
-    # Capture the lexical environment at the caller, then store it in
-    # the environment store.
+    # Capture and return the lexical environment at the caller.
 
     # TODO/HACK: if any previously-captured variable values have
     # changed, we could allocate a new env so that it presents as a
     # fresh statement term and triggers actions. it is OK if new
     # variables have been added, though.
 
-    set envNames [list]
-    set envValues [list]
-
-    set fnEnvIds [dict create]
+    set env [dict create]
 
     # Get all variables and serialize them, to fake lexical scope.
     foreach name [uplevel {info locals}] {
         if {[string match "__*" $name]} { continue }
 
-        lappend envNames $name
-
         upvar $name value
-        lappend envValues $value
-
-        # if {[dict exists $prevEnv $name] && $prevValue ne $value} {
-        #     # TODO: allocate a new environment.
-        # }
+        dict set env $name $value
 
         if {[string index $name 0] eq "^"} {
-            # This is a function with its own captured
-            # environment. We want to retain that captured
-            # environment as long as this _new_ environment we're
-            # capturing now lives.
-            set fnEnvId [lindex $value 3]
-            dict set fnEnvIds $fnEnvId {}
+            # TODO: Check if this function's stored environment is a
+            # subset of env. If so, replace it with SELF?
+
+            # What if the function gets handed down another level?
+            # well, that's fine, the rule will hold
         }
     }
-    set env [list $envNames $envValues]
-
-    set fnEnvIds [dict keys $fnEnvIds]
-    foreach fnEnvId $fnEnvIds {
-        $::envLib incrRefCount $fnEnvId
-    }
-
-    # Put the captured environment into the env store and store it in
-    # the caller's scope:
-    upvar __envId __envId
-    if {[info exists __envId]} {
-        # Update the existing env in the environment store.
-        $::envLib update $__envId $env $fnEnvIds [llength $fnEnvIds]
-    } else {
-        # Insert env into the environment store.
-        set __envId [$::envLib insert $env $fnEnvIds [llength $fnEnvIds]]
-
-        uplevel [list Destructor [list apply {{envId} {
-            $::envLib decrRefCount $envId
-        }} $__envId]]
-    }
-    return $__envId
+    return $env
 }
 
-proc applyBlock {lambdaExpr capturedEnvId args} {
-    # Get env from the environment store.
-    if {$capturedEnvId ne ""} {
-        set env [$::envLib get $capturedEnvId]
-        if {$env eq ""} { error "Environment invalidated" }
-        lassign $env capturedNames capturedValues
-    } else {
-        set capturedNames [list]
-        set capturedValues [list]
-    }
-
-    set names [list]
+proc applyBlock {lambdaExpr capturedEnv args} {
+    set capturedNames [dict keys $capturedEnv]
+    set capturedValues [dict values $capturedEnv]
     for {set i 0} {$i < [llength $capturedNames]} {incr i} {
         set capturedName [lindex $capturedNames $i]
         if {[string index $capturedName 0] eq "^"} {
@@ -235,17 +85,15 @@ proc applyBlock {lambdaExpr capturedEnvId args} {
                 rename [string index $capturedName 1 end] {}
             } on error e {}
         }
-        lappend names $capturedName
     }
-    lappend names {*}[lindex $lambdaExpr 0]
-    lset lambdaExpr 0 $names
+    lset lambdaExpr 0 [list {*}$capturedNames {*}[lindex $lambdaExpr 0]]
 
     tailcall apply $lambdaExpr {*}$capturedValues {*}$args
 }
 
-proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
+proc evaluateWhenBlock {whenLambdaExpr capturedEnv whenArgValues} {
     try {
-        applyBlock $whenLambdaExpr $capturedEnvId {*}$whenArgValues
+        applyBlock $whenLambdaExpr $capturedEnv {*}$whenArgValues
 
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
@@ -258,8 +106,8 @@ proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
 proc fn {name argNames body} {
     # Creates a variable in the caller scope called ^$name. Our custom
     # unknown implementation will check ^$name on call.
-    set capturedEnvId [uplevel captureEnv]
-    uplevel [list set ^$name [list $argNames $body [info source $body] $capturedEnvId]]
+    set capturedEnv [uplevel captureEnv]
+    uplevel [list set ^$name [list $argNames $body [info source $body] $capturedEnv]]
 }
 
 proc assert condition {
@@ -372,16 +220,12 @@ proc Hold! {args} {
     }]
 
     if {$isNonCapturing} {
-        set envId {}
+        set env {}
     } else {
-        set envId [uplevel captureEnv]
-
-        $::envLib incrRefCount $envId
-        append body "
-Destructor \[list \$::envLib decrRefCount {$envId}]"
+        set env [uplevel captureEnv]
     }
     tailcall HoldStatement! {*}$args \
-        [list when [list {} $body] with environment $envId]
+        [list when [list {} $body] with environment $env]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
@@ -501,10 +345,8 @@ Unmatch! \$_unmatchRef"
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        set envId [uplevel captureEnv]
-        $::envLib incrRefCount $envId
-        Destructor "applyBlock {{} {$body}} {$envId}
-\$::envLib decrRefCount {$envId}"
+        set env [uplevel captureEnv]
+        Destructor [list applyBlock [list {} $body] $env]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }
