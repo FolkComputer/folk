@@ -321,6 +321,7 @@ proc Every {_time args} {
         set body [lindex $args end]
         set pattern [lreplace $args end end]
         set andIdx [lsearch $pattern &]
+        # TODO: Set source info on body.
         if {$andIdx != -1} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]
