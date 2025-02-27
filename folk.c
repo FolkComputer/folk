@@ -530,35 +530,35 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /lambdaExpr/ with environment /capturedEnv/
-    const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
+    // when the time is /t/ /body/ with environment /capturedEnv/
+    const char* body = whenClause->terms[whenClause->nTerms - 4];
     const char* capturedEnv = whenClause->terms[whenClause->nTerms - 1];
     Jim_Obj *capturedEnvObj = cacheGetOrInsert(cache, interp, capturedEnv);
 
-    Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
-    // Set the source info for the lambdaExpr:
-    Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
+    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
+    // Set the source info for the bodyObj:
     char *ptr;
-    if (Jim_ScriptGetSourceFileName(interp, lambdaExprObj, &ptr) == JIM_ERR) {
+    if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
         // HACK: We only set the source info if it's not already
         // there, because setting the source info destroys the
         // internal script representation and forces the code to be
         // reparsed (why??).
-        Jim_SetSourceInfo(interp, lambdaBodyObj,
+        Jim_SetSourceInfo(interp, bodyObj,
                           Jim_NewStringObj(interp, statementSourceFileName(when), -1),
                           statementSourceLineNumber(when));
     }
 
+    Jim_Obj *envObj = Jim_DuplicateObj(interp, capturedEnvObj);
 
     // Figure out all the bound match variables by unifying when &
     // stmt:
     Environment* env = clauseUnify(interp, whenPattern, stmtClause);
     assert(env != NULL);
-    Jim_Obj *whenArgs[env->nBindings];
     for (int i = 0; i < env->nBindings; i++) {
-        whenArgs[i] = env->bindings[i].value;
+        Jim_DictAddElement(interp, envObj,
+                           Jim_NewStringObj(interp, env->bindings[i].name, -1),
+                           env->bindings[i].value);
     }
-    Jim_Obj *whenArgsObj = Jim_NewListObj(interp, whenArgs, env->nBindings);
     free(env);
 
     statementRelease(db, when);
@@ -596,9 +596,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         Jim_Obj *objv[] = {
             // TODO: pool this string?
             Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
-            lambdaExprObj,
-            capturedEnvObj,
-            whenArgsObj
+            bodyObj,
+            envObj
         };
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
 
@@ -612,7 +611,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         Jim_MakeErrorMessage(interp);
         const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
         fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                lambdaExpr, errorMessage);
+                body, errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     } else if (error == JIM_SIGNAL) {
@@ -1106,7 +1105,7 @@ int main(int argc, char** argv) {
     // context that can run When/Claim/Wish right away.
     char code[1024];
     snprintf(code, sizeof(code),
-             "Assert! when {{} {source {%s}}} with environment {}",
+             "Assert! when {source {%s}} with environment {}",
              argc == 1 ? "boot.folk" : argv[1]);
     eval(code);
 

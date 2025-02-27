@@ -72,28 +72,27 @@ proc captureEnv {} {
     return $env
 }
 
-proc applyBlock {lambdaExpr capturedEnv args} {
-    set capturedNames [dict keys $capturedEnv]
-    set capturedValues [dict values $capturedEnv]
-    for {set i 0} {$i < [llength $capturedNames]} {incr i} {
-        set capturedName [lindex $capturedNames $i]
-        if {[string index $capturedName 0] eq "^"} {
+proc applyBlock {body env} {
+    set names [dict keys $env]
+    set values [dict values $env]
+    for {set i 0} {$i < [llength $names]} {incr i} {
+        set name [lindex $names $i]
+        if {[string index $name 0] eq "^"} {
             # Delete any old version of the fn that may exist in
             # command-space. We want to reload this one when it gets
             # called.
             try {
-                rename [string index $capturedName 1 end] {}
+                rename [string index $name 1 end] {}
             } on error e {}
         }
     }
-    lset lambdaExpr 0 [list {*}$capturedNames {*}[lindex $lambdaExpr 0]]
 
-    tailcall apply $lambdaExpr {*}$capturedValues {*}$args
+    tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateWhenBlock {whenLambdaExpr capturedEnv whenArgValues} {
+proc evaluateWhenBlock {whenBody env} {
     try {
-        applyBlock $whenLambdaExpr $capturedEnv {*}$whenArgValues
+        applyBlock $whenBody $env
 
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
@@ -225,7 +224,7 @@ proc Hold! {args} {
         set env [uplevel captureEnv]
     }
     tailcall HoldStatement! {*}$args \
-        [list when [list {} $body] with environment $env]
+        [list when $body with environment $env]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
@@ -307,11 +306,10 @@ proc When {args} {
         set negateBody [list if {[llength $__matches] == 0} $body]
         tailcall SayWithSource {*}$sourceInfo \
             when the collected matches for $pattern are /__matches/ \
-            [list [list __matches] $negateBody] with environment $env
+            $negateBody with environment $env
     } else {
         tailcall SayWithSource {*}$sourceInfo \
-            when {*}$pattern \
-            [list $varNamesWillBeBound $body] with environment $env
+            when {*}$pattern $body with environment $env
     }
 }
 proc Every {_time args} {
@@ -347,7 +345,7 @@ proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
         set env [uplevel captureEnv]
-        Destructor [list applyBlock [list {} $body] $env]
+        Destructor [list applyBlock $body $env]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }

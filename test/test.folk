@@ -1,5 +1,5 @@
 Assert! we are on
-Assert! when we are on {{} {
+Assert! when we are on {
     puts "In --"
 
     When the counter is /t/ {
@@ -34,4 +34,4 @@ Assert! when we are on {{} {
             __exit 0
         }
     }
-}} with environment {}
+} with environment {}
