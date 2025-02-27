@@ -47,11 +47,6 @@ proc unknown {cmdName args} {
 proc captureEnv {} {
     # Capture and return the lexical environment at the caller.
 
-    # TODO/HACK: if any previously-captured variable values have
-    # changed, we could allocate a new env so that it presents as a
-    # fresh statement term and triggers actions. it is OK if new
-    # variables have been added, though.
-
     set env [dict create]
 
     # Get all variables and serialize them, to fake lexical scope.
@@ -200,7 +195,6 @@ proc HoldStatement! {args} {
         } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
             incr i
             lassign [lindex $args $i] filename lineno
-            puts "filename ($filename) lineno ($lineno)"
         } else {
             lappend key $arg
         }
