@@ -233,16 +233,14 @@ void HoldStatementGlobally(const char *key, int64_t version,
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 4);
+    assert(argc == 6);
 
-    Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
-    int sourceLineNumber;
-    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-        sourceFileName = "<unknown>";
-    }
-    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-        sourceLineNumber = -1;
+    long sourceLineNumber;
+    sourceFileName = Jim_String(argv[4]);
+    if (sourceFileName == NULL) { return JIM_ERR; }
+    if (Jim_GetLong(interp, argv[5], &sourceLineNumber) == JIM_ERR) {
+        return JIM_ERR;
     }
 
     const char *key = Jim_GetString(argv[1], NULL);

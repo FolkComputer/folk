@@ -189,7 +189,7 @@ proc HoldStatement! {args} {
         if {$arg eq "(on"} {
             incr i
             set this [string range [lindex $args $i] 0 end-1]
-        } elseif {$arg eq "(keep"} {
+        } elseif {$arg eq "(keep"} { # e.g., (keep 3ms)
             incr i
             set keep [lindex $args $i]
             if {[string match {*ms)} $keep]} {
@@ -197,13 +197,25 @@ proc HoldStatement! {args} {
             } else {
                 error "HoldStatement!: invalid keep value [string range $keep 0 end-1]"
             }
+        } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
+            incr i
+            lassign [lindex $args $i] filename lineno
+            puts "filename ($filename) lineno ($lineno)"
         } else {
             lappend key $arg
         }
     }
+    if {![info exists filename] || ![info exists lineno]} {
+        set frame [info frame -1]
+        set filename [dict get $frame file]
+        set lineno [dict get $frame line]
+    }
+
     set key [list $this {*}$key]
 
-    tailcall HoldStatementGlobally! $key $clause $keepMs
+    tailcall HoldStatementGlobally! \
+        $key $clause $keepMs \
+        $filename $lineno
 }
 proc Hold! {args} {
     set body [lindex $args end]
@@ -223,7 +235,8 @@ proc Hold! {args} {
     } else {
         set env [uplevel captureEnv]
     }
-    tailcall HoldStatement! {*}$args \
+    tailcall HoldStatement! -source [info source $body] \
+        {*}$args \
         [list when $body with environment $env]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
@@ -317,21 +330,23 @@ proc Every {_time args} {
         # Set up a When for the outermost match, then query for any
         # inner matches, then unmatch at the end.
         set body [lindex $args end]
+        set src [info source $body]
+
         set pattern [lreplace $args end end]
         set andIdx [lsearch $pattern &]
         # TODO: Set source info on body.
         if {$andIdx != -1} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]
-            set body "set _unmatchRef \[__currentMatchRef]
-set __results \[Query! {*}{$restPatterns}]
-foreach __result \$__results { dict with __result {
+            set body [info source "set _unmatchRef \[__currentMatchRef]; \
+set __results \[Query! {*}{$restPatterns}]; \
+foreach __result \$__results { dict with __result { \
 $body
 } }
-Unmatch! \$_unmatchRef"
+Unmatch! \$_unmatchRef" {*}$src]
         } else {
             set firstPattern $pattern
-            set body "set _unmatchRef \[__currentMatchRef]
+            set body "set _unmatchRef \[__currentMatchRef]; \
 $body
 Unmatch! \$_unmatchRef"
         }
