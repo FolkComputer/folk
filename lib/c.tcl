@@ -369,6 +369,8 @@ C method struct {type fields} {
             }] "\n"]
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+            if (objPtr->typePtr == &$[set type]_ObjType) { return JIM_OK; }
+
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
