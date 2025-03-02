@@ -27,16 +27,38 @@ proc unknown {cmdName args} {
         tailcall $cmdName {*}$args
 
     } else {
-        upvar ^$cmdName fn
+        set fnVarName ^$cmdName
+        upvar $fnVarName fn
         if {[info exists fn]} {
-            lassign $fn argNames body sourceInfo env
+            lassign $fn argNames body sourceInfo
             if {[info source $body] ne $sourceInfo} {
                 set body [info source $body {*}$sourceInfo]
             }
 
+            upvar __envStack envStack
+            # Walk the env stack backwards (innermost env first) until
+            # we find the fn.
+            for {set i $([llength $envStack] - 1)} {$i >= 0} {incr i -1} {
+                set env [lindex $envStack $i]
+                if {[dict exists $env $fnVarName]} {
+                    break
+                }
+            }
+            if {$i < 0} {
+                error "unknown: Did not find fn $cmdName in env stack."
+            }
+
+            # We found the function somewhere in the env stack.
+
+            # Merge all envs up to and including envStack[i] to create
+            # the lexical environment for fn.
+            set env [dict merge {*}[lrange $envStack 0 $i]]
+            dict set env __envStack $envStack
+            dict set env __env $env
             dict with env {
                 proc $cmdName $argNames [dict keys $env] $body
             }
+
             tailcall $cmdName {*}$args
         }
     }
@@ -44,50 +66,52 @@ proc unknown {cmdName args} {
     tailcall error "Unknown command '$cmdName'"
 }
 
-proc captureEnv {} {
+proc captureEnvStack {} {
     # Capture and return the lexical environment at the caller.
 
-    set env [dict create]
+    upvar __env oldEnv
 
-    # Get all variables and serialize them, to fake lexical scope.
+    # Get all changed variables and serialize them, to fake lexical
+    # scope.
+    set env [dict create]
     foreach name [uplevel {info locals}] {
         if {[string match "__*" $name]} { continue }
 
         upvar $name value
-        dict set env $name $value
+        if {![dict exists $oldEnv $name] ||
+            $value ne [dict get $oldEnv $name]} {
 
-        if {[string index $name 0] eq "^"} {
-            # TODO: Check if this function's stored environment is a
-            # subset of env. If so, replace it with SELF?
-
-            # What if the function gets handed down another level?
-            # well, that's fine, the rule will hold
+            dict set env $name $value
         }
     }
-    return $env
+
+    return [list {*}[uplevel set __envStack] $env]
 }
 
-proc applyBlock {body env} {
-    set names [dict keys $env]
-    set values [dict values $env]
-    for {set i 0} {$i < [llength $names]} {incr i} {
-        set name [lindex $names $i]
+proc applyBlock {body envStack} {
+    set env [dict merge {*}$envStack]
+    foreach name [dict keys $env] {
         if {[string index $name 0] eq "^"} {
             # Delete any old version of the fn that may exist in
-            # command-space. We want to reload this one when it gets
-            # called.
+            # command-space. We want to reload this one when it
+            # gets called.
             try {
                 rename [string index $name 1 end] {}
             } on error e {}
         }
     }
 
+    dict set env __envStack $envStack
+    dict set env __env $env
+
+    set names [dict keys $env]
+    set values [dict values $env]
     tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateWhenBlock {whenBody env} {
+proc evaluateWhenBlock {whenBody envStack} {
     try {
-        applyBlock $whenBody $env
+        applyBlock $whenBody $envStack
 
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
@@ -100,8 +124,16 @@ proc evaluateWhenBlock {whenBody env} {
 proc fn {name argNames body} {
     # Creates a variable in the caller scope called ^$name. Our custom
     # unknown implementation will check ^$name on call.
-    set capturedEnv [uplevel captureEnv]
-    uplevel [list set ^$name [list $argNames $body [info source $body] $capturedEnv]]
+    uplevel [list set ^$name [list $argNames $body [info source $body]]]
+
+    # In case they actually want to call it in the same context:
+    uplevel [list proc $name $argNames [uplevel info locals] $body]
+
+    # Note that we _don't_ capture an environment. Instead, we assume
+    # that the enclosing environment will be captured later anyway
+    # (that's how you would get this function! we don't expect people
+    # to pass it around really), so the caller of this function will
+    # just rehydrate that enclosing environment.
 }
 
 proc assert condition {
@@ -225,13 +257,13 @@ proc Hold! {args} {
     }]
 
     if {$isNonCapturing} {
-        set env {}
+        set envStack {}
     } else {
-        set env [uplevel captureEnv]
+        set envStack [uplevel captureEnvStack]
     }
     tailcall HoldStatement! -source [info source $body] \
         {*}$args \
-        [list when $body with environment $env]
+        [list when $body with environment $envStack]
 }
 proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
@@ -255,9 +287,9 @@ proc When {args} {
     }
 
     if {$isNonCapturing} {
-        set env {}
+        set envStack {}
     } else {
-        set env [uplevel captureEnv]
+        set envStack [uplevel captureEnvStack]
     }
 
     if {$isSerially} {
@@ -313,10 +345,10 @@ proc When {args} {
         set negateBody [list if {[llength $__matches] == 0} $body]
         tailcall SayWithSource {*}$sourceInfo \
             when the collected matches for $pattern are /__matches/ \
-            $negateBody with environment $env
+            $negateBody with environment $envStack
     } else {
         tailcall SayWithSource {*}$sourceInfo \
-            when {*}$pattern $body with environment $env
+            when {*}$pattern $body with environment $envStack
     }
 }
 proc Every {_time args} {
@@ -353,8 +385,8 @@ Unmatch! \$_unmatchRef"
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        set env [uplevel captureEnv]
-        Destructor [list applyBlock $body $env]
+        set envStack [uplevel captureEnvStack]
+        Destructor [list applyBlock $body $envStack]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }

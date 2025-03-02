@@ -72,7 +72,7 @@ sync:
 setup-remote:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk/vendor/jimtcl; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk/vendor/jimtcl; make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'

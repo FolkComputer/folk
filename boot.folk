@@ -21,9 +21,8 @@ apply {{} {
 }}
 
 Assert! when /__this/ has program code /__programCode/ {
-    set __programCode [info source $__programCode $__this 1]
-
-    apply [list {this} $__programCode] $__this
+    SayWithSource $__this 1 \
+        when $__programCode with environment [list [list this $__this]]
 } with environment {}
 
 proc LoadProgram! {programFilename} {

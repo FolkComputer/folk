@@ -528,10 +528,33 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /body/ with environment /capturedEnv/
+    // when the time is /t/ /body/ with environment /capturedEnvStack/
     const char* body = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedEnv = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *capturedEnvObj = cacheGetOrInsert(cache, interp, capturedEnv);
+    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    // We don't cache the whole stack -- instead, we'll cache the
+    // records inside it.
+    Jim_Obj *capturedEnvStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+
+    // Goal: we need to replace every record in capturedEnvStackObj
+    // with the cached version, then send _that_ stack to
+    // evaluateWhenBlock.
+    Jim_Obj *envStackObj; {
+        int nenvs = Jim_ListLength(interp, capturedEnvStackObj);
+        if (nenvs > 20) {
+            fprintf(stderr, "runWhenBlock: Too many envs in stack: %d\n", nenvs);
+            return;
+        }
+
+        Jim_Obj *envs[nenvs];
+        for (int i = 0; i < nenvs; i++) {
+            envs[i] = Jim_ListGetIndex(interp, capturedEnvStackObj, i);
+            // TODO: wasteful on the path where we make a new object
+            envs[i] = cacheGetOrInsert(cache, interp, Jim_String(envs[i]));
+        }
+
+        envStackObj = Jim_NewListObj(interp, envs, nenvs);
+        Jim_DecrRefCount(interp, capturedEnvStackObj);
+    }
 
     Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
@@ -546,18 +569,29 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                           statementSourceLineNumber(when));
     }
 
-    Jim_Obj *envObj = Jim_DuplicateObj(interp, capturedEnvObj);
+    {
+        // Figure out all the bound match variables by unifying when &
+        // stmt:
+        Environment* env = clauseUnify(interp, whenPattern, stmtClause);
+        assert(env != NULL);
 
-    // Figure out all the bound match variables by unifying when &
-    // stmt:
-    Environment* env = clauseUnify(interp, whenPattern, stmtClause);
-    assert(env != NULL);
-    for (int i = 0; i < env->nBindings; i++) {
-        Jim_DictAddElement(interp, envObj,
-                           Jim_NewStringObj(interp, env->bindings[i].name, -1),
-                           env->bindings[i].value);
+        if (env->nBindings > 50) {
+            fprintf(stderr, "runWhenBlock: Too many bindings in env: %d\n",
+                    env->nBindings);
+            return;
+        }
+        
+        Jim_Obj *objs[env->nBindings*2];
+        for (int i = 0; i < env->nBindings; i++) {
+            objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
+            objs[i*2 + 1] = env->bindings[i].value;
+        }
+
+        Jim_Obj *boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
+        Jim_ListAppendElement(interp, envStackObj, boundEnvObj);
+
+        free(env);
     }
-    free(env);
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
@@ -595,7 +629,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
             // TODO: pool this string?
             Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
             bodyObj,
-            envObj
+            envStackObj
         };
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
 
