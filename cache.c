@@ -70,6 +70,11 @@ static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
 
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term) {
+    int len = strlen(term);
+    if (len < 16) {
+        return Jim_NewStringObj(interp, term, len);
+    }
+
     Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term);
     if (ent != NULL) {
         return Jim_GetHashEntryVal(ent);
@@ -86,7 +91,7 @@ Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
     }
 
     // Not in cache yet. Insert into cache.
-    Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
+    Jim_Obj* obj = Jim_NewStringObj(interp, term, len);
     Jim_AddHashEntry(&cache->newTable, term, obj);
     cache->size++;
     cacheTryEvict(cache, interp);
