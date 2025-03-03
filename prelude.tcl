@@ -372,9 +372,9 @@ $body
 Unmatch! \$_unmatchRef" {*}$src]
         } else {
             set firstPattern $pattern
-            set body "set _unmatchRef \[__currentMatchRef]; \
+            set body [info source "set _unmatchRef \[__currentMatchRef]; \
 $body
-Unmatch! \$_unmatchRef"
+Unmatch! \$_unmatchRef" {*}$src]
         }
         tailcall When {*}$firstPattern $body
     } else {
