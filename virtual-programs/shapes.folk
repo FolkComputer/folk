@@ -1,6 +1,8 @@
-# sides 2 => line
-# sides 3 => triangle
-# sides 4 => square
+# Dictionary mapping shape names to number of sides
+set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
+                septagon 7 octagon 8 nonagon 9]
+
+# Core shape drawing function - creates regular polygons
 When /someone/ wishes to draw a shape with /...options/ {
   set numPoints [dict get $options sides]
   set c [dict get $options center]
@@ -9,9 +11,10 @@ When /someone/ wishes to draw a shape with /...options/ {
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set layer [dict_getdef $options layer 0]
+  set width [dict_getdef $options width 1]
 
   set p [list 0 0]
-  set center $p
+  set centerPoint $p
   set points [list $p]
 
   set incr [expr {2 * 3.14159 / $numPoints}]
@@ -19,14 +22,13 @@ When /someone/ wishes to draw a shape with /...options/ {
   for {set i 0} {$i < $numPoints} {incr i} {
     set p [vec2 add $p [vec2 scale [list [expr {cos($a)}] [expr {sin($a)}]] $r]]
     lappend points $p
-    # Accumulate center
-    set center [vec2 add $center $p]
+    set centerPoint [vec2 add $centerPoint $p]
     set a [expr {$a + $incr}]
   }
-  set center [vec2 scale $center [expr {1.0/$numPoints}]]
+  set centerPoint [vec2 scale $centerPoint [expr {1.0/$numPoints}]]
 
   set points [lmap v $points {
-      set v [vec2 sub $v $center]
+      set v [vec2 sub $v $centerPoint]
       set v [vec2 rotate $v $radians]
       set v [vec2 add $v $c]
       set v
@@ -35,37 +37,38 @@ When /someone/ wishes to draw a shape with /...options/ {
   if {$filled} {
     Wish to draw a polygon with points $points color $color layer $layer
   } else {
-    Wish to draw a stroke with points $points width 1 color $color layer $layer
+    Wish to draw a stroke with points $points width $width color $color layer $layer
   }
 }
 
-set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
-                septagon 7 octagon 8 nonagon 9]
 When /someone/ wishes /p/ draws a /shape/ {
-  # TODO: This is a hack because rest pattern doesn't match empty
-  # sequence at end.
   Wish $p draws a $shape with color white
 }
-When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
+
+When /someone/ wishes /p/ draws an /shape/ {
+  Wish $p draws a $shape
+}
+
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
+  # Get the region's properties
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
   
-  set width [region width $r]
-  set height [region height $r]
+  # Extract parameters
   set radius [dict_getdef $options radius 50]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set thickness [dict_getdef $options thickness 5]
   set layer [dict_getdef $options layer 0]
   
+  # Rotate offset vector by region's angle for consistent positioning
   lassign [dict_getdef $options offset {0 0}] offsetX offsetY
-  set rawOffset [list $offsetX $offsetY]
+  set rotatedOffset [vec2 rotate [list $offsetX $offsetY] $angle]
   
-  set rotatedOffset [vec2 rotate $rawOffset $angle]
-  
+  # Calculate final center position
   set finalCenter [vec2 add [list $cx $cy] $rotatedOffset]
 
+  # Draw appropriate shape
   if {$shape eq "circle"} {
       Wish to draw a circle with \
           center $finalCenter radius $radius thickness $thickness \
@@ -73,13 +76,14 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   } elseif {[dict exists $shapes $shape]} {
       Wish to draw a shape with sides [dict get $shapes $shape] \
           center $finalCenter radius $radius radians $angle \
-          color $color filled $filled layer $layer
+          color $color filled $filled width $thickness layer $layer
   } else {
       Wish to draw a shape with sides 2 \
           center $finalCenter radius $radius radians $angle \
-          color $color filled $filled layer $layer
+          color $color filled $filled width $thickness layer $layer
   }
 }
+
 When /someone/ wishes /p/ draws an /shape/ with /...options/ {
   Wish $p draws a $shape with {*}$options
 }
@@ -87,9 +91,9 @@ When /someone/ wishes /p/ draws an /shape/ with /...options/ {
 Claim $this has demo {
   Wish $this draws a circle
   Wish $this draws a triangle with color skyblue
-  Wish $this draws a triangle with color green offset {280 0}
-  Wish $this draws a pentagon with color gold offset {200 0}
-  Wish $this draws an octagon with color red offset {250 80}
+  Wish $this draws a triangle with color green offset {-280 0}
+  Wish $this draws a pentagon with color gold offset {-200 0}
+  Wish $this draws an octagon with color magenta offset {-250 80}
 
   When the clock time is /t/ {
     set offsetVector [list [sin $t] [cos $t]]
