@@ -265,8 +265,32 @@ proc Hold! {args} {
         {*}$args \
         [list when $body with environment $envStack]
 }
-proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
-proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+proc Say {args} {
+    set callerInfo [info frame -1]
+    set sourceFileName [dict get $callerInfo file]
+    set sourceLineNumber [dict get $callerInfo line]
+
+    set keepMs 0
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set term [lindex $args $i]
+        if {$term eq "(keep"} { # e.g., (keep 3ms)
+            incr i
+            set keep [lindex $args $i]
+            if {[string match {*ms)} $keep]} {
+                set keepMs [string range $keep 0 end-3]
+            } else {
+                error "Say: invalid keep value [string range $keep 0 end-1]"
+            }
+        } else {
+            lappend pattern $term
+        }
+    }
+    tailcall SayWithSource $sourceFileName $sourceLineNumber $keepMs \
+        {*}$pattern
+}
+proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
+proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
     set body [lindex $args end]
     set sourceInfo [info source $body]
@@ -343,11 +367,11 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo \
+        tailcall SayWithSource {*}$sourceInfo 0 \
             when the collected matches for $pattern are /__matches/ \
             $negateBody with environment $envStack
     } else {
-        tailcall SayWithSource {*}$sourceInfo \
+        tailcall SayWithSource {*}$sourceInfo 0 \
             when {*}$pattern $body with environment $envStack
     }
 }
@@ -360,7 +384,6 @@ proc Every {_time args} {
 
         set pattern [lreplace $args end end]
         set andIdx [lsearch $pattern &]
-        # TODO: Set source info on body.
         if {$andIdx != -1} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]

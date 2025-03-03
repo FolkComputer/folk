@@ -205,30 +205,23 @@ void HoldStatementGlobally(const char *key, int64_t version,
                            const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
     char *s = clauseToString(clause);
-    TracyCMessageFmt("hold: %.300s", s); free(s);
+    TracyCMessageFmt("hold: %.200s", s); free(s);
 #endif
 
     StatementRef oldRef; StatementRef newRef;
 
     newRef = dbHoldStatement(db, key, version,
-                             clause,
+                             clause, keepMs,
                              sourceFileName, sourceLineNumber,
                              &oldRef);
     if (!statementRefIsNull(newRef)) {
         reactToNewStatement(newRef);
     }
     if (!statementRefIsNull(oldRef)) {
-        if (keepMs > 0) {
-            // We need to delay the react to removed statement
-            // until the estimated convergence time of the new
-            // statement has elapsed (a few milliseconds?)
-            sysmonRemoveAfter(oldRef, keepMs);
-        } else {
-            Statement* stmt;
-            if ((stmt = statementAcquire(db, oldRef))) {
-                statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
-                statementRelease(db, stmt);
-            }
+        Statement* stmt;
+        if ((stmt = statementAcquire(db, oldRef))) {
+            statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+            statementRelease(db, stmt);
         }
     }
 }
@@ -255,7 +248,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber) {
+static void Say(Clause* clause, long keepMs,
+                const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
@@ -268,7 +262,7 @@ static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber
     }
 
     StatementRef ref;
-    ref = dbInsertOrReuseStatement(db, clause,
+    ref = dbInsertOrReuseStatement(db, clause, keepMs,
                                    sourceFileName,
                                    sourceLineNumber,
                                    parent);
@@ -278,24 +272,8 @@ static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber
     }
 }
 
-static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_Obj* scriptObj = interp->currentScriptObj;
-    const char* sourceFileName;
-    int sourceLineNumber;
-    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-        sourceFileName = "<unknown>";
-    }
-    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-        sourceLineNumber = -1;
-    }
-
-    Clause* clause = jimArgsToClause(argc, argv);
-
-    Say(clause, sourceFileName, sourceLineNumber);
-    return JIM_OK;
-}
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc - 2, argv + 2);
+    Clause* clause = jimArgsToClause(argc - 3, argv + 3);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -305,7 +283,13 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    Say(clause, sourceFileName, (int) sourceLineNumber);
+    long keepMs;
+    if (Jim_GetLong(interp, argv[3], &keepMs) == JIM_ERR) {
+        return JIM_ERR;
+    }
+
+    Say(clause, keepMs,
+        sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
 
@@ -347,6 +331,10 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* pattern = jimArgsToClause(argc, argv);
+#ifdef TRACY_ENABLE
+    char *s = clauseToString(pattern);
+    TracyCMessageFmt("query: %.200s", s); free(s);
+#endif
 
     ResultSet* rs = dbQuery(db, pattern);
     int nResults = (int) rs->nResults;
@@ -465,7 +453,6 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
@@ -867,7 +854,7 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.assert.clause,
+        ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL);

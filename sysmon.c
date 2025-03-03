@@ -198,6 +198,10 @@ void sysmonRemoveAfter(StatementRef stmtRef, int afterMs) {
     }
     if (i == REMOVE_LATER_MAX) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
+        for (int i = 0; i < REMOVE_LATER_MAX; i++) {
+            fprintf(stderr, "  %d: (%.200s)\n", i,
+                    clauseToString(statementClause(statementAcquire(db, removeLater[i].stmt))));
+        }
         exit(1);
     }
 }

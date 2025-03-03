@@ -17,6 +17,7 @@
 #include "common.h"
 #include "trie.h"
 #include "epoch.h"
+#include "sysmon.h"
 #include "db.h"
 
 typedef struct ListOfEdgeTo {
@@ -102,6 +103,10 @@ typedef struct Statement {
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
     Clause* clause;
+
+    // If the statement is removed, we wait keepMs milliseconds before
+    // removing its child matches.
+    long keepMs;
 
     // Used for debugging (and stack traces for When bodies).
     char sourceFileName[100];
@@ -304,7 +309,7 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
-static StatementRef statementNew(Db* db, Clause* clause,
+static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
@@ -332,6 +337,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // than the one here.
 
     stmt->clause = clause;
+    stmt->keepMs = keepMs;
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
@@ -445,7 +451,13 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             /*         nResults); */
         }
 
-        statementRemoveSelf(db, stmt);
+        if (stmt->keepMs == 0) {
+            statementRemoveSelf(db, stmt);
+        } else {
+            stmt->keepMs = 0;
+            stmt->parentCount++;
+            sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
+        }
     }
 }
 
@@ -734,7 +746,7 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 //
 // Takes ownership of clause (i.e., you can't touch clause at the
 // caller after calling this!).
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
     Match* parentMatch = NULL;
@@ -764,7 +776,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of clause to the DB.
-    StatementRef ref = statementNew(db, clause,
+    StatementRef ref = statementNew(db, clause, keepMs,
                                     sourceFileName, sourceLineNumber);
 
     epochBegin();
@@ -791,6 +803,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 // This is sort of the expected case. The statement is
                 // indeed already present in the db, and we've been
                 // able to acquire it.
+                //
+                // TODO: Warn if keepMs differs between existing and
+                // newly-propsed statement?
                 if (tryReuseStatement(db, stmt, parentMatch)) {
                     statementRelease(db, stmt);
 
@@ -921,7 +936,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 // Takes ownership of clause.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
-                             Clause* clause,
+                             Clause* clause, long keepMs,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
@@ -972,7 +987,7 @@ StatementRef dbHoldStatement(Db* db,
         if (clause->nTerms > 0) {
             hold->version = version;
 
-            newStmt = dbInsertOrReuseStatement(db, clause,
+            newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
                                                sourceFileName,
                                                sourceLineNumber,
                                                MATCH_REF_NULL);

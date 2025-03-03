@@ -95,7 +95,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // which then becomes responsible for freeing it later. Pass a null
 // MatchRef if this is an assertion. Returns a null StatementRef if no
 // new statement was created. 
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parent);
 
@@ -116,7 +116,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // later.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
-                             Clause* clause,
+                             Clause* clause, long keepMs,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement);
 
