@@ -817,7 +817,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 model $baseModel version -1 timestamp [expr {[clock milliseconds] / 1000.0}]
         }
     }
-    Claim the calibration HoldDefaultModel! is ${^HoldDefaultModel!}
+    Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
     When /nobody/ claims the calibration model-to-display homography is /anything/ with \
                          model /anything/ version /anything/ timestamp /anything/ {
         HoldDefaultModel! 1.0
