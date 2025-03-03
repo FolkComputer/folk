@@ -454,9 +454,9 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         if (stmt->keepMs == 0) {
             statementRemoveSelf(db, stmt);
         } else {
-            stmt->keepMs = 0;
             stmt->parentCount++;
             sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
+            stmt->keepMs = 0;
         }
     }
 }
