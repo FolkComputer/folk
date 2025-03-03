@@ -48,37 +48,35 @@ When /someone/ wishes /p/ draws a /shape/ {
 }
 When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
-  lassign [region centroid $r] x y
+  lassign [region centroid $r] cx cy
+  set angle [region angle $r]
+  
   set width [region width $r]
   set height [region height $r]
-  lassign [dict_getdef $options offset {0 0}] offsetX offsetY
   set radius [dict_getdef $options radius 50]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set thickness [dict_getdef $options thickness 5]
   set layer [dict_getdef $options layer 0]
- 
-  if {$offsetX != 0} {
-    set x [expr {$x + $offsetX}]
-  }
-  if {$offsetY != 0} {
-    set y [expr {$y + $offsetY}]
-  }
-
-  set angle [region angle $r]
-  set p [list $x $y]
+  
+  lassign [dict_getdef $options offset {0 0}] offsetX offsetY
+  set rawOffset [list $offsetX $offsetY]
+  
+  set rotatedOffset [vec2 rotate $rawOffset $angle]
+  
+  set finalCenter [vec2 add [list $cx $cy] $rotatedOffset]
 
   if {$shape eq "circle"} {
       Wish to draw a circle with \
-          center $p radius $radius thickness $thickness \
+          center $finalCenter radius $radius thickness $thickness \
           color $color filled $filled layer $layer
   } elseif {[dict exists $shapes $shape]} {
       Wish to draw a shape with sides [dict get $shapes $shape] \
-          center $p radius $radius radians $angle \
+          center $finalCenter radius $radius radians $angle \
           color $color filled $filled layer $layer
   } else {
       Wish to draw a shape with sides 2 \
-          center $p radius $radius radians $angle \
+          center $finalCenter radius $radius radians $angle \
           color $color filled $filled layer $layer
   }
 }
