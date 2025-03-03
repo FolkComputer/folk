@@ -193,7 +193,7 @@ Claim $this has demo {
   Wish $this draws a triangle with color skyblue
   Wish $this draws a triangle with color green offset {-280 0}
   Wish $this draws a pentagon with color gold offset {-200 0}
-  Wish $this draws an octagon with color magenta offset {-250 80}
+  Wish $this draws an octagon with color red offset {-250 80}
   
   # Rectangle examples
   Wish $this draws a rect with width 150 height 75 color cyan filled true offset {-250 -250}
