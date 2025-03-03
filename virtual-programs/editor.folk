@@ -3,13 +3,11 @@ set baseCode "Wish \$this is outlined green"
 # This makes all keyboards into editors automatically, so a keyboard
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
-When /page/ is a keyboard with path /...anything/ {
-    Claim $page is an editor
+When /page/ is a keyboard with /...opts/ {
+    Claim (keep 100ms) $page is an editor with {*}$opts
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ &\
-     /page/ is an editor {
-
+When /page/ is an editor with path /kbPath/ /...anything/ {
   Wish tag $page is stabilized
 
   set id [list editing $page $kbPath]
@@ -26,8 +24,12 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   }
 
   if {[llength [Query! /someone/ claims $id has start time /startTime/]] == 0} {
+      set t [expr {[clock milliseconds] / 1000.0}]
       Hold! [list $id start-time] {
-          Claim $id has start time [expr {[clock milliseconds] / 1000.0}]
+          Claim $id has start time $t
+      }
+      Hold! [list $id most-recent-time] {
+          Claim $id has most recent time $t
       }
   }
 }
@@ -53,7 +55,7 @@ fn updateCursor {oldCursor updates} {
   return $newCursor
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
   if {[llength [Query! /someone/ claims the $kbPath cursor is /anything/]] == 0} {
     Hold! "cursor$kbPath" {
@@ -144,7 +146,7 @@ fn lineNumberView {ystart linecount} {
   join $numbers "\n"
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
   When $id has program code /code/ & $id has editor code /editorCode/ & $id has region /r/ {
     set scale 0.60
@@ -209,8 +211,9 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
   Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id [list editing $page $kbPath]
+When /page/ is an editor with path /kbPath/ /...anything/ {
+    set id [list editing $page $kbPath]
+    puts stderr "WARNING: EDITOR RESET"
 
   # Desired behavior: query all the other stuff every time you hit a
   # key, then destroy the when (don't want _any_ reaction after the
@@ -219,9 +222,18 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
              the $kbPath cursor is /cursor/ &\
              $id has program code /code/ &\
              $id has editor code /editorCode/ &\
-             $id has start time /startTime/ {
+             $id has start time /startTime/ &\
+             $id has most recent time /mostRecentTime/ {
 
     set timestamp [dict get $options timestamp]
+    if {$timestamp < $mostRecentTime} {
+        puts stderr "editor: Warning: Dropping '$key' ($keyState)"
+        return
+    }
+
+    HoldStatement! [list $id most-recent-time] \
+        [list $this claims $id has most recent time $timestamp]
+
     if {$timestamp > $startTime && ($keyState == "down" || $keyState == "repeat")} {
       if {[dict exists $options printable]} {
         Hold! "cursor$kbPath" {
