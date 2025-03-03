@@ -161,7 +161,7 @@ proc fn {args} {
     uplevel [list set ^$name [list $argNames $body [info source $body]]]
 
     # In case they actually want to call it in the same context:
-    uplevel [list proc $name $argNames [uplevel info locals] $body]
+    tailcall proc $name $argNames [uplevel info locals] $body
 
     # Note that we _don't_ capture an environment. Instead, we assume
     # that the enclosing environment will be captured later anyway

@@ -1,0 +1,10 @@
+set x 3
+
+fn hello {} {
+    assert {$x == 3}
+    Hold! boom {
+        assert {$x == 3}
+        __exit 0
+    }
+}
+hello
