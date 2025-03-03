@@ -40,6 +40,6 @@ When (non-capturing) /type/ /obj/ has a program {
             apply [list {this} $metacode] $obj
         }
     } on error err {
-        puts stderr "No code for $type $obj ($err)"
+        puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
     }
 }
