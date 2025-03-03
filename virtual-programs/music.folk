@@ -110,6 +110,12 @@ proc ::Music::finishSetup {} {
     if {$::thisNode eq "folk-recurse"} {
         exec jack_control dps device hw:PCH,0
         exec jack_control dps period 256
+    } elseif {$::thisNode eq "folk0"} {
+        exec jack_control dps device hw:CARD=PCH,DEV=0
+        exec jack_control dps period 256
+    } elseif {$::thisNode eq "folk-cwe"} {
+        exec jack_control dps device hw:PCH,0
+        exec jack_control dps period 256
     } else {
         exec jack_control dps device hw:HDMI,10
         exec jack_control dps period 64
