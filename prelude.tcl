@@ -45,7 +45,7 @@ proc unknown {cmdName args} {
                 }
             }
             if {$i < 0} {
-                error "unknown: Did not find fn $cmdName in env stack."
+                error "unknown: Did not find fn $cmdName in env stack"
             }
 
             # We found the function somewhere in the env stack.
@@ -70,6 +70,7 @@ proc captureEnvStack {} {
     # Capture and return the lexical environment at the caller.
 
     upvar __env oldEnv
+    if {![info exists oldEnv]} { set oldEnv {} }
 
     # Get all changed variables and serialize them, to fake lexical
     # scope.
@@ -121,9 +122,42 @@ proc evaluateWhenBlock {whenBody envStack} {
     }
 }
 
-proc fn {name argNames body} {
-    # Creates a variable in the caller scope called ^$name. Our custom
-    # unknown implementation will check ^$name on call.
+proc fn {args} {
+    if {[llength $args] == 1} {
+        # They just want to capture an existing fn + env as a
+        # self-contained value, to share in a statement or
+        # whatever. This is a pretty slow operation.
+
+        # TODO: Probably not safe to call outside the original context
+        # where the fn was defined.
+
+        set fnName [lindex $args 0]
+        upvar ^$fnName fn
+
+        set envStack [uplevel captureEnvStack]
+
+        # Call like [{*}[fn hello] 1 2] should be equivalent to [hello
+        # 1 2].
+        return [list apply {{fn envStack args} {
+            lassign $fn argNames body sourceInfo
+            if {[info source $body] ne $sourceInfo} {
+                set body [info source $body {*}$sourceInfo]
+            }
+
+            set env [dict merge {*}$envStack]
+            dict set env __envStack $envStack
+            dict set env __env $env
+            
+            set argNames [list {*}[dict keys $env] {*}$argNames]
+            tailcall apply [list $argNames $body] \
+                {*}[dict values $env] \
+                {*}$args
+        }} $fn $envStack]
+    }
+    lassign $args name argNames body
+
+    # Creates a variable in the caller lexical env called ^$name. Our
+    # custom unknown implementation will check ^$name on call.
     uplevel [list set ^$name [list $argNames $body [info source $body]]]
 
     # In case they actually want to call it in the same context:

@@ -238,7 +238,7 @@ fn meanPoseDifference {pose1 pose2} {
 }
 Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 
-fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
+fn makeCalibrationBoardPdf {model tagSideLengthPs} {
     package require linalg
     namespace import ::math::linearalgebra::add
     set printLib [dict get [lindex [Query! /someone/ claims the print library is /printLib/] 0] \
@@ -277,7 +277,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
-            if {![apply $tagIdPredicate $id]} { continue }
+            if {![isPrintedTag $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
@@ -314,14 +314,14 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 fn makeExampleProgramPng {} {
-    set ^programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
-                          programToPs]
+    set programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
+                         programToPs]
 
     # HACK: we hard-code letter, since this is just for documentation
     # purposes, and we want to cut the bottom half off so we need
     # known dimensions.
     set format letter
-    set ps [programToPs 0 {# This image is for illustration purposes; don't
+    set ps [{*}$programToPs 0 {# This image is for illustration purposes; don't
 # print it. You should print a program normally
 # through the Folk editor and measure that.} $format {{
 
@@ -376,11 +376,10 @@ fn makeExampleProgramPng {} {
     return $png
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPng} {
+Wish the web server handles route "/calibrate$" with handler [list applyBlock {
     package require base64
 
-    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
-                                 {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
+    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
 
     set exampleProgramPng [makeExampleProgramPng]
 
@@ -656,7 +655,7 @@ Claim the default program geometry is \$geom
       </body>
     </html>
   }]
-}} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPng}]
+} [captureEnvStack]]
 
 fn lsort-indices {itemL} {
     set pairL [list]
