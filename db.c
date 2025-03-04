@@ -642,7 +642,8 @@ void matchRemoveSelf(Db* db, Match* match) {
         // execution.
         ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
         if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
-            printf("KILL\n");
+            char buf[10000]; traceItem(buf, sizeof(buf), workerThread->currentItem);
+            fprintf(stderr, "KILL (%.100s)\n", buf);
             kill(workerThread->tid, SIGUSR1);
         }
     }

@@ -1,4 +1,4 @@
-# camera-usb.folk --
+# camera-rpi.folk --
 #
 #     Hardware interface with Pi webcams (libcamera).
 
