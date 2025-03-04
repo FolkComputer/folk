@@ -669,6 +669,8 @@ fn lsort-indices {itemL} {
     set indexL
 }
 
+set CALIBRATION_POSES_MAX 10
+
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the image library is /imageLib/ &\
@@ -720,7 +722,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # at least 10 poses to do ultimate calibration+refinement.
     Hold! (non-capturing) (on calibration) poses \
         { Claim the calibration poses are [list] }
-    set CALIBRATION_POSES_MAX 10
+
 
     HoldStatement! cycleTime [list $this claims the calibration cycle time is 0]
 
@@ -797,9 +799,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    # FIXME: HACK: This is made a global utility function so it can
-    # also be called by the Web page when the user hits the slider to
-    # adjust projected tag scale.
+    # This is made a function so it can also be called by the Web page
+    # when the user drags the slider to adjust projected tag scale.
     fn HoldDefaultModel! {scale} {
         # Default model: just makes the tags fill most of the middle
         # of the projector area.
@@ -1089,6 +1090,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $calibrationPoses; close $fd
 
+            # Destroy the old calibration and trigger a new one.
+            HoldStatement! (on calibration) calibration {}
+
             Retract! /someone/ wishes to calibrate
         }
     }
@@ -1360,12 +1364,17 @@ When the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration refiner is /refineCalibration/ {
 
+    if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
+        return
+    }
+
     set calibration [unrefinedCalibrateCameraAndProjector $calibrationPoses]
     puts "======== Unrefined calibration ========="
     puts $calibration
     puts ""
 
-    set calibration [apply $refineCalibration \
+    set calibration [{*}$refineCalibration \
+                         [fn isPrintedTag] [fn isProjectedTag]
                          $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
 
@@ -1461,7 +1470,8 @@ Stereo RMSE [dict getdef $calibration rmse (unavailable)]
         }
     }
 
-    Hold! calibration { Claim the calibration is $calibration }
+    HoldStatement! calibration \
+        [list $this claims the calibration is $calibration]
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd
