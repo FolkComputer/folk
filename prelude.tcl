@@ -75,7 +75,8 @@ proc captureEnvStack {} {
     # Get all changed variables and serialize them, to fake lexical
     # scope.
     set env [dict create]
-    foreach name [uplevel {info locals}] {
+    set upNames [uplevel {list {*}[info statics] {*}[info locals]}]
+    foreach name $upNames {
         if {[string match "__*" $name]} { continue }
 
         upvar $name value
@@ -158,16 +159,22 @@ proc fn {args} {
 
     # Creates a variable in the caller lexical env called ^$name. Our
     # custom unknown implementation will check ^$name on call.
+    #
+    # Note that we _don't_ capture an environment into
+    # ^$name. Instead, we assume that the enclosing environment will
+    # be captured later anyway (that's how you would get this
+    # function! we don't expect people to pass it around really), so
+    # the caller of this function will just rehydrate that enclosing
+    # environment.
     uplevel [list set ^$name [list $argNames $body [info source $body]]]
 
-    # In case they actually want to call it in the same context:
-    tailcall proc $name $argNames [uplevel info locals] $body
+    # In case they actually want to call the fn in the same context,
+    # we make a proc immediately also:
 
-    # Note that we _don't_ capture an environment. Instead, we assume
-    # that the enclosing environment will be captured later anyway
-    # (that's how you would get this function! we don't expect people
-    # to pass it around really), so the caller of this function will
-    # just rehydrate that enclosing environment.
+    # We need to use tailcall here to preserve the filename/lineno
+    # info for $body for some reason.
+    # TODO: also capture info statics?
+    tailcall proc $name $argNames [uplevel info locals] $body
 }
 
 proc assert condition {

@@ -15732,6 +15732,18 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         case INFO_ARGS:{
                 Jim_Cmd *cmdPtr;
 
+                if (argc == 2 && cmd == INFO_STATICS) {
+                    // Caller wants statics for itself (the currently
+                    // executing command).
+                    if (interp->framePtr->staticVars) {
+                        Jim_SetResult(interp, JimHashtablePatternMatch(interp, interp->framePtr->staticVars,
+                            NULL, JimVariablesMatch, JIM_VARLIST_LOCALS));
+                    }
+                    else {
+                        Jim_SetEmptyResult(interp);
+                    }
+                    return JIM_OK;
+                }
                 if (argc != 3) {
                     Jim_WrongNumArgs(interp, 2, argv, "procname");
                     return JIM_ERR;

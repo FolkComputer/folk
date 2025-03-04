@@ -818,10 +818,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
     Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
-    When /nobody/ claims the calibration model-to-display homography is /anything/ with \
-                         model /anything/ version /anything/ timestamp /anything/ {
-        HoldDefaultModel! 1.0
-    }
+
+    HoldDefaultModel! 1.0
     On unmatch { Hold! H_modelToDisplay {} }
 
     When /detector/ detects tags /tags/ on camera $camera \
