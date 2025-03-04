@@ -687,6 +687,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # TODO: restore old camera resolution later
     }
 
+    package require linalg
     namespace import ::math::linearalgebra::scale
 
     # HACK: hard-coded for now; assumes dark room. Won't work on USB
@@ -721,7 +722,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         { Claim the calibration poses are [list] }
     set CALIBRATION_POSES_MAX 10
 
-    Hold! (non-capturing) cycleTime { Claim the calibration cycle time is 0 }
+    HoldStatement! cycleTime [list $this claims the calibration cycle time is 0]
 
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
@@ -731,8 +732,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
          the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ {
 
+        package require linalg
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
+
         fn innerToOuter {center corner} {
             set r [sub $corner $center]
             return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
@@ -962,14 +965,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        Hold! H_modelToDisplay {
-            set nextVersion [+ $version 1]
-            set nextModel [versionizeTags $baseModel $nextVersion]
-            set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
-            Claim the calibration model-to-display homography is $nextH_modelToDisplay with \
-                model $nextModel version $nextVersion timestamp $nextTimestamp
-            Claim the calibration cycle time is $($nextTimestamp - $hTimestamp)
-        }
+        set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
+        set nextVersion [+ $version 1]
+        set nextModel [versionizeTags $baseModel $nextVersion]
+        HoldStatement! H_modelToDisplay \
+            [list $this claims the calibration model-to-display homography \
+                 is $nextH_modelToDisplay with \
+                 model $nextModel version $nextVersion timestamp $nextTimestamp]
+        HoldStatement! cycleTime \
+            [list $this claims the calibration cycle time is $($nextTimestamp - $hTimestamp)]
 
         # Should we record the points we just saw as a calibration
         # pose?
@@ -1085,8 +1089,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $calibrationPoses; close $fd
 
-            HoldStatement! (on calibration) calibration \
-                [list $this claims the calibration poses are $calibrationPoses]
             Retract! /someone/ wishes to calibrate
         }
     }
