@@ -135,7 +135,7 @@ typedef struct Match {
 
     // Immutable match properties:
 
-    pthread_t workerThread;
+    int workerThreadIndex;
 
     // Mutable match properties:
 
@@ -522,7 +522,7 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db, pthread_t workerThread) {
+static MatchRef matchNew(Db* db, int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
     // Look for a free match slot to use:
@@ -554,7 +554,7 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     pthread_mutex_init(&match->childStatementsMutex, &mta);
     pthread_mutexattr_destroy(&mta);
 
-    match->workerThread = workerThread;
+    match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
         match->destructors[i].fn = NULL;
@@ -597,6 +597,7 @@ void matchCompleted(Match* match) {
 //
 // FIXME: Make this thread-safe (if called by multiple removers at the
 // same time, it shouldn't double-free).
+extern ThreadControlBlock threads[];
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
 
@@ -639,7 +640,11 @@ void matchRemoveSelf(Db* db, Match* match) {
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
         // execution.
-        // pthread_kill(match->workerThread, SIGUSR1);
+        ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
+        if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
+            printf("KILL\n");
+            kill(workerThread->tid, SIGUSR1);
+        }
     }
 }
 
@@ -860,8 +865,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     pthread_t workerThread) {
-    MatchRef ref = matchNew(db, workerThread);
+                     int workerThreadIndex) {
+    MatchRef ref = matchNew(db, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
     assert(match);
 

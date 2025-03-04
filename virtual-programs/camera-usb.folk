@@ -35,15 +35,19 @@ $camc struct Camera {
 
 $camc code {
     void quit(const char* msg) {
-        fprintf(stderr, "[%s] %d: %s\n", msg, errno, strerror(errno));
-        exit(1);
+        char s[500];
+        snprintf(s, sizeof(s),
+                 "camera-usb: Quitting: [%s] %d: %s\n",
+                 msg, errno, strerror(errno));
+        FOLK_ERROR(s);
     }
 
     int xioctl(int fd, int request, void* arg) {
         for (int i = 0; i < 100; i++) {
             int r = ioctl(fd, request, arg);
-            if (r != -1 || errno != EINTR) return r;
-            printf("[%x][%d] %s\n", request, i, strerror(errno));
+            if (r != -1 || errno != EINTR) return errno;
+            printf("camera-usb: Retrying: [%x][%d] %s\n",
+                   request, i, strerror(errno));
         }
         return -1;
     }
@@ -71,6 +75,10 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
     camera->head.length = 0;
     camera->head.start = NULL;
     return camera;
+}
+$camc proc cameraClose {Camera* camera} void {
+    close(camera->fd);
+    free(camera);
 }
 
 $camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
@@ -316,6 +324,9 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             cameraDecompressGray $camera $image
             return $image
         }
+        proc close {camera} {
+            cameraClose $camera
+        }
     }
 
     set width [dict get $options width]
@@ -325,21 +336,30 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set camObj [Camera::new $camera $width $height $bufferCount]
 
     set oldFrames [list]
-    while true {
-        tracy zoneBegin
+    try {
+        while true {
+            tracy zoneBegin
 
-        set frame [Camera::grayFrame $camObj]
-        set timestamp [expr {[clock milliseconds] / 1000.0}]
-        tracy zoneName "camera-usb: $timestamp"
-        HoldStatement! camera [list $this claims camera $camera has frame $frame at timestamp $timestamp]
+            set frame [Camera::grayFrame $camObj]
+            set timestamp [expr {[clock milliseconds] / 1000.0}]
+            tracy zoneName "camera-usb: $timestamp"
+            HoldStatement! camera \
+                [list $this claims camera $camera has frame $frame at timestamp $timestamp]
 
-        lappend oldFrames $frame
-        if {[llength $oldFrames] >= 50} {
-            set oldFrames [lassign $oldFrames oldestFrame]
-            # puts stderr "freeing old frame ($oldestFrame)"
-            $camLib freeImage $oldestFrame
+            lappend oldFrames $frame
+            if {[llength $oldFrames] >= 50} {
+                set oldFrames [lassign $oldFrames oldestFrame]
+                # puts stderr "freeing old frame ($oldestFrame)"
+                $camLib freeImage $oldestFrame
+            }
+
+            tracy zoneEnd
         }
-
-        tracy zoneEnd
+    } on error e {
+        puts stderr "camera-usb: Error $e"
+    } on signal sig {
+        puts stderr "camera-usb: Signal $sig"
+    } finally {
+        Camera::close $camObj
     }
 }

@@ -106,7 +106,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 // destroyed. The Match is returned acquired and needs to be released
 // by the caller.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     pthread_t workerThread);
+                     int workerThreadIndex);
 
 void dbRetractStatements(Db* db, Clause* pattern);
 

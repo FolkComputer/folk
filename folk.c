@@ -585,10 +585,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, pthread_self());
+        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
