@@ -45,7 +45,7 @@ $camc code {
     int xioctl(int fd, int request, void* arg) {
         for (int i = 0; i < 100; i++) {
             int r = ioctl(fd, request, arg);
-            if (r != -1 || errno != EINTR) return errno;
+            if (r != -1 || errno != EINTR) return r;
             printf("camera-usb: Retrying: [%x][%d] %s\n",
                    request, i, strerror(errno));
         }
