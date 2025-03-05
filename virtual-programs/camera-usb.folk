@@ -14,6 +14,7 @@ $camc include <sys/ioctl.h>
 $camc include <sys/mman.h>
 $camc include <asm/types.h>
 $camc include <linux/videodev2.h>
+$camc include <unistd.h>
 
 $camc include <stdint.h>
 $camc include <stdlib.h>
@@ -77,6 +78,11 @@ $camc proc cameraOpen {char* device int width int height} Camera* {
     return camera;
 }
 $camc proc cameraClose {Camera* camera} void {
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(camera->fd, VIDIOC_STREAMOFF, &type) == -1) {
+        quit("VIDIOC_STREAMOFF");
+    }
+
     struct v4l2_requestbuffers req = {0};
     // A count value of zero frees all buffers, after aborting or
     // finishing any DMA in progress, an implicit VIDIOC_STREAMOFF.
@@ -107,7 +113,9 @@ $camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
     int ret;
     do {
         ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
-    } while (ret == EBUSY);
+        fprintf(stderr, "VIDIOC_S_FMT: %d; %d\n", ret, errno);
+        usleep(100000);
+    } while (ret == -1 && errno == EBUSY);
     if (ret == -1) quit("VIDIOC_S_FMT");
 
     struct v4l2_requestbuffers req = {0};
@@ -300,6 +308,7 @@ $camc proc freeImage {Image image} void {
 #                  "/opt/homebrew/lib/libjpeg.dylib" :
 #                  [lindex [exec /usr/sbin/ldconfig -p | grep libjpeg] end]}]
 $camc endcflags -ljpeg
+$camc cflags -Wall -Werror
 set camLib [$camc compile]
 
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
