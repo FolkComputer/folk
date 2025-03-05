@@ -38,7 +38,7 @@ fn rotationMatrixToRotationVector {R} {
     }
 
     set u [scale [/ 1.0 $s] $rho]
-    set theta [atan2 $s $c]
+    set theta $(atan2($s, $c))
     return [scale $theta $u]
 }
 
@@ -51,10 +51,10 @@ fn rotationVectorToRotationMatrix {r} {
     set ux [list [list 0                       [* -1.0 [getelem $u 2]] [getelem $u 1]] \
                  [list [getelem $u 2]          0                       [* -1.0 [getelem $u 0]]] \
                  [list [* -1.0 [getelem $u 1]] [getelem $u 0]          0]]
-    return [add [scale [cos $theta] [mkIdentity 3]] \
+    return [add [scale $(cos($theta)) [mkIdentity 3]] \
                 [add [scale [expr {1.0 - cos($theta)}] \
                           [matmul $u [transpose $u]]] \
-                     [scale [sin $theta] $ux]]]
+                     [scale $(sin($theta)) $ux]]]
 }
 
 set NUM_TAGS_IN_MODEL 20
@@ -509,7 +509,7 @@ $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Jim_O
 set refineLib [$cc compile] ;# takes about a half-second
 
 
-fn refineCalibration {isPrintedTag isProjectedTag
+fn refineCalibration {isPrintedTag isProjectedTag matLib 
                       calibrationPoses calibration} {
     local proc isPrintedTag {args} {isPrintedTag} {
         tailcall {*}$isPrintedTag {*}$args
@@ -517,6 +517,7 @@ fn refineCalibration {isPrintedTag isProjectedTag
     local proc isProjectedTag {args} {isProjectedTag} {
         tailcall {*}$isProjectedTag {*}$args
     }
+
     # We start by individually refining the mono calibration of
     # the camera and the mono calibration of the projector.
 
@@ -573,7 +574,7 @@ fn refineCalibration {isPrintedTag isProjectedTag
               if {![isProjectedTag $id]} continue
               foreach modelCorner [dict get $pose model $id p] {
                   lappend modelPoints [list {*}$modelCorner 0.0]
-                  lappend points [applyHomography $H_modelToProjector $modelCorner]
+                  lappend points [$matLib applyHomography $H_modelToProjector $modelCorner]
               }
           }
           dict create \
@@ -633,7 +634,7 @@ fn refineCalibration {isPrintedTag isProjectedTag
                 set modelCorner [lindex [dict get $pose model $id p] $j]
                 lappend modelPoints [list {*}$modelCorner 0.0]
                 lappend cameraPoints [lindex [dict get $tag p] $j]
-                lappend projectorPoints [applyHomography $H_modelToProjector $modelCorner]
+                lappend projectorPoints [$matLib applyHomography $H_modelToProjector $modelCorner]
             }
         }
         incr poseCount
