@@ -91,7 +91,7 @@ void sysmon() {
                 // pileup.
                 Statement* stmt;
                 if ((stmt = statementAcquire(db, stmtRef))) {
-                    statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+                    statementRemoveSelf(db, stmt);
                     statementRelease(db, stmt);
                 }
 

@@ -416,11 +416,12 @@ bool statementTryIncrParentCount(Statement* stmt) {
     return true;
 }
 
-static void statementRemoveSelf(Db* db, Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
+        // Note that we should have exclusive access to stmt at this point.
+
         // Deindex the statement:
         uint64_t results[100]; int resultsCount;
         epochBegin();
@@ -454,16 +455,18 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         if (stmt->keepMs == 0) {
             statementRemoveSelf(db, stmt);
         } else {
-            stmt->parentCount++;
+            // The statement is in a 'deindexed, but not removed'
+            // state at this point.
             sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
-            stmt->keepMs = 0;
         }
     }
 }
 
 // Call statementRemoveSelf when ALL of the statement's parents
 // (matches or other) are removed (parentCount has hit 0).
-static void statementRemoveSelf(Db* db, Statement* stmt) {
+void statementRemoveSelf(Db* db, Statement* stmt) {
+    assert(stmt->parentCount == 0);
+
     /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
     /*        clauseToString(stmt->clause)); */
     pthread_mutex_lock(&stmt->childMatchesMutex);
@@ -598,6 +601,7 @@ void matchCompleted(Match* match) {
 // FIXME: Make this thread-safe (if called by multiple removers at the
 // same time, it shouldn't double-free).
 extern ThreadControlBlock threads[];
+extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
 
@@ -811,7 +815,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                 // able to acquire it.
                 //
                 // TODO: Warn if keepMs differs between existing and
-                // newly-propsed statement?
+                // newly-proposed statement?
                 if (tryReuseStatement(db, stmt, parentMatch)) {
                     statementRelease(db, stmt);
 
@@ -821,6 +825,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                     // Free the new statement `ref` that we created,
                     // since we won't be using it.
                     Statement* newStmt = statementAcquire(db, ref);
+                    newStmt->parentCount = 0;
                     statementRemoveSelf(db, newStmt);
                     statementRelease(db, newStmt);
 

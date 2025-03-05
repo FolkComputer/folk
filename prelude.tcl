@@ -243,7 +243,11 @@ namespace eval ::math {
         }
         set mean [expr { double($sum) / $N }]
     }
+    proc sin {x} { expr {sin($x)} }
+    proc cos {x} { expr {cos($x)} }
 }
+namespace import ::math::*
+
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
 proc HoldStatement! {args} {

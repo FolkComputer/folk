@@ -52,6 +52,7 @@ bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
 
 void statementIncrParentCount(Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt);
+void statementRemoveSelf(Db* db, Statement* stmt);
 
 // Match
 // -----
