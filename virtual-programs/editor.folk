@@ -4,7 +4,15 @@ set baseCode "Wish \$this is outlined green"
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
 When /page/ is a keyboard with /...opts/ {
-    Claim (keep 100ms) $page is an editor with {*}$opts
+    if {[dict exists $opts path] && [dict exists $opts locale]} {
+        Wish (keep 100ms) $page is an editor with {*}$opts
+    }
+}
+
+# HACK: This is so that the wish can cycle in and out but the identity
+# of the inner claim is retained, so the editor doesn't reboot.
+When /someone/ wishes /page/ is an editor with /...opts/ {
+    Claim $page is an editor with {*}$opts
 }
 
 When /page/ is an editor with path /kbPath/ /...anything/ {
@@ -34,7 +42,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
   On unmatch {
       Hold! [list $id start-time] {}
@@ -213,7 +221,6 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
 
 When /page/ is an editor with path /kbPath/ /...anything/ {
     set id [list editing $page $kbPath]
-    puts stderr "WARNING: EDITOR RESET"
 
   # Desired behavior: query all the other stuff every time you hit a
   # key, then destroy the when (don't want _any_ reaction after the
