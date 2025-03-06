@@ -1001,13 +1001,13 @@ void workerInit(int index) {
 
     epochThreadInit();
 
-#ifdef __linux__
-    if (pthread_getcpuclockid(pthread_self(), &self->clockid)) {
-        perror("workerInit: pthread_getcpuclockid failed");
-    }
-#else
+/* #ifdef __linux__ */
+/*     if (pthread_getcpuclockid(pthread_self(), &self->clockid)) { */
+/*         perror("workerInit: pthread_getcpuclockid failed"); */
+/*     } */
+/* #else */
     self->clockid = CLOCK_MONOTONIC;
-#endif
+/* #endif */
     self->currentItemStartTimestamp = 0;
     self->index = index;
 
