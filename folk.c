@@ -950,7 +950,11 @@ WorkQueueItem workerSteal() {
     int stealee;
     do {
         stealee = rand_r(&seedp) % threadCount;
+        if (stealee == self->index) {
+            sched_yield();
+        }
     } while (stealee == self->index);
+
     if (threads[stealee].tid == 0 || threads[stealee].workQueue == NULL) {
         return (WorkQueueItem) { .op = NONE };
     }
@@ -1081,6 +1085,10 @@ int main(int argc, char** argv) {
         pthread_t sysmonTh;
         pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
     }
+
+    /* struct sched_param param; */
+    /* param.sched_priority = 1; */
+    /* pthread_setschedparam(pthread_self(), SCHED_FIFO, &param); */
 
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the

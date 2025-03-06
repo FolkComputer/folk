@@ -696,8 +696,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - calibration process
     - fix close-tab
 - only intern long strings?
-- fix C stack traces
+- ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
+- **why does collect take 100 microseconds?**
 
 ### editor bugs
 
@@ -710,3 +711,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - editor 'crash'/unresponsive bug
 - running program bugs out
   - recollect happening at weird time maybe?
+
+### strategies
+- use immortal objects
+- retain quad images, slightly larger than page size so we can draw on fringes?
