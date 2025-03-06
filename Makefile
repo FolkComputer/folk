@@ -77,11 +77,11 @@ setup-remote:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && ./folk'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk TRACY_SAMPLING_HZ=40000 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && gdb ./folk'
 debug-sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk TRACY_SAMPLING_HZ=40000 gdb ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS=$(CFLAGS) && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
