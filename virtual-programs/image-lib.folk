@@ -100,11 +100,13 @@ Claim the image library is [apply {{} {
 
     $cc proc saveAsJpeg {Image im char* filename} void {
         FILE* out = fopen(filename, "w");
+        FOLK_ENSURE(out != NULL);
         jpeg(out, im.data, im.components, im.bytesPerRow, im.width, im.height, 100);
         fclose(out);
     }
     $cc proc saveAsPng {Image im char* filename} void {
         FILE* out = fopen(filename, "wb");
+        FOLK_ENSURE(out != NULL);
         png(out, im.data, im.components, im.bytesPerRow, im.width, im.height);
         fclose(out);
     }

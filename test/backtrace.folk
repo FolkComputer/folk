@@ -7,7 +7,7 @@ fn errorMakingProc {} {
 When we are on {
     When the time is /t/ {
         if {$t % 5 == 0} {
-            errorMakingProc ;# line 10
+            errorMakingProc
         }
     }
 

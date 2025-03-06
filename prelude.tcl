@@ -27,25 +27,38 @@ proc unknown {cmdName args} {
         tailcall $cmdName {*}$args
 
     } else {
-        upvar ^$cmdName fn
+        set fnVarName ^$cmdName
+        upvar $fnVarName fn
         if {[info exists fn]} {
-            lassign $fn argNames body sourceInfo capturedEnvId
+            lassign $fn argNames body sourceInfo
             if {[info source $body] ne $sourceInfo} {
                 set body [info source $body {*}$sourceInfo]
             }
 
-            set env [$::envLib get $capturedEnvId]
-            if {$env eq ""} { error "Environment invalidated" }
-            lassign $env capturedNames capturedValues
-
-            set capturedEnv [dict create]
-            foreach name $capturedNames value $capturedValues {
-                dict set capturedEnv $name $value
+            upvar __envStack envStack
+            # Walk the env stack backwards (innermost env first) until
+            # we find the fn.
+            for {set i $([llength $envStack] - 1)} {$i >= 0} {incr i -1} {
+                set env [lindex $envStack $i]
+                if {[dict exists $env $fnVarName]} {
+                    break
+                }
+            }
+            if {$i < 0} {
+                error "unknown: Did not find fn $cmdName in env stack"
             }
 
-            dict with capturedEnv {
-                proc $cmdName $argNames $capturedNames $body
+            # We found the function somewhere in the env stack.
+
+            # Merge all envs up to and including envStack[i] to create
+            # the lexical environment for fn.
+            set env [dict merge {*}[lrange $envStack 0 $i]]
+            dict set env __envStack $envStack
+            dict set env __env $env
+            dict with env {
+                proc $cmdName $argNames [dict keys $env] $body
             }
+
             tailcall $cmdName {*}$args
         }
     }
@@ -53,190 +66,54 @@ proc unknown {cmdName args} {
     tailcall error "Unknown command '$cmdName'"
 }
 
-# Set up the global environment store.
-set ::envLib [apply {{} {
-    set envCid "env_[pid]"
-    set envLib "<C:$envCid>"
-    set envSo "/tmp/$envCid.so"
+proc captureEnvStack {} {
+    # Capture and return the lexical environment at the caller.
 
-    if {[__threadId] != 0} {
-        # If not on thread 0, wait for thread 0 to compile envLib,
-        # then load it.
-        while {![file exists $envSo]} {
-            sleep 0.2
-        }
-        return $envLib
-    }
+    upvar __env oldEnv
+    if {![info exists oldEnv]} { set oldEnv {} }
 
-    set cc [C]
-    $cc cflags -I.
-    $cc include <string.h>
-    $cc include <stdatomic.h>
-    $cc include "epoch.h"
-
-    $cc code {
-        typedef struct Env {
-            // other threads may read & write.
-            int _Atomic rc;
-
-            // other threads may read.
-            char* _Atomic data;
-
-            // only owning thread & destroyer will read and write.
-            struct Env* pointsTo[50];
-        } Env;
-    }
-    # insert can be called from any thread at any time.
-    $cc proc insert {char* data Env*[] pointsTo int pointsToCount} Env* {
-        Env *env = calloc(sizeof(Env), 1);
-        env->rc = 1;
-
-        env->data = strdup(data);
-        assert(pointsToCount < 50);
-        for (int i = 0; i < pointsToCount; i++) {
-            env->pointsTo[i] = pointsTo[i];
-        }
-        return env;
-    }
-    # update can only be called from the same thread that did the
-    # original insert and got that idx.
-    $cc proc update {Env* env char* data Env*[] pointsTo int pointsToCount} void {
-        epochBegin();
-
-        char *oldData = env->data;
-        char *newData = strdup(data);
-        if (atomic_compare_exchange_weak(&env->data,
-                                         &oldData, newData)) {
-            epochFree(oldData);
-
-            memset(env->pointsTo, 0, sizeof(env->pointsTo));
-            for (int i = 0; i < pointsToCount; i++) {
-                env->pointsTo[i] = pointsTo[i];
-            }
-        } else {
-            // If not, then it must have been removed already.
-            FOLK_ENSURE(oldData == NULL);
-        }
-
-        epochEnd();
-    }
-    # get can be called from any thread at any time.
-    $cc proc get {Env* env} Jim_Obj* {
-        epochBegin();
-
-        // We have to copy the env while still in the epoch to ensure
-        // that the env doesn't get invalidated.
-        Jim_Obj *ret = Jim_NewStringObj(interp, env->data, -1);
-
-        epochEnd();
-        return ret;
-    }
-    $cc proc incrRefCount {Env* env} void {
-        env->rc++;
-    }
-    $cc proc decrRefCount {Env* env} void {
-        if (--env->rc == 0) {
-            for (int i = 0; i < 50; i++) {
-                if (env->pointsTo[i] != NULL) {
-                    decrRefCount(env->pointsTo[i]);
-                }
-            }
-
-            epochBegin();
-
-            epochFree(env->data);
-            epochFree(env);
-
-            epochEnd();
-        }
-    }
-    return [$cc compile $envCid]
-}}]
-
-proc captureEnv {} {
-    # Capture the lexical environment at the caller, then store it in
-    # the environment store.
-
-    set envNames [list]
-    set envValues [list]
-
-    set fnEnvIds [dict create]
-
-    # Get all variables and serialize them, to fake lexical scope.
-    foreach name [uplevel {info locals}] {
+    # Get all changed variables and serialize them, to fake lexical
+    # scope.
+    set env [dict create]
+    set upNames [uplevel {list {*}[info statics] {*}[info locals]}]
+    foreach name $upNames {
         if {[string match "__*" $name]} { continue }
 
-        lappend envNames $name
-
         upvar $name value
-        lappend envValues $value
+        if {![dict exists $oldEnv $name] ||
+            $value ne [dict get $oldEnv $name]} {
 
-        if {[string index $name 0] eq "^"} {
-            # This is a function with its own captured
-            # environment. We want to retain that captured
-            # environment as long as this _new_ environment we're
-            # capturing now lives.
-            set fnEnvId [lindex $value 3]
-            dict set fnEnvIds $fnEnvId {}
+            dict set env $name $value
         }
     }
-    set env [list $envNames $envValues]
 
-    set fnEnvIds [dict keys $fnEnvIds]
-    foreach fnEnvId $fnEnvIds {
-        $::envLib incrRefCount $fnEnvId
-    }
-
-    # Put the captured environment into the env store and store it in
-    # the caller's scope:
-    upvar __envId __envId
-    if {[info exists __envId]} {
-        # Update the existing env in the environment store.
-        $::envLib update $__envId $env $fnEnvIds [llength $fnEnvIds]
-    } else {
-        # Insert env into the environment store.
-        set __envId [$::envLib insert $env $fnEnvIds [llength $fnEnvIds]]
-
-        uplevel [list Destructor true [list apply {{envId} {
-            $::envLib decrRefCount $envId
-        }} $__envId]]
-    }
-    return $__envId
+    return [list {*}[uplevel set __envStack] $env]
 }
 
-proc applyBlock {lambdaExpr capturedEnvId args} {
-    # Get env from the environment store.
-    if {$capturedEnvId ne ""} {
-        set env [$::envLib get $capturedEnvId]
-        if {$env eq ""} { error "Environment invalidated" }
-        lassign $env capturedNames capturedValues
-    } else {
-        set capturedNames [list]
-        set capturedValues [list]
-    }
-
-    set names [list]
-    for {set i 0} {$i < [llength $capturedNames]} {incr i} {
-        set capturedName [lindex $capturedNames $i]
-        if {[string index $capturedName 0] eq "^"} {
+proc applyBlock {body envStack} {
+    set env [dict merge {*}$envStack]
+    foreach name [dict keys $env] {
+        if {[string index $name 0] eq "^"} {
             # Delete any old version of the fn that may exist in
-            # command-space. We want to reload this one when it gets
-            # called.
+            # command-space. We want to reload this one when it
+            # gets called.
             try {
-                rename [string index $capturedName 1 end] {}
+                rename [string index $name 1 end] {}
             } on error e {}
         }
-        lappend names $capturedName
     }
-    lappend names {*}[lindex $lambdaExpr 0]
-    lset lambdaExpr 0 $names
 
-    tailcall apply $lambdaExpr {*}$capturedValues {*}$args
+    dict set env __envStack $envStack
+    dict set env __env $env
+
+    set names [dict keys $env]
+    set values [dict values $env]
+    tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
+proc evaluateWhenBlock {whenBody envStack} {
     try {
-        applyBlock $whenLambdaExpr $capturedEnvId {*}$whenArgValues
+        applyBlock $whenBody $envStack
 
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
@@ -246,11 +123,58 @@ proc evaluateWhenBlock {whenLambdaExpr capturedEnvId whenArgValues} {
     }
 }
 
-proc fn {name argNames body} {
-    # Creates a variable in the caller scope called ^$name. Our custom
-    # unknown implementation will check ^$name on call.
-    set capturedEnvId [uplevel captureEnv]
-    uplevel [list set ^$name [list $argNames $body [info source $body] $capturedEnvId]]
+proc fn {args} {
+    if {[llength $args] == 1} {
+        # They just want to capture an existing fn + env as a
+        # self-contained value, to share in a statement or
+        # whatever. This is a pretty slow operation.
+
+        # TODO: Probably not safe to call outside the original context
+        # where the fn was defined.
+
+        set fnName [lindex $args 0]
+        upvar ^$fnName fn
+
+        set envStack [uplevel captureEnvStack]
+
+        # Call like [{*}[fn hello] 1 2] should be equivalent to [hello
+        # 1 2].
+        return [list apply {{fn envStack args} {
+            lassign $fn argNames body sourceInfo
+            if {[info source $body] ne $sourceInfo} {
+                set body [info source $body {*}$sourceInfo]
+            }
+
+            set env [dict merge {*}$envStack]
+            dict set env __envStack $envStack
+            dict set env __env $env
+            
+            set argNames [list {*}[dict keys $env] {*}$argNames]
+            tailcall apply [list $argNames $body] \
+                {*}[dict values $env] \
+                {*}$args
+        }} $fn $envStack]
+    }
+    lassign $args name argNames body
+
+    # Creates a variable in the caller lexical env called ^$name. Our
+    # custom unknown implementation will check ^$name on call.
+    #
+    # Note that we _don't_ capture an environment into
+    # ^$name. Instead, we assume that the enclosing environment will
+    # be captured later anyway (that's how you would get this
+    # function! we don't expect people to pass it around really), so
+    # the caller of this function will just rehydrate that enclosing
+    # environment.
+    uplevel [list set ^$name [list $argNames $body [info source $body]]]
+
+    # In case they actually want to call the fn in the same context,
+    # we make a proc immediately also:
+
+    # We need to use tailcall here to preserve the filename/lineno
+    # info for $body for some reason.
+    # TODO: also capture info statics?
+    tailcall proc $name $argNames [uplevel info locals] $body
 }
 
 proc assert condition {
@@ -319,7 +243,11 @@ namespace eval ::math {
         }
         set mean [expr { double($sum) / $N }]
     }
+    proc sin {x} { expr {sin($x)} }
+    proc cos {x} { expr {cos($x)} }
 }
+namespace import ::math::*
+
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
 proc HoldStatement! {args} {
@@ -333,7 +261,7 @@ proc HoldStatement! {args} {
         if {$arg eq "(on"} {
             incr i
             set this [string range [lindex $args $i] 0 end-1]
-        } elseif {$arg eq "(keep"} {
+        } elseif {$arg eq "(keep"} { # e.g., (keep 3ms)
             incr i
             set keep [lindex $args $i]
             if {[string match {*ms)} $keep]} {
@@ -341,13 +269,24 @@ proc HoldStatement! {args} {
             } else {
                 error "HoldStatement!: invalid keep value [string range $keep 0 end-1]"
             }
+        } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
+            incr i
+            lassign [lindex $args $i] filename lineno
         } else {
             lappend key $arg
         }
     }
+    if {![info exists filename] || ![info exists lineno]} {
+        set frame [info frame -1]
+        set filename [dict get $frame file]
+        set lineno [dict get $frame line]
+    }
+
     set key [list $this {*}$key]
 
-    tailcall HoldStatementGlobally! $key $clause $keepMs
+    tailcall HoldStatementGlobally! \
+        $key $clause $keepMs \
+        $filename $lineno
 }
 proc Hold! {args} {
     set body [lindex $args end]
@@ -363,19 +302,40 @@ proc Hold! {args} {
     }]
 
     if {$isNonCapturing} {
-        set envId {}
+        set envStack {}
     } else {
-        set envId [uplevel captureEnv]
-
-        $::envLib incrRefCount $envId
-        append body "
-Destructor true \[list \$::envLib decrRefCount {$envId}]"
+        set envStack [uplevel captureEnvStack]
     }
-    tailcall HoldStatement! {*}$args \
-        [list when [list {} $body] with environment $envId]
+    tailcall HoldStatement! -source [info source $body] \
+        {*}$args \
+        [list when $body with environment $envStack]
 }
-proc Claim {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
-proc Wish {args} { upvar this this; Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+proc Say {args} {
+    set callerInfo [info frame -1]
+    set sourceFileName [dict get $callerInfo file]
+    set sourceLineNumber [dict get $callerInfo line]
+
+    set keepMs 0
+    set pattern [list]
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set term [lindex $args $i]
+        if {$term eq "(keep"} { # e.g., (keep 3ms)
+            incr i
+            set keep [lindex $args $i]
+            if {[string match {*ms)} $keep]} {
+                set keepMs [string range $keep 0 end-3]
+            } else {
+                error "Say: invalid keep value [string range $keep 0 end-1]"
+            }
+        } else {
+            lappend pattern $term
+        }
+    }
+    tailcall SayWithSource $sourceFileName $sourceLineNumber $keepMs \
+        {*}$pattern
+}
+proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
+proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
 proc When {args} {
     set body [lindex $args end]
     set sourceInfo [info source $body]
@@ -396,9 +356,9 @@ proc When {args} {
     }
 
     if {$isNonCapturing} {
-        set env {}
+        set envStack {}
     } else {
-        set env [uplevel captureEnv]
+        set envStack [uplevel captureEnvStack]
     }
 
     if {$isSerially} {
@@ -452,13 +412,12 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo \
+        tailcall SayWithSource {*}$sourceInfo 0 \
             when the collected matches for $pattern are /__matches/ \
-            [list [list __matches] $negateBody] with environment $env
+            $negateBody with environment $envStack
     } else {
-        tailcall SayWithSource {*}$sourceInfo \
-            when {*}$pattern \
-            [list $varNamesWillBeBound $body] with environment $env
+        tailcall SayWithSource {*}$sourceInfo 0 \
+            when {*}$pattern $body with environment $envStack
     }
 }
 proc Every {_time args} {
@@ -466,22 +425,24 @@ proc Every {_time args} {
         # Set up a When for the outermost match, then query for any
         # inner matches, then unmatch at the end.
         set body [lindex $args end]
+        set src [info source $body]
+
         set pattern [lreplace $args end end]
         set andIdx [lsearch $pattern &]
         if {$andIdx != -1} {
             set firstPattern [lrange $pattern 0 $andIdx-1]
             set restPatterns [lrange $pattern $andIdx+1 end]
-            set body "set _unmatchRef \[__currentMatchRef]
-set __results \[Query! {*}{$restPatterns}]
-foreach __result \$__results { dict with __result {
+            set body [info source "set _unmatchRef \[__currentMatchRef]; \
+set __results \[Query! {*}{$restPatterns}]; \
+foreach __result \$__results { dict with __result { \
 $body
 } }
-Unmatch! \$_unmatchRef"
+Unmatch! \$_unmatchRef" {*}$src]
         } else {
             set firstPattern $pattern
-            set body "set _unmatchRef \[__currentMatchRef]
+            set body [info source "set _unmatchRef \[__currentMatchRef]; \
 $body
-Unmatch! \$_unmatchRef"
+Unmatch! \$_unmatchRef" {*}$src]
         }
         tailcall When {*}$firstPattern $body
     } else {
@@ -492,8 +453,8 @@ Unmatch! \$_unmatchRef"
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
-        set env [uplevel captureEnv]
-        Destructor false [list applyBlock [list {} $body] $env]
+        set envStack [uplevel captureEnvStack]
+        Destructor [list applyBlock $body $envStack]
     } else {
         error "On: Unknown '$event' (called with: [string range $args 0 50]...)"
     }

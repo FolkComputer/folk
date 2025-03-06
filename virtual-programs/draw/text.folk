@@ -116,7 +116,7 @@ $cc proc textShape {Font* font char* text
 set fontLib [$cc compile]
 
 When the image loader is /loadImage/ {
-    proc loadFont {name} {loadImage} {
+    fn loadFont {name} {
         set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
         set fields [list ]
         # HACK: Create list of null glyphs to initialize.

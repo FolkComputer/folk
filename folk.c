@@ -85,20 +85,28 @@ __thread Cache* cache = NULL;
 
 Db* db;
 
-static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
-    clause->nTerms = argc - 1;
-    for (int i = 1; i < argc; i++) {
-        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
+static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
+    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
+    clause->nTerms = objc;
+    for (int i = 0; i < objc; i++) {
+        clause->terms[i] = strdup(Jim_GetString(objv[i], NULL));
     }
     return clause;
 }
-static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
+static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
+    for (int i = 0; i < objc; i++) {
+        cacheInsert(cache, interp, objv[i]);
+    }
+    return jimObjsToClause(objc, objv);
+}
+static Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
     for (int i = 0; i < objc; i++) {
-        clause->terms[i] = strdup(Jim_GetString(Jim_ListGetIndex(interp, obj, i), NULL));
+        Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
+        cacheInsert(cache, interp, termObj);
+        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
     }
     return clause;
 }
@@ -162,7 +170,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 
 // Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc, argv);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 1, argv + 1);
 
     Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
@@ -187,7 +195,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 // Retract! the time is /t/
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimArgsToClause(argc, argv);
+    Clause* pattern = jimObjsToClause(argc - 1, argv + 1);
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
@@ -205,49 +213,40 @@ void HoldStatementGlobally(const char *key, int64_t version,
                            const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
     char *s = clauseToString(clause);
-    TracyCMessageFmt("hold: %.300s", s); free(s);
+    TracyCMessageFmt("hold: %.200s", s); free(s);
 #endif
 
     StatementRef oldRef; StatementRef newRef;
 
     newRef = dbHoldStatement(db, key, version,
-                             clause,
+                             clause, keepMs,
                              sourceFileName, sourceLineNumber,
                              &oldRef);
     if (!statementRefIsNull(newRef)) {
         reactToNewStatement(newRef);
     }
     if (!statementRefIsNull(oldRef)) {
-        if (keepMs > 0) {
-            // We need to delay the react to removed statement
-            // until the estimated convergence time of the new
-            // statement has elapsed (a few milliseconds?)
-            sysmonRemoveAfter(oldRef, keepMs);
-        } else {
-            Statement* stmt;
-            if ((stmt = statementAcquire(db, oldRef))) {
-                statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
-                statementRelease(db, stmt);
-            }
+        Statement* stmt;
+        if ((stmt = statementAcquire(db, oldRef))) {
+            statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+            statementRelease(db, stmt);
         }
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 4);
+    assert(argc == 6);
 
-    Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
-    int sourceLineNumber;
-    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-        sourceFileName = "<unknown>";
-    }
-    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-        sourceLineNumber = -1;
+    long sourceLineNumber;
+    sourceFileName = Jim_String(argv[4]);
+    if (sourceFileName == NULL) { return JIM_ERR; }
+    if (Jim_GetLong(interp, argv[5], &sourceLineNumber) == JIM_ERR) {
+        return JIM_ERR;
     }
 
     const char *key = Jim_GetString(argv[1], NULL);
     int64_t version = ++latestVersion;
-    Clause *clause = jimObjToClause(interp, argv[2]);
+    Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
     long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
 
     HoldStatementGlobally(key, version,
@@ -257,7 +256,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber) {
+static void Say(Clause* clause, long keepMs,
+                const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
@@ -270,7 +270,7 @@ static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber
     }
 
     StatementRef ref;
-    ref = dbInsertOrReuseStatement(db, clause,
+    ref = dbInsertOrReuseStatement(db, clause, keepMs,
                                    sourceFileName,
                                    sourceLineNumber,
                                    parent);
@@ -280,24 +280,8 @@ static void Say(Clause* clause, const char *sourceFileName, int sourceLineNumber
     }
 }
 
-static int SayFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Jim_Obj* scriptObj = interp->currentScriptObj;
-    const char* sourceFileName;
-    int sourceLineNumber;
-    if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {
-        sourceFileName = "<unknown>";
-    }
-    if (Jim_ScriptGetSourceLineNumber(interp, scriptObj, &sourceLineNumber) != JIM_OK) {
-        sourceLineNumber = -1;
-    }
-
-    Clause* clause = jimArgsToClause(argc, argv);
-
-    Say(clause, sourceFileName, sourceLineNumber);
-    return JIM_OK;
-}
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc - 2, argv + 2);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 4, argv + 4);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -307,7 +291,13 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    Say(clause, sourceFileName, (int) sourceLineNumber);
+    long keepMs;
+    if (Jim_GetLong(interp, argv[3], &keepMs) == JIM_ERR) {
+        return JIM_ERR;
+    }
+
+    Say(clause, keepMs,
+        sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
 
@@ -324,11 +314,10 @@ static void destructorHelper(void* arg) {
         });
 }
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 3);
-    int addAtEnd; Jim_GetBoolean(interp, argv[1], &addAtEnd);
-    matchAddDestructor(self->currentMatch, addAtEnd,
+    assert(argc == 2);
+    matchAddDestructor(self->currentMatch,
                        destructorHelper,
-                       strdup(Jim_GetString(argv[2], NULL)));
+                       strdup(Jim_GetString(argv[1], NULL)));
     return JIM_OK;
 }
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -349,7 +338,11 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimArgsToClause(argc, argv);
+    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+#ifdef TRACY_ENABLE
+    char *s = clauseToString(pattern);
+    TracyCMessageFmt("query: %.200s", s); free(s);
+#endif
 
     ResultSet* rs = dbQuery(db, pattern);
     int nResults = (int) rs->nResults;
@@ -468,7 +461,6 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "Say", SayFunc, NULL, NULL);
     Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
@@ -531,46 +523,80 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     assert(whenClause->nTerms >= 5);
 
-    // when the time is /t/ /lambdaExpr/ with environment /capturedEnv/
-    const char* lambdaExpr = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedEnv = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *capturedEnvObj = cacheGetOrInsert(cache, interp, capturedEnv);
+    // when the time is /t/ /body/ with environment /capturedEnvStack/
+    const char* body = whenClause->terms[whenClause->nTerms - 4];
+    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    // We don't cache the whole stack -- instead, we'll cache the
+    // records inside it.
+    Jim_Obj *capturedEnvStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
-    Jim_Obj *lambdaExprObj = cacheGetOrInsert(cache, interp, lambdaExpr);
-    // Set the source info for the lambdaExpr:
-    Jim_Obj *lambdaBodyObj = Jim_ListGetIndex(interp, lambdaExprObj, 1);
+    // Goal: we need to replace every record in capturedEnvStackObj
+    // with the cached version, then send _that_ stack to
+    // evaluateWhenBlock.
+    Jim_Obj *envStackObj; {
+        int nenvs = Jim_ListLength(interp, capturedEnvStackObj);
+        if (nenvs > 20) {
+            fprintf(stderr, "runWhenBlock: Too many envs in stack: %d\n", nenvs);
+            return;
+        }
+
+        Jim_Obj *envs[nenvs];
+        for (int i = 0; i < nenvs; i++) {
+            envs[i] = Jim_ListGetIndex(interp, capturedEnvStackObj, i);
+            // TODO: wasteful on the path where we make a new object
+            envs[i] = cacheGetOrInsert(cache, interp, Jim_String(envs[i]));
+        }
+
+        envStackObj = Jim_NewListObj(interp, envs, nenvs);
+        Jim_DecrRefCount(interp, capturedEnvStackObj);
+    }
+
+    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
+    // Set the source info for the bodyObj:
     char *ptr;
-    if (Jim_ScriptGetSourceFileName(interp, lambdaExprObj, &ptr) == JIM_ERR) {
+    if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
         // HACK: We only set the source info if it's not already
         // there, because setting the source info destroys the
         // internal script representation and forces the code to be
         // reparsed (why??).
-        Jim_SetSourceInfo(interp, lambdaBodyObj,
+        Jim_SetSourceInfo(interp, bodyObj,
                           Jim_NewStringObj(interp, statementSourceFileName(when), -1),
                           statementSourceLineNumber(when));
     }
 
+    {
+        // Figure out all the bound match variables by unifying when &
+        // stmt:
+        Environment* env = clauseUnify(interp, whenPattern, stmtClause);
+        assert(env != NULL);
 
-    // Figure out all the bound match variables by unifying when &
-    // stmt:
-    Environment* env = clauseUnify(interp, whenPattern, stmtClause);
-    assert(env != NULL);
-    Jim_Obj *whenArgs[env->nBindings];
-    for (int i = 0; i < env->nBindings; i++) {
-        whenArgs[i] = env->bindings[i].value;
+        if (env->nBindings > 50) {
+            fprintf(stderr, "runWhenBlock: Too many bindings in env: %d\n",
+                    env->nBindings);
+            return;
+        }
+        
+        Jim_Obj *objs[env->nBindings*2];
+        for (int i = 0; i < env->nBindings; i++) {
+            objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
+            objs[i*2 + 1] = env->bindings[i].value;
+        }
+
+        Jim_Obj *boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
+        Jim_ListAppendElement(interp, envStackObj, boundEnvObj);
+
+        free(env);
     }
-    Jim_Obj *whenArgsObj = Jim_NewListObj(interp, whenArgs, env->nBindings);
-    free(env);
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
 
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, pthread_self());
+        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, pthread_self());
+        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
@@ -597,9 +623,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         Jim_Obj *objv[] = {
             // TODO: pool this string?
             Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
-            lambdaExprObj,
-            capturedEnvObj,
-            whenArgsObj
+            bodyObj,
+            envStackObj
         };
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
 
@@ -613,7 +638,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         Jim_MakeErrorMessage(interp);
         const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
         fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                lambdaExpr, errorMessage);
+                body, errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     } else if (error == JIM_SIGNAL) {
@@ -837,7 +862,7 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.assert.clause,
+        ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL);
@@ -864,7 +889,8 @@ void workerRun(WorkQueueItem item) {
         int error = Jim_Eval(interp, code);
         if (error == JIM_ERR) {
             Jim_MakeErrorMessage(interp);
-            fprintf(stderr, "destructorHelper: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+            fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
+                    code, Jim_String(Jim_GetResult(interp)));
         }
         free(code);
 
@@ -932,7 +958,11 @@ WorkQueueItem workerSteal() {
     int stealee;
     do {
         stealee = rand_r(&seedp) % threadCount;
+        if (stealee == self->index) {
+            sched_yield();
+        }
     } while (stealee == self->index);
+
     if (threads[stealee].tid == 0 || threads[stealee].workQueue == NULL) {
         return (WorkQueueItem) { .op = NONE };
     }
@@ -983,13 +1013,13 @@ void workerInit(int index) {
 
     epochThreadInit();
 
-#ifdef __linux__
-    if (pthread_getcpuclockid(pthread_self(), &self->clockid)) {
-        perror("workerInit: pthread_getcpuclockid failed");
-    }
-#else
+/* #ifdef __linux__ */
+/*     if (pthread_getcpuclockid(pthread_self(), &self->clockid)) { */
+/*         perror("workerInit: pthread_getcpuclockid failed"); */
+/*     } */
+/* #else */
     self->clockid = CLOCK_MONOTONIC;
-#endif
+/* #endif */
     self->currentItemStartTimestamp = 0;
     self->index = index;
 
@@ -1064,6 +1094,10 @@ int main(int argc, char** argv) {
         pthread_create(&sysmonTh, NULL, sysmonMain, NULL);
     }
 
+    /* struct sched_param param; */
+    /* param.sched_priority = 1; */
+    /* pthread_setschedparam(pthread_self(), SCHED_FIFO, &param); */
+
 #ifdef __linux__
     // Count CPUs so we can set up the thread pool to align with the
     // available cores.
@@ -1106,7 +1140,7 @@ int main(int argc, char** argv) {
     // context that can run When/Claim/Wish right away.
     char code[1024];
     snprintf(code, sizeof(code),
-             "Assert! when {{} {source {%s}}} with environment {}",
+             "Assert! when {source {%s}} with environment {}",
              argc == 1 ? "boot.folk" : argv[1]);
     eval(code);
 

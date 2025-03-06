@@ -1,4 +1,4 @@
-puts Web
+puts "web: [__threadId] (PID [pid])"
 
 # HACK
 signal block SIGPIPE

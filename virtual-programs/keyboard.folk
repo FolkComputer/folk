@@ -76,33 +76,39 @@ When /keyboard/ is a keyboard device {
 
     set keyboardChannel [open $keyboard r]
     fconfigure $keyboardChannel -translation binary
+
     set keyboardFileno [$grabber getFileno $keyboardChannel]
+    $grabber setGrabDevice $keyboardFileno 1
 
     HoldStatement! local-keymaps \
         [list $this claims $keyboard has keymaps [dict create]]
 
     When /page/ is a keyboard with path $keyboard locale /locale/ {
+        set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
+                                           0] localKeymaps {}]
+        if {[dict exists $localKeymaps $locale]} {
+            return
+        }
+
         if {![exists -command keymap]} {
             source "lib/keymap.tcl"
         }
-        set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
-                                           0] localKeymaps {}]
-
         set map [keymap load $locale]
-        dict set localKeymaps $map true
+        dict set localKeymaps $locale $map
         HoldStatement! local-keymaps \
             [list $this claims $keyboard has keymaps $localKeymaps]
 
-        $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
+        # TODO: do this removal (it's slow and happens even when we
+        # blink out, causing cascading slowness, so skipping for now)
 
-        On unmatch {
-            dict unset localKeymaps $map
-            HoldStatement! local-keymaps \
-                [list $this claims $keyboard has keymaps $localKeymaps]
+        # On unmatch {
+        #     dict unset localKeymaps $map
+        #     HoldStatement! local-keymaps \
+        #         [list $this claims $keyboard has keymaps $localKeymaps]
 
-            # keymap destroy $map
-            $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
-        }
+        #     # keymap destroy $map
+        #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]
+        # }
     }
 
     set evtBytes 16
@@ -124,7 +130,7 @@ When /keyboard/ is a keyboard device {
             set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
                                                0] localKeymaps {}]
 
-            lassign [dict keys $localKeymaps] activeKeymap
+            lassign [dict values $localKeymaps] activeKeymap
             if {$activeKeymap eq ""} {
                 set activeKeymap $defaultKeymap
             }

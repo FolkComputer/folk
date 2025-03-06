@@ -108,7 +108,7 @@ static __thread TracyCZoneCtx __zoneCtx;
 #endif
 void epochBegin() {
 #ifdef TRACY_ENABLE
-    static const struct ___tracy_source_location_data TracyConcat(__tracy_source_location,TracyLine) = { "Epoch", __func__,  TracyFile, (uint32_t)TracyLine, 0 }; __zoneCtx = ___tracy_emit_zone_begin(&TracyConcat(__tracy_source_location,TracyLine), 1);
+    TracyCZoneNS(ctx, "Epoch", 3, 1); __zoneCtx = ctx;
 #endif
 
     threadState->active = true;
@@ -173,7 +173,7 @@ void epochEnd() {
 
     threadState->active = false;
 #ifdef TRACY_ENABLE
-    ___tracy_emit_zone_end(__zoneCtx);
+    TracyCZoneEnd(__zoneCtx);
 #endif
 }
 

@@ -238,7 +238,7 @@ fn meanPoseDifference {pose1 pose2} {
 }
 Claim the calibration meanPoseDifference is ${^meanPoseDifference}
 
-fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
+fn makeCalibrationBoardPdf {model tagSideLengthPs} {
     package require linalg
     namespace import ::math::linearalgebra::add
     set printLib [dict get [lindex [Query! /someone/ claims the print library is /printLib/] 0] \
@@ -277,7 +277,7 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 
         [set tagIdx -1]
         [join [lmap {id modelTag} $model {
-            if {![apply $tagIdPredicate $id]} { continue }
+            if {![isPrintedTag $id]} { continue }
             incr tagIdx
 
             set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
@@ -314,14 +314,14 @@ fn makeCalibrationBoardPdf {model tagSideLengthPs tagIdPredicate} {
 }
 
 fn makeExampleProgramPng {} {
-    set ^programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
-                          programToPs]
+    set programToPs [dict get [lindex [Query! /someone/ claims the programToPs is /programToPs/] 0] \
+                         programToPs]
 
     # HACK: we hard-code letter, since this is just for documentation
     # purposes, and we want to cut the bottom half off so we need
     # known dimensions.
     set format letter
-    set ps [programToPs 0 {# This image is for illustration purposes; don't
+    set ps [{*}$programToPs 0 {# This image is for illustration purposes; don't
 # print it. You should print a program normally
 # through the Folk editor and measure that.} $format {{
 
@@ -376,11 +376,10 @@ fn makeExampleProgramPng {} {
     return $png
 }
 
-Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_MODEL ^makeCalibrationBoardPdf ^makeExampleProgramPng} {
+Wish the web server handles route "/calibrate$" with handler [list applyBlock {
     package require base64
 
-    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70 \
-                                 {{id} {upvar ^isPrintedTag ^isPrintedTag; isPrintedTag $id}}]
+    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
 
     set exampleProgramPng [makeExampleProgramPng]
 
@@ -656,7 +655,7 @@ Claim the default program geometry is \$geom
       </body>
     </html>
   }]
-}} $UNIT_MODEL ${^makeCalibrationBoardPdf} ${^makeExampleProgramPng}]
+} [captureEnvStack]]
 
 fn lsort-indices {itemL} {
     set pairL [list]
@@ -669,6 +668,8 @@ fn lsort-indices {itemL} {
     }
     set indexL
 }
+
+set CALIBRATION_POSES_MAX 10
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
@@ -688,6 +689,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # TODO: restore old camera resolution later
     }
 
+    package require linalg
     namespace import ::math::linearalgebra::scale
 
     # HACK: hard-coded for now; assumes dark room. Won't work on USB
@@ -720,9 +722,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # at least 10 poses to do ultimate calibration+refinement.
     Hold! (non-capturing) (on calibration) poses \
         { Claim the calibration poses are [list] }
-    set CALIBRATION_POSES_MAX 10
 
-    Hold! (non-capturing) cycleTime { Claim the calibration cycle time is 0 }
+
+    HoldStatement! cycleTime [list $this claims the calibration cycle time is 0]
 
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
@@ -732,8 +734,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
          the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ {
 
+        package require linalg
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
+
         fn innerToOuter {center corner} {
             set r [sub $corner $center]
             return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
@@ -795,9 +799,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    # FIXME: HACK: This is made a global utility function so it can
-    # also be called by the Web page when the user hits the slider to
-    # adjust projected tag scale.
+    # This is made a function so it can also be called by the Web page
+    # when the user drags the slider to adjust projected tag scale.
     fn HoldDefaultModel! {scale} {
         # Default model: just makes the tags fill most of the middle
         # of the projector area.
@@ -818,11 +821,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 model $baseModel version -1 timestamp [expr {[clock milliseconds] / 1000.0}]
         }
     }
-    Claim the calibration HoldDefaultModel! is ${^HoldDefaultModel!}
-    When /nobody/ claims the calibration model-to-display homography is /anything/ with \
-                         model /anything/ version /anything/ timestamp /anything/ {
-        HoldDefaultModel! 1.0
-    }
+    Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
+
+    HoldDefaultModel! 1.0
     On unmatch { Hold! H_modelToDisplay {} }
 
     When /detector/ detects tags /tags/ on camera $camera \
@@ -965,14 +966,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the middle
         # of the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        Hold! H_modelToDisplay {
-            set nextVersion [+ $version 1]
-            set nextModel [versionizeTags $baseModel $nextVersion]
-            set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
-            Claim the calibration model-to-display homography is $nextH_modelToDisplay with \
-                model $nextModel version $nextVersion timestamp $nextTimestamp
-            Claim the calibration cycle time is $($nextTimestamp - $hTimestamp)
-        }
+        set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
+        set nextVersion [+ $version 1]
+        set nextModel [versionizeTags $baseModel $nextVersion]
+        HoldStatement! H_modelToDisplay \
+            [list $this claims the calibration model-to-display homography \
+                 is $nextH_modelToDisplay with \
+                 model $nextModel version $nextVersion timestamp $nextTimestamp]
+        HoldStatement! cycleTime \
+            [list $this claims the calibration cycle time is $($nextTimestamp - $hTimestamp)]
 
         # Should we record the points we just saw as a calibration
         # pose?
@@ -1088,14 +1090,19 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
             puts $fd $calibrationPoses; close $fd
 
-            HoldStatement! (on calibration) calibration \
-                [list $this claims the calibration poses are $calibrationPoses]
+            # Destroy the old calibration and trigger a new one.
+            HoldStatement! (on calibration) calibration {}
+
             Retract! /someone/ wishes to calibrate
         }
     }
 }
 
 fn processHomography {H} {
+    package require linalg
+    namespace import ::math::linearalgebra::getelem
+    namespace import ::math::linearalgebra::sub
+
     fn h {i j} { getelem $H [- $j 1] [- $i 1] }
 
     fn v {i j} {
@@ -1131,6 +1138,20 @@ fn processHomography {H} {
 #         Hs     a list of N homographies from camera/projector image
 #                plane -> model plane (for N different poses).
 fn zhangUnrefinedCalibrate {name width height Hs} {
+    package require linalg
+    namespace import ::math::linearalgebra::shape \
+        ::math::linearalgebra::transpose \
+        ::math::linearalgebra::matmul \
+        ::math::linearalgebra::determineSVD \
+        ::math::linearalgebra::mkIdentity \
+        ::math::linearalgebra::solvePGauss \
+        ::math::linearalgebra::getcol \
+        ::math::linearalgebra::norm \
+        ::math::linearalgebra::scale \
+        ::math::linearalgebra::crossproduct \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::sub
+
     # Try to solve for the camera intrinsics:
 
     # Construct V:
@@ -1141,7 +1162,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
         lappend Vbottom $Vbottom_
     }
     set V [list {*}$Vtop {*}$Vbottom]
-    assert {[::math::linearalgebra::shape $V] eq [list [* 2 [llength $Hs]] 6]}
+    assert {[shape $V] eq [list [* 2 [llength $Hs]] 6]}
 
     # Solve Vb = 0:
     lassign [determineSVD [matmul [transpose $V] $V]] U S V
@@ -1207,9 +1228,7 @@ fn zhangUnrefinedCalibrate {name width height Hs} {
                 extrinsics $extrinsics]
 }
 
-proc setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
-    upvar ^isProjectedTag ^isProjectedTag
-
+fn setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
     # Use the "Kabsch algorithm" (https://nghiaho.com/?page_id=671;
     # https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/)
     # to find the rotation and translation from 3D camera-space to 3D
@@ -1250,8 +1269,6 @@ proc setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 
     # puts "cameraFramePoints = \[[join [lmap p $cameraFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
     # puts "projectorFramePoints = \[[join [lmap p $projectorFramePoints {concat \[ [join $p ,] \]}] ,\n]\]"
-    set ::cfp $cameraFramePoints
-    set ::pfp $projectorFramePoints
 
     set n [llength $cameraFramePoints]
 
@@ -1282,6 +1299,10 @@ proc setCameraToProjectorExtrinsics {calibrationVar calibrationPoses} {
 # from a camera detection, `model` with coordinates in meters,
 # `H_modelToDisplay`.
 fn unrefinedCalibrateCameraAndProjector {calibrationPoses} {
+    package require linalg
+    namespace import ::math::linearalgebra::det
+    namespace import ::math::linearalgebra::scale
+
     # Just used to get metadata about cam/proj:
     set pose0 [lindex $calibrationPoses 0]
 
@@ -1361,12 +1382,17 @@ When the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration refiner is /refineCalibration/ {
 
+    if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
+        return
+    }
+
     set calibration [unrefinedCalibrateCameraAndProjector $calibrationPoses]
     puts "======== Unrefined calibration ========="
     puts $calibration
     puts ""
 
-    set calibration [apply $refineCalibration \
+    set calibration [{*}$refineCalibration \
+                         [fn isPrintedTag] [fn isProjectedTag] $matLib \
                          $calibrationPoses $calibration]
     puts "======== Refined calibration intrinsics ========="
 
@@ -1462,7 +1488,8 @@ Stereo RMSE [dict getdef $calibration rmse (unavailable)]
         }
     }
 
-    Hold! calibration { Claim the calibration is $calibration }
+    HoldStatement! (on calibration) calibration \
+        [list $this claims the calibration is $calibration]
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd

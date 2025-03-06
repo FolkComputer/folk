@@ -277,15 +277,19 @@ C method linedirective {} {
     set frame [info frame -2]
     if {[dict exists $frame line] && [dict exists $frame file] &&
         [dict get $frame line] >= 0} {
-        #subst {#line [dict get $frame line] "[dict get $frame file]"}
+        subst {#line [dict get $frame line] "[dict get $frame file]"}
     } else { list }
 }
 
 C method code {newcode} {
-    lappend code [subst {
-        [$self linedirective]
-        $newcode
-    }]
+    lassign [info source $newcode] filename line
+    if {$filename ne ""} { 
+        set newcode [subst {
+            #line $line "$filename"
+            $newcode
+        }]
+    }
+    lappend code $newcode
     list
 }
 
@@ -369,6 +373,8 @@ C method struct {type fields} {
             }] "\n"]
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+            if (objPtr->typePtr == &$[set type]_ObjType) { return JIM_OK; }
+
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
@@ -457,6 +463,7 @@ C method struct {type fields} {
 
 C method proc {name arguments rtype body} {
     set cname [string map {":" "_"} $name]
+    lassign [info source $body] filename line
     set body [uplevel 2 [list csubst $body]]
 
     set arglist [list]
@@ -493,7 +500,9 @@ C method proc {name arguments rtype body} {
     dict set procs $name arglist $arglist
     dict set procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
-            [$self linedirective]
+            [if {$filename ne ""} {
+                subst {#line $line "$filename"}
+            } else {list}]
             $body
         }
 

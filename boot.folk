@@ -20,11 +20,10 @@ apply {{} {
     catch { exec chown folk folk.pid }
 }}
 
-Assert! when /__this/ has program code /__programCode/ {{__this __programCode} {
-    set __programCode [info source $__programCode $__this 1]
-
-    apply [list {this} $__programCode] $__this
-}} with environment {}
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
 
 proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]

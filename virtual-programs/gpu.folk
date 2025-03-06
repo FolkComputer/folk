@@ -1765,9 +1765,9 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
             }
         }
 
-        tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
-        tracy plot $kRegionCount [llength [Query! /someone/ claims /tag/ has region /r/]]
-        tracy plot $kDrawCount $drawCount
+        # tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
+        tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
+        # tracy plot $kDrawCount $drawCount
         tracy zoneEnd
         $gpu drawEnd
 

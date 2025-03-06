@@ -17,6 +17,7 @@
 #include "common.h"
 #include "trie.h"
 #include "epoch.h"
+#include "sysmon.h"
 #include "db.h"
 
 typedef struct ListOfEdgeTo {
@@ -103,6 +104,10 @@ typedef struct Statement {
     // rc > 0.
     Clause* clause;
 
+    // If the statement is removed, we wait keepMs milliseconds before
+    // removing its child matches.
+    long keepMs;
+
     // Used for debugging (and stack traces for When bodies).
     char sourceFileName[100];
     int sourceLineNumber;
@@ -130,7 +135,7 @@ typedef struct Match {
 
     // Immutable match properties:
 
-    pthread_t workerThread;
+    int workerThreadIndex;
 
     // Mutable match properties:
 
@@ -304,7 +309,7 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
-static StatementRef statementNew(Db* db, Clause* clause,
+static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
@@ -332,6 +337,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // than the one here.
 
     stmt->clause = clause;
+    stmt->keepMs = keepMs;
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
@@ -410,11 +416,12 @@ bool statementTryIncrParentCount(Statement* stmt) {
     return true;
 }
 
-static void statementRemoveSelf(Db* db, Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
     /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
     /*        stmt - &db->statementPool[0], stmt->gen); */
     if (--stmt->parentCount == 0) {
+        // Note that we should have exclusive access to stmt at this point.
+
         // Deindex the statement:
         uint64_t results[100]; int resultsCount;
         epochBegin();
@@ -445,13 +452,21 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             /*         nResults); */
         }
 
-        statementRemoveSelf(db, stmt);
+        if (stmt->keepMs == 0) {
+            statementRemoveSelf(db, stmt);
+        } else {
+            // The statement is in a 'deindexed, but not removed'
+            // state at this point.
+            sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
+        }
     }
 }
 
 // Call statementRemoveSelf when ALL of the statement's parents
 // (matches or other) are removed (parentCount has hit 0).
-static void statementRemoveSelf(Db* db, Statement* stmt) {
+void statementRemoveSelf(Db* db, Statement* stmt) {
+    assert(stmt->parentCount == 0);
+
     /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
     /*        clauseToString(stmt->clause)); */
     pthread_mutex_lock(&stmt->childMatchesMutex);
@@ -510,7 +525,7 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db, pthread_t workerThread) {
+static MatchRef matchNew(Db* db, int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
     // Look for a free match slot to use:
@@ -542,7 +557,7 @@ static MatchRef matchNew(Db* db, pthread_t workerThread) {
     pthread_mutex_init(&match->childStatementsMutex, &mta);
     pthread_mutexattr_destroy(&mta);
 
-    match->workerThread = workerThread;
+    match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
         match->destructors[i].fn = NULL;
@@ -560,14 +575,11 @@ static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
     listOfEdgeToAdd(statementChecker, db,
                     &match->childStatements, child.val);
 }
-void matchAddDestructor(Match* m, bool addAtEnd,
-                        void (*fn)(void*), void* arg) {
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
     pthread_mutex_lock(&m->destructorsMutex);
     int destructorsMax = sizeof(m->destructors)/sizeof(m->destructors[0]);
-    int start = addAtEnd ? destructorsMax - 1 : -1;
-    int end = addAtEnd ? 0 : destructorsMax;
     int i;
-    for (i = start; i != end; addAtEnd ? i-- : i++) {
+    for (i = 0; i < destructorsMax; i++) {
         if (m->destructors[i].fn == NULL) {
             m->destructors[i].fn = fn;
             m->destructors[i].arg = arg;
@@ -575,7 +587,7 @@ void matchAddDestructor(Match* m, bool addAtEnd,
         }
     }
     pthread_mutex_unlock(&m->destructorsMutex);
-    if (i == end) {
+    if (i == destructorsMax) {
         fprintf(stderr, "matchAddDestructor: Failed\n"); exit(1);
     }
 }
@@ -588,6 +600,8 @@ void matchCompleted(Match* match) {
 //
 // FIXME: Make this thread-safe (if called by multiple removers at the
 // same time, it shouldn't double-free).
+extern ThreadControlBlock threads[];
+extern void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
 void matchRemoveSelf(Db* db, Match* match) {
     /* assert(match > &db->matchPool[0] && match < &db->matchPool[65536]); */
 
@@ -630,7 +644,12 @@ void matchRemoveSelf(Db* db, Match* match) {
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
         // execution.
-        // pthread_kill(match->workerThread, SIGUSR1);
+        ThreadControlBlock *workerThread = &threads[match->workerThreadIndex];
+        if (timestamp_get(workerThread->clockid) - workerThread->currentItemStartTimestamp > 100000000) {
+            char buf[10000]; traceItem(buf, sizeof(buf), workerThread->currentItem);
+            fprintf(stderr, "KILL (%.100s)\n", buf);
+            kill(workerThread->tid, SIGUSR1);
+        }
     }
 }
 
@@ -737,7 +756,7 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 //
 // Takes ownership of clause (i.e., you can't touch clause at the
 // caller after calling this!).
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
     Match* parentMatch = NULL;
@@ -767,7 +786,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of clause to the DB.
-    StatementRef ref = statementNew(db, clause,
+    StatementRef ref = statementNew(db, clause, keepMs,
                                     sourceFileName, sourceLineNumber);
 
     epochBegin();
@@ -794,6 +813,9 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                 // This is sort of the expected case. The statement is
                 // indeed already present in the db, and we've been
                 // able to acquire it.
+                //
+                // TODO: Warn if keepMs differs between existing and
+                // newly-proposed statement?
                 if (tryReuseStatement(db, stmt, parentMatch)) {
                     statementRelease(db, stmt);
 
@@ -803,6 +825,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
                     // Free the new statement `ref` that we created,
                     // since we won't be using it.
                     Statement* newStmt = statementAcquire(db, ref);
+                    newStmt->parentCount = 0;
                     statementRemoveSelf(db, newStmt);
                     statementRelease(db, newStmt);
 
@@ -848,8 +871,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     pthread_t workerThread) {
-    MatchRef ref = matchNew(db, workerThread);
+                     int workerThreadIndex) {
+    MatchRef ref = matchNew(db, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
     assert(match);
 
@@ -924,7 +947,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 // Takes ownership of clause.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
-                             Clause* clause,
+                             Clause* clause, long keepMs,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
@@ -975,7 +998,7 @@ StatementRef dbHoldStatement(Db* db,
         if (clause->nTerms > 0) {
             hold->version = version;
 
-            newStmt = dbInsertOrReuseStatement(db, clause,
+            newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
                                                sourceFileName,
                                                sourceLineNumber,
                                                MATCH_REF_NULL);

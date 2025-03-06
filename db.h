@@ -52,6 +52,7 @@ bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
 
 void statementIncrParentCount(Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt);
+void statementRemoveSelf(Db* db, Statement* stmt);
 
 // Match
 // -----
@@ -65,8 +66,7 @@ void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
 
-void matchAddDestructor(Match* m, bool addAtEnd,
-                        void (*fn)(void*), void* arg);
+void matchAddDestructor(Match* m, void (*fn)(void*), void* arg);
 
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
@@ -96,7 +96,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // which then becomes responsible for freeing it later. Pass a null
 // MatchRef if this is an assertion. Returns a null StatementRef if no
 // new statement was created. 
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
+StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parent);
 
@@ -107,7 +107,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause,
 // destroyed. The Match is returned acquired and needs to be released
 // by the caller.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     pthread_t workerThread);
+                     int workerThreadIndex);
 
 void dbRetractStatements(Db* db, Clause* pattern);
 
@@ -117,7 +117,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // later.
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
-                             Clause* clause,
+                             Clause* clause, long keepMs,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement);
 

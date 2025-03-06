@@ -229,7 +229,7 @@ fn programToPs {id text {format "letter"} {mixins {}}} {
 
     return $out
 }
-Claim the programToPs is ${^programToPs}
+Claim the programToPs is [fn programToPs]
 
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"

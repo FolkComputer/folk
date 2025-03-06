@@ -1,5 +1,5 @@
 Assert! we are on
-Assert! when we are on {{} {
+Assert! when we are on {
     When we are on {
         set tick 0
         while true {
@@ -47,4 +47,4 @@ Assert! when we are on {{} {
             }
         }
     }
-}} with environment {}
+} with environment {}

@@ -3,13 +3,19 @@ set baseCode "Wish \$this is outlined green"
 # This makes all keyboards into editors automatically, so a keyboard
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
-When /page/ is a keyboard with path /...anything/ {
-    Claim $page is an editor
+When /page/ is a keyboard with /...opts/ {
+    if {[dict exists $opts path] && [dict exists $opts locale]} {
+        Wish (keep 100ms) $page is an editor with {*}$opts
+    }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ &\
-     /page/ is an editor {
+# HACK: This is so that the wish can cycle in and out but the identity
+# of the inner claim is retained, so the editor doesn't reboot.
+When /someone/ wishes /page/ is an editor with /...opts/ {
+    Claim $page is an editor with {*}$opts
+}
 
+When /page/ is an editor with path /kbPath/ /...anything/ {
   Wish tag $page is stabilized
 
   set id [list editing $page $kbPath]
@@ -26,13 +32,17 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
   }
 
   if {[llength [Query! /someone/ claims $id has start time /startTime/]] == 0} {
+      set t [expr {[clock milliseconds] / 1000.0}]
       Hold! [list $id start-time] {
-          Claim $id has start time [expr {[clock milliseconds] / 1000.0}]
+          Claim $id has start time $t
+      }
+      Hold! [list $id most-recent-time] {
+          Claim $id has most recent time $t
       }
   }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
   On unmatch {
       Hold! [list $id start-time] {}
@@ -53,7 +63,7 @@ fn updateCursor {oldCursor updates} {
   return $newCursor
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
   if {[llength [Query! /someone/ claims the $kbPath cursor is /anything/]] == 0} {
     Hold! "cursor$kbPath" {
@@ -144,9 +154,9 @@ fn lineNumberView {ystart linecount} {
   join $numbers "\n"
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
+When /page/ is an editor with path /kbPath/ /...anything/ {
   set id [list editing $page $kbPath]
-  When $id has program code /code/ & $id has editor code /editorCode/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
+  When $id has program code /code/ & $id has editor code /editorCode/ & $id has region /r/ {
     set scale 0.60
 
     set relativeRegion [region move $r down 105%]
@@ -164,15 +174,6 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
     set width [expr {[region width $relativeRegion] - ($margin + 20)}]
     set radians [region angle $relativeRegion]
 
-    set curs [vec2 scale $cursor $advance $em]
-
-    set x1 [vec2 sub $p $curs]
-    set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
-
-    set theta [expr {$radians + 3.14159}]
-    set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
-    set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
-    set s [expr {$scale * 4}]
 
     # Draw text
     Wish to draw text with position $p text $editorCode scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
@@ -182,9 +183,20 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
     set linenumbers [lineNumberView 0 $linecount]
     Wish to draw text with position $lp text $linenumbers scale $scale anchor topleft radians $radians font NeomatrixCode
 
-    # Draw cursor
-    Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
-    Wish to draw a line with points [list $x1 $x2] width $s color green
+    When the $kbPath cursor is /cursor/ {
+      # Draw cursor
+      set curs [vec2 scale $cursor $advance $em]
+
+      set x1 [vec2 sub $p $curs]
+      set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+
+      set theta [expr {$radians + 3.14159}]
+      set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
+      set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
+      set s [expr {$scale * 4}]
+      Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
+      Wish to draw a line with points [list $x1 $x2] width $s color green
+    }
   }
 }
 
@@ -194,6 +206,12 @@ fn getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
+# OK, what's next?
+
+# - figure out how to speed up Hold serialization when you edit the code (cache the outgoing env? share env values instead of whole env?)
+# - figure out how to KEEP PRESENTATION VISUALS so the page doesn't vanish but NOT MATCH ON DATA QUERY so you don't get weird behavior when editing the code
+#   - maybe you can set a query policy?
+
 When /page/ is printing /jobid/ & /page/ has region /r/ {
   set r [region move $r left 50px]
   lassign [region left $r] x y
@@ -201,8 +219,8 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
   Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id [list editing $page $kbPath]
+When /page/ is an editor with path /kbPath/ /...anything/ {
+    set id [list editing $page $kbPath]
 
   # Desired behavior: query all the other stuff every time you hit a
   # key, then destroy the when (don't want _any_ reaction after the
@@ -211,14 +229,23 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
              the $kbPath cursor is /cursor/ &\
              $id has program code /code/ &\
              $id has editor code /editorCode/ &\
-             $id has start time /startTime/ {
+             $id has start time /startTime/ &\
+             $id has most recent time /mostRecentTime/ {
 
     set timestamp [dict get $options timestamp]
+    if {$timestamp < $mostRecentTime} {
+        puts stderr "editor: Warning: Dropping '$key' ($keyState)"
+        return
+    }
+
+    HoldStatement! [list $id most-recent-time] \
+        [list $this claims $id has most recent time $timestamp]
+
     if {$timestamp > $startTime && ($keyState == "down" || $keyState == "repeat")} {
       if {[dict exists $options printable]} {
         Hold! "cursor$kbPath" {
           Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-          Hold! "code$kbPath" {
+          Hold! (keep 12ms) "code$kbPath" {
             Claim $id has program code $code
             Claim $id has editor code [insertCharacter $editorCode [dict get $options printable] $cursor]
           }
@@ -284,14 +311,14 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               } else {
                 Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
               }
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteCharacter $editorCode $cursor]
               }
             }
             Remove {
               Claim the $kbPath cursor is $cursor
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteCharacter $editorCode [updateCursor $cursor {x 1}]]
               }
@@ -299,7 +326,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
             Return {
               set updatedCursor [updateCursor $cursor {y 1}]
               Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [insertNewline $editorCode $cursor]
               }
@@ -312,7 +339,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               #       Perhaps `Wish $system volume is 0.5` or something
               When $id has printed /lastPrintedCode/ at /previousTime/ {
                 if {($timestamp - $previousTime) < 1000} {
-                  Hold! "code$kbPath" {
+                  Hold! (keep 12ms) "code$kbPath" {
                     Claim $id has program code $code
                     Claim $id has editor code $editorCode
                   }
@@ -330,28 +357,28 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
                 Hold! print-${jobid} {}
               }
 
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
               Claim the $kbPath cursor is $cursor
             }
             Control_r {
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $baseCode
                 Claim $id has editor code $baseCode
               }
               Claim the $kbPath cursor is [list 0 0]
             }
             Control_s {
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $editorCode
                 Claim $id has editor code $editorCode
               }
               Claim the $kbPath cursor is $cursor
             }
             Control_a {
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
@@ -359,7 +386,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               Claim the $kbPath cursor is [list 0 $y]
             }
             Control_e {
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code $editorCode
               }
@@ -368,7 +395,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
             }
             Control_u {
               # delete from cursor back to 0 and move cursor to 0
-              Hold! "code$kbPath" {
+              Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
                 Claim $id has editor code [deleteToBeginning $editorCode $cursor]
               }
