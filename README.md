@@ -718,3 +718,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - retain quad images, slightly larger than page size so we can draw on
   fringes?
 - ~~put terms into hashtable on transmit~~
+- implement collect in C
+  - how to have hold-like behavior for collections? just keep a
+    collect for an arbitrary amount of time?
