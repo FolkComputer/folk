@@ -699,6 +699,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
 - **why does collect take 100 microseconds?**
+- why doesn't epoch stack trace show anything in Tracy?
 
 ### editor bugs
 
@@ -708,10 +709,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - editor doubles keys sometimes
 - editor turns all keys to whitespace sometimes
 - editor revert bug
-- editor 'crash'/unresponsive bug
+- **editor 'crash'/unresponsive bug**
 - running program bugs out
   - recollect happening at weird time maybe?
 
 ### strategies
 - use immortal objects
-- retain quad images, slightly larger than page size so we can draw on fringes?
+- retain quad images, slightly larger than page size so we can draw on
+  fringes?
+- ~~put terms into hashtable on transmit~~

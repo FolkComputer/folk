@@ -11,6 +11,9 @@
 typedef struct Cache Cache;
 
 Cache* cacheNew(Jim_Interp* interp);
+
+void cacheInsert(Cache* cache, Jim_Interp* interp,
+                 Jim_Obj* obj);
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term);
 

@@ -85,20 +85,28 @@ __thread Cache* cache = NULL;
 
 Db* db;
 
-static Clause* jimArgsToClause(int argc, Jim_Obj *const *argv) {
-    Clause* clause = malloc(SIZEOF_CLAUSE(argc - 1));
-    clause->nTerms = argc - 1;
-    for (int i = 1; i < argc; i++) {
-        clause->terms[i - 1] = strdup(Jim_GetString(argv[i], NULL));
+static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
+    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
+    clause->nTerms = objc;
+    for (int i = 0; i < objc; i++) {
+        clause->terms[i] = strdup(Jim_GetString(objv[i], NULL));
     }
     return clause;
 }
-static Clause* jimObjToClause(Jim_Interp* interp, Jim_Obj* obj) {
+static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
+    for (int i = 0; i < objc; i++) {
+        cacheInsert(cache, interp, objv[i]);
+    }
+    return jimObjsToClause(objc, objv);
+}
+static Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
     for (int i = 0; i < objc; i++) {
-        clause->terms[i] = strdup(Jim_GetString(Jim_ListGetIndex(interp, obj, i), NULL));
+        Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
+        cacheInsert(cache, interp, termObj);
+        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
     }
     return clause;
 }
@@ -162,7 +170,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 
 // Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc, argv);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 1, argv + 1);
 
     Jim_Obj* scriptObj = interp->currentScriptObj;
     const char* sourceFileName;
@@ -187,7 +195,7 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 // Retract! the time is /t/
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimArgsToClause(argc, argv);
+    Clause* pattern = jimObjsToClause(argc - 1, argv + 1);
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
@@ -238,7 +246,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     const char *key = Jim_GetString(argv[1], NULL);
     int64_t version = ++latestVersion;
-    Clause *clause = jimObjToClause(interp, argv[2]);
+    Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
     long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
 
     HoldStatementGlobally(key, version,
@@ -273,7 +281,7 @@ static void Say(Clause* clause, long keepMs,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimArgsToClause(argc - 3, argv + 3);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 4, argv + 4);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -330,7 +338,7 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimArgsToClause(argc, argv);
+    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
 #ifdef TRACY_ENABLE
     char *s = clauseToString(pattern);
     TracyCMessageFmt("query: %.200s", s); free(s);
