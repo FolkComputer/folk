@@ -3,11 +3,7 @@ When when the collected matches for /clause/ are /matchesVar/ /body/ with enviro
 }
 When /someone/ wishes to collect matches for /clause/ {
     When /someone/ wishes to recollect matches for $clause with timestamp /ts/ {
-        set matches [Query! {*}$clause]
-        if {[llength $clause] < 2 || [lindex $clause 1] ni {claims wishes}} {
-            lappend matches {*}[Query! /someone/ claims {*}$clause]
-        }
-        Say the collected matches for $clause are $matches
+        Say the collected matches for $clause are [Query! {*}$clause]
     }
 
     # the Hold! should hopefully dedupe
