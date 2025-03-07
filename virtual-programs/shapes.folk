@@ -119,7 +119,7 @@ proc shift_region {region direction pct} {
     }
 }
 
-When /someone/ wishes /p/ draw a rect with width /w/ height /h/ shift /direction/ /pct/ {
+When /someone/ wishes /p/ draws a rect with width /w/ height /h/ shift /direction/ /pct/ {
   When $p has region /r/ {
     set shifted [shift_region $r $direction $pct]
     lassign [region centroid $shifted] cx cy
@@ -127,7 +127,7 @@ When /someone/ wishes /p/ draw a rect with width /w/ height /h/ shift /direction
   }
 }
 
-When /someone/ wishes /p/ draw a /shape/ with radius /rad/ shift /direction/ /pct/ {
+When /someone/ wishes /p/ draws a /shape/ with radius /rad/ shift /direction/ /pct/ {
   When $p has region /r/ {
     set shifted [shift_region $r $direction $pct]
     lassign [region centroid $shifted] cx cy
@@ -140,11 +140,11 @@ When /someone/ wishes /p/ draw a /shape/ with radius /rad/ shift /direction/ /pc
   }
 }
 
-When /someone/ wishes /p/ draw a rect with width /w/ height /h/ {
+When /someone/ wishes /p/ draws a rect with width /w/ height /h/ {
   Wish to draw a rect with center {0 0} width $w height $h radians 0 color white
 }
 
-When /someone/ wishes /p/ draw a /shape/ with radius /rad/ {
+When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
   if {[dict exists $shapes $shape]} {
     Wish to draw a shape with sides [dict get $shapes $shape] center {0 0} radius $rad color white
   } else {
@@ -174,16 +174,16 @@ Claim $this has demo {
   Wish $this draws a hexagon with color orange filled true offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY + $gridSpacing}]]
   
   # Row 3: Shifting examples
-  Wish $this draw a triangle with radius 40 shift right 50%
-  Wish $this draw a square with radius 40 shift left 50%
-  Wish $this draw a pentagon with radius 40 shift up 50%
-  Wish $this draw a hexagon with radius 40 shift down 50%
+  Wish $this draws a triangle with radius 40 shift right 50%
+  Wish $this draws a square with radius 40 shift left 50%
+  Wish $this draws a pentagon with radius 40 shift up 50%
+  Wish $this draws a hexagon with radius 40 shift down 50%
   
   # Row 4: Rectangles with different properties
   Wish $this draws a rect with width 80 height 50 color cyan thickness 3 offset [list $baseX [expr {$baseY + $gridSpacing*3}]]
   Wish $this draws a rect with width 80 height 50 color magenta filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing*3}]]
-  Wish $this draw a rect with width 80 height 50 shift right 50%
-  Wish $this draw a rect with width 80 height 50 shift left 50%
+  Wish $this draws a rect with width 80 height 50 shift right 50%
+  Wish $this draws a rect with width 80 height 50 shift left 50%
   
   # Animated elements
   When the clock time is /t/ {
