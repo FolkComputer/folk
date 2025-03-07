@@ -715,9 +715,56 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 ### strategies
 - use immortal objects
+  - what to do with pointee of immortal object? what if a receiver
+    copies something out of the pointee and wants to mutate its
+    refcount?
+  - maintain a multithread refcount that gets used for immortal
+    objects
+  - how do you even know something is a pointee of an immortal object?
+    we don't have a generic graph walker. maybe look at lists and
+    dicts?
+    - **immortalize has to do a graph walk**
+  - make Query! take a borrow block where the results are valid
+    - how to ensure that after the Query! completes, all used info is
+      copied?
 - retain quad images, slightly larger than page size so we can draw on
   fringes?
+  - update quad image every 16ms when the collected set of draw-onto
+    for that quad image has changed at all?
 - ~~put terms into hashtable on transmit~~
 - implement collect in C
   - how to have hold-like behavior for collections? just keep a
     collect for an arbitrary amount of time?
+  - do the same trick as in folk1 so collected statement has >2
+    parents
+
+### examples to keep in mind
+1. slow editor
+2. clock
+
+### semantic change
+for each Hold, we want to split it into epochs and choose an epoch to
+display.
+
+epoch choice criterion: latest such that 'either it's been long enough
+[16ms] or it's evidently fully converged'
+
+WARN if we keep missing deadlines? (as a proportion of total runs?)
+
+``` tcl
+# WARN here? can we track exec failures on the block as a proportion
+# of total runs?
+When $this has quad /q/ { # changes every frame
+    set toph [exec curl http://localhost/toph.jpg] ;# takes like 500ms
+    Wish $this displays image $toph at $q
+}
+#+end_src
+```
+
+intersection of epochs? eg clock time + tag detection
+- choose the newest viable epoch on each
+how do you determine full convergence on the intersection?
+
+throw out old epochs?
+
+hold epoch = subconvergence

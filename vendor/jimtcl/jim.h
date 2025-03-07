@@ -361,11 +361,12 @@ typedef struct Jim_Obj {
 
 /* Jim_Obj related macros */
 #define Jim_IncrRefCount(objPtr) \
-    ++(objPtr)->refCount
+    if ((objPtr)->refCount != INT_MAX) ++(objPtr)->refCount
 #define Jim_DecrRefCount(interp, objPtr) \
-    if (--(objPtr)->refCount <= 0) Jim_FreeObj(interp, objPtr)
+    if ((objPtr)->refCount != INT_MAX && --(objPtr)->refCount <= 0) Jim_FreeObj(interp, objPtr)
 #define Jim_IsShared(objPtr) \
     ((objPtr)->refCount > 1)
+
 #define Jim_IsImmortal(objPtr) \
     ((objPtr)->refCount == INT_MAX)
 
