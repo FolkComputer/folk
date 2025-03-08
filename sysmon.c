@@ -101,6 +101,11 @@ void sysmon() {
         }
     }
 
+    // Fifth: collect garbage.
+    epochGlobalCollect();
+
+    if (currentTick < 100) { return; }
+
     // Third: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
 #ifdef __linux__
@@ -158,9 +163,6 @@ void sysmon() {
     HoldStatementGlobally("clock-time", currentTick,
                           clockTimeClause, 5,
                           "sysmon.c", __LINE__);
-
-    // Fifth: collect garbage.
-    epochGlobalCollect();
 }
 
 void *sysmonMain(void *ptr) {

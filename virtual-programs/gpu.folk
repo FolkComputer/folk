@@ -596,15 +596,21 @@ defineVulkanHandleType $gpuc VkDescriptorSetLayout
 $gpuc typedef uint64_t VkDeviceSize
 $gpuc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(interp, $obj, &$argname)); }
 $gpuc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
+$gpuc code {
+    typedef struct PushConstantsEncoder {
+        uint8_t *(*encode)(Jim_Obj* obj);
+    } PushConstantsEncoder;
+}
 $gpuc struct Pipeline {
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
-    int id;
     size_t pushConstantsSize;
+    // Returns a heap-allocated buffer that needs to be freed by the
+    // caller.
+    PushConstantsEncoder* encodePushConstants;
 }
-$gpuc proc createPipeline {int id
-                           VkShaderModule vertShaderModule
+$gpuc proc createPipeline {VkShaderModule vertShaderModule
                            VkShaderModule fragShaderModule
                            size_t pushConstantsSize} Pipeline {
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
@@ -745,8 +751,6 @@ $gpuc proc createPipeline {int id
     return (Pipeline) {
         .pipeline = pipeline,
         .pipelineLayout = pipelineLayout,
-
-        .id = id,
         .pushConstantsSize = pushConstantsSize
     };
 }
@@ -879,9 +883,8 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
     # `args` should be a push-constant parameter of the pipeline. Can
     # only be called between `drawStart` and `drawEnd`.
     proc draw {img pipeline args} {
-        set args [linsert $args 0 [list $WIDTH $HEIGHT]]
-
-        $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
+        set args [linsert $args 0 [list [getWidth] [getHeight]]]
+        drawImpl $pipeline [[Pipeline_encodeArgs $pipeline] $args]
     }
 
     # Construct a reusable GLSL function that can be linked into and
@@ -898,7 +901,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 # TODO: Support fn being a list {fnName fn}.
                 if {![dict exists $fnDict $argname]} {
                     puts stderr "Gpu::fn: $argname not found"
-                    throw [list FN_NOT_FOUND $argname] "Gpu::fn: $argname not found"
+                    return -code 99 $argname
                 }
                 dict set depFnDict [string map {: ""} $argname] \
                     [dict get $fnDict $argname]
@@ -912,6 +915,8 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
     # Construct a shader pipeline that can be used to draw to the
     # screen.
     proc pipeline {fnDict args} {
+        variable gpuLib
+
         if {[llength $args] == 3} {
             lassign $args vertArgs vertBody fragBody
             set fragArgs [list]
@@ -927,7 +932,10 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         foreach {argtype argname} $vertArgs {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
-                set fn [uplevel 2 [list set $argname]]
+                if {![dict exists $fnDict $argname]} {
+                    retrun -code 99 $argname
+                }
+                set fn [dict get $fnDict $argname]
                 set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
                 dict set vertFnDict $argname $fn
                 continue
@@ -937,7 +945,10 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         foreach {argtype argname} $fragArgs {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
-                set fn [uplevel 2 [list set $argname]]
+                if {![dict exists $fnDict $argname]} {
+                    return -code 99 $argname
+                }
+                set fn [dict get $fnDict $argname]
                 set fragFnDict [dict merge $fragFnDict [lindex $fn 1]]
                 dict set fragFnDict $argname $fn
                 continue
@@ -1036,7 +1047,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
             }
         }]
 
-        set vertShaderModule [$self createShaderModule [glslc -fshader-stage=vert [csubst {
+        set vertShaderModule [$gpuLib createShaderModule [glslc -fshader-stage=vert [csubst {
             #version 450
 
             $pushConstantsCode
@@ -1080,8 +1091,8 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         # like that, we manually emit an if ladder that checks each
         # possible value of the push constant and uses the right
         # statically-indexed descriptor.
-        set gpuSupportsDynamicIndexing [$self getDoesSupportShaderSampledImageArrayDynamicIndexing]
-        set fragShaderModule [$self createShaderModule [glslc -fshader-stage=frag [csubst {
+        set gpuSupportsDynamicIndexing [$gpuLib getDoesSupportShaderSampledImageArrayDynamicIndexing]
+        set fragShaderModule [$gpuLib createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
             layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxImages]];
@@ -1134,7 +1145,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 } elseif {[llength $samplerIdxs] == 1} {
                     set samplerIdx [+ [lindex $samplerIdxs 0] 1]
                     set samplerName [lindex $pushConstants $samplerIdx]
-                    set maxImages [$self getMaxImages]
+                    set maxImages [$gpuLib getMaxImages]
                     set xs [list]
                     for {set i 0} {$i < $maxImages} {incr i} {
                         set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
@@ -1154,7 +1165,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
 
         # pipeline needs to contain a specification of push constants,
         # so they can be filled in at draw time.
-        set pipeline [$self createPipeline $pipelineId \
+        set pipeline [$gpuLib createPipeline \
                           $vertShaderModule $fragShaderModule \
                           $pushConstantsSize]
         return $pipeline
@@ -1709,9 +1720,10 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
             # compiled until it's been inlined into a shader.
             Claim the GPU compiles function $name to $fn
 
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
+        } on 99 notFoundName {
+            puts "gpu fn $name: Waiting for $notFoundName"
             When the GPU compiles function $notFoundName to /anything/ {
+                puts "Did compile $notFoundName"
                 tryCompileFn $wisher $name $source
             }
         } on error e {
@@ -1724,11 +1736,13 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
             set fns [QueryAllFns!]
             set pipeline [$gpu pipeline $fns {*}$source]
 
+            puts "Compiled $name"
             Claim the GPU compiles pipeline $name to $pipeline
 
-        } trap {FN_NOT_FOUND} {} {
-            set notFoundName [lindex $::errorCode 1]
+        } on 99 notFoundName {
+            puts "gpu pipeline $name: Waiting for $notFoundName"
             When the GPU compiles function $notFoundName to /anything/ {
+                puts "Did compile $notFoundName"
                 tryCompilePipeline $wisher $name $source
             }
         } on error e {
@@ -1751,7 +1765,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
-        set matches [Query! /someone/ claims the GPU has compiled pipeline /name/ as /fn/]
+        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /fn/]
         set pipeline [dict create]
         foreach match $matches { dict with match { dict set pipelines $name $fn } }
 
