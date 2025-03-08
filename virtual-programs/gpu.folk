@@ -885,7 +885,6 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
     # only be called between `drawStart` and `drawEnd`.
     proc draw {pipeline args} {
         set args [linsert $args 0 [list [getWidth] [getHeight]]]
-        puts "pip ($pipeline)"
         drawImpl $pipeline $args
     }
 
@@ -1040,12 +1039,12 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         # called at draw time.
         $cc proc encodeObj {Jim_Interp* interp Jim_Obj* obj uint8_t* out} int {
             int objc = Jim_ListLength(interp, obj);
-            Jim_Obj* objv[objc];
+            Jim_Obj* objv[1 + objc];
             for (int i = 0; i < objc; i++) {
-                objv[i] = Jim_ListGetIndex(interp, obj, i);
+                objv[1 + i] = Jim_ListGetIndex(interp, obj, i);
             }
 
-            int ret = encodeArgs_Cmd(interp, objc, objv);
+            int ret = encodeArgs_Cmd(interp, 1 + objc, objv);
             if (ret != JIM_OK) {
                 // You CANNOT use FOLK_ENSURE here, because this is
                 // passed as function pointer and does not capture the
@@ -1054,6 +1053,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
             }
 
             memcpy(out, argsBuf, sizeof(Args));
+            return sizeof(Args);
         }
         $cc proc makeEncoder {} PushConstantsEncoder* {
             PushConstantsEncoder* encoder = malloc(sizeof(PushConstantsEncoder));
