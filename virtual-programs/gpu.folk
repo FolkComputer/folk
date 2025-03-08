@@ -57,6 +57,7 @@ set GPU_MAX_IMAGES 16
 $gpuc proc getMaxImages {} int { return $GPU_MAX_IMAGES; }
 
 $gpuc include <stdlib.h>
+$gpuc include <pthread.h>
 $gpuc code [csubst {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
@@ -112,14 +113,16 @@ proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$gpuc code {
+$gpuc code [csubst {
     VkInstance instance;
     VkPhysicalDevice physicalDevice;
     VkPhysicalDeviceFeatures physicalDeviceFeatures;
     VkDevice device;
 
     uint32_t computeQueueFamilyIndex;
+    uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 
+    pthread_mutex_t graphicsQueueMutex;
     VkQueue graphicsQueue;
     VkQueue presentQueue;
     VkQueue computeQueue;
@@ -131,7 +134,17 @@ $gpuc code {
     VkFramebuffer* swapchainFramebuffers;
     VkExtent2D swapchainExtent;
 
-    VkCommandPool commandPool;
+    __thread VkCommandPool commandPool = 0;
+    void tryInitCommandPool() {
+        if (commandPool != 0) { return; }
+
+        VkCommandPoolCreateInfo poolInfo = {0};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
+    }
 
     VkCommandBuffer commandBuffer;
     uint32_t imageIndex;
@@ -139,7 +152,7 @@ $gpuc code {
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
-}
+}]
 $gpuc proc init {int displayIdx} void {
     $[vktry volkInitialize()]
     $[if {$isGlfw} { expr {"glfwInit();"} }]
@@ -209,7 +222,6 @@ $gpuc proc init {int displayIdx} void {
         vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
     }
 
-    uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
     computeQueueFamilyIndex = UINT32_MAX; {
         uint32_t queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
@@ -441,6 +453,7 @@ $gpuc proc init {int displayIdx} void {
 
     // Set up VkQueue graphicsQueue and VkQueue presentQueue and VkQueue computeQueue
     {
+        pthread_mutex_init(&graphicsQueueMutex, NULL);
         vkGetDeviceQueue(device, graphicsQueueFamilyIndex, 0, &graphicsQueue);
         presentQueue = graphicsQueue;
         computeQueue = graphicsQueue;
@@ -505,19 +518,11 @@ $gpuc proc init {int displayIdx} void {
         $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
     }
 
-    // Set up VkCommandPool commandPool
-    {
-        VkCommandPoolCreateInfo poolInfo = {0};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-
-        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
-    }
     // Set up VkCommandBuffer commandBuffer
     {
         VkCommandBufferAllocateInfo allocInfo = {0};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        tryInitCommandPool();
         allocInfo.commandPool = commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = 1;
@@ -843,7 +848,9 @@ $gpuc proc drawEnd {} void {
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
 
+        pthread_mutex_lock(&graphicsQueueMutex);
         $[vktry {vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence)}]
+        pthread_mutex_unlock(&graphicsQueueMutex);
     }
     {
         VkPresentInfoKHR presentInfo = {0};
@@ -857,7 +864,9 @@ $gpuc proc drawEnd {} void {
         presentInfo.pImageIndices = &imageIndex;
         presentInfo.pResults = NULL;
 
+        pthread_mutex_lock(&graphicsQueueMutex);
         vkQueuePresentKHR(presentQueue, &presentInfo);
+        pthread_mutex_unlock(&graphicsQueueMutex);
     }
 }
 
@@ -1366,6 +1375,7 @@ $gpuc code [csubst {
         VkCommandBufferAllocateInfo allocInfo = {0};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        tryInitCommandPool();
         allocInfo.commandPool = commandPool;
         allocInfo.commandBufferCount = 1;
 
@@ -1388,8 +1398,10 @@ $gpuc code [csubst {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
+        pthread_mutex_lock(&graphicsQueueMutex);
         vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
         vkQueueWaitIdle(graphicsQueue);
+        pthread_mutex_unlock(&graphicsQueueMutex);
 
         vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
     }
@@ -1731,10 +1743,8 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
     set kDrawCount [tracy makeString "drawCount"]
 
     When /someone/ wishes the GPU loads image /im/ {
-        When /nobody/ claims the GPU has loaded image $im as /gim/ {
-            # set gim [$gpu copyImageToGpu $im]
-            # Assert! $this claims the GPU has loaded image $im as $gim
-        }
+        set gim [$gpu copyImageToGpu $im]
+        Claim the GPU loads image $im as $gim
     }
 
     fn QueryAllFns! {} {
