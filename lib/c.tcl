@@ -75,13 +75,17 @@ class C {
         #include <stdio.h>
         #include <setjmp.h>
 
-        jmp_buf __thread __onError;
+        static __thread jmp_buf __onError;
         static __thread Jim_Interp* interp;
 
         #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
 
-        #define FOLK_ERROR(MSG) do { Jim_SetResultString(interp, MSG, -1); longjmp(__onError, 0); } while (0)
+        #define FOLK_ERROR(...) do { \
+            char msg[1024]; snprintf(msg, 1024, ##__VA_ARGS__); \
+            Jim_SetResultString(interp, msg, -1); \
+            longjmp(__onError, 0); \
+          } while (0)
         #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
         #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
 
