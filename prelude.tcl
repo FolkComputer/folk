@@ -201,14 +201,14 @@ namespace eval ::library {
         set tclfile [file tempfile /tmp/${name}_XXXXXX].tcl
 
         set statics [lmap static $statics {list $static [uplevel set $static]}]
-        set tclcode [list apply {{tclfile statics body} {
+        set tclcode [list apply {{tclfile statics body bodySourceInfo} {
             foreach static $statics {
                 lassign $static name value
                 namespace eval ::<library:$tclfile> [list variable $name $value]
             }
-            namespace eval ::<library:$tclfile> $body
+            namespace eval ::<library:$tclfile> [info source $body {*}$bodySourceInfo]
             namespace eval ::<library:$tclfile> {namespace ensemble create}
-        }} $tclfile $statics $body]
+        }} $tclfile $statics $body [info source $body]]
 
         set tclfd [open $tclfile w]; puts $tclfd $tclcode; close $tclfd
         return "<library:$tclfile>"

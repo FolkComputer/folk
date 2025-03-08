@@ -860,21 +860,25 @@ $gpuc proc poll {} void {
     $[expr { $isGlfw ? { glfwPollEvents(); } : {} }]
 }
 
-set makeGpu {{gpuLib} {
-    class Gpu {
-        gpuLib none
-        WIDTH 0
-        HEIGHT 0
-        nextPipelineId 0
-    }
-    Gpu method unknown {procName args} {
-        "$gpuLib $procName" {*}$args
+proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
+    variable gpuLib
+
+    # HACK: load manually so we don't need to call a command
+    if {[regexp {<C:([^ ]+)>} $gpuLib -> cid]} {
+        load /tmp/$cid.so
     }
 
-    # Draw to the screen using pipeline `pipeline`. Each arg in `args`
-    # should be a push-constant parameter of the pipeline. Can only be
-    # called between `drawStart` and `drawEnd`.
-    Gpu method draw {pipeline args} {
+    foreach gpuLibCmd [info commands "$gpuLib *"] {
+        lassign $gpuLibCmd _ gpuLibCmd
+        proc $gpuLibCmd {args} {gpuLib gpuLibCmd} {
+            tailcall "$gpuLib $gpuLibCmd" {*}$args
+        }
+    }
+
+    # Draw to the image `img` using pipeline `pipeline`. Each arg in
+    # `args` should be a push-constant parameter of the pipeline. Can
+    # only be called between `drawStart` and `drawEnd`.
+    proc draw {img pipeline args} {
         set args [linsert $args 0 [list $WIDTH $HEIGHT]]
 
         $self drawImpl $pipeline [::pipelineEncodeArgs[$self Pipeline_id $pipeline] {*}$args]
@@ -882,7 +886,7 @@ set makeGpu {{gpuLib} {
 
     # Construct a reusable GLSL function that can be linked into and
     # called from a shader/pipeline.
-    Gpu method fn {arguments rtype body} {
+    proc fn {fnDict arguments rtype body} {
         set fnArgs [list]
         # We inline all dependent functions from the caller scope
         # immediately here, since we don't know if those dependencies
@@ -892,8 +896,12 @@ set makeGpu {{gpuLib} {
         foreach {argtype argname} $arguments {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {fnName fn}.
+                if {![dict exists $fnDict $argname]} {
+                    puts stderr "Gpu::fn: $argname not found"
+                    throw [list FN_NOT_FOUND $argname] "Gpu::fn: $argname not found"
+                }
                 dict set depFnDict [string map {: ""} $argname] \
-                    [uplevel 2 [list set $argname]]
+                    [dict get $fnDict $argname]
             } else {
                 lappend fnArgs $argtype $argname
             }
@@ -903,7 +911,7 @@ set makeGpu {{gpuLib} {
 
     # Construct a shader pipeline that can be used to draw to the
     # screen.
-    Gpu method pipeline {args} {
+    proc pipeline {fnDict args} {
         if {[llength $args] == 3} {
             lassign $args vertArgs vertBody fragBody
             set fragArgs [list]
@@ -1005,20 +1013,13 @@ set makeGpu {{gpuLib} {
         }]
         $cc include <stddef.h>
         $cc proc getArgsSize {} int { return sizeof(Args); }
-        set pipelineId $nextPipelineId
-        $cc proc pipelineEncodeArgs$pipelineId $pushConstants Jim_Obj* {
+        $cc proc pipelineEncodeArgs $pushConstants Jim_Obj* {
             Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
             return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
         }
-        $cc proc exportPipelineEncodeArgsToGlobal {} void {
-            Jim_CreateCommand(interp, "pipelineEncodeArgs$pipelineId",
-                              pipelineEncodeArgs${pipelineId}_Cmd, NULL, NULL);
-        }
-        set lib [$cc compile]
-        incr nextPipelineId
+        set pipelineLib [$cc compile]
 
-        set pushConstantsSize [$lib getArgsSize]
-        $lib exportPipelineEncodeArgsToGlobal
+        set pushConstantsSize [$pipelineLib getArgsSize]
 
         set pushConstantsCode [if {[llength $pushConstants] > 0} {
             subst {
@@ -1166,9 +1167,7 @@ set makeGpu {{gpuLib} {
         set glslfd [open $glslfile w]; puts $glslfd $glsl; close $glslfd
         split [string map {\n ""} [exec glslc {*}$cmdargs -mfmt=num -o - $glslfile]] ","
     }
-
-    return [Gpu new [list gpuLib $gpuLib]]
-}}
+}] }
 
 # Image management:
 
@@ -1642,6 +1641,7 @@ $gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
     vkDestroyImageView(device, block->textureImageView, NULL);
 }
 set gpuLib [$gpuc compile]
+set gpu [makeGpu $gpuLib]
 
 # if {!$macos} {
 #     # Needed on Raspberry Pi 4:
@@ -1649,23 +1649,26 @@ set gpuLib [$gpuc compile]
 # }
 
 if {$macos} {
-    local proc When {args} {
+    # HACK: to guarantee that GPU init runs on main thread.
+    local proc When' {args} {
         set body [lindex $args end]
+        uplevel {set __envStack [list]}
         uplevel {set displayIdx 0}
-        uplevel $body
+        uplevel {set this "virtual-programs/gpu.folk"}
+        uplevel [list applyBlock $body [uplevel captureEnvStack]]
     }
+} else {
+    local proc When' {args} { uplevel [list When {*}$args] }
 }
-When /someone/ wishes $::thisNode uses display /displayIdx/ {
+When' /someone/ wishes $::thisNode uses display /displayIdx/ {
     if {$displayIdx eq "glfw"} { set displayIdx -1 }
 
     tracy setThreadName "gpu"
 
-    set gpu [apply $makeGpu $gpuLib]
     $gpu init $displayIdx
-    $gpu eval {set WIDTH [$self getWidth]; set HEIGHT [$self getHeight]}
     $gpu imageManagerInit
 
-    Claim display $displayIdx has width [$gpu get WIDTH] height [$gpu get HEIGHT]
+    Claim display $displayIdx has width [$gpu getWidth] height [$gpu getHeight]
 
     # Dictionary where key is pipeline name and value is [list
     # $pipelineSource $compiledPipeline].
@@ -1682,6 +1685,65 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
     set kRegionCount [tracy makeString "regionCount"]
     set kDrawCount [tracy makeString "drawCount"]
 
+    When /someone/ wishes the GPU loads image /im/ {
+        When /nobody/ claims the GPU has loaded image $im as /gim/ {
+            # set gim [$gpu copyImageToGpu $im]
+            # Assert! $this claims the GPU has loaded image $im as $gim
+        }
+    }
+
+    fn QueryAllFns! {} {
+        set fns [dict create]
+        set results [Query! /someone/ claims the GPU compiles function /name/ to /fn/]
+        foreach result $results {
+            dict set fns [dict get $result name] [dict get $result fn]
+        }
+        return $fns
+    }
+    fn tryCompileFn {wisher name source} {
+        try {
+            set fns [QueryAllFns!]
+            set fn [$gpu fn $fns {*}$source]
+
+            # Technically a misnomer: the function is just stored, not
+            # compiled until it's been inlined into a shader.
+            Claim the GPU compiles function $name to $fn
+
+        } trap {FN_NOT_FOUND} {} {
+            set notFoundName [lindex $::errorCode 1]
+            When the GPU compiles function $notFoundName to /anything/ {
+                tryCompileFn $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
+            Claim $wisher has error $e with info [errorInfo $e]
+        }
+    }
+    fn tryCompilePipeline {wisher name source} {
+        try {
+            set fns [QueryAllFns!]
+            set pipeline [$gpu pipeline $fns {*}$source]
+
+            Claim the GPU compiles pipeline $name to $pipeline
+
+        } trap {FN_NOT_FOUND} {} {
+            set notFoundName [lindex $::errorCode 1]
+            When the GPU compiles function $notFoundName to /anything/ {
+                tryCompilePipeline $wisher $name $source
+            }
+        } on error e {
+            puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
+            Claim $wisher has error $e with info [errorInfo $e]
+        }
+    }
+
+    When /wisher/ wishes the GPU compiles function /name/ /source/ {
+        tryCompileFn $wisher $name $source
+    }
+    When /wisher/ wishes the GPU compiles pipeline /name/ /source/ {
+        tryCompilePipeline $wisher $name $source
+    }
+
     while true {
         # This blocks until the start of the next frame.
         $gpu drawStart
@@ -1689,52 +1751,17 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
+        set matches [Query! /someone/ claims the GPU has compiled pipeline /name/ as /fn/]
+        set pipeline [dict create]
+        foreach match $matches { dict with match { dict set pipelines $name $fn } }
+
         set displayList [dict create]
-        foreach match [Query! /wisher/ wishes the GPU loads image /im/] {
-            dict with match {
-                if {![dict exists $gpuImages $im]} {
-                    set gim [$gpu copyImageToGpu $im]
-                    dict set gpuImages $im $gim
-                    Assert! gpu.folk claims the GPU has loaded image $im as $gim
-                }
-            }
-        }
-        foreach match [Query! /wisher/ wishes the GPU compiles function /name/ /source/] {
-            dict with match {
-                if {![dict exists $functions $name]} {
-                    try {
-                        dict with functions {
-                            set fn [$gpu fn {*}$source]
-                        }
-                        dict set functions $name $fn
-                    } on error e {
-                        puts stderr "Error: GPU compiles function $name: [errorInfo $e]"
-                        Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
-                    }
-                }
-            }
-        }
-        foreach match [Query! /wisher/ wishes the GPU compiles pipeline /name/ /source/] {
-            dict with match {
-                try {
-                    if {[dict exists $pipelines $name] &&
-                        [lindex [dict get $pipelines $name] 0] eq $source} {
-                        # Already compiled this one.
-                        continue
-                    }
-                    dict with functions {
-                        dict set pipelines $name [list $source [$gpu pipeline {*}$source]]
-                    }
-                } on error e {
-                    puts stderr "Error: GPU compiles pipeline $name: [errorInfo $e]"
-                    Assert! gpu.folk claims $wisher has error $e with info [errorInfo $e]
-                }
-            }
-        }
-        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto image /img/ \
+                           with /...options/] {
             try {
                 set name [dict get $match name]
                 set pipeline [lindex [dict get $pipelines [dict get $match name]] 1]
+                set img [dict get $match img]
 
                 set options [dict get $match options]
                 set layer [dict getdef $options layer 0]
@@ -1744,11 +1771,11 @@ When /someone/ wishes $::thisNode uses display /displayIdx/ {
                     set instances [list [dict get $options arguments]]
                 }
                 foreach instance $instances {
-                    dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
+                    dict lappend displayList $layer [list $gpu draw $img $pipeline {*}$instance]
                 }
             } on error e {
                 puts stderr [errorInfo $e]
-                Assert! gpu.folk claims [dict get $match wisher] has error $e with info [errorInfo $e]
+                Assert! $this claims [dict get $match wisher] has error $e with info [errorInfo $e]
                 # TODO: does this ever get disposed?
             }
         }
