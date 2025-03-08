@@ -1497,11 +1497,13 @@ $gpuc proc copyImageToRgba {Image im} Image {
 
 $gpuc typedef int gpu_image_handle_t
 $gpuc code [csubst {
+    // FIXME: THIS IS NOT THREAD-SAFE
+
     // Points to all GPU-side data structures associated with
     // an image (that we will destroy when we evict that
     // image).
     typedef struct gpu_image_block {
-        bool alive;
+        bool _Atomic alive;
 
         VkImage textureImage;
         VkDeviceMemory textureImageMemory;
@@ -1744,7 +1746,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
 
     When /someone/ wishes the GPU loads image /im/ {
         set gim [$gpu copyImageToGpu $im]
-        Claim the GPU loads image $im as $gim
+        Claim the GPU has loaded image $im as $gim
     }
 
     fn QueryAllFns! {} {
