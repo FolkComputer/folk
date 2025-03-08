@@ -598,7 +598,7 @@ $gpuc argtype VkDescriptorType { int $argname; __ENSURE_OK(Tcl_GetIntFromObj(int
 $gpuc rtype VkDescriptorType { $robj = Tcl_NewIntObj($rvalue); }
 $gpuc code {
     typedef struct PushConstantsEncoder {
-        uint8_t *(*encode)(Jim_Obj* obj);
+        int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
     } PushConstantsEncoder;
 }
 $gpuc struct Pipeline {
@@ -612,6 +612,7 @@ $gpuc struct Pipeline {
 }
 $gpuc proc createPipeline {VkShaderModule vertShaderModule
                            VkShaderModule fragShaderModule
+                           PushConstantsEncoder* encodePushConstants
                            size_t pushConstantsSize} Pipeline {
         VkPipelineShaderStageCreateInfo shaderStages[2]; {
         VkPipelineShaderStageCreateInfo vertShaderStageInfo = {0};
@@ -751,7 +752,8 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
     return (Pipeline) {
         .pipeline = pipeline,
         .pipelineLayout = pipelineLayout,
-        .pushConstantsSize = pushConstantsSize
+        .pushConstantsSize = pushConstantsSize,
+        .encodePushConstants = encodePushConstants
     };
 }
     
@@ -792,7 +794,7 @@ $gpuc proc drawStart {} void {
     boundPipeline = VK_NULL_HANDLE;
     boundDescriptorSet = VK_NULL_HANDLE;
 }
-$gpuc proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
+$gpuc proc drawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         boundPipeline = pipeline.pipeline;
@@ -805,12 +807,11 @@ $gpuc proc drawImpl {Pipeline pipeline Jim_Obj* pushConstantsObj} void {
     }
 
     {
-        int pushConstantsDataSize;
-        const uint8_t* pushConstantsData = (const uint8_t*) Jim_GetString(pushConstantsObj, &pushConstantsDataSize);
+        uint8_t pushConstantsData[128];
+        int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
         if (pushConstantsDataSize != pipeline.pushConstantsSize) {
-            fprintf(stderr, "drawImpl: Expected push constants size %zu; push constants data size was %d\n",
-                    pipeline.pushConstantsSize, pushConstantsDataSize);
-            exit(101);
+            FOLK_ERROR("drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+                       pipeline.pushConstantsSize, pushConstantsDataSize);
         }
         vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
@@ -882,9 +883,10 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
     # Draw to the image `img` using pipeline `pipeline`. Each arg in
     # `args` should be a push-constant parameter of the pipeline. Can
     # only be called between `drawStart` and `drawEnd`.
-    proc draw {img pipeline args} {
+    proc draw {pipeline args} {
         set args [linsert $args 0 [list [getWidth] [getHeight]]]
-        drawImpl $pipeline [[Pipeline_encodeArgs $pipeline] $args]
+        puts "pip ($pipeline)"
+        drawImpl $pipeline $args
     }
 
     # Construct a reusable GLSL function that can be linked into and
@@ -1021,15 +1023,46 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                     expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
                 }] "\n"]
             } Args;
+
+            typedef struct PushConstantsEncoder {
+                int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+            } PushConstantsEncoder;
+
+            static __thread uint8_t argsBuf[128];
         }]
         $cc include <stddef.h>
         $cc proc getArgsSize {} int { return sizeof(Args); }
-        $cc proc pipelineEncodeArgs $pushConstants Jim_Obj* {
+        $cc proc encodeArgs $pushConstants void {
             Args args = {$[join [lmap {argtype argname} $pushConstants { subst {.$argname = $argname} }] " ,"]};
-            return Jim_NewStringObj(interp, (const char *) &args, sizeof(args));
+            memcpy(argsBuf, &args, sizeof(args));
+        }
+        # This is what gets saved as the PushConstantsEncoder and
+        # called at draw time.
+        $cc proc encodeObj {Jim_Interp* interp Jim_Obj* obj uint8_t* out} int {
+            int objc = Jim_ListLength(interp, obj);
+            Jim_Obj* objv[objc];
+            for (int i = 0; i < objc; i++) {
+                objv[i] = Jim_ListGetIndex(interp, obj, i);
+            }
+
+            int ret = encodeArgs_Cmd(interp, objc, objv);
+            if (ret != JIM_OK) {
+                // You CANNOT use FOLK_ENSURE here, because this is
+                // passed as function pointer and does not capture the
+                // correct jmp_buf for the caller.
+                return -1;
+            }
+
+            memcpy(out, argsBuf, sizeof(Args));
+        }
+        $cc proc makeEncoder {} PushConstantsEncoder* {
+            PushConstantsEncoder* encoder = malloc(sizeof(PushConstantsEncoder));
+            encoder->encode = encodeObj;
+            return encoder;
         }
         set pipelineLib [$cc compile]
 
+        set encodePushConstants [$pipelineLib makeEncoder]
         set pushConstantsSize [$pipelineLib getArgsSize]
 
         set pushConstantsCode [if {[llength $pushConstants] > 0} {
@@ -1167,6 +1200,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         # so they can be filled in at draw time.
         set pipeline [$gpuLib createPipeline \
                           $vertShaderModule $fragShaderModule \
+                          $encodePushConstants \
                           $pushConstantsSize]
         return $pipeline
     }
@@ -1765,17 +1799,15 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
-        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /fn/]
-        set pipeline [dict create]
-        foreach match $matches { dict with match { dict set pipelines $name $fn } }
+        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set pipelines [dict create]
+        foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
         set displayList [dict create]
-        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto image /img/ \
-                           with /...options/] {
+        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
                 set name [dict get $match name]
-                set pipeline [lindex [dict get $pipelines [dict get $match name]] 1]
-                set img [dict get $match img]
+                set pipeline [dict get $pipelines [dict get $match name]]
 
                 set options [dict get $match options]
                 set layer [dict getdef $options layer 0]
@@ -1785,7 +1817,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
                     set instances [list [dict get $options arguments]]
                 }
                 foreach instance $instances {
-                    dict lappend displayList $layer [list $gpu draw $img $pipeline {*}$instance]
+                    dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
                 }
             } on error e {
                 puts stderr [errorInfo $e]

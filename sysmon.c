@@ -104,7 +104,7 @@ void sysmon() {
     // Fifth: collect garbage.
     epochGlobalCollect();
 
-    if (currentTick < 100) { return; }
+    if (currentTick < 1000) { return; }
 
     // Third: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
