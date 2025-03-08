@@ -101,12 +101,16 @@ void sysmon() {
         }
     }
 
-    // Fifth: collect garbage.
+    // Third: collect garbage.
     epochGlobalCollect();
 
-    if (currentTick < 1000) { return; }
+    ///////////////////////////////////
+    if (currentTick < 500) { return; }
+    // Don't do the management tasks after this if the system isn't
+    // fully online yet.
+    ///////////////////////////////////
 
-    // Third: manage the pool of worker threads.
+    // Fourth: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
 #ifdef __linux__
     int notBlockedWorkersCount = 0;
@@ -145,7 +149,7 @@ void sysmon() {
     }
 #endif
 
-    // Fourth: update the clock time statement in the database.
+    // Fifth: update the clock time statement in the database.
     // sysmon.c claims the clock time is <TIME>
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
     Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
