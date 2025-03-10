@@ -152,6 +152,54 @@ When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
   }
 }
 
+proc get_transform_info {region} {
+    set angle [region angle $region]
+    set center [region centroid $region]
+    return [list $center $angle]
+}
+
+proc transform_points {points center angle} {
+    set transformedPoints {}
+    foreach point $points {
+        lappend transformedPoints [vec2 add $center [vec2 rotate $point $angle]]
+    }
+    return $transformedPoints
+}
+
+When /someone/ wishes /page/ draws a set of points /points/ with /...options/ & /page/ has region /r/ {
+    set radius [dict_getdef $options radius 5]
+    set color [dict_getdef $options color white]
+    set filled [dict_getdef $options filled true]
+    set thickness [dict_getdef $options thickness 2]
+    set layer [dict_getdef $options layer 0]
+    
+    lassign [get_transform_info $r] center angle
+    
+    foreach point [transform_points $points $center $angle] {
+        Wish to draw a circle with center $point radius $radius thickness $thickness \
+            color $color filled $filled layer $layer
+    }
+}
+
+When /someone/ wishes /page/ draws a polyline /points/ with /...options/ & /page/ has region /r/ {
+    set color [dict_getdef $options color white]
+    set thickness [dict_getdef $options thickness 2]
+    set layer [dict_getdef $options layer 0]
+    set dashed [dict_getdef $options dashed false]
+    set dashlength [dict_getdef $options dashlength 20]
+    set dashoffset [dict_getdef $options dashoffset 0]
+    
+    lassign [get_transform_info $r] center angle
+    set transformedPoints [transform_points $points $center $angle]
+    
+    if {$dashed} {
+        Wish to draw a dashed stroke with points $transformedPoints color $color width $thickness \
+            dashlength $dashlength dashoffset $dashoffset layer $layer
+    } else {
+        Wish to draw a stroke with points $transformedPoints color $color width $thickness layer $layer
+    }
+}
+
 Claim $this has demo {
   # Center circle
   Wish $this draws a circle
