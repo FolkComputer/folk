@@ -14,24 +14,24 @@ When /someone/ wishes to draw a shape with /...options/ {
   set centerPoint {0 0}
   set angle [expr {2 * 3.14159 / $numPoints + 3.14159}]
   set angleIncr [expr {2 * 3.14159 / $numPoints}]
-  
+
   for {set i 0} {$i < $numPoints} {incr i} {
     set p [vec2 add [lindex $points end] [vec2 scale [list [expr {cos($angle)}] [expr {sin($angle)}]] $r]]
     lappend points $p
     set centerPoint [vec2 add $centerPoint $p]
     set angle [expr {$angle + $angleIncr}]
   }
-  
-  set points [lmap v $points {
-      vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $radians] $c
-  }]
 
-  if {$filled} {
-    Wish to draw a polygon with points $points color $color layer $layer
-  } else {
-    Wish to draw a stroke with points $points width $width color $color layer $layer
+  set points [lmap v $points {
+    vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $radians] $c
+    }]
+
+    if {$filled} {
+      Wish to draw a polygon with points $points color $color layer $layer
+    } else {
+      Wish to draw a stroke with points $points width $width color $color layer $layer
+    }
   }
-}
 
 When /someone/ wishes to draw a rect with /...options/ {
   set c [dict get $options center]
@@ -42,24 +42,24 @@ When /someone/ wishes to draw a rect with /...options/ {
   set filled [dict_getdef $options filled false]
   set width [dict_getdef $options strokeWidth 1]
   set layer [dict_getdef $options layer 0]
-  
+
   set hw [expr {$w / 2.0}]
   set hh [expr {$h / 2.0}]
-  
+
   set points [lmap v [list \
-      [list [expr {-$hw}] [expr {-$hh}]] \
-      [list [expr {$hw}] [expr {-$hh}]] \
-      [list [expr {$hw}] [expr {$hh}]] \
-      [list [expr {-$hw}] [expr {$hh}]] \
-      [list [expr {-$hw}] [expr {-$hh}]] \
-  ] {
+    [list [expr {-$hw}] [expr {-$hh}]] \
+    [list [expr {$hw}] [expr {-$hh}]] \
+    [list [expr {$hw}] [expr {$hh}]] \
+    [list [expr {-$hw}] [expr {$hh}]] \
+    [list [expr {-$hw}] [expr {-$hh}]] \
+    ] {
       vec2 add [vec2 rotate $v $radians] $c
-  }]
-  
+    }]
+
   if {$filled} {
-      Wish to draw a polygon with points $points color $color layer $layer
+    Wish to draw a polygon with points $points color $color layer $layer
   } else {
-      Wish to draw a stroke with points $points width $width color $color layer $layer
+    Wish to draw a stroke with points $points width $width color $color layer $layer
   }
 }
 
@@ -74,30 +74,30 @@ When /someone/ wishes /p/ draws an /shape/ {
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
-  
+
   set radius [dict_getdef $options radius 50]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set thickness [dict_getdef $options thickness 5]
   set layer [dict_getdef $options layer 0]
-  
+
   lassign [dict_getdef $options offset {0 0}] ox oy
   set center [vec2 add [list $cx $cy] [vec2 rotate [list $ox $oy] $angle]]
 
   if {$shape eq "circle"} {
-      Wish to draw a circle with center $center radius $radius thickness $thickness \
-          color $color filled $filled layer $layer
+    Wish to draw a circle with center $center radius $radius thickness $thickness \
+      color $color filled $filled layer $layer
   } elseif {$shape eq "rect"} {
-      set w [dict_getdef $options width [region width $r]]
-      set h [dict_getdef $options height [region height $r]]
-      Wish to draw a rect with center $center width $w height $h radians $angle \
-          color $color filled $filled thickness $thickness layer $layer
+    set w [dict_getdef $options width [region width $r]]
+    set h [dict_getdef $options height [region height $r]]
+    Wish to draw a rect with center $center width $w height $h radians $angle \
+      color $color filled $filled thickness $thickness layer $layer
   } elseif {[dict exists $shapes $shape]} {
-      Wish to draw a shape with sides [dict get $shapes $shape] center $center radius $radius \
-          radians $angle color $color filled $filled width $thickness layer $layer
+    Wish to draw a shape with sides [dict get $shapes $shape] center $center radius $radius \
+      radians $angle color $color filled $filled width $thickness layer $layer
   } else {
-      Wish to draw a shape with sides 2 center $center radius $radius \
-          radians $angle color $color filled $filled width $thickness layer $layer
+    Wish to draw a shape with sides 2 center $center radius $radius \
+      radians $angle color $color filled $filled width $thickness layer $layer
   }
 }
 
@@ -106,17 +106,17 @@ When /someone/ wishes /p/ draws an /shape/ with /...options/ {
 }
 
 proc shift_region {region direction pct} {
-    set pct [expr {[string map {% ""} $pct] / 100.0}]
-    set w [region width $region]
-    set h [region height $region]
-    
-    switch $direction {
-        "right" { region move $region right [expr {$w * $pct}]px }
-        "left"  { region move $region left [expr {$w * $pct}]px }
-        "up"    { region move $region up [expr {$h * $pct}]px }
-        "down"  { region move $region down [expr {$h * $pct}]px }
-        default { region move $region right [expr {$w * $pct}]px }
-    }
+  set pct [expr {[string map {% ""} $pct] / 100.0}]
+  set w [region width $region]
+  set h [region height $region]
+
+  switch $direction {
+    "right" { region move $region right [expr {$w * $pct}]px }
+    "left"  { region move $region left [expr {$w * $pct}]px }
+    "up"    { region move $region up [expr {$h * $pct}]px }
+    "down"  { region move $region down [expr {$h * $pct}]px }
+    default { region move $region right [expr {$w * $pct}]px }
+  }
 }
 
 When /someone/ wishes /p/ draws a rect with width /w/ height /h/ shift /direction/ /pct/ {
@@ -131,11 +131,11 @@ When /someone/ wishes /p/ draws a /shape/ with radius /rad/ shift /direction/ /p
   When $p has region /r/ {
     set shifted [shift_region $r $direction $pct]
     lassign [region centroid $shifted] cx cy
-    
+
     if {[dict exists $shapes $shape]} {
-        Wish to draw a shape with sides [dict get $shapes $shape] center [list $cx $cy] radius $rad color white
+      Wish to draw a shape with sides [dict get $shapes $shape] center [list $cx $cy] radius $rad color white
     } else {
-        Wish $p draws a $shape with center [list $cx $cy] radius $rad color white
+      Wish $p draws a $shape with center [list $cx $cy] radius $rad color white
     }
   }
 }
@@ -153,86 +153,86 @@ When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
 }
 
 proc get_transform_info {region} {
-    set angle [region angle $region]
-    set center [region centroid $region]
-    return [list $center $angle]
+  set angle [region angle $region]
+  set center [region centroid $region]
+  return [list $center $angle]
 }
 
 proc transform_points {points center angle} {
-    set transformedPoints {}
-    foreach point $points {
-        lappend transformedPoints [vec2 add $center [vec2 rotate $point $angle]]
-    }
-    return $transformedPoints
+  set transformedPoints {}
+  foreach point $points {
+    lappend transformedPoints [vec2 add $center [vec2 rotate $point $angle]]
+  }
+  return $transformedPoints
 }
 
 When /someone/ wishes /page/ draws a set of points /points/ with /...options/ & /page/ has region /r/ {
-    set radius [dict_getdef $options radius 5]
-    set color [dict_getdef $options color white]
-    set filled [dict_getdef $options filled true]
-    set thickness [dict_getdef $options thickness 2]
-    set layer [dict_getdef $options layer 0]
-    
-    lassign [get_transform_info $r] center angle
-    
-    foreach point [transform_points $points $center $angle] {
-        Wish to draw a circle with center $point radius $radius thickness $thickness \
-            color $color filled $filled layer $layer
-    }
+  set radius [dict_getdef $options radius 5]
+  set color [dict_getdef $options color white]
+  set filled [dict_getdef $options filled true]
+  set thickness [dict_getdef $options thickness 2]
+  set layer [dict_getdef $options layer 0]
+
+  lassign [get_transform_info $r] center angle
+
+  foreach point [transform_points $points $center $angle] {
+    Wish to draw a circle with center $point radius $radius thickness $thickness \
+      color $color filled $filled layer $layer
+  }
 }
 
 When /someone/ wishes /page/ draws a polyline /points/ with /...options/ & /page/ has region /r/ {
-    set color [dict_getdef $options color white]
-    set thickness [dict_getdef $options thickness 2]
-    set layer [dict_getdef $options layer 0]
-    set dashed [dict_getdef $options dashed false]
-    set dashlength [dict_getdef $options dashlength 20]
-    set dashoffset [dict_getdef $options dashoffset 0]
-    
-    lassign [get_transform_info $r] center angle
-    set transformedPoints [transform_points $points $center $angle]
-    
-    if {$dashed} {
-        Wish to draw a dashed stroke with points $transformedPoints color $color width $thickness \
-            dashlength $dashlength dashoffset $dashoffset layer $layer
-    } else {
-        Wish to draw a stroke with points $transformedPoints color $color width $thickness layer $layer
-    }
+  set color [dict_getdef $options color white]
+  set thickness [dict_getdef $options thickness 2]
+  set layer [dict_getdef $options layer 0]
+  set dashed [dict_getdef $options dashed false]
+  set dashlength [dict_getdef $options dashlength 20]
+  set dashoffset [dict_getdef $options dashoffset 0]
+
+  lassign [get_transform_info $r] center angle
+  set transformedPoints [transform_points $points $center $angle]
+
+  if {$dashed} {
+    Wish to draw a dashed stroke with points $transformedPoints color $color width $thickness \
+      dashlength $dashlength dashoffset $dashoffset layer $layer
+  } else {
+    Wish to draw a stroke with points $transformedPoints color $color width $thickness layer $layer
+  }
 }
 
 Claim $this has demo {
   # Center circle
   Wish $this draws a circle
-  
+
   # Grid of shapes with varying thickness
   set baseX -850
   set baseY -200
   set gridSpacing 130
-  
+
   # Row 1: Regular polygons with different colors and thickness
   Wish $this draws a triangle with color skyblue width 2 offset [list $baseX [expr {$baseY}]]
   Wish $this draws a square with color green width 4 offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY}]]
   Wish $this draws a pentagon with color gold width 6 offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY}]]
   Wish $this draws a hexagon with color orange width 8 offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY}]]
-  
+
   # Row 2: Filled shapes
   Wish $this draws a triangle with color skyblue filled true offset [list $baseX [expr {$baseY + $gridSpacing}]]
   Wish $this draws a square with color green filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing}]]
   Wish $this draws a pentagon with color gold filled true offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY + $gridSpacing}]]
   Wish $this draws a hexagon with color orange filled true offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY + $gridSpacing}]]
-  
+
   # Row 3: Shifting examples
   Wish $this draws a triangle with radius 40 shift right 50%
   Wish $this draws a square with radius 40 shift left 50%
   Wish $this draws a pentagon with radius 40 shift up 50%
   Wish $this draws a hexagon with radius 40 shift down 50%
-  
+
   # Row 4: Rectangles with different properties
   Wish $this draws a rect with width 80 height 50 color cyan thickness 3 offset [list $baseX [expr {$baseY + $gridSpacing*3}]]
   Wish $this draws a rect with width 80 height 50 color magenta filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing*3}]]
   Wish $this draws a rect with width 80 height 50 shift right 50%
   Wish $this draws a rect with width 80 height 50 shift left 50%
-  
+
   # Animated elements
   When the clock time is /t/ {
     set offsetVector [list [sin $t] [cos $t]]
