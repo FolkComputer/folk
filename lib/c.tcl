@@ -98,6 +98,7 @@ class C {
         }
     }
     code {}
+    vars {}
     procs {}
 
     objtypes {}
@@ -295,6 +296,23 @@ C method code {newcode} {
     }
     lappend code $newcode
     list
+}
+
+C method define {newvars} {
+    lappend code $newvars
+
+    regsub -all -line {/\*.*?\*/} $newvars "" newvars
+    regsub -all -line {//.*$} $newvars "" newvars
+    regsub -all {=[^;]*;} $newvars "" newvars
+    regsub -all {__thread \w+} $newvars {{\0}} newvars
+    set newvars [string map {";" ""} $newvars]
+
+    foreach {vartype varname} $newvars {
+        if {[dict exists $vars $varname]} {
+            error "var already exists: $varname"
+        }
+        dict set vars $varname $vartype
+    }
 }
 
 C method enum {type values} {
@@ -563,6 +581,14 @@ C method compile {{cid {}}} {
             Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
             Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
 
+            [join [lmap varname [dict keys $vars] {
+                csubst {{
+                    char script[1000];
+                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} $varname %p", &$varname);
+                    Jim_Eval(interp, script);
+                }}
+            }] "\n"]
+
             [join [lmap name [dict keys $procs] {
                 set cname [string map {":" "_"} $name]
                 set tclname $name
@@ -649,6 +675,19 @@ C method import {srclib srcname {_as {}} {destname {}}} {
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
     $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+}
+
+C method extend {srclib} {
+    set srcinfo [$srclib __getCInfo]
+    foreach procName [dict keys [dict get $srcinfo procs]] {
+        $self import $srclib $procName
+    }
+
+    dict for {varname vartype} [dict get $srcinfo vars] {
+        set addr [dict get [set "::$srclib __addrs"] $varname]
+        $self code "$vartype* ${varname}__ptr = ($vartype*) $addr;"
+        $self code "#define $varname (*(${varname}__ptr))"
+    }
 }
 
 proc ::C++ {} {
