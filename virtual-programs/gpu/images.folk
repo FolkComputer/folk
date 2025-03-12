@@ -1,6 +1,10 @@
 When the GPU library is /gpuLib/ {
 
+puts "GPU: $gpuLib"
+
 set gpuc [C]
+$gpuc import $gpuLib getMaxImages
+    
 $gpuc cflags -I./vendor
 $gpuc include "volk/volk.h"
 set GPU_MAX_IMAGES [$gpuLib getMaxImages]

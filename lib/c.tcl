@@ -648,7 +648,6 @@ C method import {srclib srcname {_as {}} {destname {}}} {
     set arglist [dict get $procinfo arglist]
 
     set addr [dict get [set "::$srclib __addrs"] $srcname]
-    puts "addr ($srcname) $addr"
     $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 

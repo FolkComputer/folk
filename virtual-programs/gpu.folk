@@ -1231,8 +1231,8 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
 }] }
 
 set gpuLib [$gpuc compile]
+Claim the GPU library is $gpuLib
 set gpu [makeGpu $gpuLib]
-Claim the GPU library is $gpu
 
 # if {!$macos} {
 #     # Needed on Raspberry Pi 4:
