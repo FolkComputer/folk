@@ -17,6 +17,9 @@ proc unknown {cmdName args} {
             load /tmp/$cid.so
         }
         proc <C:$cid> {procName args} {cid} { tailcall "<C:$cid> $procName" {*}$args }
+        if {[llength $args] == 0} {
+            return
+        }
         tailcall $cmdName {*}$args
 
     } elseif {[regexp {<library:([^ ]+)>} $cmdName -> tclfile]} {

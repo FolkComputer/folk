@@ -28,6 +28,13 @@ When the color map is /colorMap/ &\
     set color [dict getdef $colorMap $color $color]
     set filled [dict getdef $options filled false]
 
+    if {[dict exists $options target]} {
+        set target [dict get $options target]
+        Wish the GPU draws pipeline "circle" onto $target with arguments \
+            [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]        
+        return
+    }
+
     Wish the GPU draws pipeline "circle" with arguments \
         [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]
 }
