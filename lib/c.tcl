@@ -278,14 +278,6 @@ C method include {h} {
     }
 }
 
-C method linedirective {} {
-    set frame [info frame -2]
-    if {[dict exists $frame line] && [dict exists $frame file] &&
-        [dict get $frame line] >= 0} {
-        subst {#line [dict get $frame line] "[dict get $frame file]"}
-    } else { list }
-}
-
 C method code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
@@ -677,6 +669,10 @@ C method import {srclib srcname {_as {}} {destname {}}} {
     $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
+C method string_toupper_first {s} {
+    return [string toupper [string index $s 0]][string range $s 1 end]
+}
+
 C method extend {srclib} {
     set srcinfo [$srclib __getCInfo]
     foreach procName [dict keys [dict get $srcinfo procs]] {
@@ -685,8 +681,17 @@ C method extend {srclib} {
 
     dict for {varname vartype} [dict get $srcinfo vars] {
         set addr [dict get [set "::$srclib __addrs"] $varname]
-        $self code "$vartype* ${varname}__ptr = ($vartype*) $addr;"
-        $self code "#define $varname (*(${varname}__ptr))"
+        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
+            $self code "$vartype* ${varname}__ptr = ([lindex $vartype 1]*) $addr;"
+            set vartype [lindex $vartype 1]
+        } else {
+            $self code "$vartype* ${varname}__ptr = ($vartype*) $addr;"
+        }
+        $self code [subst {
+            $vartype get[$self string_toupper_first $varname]() {
+                return *(${varname}__ptr);
+            }
+        }]
     }
 }
 

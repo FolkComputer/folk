@@ -1,7 +1,8 @@
 
 set cc [C]
 $cc define {
-    int globx = 10;
+    __thread int globx = 10;
+    int whatever;
 }
 $cc proc incr_globx {} void {
     globx++;
@@ -16,7 +17,7 @@ $dd extend $clib
 $dd proc go {} int {
     incr_globx();
     incr_globx();
-    return globx;
+    return getGlobx();
 }
 set dlib [$dd compile]
 
