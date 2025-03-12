@@ -537,8 +537,31 @@ C method compile {{cid {}}} {
     }
 
     set init [subst {
+        #include <string.h>
+        static const char* _Atomic __cInfo = NULL;
+        static int __setCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
+            if (__cInfo != NULL || objc != 2) { return JIM_ERR; }
+            const char* cInfo = Jim_String(objv\[1\]);
+            if (cInfo == NULL) { return JIM_ERR; }
+            __cInfo = strdup(cInfo);
+            return JIM_OK;
+        }
+        static __thread Jim_Obj* __cInfoObj = NULL;
+        static int __getCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
+            if (__cInfo == NULL || objc != 1) { return JIM_ERR; }
+            if (__cInfoObj == NULL) {
+                __cInfoObj = Jim_NewStringObj(interp, __cInfo, -1);
+                Jim_IncrRefCount(__cInfoObj);
+            }
+            Jim_SetResult(interp, __cInfoObj);
+            return JIM_OK;
+        }
+
         int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
+
+            Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
+            Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
 
             [join [lmap name [dict keys $procs] {
                 set cname [string map {":" "_"} $name]
@@ -546,7 +569,7 @@ C method compile {{cid {}}} {
                 # puts "Creating C command: $tclname"
                 csubst {{
                     char script[1000];
-                    snprintf(script, 1000, "$self eval {dict set addrs $cname %p}", $cname);
+                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} $cname %p", $cname);
                     Jim_Eval(interp, script);
 
                     Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
@@ -605,15 +628,28 @@ extern "C" \{
     # HACK: Why do we need this / only when running in lldb?
     while {![file exists /tmp/$cid.so]} { sleep 0.0001 }
 
+    set cInfo [dict create]
+    foreach varName [$self vars] {
+        dict set cInfo $varName [$self get $varName]
+    }
+    
+    # Load the compiled module immediately so we can set its C info.
+    <C:$cid>
+    <C:$cid> __setCInfo $cInfo
+
     return <C:$cid>
 }
 
-C method import {scc sname as dest} {
-    set procinfo [dict get [$scc eval {set procs}] $sname]
+C method import {srclib srcname {_as {}} {destname {}}} {
+    if {$destname eq ""} { set destname $srcname }
+
+    set procinfo [dict get [$srclib __getCInfo] procs $srcname]
     set rtype [dict get $procinfo rtype]
     set arglist [dict get $procinfo arglist]
-    set addr [dict get [$scc eval {set addrs}] $sname]
-    $self code "$rtype (*$dest) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
+
+    set addr [dict get [set "::$srclib __addrs"] $srcname]
+    puts "addr ($srcname) $addr"
+    $self code "$rtype (*$destname) ([join $arglist {, }]) = ($rtype (*) ([join $arglist {, }])) $addr;"
 }
 
 proc ::C++ {} {
