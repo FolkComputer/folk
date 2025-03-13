@@ -1243,22 +1243,29 @@ set gpu [makeGpu $gpuLib]
 if {$macos} {
     # HACK: to guarantee that GPU init runs on main thread.
     local proc When' {args} {
+        set gpuImageLibResults [list]
+        while {[llength $gpuImageLibResults] == 0} {
+            set gpuImageLibResults [Query! the GPU image library is /gpuImageLib/]
+            sleep 0.1
+        }
         set body [lindex $args end]
         uplevel {set __envStack [list]}
         uplevel {set displayIdx 0}
         uplevel {set this "virtual-programs/gpu.folk"}
+        uplevel [list set gpuImageLib [dict get [lindex $gpuImageLibResults 0] gpuImageLib]]
         uplevel [list applyBlock $body [uplevel captureEnvStack]]
     }
 } else {
     local proc When' {args} { uplevel [list When {*}$args] }
 }
-When' /someone/ wishes $::thisNode uses display /displayIdx/ {
+When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
+      the GPU image library is /gpuImageLib/ {
     if {$displayIdx eq "glfw"} { set displayIdx -1 }
 
     tracy setThreadName "gpu"
 
     $gpu init $displayIdx
-    # $gpu imageManagerInit
+    $gpuImageLib imageManagerInit
 
     Claim display $displayIdx has width [$gpu getWidth] height [$gpu getHeight]
 
@@ -1351,7 +1358,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ {
                     dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
                 }
             } on error e {
-                puts stderr [errorInfo $e]
+                puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
                 Assert! $this claims [dict get $match wisher] has error $e with info [errorInfo $e]
                 # TODO: does this ever get disposed?
             }

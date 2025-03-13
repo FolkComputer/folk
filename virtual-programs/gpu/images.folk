@@ -47,13 +47,14 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
 $gpuc code {
-    VkDescriptorSet imageDescriptorSet;
     VkDevice device;
 }
 $gpuc proc imageManagerInit {} void {
     $[vktry volkInitialize()]
+    volkLoadInstanceOnly(*instance_ptr());
 
-    device = getDevice();
+    device = *device_ptr();
+    volkLoadDevice(device);
 
     // Set up imageDescriptorSetLayout:
     {
@@ -78,7 +79,7 @@ $gpuc proc imageManagerInit {} void {
         createInfo.pBindings = bindings;
         /* createInfo.pNext = &bindingFlags; */
 
-        vkCreateDescriptorSetLayout(device, &createInfo, NULL, imageDescriptorSetLayout__ptr);
+        vkCreateDescriptorSetLayout(device, &createInfo, NULL, imageDescriptorSetLayout_ptr());
     }
 
     VkDescriptorPool descriptorPool; {
@@ -100,9 +101,9 @@ $gpuc proc imageManagerInit {} void {
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = descriptorPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = getImageDescriptorSetLayout();
+        allocInfo.pSetLayouts = imageDescriptorSetLayout_ptr();
 
-        $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &imageDescriptorSet)}]
+        $[vktry {vkAllocateDescriptorSets(device, &allocInfo, imageDescriptorSet_ptr())}]
     }
 }
 
@@ -110,7 +111,7 @@ $gpuc proc imageManagerInit {} void {
 $gpuc code [csubst {
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
-        vkGetPhysicalDeviceMemoryProperties(getPhysicalDevice(), &memProperties);
+        vkGetPhysicalDeviceMemoryProperties(*physicalDevice_ptr(), &memProperties);
 
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
             if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -183,7 +184,7 @@ $gpuc code [csubst {
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         tryInitCommandPool();
-        allocInfo.commandPool = getCommandPool();
+        allocInfo.commandPool = *commandPool_ptr();
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer commandBuffer;
@@ -205,12 +206,12 @@ $gpuc code [csubst {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
-        pthread_mutex_lock(graphicsQueueMutex__ptr);
-        vkQueueSubmit(getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(getGraphicsQueue());
-        pthread_mutex_unlock(graphicsQueueMutex__ptr);
+        pthread_mutex_lock(graphicsQueueMutex_ptr());
+        vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(*graphicsQueue_ptr());
+        pthread_mutex_unlock(graphicsQueueMutex_ptr());
 
-        vkFreeCommandBuffers(device, getCommandPool(), 1, &commandBuffer);
+        vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
     }
     void transitionImageLayout(VkImage image, VkFormat format,
                                VkImageLayout oldLayout, VkImageLayout newLayout) {
@@ -392,7 +393,7 @@ $gpuc proc createGpuImage {int width int height} gpu_image_handle_t {
             for (int i = 0; i < getMaxImages(); i++) {
                 memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
                 descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrites[i].dstSet = imageDescriptorSet;
+                descriptorWrites[i].dstSet = *imageDescriptorSet_ptr();
                 descriptorWrites[i].dstBinding = 0;
                 descriptorWrites[i].dstArrayElement = i;
                 descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -404,7 +405,7 @@ $gpuc proc createGpuImage {int width int height} gpu_image_handle_t {
         } else {
             VkWriteDescriptorSet descriptorWrite = {0};
             descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = imageDescriptorSet;
+            descriptorWrite.dstSet = *imageDescriptorSet_ptr();
             descriptorWrite.dstBinding = 0;
             descriptorWrite.dstArrayElement = imageId;
             descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -502,7 +503,7 @@ $gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
 
         VkWriteDescriptorSet descriptorWrite = {0};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = imageDescriptorSet;
+        descriptorWrite.dstSet = *imageDescriptorSet_ptr();
         descriptorWrite.dstBinding = 0;
         descriptorWrite.dstArrayElement = gim;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -516,18 +517,22 @@ $gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 }
-set gpu [$gpuc compile]
+set gpuImageLib [$gpuc compile]
+Claim the GPU image library is $gpuImageLib
 
-When /someone/ wishes the GPU loads image /im/ {
-    set gim [$gpu copyImageToGpu $im]
-    Claim the GPU has loaded image $im as $gim
-}
-# `id` is arbitrarily chosen by the caller:
-When /someone/ wishes the GPU creates image /id/ with /...options/ {
-    set width [dict get $options width]
-    set height [dict get $options height]
-    set gim [$gpu createGpuImage $width $height]
-    Claim the GPU has created image $id as $gim
+# Wait until the library has been initialized by gpu.folk.
+When display /any/ has width /any/ height /any/ {
+    When /someone/ wishes the GPU loads image /im/ {
+        set gim [$gpuImageLib copyImageToGpu $im]
+        Claim the GPU has loaded image $im as $gim
+    }
+    # `id` is arbitrarily chosen by the caller:
+    When /someone/ wishes the GPU creates image /id/ with /...options/ {
+        set width [dict get $options width]
+        set height [dict get $options height]
+        set gim [$gpuImageLib createGpuImage $width $height]
+        Claim the GPU has created image $id as $gim
+    }
 }
 
 }

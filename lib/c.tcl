@@ -303,6 +303,15 @@ C method define {newvars} {
             error "var already exists: $varname"
         }
         dict set vars $varname $vartype
+
+        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
+            set vartype [lindex $vartype 1]
+        }
+        lappend code [subst {
+            $vartype *${varname}_ptr() {
+                return &$varname;
+            }
+        }] :noextend
     }
 }
 
@@ -603,7 +612,7 @@ C method compile {{cid {}}} {
             [join [lmap varname [dict keys $vars] {
                 csubst {{
                     char script[1000];
-                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} $varname %p", &$varname);
+                    snprintf(script, 1000, "dict set {::<C:$cid> __addrs} ${varname}_ptr %p", &${varname}_ptr);
                     Jim_Eval(interp, script);
                 }}
             }] "\n"]
@@ -723,18 +732,11 @@ C method extend {srclib} {
     }
 
     dict for {varname vartype} [dict get $srcinfo vars] {
-        set addr [dict get $srcaddrs $varname]
+        set addr [dict get $srcaddrs ${varname}_ptr]
         if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
-            $self code "$vartype* ${varname}__ptr = ([lindex $vartype 1]*) $addr;"
             set vartype [lindex $vartype 1]
-        } else {
-            $self code "$vartype* ${varname}__ptr = ($vartype*) $addr;"
         }
-        $self code [subst {
-            $vartype get[$self string_toupper_first $varname]() {
-                return *(${varname}__ptr);
-            }
-        }]
+        $self code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
     }
 }
 
