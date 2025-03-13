@@ -3,38 +3,17 @@ When the GPU library is /gpuLib/ {
 puts "GPU: $gpuLib"
 
 set gpuc [C]
-$gpuc import $gpuLib getMaxImages
-    
 $gpuc cflags -I./vendor
 $gpuc include "volk/volk.h"
+$gpuc include <pthread.h>
+$gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
+$gpuc typedef {struct Pipeline} Pipeline
+
+$gpuc extend $gpuLib
+
 set GPU_MAX_IMAGES [$gpuLib getMaxImages]
 
 $gpuc include <pthread.h>
-
-$gpuc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
-
-$gpuc code {
-    extern VkPhysicalDevice physicalDevice;
-    extern VkDevice device;
-
-    extern pthread_mutex_t graphicsQueueMutex;
-    extern VkQueue graphicsQueue;
-
-    extern const char* VkResultToString(VkResult res);
-
-    extern __thread VkCommandPool commandPool;
-    extern void tryInitCommandPool();
-
-    extern VkDescriptorSetLayout imageDescriptorSetLayout;
-    extern VkDescriptorSet imageDescriptorSet;
-}
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -66,8 +45,11 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
 $gpuc code {
     VkDescriptorSet imageDescriptorSet;
+    VkDevice device;
 }
 $gpuc proc imageManagerInit {} void {
+    device = getDevice();
+
     // Set up imageDescriptorSetLayout:
     {
         /* VkDescriptorBindingFlags flags[1]; */
@@ -123,7 +105,7 @@ $gpuc proc imageManagerInit {} void {
 $gpuc code [csubst {
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
-        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+        vkGetPhysicalDeviceMemoryProperties(getPhysicalDevice(), &memProperties);
 
         for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
             if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -196,7 +178,7 @@ $gpuc code [csubst {
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         tryInitCommandPool();
-        allocInfo.commandPool = commandPool;
+        allocInfo.commandPool = getCommandPool();
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer commandBuffer;
@@ -218,12 +200,12 @@ $gpuc code [csubst {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
-        pthread_mutex_lock(&graphicsQueueMutex);
-        vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(graphicsQueue);
-        pthread_mutex_unlock(&graphicsQueueMutex);
+        pthread_mutex_lock(graphicsQueueMutex__ptr);
+        vkQueueSubmit(getGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(getGraphicsQueue());
+        pthread_mutex_unlock(graphicsQueueMutex__ptr);
 
-        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        vkFreeCommandBuffers(device, getCommandPool(), 1, &commandBuffer);
     }
     void transitionImageLayout(VkImage image, VkFormat format,
                                VkImageLayout oldLayout, VkImageLayout newLayout) {

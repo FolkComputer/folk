@@ -58,16 +58,19 @@ $gpuc proc getMaxImages {} int { return $GPU_MAX_IMAGES; }
 
 $gpuc include <stdlib.h>
 $gpuc include <pthread.h>
-$gpuc code [csubst {
+$gpuc code {
     #define VOLK_IMPLEMENTATION
     #include "volk/volk.h"
+}
+if {$isGlfw} {
+    $gpuc code {
+        // This must be included _after_ volk.h (Vulkan).
+        #include <GLFW/glfw3.h>
+    }
+}
 
-    $[if {$isGlfw} { subst {
-      // This must be included _after_ volk.h (Vulkan).
-      #include <GLFW/glfw3.h>
-    } }]
-
-    const char* VkResultToString(VkResult res) {
+$gpuc argtype VkResult { long $argname; __ENSURE_OK(Jim_GetLong(interp, $obj, &$argname)); }
+$gpuc proc VkResultToString {VkResult res} char* {
             switch (res) {
     #define CASE(x) case VK_##x: return #x;
             CASE(SUCCESS)                       CASE(NOT_READY)
@@ -102,8 +105,7 @@ $gpuc code [csubst {
             default: return "unknown";
             }
     #undef CASE
-    }
-}]
+}
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
@@ -113,7 +115,7 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-$gpuc code [csubst {
+$gpuc define {
     VkInstance instance;
     VkPhysicalDevice physicalDevice;
     VkPhysicalDeviceFeatures physicalDeviceFeatures;
@@ -135,16 +137,6 @@ $gpuc code [csubst {
     VkExtent2D swapchainExtent;
 
     __thread VkCommandPool commandPool = 0;
-    void tryInitCommandPool() {
-        if (commandPool != 0) { return; }
-
-        VkCommandPoolCreateInfo poolInfo = {0};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-
-        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
-    }
 
     VkCommandBuffer commandBuffer;
     uint32_t imageIndex;
@@ -152,7 +144,17 @@ $gpuc code [csubst {
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
-}]
+}
+$gpuc proc tryInitCommandPool {} void {
+    if (commandPool != 0) { return; }
+
+    VkCommandPoolCreateInfo poolInfo = {0};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+    $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
+}
 $gpuc proc init {int displayIdx} void {
     $[vktry volkInitialize()]
     $[if {$isGlfw} { expr {"glfwInit();"} }]
@@ -614,8 +616,6 @@ $gpuc struct Pipeline {
     VkPipelineLayout pipelineLayout;
 
     size_t pushConstantsSize;
-    // Returns a heap-allocated buffer that needs to be freed by the
-    // caller.
     PushConstantsEncoder* encodePushConstants;
 }
 $gpuc proc createPipeline {VkShaderModule vertShaderModule

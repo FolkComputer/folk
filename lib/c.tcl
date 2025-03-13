@@ -98,6 +98,7 @@ class C {
         }
     }
     code {}
+
     vars {}
     procs {}
 
@@ -247,34 +248,32 @@ class C {
 
 # Registers a new argtype.
 C method argtype {t h} {
-    set argtypes [linsert $argtypes 0 $t [csubst {expr {{$h}}}]]
+    dict set argtypes $t [csubst {expr {{$h}}}]
 }
 # Looks up the argtype and returns C code to convert it.
 C method arg {argtype argname obj} {
-    csubst [switch $argtype $argtypes]
+    csubst [eval [dict getdef $argtypes $argtype \
+                      [dict get $argtypes default]]]
 }
 
 # Registers a new rtype.
 C method rtype {t h} {
-    set rtypes [linsert $rtypes 0 $t [csubst {expr {{$h}}}]]
+    dict set rtypes $t [csubst {expr {{$h}}}]
 }
 C method ret {rtype robj rvalue} {
-    csubst [switch $rtype $rtypes]
-}
-
-C method typedef {t newt} {
-    $self code "typedef $t $newt;"
-    set argtype $t; set rtype $t
-
-    $self argtype $newt [switch $argtype $argtypes]
-    $self rtype $newt [switch $rtype $rtypes]
+    csubst [eval [dict getdef $rtypes $rtype \
+                      [dict get $rtypes default]]]
 }
 
 C method include {h} {
+    if {[llength $h] > 1} {
+        lappend code $h :extend
+        return
+    }
     if {[string index $h 0] eq "<"} {
-        lappend code "#include $h"
+        lappend code "#include $h" :extend
     } else {
-        lappend code "#include \"$h\""
+        lappend code "#include \"$h\"" :extend
     }
 }
 
@@ -286,12 +285,12 @@ C method code {newcode} {
             $newcode
         }]
     }
-    lappend code $newcode
+    lappend code $newcode :noextend
     list
 }
 
 C method define {newvars} {
-    lappend code $newvars
+    lappend code $newvars :extend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
@@ -311,18 +310,36 @@ C method enum {type values} {
     lappend code [subst {
         typedef enum $type $type;
         enum $type {$values};
-    }]
+    }] :extend
 
     regsub -all {,} $values "" values
-    argtype $type [switch int $argtypes]
-    rtype $type [switch int $rtypes]
+    argtype $type [dict get $argtypes int]
+    rtype $type [dict get $rtypes int]
+}
+
+C method typedef {t newt} {
+    lappend code "typedef $t $newt;" :extend
+    set argtype $t; set rtype $t
+
+    try {
+        $self argtype $newt [eval [dict getdef $argtypes $argtype \
+                                       [dict get $argtypes default]]]
+    } on error e {
+        puts stderr "C typedef: $e"
+    }
+    try {
+        $self rtype $newt [eval [dict getdef $rtypes $rtype \
+                                     [dict get $rtypes default]]]
+    } on error e {
+        puts stderr "C typedef: $e"
+    }
 }
 
 C method struct {type fields} {
     lappend code [subst {
         typedef struct $type $type;
         struct $type {$fields};
-    }]
+    }] :extend
 
     regsub -all -line {/\*.*?\*/} $fields "" fields
     regsub -all -line {//.*$} $fields "" fields
@@ -615,7 +632,7 @@ extern "C" \{
                               $prelude \
                               $unexternC \
                               \
-                              {*}$code \
+                              {*}[lmap {snippet extend} $code {set snippet}] \
                               \
                               $externC \
                               {*}[dict values $objtypes] \
@@ -672,9 +689,18 @@ C method import {srclib srcname {_as {}} {destname {}}} {
 C method string_toupper_first {s} {
     return [string toupper [string index $s 0]][string range $s 1 end]
 }
-
 C method extend {srclib} {
     set srcinfo [$srclib __getCInfo]
+
+    foreach {snippet extend} [dict get $srcinfo code] {
+        if {$extend eq ":extend"} {
+            lappend code $snippet :extend
+        }
+    }
+
+    set argtypes [dict merge [dict get $srcinfo argtypes] $argtypes]
+    set rtypes [dict merge [dict get $srcinfo rtypes] $rtypes]
+
     foreach procName [dict keys [dict get $srcinfo procs]] {
         $self import $srclib $procName
     }
