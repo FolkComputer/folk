@@ -4,7 +4,7 @@ When /someone/ wishes to draw a shape with /...options/ {
   set numPoints [dict get $options sides]
   set c [dict get $options center]
   set r [dict get $options radius]
-  set radians [dict_getdef $options radians 0]
+  set angle [dict_getdef $options angle 0]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set layer [dict_getdef $options layer 0]
@@ -23,7 +23,7 @@ When /someone/ wishes to draw a shape with /...options/ {
   }
 
   set points [lmap v $points {
-    vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $radians] $c
+    vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $angle] $c
     }]
 
     if {$filled} {
@@ -37,10 +37,10 @@ When /someone/ wishes to draw a rect with /...options/ {
   set c [dict get $options center]
   set w [dict_getdef $options width 100]
   set h [dict_getdef $options height 100]
-  set radians [dict_getdef $options radians 0]
+  set angle [dict_getdef $options angle 0]
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
-  set width [dict_getdef $options strokeWidth 1]
+  set width [dict_getdef $options thickness 1]
   set layer [dict_getdef $options layer 0]
 
   set hw [expr {$w / 2.0}]
@@ -53,7 +53,7 @@ When /someone/ wishes to draw a rect with /...options/ {
     [list [expr {-$hw}] [expr {$hh}]] \
     [list [expr {-$hw}] [expr {-$hh}]] \
     ] {
-      vec2 add [vec2 rotate $v $radians] $c
+      vec2 add [vec2 rotate $v $angle] $c
     }]
 
   if {$filled} {
@@ -90,14 +90,14 @@ When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/
   } elseif {$shape eq "rect"} {
     set w [dict_getdef $options width [region width $r]]
     set h [dict_getdef $options height [region height $r]]
-    Wish to draw a rect with center $center width $w height $h radians $angle \
+    Wish to draw a rect with center $center width $w height $h angle $angle \
       color $color filled $filled thickness $thickness layer $layer
   } elseif {[dict exists $shapes $shape]} {
     Wish to draw a shape with sides [dict get $shapes $shape] center $center radius $radius \
-      radians $angle color $color filled $filled width $thickness layer $layer
+      angle $angle color $color filled $filled width $thickness layer $layer
   } else {
     Wish to draw a shape with sides 2 center $center radius $radius \
-      radians $angle color $color filled $filled width $thickness layer $layer
+      angle $angle color $color filled $filled width $thickness layer $layer
   }
 }
 
@@ -123,7 +123,7 @@ When /someone/ wishes /p/ draws a rect with width /w/ height /h/ shift /directio
   When $p has region /r/ {
     set shifted [shift_region $r $direction $pct]
     lassign [region centroid $shifted] cx cy
-    Wish to draw a rect with center [list $cx $cy] width $w height $h radians [region angle $r] color white
+    Wish to draw a rect with center [list $cx $cy] width $w height $h angle [region angle $r] color white
   }
 }
 
@@ -141,7 +141,7 @@ When /someone/ wishes /p/ draws a /shape/ with radius /rad/ shift /direction/ /p
 }
 
 When /someone/ wishes /p/ draws a rect with width /w/ height /h/ {
-  Wish to draw a rect with center {0 0} width $w height $h radians 0 color white
+  Wish to draw a rect with center {0 0} width $w height $h angle 0 color white
 }
 
 When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
