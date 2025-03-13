@@ -607,7 +607,8 @@ $gpuc code {
     typedef struct PushConstantsEncoder {
         int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
     } PushConstantsEncoder;
-
+}
+$gpuc define {
     VkDescriptorSetLayout imageDescriptorSetLayout;
     VkDescriptorSet imageDescriptorSet;
 }

@@ -4,7 +4,10 @@ puts "GPU: $gpuLib"
 
 set gpuc [C]
 $gpuc cflags -I./vendor
-$gpuc include "volk/volk.h"
+$gpuc code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+}
 $gpuc include <pthread.h>
 $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
@@ -48,6 +51,8 @@ $gpuc code {
     VkDevice device;
 }
 $gpuc proc imageManagerInit {} void {
+    $[vktry volkInitialize()]
+
     device = getDevice();
 
     // Set up imageDescriptorSetLayout:
@@ -73,7 +78,7 @@ $gpuc proc imageManagerInit {} void {
         createInfo.pBindings = bindings;
         /* createInfo.pNext = &bindingFlags; */
 
-        vkCreateDescriptorSetLayout(device, &createInfo, NULL, &imageDescriptorSetLayout);
+        vkCreateDescriptorSetLayout(device, &createInfo, NULL, imageDescriptorSetLayout__ptr);
     }
 
     VkDescriptorPool descriptorPool; {
@@ -95,7 +100,7 @@ $gpuc proc imageManagerInit {} void {
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = descriptorPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &imageDescriptorSetLayout;
+        allocInfo.pSetLayouts = getImageDescriptorSetLayout();
 
         $[vktry {vkAllocateDescriptorSets(device, &allocInfo, &imageDescriptorSet)}]
     }

@@ -290,7 +290,7 @@ C method code {newcode} {
 }
 
 C method define {newvars} {
-    lappend code $newvars :extend
+    lappend code $newvars :noextend
 
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
@@ -364,14 +364,8 @@ C method struct {type fields} {
         $[join [lmap fieldname $fieldnames { subst {
             __thread Jim_Obj* k__${type}__${fieldname};
         } }] "\n"]
-        void $[set type]_init(Jim_Interp* interp) {
-            $[join [lmap fieldname $fieldnames { subst {
-                k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
-                Jim_IncrRefCount(k__${type}__${fieldname});
-            } }] "\n"]
-        }
+        Jim_ObjType* $[set type]_ObjType;
 
-        extern Jim_ObjType $[set type]_ObjType;
         void $[set type]_freeIntRepProc(Jim_Interp* interp, Jim_Obj *objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
                 free((char*)objPtr->internalRep.ptrIntValue.ptr);
@@ -404,7 +398,7 @@ C method struct {type fields} {
             }] "\n"]
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
-            if (objPtr->typePtr == &$[set type]_ObjType) { return JIM_OK; }
+            if (objPtr->typePtr == $[set type]_ObjType) { return JIM_OK; }
 
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
             $[join [lmap {fieldtype fieldname} $fields {
@@ -418,18 +412,35 @@ C method struct {type fields} {
             }] "\n"]
 
             Jim_FreeIntRep(interp, objPtr);
-            objPtr->typePtr = &$[set type]_ObjType;
+            objPtr->typePtr = $[set type]_ObjType;
             objPtr->internalRep.ptrIntValue.ptr = robj;
             objPtr->internalRep.ptrIntValue.int1 = 1;
             return JIM_OK;
         }
-        Jim_ObjType $[set type]_ObjType = (Jim_ObjType) {
-            .name = "$type",
-            .freeIntRepProc = $[set type]_freeIntRepProc,
-            .dupIntRepProc = $[set type]_dupIntRepProc,
-            .updateStringProc = $[set type]_updateStringProc
-            // .setFromAnyProc = $[set type]_setFromAnyProc
-        };
+
+        void $[set type]_init(Jim_Interp* interp, const char* cid) {
+            $[set type]_ObjType = malloc(sizeof(Jim_ObjType));
+            *$[set type]_ObjType = (Jim_ObjType) {
+                .name = "$type",
+                .freeIntRepProc = $[set type]_freeIntRepProc,
+                .dupIntRepProc = $[set type]_dupIntRepProc,
+                .updateStringProc = $[set type]_updateStringProc
+                // .setFromAnyProc = $[set type]_setFromAnyProc
+            };
+
+            char script[1000];
+            snprintf(script, 1000,
+                     "dict set {::<C:%s> __addrs} $[set type]_setFromAnyProc %p\n"
+                     "dict set {::<C:%s> __addrs} $[set type]_ObjType %p",
+                     cid, &$[set type]_setFromAnyProc,
+                     cid, $[set type]_ObjType);
+            Jim_Eval(interp, script);
+
+            $[join [lmap fieldname $fieldnames { subst {
+                k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
+                Jim_IncrRefCount(k__${type}__${fieldname});
+            } }] "\n"]
+        }
     }]
 
     $self argtype $type [csubst {
@@ -441,7 +452,7 @@ C method struct {type fields} {
     $self rtype $type {
         $robj = Jim_NewObj(interp);
         $robj->bytes = NULL;
-        $robj->typePtr = &$[set rtype]_ObjType;
+        $robj->typePtr = $[set rtype]_ObjType;
         $robj->internalRep.ptrIntValue.ptr = malloc(sizeof($[set rtype]));
         $robj->internalRep.ptrIntValue.int1 = 1;
         memcpy($robj->internalRep.ptrIntValue.ptr, &$rvalue, sizeof($[set rtype]));
@@ -612,7 +623,7 @@ C method compile {{cid {}}} {
             }] "\n"]
 
             [join [lmap type [dict keys $objtypes] { subst {
-                ${type}_init(interp);
+                ${type}_init(interp, "$cid");
             } }] "\n"]
             return JIM_OK;
         }
@@ -691,6 +702,7 @@ C method string_toupper_first {s} {
 }
 C method extend {srclib} {
     set srcinfo [$srclib __getCInfo]
+    set srcaddrs [set "::$srclib __addrs"]
 
     foreach {snippet extend} [dict get $srcinfo code] {
         if {$extend eq ":extend"} {
@@ -700,13 +712,19 @@ C method extend {srclib} {
 
     set argtypes [dict merge [dict get $srcinfo argtypes] $argtypes]
     set rtypes [dict merge [dict get $srcinfo rtypes] $rtypes]
+    dict for {objtype _} [dict get $srcinfo objtypes] {
+        $self code "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Jim_Obj *objPtr) = \
+(int (*)(Jim_Interp *interp, Jim_Obj *objPtr)) \
+[dict get $srcaddrs ${objtype}_setFromAnyProc];"
+       $self code "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
+    }
 
     foreach procName [dict keys [dict get $srcinfo procs]] {
         $self import $srclib $procName
     }
 
     dict for {varname vartype} [dict get $srcinfo vars] {
-        set addr [dict get [set "::$srclib __addrs"] $varname]
+        set addr [dict get $srcaddrs $varname]
         if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
             $self code "$vartype* ${varname}__ptr = ([lindex $vartype 1]*) $addr;"
             set vartype [lindex $vartype 1]
