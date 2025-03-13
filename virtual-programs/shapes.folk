@@ -131,33 +131,6 @@ When /someone/ wishes to draw a shape with /...options/ {
   }
 }
 
-When /someone/ wishes to draw a circle with /...options/ {
-  set center [dict_getdef $options center {0 0}]
-  set radius [dict_getdef $options radius 50]
-  set color [dict_getdef $options color white]
-  set thickness [dict_getdef $options thickness 2]
-  set filled [dict_getdef $options filled false]
-  set layer [dict_getdef $options layer 0]
-  
-  set numPoints 36
-  set points {}
-  
-  for {set i 0} {$i < $numPoints} {incr i} {
-    set angle [expr {2 * 3.14159 * $i / $numPoints}]
-    set x [expr {$radius * cos($angle)}]
-    set y [expr {$radius * sin($angle)}]
-    lappend points [vec2 add [list $x $y] $center]
-  }
-  
-  lappend points [lindex $points 0]
-  
-  if {$filled} {
-    Wish to draw a polygon with points $points color $color layer $layer
-  } else {
-    Wish to draw a stroke with points $points width $thickness color $color layer $layer
-  }
-}
-
 When /someone/ wishes /p/ draws a /shape/ {
   Wish $p draws a $shape with color white
 }
