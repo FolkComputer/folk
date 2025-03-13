@@ -362,7 +362,7 @@ C method struct {type fields} {
     # (by someone else like the statement store).
     dict set objtypes $type [csubst {
         $[join [lmap fieldname $fieldnames { subst {
-            __thread Jim_Obj* k__${type}__${fieldname};
+            __thread Jim_Obj* k__${type}__${fieldname} = NULL;
         } }] "\n"]
         Jim_ObjType* $[set type]_ObjType;
 
@@ -404,6 +404,10 @@ C method struct {type fields} {
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {
                     Jim_Obj* obj_$fieldname;
+                    if (k__$[set type]__$fieldname == NULL) {
+                        k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
+                        Jim_IncrRefCount(k__${type}__${fieldname});
+                    }
                     __ENSURE_OK(Jim_DictKey(interp, objPtr, k__$[set type]__$fieldname, &obj_$fieldname, JIM_ERRMSG));
 
                     $[$self arg $fieldtype robj_$fieldname obj_${fieldname}]
@@ -435,11 +439,6 @@ C method struct {type fields} {
                      cid, &$[set type]_setFromAnyProc,
                      cid, $[set type]_ObjType);
             Jim_Eval(interp, script);
-
-            $[join [lmap fieldname $fieldnames { subst {
-                k__${type}__${fieldname} = Jim_NewStringObj(interp, "$fieldname", -1);
-                Jim_IncrRefCount(k__${type}__${fieldname});
-            } }] "\n"]
         }
     }]
 
