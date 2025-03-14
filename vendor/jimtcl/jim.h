@@ -284,7 +284,7 @@ typedef struct Jim_HashTableIterator {
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
-    int refCount; /* reference count */
+    int refCount; /* reference count. INT_MAX = immortal. */
     int length; /* number of bytes in 'bytes', not including the null term. */
     /* Internal representation union */
     union {
@@ -392,7 +392,7 @@ typedef struct Jim_Obj {
     (o)->internalRep.ptr = (p)
 
 /* The object type structure.
- * There are three methods.
+ * There are four methods.
  *
  * - freeIntRepProc is used to free the internal representation of the object.
  *   Can be NULL if there is nothing to free.
@@ -404,6 +404,10 @@ typedef struct Jim_Obj {
  *   object before to call the Dup method.
  *
  * - updateStringProc is used to create the string from the internal repr.
+ *
+ * - immortalizeProc is used to flip the object into immortal
+ *   (immutable) state so it can be shared by multiple
+ *   threads/interpreters.
  */
 
 struct Jim_Interp;
@@ -413,12 +417,14 @@ typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
 typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 typedef void (Jim_UpdateStringProc)(struct Jim_Obj *objPtr);
+typedef void (Jim_ImmortalizeProc)(struct Jim_Obj *objPtr);
 
 typedef struct Jim_ObjType {
     const char *name; /* The name of the type. */
     Jim_FreeInternalRepProc *freeIntRepProc;
     Jim_DupInternalRepProc *dupIntRepProc;
     Jim_UpdateStringProc *updateStringProc;
+    Jim_ImmortalizeProc *immortalizeProc;
     int flags;
 } Jim_ObjType;
 
@@ -664,6 +670,8 @@ JIM_EXPORT void *(*Jim_Allocator)(void *ptr, size_t size);
 #define Jim_Alloc(S) Jim_Allocator(NULL, (S))
 JIM_EXPORT char * Jim_StrDup (const char *s);
 JIM_EXPORT char *Jim_StrDupLen(const char *s, int l);
+
+void Jim_Immortalize(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* environment */
 JIM_EXPORT char **Jim_GetEnviron(void);

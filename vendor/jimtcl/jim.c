@@ -2390,6 +2390,24 @@ static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_
     Jim_IncrRefCount(dupPtr->internalRep.dictSubstValue.indexObjPtr);
 }
 
+/* -----------------------------------------------------------------------------
+ * Immortal and transient objects
+ * ---------------------------------------------------------------------------*/
+
+void Jim_Immortalize(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    if (objPtr->refCount == INT_MAX) {
+        /* Object is already immortal */
+        return;
+    }
+    
+    if (objPtr->typePtr && objPtr->typePtr->immortalizeProc) {
+        objPtr->typePtr->immortalizeProc(objPtr);
+    } else {
+        objPtr->refCount = INT_MAX;
+    }
+}
+
 static __thread Jim_Obj *transient_objs[1024];
 static __thread int next_transient_obj_idx = 0;
 
@@ -2430,11 +2448,12 @@ static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *d
 #define SetStringFromAny(interp, objPtr) SetXFromAny(String, interp, objPtr)
 
 static const Jim_ObjType stringObjType = {
-    "string",
-    NULL,
-    DupStringInternalRep,
-    NULL,
-    JIM_TYPE_REFERENCES,
+    .name = "string",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = DupStringInternalRep,
+    .updateStringProc = NULL,
+    .immortalizeProc = NULL,
+    .flags = JIM_TYPE_REFERENCES,
 };
 
 static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
@@ -3129,6 +3148,7 @@ static const Jim_ObjType comparedStringObjType = {
     NULL,
     NULL,
     NULL,
+    NULL,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3188,10 +3208,11 @@ static void FreeSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 
 static const Jim_ObjType sourceObjType = {
-    "source",
-    FreeSourceInternalRep,
-    DupSourceInternalRep,
-    NULL,
+    .name = "source",
+    .freeIntRepProc = FreeSourceInternalRep,
+    .dupIntRepProc = DupSourceInternalRep,
+    .updateStringProc = NULL,
+    .immortalizeProc = ImmortalizeSourceInternalRep,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3204,6 +3225,11 @@ void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     dupPtr->internalRep.sourceValue = srcPtr->internalRep.sourceValue;
     Jim_IncrRefCount(dupPtr->internalRep.sourceValue.fileNameObj);
+}
+
+void ImmortalizeSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    Jim_Immortalize(interp, objPtr->internalRep.sourceValue.fileNameObj);
 }
 
 void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
@@ -3226,6 +3252,7 @@ void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
  */
 static const Jim_ObjType scriptLineObjType = {
     "scriptline",
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -3260,11 +3287,12 @@ static void FreeScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupScriptInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 
 static const Jim_ObjType scriptObjType = {
-    "script",
-    FreeScriptInternalRep,
-    DupScriptInternalRep,
-    NULL,
-    JIM_TYPE_NONE,
+    .name = "script",
+    .freeIntRepProc = FreeScriptInternalRep,
+    .dupIntRepProc = DupScriptInternalRep,
+    .updateStringProc = NULL,
+    .immortalizeProc = ImmortalizeScriptInternalRep,
+    .flags = JIM_TYPE_NONE,
 };
 
 /* Each token of a script is represented by a ScriptToken.
@@ -3382,6 +3410,17 @@ void FreeScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 }
 
 void DupScriptInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
+{
+    JIM_NOTUSED(interp);
+    JIM_NOTUSED(srcPtr);
+
+    /* Just return a simple string. We don't try to preserve the source info
+     * since in practice scripts are never duplicated
+     */
+    dupPtr->typePtr = NULL;
+}
+
+void ImmortalizeScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     JIM_NOTUSED(interp);
     JIM_NOTUSED(srcPtr);

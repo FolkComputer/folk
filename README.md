@@ -720,17 +720,31 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     refcount?
   - maintain a multithread refcount that gets used for immortal
     objects
+    - **OR just have them all be owned by the statement**
   - how do you even know something is a pointee of an immortal object?
     we don't have a generic graph walker. maybe look at lists and
     dicts?
     - **immortalize has to do a graph walk**
+    - **copy immortal objects if already immortal?**
+    - is the statement claim also borrowing of the immortal objects
+      inside it? otherwise what if the statement gets freed while
+      you're running?
   - make Query! take a borrow block where the results are valid
     - how to ensure that after the Query! completes, all used info is
       copied?
+      - track negative-space refcounts and make sure that it evens
+        out?
+  - how to FREE everything in the immortal subgraph when the statement
+    is freed? do we need ANOTHER walk?
+    - the outermost immortal object must own its entire subgraph -- if
+      it gets freed (explicitly, with something like Jim_FreeObj),
+      then it frees internal rep, which then de-immortalizes children...?
 - retain quad images, slightly larger than page size so we can draw on
   fringes?
   - update quad image every 16ms when the collected set of draw-onto
     for that quad image has changed at all?
+  - annoying: have to refactor pipelines ('shader programs'?) to make
+    a new pipeline for EACH quad image
 - ~~put terms into hashtable on transmit~~
 - implement collect in C
   - how to have hold-like behavior for collections? just keep a
