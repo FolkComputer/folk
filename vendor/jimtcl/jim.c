@@ -2357,29 +2357,38 @@ static void JimSetStringBytes(Jim_Obj *objPtr, const char *str)
 
 static void FreeDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 
 static const Jim_ObjType dictSubstObjType = {
-    "dict-substitution",
-    FreeDictSubstInternalRep,
-    DupDictSubstInternalRep,
-    NULL,
-    JIM_TYPE_NONE,
+    .name = "dict-substitution",
+    .freeIntRepProc = FreeDictSubstInternalRep,
+    .dupIntRepProc = DupDictSubstInternalRep,
+    .setImmIntRepProc = SetImmDictSubstInternalRep,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_NONE,
 };
 
 static void FreeInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 
 static const Jim_ObjType interpolatedObjType = {
-    "interpolated",
-    FreeInterpolatedInternalRep,
-    DupInterpolatedInternalRep,
-    NULL,
-    JIM_TYPE_NONE,
+    .name = "interpolated",
+    .freeIntRepProc = FreeInterpolatedInternalRep,
+    .dupIntRepProc = DupInterpolatedInternalRep,
+    .setImmIntRepProc = SetImmInterpolatedInternalRep,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_NONE,
 };
 
 static void FreeInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     Jim_DecrRefCount(interp, objPtr->internalRep.dictSubstValue.indexObjPtr);
+}
+
+static void SetImmInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    Jim_SetImmortal(interp, &objPtr->internalRep.dictSubstValue.indexObjPtr, imm);
 }
 
 static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
@@ -2394,18 +2403,33 @@ static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_
  * Immortal and transient objects
  * ---------------------------------------------------------------------------*/
 
-void Jim_Immortalize(Jim_Interp *interp, Jim_Obj *objPtr)
+void Jim_SetImmortal(Jim_Interp *interp, Jim_Obj **objPtrPtr, int immortal)
 {
-    if (objPtr->refCount == INT_MAX) {
-        /* Object is already immortal */
-        return;
-    }
-    
-    if (objPtr->typePtr && objPtr->typePtr->immortalizeProc) {
-        objPtr->typePtr->immortalizeProc(objPtr);
-    } else {
+    Jim_Obj *objPtr = *objPtrPtr;
+    if (immortal) {
+        if (Jim_IsImmortal(objPtr)) {
+            // We need the newly immortalized object to be owned by
+            // the caller, so if it's already immortal, it needs to be
+            // duplicated.
+            *objPtrPtr = Jim_DuplicateObj(interp, objPtr);
+            Jim_SetImmortal(interp, objPtrPtr, immortal);
+        }
+
         objPtr->refCount = INT_MAX;
+
+    } else {
+        assert(!Jim_IsImmortal(objPtr));
+        objPtr->refCount = 1;
     }
+
+    if (objPtr->typePtr && objPtr->typePtr->setImmIntRepProc) {
+        objPtr->typePtr->setImmIntRepProc(interp, objPtr, immortal);
+    }
+}
+
+void SetImmUnimplemented(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    JimPanic("SetImmUnimplemented");
 }
 
 static __thread Jim_Obj *transient_objs[1024];
@@ -2451,8 +2475,8 @@ static const Jim_ObjType stringObjType = {
     .name = "string",
     .freeIntRepProc = NULL,
     .dupIntRepProc = DupStringInternalRep,
+    .setImmIntRepProc = NULL,
     .updateStringProc = NULL,
-    .immortalizeProc = NULL,
     .flags = JIM_TYPE_REFERENCES,
 };
 
@@ -3144,12 +3168,12 @@ static int JimStringIs(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *strClass
  * inside the C code. */
 
 static const Jim_ObjType comparedStringObjType = {
-    "compared-string",
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    JIM_TYPE_REFERENCES,
+    .name = "compared-string",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_REFERENCES,
 };
 
 /* The only way this object is exposed to the API is via the following
@@ -3159,6 +3183,7 @@ static const Jim_ObjType comparedStringObjType = {
  * Note: this isn't binary safe, but it hardly needs to be.*/
 int Jim_CompareStringImmediate(Jim_Interp *interp, Jim_Obj *objPtr, const char *str)
 {
+    // FIXME: deal with immortality here
     if (objPtr->typePtr == &comparedStringObjType && objPtr->internalRep.ptr == str) {
         return 1;
     }
@@ -3206,13 +3231,14 @@ static int qsortCompareStringPointers(const void *a, const void *b)
 
 static void FreeSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 
 static const Jim_ObjType sourceObjType = {
     .name = "source",
     .freeIntRepProc = FreeSourceInternalRep,
     .dupIntRepProc = DupSourceInternalRep,
+    .setImmIntRepProc = SetImmSourceInternalRep,
     .updateStringProc = NULL,
-    .immortalizeProc = ImmortalizeSourceInternalRep,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3227,9 +3253,9 @@ void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
     Jim_IncrRefCount(dupPtr->internalRep.sourceValue.fileNameObj);
 }
 
-void ImmortalizeSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
+void SetImmSourceInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
 {
-    Jim_Immortalize(interp, objPtr->internalRep.sourceValue.fileNameObj);
+    Jim_SetImmortal(interp, &objPtr->internalRep.sourceValue.fileNameObj, imm);
 }
 
 void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
@@ -3285,13 +3311,14 @@ static Jim_Obj *JimNewScriptLineObj(Jim_Interp *interp, int argc, int line)
  */
 static void FreeScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupScriptInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 
 static const Jim_ObjType scriptObjType = {
     .name = "script",
     .freeIntRepProc = FreeScriptInternalRep,
     .dupIntRepProc = DupScriptInternalRep,
+    .setImmIntRepProc = SetImmScriptInternalRep,
     .updateStringProc = NULL,
-    .immortalizeProc = ImmortalizeScriptInternalRep,
     .flags = JIM_TYPE_NONE,
 };
 
@@ -3418,17 +3445,15 @@ void DupScriptInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
      * since in practice scripts are never duplicated
      */
     dupPtr->typePtr = NULL;
+    // TODO: Implement duplication
 }
 
-void ImmortalizeScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
+void SetImmScriptInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
 {
-    JIM_NOTUSED(interp);
-    JIM_NOTUSED(srcPtr);
-
-    /* Just return a simple string. We don't try to preserve the source info
-     * since in practice scripts are never duplicated
-     */
-    dupPtr->typePtr = NULL;
+    struct ScriptObj *script = (void *)objPtr->internalRep.ptr;
+    for (int i = 0; i < script->len; i++) {
+        Jim_SetImmortal(interp, &script->token[i].objPtr, imm);
+    }
 }
 
 /* A simple parse token.
@@ -4460,11 +4485,12 @@ static void DupCommandInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *
 }
 
 static const Jim_ObjType commandObjType = {
-    "command",
-    FreeCommandInternalRep,
-    DupCommandInternalRep,
-    NULL,
-    JIM_TYPE_REFERENCES,
+    .name = "command",
+    .freeIntRepProc = FreeCommandInternalRep,
+    .dupIntRepProc = DupCommandInternalRep,
+    .setImmIntRepProc = SetImmUnimplemented,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_REFERENCES,
 };
 
 /* This function returns the command structure for the command name
@@ -4543,11 +4569,12 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 #define SetVariableFromAny(interp, objPtr) SetXFromAny(Variable, interp, objPtr)
 
 static const Jim_ObjType variableObjType = {
-    "variable",
-    NULL,
-    NULL,
-    NULL,
-    JIM_TYPE_REFERENCES,
+    .name = "variable",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_REFERENCES,
 };
 
 /* This method should be called only by the variable API.
@@ -5121,6 +5148,12 @@ static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj
     Jim_IncrRefCount(dupPtr->internalRep.dictSubstValue.indexObjPtr);
 }
 
+void SetImmDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    Jim_SetImmortal(interp, &objPtr->internalRep.dictSubstValue.varNameObjPtr, imm);
+    Jim_SetImmortal(interp, &objPtr->internalRep.dictSubstValue.indexObjPtr, imm);
+}
+
 /* Note: The object *must* be in dict-sugar format */
 static void SetDictSubstFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
@@ -5413,11 +5446,12 @@ static int JimFormatReference(char *buf, Jim_Reference *refPtr, unsigned long id
 static void UpdateStringOfReference(struct Jim_Obj *objPtr);
 
 static const Jim_ObjType referenceObjType = {
-    "reference",
-    NULL,
-    NULL,
-    UpdateStringOfReference,
-    JIM_TYPE_REFERENCES,
+    .name = "reference",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = SetImmUnimplemented,
+    .updateStringProc = UpdateStringOfReference,
+    .flags = JIM_TYPE_REFERENCES,
 };
 
 static void UpdateStringOfReference(struct Jim_Obj *objPtr)
@@ -6148,11 +6182,12 @@ static void UpdateStringOfInt(struct Jim_Obj *objPtr);
     SetXFromAnyWithFlags(Int, interp, objPtr, flags)
 
 static const Jim_ObjType intObjType = {
-    "int",
-    NULL,
-    NULL,
-    UpdateStringOfInt,
-    JIM_TYPE_NONE,
+    .name = "int",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = UpdateStringOfInt,
+    .flags = JIM_TYPE_NONE,
 };
 
 /* A coerced double is closer to an int than a double.
@@ -6161,11 +6196,12 @@ static const Jim_ObjType intObjType = {
  * succeeds, but also Jim_GetDouble() returns the value directly.
  */
 static const Jim_ObjType coercedDoubleObjType = {
-    "coerced-double",
-    NULL,
-    NULL,
-    UpdateStringOfInt,
-    JIM_TYPE_NONE,
+    .name = "coerced-double",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = UpdateStringOfInt,
+    .flags = JIM_TYPE_NONE,
 };
 
 
@@ -6329,11 +6365,12 @@ static void UpdateStringOfDouble(struct Jim_Obj *objPtr);
 #define SetDoubleFromAny(interp, objPtr) SetXFromAny(Double, interp, objPtr)
 
 static const Jim_ObjType doubleObjType = {
-    "double",
-    NULL,
-    NULL,
-    UpdateStringOfDouble,
-    JIM_TYPE_NONE,
+    .name = "double",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = UpdateStringOfDouble,
+    .flags = JIM_TYPE_NONE,
 };
 
 #if !HAVE_DECL_ISNAN
@@ -6519,6 +6556,7 @@ static int SetBooleanFromAnyInPlace(Jim_Interp *interp, Jim_Obj *objPtr, int fla
 static void ListInsertElements(Jim_Obj *listPtr, int idx, int elemc, Jim_Obj *const *elemVec);
 static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr);
 static void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
+static void SetImmListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 static void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfList(struct Jim_Obj *objPtr);
 /* static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
@@ -6529,11 +6567,12 @@ static void UpdateStringOfList(struct Jim_Obj *objPtr);
  * list object string representation as a whole can't contain references
  * that are not presents in the single elements. */
 static const Jim_ObjType listObjType = {
-    "list",
-    FreeListInternalRep,
-    DupListInternalRep,
-    UpdateStringOfList,
-    JIM_TYPE_NONE,
+    .name = "list",
+    .freeIntRepProc = FreeListInternalRep,
+    .dupIntRepProc = DupListInternalRep,
+    .setImmIntRepProc = SetImmListInternalRep,
+    .updateStringProc = UpdateStringOfList,
+    .flags = JIM_TYPE_NONE,
 };
 
 void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
@@ -6562,6 +6601,14 @@ void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
         Jim_IncrRefCount(dupPtr->internalRep.listValue.ele[i]);
     }
     dupPtr->typePtr = &listObjType;
+}
+
+void SetImmListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    int i;
+    for (i = 0; i < objPtr->internalRep.listValue.len; i++) {
+        Jim_SetImmortal(interp, &objPtr->internalRep.listValue.ele[i], imm);
+    }
 }
 
 /* The following function checks if a given string can be encoded
@@ -7473,6 +7520,7 @@ Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstOb
  * ---------------------------------------------------------------------------*/
 static void FreeDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 static void UpdateStringOfDict(struct Jim_Obj *objPtr);
 /* static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
 #define SetDictFromAny(interp, objPtr) SetXFromAny(Dict, interp, objPtr)
@@ -7488,11 +7536,12 @@ static void UpdateStringOfDict(struct Jim_Obj *objPtr);
  * dict object string representation as a whole can't contain references
  * that are not presents in the single elements. */
 static const Jim_ObjType dictObjType = {
-    "dict",
-    FreeDictInternalRep,
-    DupDictInternalRep,
-    UpdateStringOfDict,
-    JIM_TYPE_NONE,
+    .name = "dict",
+    .freeIntRepProc = FreeDictInternalRep,
+    .dupIntRepProc = DupDictInternalRep,
+    .setImmIntRepProc = SetImmDictInternalRep,
+    .updateStringProc = UpdateStringOfDict,
+    .flags = JIM_TYPE_NONE,
 };
 
 /**
@@ -7715,6 +7764,17 @@ static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dup
 
     dupPtr->internalRep.dictValue = newDict;
     dupPtr->typePtr = &dictObjType;
+}
+
+
+static void SetImmDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    Jim_Dict *dict = objPtr->internalRep.dictValue;
+    int i;
+
+    for (i = 0; i < dict->len; i++) {
+        Jim_SetImmortal(interp, &dict->table[i], imm);
+    }
 }
 
 static void UpdateStringOfDict(struct Jim_Obj *objPtr)
@@ -8065,11 +8125,12 @@ static void UpdateStringOfIndex(struct Jim_Obj *objPtr);
 #define SetIndexFromAny(interp, objPtr) SetXFromAny(Index, interp, objPtr)
 
 static const Jim_ObjType indexObjType = {
-    "index",
-    NULL,
-    NULL,
-    UpdateStringOfIndex,
-    JIM_TYPE_NONE,
+    .name = "index",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = UpdateStringOfIndex,
+    .flags = JIM_TYPE_NONE,
 };
 
 static void UpdateStringOfIndex(struct Jim_Obj *objPtr)
@@ -8199,11 +8260,12 @@ static const char * const jimReturnCodes[] = {
 #define jimReturnCodesSize (sizeof(jimReturnCodes)/sizeof(*jimReturnCodes) - 1)
 
 static const Jim_ObjType returnCodeObjType = {
-    "return-code",
-    NULL,
-    NULL,
-    NULL,
-    JIM_TYPE_NONE,
+    .name = "return-code",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_NONE,
 };
 
 /* Converts a (standard) return code to a string. Returns "?" for
@@ -9352,15 +9414,17 @@ const char *jim_tt_name(int type)
  * ---------------------------------------------------------------------------*/
 static void FreeExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupExprInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void SetImmExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm);
 /* static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr); */
 #define SetExprFromAny(interp, objPtr) SetXFromAny(Expr, interp, objPtr)
 
 static const Jim_ObjType exprObjType = {
-    "expression",
-    FreeExprInternalRep,
-    DupExprInternalRep,
-    NULL,
-    JIM_TYPE_NONE,
+    .name = "expression",
+    .freeIntRepProc = FreeExprInternalRep,
+    .dupIntRepProc = DupExprInternalRep,
+    .setImmIntRepProc = SetImmExprInternalRep,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_NONE,
 };
 
 /* expr tree structure */
@@ -9409,6 +9473,17 @@ static void DupExprInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dup
 
     /* Just returns an simple string. */
     dupPtr->typePtr = NULL;
+}
+
+static void SetImmExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr, int imm)
+{
+    struct ExprTree *expr = (void *)objPtr->internalRep.ptr;
+    int i;
+    for (i = 0; i < expr->len; i++) {
+        if (expr->nodes[i].objPtr) {
+            Jim_SetImmortal(interp, &expr->nodes[i].objPtr, imm);
+        }
+    }    
 }
 
 struct ExprBuilder {
@@ -10150,11 +10225,12 @@ static void DupScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *
 static void UpdateStringOfScanFmt(Jim_Obj *objPtr);
 
 static const Jim_ObjType scanFmtStringObjType = {
-    "scanformatstring",
-    FreeScanFmtInternalRep,
-    DupScanFmtInternalRep,
-    UpdateStringOfScanFmt,
-    JIM_TYPE_NONE,
+    .name = "scanformatstring",
+    .freeIntRepProc = FreeScanFmtInternalRep,
+    .dupIntRepProc = DupScanFmtInternalRep,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = UpdateStringOfScanFmt,
+    .flags = JIM_TYPE_NONE,
 };
 
 void FreeScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
@@ -16643,11 +16719,12 @@ int Jim_CheckShowCommands(Jim_Interp *interp, Jim_Obj *objPtr, const char *const
  *  int2 = index
  */
 static const Jim_ObjType getEnumObjType = {
-    "get-enum",
-    NULL,
-    NULL,
-    NULL,
-    JIM_TYPE_REFERENCES
+    .name = "get-enum",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = SetImmUnimplemented,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_REFERENCES
 };
 
 int Jim_GetEnum(Jim_Interp *interp, Jim_Obj *objPtr,

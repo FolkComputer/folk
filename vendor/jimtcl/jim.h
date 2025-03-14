@@ -403,11 +403,12 @@ typedef struct Jim_Obj {
  *   Note that it's up to the caller to free the old internal repr of the
  *   object before to call the Dup method.
  *
- * - updateStringProc is used to create the string from the internal repr.
- *
- * - immortalizeProc is used to flip the object into immortal
- *   (immutable) state so it can be shared by multiple
+ * - setImmIntRepProc is used to flip pointees of the object in/out of
+ *   immortal (immutable) state so it can be shared by multiple
  *   threads/interpreters.
+ *
+ * - updateStringProc is used to create the string from the internal repr.
+
  */
 
 struct Jim_Interp;
@@ -416,15 +417,17 @@ typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
 typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+typedef void (Jim_SetImmIntRepProc)(struct Jim_Interp *interp,
+                                        struct Jim_Obj *objPtr,
+        int imm);
 typedef void (Jim_UpdateStringProc)(struct Jim_Obj *objPtr);
-typedef void (Jim_ImmortalizeProc)(struct Jim_Obj *objPtr);
 
 typedef struct Jim_ObjType {
     const char *name; /* The name of the type. */
     Jim_FreeInternalRepProc *freeIntRepProc;
     Jim_DupInternalRepProc *dupIntRepProc;
+    Jim_SetImmIntRepProc *setImmIntRepProc;
     Jim_UpdateStringProc *updateStringProc;
-    Jim_ImmortalizeProc *immortalizeProc;
     int flags;
 } Jim_ObjType;
 
@@ -671,7 +674,8 @@ JIM_EXPORT void *(*Jim_Allocator)(void *ptr, size_t size);
 JIM_EXPORT char * Jim_StrDup (const char *s);
 JIM_EXPORT char *Jim_StrDupLen(const char *s, int l);
 
-void Jim_Immortalize(Jim_Interp *interp, Jim_Obj *objPtr);
+void Jim_SetImmortal(Jim_Interp *interp, Jim_Obj **objPtrPtr,
+        int immortal);
 
 /* environment */
 JIM_EXPORT char **Jim_GetEnviron(void);

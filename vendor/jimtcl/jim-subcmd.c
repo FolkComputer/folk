@@ -94,11 +94,12 @@ static void set_wrong_args(Jim_Interp *interp, const jim_subcmd_type * command_t
  *  int1 = index
  */
 static const Jim_ObjType subcmdLookupObjType = {
-    "subcmd-lookup",
-    NULL,
-    NULL,
-    NULL,
-    JIM_TYPE_REFERENCES
+    .name = "subcmd-lookup",
+    .freeIntRepProc = NULL,
+    .dupIntRepProc = NULL,
+    .setImmIntRepProc = NULL,
+    .updateStringProc = NULL,
+    .flags = JIM_TYPE_REFERENCES
 };
 
 const jim_subcmd_type *Jim_ParseSubCmd(Jim_Interp *interp, const jim_subcmd_type * command_table,
