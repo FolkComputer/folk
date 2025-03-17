@@ -36,11 +36,8 @@ $camc struct Camera {
 
 $camc code {
     void quit(const char* msg) {
-        char s[500];
-        snprintf(s, sizeof(s),
-                 "camera-usb: Quitting: [%s] %d: %s\n",
-                 msg, errno, strerror(errno));
-        FOLK_ERROR(s);
+        FOLK_ERROR("camera-usb: Quitting: [%s] %d: %s\n",
+                   msg, errno, strerror(errno));
     }
 
     int xioctl(int fd, int request, void* arg) {

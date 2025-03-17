@@ -82,8 +82,8 @@ class C {
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
 
         #define FOLK_ERROR(...) do { \
-            char msg[1024]; snprintf(msg, 1024, ##__VA_ARGS__); \
-            Jim_SetResultString(interp, msg, -1); \
+            char __msg[1024]; snprintf(__msg, 1024, ##__VA_ARGS__); \
+            Jim_SetResultString(interp, __msg, -1); \
             longjmp(__onError, 0); \
           } while (0)
         #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
@@ -281,7 +281,7 @@ C method code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
-            #line $line "$filename"
+            // #line $line "$filename"
             $newcode
         }]
     }
@@ -551,7 +551,7 @@ C method proc {name arguments rtype body} {
     dict set procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
-                subst {#line $line "$filename"}
+                subst {// #line $line "$filename"}
             } else {list}]
             $body
         }
@@ -584,7 +584,16 @@ C method compile {{cid {}}} {
 
     set init [subst {
         #include <string.h>
+
+        #ifdef __cplusplus
+        \}
+        #include <atomic>
+        static std::atomic<const char*> __cInfo = NULL;
+        extern "C" \{
+        #else
         static const char* _Atomic __cInfo = NULL;
+        #endif
+
         static int __setCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
             if (__cInfo != NULL || objc != 2) { return JIM_ERR; }
             const char* cInfo = Jim_String(objv\[1\]);
