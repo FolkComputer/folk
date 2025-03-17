@@ -31,7 +31,6 @@ $cc code {
     int _Atomic version = 0;
 }
 $cc proc Recollect! {Jim_Obj* patternObj} void {
-    printf("patternObj (%s) -- length %d\n", Jim_String(patternObj), Jim_ListLength(interp, patternObj));
     Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
     Jim_Obj* matchesObj = QuerySimple(pattern);
 
