@@ -462,7 +462,7 @@ C method struct {type fields} {
 }
 
 C method proc {name arguments rtype body} {
-    set cname [string map {":" "_"} $name]
+    set cname [string map {":" "_" "!" "_"} $name]
     lassign [info source $body] filename line
     set body [uplevel 2 [list csubst $body]]
 
@@ -537,7 +537,7 @@ C method compile {{cid {}}} {
             interp = intp;
 
             [join [lmap name [dict keys $procs] {
-                set cname [string map {":" "_"} $name]
+                set cname [string map {":" "_" "!" "_"} $name]
                 set tclname $name
                 # puts "Creating C command: $tclname"
                 csubst {{

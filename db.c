@@ -457,7 +457,7 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
         } else {
             // The statement is in a 'deindexed, but not removed'
             // state at this point.
-            sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
+            sysmonScheduleRemoveAfter(statementRef(db, stmt), stmt->keepMs);
         }
     }
 }

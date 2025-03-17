@@ -3,6 +3,7 @@
 
 void sysmonInit();
 void *sysmonMain(void *ptr);
-void sysmonRemoveAfter(StatementRef stmtRef, int afterMs);
+
+void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs);
 
 #endif

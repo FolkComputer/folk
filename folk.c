@@ -99,7 +99,7 @@ static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
     }
     return jimObjsToClause(objc, objv);
 }
-static Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
+Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
@@ -337,17 +337,11 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(pattern);
-    TracyCMessageFmt("query: %.200s", s); free(s);
-#endif
-
+Jim_Obj* QuerySimple(Clause* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
     int nResults = (int) rs->nResults;
 
-    Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
@@ -370,10 +364,19 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         statementRelease(db, result);
     }
 
-    clauseFree(pattern);
     free(rs);
+    return ret;
+}
 
-    Jim_SetResult(interp, ret);
+static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+#ifdef TRACY_ENABLE
+    char *s = clauseToString(pattern);
+    TracyCMessageFmt("query: %.200s", s); free(s);
+#endif
+
+    Jim_SetResult(interp, QuerySimple(pattern));
+    clauseFree(pattern);
     return JIM_OK;
 }
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -662,7 +665,7 @@ static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRe
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
-static Clause* claimizeClause(Clause* clause) {
+Clause* claimizeClause(Clause* clause) {
     if (clause->nTerms >= 2 &&
         (strcmp(clause->terms[1], "claims") == 0 ||
          strcmp(clause->terms[1], "wishes") == 0)) {

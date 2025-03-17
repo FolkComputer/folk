@@ -182,7 +182,7 @@ void *sysmonMain(void *ptr) {
     return NULL;
 }
 // This gets called from other threads.
-void sysmonRemoveAfter(StatementRef stmtRef, int afterMs) {
+void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
     int afterTicks = afterMs / SYSMON_TICK_MS;
 
     int i;
