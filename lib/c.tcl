@@ -352,6 +352,9 @@ C method struct {type fields} {
 
     regsub -all -line {/\*.*?\*/} $fields "" fields
     regsub -all -line {//.*$} $fields "" fields
+    if {[regsub -all {\s_Atomic\s} $fields " " fields] > 0} {
+        puts stderr "C struct $type: Warning: Will ignore _Atomic for getters and setters"
+    }
     set fields [string map {";" ""} $fields]
 
     set fieldnames [list]

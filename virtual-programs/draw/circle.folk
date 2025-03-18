@@ -30,7 +30,7 @@ When the color map is /colorMap/ &\
 
     if {[dict exists $options target]} {
         set target [dict get $options target]
-        Wish the GPU draws pipeline "circle" onto $target with arguments \
+        Wish the GPU draws pipeline "circle" onto surface $target with arguments \
             [list $center $radius $thickness $color [expr {$filled eq false ? 0 : 1}]]        
         return
     }

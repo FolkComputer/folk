@@ -27,6 +27,7 @@ set macos [expr {$::tcl_platform(os) eq "darwin"}]
 if {$macos} {
     $gpuc cflags -I/opt/homebrew/include -L/opt/homebrew/lib
     set isGlfw true
+    set __envStack [list]
 }
 
 if {$isGlfw} {
@@ -551,7 +552,7 @@ $gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
     return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
 }
 
-proc defineVulkanHandleType {cc type} {
+fn defineVulkanHandleType {cc type} {
     $cc argtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
         %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
@@ -572,6 +573,7 @@ proc defineVulkanHandleType {cc type} {
 #endif
     } $type $type]
 }
+Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
 
 # Shader compilation:
 defineVulkanHandleType $gpuc VkShaderModule
@@ -899,10 +901,6 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
     proc draw {pipeline args} {
         set args [linsert $args 0 [list [getWidth] [getHeight]]]
         drawImpl $pipeline $args
-    }
-    proc drawOnto {gim pipeline args} {
-        set args [linsert $args 0 [list [getWidth] [getHeight]]]
-        drawOntoImpl $gim $pipeline $args
     }
 
     # Construct a reusable GLSL function that can be linked into and
@@ -1233,6 +1231,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
 
 set gpuLib [$gpuc compile]
 Claim the GPU library is $gpuLib
+
 set gpu [makeGpu $gpuLib]
 
 # if {!$macos} {

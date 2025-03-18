@@ -1,4 +1,9 @@
-When the GPU library is /gpuLib/ {
+When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU library is /gpuLib/ {
+
+local proc defineVulkanHandleType {args} {defineVulkanHandleType} {
+    tailcall {*}$defineVulkanHandleType {*}$args
+}
 
 puts "GPU: $gpuLib"
 
@@ -304,38 +309,48 @@ $gpuc proc copyImageToRgba {Image im} Image {
 }
 
 $gpuc typedef int GpuImageHandle
+defineVulkanHandleType $gpuc VkImage
+defineVulkanHandleType $gpuc VkDeviceMemory
+defineVulkanHandleType $gpuc VkImageView
+defineVulkanHandleType $gpuc VkSampler
+$gpuc struct GpuImageBlock {
+    bool _Atomic alive;
+
+    GpuImageHandle handle;
+
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+    VkSampler textureSampler; 
+}
 $gpuc code [csubst {
     // FIXME: THIS IS NOT THREAD-SAFE
 
     // Points to all GPU-side data structures associated with
     // an image (that we will destroy when we evict that
     // image).
-    typedef struct GpuImageBlock {
-        bool _Atomic alive;
-
-        VkImage textureImage;
-        VkDeviceMemory textureImageMemory;
-        VkImageView textureImageView;
-        VkSampler textureSampler; 
-    } GpuImageBlock;
     GpuImageBlock gpuImages[$GPU_MAX_IMAGES];
 
     GpuImageHandle allocateGpuImageHandle() {
         for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
-            if (!gpuImages[i].alive) { return i; }
+            if (!gpuImages[i].alive) {
+                gpuImages[i].handle = i;
+                return i;
+            }
         }
         fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
     }
 }]
 
-$gpuc proc createGpuImage {int width int height} GpuImageHandle {
+$gpuc proc createGpuImage {int width int height} GpuImageBlock* {
     GpuImageHandle imageId = allocateGpuImageHandle();
     GpuImageBlock* block = &gpuImages[imageId];
     block->alive = true;
 
     createImage(width, height,
                 VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 &block->textureImage, &block->textureImageMemory);
 
     // Set up block->textureImageView:
@@ -415,7 +430,7 @@ $gpuc proc createGpuImage {int width int height} GpuImageHandle {
         }
     }
 
-    return imageId;
+    return block;
 }
 
 $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
@@ -444,8 +459,7 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     }
 
     // Allocate an image and image block:
-    GpuImageHandle gid = createGpuImage(im.width, im.height);
-    GpuImageBlock* block = &gpuImages[gid];
+    GpuImageBlock* block = createGpuImage(im.width, im.height);
 
     // Copy stagingBuffer to block->textureImage:
     {
@@ -485,7 +499,7 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     vkFreeMemory(device, stagingBufferMemory, NULL);
 
     if (im0.components != 4) { free(im.data); }
-    return gid;
+    return block->handle;
 }
 $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     GpuImageBlock* block = &gpuImages[gim];

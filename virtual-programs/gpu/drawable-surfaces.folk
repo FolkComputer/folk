@@ -13,6 +13,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
     $gpuc extend -noprocs $gpuLib
     $gpuc import $gpuLib VkResultToString
+    $gpuc import $gpuLib tryInitCommandPool
 
     $gpuc extend $gpuImageLib
 
@@ -26,20 +27,17 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
     $gpuc code {
         VkDevice device;
-        VkCommandBuffer commandBuffer;
+        __thread VkCommandBuffer commandBuffer;
 
         // This render pass is used to draw on each drawable image.
         VkRenderPass renderPass;
     }
-
     $gpuc proc init {} void {
         $[vktry volkInitialize()]
         volkLoadInstanceOnly(*instance_ptr());
 
         device = *device_ptr();
         volkLoadDevice(device);
-
-        commandBuffer = *commandBuffer_ptr();
 
         // Set up VkRenderPass renderPass:
         {
@@ -83,6 +81,18 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
     }
+    $gpuc proc tryInitCommandBuffer {} void {
+        if (commandBuffer != 0) { return; }
+
+        VkCommandBufferAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        tryInitCommandPool();
+        allocInfo.commandPool = *commandPool_ptr();
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
+    }
 
     $gpuc code {
         typedef struct DrawableSurface {
@@ -98,8 +108,24 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     $gpuc proc create {int width int height} DrawableSurface* {
         DrawableSurface* surf = malloc(sizeof(DrawableSurface));
         surf->extent.width = width; surf->extent.height = height;
-        surf->gpuImages[0] = createGpuImage(width, height);
-        surf->gpuImages[1] = createGpuImage(width, height);
+
+        for (int i = 0; i < 2; i++) {
+            GpuImageBlock* block = createGpuImage(width, height);
+            surf->gpuImages[i] = block->handle;
+
+            VkImageView attachments[] = { block->textureImageView };
+
+            VkFramebufferCreateInfo framebufferInfo = {0};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = width;
+            framebufferInfo.height = height;
+            framebufferInfo.layers = 1;
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &surf->framebuffers[i])}]
+        }
+
         surf->imageIndex = 0;
         {
             VkFenceCreateInfo fenceInfo = {0};
@@ -121,6 +147,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         vkWaitForFences(device, 1, &surf->inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &surf->inFlightFence);
 
+        tryInitCommandBuffer();
         vkResetCommandBuffer(commandBuffer, 0);
 
         VkCommandBufferBeginInfo beginInfo = {0};
@@ -200,7 +227,6 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     set gpuDrawableLib [$gpuc compile]
 
     When display /any/ has width /any/ height /any/ {
-        # do surface management in Tcl?
         $gpuDrawableLib init
 
         # `id` is arbitrarily chosen by the caller:
@@ -208,13 +234,62 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             set width [dict get $options width]
             set height [dict get $options height]
             set surf [$gpuDrawableLib create $width $height]
-            puts $surf
+            Claim the GPU creates drawable surface $id as $surf
         }
 
-        When /id/ is a drawable surface {
-            # TODO: Infinite loop that sleeps and then draws on images?????
-            # Query or collect for all draw actions on id
-            # Construct a new frame
+        local proc draw {pipeline args} {gpuLib gpuDrawableLib} {
+            set args [linsert $args 0 [list [$gpuLib getWidth] [$gpuLib getHeight]]]
+            $gpuDrawableLib drawImpl $pipeline $args
+        }
+
+        while true {
+            set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+            set pipelines [dict create]
+            foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
+
+            set matches [Query! /someone/ claims the GPU creates drawable surface /id/ as /surf/]
+            set surfs [dict create]
+            foreach match $matches { dict with match { dict set surfs $id $surf } }
+
+            set displayListsBySurface [dict create]
+            foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto surface /surfname/ with /...options/] {
+                try {
+                    set name [dict get $match name]
+                    set pipeline [dict get $pipelines [dict get $match name]]
+                    set surf [dict get $surfs [dict get $match surfname]]
+
+                    set options [dict get $match options]
+                    set layer [dict getdef $options layer 0]
+                    if {[dict exists $options instances]} {
+                        set instances [dict get $options instances]
+                    } else {
+                        set instances [list [dict get $options arguments]]
+                    }
+                    foreach instance $instances {
+                        dict lappend displayListsBySurface($surf) $layer \
+                            [list draw $pipeline {*}$instance]
+                    }
+                } on error e {
+                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                    Assert! $this claims [dict get $match wisher] has error $e with info [errorInfo $e]
+                    # TODO: does this ever get disposed?
+                }
+            }
+
+            puts "disp ($displayListsBySurface)"
+            dict for {surf displayList} $displayListsBySurface {
+                $gpuDrawableLib drawStart $surf
+
+                foreach layer [lsort -real [dict keys $displayList]] {
+                    set layerDisplayList [dict get $displayList $layer]
+                    foreach displayCommand $layerDisplayList {
+                        try { {*}$displayCommand } \
+                            on error e { puts stderr [errorInfo $e] }
+                    }
+                }
+
+                $gpuDrawableLib drawEnd
+            }
         }
     }
 }
