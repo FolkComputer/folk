@@ -32,7 +32,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         VkRenderPass renderPass;
     }
 
-    $gpuc proc drawableSurfacesInit {} void {
+    $gpuc proc init {} void {
         $[vktry volkInitialize()]
         volkLoadInstanceOnly(*instance_ptr());
 
@@ -95,7 +95,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkFence inFlightFence;
         } DrawableSurface;
     }
-    $gpuc proc drawableSurfaceCreate {int width int height} DrawableSurface* {
+    $gpuc proc create {int width int height} DrawableSurface* {
         DrawableSurface* surf = malloc(sizeof(DrawableSurface));
         surf->extent.width = width; surf->extent.height = height;
         surf->gpuImages[0] = createGpuImage(width, height);
@@ -114,7 +114,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         VkPipeline boundPipeline;
         VkDescriptorSet boundDescriptorSet;
     }
-    $gpuc proc drawableSurfaceDrawStart {DrawableSurface* surf} void {
+    $gpuc proc drawStart {DrawableSurface* surf} void {
         FOLK_ENSURE(boundSurface == NULL);
         boundSurface = surf;
 
@@ -148,7 +148,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
-    $gpuc proc drawableSurfaceDrawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
+    $gpuc proc drawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
             boundPipeline = pipeline.pipeline;
@@ -175,7 +175,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         // 1 quad -> 2 triangles -> 6 vertices
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
-    $gpuc proc drawableSurfaceDrawEnd {} void {
+    $gpuc proc drawEnd {} void {
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
@@ -201,15 +201,14 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
     When display /any/ has width /any/ height /any/ {
         # do surface management in Tcl?
+        $gpuDrawableLib init
 
         # `id` is arbitrarily chosen by the caller:
         When /someone/ wishes the GPU creates drawable surface /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
-            set gim [$gpuImageLib createGpuImage $width $height]
-            Claim the GPU has created image $id as $gim
-
-            $gpuDrawableLib createFramebuffer
+            set surf [$gpuDrawableLib create $width $height]
+            puts $surf
         }
 
         When /id/ is a drawable surface {

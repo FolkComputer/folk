@@ -951,7 +951,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
                 if {![dict exists $fnDict $argname]} {
-                    retrun -code 99 $argname
+                    return -code 99 $argname
                 }
                 set fn [dict get $fnDict $argname]
                 set vertFnDict [dict merge $vertFnDict [lindex $fn 1]]
