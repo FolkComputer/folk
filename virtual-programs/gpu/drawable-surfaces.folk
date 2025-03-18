@@ -42,7 +42,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         // Set up VkRenderPass renderPass:
         {
             VkAttachmentDescription colorAttachment = {0};
-            colorAttachment.format = VK_FORMAT_R8G8B8A8_SRGB;
+            colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
             colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -110,7 +110,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         surf->extent.width = width; surf->extent.height = height;
 
         for (int i = 0; i < 2; i++) {
-            GpuImageBlock* block = createGpuImage(width, height);
+            GpuImageBlock* block = createGpuImage(width, height, VK_FORMAT_B8G8R8A8_SRGB);
             surf->gpuImages[i] = block->handle;
 
             VkImageView attachments[] = { block->textureImageView };
@@ -160,7 +160,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = surf->framebuffers[surf->imageIndex++];
+            renderPassInfo.framebuffer = surf->framebuffers[surf->imageIndex++ % 2];
             renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
             renderPassInfo.renderArea.extent = surf->extent;
 
@@ -290,6 +290,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
                 $gpuDrawableLib drawEnd
             }
+
+            sleep 0.5
         }
     }
 }
