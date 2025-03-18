@@ -105,6 +105,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkFence inFlightFence;
         } DrawableSurface;
     }
+    $gpuc proc gpuImage {DrawableSurface* surf} GpuImageHandle {
+        return surf->gpuImages[surf->imageIndex];
+    }
     $gpuc proc create {int width int height} DrawableSurface* {
         DrawableSurface* surf = malloc(sizeof(DrawableSurface));
         surf->extent.width = width; surf->extent.height = height;
@@ -225,6 +228,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     }
 
     set gpuDrawableLib [$gpuc compile]
+    Claim the GPU drawable surface library is $gpuDrawableLib
 
     When display /any/ has width /any/ height /any/ {
         $gpuDrawableLib init
