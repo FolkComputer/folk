@@ -281,7 +281,7 @@ C method code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
-            // #line $line "$filename"
+            #line $line "$filename"
             $newcode
         }]
     }
@@ -551,7 +551,7 @@ C method proc {name arguments rtype body} {
     dict set procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
-                subst {// #line $line "$filename"}
+                subst {#line $line "$filename"}
             } else {list}]
             $body
         }
@@ -723,7 +723,7 @@ C method extend {srclib} {
 
     foreach {snippet extend} [dict get $srcinfo code] {
         if {$extend eq ":extend"} {
-            lappend code $snippet :extend
+            lappend code $snippet :noextend
         }
     }
 
@@ -733,7 +733,7 @@ C method extend {srclib} {
         $self code "int (*${objtype}_setFromAnyProc)(Jim_Interp *interp, Jim_Obj *objPtr) = \
 (int (*)(Jim_Interp *interp, Jim_Obj *objPtr)) \
 [dict get $srcaddrs ${objtype}_setFromAnyProc];"
-       $self code "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
+        $self code "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
     }
 
     foreach procName [dict keys [dict get $srcinfo procs]] {
