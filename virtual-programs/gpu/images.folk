@@ -303,24 +303,24 @@ $gpuc proc copyImageToRgba {Image im} Image {
     return ret;
 }
 
-$gpuc typedef int gpu_image_handle_t
+$gpuc typedef int GpuImageHandle
 $gpuc code [csubst {
     // FIXME: THIS IS NOT THREAD-SAFE
 
     // Points to all GPU-side data structures associated with
     // an image (that we will destroy when we evict that
     // image).
-    typedef struct gpu_image_block {
+    typedef struct GpuImageBlock {
         bool _Atomic alive;
 
         VkImage textureImage;
         VkDeviceMemory textureImageMemory;
         VkImageView textureImageView;
         VkSampler textureSampler; 
-    } gpu_image_block;
-    gpu_image_block gpuImages[$GPU_MAX_IMAGES];
+    } GpuImageBlock;
+    GpuImageBlock gpuImages[$GPU_MAX_IMAGES];
 
-    gpu_image_handle_t allocateGpuImageHandle() {
+    GpuImageHandle allocateGpuImageHandle() {
         for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
             if (!gpuImages[i].alive) { return i; }
         }
@@ -328,9 +328,9 @@ $gpuc code [csubst {
     }
 }]
 
-$gpuc proc createGpuImage {int width int height} gpu_image_handle_t {
-    gpu_image_handle_t imageId = allocateGpuImageHandle();
-    gpu_image_block* block = &gpuImages[imageId];
+$gpuc proc createGpuImage {int width int height} GpuImageHandle {
+    GpuImageHandle imageId = allocateGpuImageHandle();
+    GpuImageBlock* block = &gpuImages[imageId];
     block->alive = true;
 
     createImage(width, height,
@@ -418,7 +418,7 @@ $gpuc proc createGpuImage {int width int height} gpu_image_handle_t {
     return imageId;
 }
 
-$gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
+$gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     // Image must be RGBA.
     Image im;
     if (im0.components != 4) { im = copyImageToRgba(im0); }
@@ -444,8 +444,8 @@ $gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
     }
 
     // Allocate an image and image block:
-    gpu_image_handle_t gid = createGpuImage(im.width, im.height);
-    gpu_image_block* block = &gpuImages[gid];
+    GpuImageHandle gid = createGpuImage(im.width, im.height);
+    GpuImageBlock* block = &gpuImages[gid];
 
     // Copy stagingBuffer to block->textureImage:
     {
@@ -487,8 +487,8 @@ $gpuc proc copyImageToGpu {Image im0} gpu_image_handle_t {
     if (im0.components != 4) { free(im.data); }
     return gid;
 }
-$gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
-    gpu_image_block* block = &gpuImages[gim];
+$gpuc proc freeGpuImage {GpuImageHandle gim} void {
+    GpuImageBlock* block = &gpuImages[gim];
     block->alive = false;
 
     vkDeviceWaitIdle(device); // TODO: this is probably slow
@@ -517,6 +517,7 @@ $gpuc proc freeGpuImage {gpu_image_handle_t gim} void {
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 }
+
 set gpuImageLib [$gpuc compile]
 Claim the GPU image library is $gpuImageLib
 
@@ -525,13 +526,6 @@ When display /any/ has width /any/ height /any/ {
     When /someone/ wishes the GPU loads image /im/ {
         set gim [$gpuImageLib copyImageToGpu $im]
         Claim the GPU has loaded image $im as $gim
-    }
-    # `id` is arbitrarily chosen by the caller:
-    When /someone/ wishes the GPU creates image /id/ with /...options/ {
-        set width [dict get $options width]
-        set height [dict get $options height]
-        set gim [$gpuImageLib createGpuImage $width $height]
-        Claim the GPU has created image $id as $gim
     }
 }
 
