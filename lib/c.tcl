@@ -717,7 +717,15 @@ C method import {srclib srcname {_as {}} {destname {}}} {
 C method string_toupper_first {s} {
     return [string toupper [string index $s 0]][string range $s 1 end]
 }
-C method extend {srclib} {
+C method extend {args} {
+    set noprocs false
+    foreach arg $args {
+        if {$arg eq "-noprocs"} {
+            set noprocs true
+        } else {
+            set srclib $arg
+        }
+    }
     set srcinfo [$srclib __getCInfo]
     set srcaddrs [set "::$srclib __addrs"]
 
@@ -736,8 +744,10 @@ C method extend {srclib} {
         $self code "Jim_ObjType* ${objtype}_ObjType = (Jim_ObjType*) [dict get $srcaddrs ${objtype}_ObjType];"
     }
 
-    foreach procName [dict keys [dict get $srcinfo procs]] {
-        $self import $srclib $procName
+    if {!$noprocs} {
+        foreach procName [dict keys [dict get $srcinfo procs]] {
+            $self import $srclib $procName
+        }
     }
 
     dict for {varname vartype} [dict get $srcinfo vars] {

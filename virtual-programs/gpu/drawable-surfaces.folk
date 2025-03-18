@@ -1,0 +1,221 @@
+When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
+    set gpuc [C]
+    $gpuc cflags -I./vendor
+    $gpuc code {
+        #define VOLK_IMPLEMENTATION
+        #include "volk/volk.h"
+
+        typedef struct PushConstantsEncoder {
+            int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+        } PushConstantsEncoder;
+    }
+    $gpuc typedef {struct Pipeline} Pipeline
+
+    $gpuc extend -noprocs $gpuLib
+    $gpuc import $gpuLib VkResultToString
+
+    $gpuc extend $gpuImageLib
+
+    local proc vktry {call} { string map {\n " "} [csubst {{
+        VkResult res = $call;
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "Failed $call: %s (%d)\n",
+                    VkResultToString(res), res); exit(1);
+        }
+    }}] }
+
+    $gpuc code {
+        VkDevice device;
+        VkCommandBuffer commandBuffer;
+
+        // This render pass is used to draw on each drawable image.
+        VkRenderPass renderPass;
+    }
+
+    $gpuc proc drawableSurfacesInit {} void {
+        $[vktry volkInitialize()]
+        volkLoadInstanceOnly(*instance_ptr());
+
+        device = *device_ptr();
+        volkLoadDevice(device);
+
+        commandBuffer = *commandBuffer_ptr();
+
+        // Set up VkRenderPass renderPass:
+        {
+            VkAttachmentDescription colorAttachment = {0};
+            colorAttachment.format = VK_FORMAT_R8G8B8A8_SRGB;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkAttachmentReference colorAttachmentRef = {0};
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkSubpassDescription subpass = {0};
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &colorAttachmentRef;
+
+            VkRenderPassCreateInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = &colorAttachment;
+            renderPassInfo.subpassCount = 1;
+            renderPassInfo.pSubpasses = &subpass;
+
+            VkSubpassDependency dependency = {0};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+
+            $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
+        }
+    }
+
+    $gpuc code {
+        typedef struct DrawableSurface {
+            VkExtent2D extent;
+
+            GpuImageHandle gpuImages[2];
+            VkFramebuffer framebuffers[2];
+            int imageIndex;
+
+            VkFence inFlightFence;
+        } DrawableSurface;
+    }
+    $gpuc proc drawableSurfaceCreate {int width int height} DrawableSurface* {
+        DrawableSurface* surf = malloc(sizeof(DrawableSurface));
+        surf->extent.width = width; surf->extent.height = height;
+        surf->gpuImages[0] = createGpuImage(width, height);
+        surf->gpuImages[1] = createGpuImage(width, height);
+        surf->imageIndex = 0;
+        {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &surf->inFlightFence)}]
+        }
+        return surf;
+    }
+    $gpuc code {
+        DrawableSurface* boundSurface;
+        VkPipeline boundPipeline;
+        VkDescriptorSet boundDescriptorSet;
+    }
+    $gpuc proc drawableSurfaceDrawStart {DrawableSurface* surf} void {
+        FOLK_ENSURE(boundSurface == NULL);
+        boundSurface = surf;
+
+        vkWaitForFences(device, 1, &surf->inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &surf->inFlightFence);
+
+        vkResetCommandBuffer(commandBuffer, 0);
+
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        beginInfo.pInheritanceInfo = NULL;
+        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+
+        {
+            VkRenderPassBeginInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = surf->framebuffers[surf->imageIndex++];
+            renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+            renderPassInfo.renderArea.extent = surf->extent;
+
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        }
+
+        boundSurface = surf;
+        boundPipeline = VK_NULL_HANDLE;
+        boundDescriptorSet = VK_NULL_HANDLE;
+    }
+    $gpuc proc drawableSurfaceDrawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
+        if (boundPipeline != pipeline.pipeline) {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+            boundPipeline = pipeline.pipeline;
+        }
+
+        if (boundDescriptorSet != *imageDescriptorSet_ptr()) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline.pipelineLayout, 0, 1, imageDescriptorSet_ptr(), 0, NULL);
+            boundDescriptorSet = *imageDescriptorSet_ptr();
+        }
+
+        {
+            uint8_t pushConstantsData[128];
+            int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
+            if (pushConstantsDataSize != pipeline.pushConstantsSize) {
+                FOLK_ERROR("drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+                           pipeline.pushConstantsSize, pushConstantsDataSize);
+            }
+            vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               pipeline.pushConstantsSize, pushConstantsData);
+        }
+
+        // 1 quad -> 2 triangles -> 6 vertices
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    }
+    $gpuc proc drawableSurfaceDrawEnd {} void {
+        vkCmdEndRenderPass(commandBuffer);
+        $[vktry {vkEndCommandBuffer(commandBuffer)}]
+
+        {
+            VkSubmitInfo submitInfo = {0};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+            VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            submitInfo.pWaitDstStageMask = waitStages;
+
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+
+            pthread_mutex_lock(graphicsQueueMutex_ptr());
+            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, boundSurface->inFlightFence)}]
+            pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        }
+
+        boundSurface = NULL;
+    }
+
+    set gpuDrawableLib [$gpuc compile]
+
+    When display /any/ has width /any/ height /any/ {
+        # do surface management in Tcl?
+
+        # `id` is arbitrarily chosen by the caller:
+        When /someone/ wishes the GPU creates drawable surface /id/ with /...options/ {
+            set width [dict get $options width]
+            set height [dict get $options height]
+            set gim [$gpuImageLib createGpuImage $width $height]
+            Claim the GPU has created image $id as $gim
+
+            $gpuDrawableLib createFramebuffer
+        }
+
+        When /id/ is a drawable surface {
+            # TODO: Infinite loop that sleeps and then draws on images?????
+            # Query or collect for all draw actions on id
+            # Construct a new frame
+        }
+    }
+}
