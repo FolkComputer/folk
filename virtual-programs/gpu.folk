@@ -976,7 +976,9 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         $cc struct vec3 { float x; float y; float z; }
         $cc struct vec4 { float x; float y; float z; float w; }
         $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
-        $cc struct mat3 { float data[9]; }
+        # Note that mat3 is COLUMN-MAJOR and every column has 1 float
+        # of padding at the end.
+        $cc struct mat3 { float data[12]; }
 
         $cc argtype vec2 {
             vec2 $argname;
@@ -1027,6 +1029,8 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
             }
         }
+        # Note that we take matrices from Tcl in ROW-MAJOR form and
+        # convert them to column-major form inline here.
         $cc argtype mat3 {
             mat3 $argname;
             {
@@ -1036,9 +1040,10 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                     Jim_Obj* rowObj = Jim_ListGetIndex(interp, $obj, y);
                     __ENSURE(Jim_ListLength(interp, rowObj) == 3);
                     for (int x = 0; x < 3; x++) {
-                        int i = y * 3 + x;
                         double el;
                         __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, rowObj, x), &el));
+
+                        int i = x * 4 + y;
                         $argname.data[i] = el;
                     }
                 }
