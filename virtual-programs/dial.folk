@@ -1,40 +1,146 @@
-Claim $this is a dial
-
 When /anyone/ claims /page/ is a dial & /page/ has region /r/ {
+    Claim $page is a dial with steps 4
+}
+
+When /anyone/ claims /page/ is a dial with /...options/ & /page/ has region /r/ {
+    # Define mathematical constants
     set PI 3.14159
     set TWO_PI 6.28318
-    set SEGMENTS 4
     
+    # Extract options with defaults using more natural language
+    set steps [dict_getdef $options steps 4]
+    set size [dict_getdef $options size 120]
+    set innerSize [dict_getdef $options innerSize 80]
+    set dotSize [dict_getdef $options dotSize 10]
+    set thickness [dict_getdef $options thickness 3]
+    set textOffset [dict_getdef $options textOffset 150]
+    set highlight [dict_getdef $options highlight "magenta"]
+    set color [dict_getdef $options color "white"]
+    set showReading [dict_getdef $options showReading true]
+    set mode [dict_getdef $options mode "step"] ;# Options: "step", "angle", "degrees"
+    
+    # Get position and angle information from the region
     lassign [region centroid $r] x y
     set angle [region angle $r]
     
+    # Calculate degrees for reference
     set degrees [expr {$angle * 180.0 / $PI}]
     
+    # Correct angle for drawing the dial pointer
     set correctAngle [expr {-$angle}]
     
+    # Normalize angle to [0, 2PI) range for segment calculation
     set normalizedAngle [expr {fmod(fmod($angle, $TWO_PI) + $TWO_PI, $TWO_PI)}]
     
-    set segment [expr {int($normalizedAngle / ($TWO_PI / $SEGMENTS))}]
+    # Calculate step (0 to steps-1)
+    set step [expr {int($normalizedAngle / ($TWO_PI / $steps))}]
     
-    set outerRadius 120
-    set innerRadius 80
-    set centerDotRadius 10
-    set dialThickness 3
-    set textDistance 150
+    # Draw the main dial circle
+    Wish to draw a circle with center [list $x $y] radius $innerSize thickness 2 color $color
+    Wish to draw a circle with center [list $x $y] radius $size thickness 2 color $color
     
-    Wish to draw a circle with center [list $x $y] radius $innerRadius thickness 2 color white
+    # Draw the center dot
+    Wish to draw a circle with center [list $x $y] radius $dotSize thickness 1 color $color filled true
     
-    set endX [expr {$x + cos($correctAngle) * $innerRadius}]
-    set endY [expr {$y + sin($correctAngle) * $innerRadius}]
-    Wish to draw a stroke with points [list [list $x $y] [list $endX $endY]] width $dialThickness color white
-    
-    Wish to draw a circle with center [list $x $y] radius $centerDotRadius thickness 1 color white filled true
-    
-    for {set i 0} {$i < $SEGMENTS} {incr i} {
-        set startAngle [expr {$i * ($TWO_PI / $SEGMENTS)}]
-        set arcLength [expr {$TWO_PI / $SEGMENTS}]
+    # Draw tick marks for reference in all modes
+    for {set i 0} {$i < $steps} {incr i} {
+        set tickAngle [expr {$i * ($TWO_PI / $steps)}]
+        set innerTickX [expr {$x + cos(-$tickAngle) * $innerSize}]
+        set innerTickY [expr {$y + sin(-$tickAngle) * $innerSize}]
+        set outerTickX [expr {$x + cos(-$tickAngle) * $size}]
+        set outerTickY [expr {$y + sin(-$tickAngle) * $size}]
         
-        set segmentColor [expr {$i == $segment ? "magenta" : "white"}]
-        Wish to draw an arc with x $x y $y start $startAngle arclen [expr {$arcLength * 0.8}] radius $outerRadius thickness 8 color $segmentColor
+        Wish to draw a stroke with points [list [list $innerTickX $innerTickY] [list $outerTickX $outerTickY]] width 2 color $color
     }
+    
+    # Different display modes
+    if {$mode eq "step"} {
+        # For step mode, draw the line pointer and segment arcs
+        
+        # Draw the dial pointer line
+        set endX [expr {$x + cos($correctAngle) * $innerSize}]
+        set endY [expr {$y + sin($correctAngle) * $innerSize}]
+        Wish to draw a stroke with points [list [list $x $y] [list $endX $endY]] width $thickness color $color
+        
+        # Draw the segments, highlighting the active one
+        for {set i 0} {$i < $steps} {incr i} {
+            set startAngle [expr {$i * ($TWO_PI / $steps)}]
+            set arcLength [expr {$TWO_PI / $steps}]
+            
+            # Determine if this segment is active
+            set segmentColor [expr {$i == $step ? $highlight : $color}]
+            
+            # Draw the segment arc - between inner and outer radius
+            set midRadius [expr {($innerSize + $size) / 2}]
+            set arcThickness [expr {$size - $innerSize - 4}]  ;# Slightly smaller to stay within bounds
+            Wish to draw an arc with x $x y $y start $startAngle arclen [expr {$arcLength * 0.8}] radius $midRadius thickness $arcThickness color $segmentColor
+        }
+    } else {
+        # For angle/degrees mode, draw an arc between inner and outer circles
+        
+        # Draw the pointer line
+        set endX [expr {$x + cos($correctAngle) * $innerSize}]
+        set endY [expr {$y + sin($correctAngle) * $innerSize}]
+        Wish to draw a stroke with points [list [list $x $y] [list $endX $endY]] width $thickness color $color
+        
+        # Draw an arc from reference point (0 degrees) to current angle
+        # but make it between inner and outer radius
+        set referenceAngle 0  ;# 0 radians is the reference point (typically right side)
+        set arcLength $normalizedAngle
+        
+        set midRadius [expr {($innerSize + $size) / 2}]
+        set arcThickness [expr {$size - $innerSize - 4}] ;# Slightly smaller to stay within bounds
+        
+        # Draw the arc between inner and outer radius
+        Wish to draw an arc with x $x y $y start $referenceAngle arclen $arcLength radius $midRadius thickness $arcThickness color $highlight
+    }
+    
+    # Display the reading if requested
+    if {$showReading} {
+        # Calculate the value based on mode
+        set displayValue [switch $mode {
+            "step" {
+                format "Step %d" $step
+            }
+            "angle" {
+                format "%.2f rad" $normalizedAngle
+            }
+            "degrees" {
+                format "%.1f°" [expr {$normalizedAngle * 180.0 / $PI}]
+            }
+            default {
+                format "Step %d" $step
+            }
+        }]
+        
+        # Calculate text position (offset from center)
+        set textX [expr {$x + cos($correctAngle) * $textOffset}]
+        set textY [expr {$y + sin($correctAngle) * $textOffset}]
+        
+        # Display the value
+        Wish to draw text "$displayValue" at [list $textX $textY] color $highlight size 24 centered true
+    }
+    
+    # Store dial value for other components to access
+    Claim $page has dial reading $step normalized $normalizedAngle angle $angle degrees $degrees
+}
+
+# Allow retrieval of dial values with natural language
+When /anyone/ wishes to know /page/ dial reading {
+    When $page has dial reading /step/ normalized /normalized/ angle /angle/ degrees /degrees/ {
+        Claim $page dial step is $step
+        Claim $page dial angle is $normalized
+        Claim $page dial degrees is $degrees
+    }
+}
+
+# Example custom dials with specific parameters
+When /anyone/ claims /page/ is a color dial & /page/ has region /r/ {
+    # More steps and different colors
+    Claim $page is a dial with steps 6 highlight "cyan" color "darkgray" mode "degrees"
+}
+
+When /anyone/ claims /page/ is a precision dial & /page/ has region /r/ {
+    # Continuous angle reading with precision display
+    Claim $page is a dial with steps 12 highlight "yellow" color "gray" mode "angle" size 150
 }
