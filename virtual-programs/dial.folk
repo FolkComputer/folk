@@ -1,0 +1,40 @@
+Claim $this is a dial
+
+When /anyone/ claims /page/ is a dial & /page/ has region /r/ {
+    set PI 3.14159
+    set TWO_PI 6.28318
+    set SEGMENTS 4
+    
+    lassign [region centroid $r] x y
+    set angle [region angle $r]
+    
+    set degrees [expr {$angle * 180.0 / $PI}]
+    
+    set correctAngle [expr {-$angle}]
+    
+    set normalizedAngle [expr {fmod(fmod($angle, $TWO_PI) + $TWO_PI, $TWO_PI)}]
+    
+    set segment [expr {int($normalizedAngle / ($TWO_PI / $SEGMENTS))}]
+    
+    set outerRadius 120
+    set innerRadius 80
+    set centerDotRadius 10
+    set dialThickness 3
+    set textDistance 150
+    
+    Wish to draw a circle with center [list $x $y] radius $innerRadius thickness 2 color white
+    
+    set endX [expr {$x + cos($correctAngle) * $innerRadius}]
+    set endY [expr {$y + sin($correctAngle) * $innerRadius}]
+    Wish to draw a stroke with points [list [list $x $y] [list $endX $endY]] width $dialThickness color white
+    
+    Wish to draw a circle with center [list $x $y] radius $centerDotRadius thickness 1 color white filled true
+    
+    for {set i 0} {$i < $SEGMENTS} {incr i} {
+        set startAngle [expr {$i * ($TWO_PI / $SEGMENTS)}]
+        set arcLength [expr {$TWO_PI / $SEGMENTS}]
+        
+        set segmentColor [expr {$i == $segment ? "magenta" : "white"}]
+        Wish to draw an arc with x $x y $y start $startAngle arclen [expr {$arcLength * 0.8}] radius $outerRadius thickness 8 color $segmentColor
+    }
+}
