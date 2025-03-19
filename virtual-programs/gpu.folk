@@ -976,6 +976,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         $cc struct vec3 { float x; float y; float z; }
         $cc struct vec4 { float x; float y; float z; float w; }
         $cc struct uvec4 { uint32_t x; uint32_t y; uint32_t z; uint32_t w; }
+        $cc struct mat3 { float data[9]; }
 
         $cc argtype vec2 {
             vec2 $argname;
@@ -1026,10 +1027,28 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 $argname = (uvec4) { (uint32_t)x, (uint32_t)y, (uint32_t)z, (uint32_t)w };
             }
         }
+        $cc argtype mat3 {
+            mat3 $argname;
+            {
+                int $[set argname]_objc = Jim_ListLength(interp, $obj);
+                __ENSURE($[set argname]_objc == 3);
+                for (int y = 0; y < 3; y++) {
+                    Jim_Obj* rowObj = Jim_ListGetIndex(interp, $obj, y);
+                    __ENSURE(Jim_ListLength(interp, rowObj) == 3);
+                    for (int x = 0; x < 3; x++) {
+                        int i = y * 3 + x;
+                        double el;
+                        __ENSURE_OK(Jim_GetDouble(interp, Jim_ListGetIndex(interp, rowObj, x), &el));
+                        $argname.data[i] = el;
+                    }
+                }
+            }
+        }
         $cc code [csubst {
             typedef struct Args {
                 $[join [lmap {argtype argname} $pushConstants {
-                    expr {"_Alignas(sizeof($argtype)) $argtype $argname;"}
+                    set alignas [expr {$argtype eq "mat3" ? "16" : "sizeof($argtype)"}]
+                    subst {_Alignas($alignas) $argtype $argname;}
                 }] "\n"]
             } Args;
 
