@@ -1,12 +1,12 @@
 Wish the GPU compiles pipeline "line" {
-    {vec2 from vec2 to float thickness vec4 color} {
+    {mat3 surfaceToClip vec2 from vec2 to float thickness vec4 color} {
         vec2 vertices[4] = vec2[4](
              min(from, to) - thickness,
              vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
              vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
              max(from, to) + thickness
         );
-        return vertices[gl_VertexIndex];
+        return vec4(surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0), 1.0);
     } {
         float l = length(to - from);
         vec2 d = (to - from) / l;
@@ -20,17 +20,21 @@ Wish the GPU compiles pipeline "line" {
 }
 
 When the color map is /colorMap/ &\
-     /someone/ wishes to draw a line with /...options/ {
+     /p/ has drawable surface /surf/ &\
+     /p/ has drawable surface projection /proj/ &\
+     /someone/ wishes to draw a line onto /p/ with /...options/ {
+
     set points [dict get $options points]
     set width [dict get $options width]
     set color [dict get $options color]
     set color [dict getdef $colorMap $color $color]
 
     set instances [list]
-    for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
+    foreach {set i 0} {$i < [llength $points] - 1} {incr i} {
         set from [lindex $points $i]
-        set to [lindex $points [expr $i+1]]
-        lappend instances [list $from $to $width $color]
+        set to [lindex $points [+ $i 1]]
+        lappend instances [list $proj $from $to $width $color]
     }
-    Wish the GPU draws pipeline "line" with instances $instances
+    Wish the GPU draws pipeline "line" onto surface $surf \
+        with instances $instances
 }

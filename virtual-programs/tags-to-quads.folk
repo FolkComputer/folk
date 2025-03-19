@@ -496,7 +496,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
 
     # for position stabilization
-    set ::tagHistory [dict create]
     set unfreezeThreshold 0.01
     set unfreezeThresholdSq [expr {$unfreezeThreshold * $unfreezeThreshold}]
     set unfreezeLength 0.3 ;# in seconds

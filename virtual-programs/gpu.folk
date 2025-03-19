@@ -805,7 +805,11 @@ $gpuc proc drawStart {} void {
     boundPipeline = VK_NULL_HANDLE;
     boundDescriptorSet = VK_NULL_HANDLE;
 }
-$gpuc proc drawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
+
+# Draw to the image `img` using pipeline `pipeline`. Each arg in
+# `args` should be a push-constant parameter of the pipeline. Can
+# only be called between `drawStart` and `drawEnd`.
+$gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         boundPipeline = pipeline.pipeline;
@@ -821,7 +825,7 @@ $gpuc proc drawImpl {Pipeline pipeline Jim_Obj* argsObj} void {
         uint8_t pushConstantsData[128];
         int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
         if (pushConstantsDataSize != pipeline.pushConstantsSize) {
-            FOLK_ERROR("drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+            FOLK_ERROR("Gpu draw: Expected push constants size %zu; push constants data size was %d\n",
                        pipeline.pushConstantsSize, pushConstantsDataSize);
         }
         vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
@@ -895,14 +899,6 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         }
     }
 
-    # Draw to the image `img` using pipeline `pipeline`. Each arg in
-    # `args` should be a push-constant parameter of the pipeline. Can
-    # only be called between `drawStart` and `drawEnd`.
-    proc draw {pipeline args} {
-        set args [linsert $args 0 [list [getWidth] [getHeight]]]
-        drawImpl $pipeline $args
-    }
-
     # Construct a reusable GLSL function that can be linked into and
     # called from a shader/pipeline.
     proc fn {fnDict arguments rtype body} {
@@ -944,7 +940,6 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         set vertFnDict [dict create]
         set fragFnDict [dict create]
         set pushConstants [list]
-        set vertArgs [linsert $vertArgs 0 vec2 _resolution]
         foreach {argtype argname} $vertArgs {
             if {$argtype eq "fn"} {
                 # TODO: Support fn being a list {name fn}.
@@ -1109,7 +1104,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 }
             }] "\n"]
 
-            vec2 vert() {
+            vec4 vert() {
                 $[join [lmap {argtype argname} $pushConstants {
                     if {$argname eq "_"} continue
                     if {$argtype eq "sampler2D"} continue
@@ -1119,8 +1114,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
             }
 
             void main() {
-                vec2 v = (2.0*vert() - args._resolution)/args._resolution;
-                gl_Position = vec4(v, 0.0, 1.0);
+                gl_Position = vert();
             }
         }]]]
         # We pass the descriptor set with all images (samplers) to all
@@ -1329,6 +1323,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         tryCompilePipeline $wisher $name $source
     }
 
+    set missingPipelines [dict create]
     while true {
         # This blocks until the start of the next frame.
         $gpu drawStart
@@ -1344,6 +1339,15 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
                 set name [dict get $match name]
+                if {![dict exists $pipelines $name]} {
+                    if {![dict exists $missingPipelines $name]} {
+                        puts stderr "gpu: Missing pipeline $name"
+                        dict set missingPipelines $name true
+                    }
+                    continue
+                }
+                dict unset missingPipelines $name
+
                 set pipeline [dict get $pipelines [dict get $match name]]
 
                 set options [dict get $match options]
@@ -1354,7 +1358,8 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
                     set instances [list [dict get $options arguments]]
                 }
                 foreach instance $instances {
-                    dict lappend displayList $layer [list $gpu draw $pipeline {*}$instance]
+                    dict lappend displayList $layer \
+                        [list $gpu draw $pipeline $instance]
                 }
             } on error e {
                 puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
