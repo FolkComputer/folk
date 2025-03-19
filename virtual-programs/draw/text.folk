@@ -192,7 +192,7 @@ Wish the GPU compiles pipeline "glyph" {
      vec2 d = pos + rotate(vec2(left, -bottom), -radians);
 
      vec2 vertices[4] = vec2[4](a, b, d, c);
-     return vertices[gl_VertexIndex];
+     return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
 } {fn rotate fn invBilinear fn glyphMsd fn median} {
     float left = planeGlyphBounds[0] * em;
     float bottom = planeGlyphBounds[1] * em;

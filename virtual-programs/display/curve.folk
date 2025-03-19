@@ -99,7 +99,7 @@ Wish the GPU compiles pipeline "curve" {
       max(from, to) + thickness
     );
 
-    return vertices[gl_VertexIndex];
+    return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
   } {fn sdSegmentSq fn udBezier} {
     vec2 p = gl_FragCoord.xy;
     float px = 2.0; // sharpness

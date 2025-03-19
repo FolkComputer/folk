@@ -7,7 +7,7 @@ Wish the GPU compiles pipeline "dashed-line" {
              vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
              max(from, to) + thickness
         );
-        return vertices[gl_VertexIndex];
+        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
     } {
         vec2 p = gl_FragCoord.xy;
 

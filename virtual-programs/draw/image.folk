@@ -97,7 +97,7 @@ Wish the GPU compiles pipeline "image" {
         vec2 c = pos + rotate(scale*imageSize/2, -radians);
         vec2 d = pos + rotate(scale*vec2(-imageSize.x, imageSize.y)/2, -radians);
         vec2 vertices[4] = vec2[4](a, b, d, c);
-        return vertices[gl_VertexIndex];
+        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
 } {fn invBilinear fn rotate} {
         vec2 a = pos + rotate(scale*-imageSize/2, -radians);
         vec2 b = pos + rotate(scale*vec2(imageSize.x, -imageSize.y)/2, -radians);

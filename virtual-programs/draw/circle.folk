@@ -7,7 +7,7 @@ Wish the GPU compiles pipeline "circle" {
             vec2(center.x - r, center.y + r),
             center + r
         );
-        return vertices[gl_VertexIndex];
+        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
     } {
         float dist = length(gl_FragCoord.xy - center) - radius;
         if (filled == 1) {

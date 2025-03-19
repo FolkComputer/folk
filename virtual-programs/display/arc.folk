@@ -12,7 +12,7 @@ Wish the GPU compiles pipeline "arc" {{vec2 center float start float arclen floa
          vec2(center.x - r, center.y + r),
          center + r
     );
-    return vertices[gl_VertexIndex];
+    return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
 } {
     #define M_TWO_PI 6.283185307179586
     start = clamp(start, 0, M_TWO_PI);
