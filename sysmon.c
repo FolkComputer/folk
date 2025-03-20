@@ -105,7 +105,7 @@ void sysmon() {
     epochGlobalCollect();
 
     ///////////////////////////////////
-    if (currentTick < 500) { return; }
+    if (currentTick < 2000) { return; }
     // Don't do the management tasks after this if the system isn't
     // fully online yet.
     ///////////////////////////////////
