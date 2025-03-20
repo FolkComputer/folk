@@ -242,6 +242,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         }
 
         set missingPipelines [dict create]
+        set missingSurfs [dict create]
         while true {
             set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
@@ -263,9 +264,18 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                         continue
                     }
                     dict unset missingPipelines $name
-
                     set pipeline [dict get $pipelines [dict get $match name]]
-                    set surf [dict get $surfs [dict get $match surfname]]
+
+                    set surfname [dict get $match surfname]
+                    if {![dict exists $surfs $surfname]} {
+                        if {![dict exists $missingSurfs $surfname]} {
+                            puts stderr "drawable-surfaces: Missing surface $surfname"
+                            dict set missingSurfs $surfname true
+                        }
+                        continue
+                    }
+                    dict unset missingSurfs $name
+                    set surf [dict get $surfs $surfname]
 
                     set options [dict get $match options]
                     set layer [dict getdef $options layer 0]
