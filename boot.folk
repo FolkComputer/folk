@@ -25,12 +25,11 @@ Assert! when /__this/ has program code /__programCode/ {
         when $__programCode with environment [list [list this $__this]]
 } with environment {}
 
-proc LoadProgram! {programFilename} {
+local proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]
-    Assert! boot.folk claims $programFilename has program code [read $fp]
+    HoldStatement! [list $programFilename code] \
+        [list boot.folk claims $programFilename has program code [read $fp]]
     close $fp
-
-    # TODO: Detect edits
 }
 
 # Load the setup program -- setup.folk.default gets overridden
