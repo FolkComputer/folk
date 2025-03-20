@@ -1,16 +1,41 @@
 Wish the GPU compiles pipeline "line" {
-    {mat3 surfaceToClip vec2 from vec2 to float thickness vec4 color} {
+    {vec2 viewport mat3 surfaceToClip
+     vec2 from vec2 to float thickness vec4 color} {
+        vec2 dir = normalize(to - from);
+        vec2 perp = vec2(-dir.y, dir.x) * thickness;
+
         vec2 vertices[4] = vec2[4](
-             min(from, to) - thickness,
-             vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
-             vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
-             max(from, to) + thickness
+            from - perp,
+            from + perp,
+            to - perp,
+            to + perp
         );
-        return vec4(surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0), 1.0);
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy, 0.0, v.z);
+
+        // vec2 vertices[4] = vec2[4](
+        //      vec2(-1, -1),
+        //      vec2(1, -1),
+        //      vec2(-1, 1),
+        //      vec2(1, 1)
+        // );
+        // return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+
+        // vec2 vertices[4] = vec2[4](
+        //      surfaceToClip[0].xy,
+        //      surfaceToClip[1].xy,
+        //      surfaceToClip[2].xy,
+        //      vec2(1, 1)
+        // );
+        // return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
     } {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
         float l = length(to - from);
         vec2 d = (to - from) / l;
-        vec2 q = (gl_FragCoord.xy - (from + to)*0.5);
+        vec2 q = (surfaceXy.xy - (from + to)*0.5);
         q = mat2(d.x, -d.y, d.y, d.x) * q;
         q = abs(q) - vec2(l, thickness)*0.5;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -33,8 +58,9 @@ When the color map is /colorMap/ &\
     for {set i 0} {$i < [llength $points] - 1} {incr i} {
         set from [lindex $points $i]
         set to [lindex $points [+ $i 1]]
-        lappend instances [list $proj $from $to $width $color]
+        lappend instances [list [list 1024 1024] $proj $from $to $width $color]
     }
+
     Wish the GPU draws pipeline "line" onto surface $surf \
         with instances $instances
 }
