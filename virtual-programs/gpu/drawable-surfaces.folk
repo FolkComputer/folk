@@ -1,5 +1,6 @@
 When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     set gpuc [C]
+    $gpuc include <pthread.h>
     $gpuc cflags -I./vendor
     $gpuc code {
         #define VOLK_IMPLEMENTATION
@@ -103,6 +104,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             int imageIndex;
 
             VkFence inFlightFence;
+
+            pthread_mutex_t mutex;
         } DrawableSurface;
     }
     $gpuc proc gpuImage {DrawableSurface* surf} GpuImageHandle {
@@ -111,6 +114,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     $gpuc proc create {int width int height} DrawableSurface* {
         DrawableSurface* surf = malloc(sizeof(DrawableSurface));
         surf->extent.width = width; surf->extent.height = height;
+        pthread_mutex_init(&surf->mutex, NULL);
 
         for (int i = 0; i < 2; i++) {
             GpuImageBlock* block = createGpuImage(width, height, VK_FORMAT_B8G8R8A8_SRGB);
@@ -138,6 +142,18 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         }
         return surf;
     }
+    $gpuc proc destroy {DrawableSurface* surf} void {
+        // FIXME: don't leak surf itself
+        pthread_mutex_lock(&surf->mutex);
+
+        freeGpuImage(surf->gpuImages[0]);
+        freeGpuImage(surf->gpuImages[1]);
+        surf->gpuImages[0] = -1;
+        surf->gpuImages[1] = -1;
+
+        pthread_mutex_unlock(&surf->mutex);
+        pthread_mutex_destroy(&surf->mutex);
+    }
     $gpuc code {
         DrawableSurface* boundSurface;
         VkPipeline boundPipeline;
@@ -145,6 +161,11 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     }
     $gpuc proc drawStart {DrawableSurface* surf} void {
         FOLK_ENSURE(boundSurface == NULL);
+        pthread_mutex_lock(&surf->mutex);
+        if (surf->gpuImages[0] == -1 || surf->gpuImages[1] == -1) {
+            pthread_mutex_unlock(&surf->mutex);
+            return;
+        }
         boundSurface = surf;
 
         vkWaitForFences(device, 1, &surf->inFlightFence, VK_TRUE, UINT64_MAX);
@@ -224,6 +245,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             pthread_mutex_unlock(graphicsQueueMutex_ptr());
         }
 
+        pthread_mutex_unlock(&boundSurface->mutex);
         boundSurface = NULL;
     }
 
@@ -239,6 +261,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             set height [dict get $options height]
             set surf [$gpuDrawableLib create $width $height]
             Claim the GPU creates drawable surface $id as $surf
+            On unmatch {
+                $gpuDrawableLib destroy $surf
+            }
         }
 
         set missingPipelines [dict create]
@@ -297,7 +322,6 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
             # TODO: await vsync -- what does the other drawStart do?
             # TODO: await any change in the projected display list for any surface
-
             dict for {surf displayList} $displayListsBySurface {
                 $gpuDrawableLib drawStart $surf
 
