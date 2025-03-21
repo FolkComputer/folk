@@ -1,245 +1,427 @@
+puts "video.folk loaded"
 On process "display" {
+    puts "video.folk on display loaded"
+    # Video state management for Folk
+    namespace eval VideoState {
+        variable sources; array set sources {}
+        variable metadata; array set metadata {}
+        
+        proc log {level message} {
+            set prefix [lindex {ERROR WARN INFO} $level]
+            puts "\[VIDEO:$prefix\] $message"
+        }
+        
+        proc registerSource {thing source} {
+            variable sources
+            set sources($thing) $source
+        }
+        
+        proc getSource {thing} {
+            variable sources
+            if {[info exists sources($thing)]} {
+                return $sources($thing)
+            }
+            return ""
+        }
+        
+        proc updateMetadata {source fps duration frames} {
+            variable metadata
+            if {![info exists metadata($source)]} {
+                set metadata($source) [dict create]
+            }
+            dict set metadata($source) fps $fps
+            dict set metadata($source) duration $duration
+            dict set metadata($source) totalFrames $frames
+        }
+        
+        proc getMetadata {source} {
+            variable metadata
+            if {[info exists metadata($source)]} {
+                return $metadata($source)
+            }
+            return [dict create fps 30.0 duration 1.0 totalFrames 30]
+        }
+        
+        proc setStartTime {thing time} {
+            variable metadata
+            if {![info exists metadata($thing)]} {
+                set metadata($thing) [dict create]
+            }
+            dict set metadata($thing) startTime $time
+        }
+        
+        proc getStartTime {thing {default 0}} {
+            variable metadata
+            if {[info exists metadata($thing)] && [dict exists $metadata($thing) startTime]} {
+                return [dict get $metadata($thing) startTime]
+            }
+            return $default
+        }
+        
+        proc getFrameNumber {thing time} {
+            set startTime [getStartTime $thing]
+            if {$startTime == 0} { return 1 }
+            
+            set relativeTime [expr {$time - $startTime}]
+            if {$relativeTime < 0} { return 1 }
+            
+            set source [getSource $thing]
+            if {$source eq ""} { return 1 }
+            
+            set sourceInfo [getMetadata $source]
+            set fps [dict get $sourceInfo fps]
+            set totalFrames [dict get $sourceInfo totalFrames]
+            
+            set frameNum [expr {int($relativeTime * $fps) + 1}]
+            if {$frameNum > $totalFrames && $totalFrames > 0} {
+                set frameNum [expr {($frameNum - 1) % $totalFrames + 1}]
+            }
+            
+            return $frameNum
+        }
+    }
+
     namespace eval video {
         set cc [c create]
         ::defineImageType $cc
-        # $cc cflags -lavcodec -lavformat -Wno-deprecated
-        # Ignoring deprecated declarations because of version differences across systems
-        # in libavcodec and libavformat as of June 20, 2024.
         $cc cflags -lavcodec -lavformat -Wno-deprecated-declarations
+        
+        # Load libraries
         c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavutil.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavutil] end]}]
         c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavcodec.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavcodec] end]}]
         c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/libavformat.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep libavformat] end]}]
         c loadlib [expr {$tcl_platform(os) eq "Darwin" ? "/opt/homebrew/lib/swscale.dylib" : [lindex [exec /usr/sbin/ldconfig -p | grep swscale] end]}]
+        
         $cc include <libavutil/imgutils.h>
         $cc include <libavcodec/avcodec.h>
         $cc include <libavformat/avformat.h>
         $cc include <libswscale/swscale.h>
+        $cc include <time.h>
 
         $cc import ::Heap::cc folkHeapAlloc as folkHeapAlloc
         $cc import ::Heap::cc folkHeapFree as folkHeapFree
 
         $cc proc init {} void {}
 
-        $cc proc generateImageFromFrame {AVFrame* pRGBFrame int width int height} image_t {
-            image_t ret;
-            ret.width = width;
-            ret.height = height;
-            ret.components = 4;
-            ret.bytesPerRow = ret.width * ret.components;
-            ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
-
-            for (uint32_t y = 0; y < ret.height; ++y) {
-                for (uint32_t x = 0; x < ret.width; ++x) {
-                    int offset = y * ret.bytesPerRow + x * ret.components;
-                    int src_offset = y * pRGBFrame->linesize[0] + x * 3;
-                    ret.data[offset] = pRGBFrame->data[0][src_offset];       // R
-                    ret.data[offset + 1] = pRGBFrame->data[0][src_offset + 1]; // G
-                    ret.data[offset + 2] = pRGBFrame->data[0][src_offset + 2]; // B
-                    ret.data[offset + 3] = 255; // A
-                }
-            }
-            return ret;
-        }
-
-        $cc proc freeImage {image_t* im} void {
-            folkHeapFree(im->data);
-        }
-
-        $cc proc generateImage {int R int G int B int A} image_t {
-            image_t ret;
-            ret.width = 400;
-            ret.height = 400;
-            ret.components = 4;
-            ret.bytesPerRow = ret.width * ret.components;
-            ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
-            int b = ret.bytesPerRow * ret.height * 0.2;
-            uint8_t L = 0xBB;
-
-            memset(ret.data, L, b);
-
-            for (uint32_t y = 0; y < ret.height; ++y) {
-                for (uint32_t x = 0; x < ret.width; ++x) {
-                    ret.data[y * ret.bytesPerRow + x * ret.components] = R; // R
-                    ret.data[y * ret.bytesPerRow + x * ret.components + 1] = G; // G
-                    ret.data[y * ret.bytesPerRow + x * ret.components + 2] = B; // B
-                    ret.data[y * ret.bytesPerRow + x * ret.components + 3] = A; // A
-                }
-            }
-            printf("returning generated image");
-            return ret;
-        }
+        # Generate a fallback image (magenta)
         $cc proc generateDebugImage {} image_t {
-            return generateImage(255, 0, 255, 255);
-        }
-
-        $cc proc video {char* filename int time} image_t {
-            AVFormatContext *pFormatContext = avformat_alloc_context();
-            if (!pFormatContext) { exit(1); }
-
-            fprintf(stdout, "pFC: %p | %s\n", &pFormatContext, filename);
-
-            if (avformat_open_input(&pFormatContext, filename, NULL, NULL) != 0) {
-                fprintf(stderr, "Could not open input file: %s\n", filename);
-                exit(1);
-            }
-
-            int ret = avformat_find_stream_info(pFormatContext, NULL);
-
-            fprintf(stderr, "pFC: %p | %s\n", &pFormatContext, filename);
-            fprintf(stderr, "Format: %s | Duration: %ld us | Bit rate: %ld \n", pFormatContext->iformat->long_name, pFormatContext->duration, pFormatContext->bit_rate);
-            fprintf(stderr, "URL: %s\n", pFormatContext->url);
-
-            if (ret < 0) {
-                char errbuf[128];
-                av_strerror(ret, errbuf, sizeof(errbuf));
-                fprintf(stderr, "Could not find stream info: %s\n", errbuf);
-                avformat_close_input(&pFormatContext);
-                avformat_free_context(pFormatContext);
-                exit(1);
-            }
-
-            const AVCodec *pCodec = NULL;
-            const AVCodecParameters *pCodecParameters =  NULL;
-            int video_stream_index = -1;
-            int total_frames = -1;
-            for (int i = 0; i < pFormatContext->nb_streams; i++) {
-                AVCodecParameters *pLocalCodecParameters = pFormatContext->streams[i]->codecpar;
-                const AVCodec *pLocalCodec = avcodec_find_decoder(pLocalCodecParameters->codec_id);
-                if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_VIDEO) {
-                    fprintf(stderr, "Video Codec: resolution %d x %d\n", pLocalCodecParameters->width, pLocalCodecParameters->height);
-                    pCodec = pLocalCodec;
-                    pCodecParameters = pLocalCodecParameters;
-                    video_stream_index = i;
-                    total_frames = pFormatContext->streams[video_stream_index]->nb_frames;
-                    fprintf(stderr, "Total frames: %d\n", total_frames);
-                    // Estimate total frames if not available
-                    if (total_frames == 0) {
-                        double fps = av_q2d(pFormatContext->streams[video_stream_index]->avg_frame_rate);
-                        double duration = pFormatContext->streams[video_stream_index]->duration * 
-                                        av_q2d(pFormatContext->streams[video_stream_index]->time_base);
-                        total_frames = (int)(fps * duration);
-                        fprintf(stderr, "Estimated frames: %d (fps: %f, duration: %f)\n", total_frames, fps, duration);
+            image_t ret;
+            ret.width = 320;
+            ret.height = 240;
+            ret.components = 4;
+            ret.bytesPerRow = ret.width * ret.components;
+            ret.data = folkHeapAlloc(ret.bytesPerRow * ret.height);
+            
+            if (ret.data) {
+                // Fill with magenta
+                for (uint32_t y = 0; y < ret.height; ++y) {
+                    for (uint32_t x = 0; x < ret.width; ++x) {
+                        int offset = y * ret.bytesPerRow + x * ret.components;
+                        ret.data[offset] = 255;     // R
+                        ret.data[offset + 1] = 0;   // G
+                        ret.data[offset + 2] = 255; // B
+                        ret.data[offset + 3] = 255; // A
                     }
-                } else if (pLocalCodecParameters->codec_type == AVMEDIA_TYPE_AUDIO) {
-                    fprintf(stderr, "Audio Codec: sample rate %d\n", pLocalCodecParameters->sample_rate);
                 }
             }
-
-            if (!pCodec) {
-                fprintf(stderr, "Codec not found\n");
-                avformat_close_input(&pFormatContext);
-                avformat_free_context(pFormatContext);
-                exit(1);
+            
+            return ret;
+        }
+        
+        # Frame cache - ultra simple 3-frame cache
+        $cc code {
+            // Simple fixed cache
+            image_t lastFrames[3];
+            int lastFrameNumbers[3] = {-1, -1, -1};
+            char lastPaths[3][256] = {{0}};
+            int nextCacheSlot = 0;
+            
+            // Check cache
+            int getCachedFrame(const char* path, int frameNum, image_t* outImage) {
+                for (int i = 0; i < 3; i++) {
+                    if (lastFrameNumbers[i] == frameNum && 
+                        strcmp(lastPaths[i], path) == 0 &&
+                        lastFrames[i].data != NULL) {
+                        *outImage = lastFrames[i];
+                        return 1;
+                    }
+                }
+                return 0;
             }
-
-            AVCodecContext *pCodecContext = avcodec_alloc_context3(pCodec);
-            avcodec_parameters_to_context(pCodecContext, pCodecParameters);
-            avcodec_open2(pCodecContext, pCodec, NULL);
-
-            int current_frame = (1 + (time % total_frames));
-            fprintf(stderr, "========= Current frame: %d\n", current_frame);
-
-            AVPacket *pPacket = av_packet_alloc();
-            AVFrame *pFrame = av_frame_alloc();
-
-
-            // timeBase = (int64_t(pCodecCtx->time_base.num) * AV_TIME_BASE) / int64_t(pCodecCtx->time_base.den);
-            // ret = av_seek_frame(pFormatContext, video_stream_index, current_frame, AVSEEK_FLAG_BACKWARD);
-
-            while (av_read_frame(pFormatContext, pPacket) >= 0) {
-                ret = avcodec_send_packet(pCodecContext, pPacket);
-                if (ret < 0) {
-                    char errbuf[128];
-                    av_strerror(ret, errbuf, sizeof(errbuf));
-                    fprintf(stderr, "Error sending packet for decoding: %s\n", errbuf);
+            
+            // Add to cache
+            void cacheFrame(const char* path, int frameNum, image_t image) {
+                // Free old image if any
+                if (lastFrames[nextCacheSlot].data != NULL) {
+                    folkHeapFree(lastFrames[nextCacheSlot].data);
+                }
+                
+                // Store new frame
+                strncpy(lastPaths[nextCacheSlot], path, 255);
+                lastFrameNumbers[nextCacheSlot] = frameNum;
+                lastFrames[nextCacheSlot] = image;
+                
+                // Cycle to next slot
+                nextCacheSlot = (nextCacheSlot + 1) % 3;
+            }
+        }
+        
+        # Get video information
+        $cc proc analyzeVideo {Tcl_Interp* interp char* videoPath} void {
+            AVFormatContext *pFormatContext = avformat_alloc_context();
+            if (!pFormatContext) return;
+            
+            if (avformat_open_input(&pFormatContext, videoPath, NULL, NULL) != 0) {
+                avformat_free_context(pFormatContext);
+                return;
+            }
+            
+            if (avformat_find_stream_info(pFormatContext, NULL) < 0) {
+                avformat_close_input(&pFormatContext);
+                return;
+            }
+            
+            // Find video stream
+            int video_stream_index = -1;
+            for (int i = 0; i < pFormatContext->nb_streams; i++) {
+                if (pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                    video_stream_index = i;
+                    break;
+                }
+            }
+            
+            if (video_stream_index == -1) {
+                avformat_close_input(&pFormatContext);
+                return;
+            }
+            
+            // Get video info
+            double fps = av_q2d(pFormatContext->streams[video_stream_index]->avg_frame_rate);
+            double duration = pFormatContext->duration / (double)AV_TIME_BASE;
+            int total_frames = pFormatContext->streams[video_stream_index]->nb_frames;
+            
+            if (total_frames <= 0) {
+                total_frames = (int)(duration * fps);
+            }
+            
+            if (total_frames <= 0) {
+                total_frames = 30;
+            }
+            
+            // Update metadata
+            char updCmd[256];
+            snprintf(updCmd, sizeof(updCmd), 
+                    "VideoState::updateMetadata {%s} %.2f %.2f %d",
+                    videoPath, fps, duration, total_frames);
+            Tcl_Eval(interp, updCmd);
+            
+            avformat_close_input(&pFormatContext);
+        }
+        
+        # Extract a frame from a video file
+        $cc proc getVideoFrame {Tcl_Interp* interp char* videoPath int targetFrame} image_t {
+            // Check cache first
+            image_t cachedImage;
+            if (getCachedFrame(videoPath, targetFrame, &cachedImage)) {
+                return cachedImage;
+            }
+            
+            AVFormatContext *pFormatContext = NULL;
+            AVCodecContext *pCodecContext = NULL;
+            AVPacket *pPacket = NULL;
+            AVFrame *pFrame = NULL;
+            AVFrame *pFrameRGB = NULL;
+            struct SwsContext *sws_ctx = NULL;
+            uint8_t *buffer = NULL;
+            int video_stream_index = -1;
+            
+            // Default error image
+            image_t errorImage = generateDebugImage();
+            
+            // Open file & find stream
+            pFormatContext = avformat_alloc_context();
+            if (!pFormatContext || 
+                avformat_open_input(&pFormatContext, videoPath, NULL, NULL) != 0 ||
+                avformat_find_stream_info(pFormatContext, NULL) < 0) {
+                if (pFormatContext) avformat_free_context(pFormatContext);
+                return errorImage;
+            }
+            
+            // Find video stream
+            for (int i = 0; i < pFormatContext->nb_streams; i++) {
+                if (pFormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                    video_stream_index = i;
+                    break;
+                }
+            }
+            
+            if (video_stream_index == -1) {
+                avformat_close_input(&pFormatContext);
+                return errorImage;
+            }
+            
+            // Set up codec
+            const AVCodec *pCodec = avcodec_find_decoder(
+                pFormatContext->streams[video_stream_index]->codecpar->codec_id);
+                
+            if (!pCodec ||
+                !(pCodecContext = avcodec_alloc_context3(pCodec)) ||
+                avcodec_parameters_to_context(pCodecContext, 
+                    pFormatContext->streams[video_stream_index]->codecpar) < 0 ||
+                avcodec_open2(pCodecContext, pCodec, NULL) < 0) {
+                if (pCodecContext) avcodec_free_context(&pCodecContext);
+                avformat_close_input(&pFormatContext);
+                return errorImage;
+            }
+            
+            // Get fps for seeking
+            double fps = av_q2d(pFormatContext->streams[video_stream_index]->avg_frame_rate);
+            
+            // Allocate frame buffers
+            pPacket = av_packet_alloc();
+            pFrame = av_frame_alloc();
+            pFrameRGB = av_frame_alloc();
+            
+            if (!pPacket || !pFrame || !pFrameRGB) {
+                if (pPacket) av_packet_free(&pPacket);
+                if (pFrame) av_frame_free(&pFrame);
+                if (pFrameRGB) av_frame_free(&pFrameRGB);
+                avcodec_free_context(&pCodecContext);
+                avformat_close_input(&pFormatContext);
+                return errorImage;
+            }
+            
+            // Try seeking near the target frame
+            if (targetFrame > 1) {
+                double seekSec = (targetFrame - 1) / fps * 0.9;
+                int64_t seekTimestamp = av_rescale_q(
+                    (int64_t)(seekSec * AV_TIME_BASE),
+                    AV_TIME_BASE_Q,
+                    pFormatContext->streams[video_stream_index]->time_base
+                );
+                
+                av_seek_frame(pFormatContext, video_stream_index, 
+                              seekTimestamp, AVSEEK_FLAG_BACKWARD);
+                avcodec_flush_buffers(pCodecContext);
+            }
+            
+            // Read frames until target
+            int currentFrame = 0;
+            bool frameFound = false;
+            
+            while (!frameFound && av_read_frame(pFormatContext, pPacket) >= 0 && currentFrame < 500) {
+                if (pPacket->stream_index != video_stream_index) {
+                    av_packet_unref(pPacket);
                     continue;
                 }
-
-                while (ret >= 0) {
-                    ret = avcodec_receive_frame(pCodecContext, pFrame);
-                    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                        break;
-                    } else if (ret < 0) {
-                        char errbuf[128];
-                        av_strerror(ret, errbuf, sizeof(errbuf));
-                        fprintf(stderr, "Error receiving frame from decoder: %s\n", errbuf);
-                        exit(1);
-                    }
-
-                    if (pCodecContext->frame_number == current_frame) {
-                        fprintf(stderr, "!!!!! On frame  %d...\n", current_frame);
-
-                        AVFrame* pRGBFrame = av_frame_alloc();
-                        if (!pRGBFrame) {
-                            fprintf(stderr, "Could not allocate RGB frame\n");
-                            exit(1);
+                
+                if (avcodec_send_packet(pCodecContext, pPacket) < 0) {
+                    av_packet_unref(pPacket);
+                    continue;
+                }
+                
+                while (!frameFound && avcodec_receive_frame(pCodecContext, pFrame) >= 0) {
+                    currentFrame++;
+                    
+                    if (currentFrame == targetFrame) {
+                        frameFound = true;
+                        
+                        // Verify frame
+                        if (!pFrame->data[0]) {
+                            frameFound = false;
+                            break;
                         }
-
-                        pRGBFrame->format = AV_PIX_FMT_RGB24;
-                        pRGBFrame->width = pFrame->width;
-                        pRGBFrame->height = pFrame->height;
-
-                        int numBytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
-                        uint8_t* buffer = (uint8_t*)av_malloc(numBytes * sizeof(uint8_t));
-                        if (!buffer) {
-                            fprintf(stderr, "Could not allocate buffer for RGB frame\n");
-                            av_frame_free(&pRGBFrame);
-                            exit(1);
+                        
+                        // Set up RGB frame
+                        pFrameRGB->format = AV_PIX_FMT_RGB24;
+                        pFrameRGB->width = pFrame->width;
+                        pFrameRGB->height = pFrame->height;
+                        
+                        int bufferSize = av_image_get_buffer_size(
+                            AV_PIX_FMT_RGB24, pFrameRGB->width, pFrameRGB->height, 1);
+                            
+                        if (!(buffer = (uint8_t*)av_malloc(bufferSize))) {
+                            frameFound = false;
+                            break;
                         }
-
-                        av_image_fill_arrays(pRGBFrame->data, pRGBFrame->linesize, buffer, AV_PIX_FMT_RGB24, pRGBFrame->width, pRGBFrame->height, 1);
-
-                        struct SwsContext* sws_ctx = sws_getContext(pFrame->width,
-                                                                    pFrame->height,
-                                                                    pFrame->format,
-                                                                    pFrame->width,
-                                                                    pFrame->height,
-                                                                    AV_PIX_FMT_RGB24,
-                                                                    SWS_BICUBIC,
-                                                                    NULL,
-                                                                    NULL,
-                                                                    NULL);
+                        
+                        av_image_fill_arrays(pFrameRGB->data, pFrameRGB->linesize, buffer,
+                            AV_PIX_FMT_RGB24, pFrameRGB->width, pFrameRGB->height, 1);
+                        
+                        // Create scaler
+                        sws_ctx = sws_getContext(
+                            pFrame->width, pFrame->height, pCodecContext->pix_fmt,
+                            pFrame->width, pFrame->height, AV_PIX_FMT_RGB24,
+                            SWS_BILINEAR, NULL, NULL, NULL);
+                            
                         if (!sws_ctx) {
-                            fprintf(stderr, "Could not initialize the conversion context\n");
                             av_free(buffer);
-                            av_frame_free(&pRGBFrame);
-                            exit(1);
+                            frameFound = false;
+                            break;
                         }
-
-                        int sts = sws_scale(sws_ctx,
-                                            (const uint8_t * const*)pFrame->data,
-                                            pFrame->linesize,
-                                            0,
-                                            pFrame->height,
-                                            pRGBFrame->data,
-                                            pRGBFrame->linesize);
-                        if (sts < 0) {
-                            fprintf(stderr, "Error while converting frame\n");
-                        } else {
-                            fprintf(stderr, "Successfully converted frame\n");
-                            /*
-                            TODO: Figure out where to page video memory to get successive frames
-                            */
-                            return generateImageFromFrame(pRGBFrame, pRGBFrame->width, pRGBFrame->height);
+                        
+                        // Convert to RGB with proper type cast for sws_scale
+                        sws_scale(sws_ctx, 
+                                 (const uint8_t* const*)pFrame->data, 
+                                 pFrame->linesize, 0,
+                                 pFrame->height, pFrameRGB->data, pFrameRGB->linesize);
+                        
+                        // Create Folk image
+                        image_t result;
+                        result.width = pFrameRGB->width;
+                        result.height = pFrameRGB->height;
+                        result.components = 4;
+                        result.bytesPerRow = result.width * result.components;
+                        
+                        result.data = folkHeapAlloc(result.height * result.bytesPerRow);
+                        if (!result.data) {
+                            sws_freeContext(sws_ctx);
+                            av_free(buffer);
+                            frameFound = false;
+                            break;
                         }
-
+                        
+                        // Copy RGB -> RGBA
+                        for (int y = 0; y < result.height; y++) {
+                            for (int x = 0; x < result.width; x++) {
+                                int srcOffset = y * pFrameRGB->linesize[0] + x * 3;
+                                int dstOffset = y * result.bytesPerRow + x * result.components;
+                                
+                                result.data[dstOffset] = pFrameRGB->data[0][srcOffset];     // R
+                                result.data[dstOffset + 1] = pFrameRGB->data[0][srcOffset + 1]; // G
+                                result.data[dstOffset + 2] = pFrameRGB->data[0][srcOffset + 2]; // B
+                                result.data[dstOffset + 3] = 255; // A
+                            }
+                        }
+                        
+                        // Cache and cleanup
+                        cacheFrame(videoPath, targetFrame, result);
+                        
                         sws_freeContext(sws_ctx);
                         av_free(buffer);
-                        av_frame_free(&pRGBFrame);
-
-                        break;  // Exit after processing the first frame
+                        av_frame_free(&pFrameRGB);
+                        av_frame_free(&pFrame);
+                        av_packet_free(&pPacket);
+                        avcodec_free_context(&pCodecContext);
+                        avformat_close_input(&pFormatContext);
+                        
+                        return result;
                     }
                 }
+                
                 av_packet_unref(pPacket);
-                // if (pCodecContext->frame_number > 1) break;  // Exit after processing the first frame
             }
-
-            av_frame_free(&pFrame);
-            av_packet_free(&pPacket);
-            avcodec_free_context(&pCodecContext);
-            avformat_close_input(&pFormatContext);
-            avformat_free_context(pFormatContext);
-            return generateDebugImage();
+            
+            // Failed to find frame - cleanup
+            if (buffer) av_free(buffer);
+            if (sws_ctx) sws_freeContext(sws_ctx);
+            if (pFrameRGB) av_frame_free(&pFrameRGB);
+            if (pFrame) av_frame_free(&pFrame);
+            if (pPacket) av_packet_free(&pPacket);
+            if (pCodecContext) avcodec_free_context(&pCodecContext);
+            if (pFormatContext) avformat_close_input(&pFormatContext);
+            
+            return errorImage;
         }
 
         $cc compile
@@ -247,6 +429,15 @@ On process "display" {
 
         namespace export *
         namespace ensemble create
+    }
+
+    # Handle video source changes
+    When /someone/ wishes /thing/ displays video /videoSrc/ {
+        puts stderr "will play: $videoSrc"
+        VideoState::registerSource $thing $videoSrc
+        Claim $thing has videoSource $videoSrc
+        Claim $thing has videoStartTime 0
+        video::analyzeVideo $videoSrc
     }
 
     Wish $::thisProcess receives statements like \
@@ -261,22 +452,29 @@ On process "display" {
     Wish $::thisProcess receives statements like \
         [list /someone/ claims the clock time is /t/]
 
-    # TODO: Keep a clock so that this alwasys starts the video at frame 1 each time instead of whatever the global clock is
+    # Video playback processor
     When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ & the clock time is /t/ {
+        # Initialize start time if needed
+        set startTime [VideoState::getStartTime $thing]
+        if {$startTime == 0} {
+            VideoState::setStartTime $thing $t
+            Claim $thing has videoStartTime $t
+            set startTime $t
+        }
+        
+        # Get frame and display it
+        set frameNum [VideoState::getFrameNumber $thing $t]
+        set videoFrame [video::getVideoFrame $videoSrc $frameNum]
+        
         set center [region centroid $r]
-        set firstFrame [video video $videoSrc [expr {int($t)}]]
-        # Make this a result of a when eventually, hard coded rn 
-        Wish to draw an image with center $center image $firstFrame radians 0
-        Wish $thing is titled "should be displaying the first frame of $videoSrc"
+        set angle [region angle $r]
+        Wish to draw an image with center $center image $videoFrame radians $angle
+        
+        # Update title
+        set metadata [VideoState::getMetadata $videoSrc]
+        set totalFrames [dict get $metadata totalFrames]
+        Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames)"
     }
 }
 
-# e.g.
-# Wish $this displays video "/home/folk/bunny_1s_mute.mp4"
-# When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
-#     set center [region centroid $r]
-#     set firstFrame [video::video $videoSrc]
-#     # Make this a result of a when eventually, hard coded rn 
-#     Wish to draw an image with center $center image $firstFrame radians 0
-#     Wish $thing is titled "should be displaying the first frame of $videoSrc"
-# }
+# Example usage: Wish $this displays video "/path/to/video.mp4"
