@@ -939,8 +939,10 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
     } else if (item.op == RUN) {
+        Statement* when = statementUnsafeGet(db, item.run.when);
         Statement* stmt = statementUnsafeGet(db, item.run.stmt);
-        snprintf(buf, bufsz, "Run when (%.100s) (%.100s)",
+        snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
+                 when != NULL ? clauseToString(statementClause(when)) : "NULL",
                  clauseToString(item.run.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
     } else if (item.op == EVAL) {
@@ -1115,7 +1117,7 @@ int main(int argc, char** argv) {
     int cpuUsableCount = cpuCount - 1;
 #else
     // HACK: for macOS.
-    int cpuUsableCount = 4;
+    int cpuUsableCount = 8;
 #endif
 
     threadCount = 1; // i.e., this current thread.
