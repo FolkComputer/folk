@@ -22,7 +22,9 @@ void clauseFree(Clause* c) {
 }
 
 char* clauseToString(Clause* c) {
-    if (c == NULL || c->nTerms <= 0 || c->nTerms > 100) {
+    if (c == NULL) {
+        return strdup("<null clause>");
+    } else if (c->nTerms <= 0 || c->nTerms > 100) {
         return strdup("<invalid clause>");
     }
 
