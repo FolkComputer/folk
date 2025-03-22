@@ -710,6 +710,12 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
+    VkPipelineDynamicStateCreateInfo dynamicState = {0};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 1;
+    VkDynamicState dynamicStateViewport = VK_DYNAMIC_STATE_VIEWPORT;
+    dynamicState.pDynamicStates = &dynamicStateViewport;
+
     VkPipelineLayout pipelineLayout; {
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -747,7 +753,7 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = NULL;
         pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.pDynamicState = NULL;
+        pipelineInfo.pDynamicState = &dynamicState;
 
         pipelineInfo.layout = pipelineLayout;
 
@@ -813,6 +819,16 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         boundPipeline = pipeline.pipeline;
+
+        VkViewport viewport = {0}; {
+            viewport.x = 0.0f;
+            viewport.y = 0.0f;
+            viewport.width = (float) swapchainExtent.width;
+            viewport.height = (float) swapchainExtent.height;
+            viewport.minDepth = 0.0f;
+            viewport.maxDepth = 1.0f;
+        }
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
     }
 
     if (boundDescriptorSet != imageDescriptorSet) {
