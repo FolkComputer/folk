@@ -1,9 +1,65 @@
 # video.folk
 On process "display" {
     # Load the video utilities module
-    # Try multiple possible paths to find the video-utils.tcl file
-    set modulePath ""
-    source "./lib/video-utils.tcl"
+    set video_module_loaded 0
+    
+    # Double-buffering variables for smoother playback
+    variable currentFrameImage
+    variable nextFrameImage
+    
+    # Store any error messages for debugging
+    set ::lastError ""
+    
+    # Hard-coded absolute path to try first
+    set folk_home [file normalize [file dirname [file dirname [info script]]]]
+    set lib_path [file join $folk_home "lib" "video-utils.tcl"]
+    
+    puts stderr "Attempting to load video module from: $lib_path"
+    if {![catch {source $lib_path} err]} {
+        set video_module_loaded 1
+        puts stderr "Successfully loaded video module from: $lib_path"
+    } else {
+        set ::lastError $err
+        puts stderr "Error loading from $lib_path: $err"
+        
+        # Try alternate paths if needed
+        puts stderr "Will attempt alternate paths for video-utils.tcl"
+        # Improve path search order, ensure no duplicates
+        foreach path {
+            "./lib/video-utils.tcl"
+            "../lib/video-utils.tcl" 
+            "../../lib/video-utils.tcl" 
+            "/home/folk/folk/lib/video-utils.tcl"
+            "/home/folk/lib/video-utils.tcl"
+            "/Users/cwervo/code/folk/lib/video-utils.tcl" 
+        } {
+            puts stderr "Trying path: $path"
+            if {![catch {source $path} err]} {
+                set video_module_loaded 1
+                puts stderr "Successfully loaded video module from: $path"
+                break
+            } else {
+                append ::lastError " | $path: $err"
+                puts stderr "Error loading from $path: $err"
+            }
+        }
+    }
+    
+    # Verify module loaded successfully and key functions are available
+    if {!$video_module_loaded} {
+        puts stderr "ERROR: Could not load video-utils.tcl from any location: $::lastError"
+    } else {
+        # Verify required commands/namespaces exist
+        if {[namespace exists ::VideoState] && 
+            [llength [info commands video::getVideoFrame]] > 0 &&
+            [llength [info commands video::analyzeVideo]] > 0} {
+            puts stderr "Video module loaded successfully with all required functions"
+        } else {
+            set video_module_loaded 0
+            set ::lastError "Module loaded but functions missing: [info commands video::*]"
+            puts stderr "ERROR: $::lastError"
+        }
+    }
     
     # Register for events
     Wish $::thisProcess receives statements like [list /someone/ wishes /thing/ displays video /videoSrc/]
@@ -14,20 +70,115 @@ On process "display" {
 
     # Handle video source
     When /someone/ wishes /thing/ displays video /videoSrc/ {
-        puts stderr "Will play video: $videoSrc"
-        VideoState::registerSource $thing $videoSrc
-        Claim $thing has videoSource $videoSrc
-        Claim $thing has videoStartTime 0
-        video::analyzeVideo $videoSrc
+        # Check if video module is loaded
+        if {![info exists video_module_loaded] || !$video_module_loaded} {
+            puts stderr "ERROR: Cannot play video - video module not loaded"
+            # Try to create a dummy video renderer
+            Claim $thing has videoSource $videoSrc
+            Claim $thing has videoStartTime 0
+            Claim $thing has videoError "Module not loaded"
+            return
+        }
+        
+        # Verify video file exists and is accessible
+        if {![file exists $videoSrc]} {
+            puts stderr "ERROR: Video file does not exist: $videoSrc"
+            Claim $thing has videoError "File not found"
+            return
+        }
+        
+        if {![file readable $videoSrc]} {
+            puts stderr "ERROR: Video file is not readable: $videoSrc"
+            Claim $thing has videoError "File not readable"
+            return
+        }
+        
+        # Get absolute path to avoid path resolution issues
+        set absPath [file normalize $videoSrc]
+        puts stderr "Will play video: $absPath (original: $videoSrc)"
+        
+        # Register the video source
+        if {[catch {
+            VideoState::registerSource $thing $absPath
+            Claim $thing has videoSource $absPath
+            Claim $thing has videoStartTime 0
+            
+            # Analyze the video to extract metadata
+            if {[llength [info commands video::analyzeVideo]] > 0} {
+                video::analyzeVideo $absPath
+            } else {
+                puts stderr "ERROR: video::analyzeVideo command not available"
+            }
+        } err]} {
+            puts stderr "ERROR setting up video: $err"
+            Claim $thing has videoError $err
+        }
     }
 
     # Video playback with optimized throttling
     When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ & the clock time is /t/ {
+        Wish tag $thing is stabilized
+        # Check if video module is loaded
+        if {![info exists video_module_loaded] || !$video_module_loaded} {
+            # Handle missing module by showing an error message in the region
+            set center [region centroid $r]
+            set dims [region dimensions $r]
+            set width [lindex $dims 0]
+            set height [lindex $dims 1]
+            
+            # Create a message display with error info
+            set msg "Video module not loaded"
+            if {[info exists ::lastError]} {
+                set msg "$msg: $::lastError"
+            }
+            
+            # Show error message in the region title
+            Wish $thing is titled "VIDEO ERROR: $msg"
+            return
+        }
+        
+        # Get the absolute path using registered source or resolve it
+        set sourceToUse $videoSrc
+        if {[catch {
+            # First try to get registered source
+            set registeredSource [VideoState::getSource $thing]
+            if {$registeredSource ne ""} {
+                set sourceToUse $registeredSource
+            } else {
+                # Normalize path if file exists
+                if {[file exists $videoSrc]} {
+                    set sourceToUse [file normalize $videoSrc]
+                } else {
+                    # Try some common locations as a fallback
+                    set found 0
+                    foreach testPath [list \
+                        [file join $folk_home $videoSrc] \
+                        "/home/folk/$videoSrc" \
+                        "/home/folk/folk/$videoSrc" \
+                        "/tmp/$videoSrc"] {
+                        
+                        if {[file exists $testPath]} {
+                            set sourceToUse $testPath
+                            set found 1
+                            break
+                        }
+                    }
+                    
+                    if {!$found} {
+                        VideoState::log 0 "WARNING: Video file not found: $videoSrc"
+                    }
+                }
+            }
+        } err]} {
+            VideoState::log 0 "Error resolving video path: $err"
+        }
+
         # State variables
         variable lastFrame
         variable lastFrameNum
         variable lastFrameTime
         variable frameSkipCount
+        variable errorCount
         
         # Get video metadata
         set metadata [VideoState::getMetadata $videoSrc]
@@ -43,58 +194,144 @@ On process "display" {
             set startTime $t
             set lastFrameTime($thing) $t
             set frameSkipCount($thing) 0
+            if {![info exists errorCount($thing)]} {
+                set errorCount($thing) 0
+            }
         }
         
         # Get frame number with proper looping
         set frameNum [VideoState::getFrameNumber $thing $t]
         
-        # Smart throttling (different for short vs long videos)
+        # Optimize frame progression for smoother playback, especially at loop boundaries
+        variable lastFrameNum
+        if {[info exists lastFrameNum($thing)]} {
+            set prevFrame $lastFrameNum($thing)
+            set frameDiff [expr {abs($frameNum - $prevFrame)}]
+            
+            # Simple frame smoothing
+            if {$frameDiff > 5} {
+                if {$frameNum > $prevFrame} {
+                    # Forward jump - smooth it out
+                    set frameNum [expr {$prevFrame + 2}]
+                } else {
+                    # Backward jump - likely loop boundary
+                    if {$prevFrame >= ($totalFrames - 5) && $frameNum <= 5} {
+                        # Loop boundary - go to first frame smoothly
+                        set frameNum 1
+                    } else {
+                        # Regular backward jump
+                        set frameNum [expr {$prevFrame - 2}]
+                    }
+                }
+            }
+        }
+        
+        # Adaptive throttling - balance between smooth playback and CPU usage
         set processFrame 1
-        if {[info exists lastFrameTime($thing)]} {
+        
+        # Always process the first 10 frames to ensure video starts quickly
+        set isInitialFrames 0
+        if {![info exists frameSkipCount($thing)] || ![info exists lastFrameNum($thing)]} {
+            set isInitialFrames 1
+        } elseif {[info exists lastFrameNum($thing)] && $lastFrameNum($thing) < 10} {
+            set isInitialFrames 1
+        }
+        
+        # Skip throttling for initial frames to ensure quick startup
+        if {!$isInitialFrames && [info exists lastFrameTime($thing)]} {
             set timeSince [expr {$t - $lastFrameTime($thing)}]
             
-            # For very short videos (<3s), use higher frame rate
-            if {$duration < 3.0} {
-                # Process at max 20fps
-                if {$timeSince < 0.05} {
-                    set processFrame 0
-                    
-                    # But count skipped frames
-                    if {![info exists frameSkipCount($thing)]} {
-                        set frameSkipCount($thing) 0
-                    }
-                    incr frameSkipCount($thing)
-                    
-                    # Force occasional processing to avoid getting stuck
-                    if {$frameSkipCount($thing) > 5} {
-                        set processFrame 1
-                        set frameSkipCount($thing) 0
-                    }
-                } else {
-                    set lastFrameTime($thing) $t
+            # Base target frame rate on video properties
+            # Shorter videos get higher frame rates for smoother looping
+            if {$duration < 2.0} {
+                set targetInterval 0.03  ;# ~30 fps
+            } elseif {$duration < 5.0} {
+                set targetInterval 0.04  ;# ~25 fps
+            } else {
+                set targetInterval 0.05  ;# ~20 fps
+            }
+            
+            # Skip frame if we're trying to process too quickly
+            if {$timeSince < $targetInterval} {
+                set processFrame 0
+                
+                # Count skips for safety
+                if {![info exists frameSkipCount($thing)]} {
+                    set frameSkipCount($thing) 0
+                }
+                incr frameSkipCount($thing)
+                
+                # Force processing if we've skipped too many frames
+                # This prevents getting stuck if throttling is too aggressive
+                set maxSkips [expr {min(4, max(2, int($fps / 6)))}]
+                if {$frameSkipCount($thing) > $maxSkips} {
+                    set processFrame 1
                     set frameSkipCount($thing) 0
                 }
             } else {
-                # For longer videos, more aggressive throttling
-                if {$timeSince < 0.1} {
-                    set processFrame 0
-                } else {
-                    set lastFrameTime($thing) $t
-                }
+                # Reset skip counter and update timing
+                set lastFrameTime($thing) $t
+                set frameSkipCount($thing) 0
             }
         } else {
+            # Initialize timing for initial frames
             set lastFrameTime($thing) $t
             set frameSkipCount($thing) 0
         }
         
-        # Skip redundant frame processing
+        # Skip redundant frame processing - reuse last frame
         if {!$processFrame || ([info exists lastFrameNum($thing)] && $lastFrameNum($thing) == $frameNum)} {
-            # Redraw last frame if we have it
             if {[info exists lastFrame($thing)]} {
                 set center [region centroid $r]
                 set angle [region angle $r]
+                set width [region width $r]
+                set height [region height $r]
+                
+                # Clear and draw from cache
+                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
                 Wish to draw an image with center $center image $lastFrame($thing) radians $angle
+                return
             }
+        }
+        
+        # Check if the next frame we need is already prefetched
+        if {[info exists nextFrameImage($thing)] && 
+            [info exists lastFrameNum($thing)] && 
+            $frameNum == $lastFrameNum($thing) + 1} {
+            
+            # We have the next frame prefetched, use it directly
+            set center [region centroid $r]
+            set angle [region angle $r]
+            set width [region width $r]
+            set height [region height $r]
+            
+            # Clear region before drawing new frame
+            Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
+            
+            # Draw the prefetched frame
+            Wish to draw an image with center $center image $nextFrameImage($thing) radians $angle
+            
+            # Update tracking
+            set lastFrameNum($thing) $frameNum
+            set lastFrame($thing) $nextFrameImage($thing)
+            VideoState::log 2 "Using prefetched frame for $frameNum"
+            
+            # Simple next frame prefetch
+            set nextFrameNum [expr {$frameNum + 1}]
+            if {$nextFrameNum > $totalFrames * 0.9} {
+                set nextFrameNum 1
+            }
+            
+            catch {
+                set nextFrameImage($thing) [video::getVideoFrame $sourceToUse $nextFrameNum]
+            }
+            
+            # Update title
+            set elapsed [expr {$t - $startTime}]
+            set loopCount [expr {int($elapsed / $duration)}]
+            set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
+            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
+            
             return
         }
         
@@ -103,32 +340,97 @@ On process "display" {
         
         # Get and display frame
         if {[catch {
-            set frame [video::getVideoFrame $videoSrc $frameNum]
-            set lastFrame($thing) $frame
+            # Verify video function is available
+            if {[llength [info commands video::getVideoFrame]] == 0} {
+                error "video::getVideoFrame command not available"
+            }
             
-            # Display the frame
-            set center [region centroid $r]
-            set angle [region angle $r]
-            Wish to draw an image with center $center image $frame radians $angle
+            # Get the frame
+            set frame [video::getVideoFrame $sourceToUse $frameNum]
             
-            # Update title with simplified info
-            set elapsed [expr {$t - $startTime}]
-            set loopCount [expr {int($elapsed / $duration)}]
-            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames)"
+            # Handle debug frames (indicates problems)
+            variable debugFrameCount
+            if {![info exists debugFrameCount($thing)]} {
+                set debugFrameCount($thing) 0
+            }
+            
+            # Check for debug frame (magenta placeholder)
+            if {[expr {[image width $frame] == 256 && [image height $frame] == 144}]} {
+                incr debugFrameCount($thing)
+                
+                # After multiple debug frames, try recovery steps
+                if {$debugFrameCount($thing) > 3} {
+                    # Try to reset decoder if problems persist
+                    if {$debugFrameCount($thing) > 8} {
+                        VideoState::log 0 "Resetting video decoder after debug frames"
+                        VideoState::setStartTime $thing 0
+                        video::freeCache $::interp
+                        set debugFrameCount($thing) 0
+                    }
+                }
+            } else {
+                # Got good frame - reset debug counter
+                set debugFrameCount($thing) 0
+                
+                # Store in our local cache
+                set lastFrame($thing) $frame
+                
+                # Get region properties
+                set center [region centroid $r]
+                set angle [region angle $r]
+                set width [region width $r]
+                set height [region height $r]
+                
+                # Clear region before drawing new frame
+                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
+                Wish to draw an image with center $center image $frame radians $angle
+                
+                # Basic frame buffer
+                set currentFrameImage($thing) $frame
+                
+                # Simple prefetching logic
+                set nextFrameNum [expr {$frameNum + 1}]
+                if {$nextFrameNum > $totalFrames * 0.9} {
+                    set nextFrameNum 1
+                }
+                
+                # Only prefetch if not in initial frames startup
+                if {!$isInitialFrames} {
+                    catch {
+                        set nextFrameImage($thing) [video::getVideoFrame $sourceToUse $nextFrameNum]
+                    }
+                }
+                
+                # Update title with playback info
+                set elapsed [expr {$t - $startTime}]
+                set loopCount [expr {int($elapsed / $duration)}]
+                set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
+                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
+            }
         } err]} {
             # Error handling
-            VideoState::log 0 "Playback error: $err"
+            VideoState::log 0 "Error: $err"
             
-            # Use cached frame if available
+            # Use cached frame as fallback if available
             if {[info exists lastFrame($thing)]} {
                 set center [region centroid $r]
                 set angle [region angle $r]
+                set width [region width $r]
+                set height [region height $r]
+                
+                # Clear and draw with cached frame
+                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
                 Wish to draw an image with center $center image $lastFrame($thing) radians $angle
             }
             
-            # Reset if errors persist
-            if {[incr errorCount($thing) 0] > 3} {
-                VideoState::log 0 "Resetting video due to errors"
+            # Track errors and reset decoder if they persist
+            if {![info exists errorCount($thing)]} {
+                set errorCount($thing) 0
+            }
+            incr errorCount($thing)
+            
+            if {$errorCount($thing) > 5} {
+                VideoState::log 0 "Resetting video after repeated errors"
                 VideoState::setStartTime $thing 0
                 video::freeCache $::interp
                 set errorCount($thing) 0
