@@ -1,27 +1,9 @@
+# video.folk
 On process "display" {
     # Load the video utilities module
     # Try multiple possible paths to find the video-utils.tcl file
     set modulePath ""
-    set possiblePaths {
-        "./lib/video-utils.tcl"
-        "../lib/video-utils.tcl"
-        "../../lib/video-utils.tcl"
-        "/home/folk/folk/lib/video-utils.tcl"
-    }
-    
-    foreach path $possiblePaths {
-        if {[file exists $path]} {
-            set modulePath $path
-            break
-        }
-    }
-    
-    if {$modulePath eq ""} {
-        puts stderr "Cannot find video-utils.tcl in any expected location"
-    } else {
-        puts stderr "Loading video module from: $modulePath"
-        source $modulePath
-    }
+    source "./lib/video-utils.tcl"
     
     # Register for events
     Wish $::thisProcess receives statements like [list /someone/ wishes /thing/ displays video /videoSrc/]
