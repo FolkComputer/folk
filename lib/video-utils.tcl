@@ -1,12 +1,76 @@
 # video-utils.tcl
-# Video Utilities for Folk - Streamlined version
+# Video Utilities for Folk - Reorganized for maintainability
 # Handles video decoding, frame extraction, and caching
 
+#################################
+# VideoLogger - Logging System
+#################################
+namespace eval VideoLogger {
+    variable debug 0  # Set to 0 for production, 1 for minimal logs, 2+ for verbose
+    variable errorLog; array set errorLog {}
+    
+    # Debug flag that can be toggled externally
+    proc setDebugLevel {level} {
+        variable debug
+        set debug $level
+        log 0 "Video debug level set to $level"
+    }
+    
+    # Enhanced logging with timestamps
+    proc log {level message} {
+        variable debug
+        variable errorLog
+        
+        if {$level <= $debug} {
+            # Format message with level tag
+            set levelTag [lindex {ERR WARN INFO DBG} $level]
+            set formattedMsg "\[VIDEO:$levelTag\] $message"
+            
+            # Output to stderr
+            puts stderr $formattedMsg
+            
+            # Store recent errors and warnings
+            if {$level <= 1} {
+                set now [clock milliseconds]
+                lappend errorLog($now) [list $level $message]
+                # Keep only last 50 errors/warnings
+                if {[array size errorLog] > 50} {
+                    set oldestKey [lindex [lsort -integer [array names errorLog]] 0]
+                    unset errorLog($oldestKey)
+                }
+            }
+        }
+    }
+    
+    # Get recent errors for diagnostics
+    proc getRecentErrors {} {
+        variable errorLog
+        set result {}
+        foreach timestamp [lsort -integer -decreasing [array names errorLog]] {
+            foreach entry $errorLog($timestamp) {
+                lappend result [list $timestamp {*}$entry]
+            }
+            if {[llength $result] >= 10} break
+        }
+        return $result
+    }
+    
+    namespace export log setDebugLevel getRecentErrors
+    namespace ensemble create
+}
+
+#################################
+# VideoState - State tracking and metadata
+#################################
 namespace eval VideoState {
     variable sources; array set sources {}
     variable metadata; array set metadata {}
     variable errorLog; array set errorLog {}
     variable debug 0  # Set to 0 for production, 1 for minimal logs, 2+ for verbose
+    
+    # Performance tracking
+    variable stats
+    array set stats {frameCount 0 cacheHits 0 lastReport 0}
     
     # Debug flag that can be toggled externally
     proc setDebugLevel {level} {
@@ -191,10 +255,6 @@ namespace eval VideoState {
         return $frameNum
     }
     
-    # Performance tracking
-    variable stats
-    array set stats {frameCount 0 cacheHits 0 lastReport 0}
-    
     proc recordStats {isCache} {
         variable stats
         incr stats(frameCount)
@@ -210,9 +270,18 @@ namespace eval VideoState {
             set stats(lastReport) $now
         }
     }
+    
+    namespace export registerSource getSource updateMetadata getMetadata 
+    namespace export setStartTime getStartTime getFrameNumber recordStats
+    namespace export log setDebugLevel getRecentErrors
+    namespace ensemble create
 }
 
+#################################
+# video - Main video namespace with C implementation
+#################################
 namespace eval video {
+    # Create C compiler instance
     set cc [c create]
     ::defineImageType $cc
     $cc cflags -lavcodec -lavformat -lavutil -lswscale -Wno-deprecated-declarations
@@ -244,9 +313,43 @@ namespace eval video {
 
     $cc proc init {} void {}
     
-    # Forward declaration of logging function
+    # Simple logging function with improved escape handling
     $cc code {
-        static void cLog(Tcl_Interp* interp, char* msg);
+        static void cLog(Tcl_Interp* interp, char* msg) {
+            if (!interp) {
+                // Safeguard against NULL interpreter
+                fprintf(stderr, "[VIDEO:C] %s\n", msg);
+                return;
+            }
+            
+            // Use a larger buffer to avoid truncation
+            char cmd[1024];
+            
+            // Make a copy of the message for escaping
+            char escMsg[768];
+            strncpy(escMsg, msg, sizeof(escMsg)-1);
+            escMsg[sizeof(escMsg)-1] = '\0';
+            
+            // Escape braces and backslashes - fixed escaping
+            for (char* p = escMsg; *p; p++) {
+                if (*p == '{' || *p == '}' || *p == '\\' || *p == '[' || *p == ']') {
+                    *p = ' '; // Replace with space for safety
+                }
+            }
+            
+            // Determine log level based on message content
+            int logLevel = 0; // Default to highest priority
+            
+            // Check for common messages that should be level 1 (less critical)
+            if (strstr(escMsg, "Requesting frame") || 
+                strstr(escMsg, "Cache hit for frame")) {
+                logLevel = 1; // These are frequent and verbose, so log at level 1
+            }
+            
+            // Use the appropriate log level
+            snprintf(cmd, sizeof(cmd), "VideoState::log %d {%s}", logLevel, escMsg);
+            Tcl_Eval(interp, cmd);
+        }
     }
     
     # Debug image generator - made larger and more visible with pattern
@@ -334,44 +437,7 @@ namespace eval video {
         int nextCacheSlot = 0;
         int initialized = 0;
         
-        // Simple logging function with improved escape handling
-        static void cLog(Tcl_Interp* interp, char* msg) {
-            if (!interp) {
-                // Safeguard against NULL interpreter
-                fprintf(stderr, "[VIDEO:C] %s\n", msg);
-                return;
-            }
-            
-            // Use a larger buffer to avoid truncation
-            char cmd[1024];
-            
-            // Make a copy of the message for escaping
-            char escMsg[768];
-            strncpy(escMsg, msg, sizeof(escMsg)-1);
-            escMsg[sizeof(escMsg)-1] = '\0';
-            
-            // Escape braces and backslashes - fixed escaping
-            for (char* p = escMsg; *p; p++) {
-                if (*p == '{' || *p == '}' || *p == '\\' || *p == '[' || *p == ']') {
-                    *p = ' '; // Replace with space for safety
-                }
-            }
-            
-            // Determine log level based on message content
-            int logLevel = 0; // Default to highest priority
-            
-            // Check for common messages that should be level 1 (less critical)
-            if (strstr(escMsg, "Requesting frame") || 
-                strstr(escMsg, "Cache hit for frame")) {
-                logLevel = 1; // These are frequent and verbose, so log at level 1
-            }
-            
-            // Use the appropriate log level
-            snprintf(cmd, sizeof(cmd), "VideoState::log %d {%s}", logLevel, escMsg);
-            Tcl_Eval(interp, cmd);
-        }
-        
-        // Initialize cache and contexts with enhanced tracking
+        // Initialize cache and contexts
         void initializeCache() {
             if (initialized) return;
             
@@ -456,6 +522,8 @@ namespace eval video {
             for (int i = 0; i < MAX_CONTEXTS; i++) {
                 closeContext(i);
             }
+            
+            initialized = 0;
         }
         
         // Check if frame is magenta debug frame
@@ -1134,7 +1202,7 @@ namespace eval video {
     $cc compile
     init
 
-    namespace export *
+    namespace export getVideoFrame analyzeVideo freeCache
     namespace ensemble create
 }
 
