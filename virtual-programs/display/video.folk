@@ -115,8 +115,13 @@ On process "display" {
         }
     }
 
-    # Video playback with optimized throttling
-    When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ & the clock time is /t/ {
+    # Register region association for video regions
+    When /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has region /r/ {
+        Claim $thing has video region $r
+    }
+
+# Video playback with improved reactivity using frame number claims
+    When the clock time is /t/ & /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has video region /r/ {
         Wish tag $thing is stabilized
         # Check if video module is loaded
         if {![info exists video_module_loaded] || !$video_module_loaded} {
@@ -202,6 +207,22 @@ On process "display" {
         # Get frame number with proper looping
         set frameNum [VideoState::getFrameNumber $thing $t]
         
+        # Check if we're at the end of the video and should loop
+        if {$frameNum >= $totalFrames * 0.95} {
+            # Force loop by resetting start time - this is important to prevent stuck playback
+            set startTime $t
+            VideoState::setStartTime $thing $t
+            Claim $thing has videoStartTime $t
+            set frameNum 1
+            puts stderr "LOOP ENFORCED: Reset start time and forcing frame 1"
+        }
+        
+        # DEBUG: Log frame calculation details
+        puts stderr "FRAME_DEBUG: Calculating frame $frameNum for $thing at time $t (video: [file tail $sourceToUse])"
+        
+        # Claim the current frame number to trigger reactive updates
+        Claim $thing has video frame $frameNum
+        
         # Optimize frame progression for smoother playback, especially at loop boundaries
         variable lastFrameNum
         if {[info exists lastFrameNum($thing)]} {
@@ -279,7 +300,7 @@ On process "display" {
             set frameSkipCount($thing) 0
         }
         
-        # Skip redundant frame processing - reuse last frame
+        # Skip redundant frame processing - reuse last frame but ALWAYS redraw it
         if {!$processFrame || ([info exists lastFrameNum($thing)] && $lastFrameNum($thing) == $frameNum)} {
             if {[info exists lastFrame($thing)]} {
                 set center [region centroid $r]
@@ -287,9 +308,22 @@ On process "display" {
                 set width [region width $r]
                 set height [region height $r]
                 
-                # Clear and draw from cache
-                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
-                Wish to draw an image with center $center image $lastFrame($thing) radians $angle
+                # Force subtle region changes for redraws
+                set jiggle [expr {sin($t * 10) * 0.1}]
+                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                
+                # Always clear and redraw the frame to ensure it's visible even without region changes
+                Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
+                Wish to draw an image with center $jiggleCenter image $lastFrame($thing) radians $angle
+                
+                # Create a simple frame hash for tracking redraws of cached frames
+                set frameHash [expr {[image width $lastFrame($thing)] * [image height $lastFrame($thing)] + [clock milliseconds] % 1000}]
+                puts stderr "REDRAW_DEBUG: Redrawing cached frame $frameNum with hash $frameHash at center $jiggleCenter | Jiggle: $jiggle"
+                Claim $thing has frameHash $frameHash
+                
+                # Force a small change to ensure redraw
+                set now [clock milliseconds]
+                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum frames, loop active, t=$now)"
                 return
             }
         }
@@ -305,11 +339,18 @@ On process "display" {
             set width [region width $r]
             set height [region height $r]
             
+            # Force subtle region changes for prefetched frames
+            set jiggle [expr {sin($t * 10) * 0.1}]
+            set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+            
             # Clear region before drawing new frame
-            Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
+            Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
             
             # Draw the prefetched frame
-            Wish to draw an image with center $center image $nextFrameImage($thing) radians $angle
+            Wish to draw an image with center $jiggleCenter image $nextFrameImage($thing) radians $angle
+            
+            # Log jiggle details
+            puts stderr "PREFETCH_DEBUG: Using prefetched frame $frameNum at center $jiggleCenter | Jiggle: $jiggle"
             
             # Update tracking
             set lastFrameNum($thing) $frameNum
@@ -320,17 +361,21 @@ On process "display" {
             set nextFrameNum [expr {$frameNum + 1}]
             if {$nextFrameNum > $totalFrames * 0.9} {
                 set nextFrameNum 1
+                VideoState::log 0 "Prefetching at loop boundary: resetting to first frame"
             }
             
             catch {
                 set nextFrameImage($thing) [video::getVideoFrame $sourceToUse $nextFrameNum]
             }
             
-            # Update title
+            # Update title with dynamic content to ensure frame updates are processed
             set elapsed [expr {$t - $startTime}]
             set loopCount [expr {int($elapsed / $duration)}]
             set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
-            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
+            
+            # Use current time in title to ensure constant updates
+            set now [clock milliseconds]
+            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount, t=$now)"
             
             return
         }
@@ -375,15 +420,40 @@ On process "display" {
                 # Store in our local cache
                 set lastFrame($thing) $frame
                 
+                # Create a simple frame hash for tracking - uses image dimensions and first few pixels as a fingerprint
+                set frameHash [expr {[image width $frame] * [image height $frame] + [clock milliseconds] % 1000}]
+                puts stderr "FRAME_HASH: Frame $frameNum has hash $frameHash (w:[image width $frame] h:[image height $frame])"
+                Claim $thing has frameHash $frameHash
+                
                 # Get region properties
                 set center [region centroid $r]
                 set angle [region angle $r]
                 set width [region width $r]
                 set height [region height $r]
                 
+                # Track region movement for debugging
+                variable lastRegionCenter
+                set centerDiff {0 0}
+                set diffMagnitude 0
+                if {[info exists lastRegionCenter($thing)]} {
+                    set prevCenter $lastRegionCenter($thing)
+                    set diffX [expr {[lindex $center 0] - [lindex $prevCenter 0]}]
+                    set diffY [expr {[lindex $center 1] - [lindex $prevCenter 1]}]
+                    set centerDiff [list $diffX $diffY]
+                    set diffMagnitude [expr {sqrt(pow($diffX, 2) + pow($diffY, 2))}]
+                }
+                set lastRegionCenter($thing) $center
+                
+                # Force subtle region changes to ensure redraw
+                set jiggle [expr {sin($t * 10) * 0.1}]
+                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                
                 # Clear region before drawing new frame
-                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
-                Wish to draw an image with center $center image $frame radians $angle
+                Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
+                Wish to draw an image with center $jiggleCenter image $frame radians $angle
+                
+                # DEBUG: Log draw request with region movement details
+                puts stderr "DRAW_DEBUG: Drawing frame $frameNum with hash $frameHash at center $jiggleCenter | Movement: $centerDiff (mag: [format "%.2f" $diffMagnitude]) | Jiggle: $jiggle"
                 
                 # Basic frame buffer
                 set currentFrameImage($thing) $frame
@@ -392,6 +462,7 @@ On process "display" {
                 set nextFrameNum [expr {$frameNum + 1}]
                 if {$nextFrameNum > $totalFrames * 0.9} {
                     set nextFrameNum 1
+                    VideoState::log 0 "Prefetching loop boundary: resetting to first frame"
                 }
                 
                 # Only prefetch if not in initial frames startup
@@ -401,11 +472,12 @@ On process "display" {
                     }
                 }
                 
-                # Update title with playback info
+                # Update title with playback info and current time to ensure constant updates
                 set elapsed [expr {$t - $startTime}]
                 set loopCount [expr {int($elapsed / $duration)}]
                 set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
-                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
+                set now [clock milliseconds]
+                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount, t=$now)"
             }
         } err]} {
             # Error handling
@@ -418,9 +490,20 @@ On process "display" {
                 set width [region width $r]
                 set height [region height $r]
                 
-                # Clear and draw with cached frame
-                Wish to draw a fill with center $center width $width height $height color {0 0 0 0}
-                Wish to draw an image with center $center image $lastFrame($thing) radians $angle
+                # Force movement in error recovery path
+                set jiggle [expr {sin([clock milliseconds] * 0.01) * 0.1}]
+                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                
+                # Clear and draw with cached frame - always redraw to ensure visibility
+                Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
+                Wish to draw an image with center $jiggleCenter image $lastFrame($thing) radians $angle
+                
+                # Log error recovery with jiggle
+                puts stderr "ERROR_RECOVERY: Drawing error recovery frame at center $jiggleCenter | Jiggle: $jiggle"
+                
+                # Force update by changing title
+                set now [clock milliseconds]
+                Wish $thing is titled "Video: Error recovery ($now)"
             }
             
             # Track errors and reset decoder if they persist
@@ -436,6 +519,66 @@ On process "display" {
                 set errorCount($thing) 0
             }
         }
+    }
+}
+
+# Add a purely reactive render path that responds to frame changes
+When /thing/ has video frame /frameNum/ & /thing/ has video region /r/ & /thing/ has videoSource /videoSrc/ {
+    # Get the frame from the cache or decode it
+    variable lastFrame
+    
+    # DEBUG: Log reactive rule trigger
+    puts stderr "REACTIVE_DEBUG: Reactive render triggered for $thing, frame $frameNum"
+    
+    if {![info exists video_module_loaded] || !$video_module_loaded} {
+        puts stderr "REACTIVE_DEBUG: Video module not loaded, skipping reactive render"
+        return
+    }
+    
+    # Get the frame (use cached version if we have it)
+    if {[info exists lastFrame($thing)] && $lastFrame($thing) != ""} {
+        set frame $lastFrame($thing)
+        
+        # Update display
+        set center [region centroid $r]
+        set angle [region angle $r]
+        
+        # Track region movement for reactive rendering
+        variable lastReactiveCenter
+        set centerDiff {0 0}
+        set diffMagnitude 0
+        if {[info exists lastReactiveCenter($thing)]} {
+            set prevCenter $lastReactiveCenter($thing)
+            set diffX [expr {[lindex $center 0] - [lindex $prevCenter 0]}]
+            set diffY [expr {[lindex $center 1] - [lindex $prevCenter 1]}]
+            set centerDiff [list $diffX $diffY]
+            set diffMagnitude [expr {sqrt(pow($diffX, 2) + pow($diffY, 2))}]
+        }
+        set lastReactiveCenter($thing) $center
+        
+        # Calculate a unique hash for this frame
+        set frameHash [expr {[image width $frame] * [image height $frame] + [clock milliseconds] % 1000}]
+        puts stderr "REACTIVE_HASH: Reactive rendering frame $frameNum with hash $frameHash at center $center | Movement: $centerDiff (mag: [format "%.2f" $diffMagnitude])"
+        
+        # Force subtle position changes to ensure redraw in reactive path
+        set jiggle [expr {sin([clock milliseconds] * 0.01) * 0.1}]
+        set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+        
+        # Always redraw the frame
+        Wish to draw a fill with center $jiggleCenter width [region width $r] height [region height $r] color {0 0 0 0}
+        Wish to draw an image with center $jiggleCenter image $frame radians $angle
+        
+        # Log jiggle details
+        puts stderr "REACTIVE_RENDER: Drawing reactive frame $frameNum at center $jiggleCenter | Jiggle: $jiggle"
+        
+        # Update title with dynamic content - include hash to ensure it's always different
+        set now [clock milliseconds]
+        Wish $thing is titled "Video: [file tail $videoSrc] (Frame: $frameNum, hash: $frameHash, t=$now)"
+        
+        # Update the frame hash claim to ensure reactivity
+        Claim $thing has frameHash $frameHash
+    } else {
+        puts stderr "REACTIVE_DEBUG: No cached frame found for $thing"
     }
 }
 

@@ -135,13 +135,24 @@ namespace eval VideoState {
             if {$isLoopStart} {
                 # Log loop transitions (only once per loop)
                 if {![info exists lastLoopCount($thing)] || $lastLoopCount($thing) != $loopCount} {
-                    log 0 "Loop transition - loop #$loopCount (time=$time)"
+                    log 0 "LOOP DETECTED - loop #$loopCount (time=$time) - forcing transition"
                     set lastLoopCount($thing) $loopCount
                     set loopTransitionActive($thing) 1
+                    
+                    # Flag to ensure we actually loop in the case where we miss a frame
+                    if {![info exists metadata($thing)]} {
+                        set metadata($thing) [dict create]
+                    }
+                    dict set metadata($thing) forceLoop 1
                 }
             } elseif {$loopPosition > 0.2} {
                 # Clear the transition flag when we're well past the start
                 set loopTransitionActive($thing) 0
+                
+                # Clear forced loop flag
+                if {[info exists metadata($thing)] && [dict exists $metadata($thing) forceLoop]} {
+                    dict unset metadata($thing) forceLoop
+                }
             }
         }
         
@@ -150,8 +161,22 @@ namespace eval VideoState {
         
         # Apply safety margin (max 95% of total frames)
         set safeMaxFrame [expr {int($totalFrames * 0.95)}]
-        if {$frameNum > $safeMaxFrame} {set frameNum $safeMaxFrame}
+        if {$frameNum > $safeMaxFrame} {
+            # Reset to first frame when we reach the end to ensure proper looping
+            set frameNum 1
+            # Log the loop boundary
+            log 0 "Loop boundary reached: resetting to frame 1 from $safeMaxFrame"
+        }
         if {$frameNum < 1} {set frameNum 1}
+        
+        # Check for forced loop situation
+        if {[info exists metadata($thing)] && 
+            [dict exists $metadata($thing) forceLoop] && 
+            [dict get $metadata($thing) forceLoop]} {
+            # If we've flagged a force loop, reset to first frame
+            set frameNum 1
+            log 0 "Forced loop active: sending frame 1"
+        }
         
         # Simple loop transition handling
         if {[info exists loopTransitionActive($thing)] && $loopTransitionActive($thing)} {
