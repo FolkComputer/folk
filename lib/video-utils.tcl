@@ -6,30 +6,33 @@ namespace eval VideoState {
     variable sources; array set sources {}
     variable metadata; array set metadata {}
     variable errorLog; array set errorLog {}
-    variable debug 2
+    variable debug 0  # Set to 0 for production, 1 for minimal logs, 2+ for verbose
     
-    # Enhanced logging with timestamps and optional file logging
+    # Debug flag that can be toggled externally
+    proc setDebugLevel {level} {
+        variable debug
+        set debug $level
+        log 0 "Video debug level set to $level"
+    }
+    
+    # Enhanced logging with timestamps
     proc log {level message} {
         variable debug
         variable errorLog
         
         if {$level <= $debug} {
-            # Get current timestamp with milliseconds
-            set now [clock milliseconds]
-            set timestamp [clock format [expr {$now / 1000}] -format "%H:%M:%S"]
-            append timestamp .[format "%03d" [expr {$now % 1000}]]
-            
-            # Format message with timestamp and level
+            # Format message with level tag
             set levelTag [lindex {ERR WARN INFO DBG} $level]
             set formattedMsg "\[VIDEO:$levelTag\] $message"
             
             # Output to stderr
             puts stderr $formattedMsg
             
-            # Store recent errors and warnings for diagnostics
+            # Store recent errors and warnings
             if {$level <= 1} {
+                set now [clock milliseconds]
                 lappend errorLog($now) [list $level $message]
-                # Keep only last 50 errors/warnings to avoid memory leaks
+                # Keep only last 50 errors/warnings
                 if {[array size errorLog] > 50} {
                     set oldestKey [lindex [lsort -integer [array names errorLog]] 0]
                     unset errorLog($oldestKey)
@@ -354,8 +357,17 @@ namespace eval video {
                 }
             }
             
-            // Use the escaped message
-            snprintf(cmd, sizeof(cmd), "VideoState::log 0 {%s}", escMsg);
+            // Determine log level based on message content
+            int logLevel = 0; // Default to highest priority
+            
+            // Check for common messages that should be level 1 (less critical)
+            if (strstr(escMsg, "Requesting frame") || 
+                strstr(escMsg, "Cache hit for frame")) {
+                logLevel = 1; // These are frequent and verbose, so log at level 1
+            }
+            
+            // Use the appropriate log level
+            snprintf(cmd, sizeof(cmd), "VideoState::log %d {%s}", logLevel, escMsg);
             Tcl_Eval(interp, cmd);
         }
         

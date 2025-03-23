@@ -1,30 +1,34 @@
-# video.folk
+# video.folk - Optimized video display component for Folk
 On process "display" {
+    # Configuration options
+    set video_debug 0         ;# Set to 1 for basic debugging, 2+ for verbose
+    set enable_jiggle 1       ;# Enable subtle position changes to force redraw
+    set jiggle_amplitude 0.1  ;# How much to jiggle (in pixels)
+    
     # Load the video utilities module
     set video_module_loaded 0
-    
-    # Double-buffering variables for smoother playback
     variable currentFrameImage
     variable nextFrameImage
-    
-    # Store any error messages for debugging
     set ::lastError ""
     
-    # Hard-coded absolute path to try first
+    # Load video-utils.tcl from standard location first
     set folk_home [file normalize [file dirname [file dirname [info script]]]]
     set lib_path [file join $folk_home "lib" "video-utils.tcl"]
     
-    puts stderr "Attempting to load video module from: $lib_path"
     if {![catch {source $lib_path} err]} {
         set video_module_loaded 1
-        puts stderr "Successfully loaded video module from: $lib_path"
+        if {$video_debug} {
+            puts stderr "Video module loaded from: $lib_path"
+            # Set debug level in video utilities
+            if {[info commands VideoState::setDebugLevel] != ""} {
+                VideoState::setDebugLevel $video_debug
+            }
+        }
     } else {
         set ::lastError $err
         puts stderr "Error loading from $lib_path: $err"
         
         # Try alternate paths if needed
-        puts stderr "Will attempt alternate paths for video-utils.tcl"
-        # Improve path search order, ensure no duplicates
         foreach path {
             "./lib/video-utils.tcl"
             "../lib/video-utils.tcl" 
@@ -33,32 +37,59 @@ On process "display" {
             "/home/folk/lib/video-utils.tcl"
             "/Users/cwervo/code/folk/lib/video-utils.tcl" 
         } {
-            puts stderr "Trying path: $path"
             if {![catch {source $path} err]} {
                 set video_module_loaded 1
-                puts stderr "Successfully loaded video module from: $path"
+                if {$video_debug} { puts stderr "Video module loaded from: $path" }
                 break
-            } else {
-                append ::lastError " | $path: $err"
-                puts stderr "Error loading from $path: $err"
             }
         }
     }
     
-    # Verify module loaded successfully and key functions are available
+    # Verify module loaded successfully
     if {!$video_module_loaded} {
-        puts stderr "ERROR: Could not load video-utils.tcl from any location: $::lastError"
-    } else {
-        # Verify required commands/namespaces exist
-        if {[namespace exists ::VideoState] && 
-            [llength [info commands video::getVideoFrame]] > 0 &&
-            [llength [info commands video::analyzeVideo]] > 0} {
-            puts stderr "Video module loaded successfully with all required functions"
-        } else {
-            set video_module_loaded 0
-            set ::lastError "Module loaded but functions missing: [info commands video::*]"
-            puts stderr "ERROR: $::lastError"
+        puts stderr "ERROR: Could not load video-utils.tcl"
+    } elseif {![namespace exists ::VideoState] || 
+              [llength [info commands video::getVideoFrame]] == 0 ||
+              [llength [info commands video::analyzeVideo]] == 0} {
+        set video_module_loaded 0
+        puts stderr "ERROR: Video module loaded but functions missing"
+    }
+    
+    # Debug helper for video events
+    proc debug {level message} {
+        # Access the debug variable at the process level
+        variable video_debug
+        if {![info exists video_debug]} {
+            set video_debug 0
         }
+        
+        if {$level <= $video_debug} {
+            puts stderr "VIDEO($level): $message"
+        }
+    }
+
+    # Create jiggled center coordinates to force redraw
+    proc jiggleCenter {center time} {
+        # Access variables at the process level
+        variable enable_jiggle
+        variable jiggle_amplitude
+        
+        # Use default values if not set
+        if {![info exists enable_jiggle]} {
+            set enable_jiggle 1
+        }
+        if {![info exists jiggle_amplitude]} {
+            set jiggle_amplitude 0.1
+        }
+        
+        # Return original center if jiggle disabled
+        if {!$enable_jiggle} {
+            return $center
+        }
+        
+        # Calculate subtle jiggle based on time
+        set jiggle [expr {sin($time * 10) * $jiggle_amplitude}]
+        return [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
     }
     
     # Register for events
@@ -73,7 +104,6 @@ On process "display" {
         # Check if video module is loaded
         if {![info exists video_module_loaded] || !$video_module_loaded} {
             puts stderr "ERROR: Cannot play video - video module not loaded"
-            # Try to create a dummy video renderer
             Claim $thing has videoSource $videoSrc
             Claim $thing has videoStartTime 0
             Claim $thing has videoError "Module not loaded"
@@ -95,7 +125,7 @@ On process "display" {
         
         # Get absolute path to avoid path resolution issues
         set absPath [file normalize $videoSrc]
-        puts stderr "Will play video: $absPath (original: $videoSrc)"
+        debug 1 "Playing video: $absPath"
         
         # Register the video source
         if {[catch {
@@ -106,8 +136,6 @@ On process "display" {
             # Analyze the video to extract metadata
             if {[llength [info commands video::analyzeVideo]] > 0} {
                 video::analyzeVideo $absPath
-            } else {
-                puts stderr "ERROR: video::analyzeVideo command not available"
             }
         } err]} {
             puts stderr "ERROR setting up video: $err"
@@ -120,57 +148,34 @@ On process "display" {
         Claim $thing has video region $r
     }
 
-# Video playback with improved reactivity using frame number claims
+    # Main video playback processor - runs on clock time
     When the clock time is /t/ & /someone/ wishes /thing/ displays video /videoSrc/ & /thing/ has video region /r/ {
         Wish tag $thing is stabilized
+        
         # Check if video module is loaded
         if {![info exists video_module_loaded] || !$video_module_loaded} {
-            # Handle missing module by showing an error message in the region
-            set center [region centroid $r]
-            set dims [region dimensions $r]
-            set width [lindex $dims 0]
-            set height [lindex $dims 1]
-            
-            # Create a message display with error info
-            set msg "Video module not loaded"
-            if {[info exists ::lastError]} {
-                set msg "$msg: $::lastError"
-            }
-            
-            # Show error message in the region title
-            Wish $thing is titled "VIDEO ERROR: $msg"
+            Wish $thing is titled "VIDEO ERROR: Module not loaded"
             return
         }
         
         # Get the absolute path using registered source or resolve it
         set sourceToUse $videoSrc
         if {[catch {
-            # First try to get registered source
             set registeredSource [VideoState::getSource $thing]
             if {$registeredSource ne ""} {
                 set sourceToUse $registeredSource
+            } elseif {[file exists $videoSrc]} {
+                set sourceToUse [file normalize $videoSrc]
             } else {
-                # Normalize path if file exists
-                if {[file exists $videoSrc]} {
-                    set sourceToUse [file normalize $videoSrc]
-                } else {
-                    # Try some common locations as a fallback
-                    set found 0
-                    foreach testPath [list \
-                        [file join $folk_home $videoSrc] \
-                        "/home/folk/$videoSrc" \
-                        "/home/folk/folk/$videoSrc" \
-                        "/tmp/$videoSrc"] {
-                        
-                        if {[file exists $testPath]} {
-                            set sourceToUse $testPath
-                            set found 1
-                            break
-                        }
-                    }
-                    
-                    if {!$found} {
-                        VideoState::log 0 "WARNING: Video file not found: $videoSrc"
+                # Try some common locations as fallback
+                foreach testPath [list \
+                    [file join $folk_home $videoSrc] \
+                    "/home/folk/$videoSrc" \
+                    "/home/folk/folk/$videoSrc" \
+                    "/tmp/$videoSrc"] {
+                    if {[file exists $testPath]} {
+                        set sourceToUse $testPath
+                        break
                     }
                 }
             }
@@ -178,12 +183,13 @@ On process "display" {
             VideoState::log 0 "Error resolving video path: $err"
         }
 
-        # State variables
+        # State tracking variables
         variable lastFrame
         variable lastFrameNum
         variable lastFrameTime
         variable frameSkipCount
         variable errorCount
+        variable lastRegionCenter
         
         # Get video metadata
         set metadata [VideoState::getMetadata $videoSrc]
@@ -207,63 +213,53 @@ On process "display" {
         # Get frame number with proper looping
         set frameNum [VideoState::getFrameNumber $thing $t]
         
-        # Check if we're at the end of the video and should loop
+        # Reset at end of video to ensure proper looping
         if {$frameNum >= $totalFrames * 0.95} {
-            # Force loop by resetting start time - this is important to prevent stuck playback
             set startTime $t
             VideoState::setStartTime $thing $t
             Claim $thing has videoStartTime $t
             set frameNum 1
-            puts stderr "LOOP ENFORCED: Reset start time and forcing frame 1"
+            debug 1 "Loop reset: forcing frame 1"
         }
         
-        # DEBUG: Log frame calculation details
-        puts stderr "FRAME_DEBUG: Calculating frame $frameNum for $thing at time $t (video: [file tail $sourceToUse])"
-        
-        # Claim the current frame number to trigger reactive updates
+        # Claim current frame to trigger reactive updates
         Claim $thing has video frame $frameNum
         
-        # Optimize frame progression for smoother playback, especially at loop boundaries
-        variable lastFrameNum
+        # Smooth out frame jumps
         if {[info exists lastFrameNum($thing)]} {
             set prevFrame $lastFrameNum($thing)
             set frameDiff [expr {abs($frameNum - $prevFrame)}]
             
-            # Simple frame smoothing
             if {$frameDiff > 5} {
                 if {$frameNum > $prevFrame} {
                     # Forward jump - smooth it out
                     set frameNum [expr {$prevFrame + 2}]
+                } elseif {$prevFrame >= ($totalFrames - 5) && $frameNum <= 5} {
+                    # Loop boundary - go to first frame smoothly
+                    set frameNum 1
                 } else {
-                    # Backward jump - likely loop boundary
-                    if {$prevFrame >= ($totalFrames - 5) && $frameNum <= 5} {
-                        # Loop boundary - go to first frame smoothly
-                        set frameNum 1
-                    } else {
-                        # Regular backward jump
-                        set frameNum [expr {$prevFrame - 2}]
-                    }
+                    # Regular backward jump
+                    set frameNum [expr {$prevFrame - 2}]
                 }
             }
         }
         
-        # Adaptive throttling - balance between smooth playback and CPU usage
+        # Adaptive throttling for consistent frame rate
         set processFrame 1
-        
-        # Always process the first 10 frames to ensure video starts quickly
         set isInitialFrames 0
-        if {![info exists frameSkipCount($thing)] || ![info exists lastFrameNum($thing)]} {
-            set isInitialFrames 1
-        } elseif {[info exists lastFrameNum($thing)] && $lastFrameNum($thing) < 10} {
+        
+        # Always process first 10 frames to ensure quick startup
+        if {![info exists frameSkipCount($thing)] || 
+            ![info exists lastFrameNum($thing)] || 
+            [info exists lastFrameNum($thing)] && $lastFrameNum($thing) < 10} {
             set isInitialFrames 1
         }
         
-        # Skip throttling for initial frames to ensure quick startup
+        # Skip throttling for initial frames
         if {!$isInitialFrames && [info exists lastFrameTime($thing)]} {
             set timeSince [expr {$t - $lastFrameTime($thing)}]
             
-            # Base target frame rate on video properties
-            # Shorter videos get higher frame rates for smoother looping
+            # Set target frame rate based on video duration
             if {$duration < 2.0} {
                 set targetInterval 0.03  ;# ~30 fps
             } elseif {$duration < 5.0} {
@@ -272,7 +268,7 @@ On process "display" {
                 set targetInterval 0.05  ;# ~20 fps
             }
             
-            # Skip frame if we're trying to process too quickly
+            # Skip frame if we're processing too quickly
             if {$timeSince < $targetInterval} {
                 set processFrame 0
                 
@@ -282,8 +278,7 @@ On process "display" {
                 }
                 incr frameSkipCount($thing)
                 
-                # Force processing if we've skipped too many frames
-                # This prevents getting stuck if throttling is too aggressive
+                # Force processing if we've skipped too many
                 set maxSkips [expr {min(4, max(2, int($fps / 6)))}]
                 if {$frameSkipCount($thing) > $maxSkips} {
                     set processFrame 1
@@ -300,7 +295,7 @@ On process "display" {
             set frameSkipCount($thing) 0
         }
         
-        # Skip redundant frame processing - reuse last frame but ALWAYS redraw it
+        # Skip redundant frame processing - reuse last frame but always redraw it
         if {!$processFrame || ([info exists lastFrameNum($thing)] && $lastFrameNum($thing) == $frameNum)} {
             if {[info exists lastFrame($thing)]} {
                 set center [region centroid $r]
@@ -308,110 +303,88 @@ On process "display" {
                 set width [region width $r]
                 set height [region height $r]
                 
-                # Force subtle region changes for redraws
-                set jiggle [expr {sin($t * 10) * 0.1}]
-                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                # Get jiggled center for forced redraw
+                set jiggleCenter [jiggleCenter $center $t]
                 
-                # Always clear and redraw the frame to ensure it's visible even without region changes
+                # Always clear and redraw to ensure visibility
                 Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
                 Wish to draw an image with center $jiggleCenter image $lastFrame($thing) radians $angle
                 
-                # Create a simple frame hash for tracking redraws of cached frames
-                set frameHash [expr {[image width $lastFrame($thing)] * [image height $lastFrame($thing)] + [clock milliseconds] % 1000}]
-                puts stderr "REDRAW_DEBUG: Redrawing cached frame $frameNum with hash $frameHash at center $jiggleCenter | Jiggle: $jiggle"
-                Claim $thing has frameHash $frameHash
-                
-                # Force a small change to ensure redraw
+                # Dynamic timestamp in title to force UI updates
                 set now [clock milliseconds]
-                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum frames, loop active, t=$now)"
+                Wish $thing is titled "Video: [file tail $videoSrc] (frame $frameNum, t=$now)"
                 return
             }
         }
         
-        # Check if the next frame we need is already prefetched
+        # Check if the next frame is already prefetched
         if {[info exists nextFrameImage($thing)] && 
             [info exists lastFrameNum($thing)] && 
             $frameNum == $lastFrameNum($thing) + 1} {
             
-            # We have the next frame prefetched, use it directly
+            # Use the prefetched frame directly
             set center [region centroid $r]
             set angle [region angle $r]
             set width [region width $r]
             set height [region height $r]
             
-            # Force subtle region changes for prefetched frames
-            set jiggle [expr {sin($t * 10) * 0.1}]
-            set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+            # Get jiggled center for forced redraw
+            set jiggleCenter [jiggleCenter $center $t]
             
-            # Clear region before drawing new frame
+            # Clear and draw new frame
             Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
-            
-            # Draw the prefetched frame
             Wish to draw an image with center $jiggleCenter image $nextFrameImage($thing) radians $angle
-            
-            # Log jiggle details
-            puts stderr "PREFETCH_DEBUG: Using prefetched frame $frameNum at center $jiggleCenter | Jiggle: $jiggle"
             
             # Update tracking
             set lastFrameNum($thing) $frameNum
             set lastFrame($thing) $nextFrameImage($thing)
-            VideoState::log 2 "Using prefetched frame for $frameNum"
+            debug 2 "Using prefetched frame $frameNum"
             
-            # Simple next frame prefetch
+            # Prefetch next frame
             set nextFrameNum [expr {$frameNum + 1}]
             if {$nextFrameNum > $totalFrames * 0.9} {
                 set nextFrameNum 1
-                VideoState::log 0 "Prefetching at loop boundary: resetting to first frame"
+                debug 1 "Prefetching at loop boundary: frame 1"
             }
             
             catch {
                 set nextFrameImage($thing) [video::getVideoFrame $sourceToUse $nextFrameNum]
             }
             
-            # Update title with dynamic content to ensure frame updates are processed
+            # Update playback info in title
             set elapsed [expr {$t - $startTime}]
             set loopCount [expr {int($elapsed / $duration)}]
             set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
-            
-            # Use current time in title to ensure constant updates
             set now [clock milliseconds]
-            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount, t=$now)"
+            Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
             
             return
         }
         
-        # Update tracking
+        # Update tracking for main render path
         set lastFrameNum($thing) $frameNum
         
         # Get and display frame
         if {[catch {
-            # Verify video function is available
-            if {[llength [info commands video::getVideoFrame]] == 0} {
-                error "video::getVideoFrame command not available"
-            }
-            
             # Get the frame
             set frame [video::getVideoFrame $sourceToUse $frameNum]
             
-            # Handle debug frames (indicates problems)
+            # Handle debug frames (magenta placeholders)
             variable debugFrameCount
             if {![info exists debugFrameCount($thing)]} {
                 set debugFrameCount($thing) 0
             }
             
-            # Check for debug frame (magenta placeholder)
+            # Check for debug frame
             if {[expr {[image width $frame] == 256 && [image height $frame] == 144}]} {
                 incr debugFrameCount($thing)
                 
-                # After multiple debug frames, try recovery steps
-                if {$debugFrameCount($thing) > 3} {
-                    # Try to reset decoder if problems persist
-                    if {$debugFrameCount($thing) > 8} {
-                        VideoState::log 0 "Resetting video decoder after debug frames"
-                        VideoState::setStartTime $thing 0
-                        video::freeCache $::interp
-                        set debugFrameCount($thing) 0
-                    }
+                # Reset decoder if problems persist
+                if {$debugFrameCount($thing) > 8} {
+                    VideoState::log 0 "Resetting video decoder after debug frames"
+                    VideoState::setStartTime $thing 0
+                    video::freeCache $::interp
+                    set debugFrameCount($thing) 0
                 }
             } else {
                 # Got good frame - reset debug counter
@@ -420,9 +393,8 @@ On process "display" {
                 # Store in our local cache
                 set lastFrame($thing) $frame
                 
-                # Create a simple frame hash for tracking - uses image dimensions and first few pixels as a fingerprint
+                # Calculate frame hash for tracking
                 set frameHash [expr {[image width $frame] * [image height $frame] + [clock milliseconds] % 1000}]
-                puts stderr "FRAME_HASH: Frame $frameNum has hash $frameHash (w:[image width $frame] h:[image height $frame])"
                 Claim $thing has frameHash $frameHash
                 
                 # Get region properties
@@ -431,77 +403,64 @@ On process "display" {
                 set width [region width $r]
                 set height [region height $r]
                 
-                # Track region movement for debugging
-                variable lastRegionCenter
+                # Track region movement
                 set centerDiff {0 0}
-                set diffMagnitude 0
                 if {[info exists lastRegionCenter($thing)]} {
                     set prevCenter $lastRegionCenter($thing)
                     set diffX [expr {[lindex $center 0] - [lindex $prevCenter 0]}]
                     set diffY [expr {[lindex $center 1] - [lindex $prevCenter 1]}]
                     set centerDiff [list $diffX $diffY]
-                    set diffMagnitude [expr {sqrt(pow($diffX, 2) + pow($diffY, 2))}]
                 }
                 set lastRegionCenter($thing) $center
                 
-                # Force subtle region changes to ensure redraw
-                set jiggle [expr {sin($t * 10) * 0.1}]
-                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                # Get jiggled center for forced redraw
+                set jiggleCenter [jiggleCenter $center $t]
                 
-                # Clear region before drawing new frame
+                # Clear and draw new frame
                 Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
                 Wish to draw an image with center $jiggleCenter image $frame radians $angle
                 
-                # DEBUG: Log draw request with region movement details
-                puts stderr "DRAW_DEBUG: Drawing frame $frameNum with hash $frameHash at center $jiggleCenter | Movement: $centerDiff (mag: [format "%.2f" $diffMagnitude]) | Jiggle: $jiggle"
-                
-                # Basic frame buffer
+                # Store frame for caching
                 set currentFrameImage($thing) $frame
                 
-                # Simple prefetching logic
+                # Prefetch next frame if not in startup
                 set nextFrameNum [expr {$frameNum + 1}]
                 if {$nextFrameNum > $totalFrames * 0.9} {
                     set nextFrameNum 1
-                    VideoState::log 0 "Prefetching loop boundary: resetting to first frame"
                 }
                 
-                # Only prefetch if not in initial frames startup
                 if {!$isInitialFrames} {
                     catch {
                         set nextFrameImage($thing) [video::getVideoFrame $sourceToUse $nextFrameNum]
                     }
                 }
                 
-                # Update title with playback info and current time to ensure constant updates
+                # Update title with playback info
                 set elapsed [expr {$t - $startTime}]
                 set loopCount [expr {int($elapsed / $duration)}]
                 set playTime [format "%.1f" [expr {fmod($elapsed, $duration)}]]
                 set now [clock milliseconds]
-                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount, t=$now)"
+                Wish $thing is titled "Video: [file tail $videoSrc] ($frameNum/$totalFrames, ${playTime}s, loop #$loopCount)"
             }
         } err]} {
             # Error handling
             VideoState::log 0 "Error: $err"
             
-            # Use cached frame as fallback if available
+            # Use cached frame as fallback
             if {[info exists lastFrame($thing)]} {
                 set center [region centroid $r]
                 set angle [region angle $r]
                 set width [region width $r]
                 set height [region height $r]
                 
-                # Force movement in error recovery path
-                set jiggle [expr {sin([clock milliseconds] * 0.01) * 0.1}]
-                set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
+                # Get jiggled center for forced redraw
+                set jiggleCenter [jiggleCenter $center $t]
                 
-                # Clear and draw with cached frame - always redraw to ensure visibility
+                # Clear and draw with cached frame
                 Wish to draw a fill with center $jiggleCenter width $width height $height color {0 0 0 0}
                 Wish to draw an image with center $jiggleCenter image $lastFrame($thing) radians $angle
                 
-                # Log error recovery with jiggle
-                puts stderr "ERROR_RECOVERY: Drawing error recovery frame at center $jiggleCenter | Jiggle: $jiggle"
-                
-                # Force update by changing title
+                # Force update in title
                 set now [clock milliseconds]
                 Wish $thing is titled "Video: Error recovery ($now)"
             }
@@ -520,65 +479,37 @@ On process "display" {
             }
         }
     }
-}
-
-# Add a purely reactive render path that responds to frame changes
-When /thing/ has video frame /frameNum/ & /thing/ has video region /r/ & /thing/ has videoSource /videoSrc/ {
-    # Get the frame from the cache or decode it
-    variable lastFrame
     
-    # DEBUG: Log reactive rule trigger
-    puts stderr "REACTIVE_DEBUG: Reactive render triggered for $thing, frame $frameNum"
-    
-    if {![info exists video_module_loaded] || !$video_module_loaded} {
-        puts stderr "REACTIVE_DEBUG: Video module not loaded, skipping reactive render"
-        return
-    }
-    
-    # Get the frame (use cached version if we have it)
-    if {[info exists lastFrame($thing)] && $lastFrame($thing) != ""} {
-        set frame $lastFrame($thing)
-        
-        # Update display
-        set center [region centroid $r]
-        set angle [region angle $r]
-        
-        # Track region movement for reactive rendering
-        variable lastReactiveCenter
-        set centerDiff {0 0}
-        set diffMagnitude 0
-        if {[info exists lastReactiveCenter($thing)]} {
-            set prevCenter $lastReactiveCenter($thing)
-            set diffX [expr {[lindex $center 0] - [lindex $prevCenter 0]}]
-            set diffY [expr {[lindex $center 1] - [lindex $prevCenter 1]}]
-            set centerDiff [list $diffX $diffY]
-            set diffMagnitude [expr {sqrt(pow($diffX, 2) + pow($diffY, 2))}]
+    # Reactive render path - activates when frame number changes
+    When /thing/ has video frame /frameNum/ & /thing/ has video region /r/ & /thing/ has videoSource /videoSrc/ {
+        # Only run if video module is loaded
+        if {![info exists video_module_loaded] || !$video_module_loaded} {
+            return
         }
-        set lastReactiveCenter($thing) $center
         
-        # Calculate a unique hash for this frame
-        set frameHash [expr {[image width $frame] * [image height $frame] + [clock milliseconds] % 1000}]
-        puts stderr "REACTIVE_HASH: Reactive rendering frame $frameNum with hash $frameHash at center $center | Movement: $centerDiff (mag: [format "%.2f" $diffMagnitude])"
-        
-        # Force subtle position changes to ensure redraw in reactive path
-        set jiggle [expr {sin([clock milliseconds] * 0.01) * 0.1}]
-        set jiggleCenter [list [expr {[lindex $center 0] + $jiggle}] [lindex $center 1]]
-        
-        # Always redraw the frame
-        Wish to draw a fill with center $jiggleCenter width [region width $r] height [region height $r] color {0 0 0 0}
-        Wish to draw an image with center $jiggleCenter image $frame radians $angle
-        
-        # Log jiggle details
-        puts stderr "REACTIVE_RENDER: Drawing reactive frame $frameNum at center $jiggleCenter | Jiggle: $jiggle"
-        
-        # Update title with dynamic content - include hash to ensure it's always different
-        set now [clock milliseconds]
-        Wish $thing is titled "Video: [file tail $videoSrc] (Frame: $frameNum, hash: $frameHash, t=$now)"
-        
-        # Update the frame hash claim to ensure reactivity
-        Claim $thing has frameHash $frameHash
-    } else {
-        puts stderr "REACTIVE_DEBUG: No cached frame found for $thing"
+        # Display the frame if we have it cached
+        variable lastFrame
+        if {[info exists lastFrame($thing)] && $lastFrame($thing) != ""} {
+            set frame $lastFrame($thing)
+            set center [region centroid $r]
+            set angle [region angle $r]
+            
+            # Get current time for jiggle calculation
+            set t [clock seconds].[format "%03d" [expr {[clock milliseconds] % 1000}]]
+            set jiggleCenter [jiggleCenter $center $t]
+            
+            # Draw the frame
+            Wish to draw a fill with center $jiggleCenter width [region width $r] height [region height $r] color {0 0 0 0}
+            Wish to draw an image with center $jiggleCenter image $frame radians $angle
+            
+            # Calculate unique hash for frame tracking
+            set frameHash [expr {[image width $frame] * [image height $frame] + [clock milliseconds] % 1000}]
+            Claim $thing has frameHash $frameHash
+            
+            # Update title with dynamic content
+            set now [clock milliseconds]
+            Wish $thing is titled "Video: [file tail $videoSrc] (Frame: $frameNum, t=$now)"
+        }
     }
 }
 
