@@ -5,8 +5,8 @@ Wish the GPU compiles pipeline "line" {
         vec2 perp = vec2(-dir.y, dir.x) * thickness;
 
         vec2 vertices[6] = vec2[6](
-            from - perp,
             from + perp,
+            from - perp,
             to - perp,
 
             from + perp,

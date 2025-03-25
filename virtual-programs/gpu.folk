@@ -710,6 +710,9 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
     VkPipelineDynamicStateCreateInfo dynamicState = {0};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = 2;
+    // We need these to be dynamic so that pipelines can be retargeted
+    // to drawable surfaces (which have different viewports & scissors
+    // than the whole screen does).
     VkDynamicState dynamicStates[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR
