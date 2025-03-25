@@ -2,7 +2,7 @@ Wish the GPU compiles pipeline "line" {
     {vec2 viewport mat3 surfaceToClip
      vec2 from vec2 to float thickness vec4 color} {
         vec2 dir = normalize(to - from);
-        vec2 perp = vec2(-dir.y, dir.x) * thickness;
+        vec2 perp = vec2(-dir.y, dir.x) * thickness/2.0;
 
         vec2 vertices[6] = vec2[6](
             from + perp,
@@ -27,13 +27,13 @@ Wish the GPU compiles pipeline "line" {
         q = abs(q) - vec2(l, thickness)*0.5;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-        return dist < 0.0 ? color : vec4(1.0, 0, 0, 1.0);
+        return dist < 0.0 ? color : vec4(0.0, 0.0, 0.0, 0.0);
     }
 }
 
 When the color map is /colorMap/ &\
-     /p/ has drawable surface /surf/ &\
-     /p/ has drawable surface projection /proj/ &\
+     /p/ has writable image /id/ &\
+     /p/ has writable image projection /proj/ &\
      /someone/ wishes to draw a line onto /p/ with /...options/ {
 
     set points [dict get $options points]
@@ -48,6 +48,6 @@ When the color map is /colorMap/ &\
         lappend instances [list [list 1024 1024] $proj $from $to $width $color]
     }
 
-    Wish the GPU draws pipeline "line" onto surface $surf \
+    Wish the GPU draws pipeline "line" onto image $id \
         with instances $instances
 }

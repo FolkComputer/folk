@@ -30,7 +30,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         VkDevice device;
         __thread VkCommandBuffer commandBuffer;
 
-        // This render pass is used to draw on each drawable image.
+        // This render pass is used to draw on each writable image.
         VkRenderPass renderPass;
     }
     $gpuc proc init {} void {
@@ -96,7 +96,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     }
 
     $gpuc code {
-        typedef struct DrawableSurface {
+        typedef struct GpuWritableImage {
             VkExtent2D extent;
 
             GpuImageHandle gpuImages[2];
@@ -106,19 +106,19 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkFence inFlightFence;
 
             pthread_mutex_t mutex;
-        } DrawableSurface;
+        } GpuWritableImage;
     }
-    $gpuc proc gpuImage {DrawableSurface* surf} GpuImageHandle {
-        return surf->gpuImages[surf->imageIndex];
+    $gpuc proc gpuImage {GpuWritableImage* wi} GpuImageHandle {
+        return wi->gpuImages[wi->imageIndex];
     }
-    $gpuc proc create {int width int height} DrawableSurface* {
-        DrawableSurface* surf = malloc(sizeof(DrawableSurface));
-        surf->extent.width = width; surf->extent.height = height;
-        pthread_mutex_init(&surf->mutex, NULL);
+    $gpuc proc create {int width int height} GpuWritableImage* {
+        GpuWritableImage* wi = malloc(sizeof(GpuWritableImage));
+        wi->extent.width = width; wi->extent.height = height;
+        pthread_mutex_init(&wi->mutex, NULL);
 
         for (int i = 0; i < 2; i++) {
             GpuImageBlock* block = createGpuImage(width, height, VK_FORMAT_B8G8R8A8_SRGB);
-            surf->gpuImages[i] = block->handle;
+            wi->gpuImages[i] = block->handle;
 
             VkImageView attachments[] = { block->textureImageView };
 
@@ -130,45 +130,45 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             framebufferInfo.width = width;
             framebufferInfo.height = height;
             framebufferInfo.layers = 1;
-            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &surf->framebuffers[i])}]
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffers[i])}]
         }
 
-        surf->imageIndex = 0;
+        wi->imageIndex = 0;
         {
             VkFenceCreateInfo fenceInfo = {0};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &surf->inFlightFence)}]
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &wi->inFlightFence)}]
         }
-        return surf;
+        return wi;
     }
-    $gpuc proc destroy {DrawableSurface* surf} void {
-        // FIXME: don't leak surf itself
-        pthread_mutex_lock(&surf->mutex);
+    $gpuc proc destroy {GpuWritableImage* wi} void {
+        // FIXME: don't leak wi itself
+        pthread_mutex_lock(&wi->mutex);
 
-        freeGpuImage(surf->gpuImages[0]);
-        freeGpuImage(surf->gpuImages[1]);
-        surf->gpuImages[0] = -1;
-        surf->gpuImages[1] = -1;
+        freeGpuImage(wi->gpuImages[0]);
+        freeGpuImage(wi->gpuImages[1]);
+        wi->gpuImages[0] = -1;
+        wi->gpuImages[1] = -1;
 
-        pthread_mutex_unlock(&surf->mutex);
+        pthread_mutex_unlock(&wi->mutex);
     }
     $gpuc code {
-        DrawableSurface* boundSurface;
+        GpuWritableImage* boundWritableImage;
         VkPipeline boundPipeline;
         VkDescriptorSet boundDescriptorSet;
     }
-    $gpuc proc drawStart {DrawableSurface* surf} void {
-        FOLK_ENSURE(boundSurface == NULL);
-        pthread_mutex_lock(&surf->mutex);
-        if (surf->gpuImages[0] == -1 || surf->gpuImages[1] == -1) {
-            pthread_mutex_unlock(&surf->mutex);
+    $gpuc proc drawStart {GpuWritableImage* wi} void {
+        FOLK_ENSURE(boundWritableImage == NULL);
+        pthread_mutex_lock(&wi->mutex);
+        if (wi->gpuImages[0] == -1 || wi->gpuImages[1] == -1) {
+            pthread_mutex_unlock(&wi->mutex);
             return;
         }
-        boundSurface = surf;
+        boundWritableImage = wi;
 
-        vkWaitForFences(device, 1, &surf->inFlightFence, VK_TRUE, UINT64_MAX);
-        vkResetFences(device, 1, &surf->inFlightFence);
+        vkWaitForFences(device, 1, &wi->inFlightFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &wi->inFlightFence);
 
         tryInitCommandBuffer();
         vkResetCommandBuffer(commandBuffer, 0);
@@ -183,9 +183,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = surf->framebuffers[surf->imageIndex++ % 2];
+            renderPassInfo.framebuffer = wi->framebuffers[wi->imageIndex++ % 2];
             renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
-            renderPassInfo.renderArea.extent = surf->extent;
+            renderPassInfo.renderArea.extent = wi->extent;
 
             VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
             renderPassInfo.clearValueCount = 1;
@@ -194,7 +194,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        boundSurface = surf;
+        boundWritableImage = wi;
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
@@ -206,15 +206,15 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkViewport viewport = {0}; {
                 viewport.x = 0.0f;
                 viewport.y = 0.0f;
-                viewport.width = (float) boundSurface->extent.width;
-                viewport.height = (float) boundSurface->extent.height;
+                viewport.width = (float) boundWritableImage->extent.width;
+                viewport.height = (float) boundWritableImage->extent.height;
                 viewport.minDepth = 0.0f;
                 viewport.maxDepth = 1.0f;
             }
             vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
             VkRect2D scissor = {0}; {
                 scissor.offset = (VkOffset2D) {0, 0};
-                scissor.extent = boundSurface->extent;
+                scissor.extent = boundWritableImage->extent;
             }
             vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         }
@@ -255,49 +255,49 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             submitInfo.pCommandBuffers = &commandBuffer;
 
             pthread_mutex_lock(graphicsQueueMutex_ptr());
-            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, boundSurface->inFlightFence)}]
+            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, boundWritableImage->inFlightFence)}]
             pthread_mutex_unlock(graphicsQueueMutex_ptr());
         }
 
-        pthread_mutex_unlock(&boundSurface->mutex);
-        boundSurface = NULL;
+        pthread_mutex_unlock(&boundWritableImage->mutex);
+        boundWritableImage = NULL;
     }
 
-    set gpuDrawableLib [$gpuc compile]
-    Claim the GPU drawable surface library is $gpuDrawableLib
+    set gpuWritableLib [$gpuc compile]
+    Claim the GPU writable image library is $gpuWritableLib
 
     When display /any/ has width /any/ height /any/ {
-        $gpuDrawableLib init
+        $gpuWritableLib init
 
         # `id` is arbitrarily chosen by the caller:
-        When /someone/ wishes the GPU creates drawable surface /id/ with /...options/ {
+        When /someone/ wishes the GPU creates writable image /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
-            set surf [$gpuDrawableLib create $width $height]
-            Claim the GPU creates drawable surface $id as $surf
+            set wi [$gpuWritableLib create $width $height]
+            Claim the GPU creates writable image $id as $wi
             On unmatch {
-                $gpuDrawableLib destroy $surf
+                $gpuWritableLib destroy $wi
             }
         }
 
         set missingPipelines [dict create]
-        set missingSurfs [dict create]
+        set missingWritableImages [dict create]
         while true {
             set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
             foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
-            set matches [Query! /someone/ claims the GPU creates drawable surface /id/ as /surf/]
-            set surfs [dict create]
-            foreach match $matches { dict with match { dict set surfs $id $surf } }
+            set matches [Query! /someone/ claims the GPU creates writable image /id/ as /wi/]
+            set writableImages [dict create]
+            foreach match $matches { dict with match { dict set writableImages $id $wi } }
 
-            set displayListsBySurface [dict create]
-            foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto surface /surfname/ with /...options/] {
+            set displayListsByImage [dict create]
+            foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto image /id/ with /...options/] {
                 try {
                     set name [dict get $match name]
                     if {![dict exists $pipelines $name]} {
                         if {![dict exists $missingPipelines $name]} {
-                            puts stderr "drawable-surfaces: Missing pipeline $name"
+                            puts stderr "writable-images: Missing pipeline $name"
                             dict set missingPipelines $name true
                         }
                         continue
@@ -305,16 +305,16 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                     dict unset missingPipelines $name
                     set pipeline [dict get $pipelines [dict get $match name]]
 
-                    set surfname [dict get $match surfname]
-                    if {![dict exists $surfs $surfname]} {
-                        if {![dict exists $missingSurfs $surfname]} {
-                            puts stderr "drawable-surfaces: Missing surface $surfname"
-                            dict set missingSurfs $surfname true
+                    set id [dict get $match id]
+                    if {![dict exists $writableImages $id]} {
+                        if {![dict exists $missingWritableImages $id]} {
+                            puts stderr "writable-images: Missing writable image $id"
+                            dict set missingWritableImages $id true
                         }
                         continue
                     }
-                    dict unset missingSurfs $name
-                    set surf [dict get $surfs $surfname]
+                    dict unset missingWritableImages $id
+                    set wi [dict get $writableImages $id]
 
                     set options [dict get $match options]
                     set layer [dict getdef $options layer 0]
@@ -324,8 +324,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                         set instances [list [dict get $options arguments]]
                     }
                     foreach instance $instances {
-                        dict lappend displayListsBySurface($surf) $layer \
-                            [list $gpuDrawableLib draw $pipeline $instance]
+                        dict lappend displayListsByImage($wi) $layer \
+                            [list $gpuWritableLib draw $pipeline $instance]
                     }
                 } on error e {
                     puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
@@ -335,9 +335,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             }
 
             # TODO: await vsync -- what does the other drawStart do?
-            # TODO: await any change in the projected display list for any surface
-            dict for {surf displayList} $displayListsBySurface {
-                $gpuDrawableLib drawStart $surf
+            # TODO: await any change in the projected display list for any image
+            dict for {wi displayList} $displayListsByImage {
+                $gpuWritableLib drawStart $wi
 
                 foreach layer [lsort -real [dict keys $displayList]] {
                     set layerDisplayList [dict get $displayList $layer]
@@ -347,7 +347,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                     }
                 }
 
-                $gpuDrawableLib drawEnd
+                $gpuWritableLib drawEnd
             }
 
             sleep 0.01
