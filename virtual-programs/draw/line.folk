@@ -4,30 +4,17 @@ Wish the GPU compiles pipeline "line" {
         vec2 dir = normalize(to - from);
         vec2 perp = vec2(-dir.y, dir.x) * thickness;
 
-        vec2 vertices[4] = vec2[4](
+        vec2 vertices[6] = vec2[6](
             from - perp,
+            from + perp,
+            to - perp,
+
             from + perp,
             to - perp,
             to + perp
         );
         vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
-        return vec4(v.xy, 0.0, v.z);
-
-        // vec2 vertices[4] = vec2[4](
-        //      vec2(-1, -1),
-        //      vec2(1, -1),
-        //      vec2(-1, 1),
-        //      vec2(1, 1)
-        // );
-        // return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
-
-        // vec2 vertices[4] = vec2[4](
-        //      surfaceToClip[0].xy,
-        //      surfaceToClip[1].xy,
-        //      surfaceToClip[2].xy,
-        //      vec2(1, 1)
-        // );
-        // return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
     } {
         vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
         vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
@@ -40,7 +27,7 @@ Wish the GPU compiles pipeline "line" {
         q = abs(q) - vec2(l, thickness)*0.5;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
 
-        return dist < 0.0 ? color : vec4(0, 0, 0, 0);
+        return dist < 0.0 ? color : vec4(1.0, 0, 0, 1.0);
     }
 }
 

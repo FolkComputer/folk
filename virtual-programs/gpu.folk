@@ -650,10 +650,7 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0}; {
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        // We're just going to draw a quad (4 vertices -> first 3
-        // vertices are top-left triangle, last 3 vertices are
-        // bottom-right triangle).
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
     }
 
