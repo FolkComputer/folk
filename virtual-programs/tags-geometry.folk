@@ -1,0 +1,45 @@
+When when /p/ has resolved geometry /geomVar/ /any/ with environment /any/ {
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$p >= 48600} { return }
+
+    Wish $p has resolved geometry
+}
+When the default program geometry is /defaultGeom/ &\
+     /someone/ wishes /tag/ has resolved geometry {
+
+    # Setting aside this tag space (48600 to 48713) for calibration.
+    if {$tag >= 48600} { return }
+
+    When the collected matches for [list /someone/ claims $tag has geometry /geom/] are /matches/ {
+        # Choose a geometry.
+        if {[llength $matches] == 1} {
+            set geom [dict get [lindex $matches 0] geom]
+        } elseif {[llength $matches] == 0} {
+            set geom $defaultGeom
+        } else {
+            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
+            set geom [dict get [lindex $matches 0] geom]
+        }
+
+        # This (resolved geometry) feels like a hack.
+        Claim $tag has resolved geometry $geom
+
+        # Use the geometry to create the writable image projection,
+        # which maps from page-space (in meters from the top-left
+        # corner) to normalized-space (x and y from -1 to 1)
+        dict with geom {
+            set width [expr {$left + $tagSize + $right}]
+            set height [expr {$top + $tagSize + $bottom}]
+        }
+        set proj [list [list $(2.0/$width) 0 -1] \
+                       [list 0 $(2.0/$height) -1] \
+                       [list 0 0 1]]
+        Claim $tag has writable image projection $proj
+
+        set writableImageId [list $tag writable image]
+        # TODO: Set writable image resolution based on physical width
+        # & height.
+        Wish the GPU creates writable image $writableImageId with width 1024 height 1024
+        Claim $tag has writable image $writableImageId
+    }
+}

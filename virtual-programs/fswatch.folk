@@ -15,7 +15,7 @@ try {
         if {[string index $changedFilename 0] eq "." ||
             [string index $changedFilename 0] eq "#" ||
             [file extension $changedFilename] ne ".folk"} {
-            puts "fswatch: $changedPath updated, ignoring."
+            # puts "fswatch: $changedPath updated, ignoring."
             continue
         }
 

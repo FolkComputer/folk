@@ -90,20 +90,11 @@ When the image library is /imageLib/ {
 }
 
 Wish the GPU compiles pipeline "image" {
-    {vec2 viewport
-     sampler2D image vec2 size vec2 pos float radians
-     fn rotate} {
-        vec2 a = pos + rotate(-size/2, -radians);
-        vec2 b = pos + rotate(vec2(size.x, -size.y)/2, -radians);
-        vec2 c = pos + rotate(size/2, -radians);
-        vec2 d = pos + rotate(vec2(-size.x, size.y)/2, -radians);
+    {vec2 viewport sampler2D image vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
         return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
-} {fn invBilinear fn rotate} {
-        vec2 a = pos + rotate(-size/2, -radians);
-        vec2 b = pos + rotate(vec2(size.x, -size.y)/2, -radians);
-        vec2 c = pos + rotate(size/2, -radians);
-        vec2 d = pos + rotate(vec2(-size.x, size.y)/2, -radians);
+
+} {fn invBilinear} {
         vec2 p = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
         vec2 uv = invBilinear(p, a, b, c, d);
         if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {

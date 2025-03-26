@@ -464,33 +464,6 @@ set quadLib [library create quadLib {spaceLib} {
     }
 }]
 
-# This (resolved geometry) feels like a hack.
-
-When when tag /tag/ has resolved geometry /geomVar/ /any/ with environment /any/ {
-    # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
-
-    Wish tag $tag has resolved geometry
-}
-When the default program geometry is /defaultGeom/ &\
-     /someone/ wishes tag /tag/ has resolved geometry {
-
-    # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
-
-    When the collected matches for [list /someone/ claims tag $tag has geometry /geom/] are /matches/ {
-        if {[llength $matches] == 1} {
-            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
-
-        } elseif {[llength $matches] == 0} {
-            Claim tag $tag has resolved geometry $defaultGeom
-
-        } else {
-            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
-            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
-        }
-    }
-}
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
@@ -592,8 +565,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     }
 }
 
-When tag /tag/ has quad /q/ &\
-     tag /tag/ has resolved geometry /geom/ {
+
+When tag /tag/ has resolved geometry /geom/ &\
+     tag /tag/ has quad /q/ {
 
     set pageQuad [$quadLib buffer $q \
                       top [dict getdef $geom top 0] \
@@ -603,34 +577,20 @@ When tag /tag/ has quad /q/ &\
     Claim $tag has quad $pageQuad
 }
 
-# TODO: Remove this backward compatibility with 2D programs:
-# HACK: For backward compatibility:
-When display /proj/ has width /projWidth/ height /projHeight/ &\
-     display /proj/ has intrinsics /projectorIntrinsics/ &\
-     tag /tag/ is a tag & /tag/ has quad /q/ {
+When display /any/ has width /displayWidth/ height /displayHeight/ &\
+     the /tag/ has writable image /writableImageId/ &\
+     the GPU creates writable image /writableImageId/ as /wim/ &\
+     /tag/ has quad /quad/ {
 
-    tracy zoneBegin
-    tracy zoneName "region($tag)"
+    # Composite each quad's writable image onto the screen based on
+    # its quad.
 
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::sub
-
-    set vertices [lmap v [$quadLib vertices [$quadLib change $q "display $proj"]] {
+    lassign [lmap v [$quadLib vertices [$quadLib change $q "display $proj"]] {
         $poseLib project $projectorIntrinsics \
             $projWidth $projHeight $v
-    }]
+    }] a b c d
 
-    set edges [list]
-    for {set i 0} {$i < [llength $vertices]} {incr i} {
-        if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
-    }
-    lappend edges [list [expr {[llength $vertices] - 1}] 0]
-
-    set vecBottom [sub [lindex $vertices 1] [lindex $vertices 0]]
-    set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
-
-    Claim $tag has region [region create $vertices $edges $angle]
-
-    tracy zoneEnd
+    Wish the GPU draws pipeline "image" with arguments \
+        [list [list $displayWidth $displayHeight] \
+             $wim $a $b $c $d]
 }

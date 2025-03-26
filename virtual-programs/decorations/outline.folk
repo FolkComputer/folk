@@ -9,15 +9,9 @@ set loopRegion {{colorMap edges vertices width color} {
     Wish the GPU draws pipeline "line" with instances $instances
 }}
 
-When the color map is /colorMap/ {
-    When /someone/ wishes /thing/ is outlined /color/ & /thing/ has region /region/ {
-        lassign $region vertices edges
-        apply $loopRegion $colorMap $edges $vertices 3 $color
-    }
-
-    When /someone/ wishes /thing/ is outlined thick /color/ & /thing/ has region /region/ {
-        # FIXME: assumes path
-        lassign $region vertices edges
-        apply $loopRegion $colorMap $edges $vertices 6 $color
-    }
+When /someone/ wishes /thing/ is outlined /color/ &\
+     /thing/ has resolved geometry /geom/ {
+    set points [list]
+    Wish to draw a line onto $thing with \
+        points $points width 3 color $color
 }

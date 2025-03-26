@@ -191,7 +191,7 @@ Wish the GPU compiles pipeline "glyph" {
      vec2 c = pos + rotate(vec2(right, -bottom), -radians);
      vec2 d = pos + rotate(vec2(left, -bottom), -radians);
 
-     vec2 vertices[4] = vec2[4](a, b, d, c);
+     vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
      return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
 } {fn rotate fn invBilinear fn glyphMsd fn median} {
     float left = planeGlyphBounds[0] * em;
@@ -217,7 +217,7 @@ Wish the GPU compiles pipeline "glyph" {
 }}
 
 When the color map is /colorMap/ &\
-     /someone/ wishes to draw text with /...options/ {
+     /someone/ wishes to draw text onto /p/ with /...options/ {
     if {[dict exists $options position]} {
         lassign [dict get $options position] x0 y0
     } elseif {[dict exists $options center]} {
@@ -256,11 +256,15 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    When the GPU has font $font with data /fontData/ {
+    When $p has writable image /id/ &\
+         $p has writable image projection /proj/ &\
+         the GPU has font $font with data /fontData/ {
+
         set instances [$fontLib textShape $fontData $text $x0 $y0 $scale {*}$anchor $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
-        Wish the GPU draws pipeline "glyph" with instances $instances layer $layer
+        Wish the GPU draws pipeline "glyph" onto image $id \
+            with instances $instances layer $layer
     }
 }
