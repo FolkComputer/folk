@@ -474,7 +474,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set unfreezeLength 0.3 ;# in seconds
 
     When tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ &\
-         tag /tag/ has resolved geometry /geom/ {
+         /tag/ has resolved geometry /geom/ {
 
         set tagSize [expr {[string map {mm ""} [dict get $geom tagSize]] / 1000.0}]
 
@@ -578,7 +578,7 @@ When tag /tag/ has resolved geometry /geom/ &\
 }
 
 When display /any/ has width /displayWidth/ height /displayHeight/ &\
-     the /tag/ has writable image /writableImageId/ &\
+     /tag/ has writable image /writableImageId/ &\
      the GPU creates writable image /writableImageId/ as /wim/ &\
      /tag/ has quad /quad/ {
 
