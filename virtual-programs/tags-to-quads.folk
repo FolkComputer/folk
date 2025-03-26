@@ -566,7 +566,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 }
 
 
-When tag /tag/ has resolved geometry /geom/ &\
+When /tag/ has resolved geometry /geom/ &\
      tag /tag/ has quad /q/ {
 
     set pageQuad [$quadLib buffer $q \
@@ -577,19 +577,22 @@ When tag /tag/ has resolved geometry /geom/ &\
     Claim $tag has quad $pageQuad
 }
 
-When display /any/ has width /displayWidth/ height /displayHeight/ &\
+When the GPU writable image library is /gpuWritableLib/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /proj/ has intrinsics /displayIntrinsics/ &\
      /tag/ has writable image /writableImageId/ &\
-     the GPU creates writable image /writableImageId/ as /wim/ &\
+     the GPU creates writable image /writableImageId/ as /wi/ &\
      /tag/ has quad /quad/ {
 
     # Composite each quad's writable image onto the screen based on
     # its quad.
 
-    lassign [lmap v [$quadLib vertices [$quadLib change $q "display $proj"]] {
-        $poseLib project $projectorIntrinsics \
-            $projWidth $projHeight $v
+    lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
+        $poseLib project $displayIntrinsics \
+            $displayWidth $displayHeight $v
     }] a b c d
 
+    set wim [$gpuWritableLib gpuImage $wi]
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \
              $wim $a $b $c $d]

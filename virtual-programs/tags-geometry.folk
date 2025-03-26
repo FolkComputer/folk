@@ -27,9 +27,12 @@ When the default program geometry is /defaultGeom/ &\
         # Use the geometry to create the writable image projection,
         # which maps from page-space (in meters from the top-left
         # corner) to normalized-space (x and y from -1 to 1)
+        local proc dim {x} {
+            return [expr {[string map {mm ""} $x] / 1000.0}]
+        }
         dict with geom {
-            set width [expr {$left + $tagSize + $right}]
-            set height [expr {$top + $tagSize + $bottom}]
+            set width [expr {[dim $left] + [dim $tagSize] + [dim $right]}]
+            set height [expr {[dim $top] + [dim $tagSize] + [dim $bottom]}]
         }
         set proj [list [list $(2.0/$width) 0 -1] \
                        [list 0 $(2.0/$height) -1] \
