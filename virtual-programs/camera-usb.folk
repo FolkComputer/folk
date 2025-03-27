@@ -311,6 +311,24 @@ set camLib [$camc compile]
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {![string match "/dev*" $camera]} { return }
 
+    if {[dict exists $options crop]} {
+        set crop [dict get $options crop]
+    }
+    # HACK: we should share this
+    local proc subimage {im x y subwidth subheight} {
+        dict with im {
+            set x [expr {int($x)}]
+            set y [expr {int($y)}]
+            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            dict create \
+                width $subwidth \
+                height $subheight \
+                components $components \
+                bytesPerRow $bytesPerRow \
+                data [format "(uint8_t*) 0x%x" $subdata]
+        }
+    }
+
     namespace eval Camera {
         variable camLib [uplevel {set camLib}]
         proc unknown {procName args} {
@@ -360,10 +378,17 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             tracy zoneBegin
 
             set frame [Camera::grayFrame $camObj]
+            if {[info exists crop]} {
+                dict with crop {
+                    set cropped [subimage $frame $x $y $width $height]
+                }
+            } else {
+                set cropped $frame
+            }
             set timestamp [expr {[clock milliseconds] / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
             HoldStatement! camera \
-                [list $this claims camera $camera has frame $frame at timestamp $timestamp]
+                [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
 
             lappend oldFrames $frame
             if {[llength $oldFrames] >= 50} {
