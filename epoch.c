@@ -43,7 +43,7 @@ inline void tfree(void *ptr) {
 
 // See: https://aturon.github.io/blog/2015/08/27/epoch/#epoch-based-reclamation
 
-#define EPOCH_GARBAGE_MAX 32768
+#define EPOCH_GARBAGE_MAX 1048576
 
 static _Atomic int epochGlobalCounter;
 typedef struct EpochGlobalGarbage {
@@ -152,7 +152,8 @@ static void epochRetireAll() {
         // TODO: Can we batch this operation?
         int gidx = g->garbageNextIdx++;
         if (gidx >= EPOCH_GARBAGE_MAX) {
-            fprintf(stderr, "epochRetireAll: ran out of global garbage slots (epoch %d)\n",
+            fprintf(stderr, "epochRetireAll: ran out of global garbage slots (epoch %d).\n"
+                    "(This probably means that something is blocking the sysmon thread.)\n",
                     epochGlobalCounter);
             for (int i = 0; i < EPOCH_THREADS_MAX; i++) {
                 EpochThreadState *st = &threadStates[i];
