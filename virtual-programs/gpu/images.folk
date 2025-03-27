@@ -65,6 +65,7 @@ $gpuc proc imageManagerInit {} void {
     {
         /* VkDescriptorBindingFlags flags[1]; */
         /* flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT; */
+        /* flags[0] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; */
 
         /* VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {0}; */
         /* bindingFlags.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO; */
@@ -110,6 +111,7 @@ $gpuc proc imageManagerInit {} void {
 
         $[vktry {vkAllocateDescriptorSets(device, &allocInfo, imageDescriptorSet_ptr())}]
     }
+    pthread_rwlock_init(imageDescriptorSetLock_ptr(), NULL);
 }
 
 # Buffer allocation:
@@ -415,7 +417,10 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
                 descriptorWrites[i].descriptorCount = 1;
                 descriptorWrites[i].pImageInfo = &imageInfo;
             }
+            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
             vkUpdateDescriptorSets(device, getMaxImages(), descriptorWrites, 0, NULL);
+            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+
             didInitializeDescriptors = true;
         } else {
             VkWriteDescriptorSet descriptorWrite = {0};
@@ -426,7 +431,10 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
             descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrite.descriptorCount = 1;
             descriptorWrite.pImageInfo = &imageInfo;
+
+            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
         }
     }
 
@@ -525,7 +533,10 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pImageInfo = &imageInfo;
+
+        pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
     }
 
     vkDestroyImage(device, block->textureImage, NULL);

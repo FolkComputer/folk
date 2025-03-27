@@ -613,6 +613,7 @@ $gpuc code {
 $gpuc define {
     VkDescriptorSetLayout imageDescriptorSetLayout;
     VkDescriptorSet imageDescriptorSet;
+    pthread_rwlock_t imageDescriptorSetLock;
 }
 $gpuc struct Pipeline {
     VkPipeline pipeline;
@@ -782,8 +783,6 @@ $gpuc code {
     static VkDescriptorSet boundDescriptorSet;
 }
 $gpuc proc drawStart {} void {
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-
     vkResetFences(device, 1, &inFlightFence);
 
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
@@ -794,6 +793,7 @@ $gpuc proc drawStart {} void {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = NULL;
+    pthread_rwlock_rdlock(imageDescriptorSetLock_ptr());
     $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
     {
@@ -902,6 +902,9 @@ $gpuc proc drawEnd {} void {
         vkQueuePresentKHR(presentQueue, &presentInfo);
         pthread_mutex_unlock(&graphicsQueueMutex);
     }
+
+    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
 }
 
 $gpuc proc poll {} void {
