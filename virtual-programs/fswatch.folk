@@ -22,7 +22,7 @@ try {
         puts "fswatch: $changedPath updated, reloading."
         set fp [open $changedPath r]; set programCode [read $fp]; close $fp
 
-        HoldStatement! (on boot.folk) [list $changedPath code] \
+        HoldStatement! (keep 100ms) (on boot.folk) [list $changedPath code] \
             [list $this claims $changedPath has program code $programCode]
     }
 } on error err {
