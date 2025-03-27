@@ -1,6 +1,6 @@
 When when /p/ has resolved geometry /geomVar/ /any/ with environment /any/ {
-    # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$p >= 48600} { return }
+    # Setting aside upper tag space (48600 to 48713) for calibration.
+    if {!($p >= 0 && $p < 48600)} { return }
 
     Wish $p has resolved geometry
 }
@@ -8,7 +8,7 @@ When the default program geometry is /defaultGeom/ &\
      /someone/ wishes /tag/ has resolved geometry {
 
     # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
+    if {!($p >= 0 && $p < 48600)} { return }
 
     When the collected matches for [list /someone/ claims $tag has geometry /geom/] are /matches/ {
         # Choose a geometry.
