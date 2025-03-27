@@ -505,7 +505,9 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     GpuImageBlock* block = &gpuImages[gim];
     block->alive = false;
 
-    vkDeviceWaitIdle(device); // TODO: this is probably slow
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    vkDeviceWaitIdle(device); // FIXME: this is probably slow
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
 
     // HACK: Use GPU image 0 as a placeholder so it doesn't
     // fault if it tries to access this freed image.
