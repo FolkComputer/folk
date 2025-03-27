@@ -1065,11 +1065,19 @@ void workerSpawn() {
     pthread_create(&th, NULL, workerMain, NULL);
 }
 void workerReactivateOrSpawn() {
+    int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
-        if (threads[i].tid != 0 && threads[i].isDeactivated) {
-            sem_post(&threads[i].reactivate);
-            return;
+        if (threads[i].tid != 0) {
+            nLivingThreads++;
+            if (threads[i].isDeactivated) {
+                sem_post(&threads[i].reactivate);
+                return;
+            }
         }
+    }
+    if (nLivingThreads > 20) {
+        fprintf(stderr, "folk: workerReactivateOrSpawn: Not spawning new thread; too many already\n");
+        return;
     }
     fprintf(stderr, "workerSpawn\n");
     workerSpawn();
