@@ -28,9 +28,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
     $gpuc code {
         VkDevice device;
-        __thread VkCommandBuffer commandBuffer;
 
-        // This render pass is used to draw on each writable image.
+        // This render pass is used to draw on all writable images.
         VkRenderPass renderPass;
     }
     $gpuc proc init {} void {
@@ -82,18 +81,6 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
         }
     }
-    $gpuc proc tryInitCommandBuffer {} void {
-        if (commandBuffer != 0) { return; }
-
-        VkCommandBufferAllocateInfo allocInfo = {0};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        tryInitCommandPool();
-        allocInfo.commandPool = *commandPool_ptr();
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-
-        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
-    }
 
     $gpuc code {
         typedef struct GpuWritableImage {
@@ -104,6 +91,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             int imageIndex;
 
             VkFence inFlightFence;
+            VkCommandBuffer commandBuffer;
 
             pthread_mutex_t mutex;
         } GpuWritableImage;
@@ -131,6 +119,17 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             framebufferInfo.height = height;
             framebufferInfo.layers = 1;
             $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffers[i])}]
+        }
+
+        {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            tryInitCommandPool();
+            allocInfo.commandPool = *commandPool_ptr();
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &wi->commandBuffer)}]
         }
 
         wi->imageIndex = 0;
@@ -170,14 +169,13 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         vkWaitForFences(device, 1, &wi->inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &wi->inFlightFence);
 
-        tryInitCommandBuffer();
-        vkResetCommandBuffer(commandBuffer, 0);
+        vkResetCommandBuffer(wi->commandBuffer, 0);
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         beginInfo.pInheritanceInfo = NULL;
-        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+        $[vktry {vkBeginCommandBuffer(wi->commandBuffer, &beginInfo)}]
 
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
@@ -191,7 +189,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
-            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBeginRenderPass(wi->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
 
         boundWritableImage = wi;
@@ -199,6 +197,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         boundDescriptorSet = VK_NULL_HANDLE;
     }
     $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+        VkCommandBuffer commandBuffer = boundWritableImage->commandBuffer;
+
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
             boundPipeline = pipeline.pipeline;
@@ -241,6 +241,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
     $gpuc proc drawEnd {} void {
+        VkCommandBuffer commandBuffer = boundWritableImage->commandBuffer;
+
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
