@@ -6,7 +6,9 @@ try {
     set fd [open "|fswatch --event Updated --event Created virtual-programs $setupFilename" r]
     fconfigure $fd -buffering line
     while true {
-        set line [gets $fd]
+        if {[gets $fd line] < 0} {
+            error "fswatch: fswatch failed."
+        }
         if {![regexp {virtual-programs\/.*$} $line changedPath]} {
             set changedPath $line
         }
