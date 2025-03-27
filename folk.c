@@ -32,7 +32,7 @@ ThreadControlBlock* getSelf() { return self; }
 struct mpmc_queue globalWorkQueue;
 _Atomic int globalWorkQueueSize;
 void globalWorkQueueInit() {
-    mpmc_queue_init(&globalWorkQueue, 1024, &memtype_heap);
+    mpmc_queue_init(&globalWorkQueue, 16384, &memtype_heap);
     globalWorkQueueSize = 0;
 }
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item);
