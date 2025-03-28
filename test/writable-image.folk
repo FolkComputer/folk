@@ -1,0 +1,34 @@
+When display /disp/ has width /w/ height /h/ {
+    When the clock time is /t/ {
+        Wish to draw a dashed line with points [list [list 0 0] [list $w 0] [list $w $h] [list 0 $h] [list 0 0]] color white width 10 dashlength 40 dashoffset [expr {fmod($t, 10)*-120}]
+    }
+}
+
+
+
+##############
+
+When {
+    sleep 5
+    __exit 0
+}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    HoldStatement! (keep 100ms) (on boot.folk) [list $programFilename code] \
+        [list boot.folk claims $programFilename has program code [read $fp]]
+    close $fp
+}
+
+apply {{} {
+    LoadProgram! virtual-programs/gpu/images.folk
+    LoadProgram! virtual-programs/gpu/writable-images.folk
+    LoadProgram! virtual-programs/draw/color-map.folk
+    LoadProgram! virtual-programs/draw/dashed-line.folk
+    source virtual-programs/gpu.folk
+}}
+
