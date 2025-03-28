@@ -11,7 +11,13 @@ set loopRegion {{colorMap edges vertices width color} {
 
 When /someone/ wishes /thing/ is outlined /color/ &\
      /thing/ has resolved geometry /geom/ {
-    set points [list]
+    dict with geom {
+        set points [list [list 0 0] \
+                        [list $width 0] \
+                        [list $width $height] \
+                        [list 0 $height] \
+                        [list 0 0]]
+    }
     Wish to draw a line onto $thing with \
-        points $points width 3 color $color
+        points $points width 0.005 color $color
 }

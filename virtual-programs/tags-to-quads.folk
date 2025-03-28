@@ -427,7 +427,9 @@ set quadLib [library create quadLib {spaceLib} {
                 set distance [* $distance 0.01]
                 set unit "m"
             }
-            if {$unit ne "m"} { error "quad buffer: Invalid unit $unit" }
+            if {$unit ne "" && $unit ne "m"} {
+                error "quad buffer: Invalid unit $unit"
+            }
 
             if {$direction eq "top"} {
                 set disp [list 0 [- $distance] 0]
