@@ -2326,6 +2326,16 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
     return dupPtr;
 }
 
+/* Duplicates the object and sets the refCount to 1 */
+Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList) {
+    if (Jim_IsShared(objPtr)) {
+        objPtr = Jim_DuplicateObj(interp, objPtr, onTempList);
+        Jim_IncrRefCount(objPtr);
+    }
+
+    return objPtr;
+}
+
 /* Return the string representation for objPtr. If the object's
  * string representation is invalid, calls the updateStringProc method to create
  * a new one from the internal representation of the object.
@@ -2336,12 +2346,7 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
         /* Invalid string repr. Generate it. */
         JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
 
-        if (Jim_IsShared(objPtr)) {
-            /* Shared object, we better duplicate it so there's no data races. */
-            objPtr = Jim_DuplicateObj(interp, objPtr, 1);
-            // FIXME: do I need to increment refCount to new object here?
-            Jim_IncrRefCount(objPtr);
-        }
+        objPtr = DuplicateIfShared(interp, objPtr, 1);
 
         objPtr->typePtr->updateStringProc(objPtr);
     }
@@ -3920,6 +3925,9 @@ static void JimVariablesHTValDestructor(void *interp, void *val)
 
 static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
 {
+    // TODO: figure out how to do this without passing in interp
+
+
     Jim_Obj *keyObj = (Jim_Obj *)key;
     int length;
     const char *string;
@@ -6841,12 +6849,7 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
 static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **listOut)
 {
-    if (Jim_IsShared(objPtr)) {
-        /* Shared object, we better duplicate it so there's no data races. */
-        objPtr = Jim_DuplicateObj(interp, objPtr, 1);
-        // FIXME: do I need to increment refCount to new object here?
-        Jim_IncrRefCount(objPtr);
-    }
+    objPtr = DuplicateIfShared(interp, objPtr, 1);
 
     int res = SetListFromAnyUnshared(interp, objPtr);
     *listOut = (res == JIM_OK) ? objPtr : NULL;
@@ -6977,7 +6980,7 @@ static int ListSortCommand(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     jim_wide ret = 0;
 
     /* This must be a valid list */
-    compare_script = Jim_DuplicateObj(sort_info->interp, sort_info->command);
+    compare_script = Jim_DuplicateObj(sort_info->interp, sort_info->command, 0);
     Jim_ListAppendElement(sort_info->interp, compare_script, *lhsObj);
     Jim_ListAppendElement(sort_info->interp, compare_script, *rhsObj);
 
@@ -7378,14 +7381,14 @@ Jim_Obj *Jim_ConcatObj(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 
         /* Compute the length */
         for (i = 0; i < objc; i++) {
-            len += Jim_Length(objv[i]);
+            len += Jim_Length(interp, objv[i]);
         }
         if (objc)
             len += objc - 1;
         /* Create the string rep, and a string object holding it. */
         p = bytes = Jim_Alloc(len + 1);
         for (i = 0; i < objc; i++) {
-            const char *s = Jim_GetString(objv[i], &objLen);
+            const char *s = Jim_GetString(interp, objv[i], &objLen);
 
             /* Remove leading space */
             while (objLen && isspace(UCHAR(*s))) {
@@ -7415,7 +7418,7 @@ Jim_Obj *Jim_ConcatObj(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
             }
         }
         *p = '\0';
-        return Jim_NewStringObjNoAlloc(interp, bytes, len);
+        return Jim_NewStringObjNoAlloc(interp, bytes, len, 0);
     }
 }
 
@@ -7504,9 +7507,9 @@ enum {
  * - in this case the entry *must* exist and the table value offset
  *   for the entry is updated to be op_offset.
  */
-static int JimDictHashFind(Jim_Dict *dict, Jim_Obj *keyObjPtr, int op_tvoffset)
+static int JimDictHashFind(Jim_Interp *interp, Jim_Dict *dict, Jim_Obj *keyObjPtr, int op_tvoffset)
 {
-    unsigned h = (JimObjectHTHashFunction(keyObjPtr) + dict->uniq);
+    unsigned h = (JimObjectHTHashFunction(interp, keyObjPtr) + dict->uniq);
     unsigned idx = h & dict->sizemask;
     int tvoffset = 0;
     unsigned peturb = h;
@@ -7525,7 +7528,7 @@ static int JimDictHashFind(Jim_Dict *dict, Jim_Obj *keyObjPtr, int op_tvoffset)
                 }
             }
             else if (dict->ht[idx].hash == h) {
-                if (Jim_StringEqObj(keyObjPtr, dict->table[tvoffset - 1])) {
+                if (Jim_StringEqObj(interp, keyObjPtr, dict->table[tvoffset - 1])) {
                     break;
                 }
             }
@@ -7611,7 +7614,7 @@ static void JimDictExpandHashTable(Jim_Dict *dict, unsigned int size)
  * Otherwise inserts a new entry with table value offset dict->len + 1
  * and returns 0.
  */
-static int JimDictAdd(Jim_Dict *dict, Jim_Obj *keyObjPtr)
+static int JimDictAdd(Jim_Interp *interp, Jim_Dict *dict, Jim_Obj *keyObjPtr)
 {
     /* If we are trying to add an entry and the hash table is too small,
      * increase the size now, even if it may exist and the add would
@@ -7629,7 +7632,7 @@ static int JimDictAdd(Jim_Dict *dict, Jim_Obj *keyObjPtr)
          */
         JimDictExpandHashTable(dict, dict->size ? dict->size * 2 : 8);
     }
-    return JimDictHashFind(dict, keyObjPtr, DICT_HASH_ADD);
+    return JimDictHashFind(interp, dict, keyObjPtr, DICT_HASH_ADD);
 }
 
 /**
@@ -7694,25 +7697,20 @@ static void UpdateStringOfDict(struct Jim_Obj *objPtr)
     JimMakeListStringRep(objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
 }
 
-static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetDictFromAnyUnshared called with shared object"));
+
     int listlen;
 
     if (objPtr->typePtr == &dictObjType) {
         return JIM_OK;
     }
 
-    if (Jim_IsList(objPtr) && Jim_IsShared(objPtr)) {
-        /* A shared list, so get the string representation now to avoid
-         * losing duplicate keys from the string rep when converting to
-         * a dict.
-         */
-        Jim_String(objPtr);
-    }
-
     /* Convert a non-list object to a list and then to a dict
-     * since we will need the list of key, value pairs anyway
+     * since we will need the list of key, value pairs anyway.
      */
+    SetListFromAnyUnshared(interp, objPtr);
     listlen = Jim_ListLength(interp, objPtr);
     if (listlen % 2) {
         Jim_SetResultString(interp, "missing value to go with key", -1);
@@ -7835,7 +7833,7 @@ int Jim_DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj *keyObjPtr, Jim_Obj *valueObjPtr)
 {
     JimPanic((Jim_IsShared(objPtr), "Jim_DictAddElement called with shared object"));
-    if (SetDictFromAny(interp, objPtr) != JIM_OK) {
+    if (SetDictFromAnyUnshared(interp, objPtr) != JIM_OK) {
         return JIM_ERR;
     }
     Jim_InvalidateStringRep(objPtr);
@@ -7870,11 +7868,15 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
     int tvoffset;
     Jim_Dict *dict;
 
-    if (SetDictFromAny(interp, dictPtr) != JIM_OK) {
+    /* I'm pretty sure that there won't be any use after free here, as only
+     * the top-level object is on the temp list. All the allocated keys (sub objects)
+     * should be on the live list, so they'll outlive the dict */
+    dictPtr = DuplicateIfShared(interp, dictPtr, 1);
+    if (SetDictFromAnyUnshared(interp, dictPtr) != JIM_OK) {
         return -1;
     }
     dict = dictPtr->internalRep.dictValue;
-    tvoffset = JimDictHashFind(dict, keyPtr, DICT_HASH_FIND);
+    tvoffset = JimDictHashFind(interp, dict, keyPtr, DICT_HASH_FIND);
     if (tvoffset == 0) {
         if (flags & JIM_ERRMSG) {
             Jim_SetResultFormatted(interp, "key \"%#s\" not known in dictionary", keyPtr);
