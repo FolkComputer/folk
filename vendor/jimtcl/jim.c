@@ -137,8 +137,8 @@ static char JimEmptyStringRep[] = "";
  * Required prototypes of not exported functions
  * ---------------------------------------------------------------------------*/
 static void JimFreeCallFrame(Jim_Interp *interp, Jim_CallFrame *cf, int action);
-static int ListSetIndex(Jim_Interp *interp, Jim_Obj *listPtr, int listindex, Jim_Obj *newObjPtr,
-    int flags);
+static int ListSetIndexUnshared(Jim_Interp *interp, Jim_Obj *listPtr, int listindex,
+    Jim_Obj *newObjPtr, int flags);
 static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *const *indexv, int indexc,
     Jim_Obj **resultObj, int flags);
 static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands);
@@ -2074,7 +2074,7 @@ static Jim_Obj *JimParserGetTokenObj(Jim_Interp *interp, struct JimParserCtx *pc
         len = JimEscape(token, start, len);
     }
 
-    return Jim_NewStringObjNoAlloc(interp, token, len);
+    return Jim_NewStringObjNoAlloc(interp, token, len, 1);
 }
 
 /* -----------------------------------------------------------------------------
@@ -2195,7 +2195,7 @@ static int JimParseListStr(struct JimParserCtx *pc)
  * ---------------------------------------------------------------------------*/
 
 /* Return a new initialized object. */
-Jim_Obj *Jim_NewObj(Jim_Interp *interp)
+Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
 {
     Jim_Obj *objPtr;
 
@@ -2218,12 +2218,21 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp)
      * The caller will probably want to set them to the right
      * value anyway. */
 
-    /* -- Put the object into the live list -- */
-    objPtr->prevObjPtr = NULL;
-    objPtr->nextObjPtr = interp->liveList;
-    if (interp->liveList)
-        interp->liveList->prevObjPtr = objPtr;
-    interp->liveList = objPtr;
+    if (onTempList) {
+        /* -- Put the object into the temp list -- */
+        objPtr->prevObjPtr = NULL;
+        objPtr->nextObjPtr = interp->tempList;
+        if (interp->tempList)
+            interp->tempList->prevObjPtr = objPtr;
+        interp->tempList = objPtr;
+    } else {
+        /* -- Put the object into the live list -- */
+        objPtr->prevObjPtr = NULL;
+        objPtr->nextObjPtr = interp->liveList;
+        if (interp->liveList)
+            interp->liveList->prevObjPtr = objPtr;
+        interp->liveList = objPtr;
+    }
 
     return objPtr;
 }
@@ -2244,13 +2253,16 @@ void Jim_FreeObj(Jim_Interp *interp, Jim_Obj *objPtr)
         if (objPtr->bytes != JimEmptyStringRep)
             Jim_Free(objPtr->bytes);
     }
-    /* Unlink the object from the live objects list */
+
+    /* Unlink the object from whatever list it's in (liveList or tempList) */
     if (objPtr->prevObjPtr)
         objPtr->prevObjPtr->nextObjPtr = objPtr->nextObjPtr;
     if (objPtr->nextObjPtr)
         objPtr->nextObjPtr->prevObjPtr = objPtr->prevObjPtr;
     if (interp->liveList == objPtr)
         interp->liveList = objPtr->nextObjPtr;
+    if (interp->tempList == objPtr)
+        interp->tempList = objPtr->nextObjPtr;
 #ifdef JIM_DISABLE_OBJECT_POOL
     Jim_Free(objPtr);
 #else
@@ -2275,11 +2287,11 @@ void Jim_InvalidateStringRep(Jim_Obj *objPtr)
 }
 
 /* Duplicate an object. The returned object has refcount = 0. */
-Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr)
+Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
 {
     Jim_Obj *dupPtr;
 
-    dupPtr = Jim_NewObj(interp);
+    dupPtr = Jim_NewObj(interp, onTempList);
     if (objPtr->bytes == NULL) {
         /* Object does not have a valid string representation. */
         dupPtr->bytes = NULL;
@@ -2318,11 +2330,34 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr)
  * string representation is invalid, calls the updateStringProc method to create
  * a new one from the internal representation of the object.
  */
-const char *Jim_GetString(Jim_Obj *objPtr, int *lenPtr)
+const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 {
     if (objPtr->bytes == NULL) {
         /* Invalid string repr. Generate it. */
         JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
+
+        if (Jim_IsShared(objPtr)) {
+            /* Shared object, we better duplicate it so there's no data races. */
+            objPtr = Jim_DuplicateObj(interp, objPtr, 1);
+            // FIXME: do I need to increment refCount to new object here?
+            Jim_IncrRefCount(objPtr);
+        }
+
+        objPtr->typePtr->updateStringProc(objPtr);
+    }
+    if (lenPtr)
+        *lenPtr = objPtr->length;
+    return objPtr->bytes;
+}
+
+const char *Jim_GetStringUnshared(Jim_Obj *objPtr, int *lenPtr)
+{
+    JimPanic((Jim_IsShared(objPtr), "Jim_GetStringUnshared called with shared object"));
+
+    if (objPtr->bytes == NULL) {
+        /* Invalid string repr. Generate it. */
+        JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
+
         objPtr->typePtr->updateStringProc(objPtr);
     }
     if (lenPtr)
@@ -2331,23 +2366,26 @@ const char *Jim_GetString(Jim_Obj *objPtr, int *lenPtr)
 }
 
 /* Just returns the length (in bytes) of the object's string rep */
-int Jim_Length(Jim_Obj *objPtr)
+int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    int lenPtr = 0;
+
     if (objPtr->bytes == NULL) {
-        /* Invalid string repr. Generate it. */
-        Jim_GetString(objPtr, NULL);
+        Jim_GetString(interp, objPtr, &lenPtr);
+        return lenPtr;
+    } else {
+        return objPtr->length;
     }
-    return objPtr->length;
 }
 
 /* Just returns object's string rep */
-const char *Jim_String(Jim_Obj *objPtr)
+const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->bytes == NULL) {
-        /* Invalid string repr. Generate it. */
-        Jim_GetString(objPtr, NULL);
+        return Jim_GetString(interp, objPtr, NULL);
+    } else {
+        return objPtr->bytes;
     }
-    return objPtr->bytes;
 }
 
 static void JimSetStringBytes(Jim_Obj *objPtr, const char *str)
@@ -2446,21 +2484,19 @@ static int SetStringFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
 int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
 #ifdef JIM_UTF8
-    SetStringFromAny(interp, objPtr);
+    int len = 0;
+    char *strValue = Jim_GetString(interp, objPtr, &len);
 
-    if (objPtr->internalRep.strValue.charLength < 0) {
-        objPtr->internalRep.strValue.charLength = utf8_strlen(objPtr->bytes, objPtr->length);
-    }
-    return objPtr->internalRep.strValue.charLength;
+    return utf8_strlen(strValue, len);
 #else
-    return Jim_Length(objPtr);
+    return Jim_Length(interp, objPtr);
 #endif
 }
 
 /* len is in bytes -- see also Jim_NewStringObjUtf8() */
-Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len)
+Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len, int onTempList)
 {
-    Jim_Obj *objPtr = Jim_NewObj(interp);
+    Jim_Obj *objPtr = Jim_NewObj(interp, onTempList);
 
     /* Need to find out how many bytes the string requires */
     if (len == -1)
@@ -2480,13 +2516,13 @@ Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len)
 }
 
 /* charlen is in characters -- see also Jim_NewStringObj() */
-Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen)
+Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen, int onTempList)
 {
 #ifdef JIM_UTF8
     /* Need to find out how many bytes the string requires */
     int bytelen = utf8_index(s, charlen);
 
-    Jim_Obj *objPtr = Jim_NewStringObj(interp, s, bytelen);
+    Jim_Obj *objPtr = Jim_NewStringObj(interp, s, bytelen, onTempList);
 
     /* Remember the utf8 length, so set the type */
     objPtr->typePtr = &stringObjType;
@@ -2495,15 +2531,15 @@ Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen)
 
     return objPtr;
 #else
-    return Jim_NewStringObj(interp, s, charlen);
+    return Jim_NewStringObj(interp, s, charlen, onTempList);
 #endif
 }
 
 /* This version does not try to duplicate the 's' pointer, but
  * use it directly. */
-Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len)
+Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len, int onTempList)
 {
-    Jim_Obj *objPtr = Jim_NewObj(interp);
+    Jim_Obj *objPtr = Jim_NewObj(interp, onTempList);
 
     objPtr->bytes = s;
     objPtr->length = (len == -1) ? strlen(s) : len;
@@ -2546,7 +2582,7 @@ static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
 }
 
 /* Higher level API to append strings to objects.
- * Object must not be unshared for each of these.
+ * Object must not be shared for each of these.
  */
 void Jim_AppendString(Jim_Interp *interp, Jim_Obj *objPtr, const char *str, int len)
 {
@@ -2558,7 +2594,7 @@ void Jim_AppendString(Jim_Interp *interp, Jim_Obj *objPtr, const char *str, int 
 void Jim_AppendObj(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *appendObjPtr)
 {
     int len;
-    const char *str = Jim_GetString(appendObjPtr, &len);
+    const char *str = Jim_GetString(interp, appendObjPtr, &len);
     Jim_AppendString(interp, objPtr, str, len);
 }
 
@@ -2578,15 +2614,15 @@ void Jim_AppendStrings(Jim_Interp *interp, Jim_Obj *objPtr, ...)
     va_end(ap);
 }
 
-int Jim_StringEqObj(Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
+int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
 {
     if (aObjPtr == bObjPtr) {
         return 1;
     }
     else {
         int Alen, Blen;
-        const char *sA = Jim_GetString(aObjPtr, &Alen);
-        const char *sB = Jim_GetString(bObjPtr, &Blen);
+        const char *sA = Jim_GetString(interp, aObjPtr, &Alen);
+        const char *sB = Jim_GetString(interp, bObjPtr, &Blen);
 
         return Alen == Blen && memcmp(sA, sB, Alen) == 0;
     }
@@ -2598,16 +2634,16 @@ int Jim_StringEqObj(Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
 int Jim_StringMatchObj(Jim_Interp *interp, Jim_Obj *patternObjPtr, Jim_Obj *objPtr, int nocase)
 {
     int plen, slen;
-    const char *pattern = Jim_GetString(patternObjPtr, &plen);
-    const char *string = Jim_GetString(objPtr, &slen);
+    const char *pattern = Jim_GetString(interp, patternObjPtr, &plen);
+    const char *string = Jim_GetString(interp, objPtr, &slen);
     return JimGlobMatch(pattern, plen, string, slen, nocase);
 }
 
 int Jim_StringCompareObj(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *secondObjPtr, int nocase)
 {
-    const char *s1 = Jim_String(firstObjPtr);
+    const char *s1 = Jim_String(interp, firstObjPtr);
     int l1 = Jim_Utf8Length(interp, firstObjPtr);
-    const char *s2 = Jim_String(secondObjPtr);
+    const char *s2 = Jim_String(interp, secondObjPtr);
     int l2 = Jim_Utf8Length(interp, secondObjPtr);
     return JimStringCompareUtf8(s1, l1, s2, l2, nocase);
 }
@@ -2679,7 +2715,7 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     int rangeLen;
     int bytelen;
 
-    str = Jim_GetString(strObjPtr, &bytelen);
+    str = Jim_GetString(interp, strObjPtr, &bytelen);
 
     if (JimStringGetRange(interp, firstObjPtr, lastObjPtr, bytelen, &first, &last, &rangeLen) != JIM_OK) {
         return NULL;
@@ -2688,7 +2724,7 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     if (first == 0 && rangeLen == bytelen) {
         return strObjPtr;
     }
-    return Jim_NewStringObj(interp, str + first, rangeLen);
+    return Jim_NewStringObj(interp, str + first, rangeLen, 0);
 }
 
 Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
@@ -2700,7 +2736,7 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     int len, rangeLen;
     int bytelen;
 
-    str = Jim_GetString(strObjPtr, &bytelen);
+    str = Jim_GetString(interp, strObjPtr, &bytelen);
     len = Jim_Utf8Length(interp, strObjPtr);
 
     if (JimStringGetRange(interp, firstObjPtr, lastObjPtr, len, &first, &last, &rangeLen) != JIM_OK) {
@@ -2712,9 +2748,9 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     }
     if (len == bytelen) {
         /* ASCII optimisation */
-        return Jim_NewStringObj(interp, str + first, rangeLen);
+        return Jim_NewStringObj(interp, str + first, rangeLen, 0);
     }
-    return Jim_NewStringObjUtf8(interp, str + utf8_index(str, first), rangeLen);
+    return Jim_NewStringObjUtf8(interp, str + utf8_index(str, first), rangeLen, 0);
 #else
     return Jim_StringByteRangeObj(interp, strObjPtr, firstObjPtr, lastObjPtr);
 #endif
@@ -2738,10 +2774,10 @@ Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
         return strObjPtr;
     }
 
-    str = Jim_String(strObjPtr);
+    str = Jim_String(interp, strObjPtr);
 
     /* Before part */
-    objPtr = Jim_NewStringObjUtf8(interp, str, first);
+    objPtr = Jim_NewStringObjUtf8(interp, str, first, 0);
 
     /* Replacement */
     if (newStrObj) {
@@ -2776,7 +2812,7 @@ static Jim_Obj *JimStringToLower(Jim_Interp *interp, Jim_Obj *strObjPtr)
     int len;
     const char *str;
 
-    str = Jim_GetString(strObjPtr, &len);
+    str = Jim_GetString(interp, strObjPtr, &len);
 
 #ifdef JIM_UTF8
     /* Case mapping can change the utf-8 length of the string.
@@ -2786,7 +2822,7 @@ static Jim_Obj *JimStringToLower(Jim_Interp *interp, Jim_Obj *strObjPtr)
 #endif
     buf = Jim_Alloc(len + 1);
     JimStrCopyUpperLower(buf, str, 0);
-    return Jim_NewStringObjNoAlloc(interp, buf, -1);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
 }
 
 /**
@@ -2798,7 +2834,7 @@ static Jim_Obj *JimStringToUpper(Jim_Interp *interp, Jim_Obj *strObjPtr)
     const char *str;
     int len;
 
-    str = Jim_GetString(strObjPtr, &len);
+    str = Jim_GetString(interp, strObjPtr, &len);
 
 #ifdef JIM_UTF8
     /* Case mapping can change the utf-8 length of the string.
@@ -2808,7 +2844,7 @@ static Jim_Obj *JimStringToUpper(Jim_Interp *interp, Jim_Obj *strObjPtr)
 #endif
     buf = Jim_Alloc(len + 1);
     JimStrCopyUpperLower(buf, str, 1);
-    return Jim_NewStringObjNoAlloc(interp, buf, -1);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
 }
 
 /**
@@ -2821,7 +2857,7 @@ static Jim_Obj *JimStringToTitle(Jim_Interp *interp, Jim_Obj *strObjPtr)
     int c;
     const char *str;
 
-    str = Jim_GetString(strObjPtr, &len);
+    str = Jim_GetString(interp, strObjPtr, &len);
 
 #ifdef JIM_UTF8
     /* Case mapping can change the utf-8 length of the string.
@@ -2836,7 +2872,7 @@ static Jim_Obj *JimStringToTitle(Jim_Interp *interp, Jim_Obj *strObjPtr)
 
     JimStrCopyUpperLower(p, str, 0);
 
-    return Jim_NewStringObjNoAlloc(interp, buf, -1);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
 }
 
 /* Similar to memchr() except searches a UTF-8 string 'str' of byte length 'len'
@@ -2919,13 +2955,13 @@ static int default_trim_chars_len = sizeof(default_trim_chars);
 static Jim_Obj *JimStringTrimLeft(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *trimcharsObjPtr)
 {
     int len;
-    const char *str = Jim_GetString(strObjPtr, &len);
+    const char *str = Jim_GetString(interp, strObjPtr, &len);
     const char *trimchars = default_trim_chars;
     int trimcharslen = default_trim_chars_len;
     const char *newstr;
 
     if (trimcharsObjPtr) {
-        trimchars = Jim_GetString(trimcharsObjPtr, &trimcharslen);
+        trimchars = Jim_GetString(interp, trimcharsObjPtr, &trimcharslen);
     }
 
     newstr = JimFindTrimLeft(str, len, trimchars, trimcharslen);
@@ -2933,7 +2969,7 @@ static Jim_Obj *JimStringTrimLeft(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Ob
         return strObjPtr;
     }
 
-    return Jim_NewStringObj(interp, newstr, len - (newstr - str));
+    return Jim_NewStringObj(interp, newstr, len - (newstr - str), 0);
 }
 
 static Jim_Obj *JimStringTrimRight(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *trimcharsObjPtr)
@@ -2944,12 +2980,12 @@ static Jim_Obj *JimStringTrimRight(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_O
     const char *nontrim;
 
     if (trimcharsObjPtr) {
-        trimchars = Jim_GetString(trimcharsObjPtr, &trimcharslen);
+        trimchars = Jim_GetString(interp, trimcharsObjPtr, &trimcharslen);
     }
 
     SetStringFromAny(interp, strObjPtr);
 
-    len = Jim_Length(strObjPtr);
+    len = Jim_Length(interp, strObjPtr);
     nontrim = JimFindTrimRight(strObjPtr->bytes, len, trimchars, trimcharslen);
 
     if (nontrim == NULL) {
@@ -2962,7 +2998,7 @@ static Jim_Obj *JimStringTrimRight(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_O
     }
 
     if (Jim_IsShared(strObjPtr)) {
-        strObjPtr = Jim_NewStringObj(interp, strObjPtr->bytes, (nontrim - strObjPtr->bytes));
+        strObjPtr = Jim_NewStringObj(interp, strObjPtr->bytes, (nontrim - strObjPtr->bytes), 0);
     }
     else {
         /* Can modify this string in place */
@@ -3023,7 +3059,7 @@ static int JimStringIs(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *strClass
         return JIM_ERR;
     }
 
-    str = Jim_GetString(strObjPtr, &len);
+    str = Jim_GetString(interp, strObjPtr, &len);
     if (len == 0) {
         Jim_SetResultBool(interp, !strict);
         return JIM_OK;
@@ -3111,7 +3147,7 @@ int Jim_CompareStringImmediate(Jim_Interp *interp, Jim_Obj *objPtr, const char *
         return 1;
     }
     else {
-        if (strcmp(str, Jim_String(objPtr)) != 0)
+        if (strcmp(str, Jim_String(interp, objPtr)) != 0)
             return 0;
 
         if (objPtr->typePtr != &comparedStringObjType) {
@@ -3207,7 +3243,7 @@ static Jim_Obj *JimNewScriptLineObj(Jim_Interp *interp, int argc, int line)
 #ifdef DEBUG_SHOW_SCRIPT
     char buf[100];
     snprintf(buf, sizeof(buf), "line=%d, argc=%d", line, argc);
-    objPtr = Jim_NewStringObj(interp, buf, -1);
+    objPtr = Jim_NewStringObj(interp, buf, -1, 0);
 #else
     objPtr = Jim_NewEmptyStringObj(interp);
 #endif
@@ -3475,13 +3511,13 @@ static Jim_Obj *JimMakeScriptObj(Jim_Interp *interp, const ParseToken *t)
         int len = t->len;
         char *str = Jim_Alloc(len + 1);
         len = JimEscape(str, t->token, len);
-        objPtr = Jim_NewStringObjNoAlloc(interp, str, len);
+        objPtr = Jim_NewStringObjNoAlloc(interp, str, len, 0);
     }
     else {
         /* XXX: For strict Tcl compatibility, JIM_TT_STR should replace <backslash><newline><whitespace>
          *         with a single space.
          */
-        objPtr = Jim_NewStringObj(interp, t->token, t->len);
+        objPtr = Jim_NewStringObj(interp, t->token, t->len, 0);
     }
     return objPtr;
 }
@@ -3702,7 +3738,7 @@ static void SubstObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
 static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int scriptTextLen;
-    const char *scriptText = Jim_GetString(objPtr, &scriptTextLen);
+    const char *scriptText = Jim_GetString(interp, objPtr, &scriptTextLen);
     struct JimParserCtx parser;
     struct ScriptObj *script;
     ParseTokenList tokenlist;
@@ -3788,11 +3824,11 @@ static int JimScriptValid(Jim_Interp *interp, ScriptObj *script)
 
 int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, const char **sourceFileName) {
     if (scriptObj->typePtr == &sourceObjType) {
-        *sourceFileName = Jim_String(scriptObj->internalRep.sourceValue.fileNameObj);
+        *sourceFileName = Jim_String(interp, scriptObj->internalRep.sourceValue.fileNameObj);
         return JIM_OK;
     } else if (scriptObj->typePtr == &scriptObjType) {
         struct ScriptObj *script = (void *)scriptObj->internalRep.ptr;
-        *sourceFileName = Jim_String(script->fileNameObj);
+        *sourceFileName = Jim_String(interp, script->fileNameObj);
         return JIM_OK;
     }
     return JIM_ERR;
@@ -3882,7 +3918,7 @@ static void JimVariablesHTValDestructor(void *interp, void *val)
     Jim_Free(val);
 }
 
-static unsigned int JimObjectHTHashFunction(const void *key)
+static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
 {
     Jim_Obj *keyObj = (Jim_Obj *)key;
     int length;
@@ -3913,13 +3949,13 @@ static unsigned int JimObjectHTHashFunction(const void *key)
         }
     }
 #endif
-    string = Jim_GetString(keyObj, &length);
+    string = Jim_GetString(interp, keyObj, &length);
     return Jim_GenHashFunction((const unsigned char *)string, length);
 }
 
-static int JimObjectHTKeyCompare(void *privdata, const void *key1, const void *key2)
+static int JimObjectHTKeyCompare(Jim_Interp *interp, void *privdata, const void *key1, const void *key2)
 {
-    return Jim_StringEqObj((Jim_Obj *)key1, (Jim_Obj *)key2);
+    return Jim_StringEqObj(interp, (Jim_Obj *)key1, (Jim_Obj *)key2);
 }
 
 static void *JimObjectHTKeyValDup(void *privdata, const void *val)
@@ -3952,10 +3988,10 @@ static const Jim_HashTableType JimVariablesHashTableType = {
 /**
  * Like Jim_GetString() but strips any leading namespace qualifier.
  */
-static const char *Jim_GetStringNoQualifier(Jim_Obj *objPtr, int *length)
+static const char *Jim_GetStringNoQualifier(Jim_Interp *interp, Jim_Obj *objPtr, int *length)
 {
     int len;
-    const char *str = Jim_GetString(objPtr, &len);
+    const char *str = Jim_GetString(interp, objPtr, &len);
     if (len >= 2 && str[0] == ':' && str[1] == ':') {
         while (len && *str == ':') {
             len--;
@@ -3966,18 +4002,18 @@ static const char *Jim_GetStringNoQualifier(Jim_Obj *objPtr, int *length)
     return str;
 }
 
-static unsigned int JimCommandsHT_HashFunction(const void *key)
+static unsigned int JimCommandsHT_HashFunction(Jim_Interp *interp, const void *key)
 {
     int len;
-    const char *str = Jim_GetStringNoQualifier((Jim_Obj *)key, &len);
+    const char *str = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key, &len);
     return Jim_GenHashFunction((const unsigned char *)str, len);
 }
 
-static int JimCommandsHT_KeyCompare(void *privdata, const void *key1, const void *key2)
+static int JimCommandsHT_KeyCompare(Jim_Interp *interp, void *privdata, const void *key1, const void *key2)
 {
     int len1, len2;
-    const char *str1 = Jim_GetStringNoQualifier((Jim_Obj *)key1, &len1);
-    const char *str2 = Jim_GetStringNoQualifier((Jim_Obj *)key2, &len2);
+    const char *str1 = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key1, &len1);
+    const char *str2 = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key2, &len2);
     return len1 == len2 && memcmp(str1, str2, len1) == 0;
 }
 
@@ -4007,12 +4043,12 @@ Jim_Obj *Jim_MakeGlobalNamespaceName(Jim_Interp *interp, Jim_Obj *nameObjPtr)
 #ifdef jim_ext_namespace
     Jim_Obj *resultObj;
 
-    const char *name = Jim_String(nameObjPtr);
+    const char *name = Jim_String(interp, nameObjPtr);
     if (name[0] == ':' && name[1] == ':') {
         return nameObjPtr;
     }
     Jim_IncrRefCount(nameObjPtr);
-    resultObj = Jim_NewStringObj(interp, "::", -1);
+    resultObj = Jim_NewStringObj(interp, "::", -1, 0);
     Jim_AppendObj(interp, resultObj, nameObjPtr);
     Jim_DecrRefCount(interp, nameObjPtr);
 
@@ -4033,12 +4069,12 @@ Jim_Obj *Jim_MakeGlobalNamespaceName(Jim_Interp *interp, Jim_Obj *nameObjPtr)
 static Jim_Obj *JimQualifyName(Jim_Interp *interp, Jim_Obj *objPtr)
 {
 #ifdef jim_ext_namespace
-    if (Jim_Length(interp->framePtr->nsObj)) {
+    if (Jim_Length(interp, interp->framePtr->nsObj)) {
         int len;
-        const char *name = Jim_GetString(objPtr, &len);
+        const char *name = Jim_GetString(interp, objPtr, &len);
         if (len < 2 || name[0] != ':' || name[1] != ':') {
             /* OK. Need to qualify this name */
-            objPtr = Jim_DuplicateObj(interp, interp->framePtr->nsObj);
+            objPtr = Jim_DuplicateObj(interp, interp->framePtr->nsObj, 0);
             Jim_AppendStrings(interp, objPtr, "::", name, NULL);
         }
     }
@@ -4109,7 +4145,7 @@ int Jim_CreateCommandObj(Jim_Interp *interp, Jim_Obj *cmdNameObj,
 int Jim_CreateCommand(Jim_Interp *interp, const char *cmdNameStr,
     Jim_CmdProc *cmdProc, void *privData, Jim_DelCmdProc *delProc)
 {
-    return Jim_CreateCommandObj(interp, Jim_NewStringObj(interp, cmdNameStr, -1), cmdProc, privData, delProc);
+    return Jim_CreateCommandObj(interp, Jim_NewStringObj(interp, cmdNameStr, -1, 0), cmdProc, privData, delProc);
 }
 
 static int JimCreateProcedureStatics(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj *staticsListObjPtr)
@@ -4192,7 +4228,7 @@ static void JimUpdateProcNamespace(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj 
 #ifdef jim_ext_namespace
     if (cmdPtr->isproc) {
         int len;
-        const char *cmdname = Jim_GetStringNoQualifier(nameObjPtr, &len);
+        const char *cmdname = Jim_GetStringNoQualifier(interp, nameObjPtr, &len);
         /* XXX: Really need JimNamespaceSplit() */
         const char *pt = Jim_memrchr(cmdname, ':', len);
         if (pt && pt != cmdname && pt[-1] == ':') {
@@ -4201,10 +4237,10 @@ static void JimUpdateProcNamespace(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj 
              * while cmdname points to abc
              */
             Jim_DecrRefCount(interp, cmdPtr->u.proc.nsObj);
-            cmdPtr->u.proc.nsObj = Jim_NewStringObj(interp, cmdname, pt - cmdname - 2);
+            cmdPtr->u.proc.nsObj = Jim_NewStringObj(interp, cmdname, pt - cmdname - 2, 0);
             Jim_IncrRefCount(cmdPtr->u.proc.nsObj);
 
-            Jim_Obj *tempObj = Jim_NewStringObj(interp, pt, len - (pt - cmdname));
+            Jim_Obj *tempObj = Jim_NewStringObj(interp, pt, len - (pt - cmdname), 0);
             if (Jim_FindHashEntry(&interp->commands, tempObj)) {
                 /* This command shadows a global command, so a proc epoch update is required */
                 Jim_InterpIncrProcEpoch(interp);
@@ -4323,7 +4359,7 @@ int Jim_RenameCommand(Jim_Interp *interp, Jim_Obj *oldNameObj, Jim_Obj *newNameO
     Jim_HashEntry *he;
     Jim_Cmd *cmdPtr;
 
-    if (Jim_Length(newNameObj) == 0) {
+    if (Jim_Length(interp, newNameObj) == 0) {
         return Jim_DeleteCommand(interp, oldNameObj);
     }
 
@@ -4412,7 +4448,7 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     if (objPtr->typePtr == &commandObjType
         && objPtr->internalRep.cmdValue.procEpoch == interp->procEpoch
 #ifdef jim_ext_namespace
-        && Jim_StringEqObj(objPtr->internalRep.cmdValue.nsObj, interp->framePtr->nsObj)
+        && Jim_StringEqObj(interp, objPtr->internalRep.cmdValue.nsObj, interp->framePtr->nsObj)
 #endif
         && objPtr->internalRep.cmdValue.cmdPtr->inUse) {
         /* Cached value is valid */
@@ -4422,7 +4458,7 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
         Jim_Obj *qualifiedNameObj = JimQualifyName(interp, objPtr);
         Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, qualifiedNameObj);
 #ifdef jim_ext_namespace
-        if (he == NULL && Jim_Length(interp->framePtr->nsObj)) {
+        if (he == NULL && Jim_Length(interp, interp->framePtr->nsObj)) {
             he = Jim_FindHashEntry(&interp->commands, objPtr);
         }
 #endif
@@ -4502,7 +4538,7 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         return JIM_DICT_SUGAR;
     }
 
-    varName = Jim_GetString(objPtr, &len);
+    varName = Jim_GetString(interp, objPtr, &len);
 
     /* Make sure it's not syntax glue to get/set dict. */
     if (len && varName[len - 1] == ')' && strchr(varName, '(') != NULL) {
@@ -4517,7 +4553,7 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         global = 1;
         framePtr = interp->topFramePtr;
         /* XXX should use length */
-        Jim_Obj *tempObj = Jim_NewStringObj(interp, varName, len);
+        Jim_Obj *tempObj = Jim_NewStringObj(interp, varName, len, 0);
         var = JimFindVariable(&framePtr->vars, tempObj);
         Jim_FreeNewObj(interp, tempObj);
     }
@@ -4582,7 +4618,7 @@ static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_O
     Jim_IncrRefCount(valObjPtr);
     var->linkFramePtr = NULL;
 
-    name = Jim_GetString(nameObjPtr, &len);
+    name = Jim_GetString(interp, nameObjPtr, &len);
     if (name[0] == ':' && name[1] == ':') {
         while (*name == ':') {
             name++;
@@ -4590,7 +4626,7 @@ static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_O
         }
         framePtr = interp->topFramePtr;
         global = 1;
-        JimSetNewVariable(&framePtr->vars, Jim_NewStringObj(interp, name, len), var);
+        JimSetNewVariable(&framePtr->vars, Jim_NewStringObj(interp, name, len, 0), var);
     }
     else {
         framePtr = interp->framePtr;
@@ -4650,7 +4686,7 @@ int Jim_SetVariableStr(Jim_Interp *interp, const char *name, Jim_Obj *objPtr)
     Jim_Obj *nameObjPtr;
     int result;
 
-    nameObjPtr = Jim_NewStringObj(interp, name, -1);
+    nameObjPtr = Jim_NewStringObj(interp, name, -1, 0);
     Jim_IncrRefCount(nameObjPtr);
     result = Jim_SetVariable(interp, nameObjPtr, objPtr);
     Jim_DecrRefCount(interp, nameObjPtr);
@@ -4674,7 +4710,7 @@ int Jim_SetVariableStrWithStr(Jim_Interp *interp, const char *name, const char *
     Jim_Obj *valObjPtr;
     int result;
 
-    valObjPtr = Jim_NewStringObj(interp, val, -1);
+    valObjPtr = Jim_NewStringObj(interp, val, -1, 0);
     Jim_IncrRefCount(valObjPtr);
     result = Jim_SetVariableStr(interp, name, valObjPtr);
     Jim_DecrRefCount(interp, valObjPtr);
@@ -4713,7 +4749,7 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
 
     /* Resolve the call frames for both variables */
     /* XXX: SetVariableFromAny() already did this! */
-    varName = Jim_GetString(nameObjPtr, &varnamelen);
+    varName = Jim_GetString(interp, nameObjPtr, &varnamelen);
 
     if (varName[0] == ':' && varName[1] == ':') {
         while (*varName == ':') {
@@ -4727,13 +4763,13 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
         framePtr = interp->framePtr;
     }
 
-    targetName = Jim_GetString(targetNameObjPtr, &len);
+    targetName = Jim_GetString(interp, targetNameObjPtr, &len);
     if (targetName[0] == ':' && targetName[1] == ':') {
         while (*targetName == ':') {
             targetName++;
             len--;
         }
-        targetNameObjPtr = Jim_NewStringObj(interp, targetName, len);
+        targetNameObjPtr = Jim_NewStringObj(interp, targetName, len, 0);
         targetCallFrame = interp->topFramePtr;
     }
     Jim_IncrRefCount(targetNameObjPtr);
@@ -4752,7 +4788,7 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
 
         /* Cycles are only possible with 'uplevel 0' */
         while (1) {
-            if (Jim_Length(objPtr) == varnamelen && memcmp(Jim_String(objPtr), varName, varnamelen) == 0) {
+            if (Jim_Length(interp, objPtr) == varnamelen && memcmp(Jim_String(interp, objPtr), varName, varnamelen) == 0) {
                 Jim_SetResultString(interp, "can't upvar from variable to itself", -1);
                 Jim_DecrRefCount(interp, targetNameObjPtr);
                 return JIM_ERR;
@@ -4840,7 +4876,7 @@ Jim_Obj *Jim_GetVariableStr(Jim_Interp *interp, const char *name, int flags)
 {
     Jim_Obj *nameObjPtr, *varObjPtr;
 
-    nameObjPtr = Jim_NewStringObj(interp, name, -1);
+    nameObjPtr = Jim_NewStringObj(interp, name, -1, 0);
     Jim_IncrRefCount(nameObjPtr);
     varObjPtr = Jim_GetVariable(interp, nameObjPtr, flags);
     Jim_DecrRefCount(interp, nameObjPtr);
@@ -4888,13 +4924,13 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
         else {
             if (nameObjPtr->internalRep.varValue.global) {
                 int len;
-                const char *name = Jim_GetString(nameObjPtr, &len);
+                const char *name = Jim_GetString(interp, nameObjPtr, &len);
                 while (*name == ':') {
                     name++;
                     len--;
                 }
                 framePtr = interp->topFramePtr;
-                Jim_Obj *tempObj = Jim_NewStringObj(interp, name, len);
+                Jim_Obj *tempObj = Jim_NewStringObj(interp, name, len, 0);
                 retval = JimUnsetVariable(&framePtr->vars, tempObj);
                 Jim_FreeNewObj(interp, tempObj);
             }
@@ -4931,12 +4967,12 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     int len, keyLen;
     Jim_Obj *varObjPtr, *keyObjPtr;
 
-    str = Jim_GetString(objPtr, &len);
+    str = Jim_GetString(interp, objPtr, &len);
 
     p = strchr(str, '(');
     JimPanic((p == NULL, "JimDictSugarParseVarKey() called for non-dict-sugar (%s)", str));
 
-    varObjPtr = Jim_NewStringObj(interp, str, p - str);
+    varObjPtr = Jim_NewStringObj(interp, str, p - str, 0);
 
     p++;
     keyLen = (str + len) - p;
@@ -4945,7 +4981,7 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     }
 
     /* Create the objects with the variable name and key. */
-    keyObjPtr = Jim_NewStringObj(interp, p, keyLen);
+    keyObjPtr = Jim_NewStringObj(interp, p, keyLen, 0);
 
     Jim_IncrRefCount(varObjPtr);
     Jim_IncrRefCount(keyObjPtr);
@@ -5010,7 +5046,7 @@ static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPt
     }
     else if ((flags & JIM_UNSHARED) && Jim_IsShared(dictObjPtr)) {
         /* Update the variable to have an unshared copy */
-        Jim_SetVariable(interp, varObjPtr, Jim_DuplicateObj(interp, dictObjPtr));
+        Jim_SetVariable(interp, varObjPtr, Jim_DuplicateObj(interp, dictObjPtr, 0));
     }
 
     return resObjPtr;
@@ -5368,7 +5404,7 @@ static int SetReferenceFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
     char *endptr;
 
     /* Get the string representation */
-    str = Jim_GetString(objPtr, &len);
+    str = Jim_GetString(interp, objPtr, &len);
     if (str[0] == ':' && str[1] == ':') {
         str +=2;
         len -= 2;
@@ -5434,7 +5470,7 @@ Jim_Obj *Jim_NewReference(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *tagPtr, 
         Jim_IncrRefCount(cmdNamePtr);
     id = interp->referenceNextId++;
     Jim_AddHashEntry(&interp->references, &id, refPtr);
-    refObjPtr = Jim_NewObj(interp);
+    refObjPtr = Jim_NewObj(interp, 0);
     refObjPtr->typePtr = &referenceObjType;
     refObjPtr->bytes = NULL;
     refObjPtr->internalRep.refValue.id = id;
@@ -5442,7 +5478,7 @@ Jim_Obj *Jim_NewReference(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *tagPtr, 
     interp->referenceNextId++;
     /* Set the tag. Trimmed at JIM_REFERENCE_TAGLEN. Everything
      * that does not pass the 'isrefchar' test is replaced with '_' */
-    tag = Jim_GetString(tagPtr, &tagLen);
+    tag = Jim_GetString(interp, tagPtr, &tagLen);
     if (tagLen > JIM_REFERENCE_TAGLEN)
         tagLen = JIM_REFERENCE_TAGLEN;
     for (i = 0; i < JIM_REFERENCE_TAGLEN; i++) {
@@ -5566,7 +5602,7 @@ int Jim_Collect(Jim_Interp *interp)
             }
             /* Get the string repr of the object we want
              * to scan for references. */
-            p = str = Jim_GetString(objPtr, &len);
+            p = str = Jim_GetString(interp, objPtr, &len);
             /* Skip objects too little to contain references. */
             if (len < JIM_REFERENCE_SPACE) {
                 objPtr = objPtr->nextObjPtr;
@@ -5633,7 +5669,7 @@ int Jim_Collect(Jim_Interp *interp)
                 JimFormatReference(refstr, refPtr, *refId);
 
                 objv[0] = refPtr->finalizerCmdNamePtr;
-                objv[1] = Jim_NewStringObjNoAlloc(interp, refstr, JIM_REFERENCE_SPACE);
+                objv[1] = Jim_NewStringObjNoAlloc(interp, refstr, JIM_REFERENCE_SPACE, 0);
                 objv[2] = refPtr->objPtr;
 
                 /* Drop the reference itself */
@@ -5719,8 +5755,8 @@ Jim_Interp *Jim_CreateInterp(void)
     i->errorFileNameObj = i->emptyObj;
     i->result = i->emptyObj;
     i->stackTrace = Jim_NewListObj(i, NULL, 0);
-    i->unknown = Jim_NewStringObj(i, "unknown", -1);
-    i->defer = Jim_NewStringObj(i, "jim::defer", -1);
+    i->unknown = Jim_NewStringObj(i, "unknown", -1, 0);
+    i->defer = Jim_NewStringObj(i, "jim::defer", -1, 0);
     i->errorProc = i->emptyObj;
     i->currentScriptObj = Jim_NewEmptyStringObj(i);
     i->nullScriptObj = Jim_NewEmptyStringObj(i);
@@ -5865,7 +5901,7 @@ Jim_CallFrame *Jim_GetCallFrameByLevel(Jim_Interp *interp, Jim_Obj *levelObjPtr)
     Jim_CallFrame *framePtr;
 
     if (levelObjPtr) {
-        str = Jim_String(levelObjPtr);
+        str = Jim_String(interp, levelObjPtr);
         if (str[0] == '#') {
             char *endptr;
 
@@ -5980,7 +6016,7 @@ static void JimSetStackTrace(Jim_Interp *interp, Jim_Obj *stackTraceObj)
      */
     len = Jim_ListLength(interp, interp->stackTrace);
     if (len >= 3) {
-        if (Jim_Length(Jim_ListGetIndex(interp, interp->stackTrace, len - 2)) == 0) {
+        if (Jim_Length(interp, Jim_ListGetIndex(interp, interp->stackTrace, len - 2)) == 0) {
             interp->addStackTrace = 1;
         }
     }
@@ -5992,38 +6028,38 @@ static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
     if (strcmp(procname, "unknown") == 0) {
         procname = "";
     }
-    if (!*procname && !Jim_Length(fileNameObj)) {
+    if (!*procname && !Jim_Length(interp, fileNameObj)) {
         /* No useful info here */
         return;
     }
 
     if (Jim_IsShared(interp->stackTrace)) {
         Jim_DecrRefCount(interp, interp->stackTrace);
-        interp->stackTrace = Jim_DuplicateObj(interp, interp->stackTrace);
+        interp->stackTrace = Jim_DuplicateObj(interp, interp->stackTrace, 0);
         Jim_IncrRefCount(interp->stackTrace);
     }
 
     /* If we have no procname but the previous element did, merge with that frame */
-    if (!*procname && Jim_Length(fileNameObj)) {
+    if (!*procname && Jim_Length(interp, fileNameObj)) {
         /* Just a filename. Check the previous entry */
         int len = Jim_ListLength(interp, interp->stackTrace);
 
         if (len >= 3) {
             Jim_Obj *objPtr = Jim_ListGetIndex(interp, interp->stackTrace, len - 3);
-            if (Jim_Length(objPtr)) {
+            if (Jim_Length(interp, objPtr)) {
                 /* Yes, the previous level had procname */
                 objPtr = Jim_ListGetIndex(interp, interp->stackTrace, len - 2);
-                if (Jim_Length(objPtr) == 0) {
+                if (Jim_Length(interp, objPtr) == 0) {
                     /* But no filename, so merge the new info with that frame */
-                    ListSetIndex(interp, interp->stackTrace, len - 2, fileNameObj, 0);
-                    ListSetIndex(interp, interp->stackTrace, len - 1, Jim_NewIntObj(interp, linenr), 0);
+                    ListSetIndexUnshared(interp, interp->stackTrace, len - 2, fileNameObj, 0);
+                    ListSetIndexUnshared(interp, interp->stackTrace, len - 1, Jim_NewIntObj(interp, linenr), 0);
                     return;
                 }
             }
         }
     }
 
-    Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewStringObj(interp, procname, -1));
+    Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewStringObj(interp, procname, -1, 0));
     Jim_ListAppendElement(interp, interp->stackTrace, fileNameObj);
     Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewIntObj(interp, linenr));
 }
@@ -6138,7 +6174,7 @@ static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     }
 
     /* Get the string representation */
-    str = Jim_String(objPtr);
+    str = Jim_String(interp, objPtr);
     /* Try to convert into a jim_wide */
     if (Jim_StringToWide(str, &wideValue, 0) != JIM_OK) {
         if (flags & JIM_ERRMSG) {
@@ -6230,7 +6266,7 @@ Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp);
+    objPtr = Jim_NewObj(interp, 0);
     objPtr->typePtr = &intObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.wideValue = wideValue;
@@ -6333,7 +6369,7 @@ static int SetDoubleFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
     /* Preserve the string representation.
      * Needed so we can convert back to int without loss
      */
-    str = Jim_String(objPtr);
+    str = Jim_String(interp, objPtr);
 
     if (Jim_StringToWide(str, &wideValue, 10) == JIM_OK) {
         /* Managed to convert to an int, so we can use this as a cooerced double */
@@ -6378,7 +6414,7 @@ Jim_Obj *Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp);
+    objPtr = Jim_NewObj(interp, 0);
     objPtr->typePtr = &doubleObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.doubleValue = doubleValue;
@@ -6410,7 +6446,7 @@ static const int jim_true_false_lens[8] = {
 
 static int SetBooleanFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
-    int index = Jim_FindByName(Jim_String(objPtr), jim_true_false_strings,
+    int index = Jim_FindByName(Jim_String(interp, objPtr), jim_true_false_strings,
         sizeof(jim_true_false_strings) / sizeof(*jim_true_false_strings));
     if (index < 0) {
         if (flags & JIM_ERRMSG) {
@@ -6435,7 +6471,7 @@ static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr);
 static void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfList(struct Jim_Obj *objPtr);
-static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Note that while the elements of the list may contain references,
  * the list object itself can't. This basically means that the
@@ -6654,7 +6690,7 @@ static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
     for (i = 0; i < objc; i++) {
         int len;
 
-        strRep = Jim_GetString(objv[i], &len);
+        strRep = Jim_GetStringUnshared(objv[i], &len);
         quotingType[i] = ListElementQuotingType(strRep, len);
         switch (quotingType[i]) {
             case JIM_ELESTR_SIMPLE:
@@ -6682,7 +6718,7 @@ static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
     for (i = 0; i < objc; i++) {
         int len, qlen;
 
-        strRep = Jim_GetString(objv[i], &len);
+        strRep = Jim_GetStringUnshared(objv[i], &len);
 
         switch (quotingType[i]) {
             case JIM_ELESTR_SIMPLE:
@@ -6726,8 +6762,10 @@ static void UpdateStringOfList(struct Jim_Obj *objPtr)
     JimMakeListStringRep(objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
 }
 
-static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetListFromAnyUnshared called with shared object"));
+
     struct JimParserCtx parser;
     const char *str;
     int strLen;
@@ -6773,7 +6811,7 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     Jim_IncrRefCount(fileNameObj);
 
     /* Get the string representation */
-    str = Jim_GetString(objPtr, &strLen);
+    str = Jim_GetStringUnshared(objPtr, &strLen);
 
     /* Free the old internal repr just now and initialize the
      * new one just now. The string->list conversion can't fail. */
@@ -6801,11 +6839,26 @@ static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     return JIM_OK;
 }
 
+static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **listOut)
+{
+    if (Jim_IsShared(objPtr)) {
+        /* Shared object, we better duplicate it so there's no data races. */
+        objPtr = Jim_DuplicateObj(interp, objPtr, 1);
+        // FIXME: do I need to increment refCount to new object here?
+        Jim_IncrRefCount(objPtr);
+    }
+
+    int res = SetListFromAnyUnshared(interp, objPtr);
+    *listOut = (res == JIM_OK) ? objPtr : NULL;
+
+    return res;
+}
+
 Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp);
+    objPtr = Jim_NewObj(interp, 0);
     objPtr->typePtr = &listObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.listValue.ele = NULL;
@@ -6982,7 +7035,7 @@ static int ListSortElements(Jim_Interp *interp, Jim_Obj *listObjPtr, struct lsor
     int rc;
 
     JimPanic((Jim_IsShared(listObjPtr), "ListSortElements called with shared object"));
-    SetListFromAny(interp, listObjPtr);
+    SetListFromAnyUnshared(interp, listObjPtr);
 
     /* Allow lsort to be called reentrantly */
     prev_info = sort_info;
@@ -7104,7 +7157,7 @@ static void ListAppendList(Jim_Obj *listPtr, Jim_Obj *appendListPtr)
 void Jim_ListAppendElement(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendElement called with shared object"));
-    SetListFromAny(interp, listPtr);
+    SetListFromAnyUnshared(interp, listPtr);
     Jim_InvalidateStringRep(listPtr);
     ListAppendElement(listPtr, objPtr);
 }
@@ -7113,22 +7166,25 @@ void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendLis
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendList called with shared object"));
     SetListFromAny(interp, listPtr);
-    SetListFromAny(interp, appendListPtr);
+
+    Jim_Obj* newAppendListPtr;
+    GetList(interp, appendListPtr, &newAppendListPtr);
     Jim_InvalidateStringRep(listPtr);
-    ListAppendList(listPtr, appendListPtr);
+    ListAppendList(listPtr, newAppendListPtr);
 }
 
 int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    SetListFromAny(interp, objPtr);
-    return objPtr->internalRep.listValue.len;
+    Jim_Obj *listPtr;
+    GetList(interp, objPtr, &listPtr);
+    return listPtr->internalRep.listValue.len;
 }
 
 void Jim_ListInsertElements(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     int objc, Jim_Obj *const *objVec)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListInsertElement called with shared object"));
-    SetListFromAny(interp, listPtr);
+    SetListFromAnyUnshared(interp, listPtr);
     if (idx >= 0 && idx > listPtr->internalRep.listValue.len)
         idx = listPtr->internalRep.listValue.len;
     else if (idx < 0)
@@ -7137,9 +7193,11 @@ void Jim_ListInsertElements(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     ListInsertElements(listPtr, idx, objc, objVec);
 }
 
-Jim_Obj *Jim_ListGetIndex(Jim_Interp *interp, Jim_Obj *listPtr, int idx)
+Jim_Obj *Jim_ListGetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int idx)
 {
-    SetListFromAny(interp, listPtr);
+    Jim_Obj *listPtr;
+    GetList(interp, objPtr, &listPtr);
+
     if ((idx >= 0 && idx >= listPtr->internalRep.listValue.len) ||
         (idx < 0 && (-idx - 1) >= listPtr->internalRep.listValue.len)) {
         return NULL;
@@ -7212,10 +7270,12 @@ err:
     return ret;
 }
 
-static int ListSetIndex(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
+static int ListSetIndexUnshared(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     Jim_Obj *newObjPtr, int flags)
 {
-    SetListFromAny(interp, listPtr);
+    JimPanic((Jim_IsShared(objPtr), "ListSetIndexUnshared called with shared object"));
+
+    SetListFromAnyUnshared(interp, listPtr);
     if ((idx >= 0 && idx >= listPtr->internalRep.listValue.len) ||
         (idx < 0 && (-idx - 1) >= listPtr->internalRep.listValue.len)) {
         if (flags & JIM_ERRMSG) {
@@ -7244,7 +7304,7 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
     if (objPtr == NULL)
         return JIM_ERR;
     if ((shared = Jim_IsShared(objPtr)))
-        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr);
+        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr, 0);
     for (i = 0; i < indexc - 1; i++) {
         listObjPtr = objPtr;
         if (Jim_GetIndex(interp, indexv[i], &idx) != JIM_OK)
@@ -7256,14 +7316,14 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
             goto err;
         }
         if (Jim_IsShared(objPtr)) {
-            objPtr = Jim_DuplicateObj(interp, objPtr);
-            ListSetIndex(interp, listObjPtr, idx, objPtr, JIM_NONE);
+            objPtr = Jim_DuplicateObj(interp, objPtr, 0);
+            ListSetIndexUnshared(interp, listObjPtr, idx, objPtr, JIM_NONE);
         }
         Jim_InvalidateStringRep(listObjPtr);
     }
     if (Jim_GetIndex(interp, indexv[indexc - 1], &idx) != JIM_OK)
         goto err;
-    if (ListSetIndex(interp, objPtr, idx, newObjPtr, JIM_ERRMSG) == JIM_ERR)
+    if (ListSetIndexUnshared(interp, objPtr, idx, newObjPtr, JIM_ERRMSG) == JIM_ERR)
         goto err;
     Jim_InvalidateStringRep(objPtr);
     Jim_InvalidateStringRep(varObjPtr);

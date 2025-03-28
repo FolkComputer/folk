@@ -568,6 +568,7 @@ typedef struct Jim_Interp {
     int safeexpr; /* Set when evaluating a "safe" expression, no var subst or command eval */
     Jim_Obj *liveList; /* Linked list of all the live objects. */
     Jim_Obj *freeList; /* Linked list of all the unused objects. */
+    Jim_Obj *tempList; /* Linked list of temporary objects (should be periodically freed) */
     Jim_Obj *currentScriptObj; /* Script currently in execution. */
     Jim_EvalFrame topEvalFrame;  /* dummy top evaluation frame */
     Jim_EvalFrame *evalFrame;  /* evaluation stack */
@@ -609,7 +610,7 @@ typedef struct Jim_Interp {
  * At some point may be a real function doing more work.
  * The proc epoch is used in order to know when a command lookup
  * cached can no longer considered valid. */
-#define Jim_SetResultString(i,s,l) Jim_SetResult(i, Jim_NewStringObj(i,s,l))
+#define Jim_SetResultString(i,s,l) Jim_SetResult(i, Jim_NewStringObj(i,s,l,0))
 #define Jim_SetResultInt(i,intval) Jim_SetResult(i, Jim_NewIntObj(i,intval))
 /* Note: Using trueObj and falseObj here makes some things slower...*/
 #define Jim_SetResultBool(i,b) Jim_SetResultInt(i, b)
@@ -642,7 +643,7 @@ typedef struct Jim_Reference {
  * Exported API prototypes.
  * ---------------------------------------------------------------------------*/
 
-#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0)
+#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0, 0)
 #define Jim_FreeHashTableIterator(iter) Jim_Free(iter)
 
 #define JIM_EXPORT extern
@@ -728,30 +729,30 @@ JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
         (Jim_HashTableIterator *iter);
 
 /* objects */
-JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp);
+JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
 JIM_EXPORT void Jim_FreeObj (Jim_Interp *interp, Jim_Obj *objPtr);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
-        Jim_Obj *objPtr);
-JIM_EXPORT const char * Jim_GetString(Jim_Obj *objPtr,
+        Jim_Obj *objPtr, int onTempList);
+JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
-JIM_EXPORT const char *Jim_String(Jim_Obj *objPtr);
-JIM_EXPORT int Jim_Length(Jim_Obj *objPtr);
+JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* string object */
 JIM_EXPORT Jim_Obj * Jim_NewStringObj (Jim_Interp *interp,
-        const char *s, int len);
+        const char *s, int len, int onTempList);
 JIM_EXPORT Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp,
-        const char *s, int charlen);
+        const char *s, int charlen, int onTempList);
 JIM_EXPORT Jim_Obj * Jim_NewStringObjNoAlloc (Jim_Interp *interp,
-        char *s, int len);
+        char *s, int len, int onTempList);
 JIM_EXPORT void Jim_AppendString (Jim_Interp *interp, Jim_Obj *objPtr,
         const char *str, int len);
 JIM_EXPORT void Jim_AppendObj (Jim_Interp *interp, Jim_Obj *objPtr,
         Jim_Obj *appendObjPtr);
 JIM_EXPORT void Jim_AppendStrings (Jim_Interp *interp,
         Jim_Obj *objPtr, ...);
-JIM_EXPORT int Jim_StringEqObj(Jim_Obj *aObjPtr, Jim_Obj *bObjPtr);
+JIM_EXPORT int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr);
 JIM_EXPORT int Jim_StringMatchObj (Jim_Interp *interp, Jim_Obj *patternObjPtr,
         Jim_Obj *objPtr, int nocase);
 JIM_EXPORT Jim_Obj * Jim_StringRangeObj (Jim_Interp *interp,
