@@ -1146,23 +1146,16 @@ int main(int argc, char** argv) {
 
     workerInit(0);
 
-    // We wrap the boot program in an empty When so that it lives in a
-    // context that can run When/Claim/Wish right away.
+    // We run the boot program in a fake context so that it can run
+    // When/Claim/Wish right away _and_ is still running on the main
+    // thread (so that on Apple platforms, it can set up the
+    // windowing/GPU safely.)
+    char *bootFile = argc == 1 ? "boot.folk" : argv[1];
     char code[1024];
     snprintf(code, sizeof(code),
-             "Assert! when {source {%s}} with environment {}",
-             argc == 1 ? "boot.folk" : argv[1]);
+             "set __envStack [list]; set this {%s}; source {%s}",
+             bootFile, bootFile);
     eval(code);
-
-#ifdef __APPLE__
-    if (argc == 1) {
-        // Hard-coded. If there's no specific script to run, so we're
-        // just running the full boot, then make sure to run the GPU
-        // on the main thread. Run the GPU in apply so that there's a
-        // local scope to be lexically captured.
-        eval("apply {{} {source virtual-programs/gpu.folk}}");
-    }
-#endif
 
     workerLoop();
 }
