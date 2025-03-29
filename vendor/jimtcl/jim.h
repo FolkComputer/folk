@@ -173,6 +173,10 @@ extern "C" {
 /* Unused arguments generate annoying warnings... */
 #define JIM_NOTUSED(V) ((void) V)
 
+/* Whether to put on live list or temp list */
+#define JIM_LIVE_LIST 0
+#define JIM_TEMP_LIST 1
+
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
 

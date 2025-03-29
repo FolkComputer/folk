@@ -2346,7 +2346,7 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
         /* Invalid string repr. Generate it. */
         JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
 
-        objPtr = DuplicateIfShared(interp, objPtr, 1);
+        objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
 
         objPtr->typePtr->updateStringProc(objPtr);
     }
@@ -4082,7 +4082,7 @@ static Jim_Obj *JimQualifyName(Jim_Interp *interp, Jim_Obj *objPtr)
         const char *name = Jim_GetString(interp, objPtr, &len);
         if (len < 2 || name[0] != ':' || name[1] != ':') {
             /* OK. Need to qualify this name */
-            objPtr = Jim_DuplicateObj(interp, interp->framePtr->nsObj, 0);
+            objPtr = Jim_DuplicateObj(interp, interp->framePtr->nsObj, JIM_LIVE_LIST);
             Jim_AppendStrings(interp, objPtr, "::", name, NULL);
         }
     }
@@ -5054,7 +5054,7 @@ static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPt
     }
     else if ((flags & JIM_UNSHARED) && Jim_IsShared(dictObjPtr)) {
         /* Update the variable to have an unshared copy */
-        Jim_SetVariable(interp, varObjPtr, Jim_DuplicateObj(interp, dictObjPtr, 0));
+        Jim_SetVariable(interp, varObjPtr, Jim_DuplicateObj(interp, dictObjPtr, JIM_LIVE_LIST));
     }
 
     return resObjPtr;
@@ -5478,7 +5478,7 @@ Jim_Obj *Jim_NewReference(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *tagPtr, 
         Jim_IncrRefCount(cmdNamePtr);
     id = interp->referenceNextId++;
     Jim_AddHashEntry(&interp->references, &id, refPtr);
-    refObjPtr = Jim_NewObj(interp, 0);
+    refObjPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     refObjPtr->typePtr = &referenceObjType;
     refObjPtr->bytes = NULL;
     refObjPtr->internalRep.refValue.id = id;
@@ -6043,7 +6043,7 @@ static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
 
     if (Jim_IsShared(interp->stackTrace)) {
         Jim_DecrRefCount(interp, interp->stackTrace);
-        interp->stackTrace = Jim_DuplicateObj(interp, interp->stackTrace, 0);
+        interp->stackTrace = Jim_DuplicateObj(interp, interp->stackTrace, JIM_LIVE_LIST);
         Jim_IncrRefCount(interp->stackTrace);
     }
 
@@ -6274,7 +6274,7 @@ Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp, 0);
+    objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &intObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.wideValue = wideValue;
@@ -6422,7 +6422,7 @@ Jim_Obj *Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp, 0);
+    objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &doubleObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.doubleValue = doubleValue;
@@ -6849,7 +6849,7 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
 static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **listOut)
 {
-    objPtr = DuplicateIfShared(interp, objPtr, 1);
+    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
 
     int res = SetListFromAnyUnshared(interp, objPtr);
     *listOut = (res == JIM_OK) ? objPtr : NULL;
@@ -6861,7 +6861,7 @@ Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 {
     Jim_Obj *objPtr;
 
-    objPtr = Jim_NewObj(interp, 0);
+    objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &listObjType;
     objPtr->bytes = NULL;
     objPtr->internalRep.listValue.ele = NULL;
@@ -6980,7 +6980,7 @@ static int ListSortCommand(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     jim_wide ret = 0;
 
     /* This must be a valid list */
-    compare_script = Jim_DuplicateObj(sort_info->interp, sort_info->command, 0);
+    compare_script = Jim_DuplicateObj(sort_info->interp, sort_info->command, JIM_LIVE_LIST);
     Jim_ListAppendElement(sort_info->interp, compare_script, *lhsObj);
     Jim_ListAppendElement(sort_info->interp, compare_script, *rhsObj);
 
@@ -7307,7 +7307,7 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
     if (objPtr == NULL)
         return JIM_ERR;
     if ((shared = Jim_IsShared(objPtr)))
-        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr, 0);
+        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr, JIM_LIVE_LIST);
     for (i = 0; i < indexc - 1; i++) {
         listObjPtr = objPtr;
         if (Jim_GetIndex(interp, indexv[i], &idx) != JIM_OK)
@@ -7319,7 +7319,7 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
             goto err;
         }
         if (Jim_IsShared(objPtr)) {
-            objPtr = Jim_DuplicateObj(interp, objPtr, 0);
+            objPtr = Jim_DuplicateObj(interp, objPtr, JIM_LIVE_LIST);
             ListSetIndexUnshared(interp, listObjPtr, idx, objPtr, JIM_NONE);
         }
         Jim_InvalidateStringRep(listObjPtr);
@@ -7450,7 +7450,7 @@ Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstOb
 static void FreeDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfDict(struct Jim_Obj *objPtr);
-static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Dict Type.
  *
@@ -7727,7 +7727,7 @@ static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
         /* Now add all the elements to the hash table */
         for (i = 0; i < listlen; i += 2) {
-            int tvoffset = JimDictAdd(dict, dict->table[i]);
+            int tvoffset = JimDictAdd(interp, dict, dict->table[i]);
             if (tvoffset) {
                 /* A duplicate key, so replace the value but and don't add a new entry */
                 /* Discard the old value */
@@ -7847,7 +7847,7 @@ Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 
     JimPanic((len % 2, "Jim_NewDictObj() 'len' argument must be even"));
 
-    objPtr = Jim_NewObj(interp);
+    objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
     objPtr->typePtr = &dictObjType;
     objPtr->bytes = NULL;
 
@@ -7871,7 +7871,7 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
     /* I'm pretty sure that there won't be any use after free here, as only
      * the top-level object is on the temp list. All the allocated keys (sub objects)
      * should be on the live list, so they'll outlive the dict */
-    dictPtr = DuplicateIfShared(interp, dictPtr, 1);
+    dictPtr = DuplicateIfShared(interp, dictPtr, JIM_TEMP_LIST);
     if (SetDictFromAnyUnshared(interp, dictPtr) != JIM_OK) {
         return -1;
     }
