@@ -2218,7 +2218,7 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
      * The caller will probably want to set them to the right
      * value anyway. */
 
-    if (onTempList) {
+    if (onTempList == JIM_TEMP_LIST) {
         /* -- Put the object into the temp list -- */
         objPtr->prevObjPtr = NULL;
         objPtr->nextObjPtr = interp->tempList;
@@ -2286,6 +2286,7 @@ void Jim_InvalidateStringRep(Jim_Obj *objPtr)
     objPtr->bytes = NULL;
 }
 
+// smj-edison: audited
 /* Duplicate an object. The returned object has refcount = 0. */
 Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
 {
@@ -2326,7 +2327,9 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
     return dupPtr;
 }
 
-/* Duplicates the object and sets the refCount to 1 */
+// smj-edison: audited
+/* Duplicates the object and sets the refCount to 1 if shared, else
+ * just return the object */
 Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList) {
     if (Jim_IsShared(objPtr)) {
         objPtr = Jim_DuplicateObj(interp, objPtr, onTempList);
@@ -2336,9 +2339,11 @@ Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList) 
     return objPtr;
 }
 
+// smj-edison: audited
 /* Return the string representation for objPtr. If the object's
  * string representation is invalid, calls the updateStringProc method to create
- * a new one from the internal representation of the object.
+ * a new one from the internal representation of the object. If the object is
+ * shared, it'll duplicate the object onto temp list and call updateStringProc.
  */
 const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 {
@@ -2355,6 +2360,7 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
     return objPtr->bytes;
 }
 
+// smj-edison: audited
 const char *Jim_GetStringUnshared(Jim_Obj *objPtr, int *lenPtr)
 {
     JimPanic((Jim_IsShared(objPtr), "Jim_GetStringUnshared called with shared object"));
@@ -2370,7 +2376,8 @@ const char *Jim_GetStringUnshared(Jim_Obj *objPtr, int *lenPtr)
     return objPtr->bytes;
 }
 
-/* Just returns the length (in bytes) of the object's string rep */
+// smj-edison: audited
+/* Just returns the length (in bytes) of the object's string rep. DOES NOT SHIMMER ANYMORE */
 int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int lenPtr = 0;
@@ -2383,7 +2390,8 @@ int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
     }
 }
 
-/* Just returns object's string rep */
+// smj-edison: audited
+/* Just returns object's string rep. May be on temp list */
 const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->bytes == NULL) {
@@ -2461,8 +2469,11 @@ static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *d
     dupPtr->internalRep.strValue.charLength = srcPtr->internalRep.strValue.charLength;
 }
 
-static int SetStringFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+// smj-edison: audited
+static int SetStringFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetStringFromAnyUnshared called with shared object"));
+
     if (objPtr->typePtr != &stringObjType) {
         /* Get a fresh string representation. */
         if (objPtr->bytes == NULL) {
@@ -2592,7 +2603,7 @@ static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
 void Jim_AppendString(Jim_Interp *interp, Jim_Obj *objPtr, const char *str, int len)
 {
     JimPanic((Jim_IsShared(objPtr), "Jim_AppendString called with shared object"));
-    SetStringFromAny(interp, objPtr);
+    SetStringFromAnyUnshared(interp, objPtr);
     StringAppendString(objPtr, str, len);
 }
 
@@ -5386,6 +5397,7 @@ static const Jim_ObjType referenceObjType = {
     JIM_TYPE_REFERENCES,
 };
 
+// smj-edison: audited (never called with shared object)
 static void UpdateStringOfReference(struct Jim_Obj *objPtr)
 {
     char buf[JIM_REFERENCE_SPACE + 1];
@@ -6130,7 +6142,7 @@ static const Jim_ObjType coercedDoubleObjType = {
     JIM_TYPE_NONE,
 };
 
-
+// smj-edison: audited (never called with shared object)
 static void UpdateStringOfInt(struct Jim_Obj *objPtr)
 {
     char buf[JIM_INTEGER_SPACE + 1];
@@ -6306,6 +6318,7 @@ static const Jim_ObjType doubleObjType = {
 #define isinf(X) (1.0 / (X) == 0.0)
 #endif
 
+// smj-edison: audited (never called with shared object)
 static void UpdateStringOfDouble(struct Jim_Obj *objPtr)
 {
     double value = objPtr->internalRep.doubleValue;
@@ -6879,11 +6892,13 @@ Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
  * length of the vector. Note that the user of this function should make
  * sure that the list object can't shimmer while the vector returned
  * is in use, this vector is the one stored inside the internal representation
- * of the list object. This function is not exported, extensions should
- * always access to the List object elements using Jim_ListGetIndex(). */
+ * of the list object. They should also make sure the temp list is not cleared.
+ * This function is not exported, extensions should always get access 
+ * to the List object elements using Jim_ListGetIndex(). */
 static void JimListGetElements(Jim_Interp *interp, Jim_Obj *listObj, int *listLen,
     Jim_Obj ***listVec)
 {
+    listObj = DuplicateIfShared(interp, listObj, JIM_TEMP_LIST);
     *listLen = Jim_ListLength(interp, listObj);
     *listVec = listObj->internalRep.listValue.ele;
 }
@@ -7089,6 +7104,7 @@ static int ListSortElements(Jim_Interp *interp, Jim_Obj *listObjPtr, struct lsor
 }
 
 /* Ensure there is room for at least 'idx' values in the list */
+// smj-edison: always called with non-shared objects
 static void ListEnsureLength(Jim_Obj *listPtr, int idx)
 {
     assert(idx >= 0);
@@ -7174,6 +7190,12 @@ void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendLis
     GetList(interp, appendListPtr, &newAppendListPtr);
     Jim_InvalidateStringRep(listPtr);
     ListAppendList(listPtr, newAppendListPtr);
+}
+
+int Jim_ListLengthUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    SetListFromAnyUnshared(interp, objPtr);
+    return objPtr->internalRep.listValue.len;
 }
 
 int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
@@ -7766,13 +7788,15 @@ static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
  * associated is replaced with the new one.
  *
  * if valueObjPtr == NULL, the key is instead removed if it exists. */
-static int DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
+static int DictAddElementUnshared(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj *keyObjPtr, Jim_Obj *valueObjPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "DictAddElementUnshared called with shared object"));
+
     Jim_Dict *dict = objPtr->internalRep.dictValue;
     if (valueObjPtr == NULL) {
         /* Removing an entry */
-        int tvoffset = JimDictHashFind(dict, keyObjPtr, DICT_HASH_REMOVE);
+        int tvoffset = JimDictHashFind(interp, dict, keyObjPtr, DICT_HASH_REMOVE);
         if (tvoffset) {
             /* Found, so we need to remove the value from the table too, and if it is not the last
              * entry, need to swap with the last entry
@@ -7787,7 +7811,7 @@ static int DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
                 dict->table[tvoffset] = dict->table[dict->len + 1];
 
                 /* Now we need to update the hash table for the swapped entry */
-                JimDictHashFind(dict, dict->table[tvoffset - 1], tvoffset);
+                JimDictHashFind(interp, dict, dict->table[tvoffset - 1], tvoffset);
             }
             return JIM_OK;
         }
@@ -7795,7 +7819,7 @@ static int DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
     }
     else {
         /* Adding an entry - does it already exist? */
-        int tvoffset = JimDictAdd(dict, keyObjPtr);
+        int tvoffset = JimDictAdd(interp, dict, keyObjPtr);
         if (tvoffset) {
             /* Yes, already exists, so just replace value entry in the table */
             Jim_IncrRefCount(valueObjPtr);
@@ -7837,7 +7861,7 @@ int Jim_DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
         return JIM_ERR;
     }
     Jim_InvalidateStringRep(objPtr);
-    return DictAddElement(interp, objPtr, keyObjPtr, valueObjPtr);
+    return DictAddElementUnshared(interp, objPtr, keyObjPtr, valueObjPtr);
 }
 
 Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
@@ -7853,7 +7877,7 @@ Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 
     objPtr->internalRep.dictValue = JimDictNew(interp, len, len);
     for (i = 0; i < len; i += 2)
-        DictAddElement(interp, objPtr, elements[i], elements[i + 1]);
+        DictAddElementUnshared(interp, objPtr, elements[i], elements[i + 1]);
     return objPtr;
 }
 
@@ -7868,8 +7892,8 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
     int tvoffset;
     Jim_Dict *dict;
 
-    /* I'm pretty sure that there won't be any use after free here, as only
-     * the top-level object is on the temp list. All the allocated keys (sub objects)
+    /* I'm pretty sure that there won't be any use after free here of the temp object,
+     * as only the top-level object is on the temp list. All the allocated keys (sub objects)
      * should be on the live list, so they'll outlive the dict */
     dictPtr = DuplicateIfShared(interp, dictPtr, JIM_TEMP_LIST);
     if (SetDictFromAnyUnshared(interp, dictPtr) != JIM_OK) {
@@ -7889,8 +7913,8 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
 
 /* Return the key/value pairs array for the dictionary. Stores the length in *len
  *
- * Note that the point is to the internal table, so is only
- * valid until the dict is next modified, and the result should
+ * Note that the point is to the internal table or temp object, so is only
+ * valid until the dict is next modified or temp list cleared, and the result should
  * not be freed.
  *
  * Returns NULL if the object can't be converted to a dictionary, or if the length is 0.
@@ -7906,7 +7930,8 @@ Jim_Obj **Jim_DictPairs(Jim_Interp *interp, Jim_Obj *dictPtr, int *len)
         }
         /* Otherwise fall through to get the standard error */
     }
-    if (SetDictFromAny(interp, dictPtr) != JIM_OK) {
+    dictPtr = DuplicateIfShared(interp, dictPtr, JIM_TEMP_LIST);
+    if (SetDictFromAnyUnshared(interp, dictPtr) != JIM_OK) {
         /* Make sure we can differentiate between an empty dict/list and bad length */
         *len = 1;
         return NULL;
@@ -8045,6 +8070,7 @@ static const Jim_ObjType indexObjType = {
     JIM_TYPE_NONE,
 };
 
+// smj-edison: audited (never called with shared object)
 static void UpdateStringOfIndex(struct Jim_Obj *objPtr)
 {
     if (objPtr->internalRep.intValue == -1) {
@@ -10146,6 +10172,7 @@ void DupScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
     dupPtr->typePtr = &scanFmtStringObjType;
 }
 
+// smj-edison: audited (never called with shared object)
 static void UpdateStringOfScanFmt(Jim_Obj *objPtr)
 {
     JimSetStringBytes(objPtr, ((ScanFmtStringObj *) objPtr->internalRep.ptr)->stringRep);
