@@ -2361,22 +2361,6 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 }
 
 // smj-edison: audited
-const char *Jim_GetStringUnshared(Jim_Obj *objPtr, int *lenPtr)
-{
-    JimPanic((Jim_IsShared(objPtr), "Jim_GetStringUnshared called with shared object"));
-
-    if (objPtr->bytes == NULL) {
-        /* Invalid string repr. Generate it. */
-        JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
-
-        objPtr->typePtr->updateStringProc(interp, objPtr);
-    }
-    if (lenPtr)
-        *lenPtr = objPtr->length;
-    return objPtr->bytes;
-}
-
-// smj-edison: audited
 /* Just returns the length (in bytes) of the object's string rep. DOES NOT SHIMMER ANYMORE */
 int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
@@ -2482,7 +2466,7 @@ static int SetStringFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
         if (objPtr->bytes == NULL) {
             /* Invalid string repr. Generate it. */
             JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
-            objPtr->typePtr->updateStringProc(objPtr);
+            objPtr->typePtr->updateStringProc(interp, objPtr);
         }
         /* Free any other internal representation. */
         Jim_FreeIntRep(interp, objPtr);
@@ -2653,21 +2637,6 @@ int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
         int Alen, Blen;
         const char *sA = Jim_GetString(interp, aObjPtr, &Alen);
         const char *sB = Jim_GetString(interp, bObjPtr, &Blen);
-
-        return Alen == Blen && memcmp(sA, sB, Alen) == 0;
-    }
-}
-
-// smj-edison: audited
-int Jim_StringEqObjUnshared(Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
-{
-    if (aObjPtr == bObjPtr) {
-        return 1;
-    }
-    else {
-        int Alen, Blen;
-        const char *sA = Jim_GetStringUnshared(aObjPtr, &Alen);
-        const char *sB = Jim_GetStringUnshared(bObjPtr, &Blen);
 
         return Alen == Blen && memcmp(sA, sB, Alen) == 0;
     }
@@ -4038,13 +4007,17 @@ static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
         }
     }
 #endif
-    string = Jim_GetStringUnshared(keyObj, &length);
+    string = Jim_GetString(interp, keyObj, &length);
     return Jim_GenHashFunction((const unsigned char *)string, length);
 }
 
 static int JimObjectHTKeyCompare(void *privdata, const void *key1, const void *key2)
 {
-    return Jim_StringEqObjUnshared((Jim_Obj *)key1, (Jim_Obj *)key2);
+    // FIXME: make sure this doesn't cause a race condition if keys are compared
+    // on a different thread (when inserting objects on the temp list)
+    Jim_Interp *interp = (Jim_Interp *)privdata;
+
+    return Jim_StringEqObj(interp, (Jim_Obj *)key1, (Jim_Obj *)key2);
 }
 
 static void *JimObjectHTKeyValDup(void *privdata, const void *val)
@@ -4101,8 +4074,12 @@ static unsigned int JimCommandsHT_HashFunction(Jim_Interp *interp, const void *k
 }
 
 // smj-edison: audited
-static int JimCommandsHT_KeyCompare(Jim_Interp *interp, void *privdata, const void *key1, const void *key2)
+static int JimCommandsHT_KeyCompare(void *privdata, const void *key1, const void *key2)
 {
+    // FIXME: make sure this doesn't cause a race condition if keys are compared
+    // on a different thread (when inserting objects on the temp list)
+    Jim_Interp *interp = (Jim_Interp *)privdata;
+
     int len1, len2;
     const char *str1 = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key1, &len1);
     const char *str2 = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key2, &len2);
@@ -6888,6 +6865,7 @@ static int BackslashQuoteString(const char *s, int len, char *q)
     return p - q;
 }
 
+// smj-edison: audited (all callsites have objPtr as non-shared)
 static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **objv, int objc)
 {
     #define STATIC_QUOTING_LEN 32
@@ -6974,11 +6952,13 @@ static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
     }
 }
 
+// smj-edison: audited
 static void UpdateStringOfList(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimMakeListStringRep(interp, objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
 }
 
+// smj-edison: audited
 static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(objPtr), "SetListFromAnyUnshared called with shared object"));
@@ -7056,6 +7036,7 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
     return JIM_OK;
 }
 
+// smj-edison: audited
 static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **listOut)
 {
     objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
@@ -7066,6 +7047,7 @@ static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **
     return res;
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 {
     Jim_Obj *objPtr;
@@ -7084,6 +7066,7 @@ Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
     return objPtr;
 }
 
+// smj-edison: audited
 /* Return a vector of Jim_Obj with the elements of a Jim list, and the
  * length of the vector. Note that the user of this function should make
  * sure that the list object can't shimmer while the vector returned
@@ -7099,6 +7082,7 @@ static void JimListGetElements(Jim_Interp *interp, Jim_Obj *listObj, int *listLe
     *listVec = listObj->internalRep.listValue.ele;
 }
 
+// smj-edison: audited
 /* Sorting uses ints, but commands may return wide */
 static int JimSign(jim_wide w)
 {
@@ -7132,6 +7116,7 @@ struct lsort_info {
 
 static __thread struct lsort_info *sort_info;
 
+// smj-edison: audited
 static int ListSortIndexHelper(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     Jim_Obj *lObj, *rObj;
@@ -7143,17 +7128,20 @@ static int ListSortIndexHelper(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     return sort_info->subfn(&lObj, &rObj);
 }
 
+// smj-edison: audited
 /* Sort the internal rep of a list. */
 static int ListSortString(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     return Jim_StringCompareObj(sort_info->interp, *lhsObj, *rhsObj, 0) * sort_info->order;
 }
 
+// smj-edison: audited
 static int ListSortStringNoCase(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     return Jim_StringCompareObj(sort_info->interp, *lhsObj, *rhsObj, 1) * sort_info->order;
 }
 
+// smj-edison: audited
 static int ListSortInteger(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     jim_wide lhs = 0, rhs = 0;
@@ -7166,6 +7154,7 @@ static int ListSortInteger(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     return JimSign(lhs - rhs) * sort_info->order;
 }
 
+// smj-edison: audited
 static int ListSortReal(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     double lhs = 0, rhs = 0;
@@ -7183,6 +7172,7 @@ static int ListSortReal(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     return -sort_info->order;
 }
 
+// TODO: can't audit until I audit Jim_EvalObj (other than that it looks good)
 static int ListSortCommand(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
 {
     Jim_Obj *compare_script;
@@ -7204,6 +7194,7 @@ static int ListSortCommand(Jim_Obj **lhsObj, Jim_Obj **rhsObj)
     return JimSign(ret) * sort_info->order;
 }
 
+// smj-edison: audited
 /* Remove duplicate elements from the (sorted) list in-place, according to the
  * comparison function, comp.
  *
@@ -7237,6 +7228,7 @@ static void ListRemoveDuplicates(Jim_Obj *listObjPtr, int (*comp)(Jim_Obj **lhs,
     listObjPtr->internalRep.listValue.len = dst;
 }
 
+// smj-edison: audited
 /* Sort a list *in place*. MUST be called with a non-shared list. */
 static int ListSortElements(Jim_Interp *interp, Jim_Obj *listObjPtr, struct lsort_info *info)
 {
@@ -7299,8 +7291,8 @@ static int ListSortElements(Jim_Interp *interp, Jim_Obj *listObjPtr, struct lsor
     return rc;
 }
 
+// smj-edison: audited (always called with non-shared objects)
 /* Ensure there is room for at least 'idx' values in the list */
-// smj-edison: always called with non-shared objects
 static void ListEnsureLength(Jim_Obj *listPtr, int idx)
 {
     assert(idx >= 0);
@@ -7316,6 +7308,7 @@ static void ListEnsureLength(Jim_Obj *listPtr, int idx)
     }
 }
 
+// smj-edison: audited
 /* This is the low-level function to insert elements into a list.
  * The higher-level Jim_ListInsertElements() performs shared object
  * check and invalidates the string repr. This version is used
@@ -7352,6 +7345,7 @@ static void ListInsertElements(Jim_Obj *listPtr, int idx, int elemc, Jim_Obj *co
     listPtr->internalRep.listValue.len += elemc;
 }
 
+// smj-edison: audited
 /* Convenience call to ListInsertElements() to append a single element.
  */
 static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr)
@@ -7359,6 +7353,7 @@ static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr)
     ListInsertElements(listPtr, -1, 1, &objPtr);
 }
 
+// smj-edison: audited
 /* Appends every element of appendListPtr into listPtr.
  * Both have to be of the list type.
  * Convenience call to ListInsertElements()
@@ -7369,6 +7364,7 @@ static void ListAppendList(Jim_Obj *listPtr, Jim_Obj *appendListPtr)
         appendListPtr->internalRep.listValue.len, appendListPtr->internalRep.listValue.ele);
 }
 
+// smj-edison: audited
 void Jim_ListAppendElement(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendElement called with shared object"));
@@ -7377,6 +7373,7 @@ void Jim_ListAppendElement(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *objPtr
     ListAppendElement(listPtr, objPtr);
 }
 
+// smj-edison: audited
 void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendListPtr)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendList called with shared object"));
@@ -7388,12 +7385,14 @@ void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendLis
     ListAppendList(listPtr, newAppendListPtr);
 }
 
+// smj-edison: audited
 int Jim_ListLengthUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     SetListFromAnyUnshared(interp, objPtr);
     return objPtr->internalRep.listValue.len;
 }
 
+// smj-edison: audited
 int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     Jim_Obj *listPtr;
@@ -7401,10 +7400,11 @@ int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
     return listPtr->internalRep.listValue.len;
 }
 
+// smj-edison: audited
 void Jim_ListInsertElements(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     int objc, Jim_Obj *const *objVec)
 {
-    JimPanic((Jim_IsShared(listPtr), "Jim_ListInsertElement called with shared object"));
+    JimPanic((Jim_IsShared(listPtr), "Jim_ListInsertElements called with shared object"));
     SetListFromAnyUnshared(interp, listPtr);
     if (idx >= 0 && idx > listPtr->internalRep.listValue.len)
         idx = listPtr->internalRep.listValue.len;
@@ -7414,6 +7414,7 @@ void Jim_ListInsertElements(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     ListInsertElements(listPtr, idx, objc, objVec);
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_ListGetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int idx)
 {
     Jim_Obj *listPtr;
@@ -7428,6 +7429,7 @@ Jim_Obj *Jim_ListGetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int idx)
     return listPtr->internalRep.listValue.ele[idx];
 }
 
+// smj-edison: audited
 int Jim_ListIndex(Jim_Interp *interp, Jim_Obj *listPtr, int idx, Jim_Obj **objPtrPtr, int flags)
 {
     *objPtrPtr = Jim_ListGetIndex(interp, listPtr, idx);
@@ -7450,6 +7452,9 @@ int Jim_ListIndex(Jim_Interp *interp, Jim_Obj *listPtr, int idx, Jim_Obj **objPt
 static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
     Jim_Obj *const *indexv, int indexc, Jim_Obj **resultObj, int flags)
 {
+    // to prevent lots of duplications when using Jim_GetIndex
+    listPtr = DuplicateIfShared(interp, listPtr, JIM_TEMP_LIST);
+
     int i;
     int static_idxes[5];
     int *idxes = static_idxes;
@@ -7491,6 +7496,7 @@ err:
     return ret;
 }
 
+// smj-edison: audited
 static int ListSetIndexUnshared(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     Jim_Obj *newObjPtr, int flags)
 {
@@ -7512,6 +7518,7 @@ static int ListSetIndexUnshared(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* Modify the list stored in the variable named 'varNamePtr'
  * setting the element specified by the 'indexc' indexes objects in 'indexv',
  * with the new element 'newObjptr'. (implements the [lset] command) */
@@ -7521,6 +7528,7 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
     Jim_Obj *varObjPtr, *objPtr, *listObjPtr;
     int shared, i, idx;
 
+    varNamePtr = DuplicateIfShared(interp, varNamePtr, JIM_TEMP_LIST);
     varObjPtr = objPtr = Jim_GetVariable(interp, varNamePtr, JIM_ERRMSG | JIM_UNSHARED);
     if (objPtr == NULL)
         return JIM_ERR;
@@ -7559,6 +7567,8 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
     return JIM_ERR;
 }
 
+// smj-edison: audited
+/* listObjPtr must be non-shared */
 Jim_Obj *Jim_ListJoin(Jim_Interp *interp, Jim_Obj *listObjPtr, const char *joinStr, int joinStrLen)
 {
     int i;
@@ -7574,6 +7584,7 @@ Jim_Obj *Jim_ListJoin(Jim_Interp *interp, Jim_Obj *listObjPtr, const char *joinS
     return resObjPtr;
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_ConcatObj(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 {
     int i;
@@ -7640,19 +7651,22 @@ Jim_Obj *Jim_ConcatObj(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
     }
 }
 
+// smj-edison: audited
 /* Returns a list composed of the elements in the specified range.
  * first and start are directly accepted as Jim_Objects and
  * processed for the end?-index? case. */
 Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstObjPtr,
     Jim_Obj *lastObjPtr)
 {
+    listObjPtr = DuplicateIfShared(interp, listObjPtr, JIM_TEMP_LIST);
+
     int first, last;
     int len, rangeLen;
 
     if (Jim_GetIndex(interp, firstObjPtr, &first) != JIM_OK ||
         Jim_GetIndex(interp, lastObjPtr, &last) != JIM_OK)
         return NULL;
-    len = Jim_ListLength(interp, listObjPtr);   /* will convert into list */
+    len = Jim_ListLength(interp, listObjPtr);
     first = JimRelToAbsIndex(len, first);
     last = JimRelToAbsIndex(len, last);
     JimRelToAbsRange(len, &first, &last, &rangeLen);
@@ -7688,6 +7702,7 @@ static const Jim_ObjType dictObjType = {
     JIM_TYPE_NONE,
 };
 
+// smj-edison: audited
 /**
  * Free the entire dict structure, including the key, value table,
  * the hash table and the dict structure.
@@ -7709,6 +7724,7 @@ enum {
     DICT_HASH_ADD = -3,
 };
 
+// smj-edison: skipped
 /**
  * Search for the given key in the dict hash table and perform the given operation.
  *
@@ -7790,6 +7806,7 @@ static int JimDictHashFind(Jim_Interp *interp, Jim_Dict *dict, Jim_Obj *keyObjPt
     return tvoffset;
 }
 
+// smj-edison: skipped
 /* Expand or create the hashtable to at least size 'size'
  * The hash table size should have room for twice the number
  * of keys to reduce collisions
@@ -7826,6 +7843,7 @@ static void JimDictExpandHashTable(Jim_Dict *dict, unsigned int size)
     Jim_Free(prevht);
 }
 
+// smj-edison: skipped
 /**
  * Add an entry to the hash table for 'keyObjPtr'
  * If the entry already exists, returns the current tvoffset.
@@ -7853,6 +7871,7 @@ static int JimDictAdd(Jim_Interp *interp, Jim_Dict *dict, Jim_Obj *keyObjPtr)
     return JimDictHashFind(interp, dict, keyObjPtr, DICT_HASH_ADD);
 }
 
+// smj-edison: skipped
 /**
  * Allocate and return a new Jim_Dict structure
  * with space for 'table_size' (key, object) entries
@@ -7880,11 +7899,13 @@ static Jim_Dict *JimDictNew(Jim_Interp *interp, int table_size, int ht_size)
     return dict;
 }
 
+// smj-edison: skipped
 static void FreeDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     JimFreeDict(interp, objPtr->internalRep.dictValue);
 }
 
+// smj-edison: skipped
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     Jim_Dict *oldDict = srcPtr->internalRep.dictValue;
@@ -7910,11 +7931,13 @@ static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dup
     dupPtr->typePtr = &dictObjType;
 }
 
+// smj-edison: audited
 static void UpdateStringOfDict(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimMakeListStringRep(interp, objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
 }
 
+// smj-edison: audited
 static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(objPtr), "SetDictFromAnyUnshared called with shared object"));
@@ -7978,6 +8001,7 @@ static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
 /* Dict object API */
 
+// smj-edison: audited
 /* Add an element to a dict. objPtr must be of the "dict" type.
  * The higher-level exported function is Jim_DictAddElement().
  * If an element with the specified key already exists, the value
@@ -8047,6 +8071,7 @@ static int DictAddElementUnshared(Jim_Interp *interp, Jim_Obj *objPtr,
     }
 }
 
+// smj-edison: audited
 /* Add an element, higher-level interface for DictAddElement().
  * If valueObjPtr == NULL, the key is removed if it exists. */
 int Jim_DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
@@ -8060,6 +8085,7 @@ int Jim_DictAddElement(Jim_Interp *interp, Jim_Obj *objPtr,
     return DictAddElementUnshared(interp, objPtr, keyObjPtr, valueObjPtr);
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 {
     Jim_Obj *objPtr;
@@ -8077,6 +8103,7 @@ Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
     return objPtr;
 }
 
+// smj-edison: audited
 /* Return the value associated to the specified dict key
  * Returns JIM_OK if OK, JIM_ERR if entry not found or -1 if can't create dict value
  *
@@ -8107,6 +8134,7 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* Return the key/value pairs array for the dictionary. Stores the length in *len
  *
  * Note that the point is to the internal table or temp object, so is only
@@ -8117,6 +8145,7 @@ int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
  */
 Jim_Obj **Jim_DictPairs(Jim_Interp *interp, Jim_Obj *dictPtr, int *len)
 {
+    dictPtr = DuplicateIfShared(interp, dictPtr, JIM_TEMP_LIST);
     /* If it is a list with an even number of elements, no need to convert to dict first */
     if (Jim_IsList(dictPtr)) {
         Jim_Obj **table;
@@ -8126,7 +8155,6 @@ Jim_Obj **Jim_DictPairs(Jim_Interp *interp, Jim_Obj *dictPtr, int *len)
         }
         /* Otherwise fall through to get the standard error */
     }
-    dictPtr = DuplicateIfShared(interp, dictPtr, JIM_TEMP_LIST);
     if (SetDictFromAnyUnshared(interp, dictPtr) != JIM_OK) {
         /* Make sure we can differentiate between an empty dict/list and bad length */
         *len = 1;

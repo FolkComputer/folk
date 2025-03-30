@@ -648,7 +648,7 @@ typedef struct Jim_Reference {
  * Exported API prototypes.
  * ---------------------------------------------------------------------------*/
 
-#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0, 0)
+#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0, JIM_LIVE_LIST)
 #define Jim_FreeHashTableIterator(iter) Jim_Free(iter)
 
 #define JIM_EXPORT extern
