@@ -204,7 +204,7 @@ typedef struct Jim_HashEntry {
 } Jim_HashEntry;
 
 typedef struct Jim_HashTableType {
-    unsigned int (*hashFunction)(Jim_Interp *interp, const void *key);
+    unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
@@ -413,7 +413,8 @@ typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
 typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-typedef void (Jim_UpdateStringProc)(struct Jim_Obj *objPtr);
+typedef void (Jim_UpdateStringProc)(struct Jim_Interp *interp,
+        struct Jim_Obj *objPtr);
 
 typedef struct Jim_ObjType {
     const char *name; /* The name of the type. */

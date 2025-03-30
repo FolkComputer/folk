@@ -143,7 +143,7 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *const 
     Jim_Obj **resultObj, int flags);
 static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands);
 static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr);
-static void SetDictSubstFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr);
+static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr);
 static void JimSetFailedEnumResult(Jim_Interp *interp, const char *arg, const char *badtype,
     const char *prefix, const char *const *tablePtr, const char *name);
 static int JimCallProcedure(Jim_Interp *interp, Jim_Cmd *cmd, int argc, Jim_Obj *const *argv);
@@ -2353,7 +2353,7 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 
         objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
 
-        objPtr->typePtr->updateStringProc(objPtr);
+        objPtr->typePtr->updateStringProc(interp, objPtr);
     }
     if (lenPtr)
         *lenPtr = objPtr->length;
@@ -2369,7 +2369,7 @@ const char *Jim_GetStringUnshared(Jim_Obj *objPtr, int *lenPtr)
         /* Invalid string repr. Generate it. */
         JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
 
-        objPtr->typePtr->updateStringProc(objPtr);
+        objPtr->typePtr->updateStringProc(interp, objPtr);
     }
     if (lenPtr)
         *lenPtr = objPtr->length;
@@ -5102,7 +5102,9 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
  * For example "foo(bar)" will return objects with string repr. of
  * "foo" and "bar".
  *
- * The returned objects have refcount = 1. The function can't fail. */
+ * The returned objects have refcount = 1. The function can't fail.
+ * 
+ * NOT thread safe with objects from another thread. */
 static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj **varPtrPtr, Jim_Obj **keyPtrPtr)
 {
@@ -5134,13 +5136,14 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
 
 // smj-edison: audited
 /* Helper of Jim_SetVariable() to deal with dict-syntax variable names.
- * Also used by Jim_UnsetVariable() with valObjPtr = NULL. */
+ * Also used by Jim_UnsetVariable() with valObjPtr = NULL.
+ *
+ * NOT thread safe with objects from another thread. */
 static int JimDictSugarSet(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *valObjPtr)
 {
     int err;
 
-    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
-    SetDictSubstFromAnyUnshared(interp, objPtr);
+    SetDictSubstFromAny(interp, objPtr);
 
     err = Jim_SetDictKeysVector(interp, objPtr->internalRep.dictSubstValue.varNameObjPtr,
         &objPtr->internalRep.dictSubstValue.indexObjPtr, 1, valObjPtr, JIM_MUSTEXIST);
@@ -5165,11 +5168,14 @@ static int JimDictSugarSet(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *valObjP
     return err;
 }
 
+// smj-edison: audited
 /**
  * Expands the array variable (dict sugar) and returns the result, or NULL on error.
  *
  * If JIM_UNSHARED is set and the dictionary is shared, it will be duplicated
  * and stored back to the variable before expansion.
+ * 
+ * NOT thread safe with objects from another thread.
  */
 static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPtr,
     Jim_Obj *keyObjPtr, int flags)
@@ -5197,7 +5203,10 @@ static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPt
     return resObjPtr;
 }
 
-/* Helper of Jim_GetVariable() to deal with dict-syntax variable names */
+// smj-edison: audited
+/* Helper of Jim_GetVariable() to deal with dict-syntax variable names
+ * 
+ * NOT thread safe with objects from another thread. */
 static Jim_Obj *JimDictSugarGet(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     SetDictSubstFromAny(interp, objPtr);
@@ -5209,12 +5218,14 @@ static Jim_Obj *JimDictSugarGet(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 
 /* --------- $var(INDEX) substitution, using a specialized object ----------- */
 
+// smj-edison: skipped
 void FreeDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     Jim_DecrRefCount(interp, objPtr->internalRep.dictSubstValue.varNameObjPtr);
     Jim_DecrRefCount(interp, objPtr->internalRep.dictSubstValue.indexObjPtr);
 }
 
+// smj-edison: skipped
 static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     /* Copy the internal rep */
@@ -5224,8 +5235,11 @@ static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj
     Jim_IncrRefCount(dupPtr->internalRep.dictSubstValue.indexObjPtr);
 }
 
-/* Note: The object *must* be in dict-sugar format */
-static void SetDictSubstFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
+// smj-edison: audited
+/* Note: The object *must* be in dict-sugar format
+ * 
+ * NOT thread safe with objects from another thread. */
+static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->typePtr != &dictSubstObjType) {
         Jim_Obj *varObjPtr, *keyObjPtr;
@@ -5255,7 +5269,9 @@ static void SetDictSubstFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
  * to deal with tokens of type JIM_TT_DICTSUGAR. objPtr points to an
  * object that is *guaranteed* to be in the form VARNAME(INDEX).
  * The 'index' part is [subst]ituted, and is used to lookup a key inside
- * the [dict]ionary contained in variable VARNAME. */
+ * the [dict]ionary contained in variable VARNAME.
+ * 
+ * NOT thread safe with objects from another thread. */
 static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     Jim_Obj *resObjPtr = NULL;
@@ -5285,6 +5301,7 @@ static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr)
  * CallFrame
  * ---------------------------------------------------------------------------*/
 
+// smj-edison: skipped
 static Jim_CallFrame *JimCreateCallFrame(Jim_Interp *interp, Jim_CallFrame *parent, Jim_Obj *nsObj)
 {
     Jim_CallFrame *cf;
@@ -5319,6 +5336,7 @@ static Jim_CallFrame *JimCreateCallFrame(Jim_Interp *interp, Jim_CallFrame *pare
     return cf;
 }
 
+// smj-edison: skipped
 static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands)
 {
     /* Delete any local procs */
@@ -5352,6 +5370,7 @@ static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands)
     return JIM_OK;
 }
 
+// smj-edison: skipped
 /**
  * Run any $jim::defer scripts for the current call frame.
  *
@@ -5408,6 +5427,7 @@ static int JimInvokeDefer(Jim_Interp *interp, int retcode)
     return retcode;
 }
 
+// smj-edison: skipped
 #define JIM_FCF_FULL 0          /* Always free the vars hash table */
 #define JIM_FCF_REUSE 1         /* Reuse the vars hash table if possible */
 static void JimFreeCallFrame(Jim_Interp *interp, Jim_CallFrame *cf, int action)
@@ -5513,7 +5533,7 @@ static int JimFormatReference(char *buf, Jim_Reference *refPtr, unsigned long id
     return JIM_REFERENCE_SPACE;
 }
 
-static void UpdateStringOfReference(struct Jim_Obj *objPtr);
+static void UpdateStringOfReference(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType referenceObjType = {
     "reference",
@@ -5524,8 +5544,9 @@ static const Jim_ObjType referenceObjType = {
 };
 
 // smj-edison: audited (never called with shared object)
-static void UpdateStringOfReference(struct Jim_Obj *objPtr)
+static void UpdateStringOfReference(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JIM_NOTUSED(interp);
     char buf[JIM_REFERENCE_SPACE + 1];
 
     JimFormatReference(buf, objPtr->internalRep.refValue.refPtr, objPtr->internalRep.refValue.id);
@@ -5861,6 +5882,7 @@ void Jim_CollectIfNeeded(Jim_Interp *interp)
 }
 #endif /* JIM_REFERENCES && !JIM_BOOTSTRAP */
 
+// smj-edison: skipped
 int Jim_IsBigEndian(void)
 {
     union {
@@ -5875,6 +5897,7 @@ int Jim_IsBigEndian(void)
  * Interpreter related functions
  * ---------------------------------------------------------------------------*/
 
+// smj-edison: audited
 Jim_Interp *Jim_CreateInterp(void)
 {
     Jim_Interp *i = Jim_Alloc(sizeof(*i));
@@ -5936,6 +5959,7 @@ Jim_Interp *Jim_CreateInterp(void)
     return i;
 }
 
+// smj-edison: audited
 void Jim_FreeInterp(Jim_Interp *i)
 {
     Jim_CallFrame *cf, *cfx;
@@ -6029,6 +6053,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_Free(i);
 }
 
+// smj-edison: audited
 /* Returns the call frame relative to the level represented by
  * levelObjPtr. If levelObjPtr == NULL, the level is assumed to be '1'.
  *
@@ -6087,6 +6112,7 @@ Jim_CallFrame *Jim_GetCallFrameByLevel(Jim_Interp *interp, Jim_Obj *levelObjPtr)
     return NULL;
 }
 
+// smj-edison: audited
 /* Similar to Jim_GetCallFrameByLevel() but the level is specified
  * as a relative integer like in the [info level ?level?] command.
  **/
@@ -6114,6 +6140,7 @@ static Jim_CallFrame *JimGetCallFrameByInteger(Jim_Interp *interp, long level)
     return NULL;
 }
 
+// smj-edison: audited
 static Jim_EvalFrame *JimGetEvalFrameByInteger(Jim_Interp *interp, long level)
 {
     Jim_EvalFrame *evalFrame;
@@ -6138,7 +6165,7 @@ static Jim_EvalFrame *JimGetEvalFrameByInteger(Jim_Interp *interp, long level)
     return NULL;
 }
 
-
+// smj-edison: audited
 static void JimResetStackTrace(Jim_Interp *interp)
 {
     Jim_DecrRefCount(interp, interp->stackTrace);
@@ -6146,6 +6173,7 @@ static void JimResetStackTrace(Jim_Interp *interp)
     Jim_IncrRefCount(interp->stackTrace);
 }
 
+// smj-edison: audited
 static void JimSetStackTrace(Jim_Interp *interp, Jim_Obj *stackTraceObj)
 {
     int len;
@@ -6168,6 +6196,7 @@ static void JimSetStackTrace(Jim_Interp *interp, Jim_Obj *stackTraceObj)
     }
 }
 
+// smj-edison: audited
 static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
     Jim_Obj *fileNameObj, int linenr)
 {
@@ -6197,6 +6226,8 @@ static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
                 objPtr = Jim_ListGetIndex(interp, interp->stackTrace, len - 2);
                 if (Jim_Length(interp, objPtr) == 0) {
                     /* But no filename, so merge the new info with that frame */
+                    // interp->stackTrace guaranteed to be unshared, because of previous
+                    // if statement
                     ListSetIndexUnshared(interp, interp->stackTrace, len - 2, fileNameObj, 0);
                     ListSetIndexUnshared(interp, interp->stackTrace, len - 1, Jim_NewIntObj(interp, linenr), 0);
                     return;
@@ -6210,6 +6241,7 @@ static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
     Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewIntObj(interp, linenr));
 }
 
+// smj-edison: skipped
 int Jim_SetAssocData(Jim_Interp *interp, const char *key, Jim_InterpDeleteProc * delProc,
     void *data)
 {
@@ -6220,6 +6252,7 @@ int Jim_SetAssocData(Jim_Interp *interp, const char *key, Jim_InterpDeleteProc *
     return Jim_AddHashEntry(&interp->assocData, key, assocEntryPtr);
 }
 
+// smj-edison: skipped
 void *Jim_GetAssocData(Jim_Interp *interp, const char *key)
 {
     Jim_HashEntry *entryPtr = Jim_FindHashEntry(&interp->assocData, key);
@@ -6231,11 +6264,13 @@ void *Jim_GetAssocData(Jim_Interp *interp, const char *key)
     return NULL;
 }
 
+// smj-edison: skipped
 int Jim_DeleteAssocData(Jim_Interp *interp, const char *key)
 {
     return Jim_DeleteHashEntry(&interp->assocData, key);
 }
 
+// smj-edison: skipped
 int Jim_GetExitCode(Jim_Interp *interp)
 {
     return interp->exitCode;
@@ -6244,7 +6279,7 @@ int Jim_GetExitCode(Jim_Interp *interp)
 /* -----------------------------------------------------------------------------
  * Integer object
  * ---------------------------------------------------------------------------*/
-static void UpdateStringOfInt(struct Jim_Obj *objPtr);
+static void UpdateStringOfInt(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
 
 static const Jim_ObjType intObjType = {
@@ -6269,8 +6304,9 @@ static const Jim_ObjType coercedDoubleObjType = {
 };
 
 // smj-edison: audited (never called with shared object)
-static void UpdateStringOfInt(struct Jim_Obj *objPtr)
+static void UpdateStringOfInt(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JIM_UNUSED(interp);
     char buf[JIM_INTEGER_SPACE + 1];
     jim_wide wideValue = JimWideValue(objPtr);
     int pos = 0;
@@ -6408,6 +6444,7 @@ static int JimGetWideNoErr(Jim_Interp *interp, Jim_Obj *objPtr, jim_wide * wideP
     return JIM_OK;
 }
 
+// smj-edison: audited
 int Jim_GetLong(Jim_Interp *interp, Jim_Obj *objPtr, long *longPtr)
 {
     jim_wide wideValue;
@@ -6421,6 +6458,7 @@ int Jim_GetLong(Jim_Interp *interp, Jim_Obj *objPtr, long *longPtr)
     return JIM_ERR;
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
 {
     Jim_Obj *objPtr;
@@ -6437,8 +6475,8 @@ Jim_Obj *Jim_NewIntObj(Jim_Interp *interp, jim_wide wideValue)
  * ---------------------------------------------------------------------------*/
 #define JIM_DOUBLE_SPACE 30
 
-static void UpdateStringOfDouble(struct Jim_Obj *objPtr);
-static int SetDoubleFromAny(Jim_Interp *interp, Jim_Obj *objPtr);
+static void UpdateStringOfDouble(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static int SetDoubleFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr);
 
 static const Jim_ObjType doubleObjType = {
     "double",
@@ -6458,8 +6496,10 @@ static const Jim_ObjType doubleObjType = {
 #endif
 
 // smj-edison: audited (never called with shared object)
-static void UpdateStringOfDouble(struct Jim_Obj *objPtr)
+static void UpdateStringOfDouble(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JIM_NOTUSED(interp);
+
     double value = objPtr->internalRep.doubleValue;
 
     if (isnan(value)) {
@@ -6506,6 +6546,7 @@ static void UpdateStringOfDouble(struct Jim_Obj *objPtr)
     }
 }
 
+// smj-edison: audited
 static int SetDoubleFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(objPtr), "SetDoubleFromAnyUnshared called with shared object"));
@@ -6575,6 +6616,7 @@ int Jim_GetDouble(Jim_Interp *interp, Jim_Obj *objPtr, double *doublePtr)
     return JIM_OK;
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue)
 {
     Jim_Obj *objPtr;
@@ -6641,7 +6683,7 @@ static void ListInsertElements(Jim_Obj *listPtr, int idx, int elemc, Jim_Obj *co
 static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr);
 static void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static void UpdateStringOfList(struct Jim_Obj *objPtr);
+static void UpdateStringOfList(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Note that while the elements of the list may contain references,
@@ -6656,6 +6698,7 @@ static const Jim_ObjType listObjType = {
     JIM_TYPE_NONE,
 };
 
+// smj-edison: audited
 void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int i;
@@ -6666,6 +6709,7 @@ void FreeListInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
     Jim_Free(objPtr->internalRep.listValue.ele);
 }
 
+// smj-edison: audited
 void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     int i;
@@ -6684,6 +6728,7 @@ void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
     dupPtr->typePtr = &listObjType;
 }
 
+// smj-edison: skipped
 /* The following function checks if a given string can be encoded
  * into a list element without any kind of quoting, surrounded by braces,
  * or using escapes to quote. */
@@ -6784,6 +6829,7 @@ static unsigned char ListElementQuotingType(const char *s, int len)
     return JIM_ELESTR_QUOTE;
 }
 
+// smj-edison: skipped
 /* Backslashes-escapes the null-terminated string 's' into the buffer at 'q'
  * The buffer must be at least strlen(s) * 2 + 1 bytes long for the worst-case
  * scenario.
@@ -6842,7 +6888,7 @@ static int BackslashQuoteString(const char *s, int len, char *q)
     return p - q;
 }
 
-static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
+static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **objv, int objc)
 {
     #define STATIC_QUOTING_LEN 32
     int i, bufLen, realLength;
@@ -6861,7 +6907,7 @@ static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
     for (i = 0; i < objc; i++) {
         int len;
 
-        strRep = Jim_GetStringUnshared(objv[i], &len);
+        strRep = Jim_GetString(interp, objv[i], &len);
         quotingType[i] = ListElementQuotingType(strRep, len);
         switch (quotingType[i]) {
             case JIM_ELESTR_SIMPLE:
@@ -6889,7 +6935,7 @@ static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
     for (i = 0; i < objc; i++) {
         int len, qlen;
 
-        strRep = Jim_GetStringUnshared(objv[i], &len);
+        strRep = Jim_GetString(interp, objv[i], &len);
 
         switch (quotingType[i]) {
             case JIM_ELESTR_SIMPLE:
@@ -6928,9 +6974,9 @@ static void JimMakeListStringRep(Jim_Obj *objPtr, Jim_Obj **objv, int objc)
     }
 }
 
-static void UpdateStringOfList(struct Jim_Obj *objPtr)
+static void UpdateStringOfList(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    JimMakeListStringRep(objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
+    JimMakeListStringRep(interp, objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
 }
 
 static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
@@ -7621,7 +7667,7 @@ Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstOb
  * ---------------------------------------------------------------------------*/
 static void FreeDictInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static void UpdateStringOfDict(struct Jim_Obj *objPtr);
+static void UpdateStringOfDict(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Dict Type.
@@ -7864,9 +7910,9 @@ static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dup
     dupPtr->typePtr = &dictObjType;
 }
 
-static void UpdateStringOfDict(struct Jim_Obj *objPtr)
+static void UpdateStringOfDict(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    JimMakeListStringRep(objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
+    JimMakeListStringRep(interp, objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
 }
 
 static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
@@ -8209,7 +8255,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
 /* -----------------------------------------------------------------------------
  * Index object
  * ---------------------------------------------------------------------------*/
-static void UpdateStringOfIndex(struct Jim_Obj *objPtr);
+static void UpdateStringOfIndex(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetIndexFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType indexObjType = {
@@ -8221,8 +8267,10 @@ static const Jim_ObjType indexObjType = {
 };
 
 // smj-edison: audited (never called with shared object)
-static void UpdateStringOfIndex(struct Jim_Obj *objPtr)
+static void UpdateStringOfIndex(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
+    JIM_NOTUSED(interp);
+
     if (objPtr->internalRep.intValue == -1) {
         JimSetStringBytes(objPtr, "end");
     }
@@ -10297,7 +10345,7 @@ typedef struct ScanFmtStringObj
 
 static void FreeScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static void UpdateStringOfScanFmt(Jim_Obj *objPtr);
+static void UpdateStringOfScanFmt(Jim_Interp *interp, Jim_Obj *objPtr);
 
 static const Jim_ObjType scanFmtStringObjType = {
     "scanformatstring",
@@ -10326,8 +10374,10 @@ void DupScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 }
 
 // smj-edison: audited (never called with shared object)
-static void UpdateStringOfScanFmt(Jim_Obj *objPtr)
+static void UpdateStringOfScanFmt(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JIM_NOTUSED(interp);
+
     JimSetStringBytes(objPtr, ((ScanFmtStringObj *) objPtr->internalRep.ptr)->stringRep);
 }
 
