@@ -2401,11 +2401,14 @@ const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr)
     }
 }
 
+// smj-edison: audited (never called with shared object)
 static void JimSetStringBytes(Jim_Obj *objPtr, const char *str)
 {
     objPtr->bytes = Jim_StrDup(str);
     objPtr->length = strlen(str);
 }
+
+// smj-edison: all Jim_ObjType methods are safe in a multithreaded environment by design
 
 static void FreeDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *objPtr);
 static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
@@ -2492,6 +2495,7 @@ static int SetStringFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
     return JIM_OK;
 }
 
+// smj-edison: audited
 /**
  * Returns the length of the object string in chars, not bytes.
  *
@@ -2509,6 +2513,7 @@ int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
 #endif
 }
 
+// smj-edison: audited
 /* len is in bytes -- see also Jim_NewStringObjUtf8() */
 Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len, int onTempList)
 {
@@ -2531,6 +2536,7 @@ Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len, int onTemp
     return objPtr;
 }
 
+// smj-edison: audited
 /* charlen is in characters -- see also Jim_NewStringObj() */
 Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen, int onTempList)
 {
@@ -2551,6 +2557,7 @@ Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen, in
 #endif
 }
 
+// smj-edison: audited (all call sites allocate just for this function)
 /* This version does not try to duplicate the 's' pointer, but
  * use it directly. */
 Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len, int onTempList)
@@ -2563,6 +2570,7 @@ Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len, int onTem
     return objPtr;
 }
 
+// smj-edison: skipped (assuming it's safe with its function description)
 /* Low-level string append. Use it only against unshared objects
  * of type "string". */
 static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
@@ -2597,6 +2605,7 @@ static void StringAppendString(Jim_Obj *objPtr, const char *str, int len)
     objPtr->length += len;
 }
 
+// smj-edison: audited
 /* Higher level API to append strings to objects.
  * Object must not be shared for each of these.
  */
@@ -2607,13 +2616,17 @@ void Jim_AppendString(Jim_Interp *interp, Jim_Obj *objPtr, const char *str, int 
     StringAppendString(objPtr, str, len);
 }
 
+// smj-edison: audited
+/* objPtr must be non-shared */
 void Jim_AppendObj(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *appendObjPtr)
 {
     int len;
-    const char *str = Jim_GetString(interp, appendObjPtr, &len);
-    Jim_AppendString(interp, objPtr, str, len);
+    const char *appendStr = Jim_GetString(interp, appendObjPtr, &len);
+    Jim_AppendString(interp, objPtr, appendStr, len);
 }
 
+// smj-edison: audited
+/* objPtr must be non-shared */
 void Jim_AppendStrings(Jim_Interp *interp, Jim_Obj *objPtr, ...)
 {
     va_list ap;
@@ -2630,6 +2643,7 @@ void Jim_AppendStrings(Jim_Interp *interp, Jim_Obj *objPtr, ...)
     va_end(ap);
 }
 
+// smj-edison: audited
 int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
 {
     if (aObjPtr == bObjPtr) {
@@ -2644,6 +2658,7 @@ int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr)
     }
 }
 
+// smj-edison: audited
 /**
  * Note. Does not support embedded nulls in either the pattern or the object.
  */
@@ -2655,6 +2670,7 @@ int Jim_StringMatchObj(Jim_Interp *interp, Jim_Obj *patternObjPtr, Jim_Obj *objP
     return JimGlobMatch(pattern, plen, string, slen, nocase);
 }
 
+// smj-edison: audited
 int Jim_StringCompareObj(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *secondObjPtr, int nocase)
 {
     const char *s1 = Jim_String(interp, firstObjPtr);
@@ -2664,6 +2680,7 @@ int Jim_StringCompareObj(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *seco
     return JimStringCompareUtf8(s1, l1, s2, l2, nocase);
 }
 
+// smj-edison: skipped
 /* Convert a range, as returned by Jim_GetRange(), into
  * an absolute index into an object of the specified length.
  * This function may return negative values, or values
@@ -2676,6 +2693,7 @@ static int JimRelToAbsIndex(int len, int idx)
     return idx;
 }
 
+// smj-edison: skipped
 /* Convert a pair of indexes (*firstPtr, *lastPtr) as normalized by JimRelToAbsIndex(),
  * into a form suitable for implementation of commands like [string range] and [lrange].
  *
@@ -2708,6 +2726,7 @@ static void JimRelToAbsRange(int len, int *firstPtr, int *lastPtr, int *rangeLen
     *rangeLenPtr = rangeLen;
 }
 
+// smj-edison: audited
 static int JimStringGetRange(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr,
     int len, int *first, int *last, int *range)
 {
@@ -2723,6 +2742,7 @@ static int JimStringGetRange(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *
     return JIM_OK;
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr)
 {
@@ -2743,6 +2763,7 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     return Jim_NewStringObj(interp, str + first, rangeLen, 0);
 }
 
+// smj-edison: audited
 Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr)
 {
@@ -2772,6 +2793,7 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
 #endif
 }
 
+// smj-edison: audited
 Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
     Jim_Obj *strObjPtr, Jim_Obj *firstObjPtr, Jim_Obj *lastObjPtr, Jim_Obj *newStrObj)
 {
@@ -2806,6 +2828,7 @@ Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
     return objPtr;
 }
 
+// smj-edison: skipped
 /**
  * Note: does not support embedded nulls.
  */
@@ -2819,6 +2842,7 @@ static void JimStrCopyUpperLower(char *dest, const char *str, int uc)
     *dest = 0;
 }
 
+// smj-edison: audited
 /**
  * Note: does not support embedded nulls.
  */
@@ -2841,6 +2865,7 @@ static Jim_Obj *JimStringToLower(Jim_Interp *interp, Jim_Obj *strObjPtr)
     return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
 }
 
+// smj-edison: audited
 /**
  * Note: does not support embedded nulls.
  */
@@ -8060,7 +8085,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
  * Index object
  * ---------------------------------------------------------------------------*/
 static void UpdateStringOfIndex(struct Jim_Obj *objPtr);
-static int SetIndexFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static int SetIndexFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType indexObjType = {
     "index",
@@ -8089,17 +8114,18 @@ static void UpdateStringOfIndex(struct Jim_Obj *objPtr)
     }
 }
 
-static int SetIndexFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+// smj-edison: audited
+static int SetIndexFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     jim_wide idx;
     int end = 0;
     const char *str;
     Jim_Obj *exprObj = objPtr;
 
-    JimPanic((objPtr->refCount == 0, "SetIndexFromAny() called with zero refcount object"));
+    JimPanic((objPtr->refCount == 0, "SetIndexFromAnyUnshared() called with zero refcount object"));
 
     /* Get the string representation */
-    str = Jim_String(objPtr);
+    str = Jim_String(interp, objPtr);
 
     /* Try to convert into an index */
     if (strncmp(str, "end", 3) == 0) {
@@ -8158,6 +8184,7 @@ static int SetIndexFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
     return JIM_ERR;
 }
 
+// smj-edison: audited
 int Jim_GetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int *indexPtr)
 {
     /* Avoid shimmering if the object is an integer. */
@@ -8172,7 +8199,8 @@ int Jim_GetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int *indexPtr)
             *indexPtr = (int)val;
         return JIM_OK;
     }
-    if (objPtr->typePtr != &indexObjType && SetIndexFromAny(interp, objPtr) == JIM_ERR)
+    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
+    if (objPtr->typePtr != &indexObjType && SetIndexFromAnyUnshared(interp, objPtr) == JIM_ERR)
         return JIM_ERR;
     *indexPtr = objPtr->internalRep.intValue;
     return JIM_OK;
@@ -11145,7 +11173,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
 
     /* Concatenate every token in an unique
      * object. */
-    objPtr = Jim_NewStringObjNoAlloc(interp, NULL, 0);
+    objPtr = Jim_NewStringObjNoAlloc(interp, NULL, 0, JIM_LIVE_LIST);
 
     if (tokens == 4 && token[0].type == JIM_TT_ESC && token[1].type == JIM_TT_ESC
         && token[2].type == JIM_TT_VAR) {
@@ -11775,7 +11803,7 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
     fclose(fp);
     buf[readlen] = 0;
 
-    scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen);
+    scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen, JIM_LIVE_LIST);
     Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
     Jim_IncrRefCount(scriptObjPtr);
 
@@ -14591,7 +14619,7 @@ badcompareargs:
                     i += l;
                     str += l;
                 }
-                Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len));
+                Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len, JIM_LIVE_LIST));
                 return JIM_OK;
             }
 
@@ -16792,7 +16820,7 @@ void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...)
 
     va_end(args);
 
-    Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len));
+    Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len, JIM_LIVE_LIST));
 
     for (i = 0; i < nobjparam; i++) {
         Jim_DecrRefCount(interp, objparam[i]);
