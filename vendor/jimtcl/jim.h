@@ -204,7 +204,7 @@ typedef struct Jim_HashEntry {
 } Jim_HashEntry;
 
 typedef struct Jim_HashTableType {
-    unsigned int (*hashFunction)(const void *key);
+    unsigned int (*hashFunction)(Jim_Interp *interp, const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
