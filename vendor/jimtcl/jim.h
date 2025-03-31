@@ -615,7 +615,7 @@ typedef struct Jim_Interp {
  * At some point may be a real function doing more work.
  * The proc epoch is used in order to know when a command lookup
  * cached can no longer considered valid. */
-#define Jim_SetResultString(i,s,l) Jim_SetResult(i, Jim_NewStringObj(i,s,l,0))
+#define Jim_SetResultString(i,s,l) Jim_SetResult(i, Jim_NewStringObj(i,s,l))
 #define Jim_SetResultInt(i,intval) Jim_SetResult(i, Jim_NewIntObj(i,intval))
 /* Note: Using trueObj and falseObj here makes some things slower...*/
 #define Jim_SetResultBool(i,b) Jim_SetResultInt(i, b)
@@ -648,7 +648,7 @@ typedef struct Jim_Reference {
  * Exported API prototypes.
  * ---------------------------------------------------------------------------*/
 
-#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0, JIM_LIVE_LIST)
+#define Jim_NewEmptyStringObj(i) Jim_NewStringObj(i, "", 0)
 #define Jim_FreeHashTableIterator(iter) Jim_Free(iter)
 
 #define JIM_EXPORT extern

@@ -2499,9 +2499,9 @@ int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
 
 // smj-edison: audited
 /* len is in bytes -- see also Jim_NewStringObjUtf8() */
-Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len, int onTempList)
+Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len)
 {
-    Jim_Obj *objPtr = Jim_NewObj(interp, onTempList);
+    Jim_Obj *objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
 
     /* Need to find out how many bytes the string requires */
     if (len == -1)
@@ -2522,13 +2522,13 @@ Jim_Obj *Jim_NewStringObj(Jim_Interp *interp, const char *s, int len, int onTemp
 
 // smj-edison: audited
 /* charlen is in characters -- see also Jim_NewStringObj() */
-Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen, int onTempList)
+Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen)
 {
 #ifdef JIM_UTF8
     /* Need to find out how many bytes the string requires */
     int bytelen = utf8_index(s, charlen);
 
-    Jim_Obj *objPtr = Jim_NewStringObj(interp, s, bytelen, onTempList);
+    Jim_Obj *objPtr = Jim_NewStringObj(interp, s, bytelen);
 
     /* Remember the utf8 length, so set the type */
     objPtr->typePtr = &stringObjType;
@@ -2744,7 +2744,7 @@ Jim_Obj *Jim_StringByteRangeObj(Jim_Interp *interp,
     if (first == 0 && rangeLen == bytelen) {
         return strObjPtr;
     }
-    return Jim_NewStringObj(interp, str + first, rangeLen, 0);
+    return Jim_NewStringObj(interp, str + first, rangeLen);
 }
 
 // smj-edison: audited
@@ -2769,9 +2769,9 @@ Jim_Obj *Jim_StringRangeObj(Jim_Interp *interp,
     }
     if (len == bytelen) {
         /* ASCII optimisation */
-        return Jim_NewStringObj(interp, str + first, rangeLen, 0);
+        return Jim_NewStringObj(interp, str + first, rangeLen);
     }
-    return Jim_NewStringObjUtf8(interp, str + utf8_index(str, first), rangeLen, 0);
+    return Jim_NewStringObjUtf8(interp, str + utf8_index(str, first), rangeLen);
 #else
     return Jim_StringByteRangeObj(interp, strObjPtr, firstObjPtr, lastObjPtr);
 #endif
@@ -2799,7 +2799,7 @@ Jim_Obj *JimStringReplaceObj(Jim_Interp *interp,
     str = Jim_String(interp, strObjPtr);
 
     /* Before part */
-    objPtr = Jim_NewStringObjUtf8(interp, str, first, 0);
+    objPtr = Jim_NewStringObjUtf8(interp, str, first);
 
     /* Replacement */
     if (newStrObj) {
@@ -2998,7 +2998,7 @@ static Jim_Obj *JimStringTrimLeft(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Ob
         return strObjPtr;
     }
 
-    return Jim_NewStringObj(interp, newstr, len - (newstr - str), 0);
+    return Jim_NewStringObj(interp, newstr, len - (newstr - str));
 }
 
 // smj-edison: audited
@@ -3026,7 +3026,7 @@ static Jim_Obj *JimStringTrimRight(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_O
     }
 
     if (Jim_IsShared(strObjPtr)) {
-        strObjPtr = Jim_NewStringObj(interp, strObjBytes, (nontrim - strObjBytes), 0);
+        strObjPtr = Jim_NewStringObj(interp, strObjBytes, (nontrim - strObjBytes));
     }
     else {
         JimPanic((strObjBytes != strObjPtr->bytes, "strObjBytes != strObjPtr->bytes (in JimStringTrimRight)"));
@@ -3554,7 +3554,7 @@ static Jim_Obj *JimMakeScriptObj(Jim_Interp *interp, const ParseToken *t)
         /* XXX: For strict Tcl compatibility, JIM_TT_STR should replace <backslash><newline><whitespace>
          *         with a single space.
          */
-        objPtr = Jim_NewStringObj(interp, t->token, t->len, JIM_LIVE_LIST);
+        objPtr = Jim_NewStringObj(interp, t->token, t->len);
     }
     return objPtr;
 }
@@ -4119,7 +4119,7 @@ Jim_Obj *Jim_MakeGlobalNamespaceName(Jim_Interp *interp, Jim_Obj *nameObjPtr)
         return nameObjPtr;
     }
     Jim_IncrRefCount(nameObjPtr);
-    resultObj = Jim_NewStringObj(interp, "::", -1, 0);
+    resultObj = Jim_NewStringObj(interp, "::", -1);
     Jim_AppendObj(interp, resultObj, nameObjPtr);
     Jim_DecrRefCount(interp, nameObjPtr);
 
@@ -4219,7 +4219,7 @@ int Jim_CreateCommandObj(Jim_Interp *interp, Jim_Obj *cmdNameObj,
 int Jim_CreateCommand(Jim_Interp *interp, const char *cmdNameStr,
     Jim_CmdProc *cmdProc, void *privData, Jim_DelCmdProc *delProc)
 {
-    return Jim_CreateCommandObj(interp, Jim_NewStringObj(interp, cmdNameStr, -1, JIM_LIVE_LIST), cmdProc, privData, delProc);
+    return Jim_CreateCommandObj(interp, Jim_NewStringObj(interp, cmdNameStr, -1), cmdProc, privData, delProc);
 }
 
 // smj-edison: audited
@@ -4317,10 +4317,10 @@ static void JimUpdateProcNamespace(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj 
              * while cmdname points to abc
              */
             Jim_DecrRefCount(interp, cmdPtr->u.proc.nsObj);
-            cmdPtr->u.proc.nsObj = Jim_NewStringObj(interp, cmdname, pt - cmdname - 2, 0);
+            cmdPtr->u.proc.nsObj = Jim_NewStringObj(interp, cmdname, pt - cmdname - 2);
             Jim_IncrRefCount(cmdPtr->u.proc.nsObj);
 
-            Jim_Obj *tempObj = Jim_NewStringObj(interp, pt, len - (pt - cmdname), 0);
+            Jim_Obj *tempObj = Jim_NewStringObj(interp, pt, len - (pt - cmdname));
             if (Jim_FindHashEntry(&interp->commands, tempObj)) {
                 /* This command shadows a global command, so a proc epoch update is required */
                 Jim_InterpIncrProcEpoch(interp);
@@ -4645,7 +4645,7 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         global = 1;
         framePtr = interp->topFramePtr;
         /* XXX should use length */
-        Jim_Obj *tempObj = Jim_NewStringObj(interp, varName, len, 0);
+        Jim_Obj *tempObj = Jim_NewStringObj(interp, varName, len);
         var = JimFindVariable(&framePtr->vars, tempObj);
         Jim_FreeNewObj(interp, tempObj);
     }
@@ -4723,7 +4723,7 @@ static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_O
         }
         framePtr = interp->topFramePtr;
         global = 1;
-        JimSetNewVariable(&framePtr->vars, Jim_NewStringObj(interp, name, len, 0), var);
+        JimSetNewVariable(&framePtr->vars, Jim_NewStringObj(interp, name, len), var);
     }
     else {
         framePtr = interp->framePtr;
@@ -4788,7 +4788,7 @@ int Jim_SetVariableStr(Jim_Interp *interp, const char *name, Jim_Obj *objPtr)
     Jim_Obj *nameObjPtr;
     int result;
 
-    nameObjPtr = Jim_NewStringObj(interp, name, -1, 0);
+    nameObjPtr = Jim_NewStringObj(interp, name, -1);
     Jim_IncrRefCount(nameObjPtr);
     result = Jim_SetVariable(interp, nameObjPtr, objPtr);
     Jim_DecrRefCount(interp, nameObjPtr);
@@ -4815,7 +4815,7 @@ int Jim_SetVariableStrWithStr(Jim_Interp *interp, const char *name, const char *
     Jim_Obj *valObjPtr;
     int result;
 
-    valObjPtr = Jim_NewStringObj(interp, val, -1, 0);
+    valObjPtr = Jim_NewStringObj(interp, val, -1);
     Jim_IncrRefCount(valObjPtr);
     result = Jim_SetVariableStr(interp, name, valObjPtr);
     Jim_DecrRefCount(interp, valObjPtr);
@@ -4876,7 +4876,7 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
             targetName++;
             len--;
         }
-        targetNameObjPtr = Jim_NewStringObj(interp, targetName, len, 0);
+        targetNameObjPtr = Jim_NewStringObj(interp, targetName, len);
         targetCallFrame = interp->topFramePtr;
     }
     Jim_IncrRefCount(targetNameObjPtr);
@@ -4990,7 +4990,7 @@ Jim_Obj *Jim_GetVariableStr(Jim_Interp *interp, const char *name, int flags)
 {
     Jim_Obj *nameObjPtr, *varObjPtr;
 
-    nameObjPtr = Jim_NewStringObj(interp, name, -1, 0);
+    nameObjPtr = Jim_NewStringObj(interp, name, -1);
     Jim_IncrRefCount(nameObjPtr);
     varObjPtr = Jim_GetVariable(interp, nameObjPtr, flags);
     Jim_DecrRefCount(interp, nameObjPtr);
@@ -5049,7 +5049,7 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
                     len--;
                 }
                 framePtr = interp->topFramePtr;
-                Jim_Obj *tempObj = Jim_NewStringObj(interp, name, len, 0);
+                Jim_Obj *tempObj = Jim_NewStringObj(interp, name, len);
                 retval = JimUnsetVariable(&framePtr->vars, tempObj);
                 Jim_FreeNewObj(interp, tempObj);
             }
@@ -5094,7 +5094,7 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     p = strchr(str, '(');
     JimPanic((p == NULL, "JimDictSugarParseVarKey() called for non-dict-sugar (%s)", str));
 
-    varObjPtr = Jim_NewStringObj(interp, str, p - str, 0);
+    varObjPtr = Jim_NewStringObj(interp, str, p - str);
 
     p++;
     keyLen = (str + len) - p;
@@ -5103,7 +5103,7 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     }
 
     /* Create the objects with the variable name and key. */
-    keyObjPtr = Jim_NewStringObj(interp, p, keyLen, 0);
+    keyObjPtr = Jim_NewStringObj(interp, p, keyLen);
 
     Jim_IncrRefCount(varObjPtr);
     Jim_IncrRefCount(keyObjPtr);
@@ -5901,8 +5901,8 @@ Jim_Interp *Jim_CreateInterp(void)
     i->errorFileNameObj = i->emptyObj;
     i->result = i->emptyObj;
     i->stackTrace = Jim_NewListObj(i, NULL, 0);
-    i->unknown = Jim_NewStringObj(i, "unknown", -1, 0);
-    i->defer = Jim_NewStringObj(i, "jim::defer", -1, 0);
+    i->unknown = Jim_NewStringObj(i, "unknown", -1);
+    i->defer = Jim_NewStringObj(i, "jim::defer", -1);
     i->errorProc = i->emptyObj;
     i->currentScriptObj = Jim_NewEmptyStringObj(i);
     i->nullScriptObj = Jim_NewEmptyStringObj(i);
@@ -6213,7 +6213,7 @@ static void JimAppendStackTrace(Jim_Interp *interp, const char *procname,
         }
     }
 
-    Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewStringObj(interp, procname, -1, 0));
+    Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewStringObj(interp, procname, -1));
     Jim_ListAppendElement(interp, interp->stackTrace, fileNameObj);
     Jim_ListAppendElement(interp, interp->stackTrace, Jim_NewIntObj(interp, linenr));
 }
@@ -8164,6 +8164,7 @@ Jim_Obj **Jim_DictPairs(Jim_Interp *interp, Jim_Obj *dictPtr, int *len)
     return dictPtr->internalRep.dictValue->table;
 }
 
+// smj-edison: audited
 /* Return the value associated to the specified dict keys */
 int Jim_DictKeysVector(Jim_Interp *interp, Jim_Obj *dictPtr,
     Jim_Obj *const *keyv, int keyc, Jim_Obj **objPtrPtr, int flags)
@@ -8199,6 +8200,8 @@ int Jim_DictKeysVector(Jim_Interp *interp, Jim_Obj *dictPtr,
  * and JIM_ERR is returned. Otherwise it is ignored and JIM_OK is returned.
  *
  * Normally the result is stored in the interp result. If JIM_NORESULT is set, this is not done.
+ * 
+ * NOT thread safe with objects from another thread (variable lookup).
  */
 int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
     Jim_Obj *const *keyv, int keyc, Jim_Obj *newObjPtr, int flags)
@@ -8219,7 +8222,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
         }
     }
     if ((shared = Jim_IsShared(objPtr)))
-        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr);
+        varObjPtr = objPtr = Jim_DuplicateObj(interp, objPtr, JIM_LIVE_LIST);
     for (i = 0; i < keyc; i++) {
         dictObjPtr = objPtr;
 
@@ -8245,7 +8248,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
             /* This key exists at the current level.
              * Make sure it's not shared!. */
             if (Jim_IsShared(objPtr)) {
-                objPtr = Jim_DuplicateObj(interp, objPtr);
+                objPtr = Jim_DuplicateObj(interp, objPtr, JIM_LIVE_LIST);
                 DictAddElement(interp, dictObjPtr, keyv[i], objPtr);
             }
         }
@@ -8434,6 +8437,7 @@ static const Jim_ObjType returnCodeObjType = {
     JIM_TYPE_NONE,
 };
 
+// smj-edison: audited
 /* Converts a (standard) return code to a string. Returns "?" for
  * non-standard return codes.
  */
@@ -8447,7 +8451,8 @@ const char *Jim_ReturnCode(int code)
     }
 }
 
-static int SetReturnCodeFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+// smj-edison: audited
+static int SetReturnCodeFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int returnCode;
     jim_wide wideValue;
@@ -8466,9 +8471,12 @@ static int SetReturnCodeFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
     return JIM_OK;
 }
 
+// smj-edison: audited
 int Jim_GetReturnCode(Jim_Interp *interp, Jim_Obj *objPtr, int *intPtr)
 {
-    if (objPtr->typePtr != &returnCodeObjType && SetReturnCodeFromAny(interp, objPtr) == JIM_ERR)
+    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
+    
+    if (objPtr->typePtr != &returnCodeObjType && SetReturnCodeFromAnyUnshared(interp, objPtr) == JIM_ERR)
         return JIM_ERR;
     *intPtr = objPtr->internalRep.intValue;
     return JIM_OK;
@@ -8586,6 +8594,7 @@ static int JimExprGetTerm(Jim_Interp *interp, struct JimExprNode *node, Jim_Obj 
 static int JimExprGetTermBoolean(Jim_Interp *interp, struct JimExprNode *node);
 static int JimExprEvalTermNode(Jim_Interp *interp, struct JimExprNode *node);
 
+// smj-edison: skipped
 static int JimExprOpNumUnary(Jim_Interp *interp, struct JimExprNode *node)
 {
     int intresult = 1;
@@ -8680,6 +8689,7 @@ static int JimExprOpNumUnary(Jim_Interp *interp, struct JimExprNode *node)
     return rc;
 }
 
+// smj-edison: skipped
 static double JimRandDouble(Jim_Interp *interp)
 {
     unsigned long x;
@@ -8688,6 +8698,7 @@ static double JimRandDouble(Jim_Interp *interp)
     return (double)x / (double)~0UL;
 }
 
+// smj-edison: skipped
 static int JimExprOpIntUnary(Jim_Interp *interp, struct JimExprNode *node)
 {
     jim_wide wA;
@@ -8718,6 +8729,7 @@ static int JimExprOpIntUnary(Jim_Interp *interp, struct JimExprNode *node)
     return rc;
 }
 
+// smj-edison: skipped
 static int JimExprOpNone(Jim_Interp *interp, struct JimExprNode *node)
 {
     JimPanic((node->type != JIM_EXPROP_FUNC_RAND, "JimExprOpNone only support rand()"));
@@ -8728,6 +8740,7 @@ static int JimExprOpNone(Jim_Interp *interp, struct JimExprNode *node)
 }
 
 #ifdef JIM_MATH_FUNCTIONS
+// smj-edison: skipped
 static int JimExprOpDoubleUnary(Jim_Interp *interp, struct JimExprNode *node)
 {
     int rc;
@@ -8799,6 +8812,7 @@ static int JimExprOpDoubleUnary(Jim_Interp *interp, struct JimExprNode *node)
 #endif
 
 /* A binary operation on two ints */
+// smj-edison: skipped
 static int JimExprOpIntBin(Jim_Interp *interp, struct JimExprNode *node)
 {
     jim_wide wA, wB;
@@ -8897,6 +8911,7 @@ static int JimExprOpIntBin(Jim_Interp *interp, struct JimExprNode *node)
 
 
 /* A binary operation on two ints or two doubles (or two strings for some ops) */
+// smj-edison: skipped
 static int JimExprOpBin(Jim_Interp *interp, struct JimExprNode *node)
 {
     int rc = JIM_OK;
@@ -9092,12 +9107,14 @@ doubleresult:
 
 static int JimSearchList(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *valObj)
 {
+    listObjPtr = DuplicateIfShared(interp, listObjPtr, JIM_TEMP_LIST);
+
     int listlen;
     int i;
 
     listlen = Jim_ListLength(interp, listObjPtr);
     for (i = 0; i < listlen; i++) {
-        if (Jim_StringEqObj(Jim_ListGetIndex(interp, listObjPtr, i), valObj)) {
+        if (Jim_StringEqObj(interp, Jim_ListGetIndex(interp, listObjPtr, i), valObj)) {
             return 1;
         }
     }
@@ -9123,7 +9140,7 @@ static int JimExprOpStrBin(Jim_Interp *interp, struct JimExprNode *node)
     switch (node->type) {
         case JIM_EXPROP_STREQ:
         case JIM_EXPROP_STRNE:
-            wC = Jim_StringEqObj(A, B);
+            wC = Jim_StringEqObj(interp, A, B);
             if (node->type == JIM_EXPROP_STRNE) {
                 wC = !wC;
             }
@@ -9160,6 +9177,7 @@ static int JimExprOpStrBin(Jim_Interp *interp, struct JimExprNode *node)
     return rc;
 }
 
+// smj-edison: audited
 static int ExprBool(Jim_Interp *interp, Jim_Obj *obj)
 {
     long l;
@@ -9184,6 +9202,7 @@ static int ExprBool(Jim_Interp *interp, Jim_Obj *obj)
     return ret;
 }
 
+// smj-edison: audited
 static int JimExprOpAnd(Jim_Interp *interp, struct JimExprNode *node)
 {
     /* evaluate left */
@@ -9200,6 +9219,7 @@ static int JimExprOpAnd(Jim_Interp *interp, struct JimExprNode *node)
     return JIM_OK;
 }
 
+// smj-edison: audited
 static int JimExprOpOr(Jim_Interp *interp, struct JimExprNode *node)
 {
     /* evaluate left */
@@ -9216,6 +9236,7 @@ static int JimExprOpOr(Jim_Interp *interp, struct JimExprNode *node)
     return JIM_OK;
 }
 
+// smj-edison: audited
 static int JimExprOpTernary(Jim_Interp *interp, struct JimExprNode *node)
 {
     /* evaluate left */
@@ -9338,6 +9359,7 @@ static const struct Jim_ExprOperator Jim_ExprOperators[] = {
 #define JIM_EXPR_OPERATORS_NUM \
     (sizeof(Jim_ExprOperators)/sizeof(struct Jim_ExprOperator))
 
+// smj-edison: skipped
 static int JimParseExpression(struct JimParserCtx *pc)
 {
     while (1) {
@@ -9434,6 +9456,7 @@ singlechar:
     return JIM_OK;
 }
 
+// smj-edison: skipped
 static int JimParseExprNumber(struct JimParserCtx *pc)
 {
     char *end;
@@ -9461,6 +9484,7 @@ static int JimParseExprNumber(struct JimParserCtx *pc)
     return JIM_OK;
 }
 
+// smj-edison: skipped
 static int JimParseExprIrrational(struct JimParserCtx *pc)
 {
     const char *irrationals[] = { "NaN", "nan", "NAN", "Inf", "inf", "INF", NULL };
@@ -9480,6 +9504,7 @@ static int JimParseExprIrrational(struct JimParserCtx *pc)
     return JIM_ERR;
 }
 
+// smj-edison: skipped
 static int JimParseExprBoolean(struct JimParserCtx *pc)
 {
     int i;
@@ -9495,6 +9520,7 @@ static int JimParseExprBoolean(struct JimParserCtx *pc)
     return JIM_ERR;
 }
 
+// smj-edison: skipped
 static const struct Jim_ExprOperator *JimExprOperatorInfoByOpcode(int opcode)
 {
     static Jim_ExprOperator dummy_op;
@@ -9504,6 +9530,7 @@ static const struct Jim_ExprOperator *JimExprOperatorInfoByOpcode(int opcode)
     return &Jim_ExprOperators[opcode - JIM_TT_EXPR_OP];
 }
 
+// smj-edison: skipped
 static int JimParseExprOperator(struct JimParserCtx *pc)
 {
     int i;
@@ -9548,6 +9575,7 @@ static int JimParseExprOperator(struct JimParserCtx *pc)
     return JIM_OK;
 }
 
+// smj-edison: skipped
 const char *jim_tt_name(int type)
 {
     static const char * const tt_names[JIM_TT_EXPR_OP] =
@@ -9598,6 +9626,7 @@ struct ExprTree
     int inUse;                  /* Used for sharing. */
 };
 
+// smj-edison: audited
 static void ExprTreeFreeNodes(Jim_Interp *interp, struct JimExprNode *nodes, int num)
 {
     int i;
@@ -9609,12 +9638,14 @@ static void ExprTreeFreeNodes(Jim_Interp *interp, struct JimExprNode *nodes, int
     Jim_Free(nodes);
 }
 
+// smj-edison: audited
 static void ExprTreeFree(Jim_Interp *interp, struct ExprTree *expr)
 {
     ExprTreeFreeNodes(interp, expr->nodes, expr->len);
     Jim_Free(expr);
 }
 
+// smj-edison: audited
 static void FreeExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     struct ExprTree *expr = (void *)objPtr->internalRep.ptr;
@@ -9628,6 +9659,7 @@ static void FreeExprInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
     }
 }
 
+// smj-edison: audited
 static void DupExprInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     JIM_NOTUSED(interp);
@@ -9692,6 +9724,7 @@ static void JimShowExprNode(struct JimExprNode *node, int level)
  *
  * 'exp_numterms' indicates how many terms are expected. Normally this is 1, but may be more for EXPR_FUNC_ARGS and EXPR_TERNARY.
  */
+// smj-edison: skipped
 static int ExprTreeBuildTree(Jim_Interp *interp, struct ExprBuilder *builder, int precedence, int flags, int exp_numterms) {
     int rc;
     struct JimExprNode *node;
@@ -9936,6 +9969,7 @@ missingoperand:
     return JIM_ERR;
 }
 
+// smj-edison: skipped
 static struct ExprTree *ExprTreeCreateTree(Jim_Interp *interp, const ParseTokenList *tokenlist, Jim_Obj *exprObjPtr, Jim_Obj *fileNameObj)
 {
     struct ExprTree *expr;
@@ -9985,7 +10019,8 @@ static struct ExprTree *ExprTreeCreateTree(Jim_Interp *interp, const ParseTokenL
 }
 
 /* This method takes the string representation of an expression
- * and generates a program for the expr engine */
+ * and generates a program for the expr engine
+ *  */
 static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int exprTextLen;
@@ -10008,7 +10043,7 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     }
     Jim_IncrRefCount(fileNameObj);
 
-    exprText = Jim_GetString(objPtr, &exprTextLen);
+    exprText = Jim_GetString(interp, objPtr, &exprTextLen);
 
     /* Initially tokenise the expression into tokenlist */
     ScriptTokenListInit(&tokenlist);
