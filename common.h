@@ -33,6 +33,7 @@ typedef pthread_mutex_t Mutex;
 typedef struct ThreadControlBlock {
     int index;
     pid_t _Atomic tid;
+    pthread_t pthread;
 
     WorkQueue* workQueue;
 

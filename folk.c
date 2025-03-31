@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <stdatomic.h>
 #include <inttypes.h>
+#include <signal.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -447,7 +448,27 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int __concludeFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
+
+    // Stop and await all other threads. If we just do a normal exit,
+    // then other threads are likely to crash the program first by
+    // trying to access freed stuff.
+    for (int i = 0; i < threadCount; i++) {
+        if (threads[i].tid == 0) { continue; }
+        if (&threads[i] == self) { continue; }
+
+        char buf[10000]; traceItem(buf, sizeof(buf), threads[i].currentItem);
+
+        pthread_kill(threads[i].pthread, SIGUSR1);
+        pthread_cancel(threads[i].pthread);
+    }
+    for (int i = 0; i < threadCount; i++) {
+        if (threads[i].tid == 0) { continue; }
+        if (&threads[i] == self) { continue; }
+        pthread_join(threads[i].pthread, NULL);
+    }
+
     exit(exitCode);
+
     return JIM_OK;
 }
 
@@ -641,9 +662,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                 body, errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
+
     } else if (error == JIM_SIGNAL) {
-        /* fprintf(stderr, "Signal\n"); */
         interp->sigmask = 0;
+        pthread_exit(NULL);
     }
 
     matchCompleted(self->currentMatch);
@@ -975,6 +997,9 @@ void workerLoop() {
     int64_t schedtick = 0;
     for (;;) {
         schedtick++;
+        if (interp->sigmask & (1 << SIGUSR1)) {
+            pthread_exit(NULL);
+        }
 
         WorkQueueItem item = { .op = NONE };
         if (schedtick % 61 == 0) {
@@ -1003,6 +1028,8 @@ void workerLoop() {
 void workerInit(int index) {
     seedp = time(NULL) + index;
 
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+
     self = &threads[index];
     if (self->workQueue == NULL) {
         self->workQueue = workQueueNew();
@@ -1024,6 +1051,7 @@ void workerInit(int index) {
 /* #endif */
     self->currentItemStartTimestamp = 0;
     self->index = index;
+    self->pthread = pthread_self();
 
 #ifdef TRACY_ENABLE
     char threadName[100]; snprintf(threadName, 100, "folk-worker-%d", index);
