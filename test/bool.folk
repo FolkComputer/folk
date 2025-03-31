@@ -18,4 +18,4 @@ assert {[$lib invert 0]}
 assert {![$lib invert true]}
 assert {![$lib invert 1]}
 
-__exit 0
+__conclude 0

@@ -26,5 +26,5 @@ When keyboard /k/ claims key Console_1 is down with /...options/ {
 	puts "     Run `make sync-restart` on your laptop or SSH into [info hostname] to restart Folk ===="
 	puts "===="
 	exec sudo systemctl stop folk
-        __exit 0
+        __conclude 0
 }

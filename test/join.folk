@@ -10,4 +10,4 @@ set joinedResults [Query! /x/ is a person & /x/ is a name]
 assert {[llength $joinedResults] == 1}
 assert {[dict get [lindex $joinedResults 0] x] eq "Omar"}
 
-__exit 0
+__conclude 0

@@ -24,4 +24,4 @@ set dlib [$dd compile]
 set ret [$dlib go]
 puts "dlib go = $ret"
 assert {$ret == 13}
-__exit 0
+__conclude 0

@@ -40,6 +40,8 @@ test: folk
 	done
 test/%: test/%.folk folk
 	./folk $<
+debug-test/%: test/%.folk folk
+	lldb -- ./folk $<
 
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o

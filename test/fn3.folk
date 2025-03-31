@@ -5,7 +5,7 @@ fn hello {} {
     assert {$x == 3}
     Hold! boom {
         assert {$x == 3}
-        __exit 0
+        __conclude 0
     }
 }
 hello

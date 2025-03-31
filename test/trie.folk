@@ -25,4 +25,4 @@ set trie [$trieLib remove_ $trie [list hello i am there]]
 
 # snap $trie
 
-__exit 0
+__conclude 0

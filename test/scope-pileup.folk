@@ -95,4 +95,4 @@ fn lineNumberView {ystart linecount} {
 }
 
 puts ${^lineNumberView}
-__exit 0
+__conclude 0

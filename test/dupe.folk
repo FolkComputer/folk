@@ -17,6 +17,6 @@ Assert! when {
 
     When /someone/ wishes to blah blah {
         puts stderr "OKAY"
-        __exit 0
+        __conclude 0
     }
 } with environment {}

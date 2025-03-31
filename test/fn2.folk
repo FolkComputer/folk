@@ -15,7 +15,7 @@ Assert! when {
             fn hello {t} {
                 puts "hello: [__threadId]"
                 ok $t
-                __exit 0
+                __conclude 0
             }
 
             Retract! we are active

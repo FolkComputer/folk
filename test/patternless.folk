@@ -4,6 +4,6 @@ Assert! when we are on {
 
     When {
         puts inside
-        __exit 0
+        __conclude 0
     }
 } with environment {}

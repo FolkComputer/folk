@@ -43,7 +43,7 @@ Assert! when we are on {
             puts "ticks ($results)"
             if {[llength $results] == 0} { continue }
             if {[dict get [lindex $results end] tick] > 30} {
-                __exit 0
+                __conclude 0
             }
         }
     }

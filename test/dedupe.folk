@@ -14,4 +14,4 @@ When /p/ is an editor {
 sleep 1
 set whens [Query! when this is a test /body/ with /...anything/]
 assert {[llength $whens] == 1}
-__exit 0
+__conclude 0

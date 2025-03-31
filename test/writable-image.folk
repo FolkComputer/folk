@@ -10,7 +10,7 @@ When display /disp/ has width /w/ height /h/ {
 
 When {
     sleep 5
-    __exit 0
+    __conclude 0
 }
 
 Assert! when /__this/ has program code /__programCode/ {
