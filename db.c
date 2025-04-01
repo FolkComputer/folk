@@ -92,6 +92,13 @@ void genRcMarkAsDead(_Atomic GenRc* genRcPtr) {
     } while (!atomic_compare_exchange_weak(genRcPtr, &oldGenRc, newGenRc));
 }
 
+static void destructorTryRun(Destructor* f) {
+    if (f->fn != NULL) {
+        f->fn(f->arg);
+        f->fn = NULL;
+    }
+}
+
 // Statement datatype:
 
 typedef struct Statement {
@@ -107,6 +114,8 @@ typedef struct Statement {
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
     long keepMs;
+
+    Destructor destructor;
 
     // Used for debugging (and stack traces for When bodies).
     char sourceFileName[100];
@@ -145,10 +154,7 @@ typedef struct Match {
     // match is removed.
     _Atomic bool isCompleted;
 
-    struct {
-        void (*fn)(void*);
-        void* arg;
-    } destructors[10];
+    Destructor destructors[10];
     pthread_mutex_t destructorsMutex;
 
     // ListOfEdgeTo StatementRef. Used for removal.
@@ -275,19 +281,11 @@ Statement* statementUnsafeGet(Db* db, StatementRef ref) {
     if (ref.idx == 0) { return NULL; }
     return &db->statementPool[ref.idx];
 }
+
+static void statementDestroy(Statement* stmt);
 void statementRelease(Db* db, Statement* stmt) {
     if (genRcRelease(&stmt->genRc)) {
-        stmt->parentCount = 0;
-        // They should have removed the children first.
-        assert(stmt->childMatches == NULL);
-
-        Clause* stmtClause = statementClause(stmt);
-        // Marks this statement slot as being fully free and ready for
-        // reuse.
-        stmt->clause = NULL;
-
-        /* TracyCFreeS(stmt, 4); */
-        clauseFree(stmtClause);
+        statementDestroy(stmt);
     }
 }
 
@@ -310,6 +308,7 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
 static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
+                                 Destructor destructor,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
@@ -338,6 +337,7 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
 
     stmt->clause = clause;
     stmt->keepMs = keepMs;
+    stmt->destructor = destructor;
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
@@ -354,6 +354,22 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
 
     return ret;
 }
+static void statementDestroy(Statement* stmt) {
+    stmt->parentCount = 0;
+    // They should have removed the children first.
+    assert(stmt->childMatches == NULL);
+
+    Clause* stmtClause = statementClause(stmt);
+    // Marks this statement slot as being fully free and ready for
+    // reuse.
+    stmt->clause = NULL;
+
+    /* TracyCFreeS(stmt, 4); */
+    clauseFree(stmtClause);
+
+    destructorTryRun(&stmt->destructor);
+}
+
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
 
 char* statementSourceFileName(Statement* stmt) {
@@ -575,14 +591,13 @@ static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
     listOfEdgeToAdd(statementChecker, db,
                     &match->childStatements, child.val);
 }
-void matchAddDestructor(Match* m, void (*fn)(void*), void* arg) {
+void matchAddDestructor(Match* m, Destructor d) {
     pthread_mutex_lock(&m->destructorsMutex);
     int destructorsMax = sizeof(m->destructors)/sizeof(m->destructors[0]);
     int i;
     for (i = 0; i < destructorsMax; i++) {
         if (m->destructors[i].fn == NULL) {
-            m->destructors[i].fn = fn;
-            m->destructors[i].arg = arg;
+            m->destructors[i] = d;
             break;
         }
     }
@@ -634,10 +649,7 @@ void matchRemoveSelf(Db* db, Match* match) {
     // Fire any destructors.
     pthread_mutex_lock(&match->destructorsMutex);
     for (int i = 0; i < sizeof(match->destructors)/sizeof(match->destructors[0]); i++) {
-        if (match->destructors[i].fn != NULL) {
-            match->destructors[i].fn(match->destructors[i].arg);
-            match->destructors[i].fn = NULL;
-        }
+        destructorTryRun(&match->destructors[i]);
     }
     pthread_mutex_unlock(&match->destructorsMutex);
 
@@ -757,6 +769,7 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // Takes ownership of clause (i.e., you can't touch clause at the
 // caller after calling this!).
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+                                      Destructor destructor,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef) {
     Match* parentMatch = NULL;
@@ -786,7 +799,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of clause to the DB.
-    StatementRef ref = statementNew(db, clause, keepMs,
+    StatementRef ref = statementNew(db, clause, keepMs, destructor,
                                     sourceFileName, sourceLineNumber);
 
     epochBegin();
@@ -999,6 +1012,7 @@ StatementRef dbHoldStatement(Db* db,
             hold->version = version;
 
             newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
+                                               (Destructor) { .fn = NULL },
                                                sourceFileName,
                                                sourceLineNumber,
                                                MATCH_REF_NULL);

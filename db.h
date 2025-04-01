@@ -9,6 +9,11 @@ typedef struct Statement Statement;
 typedef struct Match Match;
 typedef struct Db Db;
 
+typedef struct Destructor {
+    void (*fn)(void*);
+    void* arg;
+} Destructor;
+
 // Refs are _weak_ references, meaning that the thing they are
 // pointing at may be invalid. A ref {0, 0} is always a null reference
 // (to enforce this, we set aside idx = 0 to never be a usable slot
@@ -66,7 +71,7 @@ void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
 
-void matchAddDestructor(Match* m, void (*fn)(void*), void* arg);
+void matchAddDestructor(Match* m, Destructor d);
 
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
@@ -97,6 +102,7 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // MatchRef if this is an assertion. Returns a null StatementRef if no
 // new statement was created. 
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+                                      Destructor destructor,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parent);
 

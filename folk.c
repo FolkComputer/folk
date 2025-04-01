@@ -119,6 +119,19 @@ static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
     return Jim_NewListObj(interp, termObjs, nTerms);
 }
 
+static void destructorHelper(void* arg) {
+    // This dispatches an evaluation task to the global queue, so that
+    // this function can be invoked from sysmon (which doesn't have
+    // its own Tcl interpreter & work queue).
+
+    char* code = (char*) arg;
+
+    globalWorkQueuePush((WorkQueueItem) {
+            .op = EVAL,
+            .eval = { .code = code }
+        });
+}
+
 typedef struct EnvironmentBinding {
     char name[100];
     Jim_Obj* value;
@@ -257,7 +270,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static void Say(Clause* clause, long keepMs,
+static void Say(Clause* clause, long keepMs, const char *destructorCode,
                 const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
@@ -271,9 +284,12 @@ static void Say(Clause* clause, long keepMs,
     }
 
     StatementRef ref;
-    ref = dbInsertOrReuseStatement(db, clause, keepMs,
-                                   sourceFileName,
-                                   sourceLineNumber,
+    Destructor destructor = {
+        .fn = destructorCode == NULL ? NULL : destructorHelper,
+        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
+    };
+    ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
+                                   sourceFileName, sourceLineNumber,
                                    parent);
 
     if (!statementRefIsNull(ref)) {
@@ -282,7 +298,7 @@ static void Say(Clause* clause, long keepMs,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimObjsToClauseWithCaching(argc - 4, argv + 4);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -297,28 +313,24 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    Say(clause, keepMs,
+    int destructorCodeLen;
+    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    if (destructorCodeLen == 0) {
+        destructorCode = NULL;
+    }
+
+    Say(clause, keepMs, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
 
-static void destructorHelper(void* arg) {
-    // This dispatches an evaluation task to the global queue, so that
-    // this function can be invoked from sysmon (which doesn't have
-    // its own Tcl interpreter & work queue).
-
-    char* code = (char*) arg;
-
-    globalWorkQueuePush((WorkQueueItem) {
-            .op = EVAL,
-            .eval = { .code = code }
-        });
-}
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    matchAddDestructor(self->currentMatch,
-                       destructorHelper,
-                       strdup(Jim_GetString(argv[1], NULL)));
+    Destructor d = {
+        .fn = destructorHelper,
+        .arg = strdup(Jim_GetString(argv[1], NULL))
+    };
+    matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
 }
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -535,6 +547,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
             return;
         }
     }
+    // Note that we have acquired `when` and `stmt` at this point, and
+    // we hold them until Tcl evaluation terminates.
 
     // Now when is definitely non-null and stmt is non-null if
     // applicable.
@@ -609,9 +623,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         free(env);
     }
 
-    statementRelease(db, when);
-    if (stmt != NULL) { statementRelease(db, stmt); }
-
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
         self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
@@ -654,6 +665,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 #endif
     }
     interp->signal_level--;
+
+    statementRelease(db, when);
+    if (stmt != NULL) { statementRelease(db, stmt); }
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
@@ -885,6 +899,7 @@ void workerRun(WorkQueueItem item) {
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
+                                       (Destructor) { .fn = NULL },
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL);

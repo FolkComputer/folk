@@ -282,10 +282,11 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             set width [dict get $options width]
             set height [dict get $options height]
             set wi [$gpuWritableLib create $width $height]
-            Claim the GPU creates writable image $id as $wi
-            On unmatch {
-                $gpuWritableLib destroy $wi
-            }
+
+            Claim the GPU creates writable image $id as $wi \
+                -destructor {
+                    $gpuWritableLib destroy $wi
+                }
         }
 
         set missingPipelines [dict create]

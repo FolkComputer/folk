@@ -319,10 +319,12 @@ proc Say {args} {
     set sourceLineNumber [dict get $callerInfo line]
 
     set keepMs 0
+    set destructorCode {}
+
     set pattern [list]
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
-        if {$term eq "(keep"} { # e.g., (keep 3ms)
+        if {$term eq {(keep}} { # e.g., (keep 3ms)
             incr i
             set keep [lindex $args $i]
             if {[string match {*ms)} $keep]} {
@@ -330,11 +332,16 @@ proc Say {args} {
             } else {
                 error "Say: invalid keep value [string range $keep 0 end-1]"
             }
+        } elseif {$term eq "-destructor"} {
+            incr i
+            set destructorCode [lindex $args $i]
         } else {
             lappend pattern $term
         }
     }
-    tailcall SayWithSource $sourceFileName $sourceLineNumber $keepMs \
+    tailcall SayWithSource $sourceFileName $sourceLineNumber \
+        $keepMs \
+        $destructorCode \
         {*}$pattern
 }
 proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
@@ -415,11 +422,11 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__matches] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo 0 \
+        tailcall SayWithSource {*}$sourceInfo 0 {} \
             when the collected matches for $pattern are /__matches/ \
             $negateBody with environment $envStack
     } else {
-        tailcall SayWithSource {*}$sourceInfo 0 \
+        tailcall SayWithSource {*}$sourceInfo 0 {} \
             when {*}$pattern $body with environment $envStack
     }
 }
