@@ -50,3 +50,7 @@ foreach programFilename [list $setupFilename \
 
     LoadProgram! $programFilename
 }
+
+if {$::tcl_platform(os) eq "darwin"} {
+    apply {{} { source "virtual-programs/gpu.folk" }}
+}
