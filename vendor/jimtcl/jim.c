@@ -2197,44 +2197,16 @@ static int JimParseListStr(struct JimParserCtx *pc)
 /* Return a new initialized object. */
 Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
 {
-    Jim_Obj *objPtr;
+    // TODO: implement onTempList vector
+    Jim_Obj *objPtr = Jim_Alloc(sizeof(*objPtr));
 
-    /* -- Check if there are objects in the free list -- */
-    if (interp->freeList != NULL) {
-        /* -- Unlink the object from the free list -- */
-        objPtr = interp->freeList;
-        interp->freeList = objPtr->nextObjPtr;
-    }
-    else {
-        /* -- No ready to use objects: allocate a new one -- */
-        objPtr = Jim_Alloc(sizeof(*objPtr));
-    }
-
-    /* Object is returned with refCount of 0. Every
-     * kind of GC implemented should take care to avoid
-     * scanning objects with refCount == 0. */
+    /* Object is returned with refCount of 0. */
     objPtr->refCount = 0;
-    objPtr->threadId = interp->threadId;
+    objPtr->interp = interp;
 
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
      * value anyway. */
-
-    if (onTempList > 0) {
-        /* -- Put the object into the temp list -- */
-        objPtr->prevObjPtr = NULL;
-        objPtr->nextObjPtr = interp->tempList;
-        if (interp->tempList)
-            interp->tempList->prevObjPtr = objPtr;
-        interp->tempList = objPtr;
-    } else {
-        /* -- Put the object into the live list -- */
-        objPtr->prevObjPtr = NULL;
-        objPtr->nextObjPtr = interp->liveList;
-        if (interp->liveList)
-            interp->liveList->prevObjPtr = objPtr;
-        interp->liveList = objPtr;
-    }
 
     return objPtr;
 }
@@ -2250,32 +2222,14 @@ void Jim_FreeObj(Jim_Interp *interp, Jim_Obj *objPtr)
 
     /* Free the internal representation */
     Jim_FreeIntRep(interp, objPtr);
+
     /* Free the string representation */
     if (objPtr->bytes != NULL) {
         if (objPtr->bytes != JimEmptyStringRep)
             Jim_Free(objPtr->bytes);
     }
 
-    /* Unlink the object from whatever list it's in (liveList or tempList) */
-    if (objPtr->prevObjPtr)
-        objPtr->prevObjPtr->nextObjPtr = objPtr->nextObjPtr;
-    if (objPtr->nextObjPtr)
-        objPtr->nextObjPtr->prevObjPtr = objPtr->prevObjPtr;
-    if (interp->liveList == objPtr)
-        interp->liveList = objPtr->nextObjPtr;
-    if (interp->tempList == objPtr)
-        interp->tempList = objPtr->nextObjPtr;
-#ifdef JIM_DISABLE_OBJECT_POOL
     Jim_Free(objPtr);
-#else
-    /* Link the object into the free objects list */
-    objPtr->prevObjPtr = NULL;
-    objPtr->nextObjPtr = interp->freeList;
-    if (interp->freeList)
-        interp->freeList->prevObjPtr = objPtr;
-    interp->freeList = objPtr;
-    objPtr->refCount = -1;
-#endif
 }
 
 /* Invalidate the string representation of an object. */
@@ -5452,440 +5406,6 @@ static void JimFreeCallFrame(Jim_Interp *interp, Jim_CallFrame *cf, int action)
     interp->freeFramesList = cf;
 }
 
-
-/* -----------------------------------------------------------------------------
- * References
- * ---------------------------------------------------------------------------*/
-#if defined(JIM_REFERENCES) && !defined(JIM_BOOTSTRAP)
-
-/* References HashTable Type.
- *
- * Keys are unsigned long integers, dynamically allocated for now but in the
- * future it's worth to cache this 4 bytes objects. Values are pointers
- * to Jim_References. */
-static void JimReferencesHTValDestructor(void *interp, void *val)
-{
-    Jim_Reference *refPtr = (void *)val;
-
-    Jim_DecrRefCount(interp, refPtr->objPtr);
-    if (refPtr->finalizerCmdNamePtr != NULL) {
-        Jim_DecrRefCount(interp, refPtr->finalizerCmdNamePtr);
-    }
-    Jim_Free(val);
-}
-
-static unsigned int JimReferencesHTHashFunction(const void *key)
-{
-    /* Only the least significant bits are used. */
-    const unsigned long *widePtr = key;
-    unsigned int intValue = (unsigned int)*widePtr;
-
-    return Jim_IntHashFunction(intValue);
-}
-
-static void *JimReferencesHTKeyDup(void *privdata, const void *key)
-{
-    void *copy = Jim_Alloc(sizeof(unsigned long));
-
-    JIM_NOTUSED(privdata);
-
-    memcpy(copy, key, sizeof(unsigned long));
-    return copy;
-}
-
-static int JimReferencesHTKeyCompare(void *privdata, const void *key1, const void *key2)
-{
-    JIM_NOTUSED(privdata);
-
-    return memcmp(key1, key2, sizeof(unsigned long)) == 0;
-}
-
-static void JimReferencesHTKeyDestructor(void *privdata, void *key)
-{
-    JIM_NOTUSED(privdata);
-
-    Jim_Free(key);
-}
-
-static const Jim_HashTableType JimReferencesHashTableType = {
-    JimReferencesHTHashFunction,        /* hash function */
-    JimReferencesHTKeyDup,      /* key dup */
-    NULL,                       /* val dup */
-    JimReferencesHTKeyCompare,  /* key compare */
-    JimReferencesHTKeyDestructor,       /* key destructor */
-    JimReferencesHTValDestructor        /* val destructor */
-};
-
-/* -----------------------------------------------------------------------------
- * Reference object type and References API
- * ---------------------------------------------------------------------------*/
-
-/* The string representation of references has two features in order
- * to make the GC faster. The first is that every reference starts
- * with a non common character '<', in order to make the string matching
- * faster. The second is that the reference string rep is 42 characters
- * in length, this means that it is not necessary to check any object with a string
- * repr < 42, and usually there aren't many of these objects. */
-
-#define JIM_REFERENCE_SPACE (35+JIM_REFERENCE_TAGLEN)
-
-static int JimFormatReference(char *buf, Jim_Reference *refPtr, unsigned long id)
-{
-    const char *fmt = "<reference.<%s>.%020lu>";
-
-    sprintf(buf, fmt, refPtr->tag, id);
-    return JIM_REFERENCE_SPACE;
-}
-
-static void UpdateStringOfReference(Jim_Interp *interp, struct Jim_Obj *objPtr);
-
-static const Jim_ObjType referenceObjType = {
-    "reference",
-    NULL,
-    NULL,
-    UpdateStringOfReference,
-    JIM_TYPE_REFERENCES,
-};
-
-// smj-edison: audited (never called with shared object)
-static void UpdateStringOfReference(Jim_Interp *interp, struct Jim_Obj *objPtr)
-{
-    JIM_NOTUSED(interp);
-    char buf[JIM_REFERENCE_SPACE + 1];
-
-    JimFormatReference(buf, objPtr->internalRep.refValue.refPtr, objPtr->internalRep.refValue.id);
-    JimSetStringBytes(objPtr, buf);
-}
-
-/* returns true if 'c' is a valid reference tag character.
- * i.e. inside the range [_a-zA-Z0-9] */
-static int isrefchar(int c)
-{
-    return (c == '_' || isalnum(c));
-}
-
-static int SetReferenceFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
-{
-    unsigned long value;
-    int i, len;
-    const char *str;
-    char refId[21];
-    Jim_Reference *refPtr;
-    Jim_HashEntry *he;
-    char *endptr;
-
-    /* Get the string representation */
-    str = Jim_GetString(interp, objPtr, &len);
-    if (str[0] == ':' && str[1] == ':') {
-        str +=2;
-        len -= 2;
-    }
-    /* Check if it looks like a reference */
-    if (len != JIM_REFERENCE_SPACE)
-        goto badformat;
-    /* <reference.<1234567>.%020> */
-    if (memcmp(str, "<reference.<", 12) != 0)
-        goto badformat;
-    if (str[12 + JIM_REFERENCE_TAGLEN] != '>' || str[len - 1] != '>')
-        goto badformat;
-    /* The tag can't contain chars other than a-zA-Z0-9 + '_'. */
-    for (i = 0; i < JIM_REFERENCE_TAGLEN; i++) {
-        if (!isrefchar(str[12 + i]))
-            goto badformat;
-    }
-    /* Extract info from the reference. */
-    memcpy(refId, str + 14 + JIM_REFERENCE_TAGLEN, 20);
-    refId[20] = '\0';
-    /* Try to convert the ID into an unsigned long */
-    value = strtoul(refId, &endptr, 10);
-    if (JimCheckConversion(refId, endptr) != JIM_OK)
-        goto badformat;
-    /* Check if the reference really exists! */
-    he = Jim_FindHashEntry(&interp->references, &value);
-    if (he == NULL) {
-        Jim_SetResultFormatted(interp, "invalid reference id \"%#s\"", objPtr);
-        return JIM_ERR;
-    }
-    refPtr = Jim_GetHashEntryVal(he);
-    /* Free the old internal repr and set the new one. */
-    Jim_FreeIntRep(interp, objPtr);
-    objPtr->typePtr = &referenceObjType;
-    objPtr->internalRep.refValue.id = value;
-    objPtr->internalRep.refValue.refPtr = refPtr;
-    return JIM_OK;
-
-  badformat:
-    Jim_SetResultFormatted(interp, "expected reference but got \"%#s\"", objPtr);
-    return JIM_ERR;
-}
-
-/* Returns a new reference pointing to objPtr, having cmdNamePtr
- * as finalizer command (or NULL if there is no finalizer).
- * The returned reference object has refcount = 0. */
-Jim_Obj *Jim_NewReference(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *tagPtr, Jim_Obj *cmdNamePtr)
-{
-    struct Jim_Reference *refPtr;
-    unsigned long id;
-    Jim_Obj *refObjPtr;
-    const char *tag;
-    int tagLen, i;
-
-    /* Perform the Garbage Collection if needed. */
-    Jim_CollectIfNeeded(interp);
-
-    refPtr = Jim_Alloc(sizeof(*refPtr));
-    refPtr->objPtr = objPtr;
-    Jim_IncrRefCount(objPtr);
-    refPtr->finalizerCmdNamePtr = cmdNamePtr;
-    if (cmdNamePtr)
-        Jim_IncrRefCount(cmdNamePtr);
-    id = interp->referenceNextId++;
-    Jim_AddHashEntry(&interp->references, &id, refPtr);
-    refObjPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
-    refObjPtr->typePtr = &referenceObjType;
-    refObjPtr->bytes = NULL;
-    refObjPtr->internalRep.refValue.id = id;
-    refObjPtr->internalRep.refValue.refPtr = refPtr;
-    interp->referenceNextId++;
-    /* Set the tag. Trimmed at JIM_REFERENCE_TAGLEN. Everything
-     * that does not pass the 'isrefchar' test is replaced with '_' */
-    tag = Jim_GetString(interp, tagPtr, &tagLen);
-    if (tagLen > JIM_REFERENCE_TAGLEN)
-        tagLen = JIM_REFERENCE_TAGLEN;
-    for (i = 0; i < JIM_REFERENCE_TAGLEN; i++) {
-        if (i < tagLen && isrefchar(tag[i]))
-            refPtr->tag[i] = tag[i];
-        else
-            refPtr->tag[i] = '_';
-    }
-    refPtr->tag[JIM_REFERENCE_TAGLEN] = '\0';
-    return refObjPtr;
-}
-
-Jim_Reference *Jim_GetReference(Jim_Interp *interp, Jim_Obj *objPtr)
-{
-    if (objPtr->typePtr != &referenceObjType && SetReferenceFromAny(interp, objPtr) == JIM_ERR)
-        return NULL;
-    return objPtr->internalRep.refValue.refPtr;
-}
-
-int Jim_SetFinalizer(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *cmdNamePtr)
-{
-    Jim_Reference *refPtr;
-
-    if ((refPtr = Jim_GetReference(interp, objPtr)) == NULL)
-        return JIM_ERR;
-    Jim_IncrRefCount(cmdNamePtr);
-    if (refPtr->finalizerCmdNamePtr)
-        Jim_DecrRefCount(interp, refPtr->finalizerCmdNamePtr);
-    refPtr->finalizerCmdNamePtr = cmdNamePtr;
-    return JIM_OK;
-}
-
-int Jim_GetFinalizer(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **cmdNamePtrPtr)
-{
-    Jim_Reference *refPtr;
-
-    if ((refPtr = Jim_GetReference(interp, objPtr)) == NULL)
-        return JIM_ERR;
-    *cmdNamePtrPtr = refPtr->finalizerCmdNamePtr;
-    return JIM_OK;
-}
-
-/* -----------------------------------------------------------------------------
- * References Garbage Collection
- * ---------------------------------------------------------------------------*/
-
-/* This the hash table type for the "MARK" phase of the GC */
-static const Jim_HashTableType JimRefMarkHashTableType = {
-    JimReferencesHTHashFunction,        /* hash function */
-    JimReferencesHTKeyDup,      /* key dup */
-    NULL,                       /* val dup */
-    JimReferencesHTKeyCompare,  /* key compare */
-    JimReferencesHTKeyDestructor,       /* key destructor */
-    NULL                        /* val destructor */
-};
-
-/* Adds a reference (id) to the marks table with the given reference count.
- * If iscmd is 1, marks this as a command (so we can GC commands with refcount=1)
- */
-static void JimMarkObject(Jim_Interp *interp, Jim_HashTable *marks, Jim_Obj *objPtr, unsigned long id, int checkcmd)
-{
-    if (checkcmd && objPtr->refCount == 1) {
-        /* This may be the object in the command table with refcount 1 */
-        Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, objPtr);
-        if (he && Jim_GetHashEntryKey(he) == objPtr) {
-            /* Yes, so no need to mark */
-            return;
-        }
-    }
-
-#ifdef JIM_DEBUG_GC
-    printf("MARK: %lu (type=%s, refcount=%d)\n", id, JimObjTypeName(objPtr), objPtr->refCount);
-#endif
-
-    Jim_AddHashEntry(marks, &id, NULL);
-}
-
-/**
- * Returns 1 if id is in the marks table
- * In this case, the object can't be collected.
- */
-static int JimIsMarked(Jim_HashTable *marks, unsigned long id)
-{
-    return Jim_FindHashEntry(marks, &id) != NULL;
-}
-
-/* Performs the garbage collection. */
-int Jim_Collect(Jim_Interp *interp)
-{
-    int collected = 0;
-    Jim_HashTable marks;
-    Jim_HashTableIterator htiter;
-    Jim_HashEntry *he;
-    Jim_Obj *objPtr;
-
-    /* Avoid recursive calls */
-    if (interp->lastCollectId == (unsigned long)~0) {
-        /* Jim_Collect() already running. Return just now. */
-        return 0;
-    }
-    interp->lastCollectId = ~0;
-
-    /* Mark all the references found into the 'mark' hash table.
-     * The references are searched in every live object that
-     * is of a type that can contain references. */
-    Jim_InitHashTable(&marks, &JimRefMarkHashTableType, NULL);
-    objPtr = interp->liveList;
-    while (objPtr) {
-        if (objPtr->typePtr == NULL || objPtr->typePtr->flags & JIM_TYPE_REFERENCES) {
-            const char *str, *p;
-            int len;
-
-            /* If the object is of type reference, to get the
-             * Id is simple...
-             * Mark it, noting if it is in the command table
-             */
-            if (objPtr->typePtr == &referenceObjType) {
-                JimMarkObject(interp, &marks, objPtr, objPtr->internalRep.refValue.id, 1);
-                objPtr = objPtr->nextObjPtr;
-                continue;
-            }
-            /* Get the string repr of the object we want
-             * to scan for references. */
-            p = str = Jim_GetString(interp, objPtr, &len);
-            /* Skip objects too little to contain references. */
-            if (len < JIM_REFERENCE_SPACE) {
-                objPtr = objPtr->nextObjPtr;
-                continue;
-            }
-
-            /* If the string is ::<reference we need to skip over the :: when doing the
-             * comparison
-             */
-            if (str[0] == ':' && str[1] == ':') {
-                str +=2;
-                len -= 2;
-            }
-
-            /* Extract references from the object string repr. */
-            while (1) {
-                int i;
-                unsigned long id;
-
-                if ((p = strstr(p, "<reference.<")) == NULL)
-                    break;
-                /* Check if it's a valid reference. */
-                if (len - (p - str) < JIM_REFERENCE_SPACE)
-                    break;
-                if (p[41] != '>' || p[19] != '>' || p[20] != '.')
-                    break;
-                for (i = 21; i <= 40; i++)
-                    if (!isdigit(UCHAR(p[i])))
-                        break;
-                /* Get the ID */
-                id = strtoul(p + 21, NULL, 10);
-
-                /* Ok, a reference for the given ID
-                 * was found. Mark it, noting if it is in the command table
-                 */
-                JimMarkObject(interp, &marks, objPtr, id, p == str);
-                p += JIM_REFERENCE_SPACE;
-            }
-        }
-        objPtr = objPtr->nextObjPtr;
-    }
-
-    /* Run the references hash table to destroy every reference that
-     * is not referenced outside (not present in the mark HT). */
-    JimInitHashTableIterator(&interp->references, &htiter);
-    while ((he = Jim_NextHashEntry(&htiter)) != NULL) {
-        const unsigned long *refId;
-        Jim_Reference *refPtr;
-
-        refId = he->key;
-
-        if (!JimIsMarked(&marks, *refId)) {
-#ifdef JIM_DEBUG_GC
-            printf("COLLECTING %d\n", (int)*refId);
-#endif
-            collected++;
-            /* Drop the reference, but call the
-             * finalizer first if registered. */
-            refPtr = Jim_GetHashEntryVal(he);
-            if (refPtr->finalizerCmdNamePtr) {
-                char *refstr = Jim_Alloc(JIM_REFERENCE_SPACE + 1);
-                Jim_Obj *objv[3], *oldResult;
-
-                JimFormatReference(refstr, refPtr, *refId);
-
-                objv[0] = refPtr->finalizerCmdNamePtr;
-                objv[1] = Jim_NewStringObjNoAlloc(interp, refstr, JIM_REFERENCE_SPACE, 0);
-                objv[2] = refPtr->objPtr;
-
-                /* Drop the reference itself */
-                /* Avoid the finaliser being freed here */
-                Jim_IncrRefCount(objv[0]);
-                /* Don't remove the reference from the hash table just yet
-                 * since that will free refPtr, and hence refPtr->objPtr
-                 */
-
-                /* Call the finalizer. Errors ignored. (should we use bgerror?) */
-                oldResult = interp->result;
-                Jim_IncrRefCount(oldResult);
-                Jim_EvalObjVector(interp, 3, objv);
-                Jim_SetResult(interp, oldResult);
-                Jim_DecrRefCount(interp, oldResult);
-
-                Jim_DecrRefCount(interp, objv[0]);
-            }
-            Jim_DeleteHashEntry(&interp->references, refId);
-        }
-    }
-    Jim_FreeHashTable(&marks);
-    interp->lastCollectId = interp->referenceNextId;
-    interp->lastCollectTime = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW);
-    return collected;
-}
-
-#define JIM_COLLECT_ID_PERIOD 5000000
-#define JIM_COLLECT_TIME_PERIOD 300000
-
-void Jim_CollectIfNeeded(Jim_Interp *interp)
-{
-    unsigned long elapsedId;
-    jim_wide elapsedTime;
-
-    elapsedId = interp->referenceNextId - interp->lastCollectId;
-    elapsedTime = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW) - interp->lastCollectTime;
-
-
-    if (elapsedId > JIM_COLLECT_ID_PERIOD || elapsedTime > JIM_COLLECT_TIME_PERIOD) {
-        Jim_Collect(interp);
-    }
-}
-#endif /* JIM_REFERENCES && !JIM_BOOTSTRAP */
-
 // smj-edison: skipped
 int Jim_IsBigEndian(void)
 {
@@ -5916,9 +5436,6 @@ Jim_Interp *Jim_CreateInterp(void)
      * interpreter liveList and freeList pointers are
      * initialized to NULL. */
     Jim_InitHashTable(&i->commands, &JimCommandsHashTableType, i);
-#ifdef JIM_REFERENCES
-    Jim_InitHashTable(&i->references, &JimReferencesHashTableType, i);
-#endif
     Jim_InitHashTable(&i->assocData, &JimAssocDataHashTableType, i);
     Jim_InitHashTable(&i->packages, &JimPackageHashTableType, NULL);
     i->emptyObj = Jim_NewEmptyStringObj(i);
@@ -5995,9 +5512,6 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_InterpIncrProcEpoch(i);
 
     Jim_FreeHashTable(&i->commands);
-#ifdef JIM_REFERENCES
-    Jim_FreeHashTable(&i->references);
-#endif
     Jim_FreeHashTable(&i->packages);
     Jim_Free(i->prngState);
     Jim_FreeHashTable(&i->assocData);
@@ -6037,13 +5551,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     }
 #endif
 
-    /* Free all the freed objects. */
-    objPtr = i->freeList;
-    while (objPtr) {
-        nextObjPtr = objPtr->nextObjPtr;
-        Jim_Free(objPtr);
-        objPtr = nextObjPtr;
-    }
+    /* FIXME: Free all the freed objects. */
 
     /* Free the free call frames list */
     for (cf = i->freeFramesList; cf; cf = cfx) {
@@ -15401,122 +14909,6 @@ static int Jim_TryCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv
     return JimCatchTryHelper(interp, 1, argc, argv);
 }
 
-#if defined(JIM_REFERENCES) && !defined(JIM_BOOTSTRAP)
-
-/* [ref] */
-static int Jim_RefCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    if (argc != 3 && argc != 4) {
-        Jim_WrongNumArgs(interp, 1, argv, "string tag ?finalizer?");
-        return JIM_ERR;
-    }
-    if (argc == 3) {
-        Jim_SetResult(interp, Jim_NewReference(interp, argv[1], argv[2], NULL));
-    }
-    else {
-        Jim_SetResult(interp, Jim_NewReference(interp, argv[1], argv[2], argv[3]));
-    }
-    return JIM_OK;
-}
-
-/* [getref] */
-static int Jim_GetrefCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    Jim_Reference *refPtr;
-
-    if (argc != 2) {
-        Jim_WrongNumArgs(interp, 1, argv, "reference");
-        return JIM_ERR;
-    }
-    if ((refPtr = Jim_GetReference(interp, argv[1])) == NULL)
-        return JIM_ERR;
-    Jim_SetResult(interp, refPtr->objPtr);
-    return JIM_OK;
-}
-
-/* [setref] */
-static int Jim_SetrefCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    Jim_Reference *refPtr;
-
-    if (argc != 3) {
-        Jim_WrongNumArgs(interp, 1, argv, "reference newValue");
-        return JIM_ERR;
-    }
-    if ((refPtr = Jim_GetReference(interp, argv[1])) == NULL)
-        return JIM_ERR;
-    Jim_IncrRefCount(argv[2]);
-    Jim_DecrRefCount(interp, refPtr->objPtr);
-    refPtr->objPtr = argv[2];
-    Jim_SetResult(interp, argv[2]);
-    return JIM_OK;
-}
-
-/* [collect] */
-static int Jim_CollectCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    if (argc != 1) {
-        Jim_WrongNumArgs(interp, 1, argv, "");
-        return JIM_ERR;
-    }
-    Jim_SetResultInt(interp, Jim_Collect(interp));
-
-    /* Free all the freed objects. */
-    while (interp->freeList) {
-        Jim_Obj *nextObjPtr = interp->freeList->nextObjPtr;
-        Jim_Free(interp->freeList);
-        interp->freeList = nextObjPtr;
-    }
-
-    return JIM_OK;
-}
-
-/* [finalize] reference ?newValue? */
-static int Jim_FinalizeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    if (argc != 2 && argc != 3) {
-        Jim_WrongNumArgs(interp, 1, argv, "reference ?finalizerProc?");
-        return JIM_ERR;
-    }
-    if (argc == 2) {
-        Jim_Obj *cmdNamePtr;
-
-        if (Jim_GetFinalizer(interp, argv[1], &cmdNamePtr) != JIM_OK)
-            return JIM_ERR;
-        if (cmdNamePtr != NULL) /* otherwise the null string is returned. */
-            Jim_SetResult(interp, cmdNamePtr);
-    }
-    else {
-        if (Jim_SetFinalizer(interp, argv[1], argv[2]) != JIM_OK)
-            return JIM_ERR;
-        Jim_SetResult(interp, argv[2]);
-    }
-    return JIM_OK;
-}
-
-/* [info references] */
-static int JimInfoReferences(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
-{
-    Jim_Obj *listObjPtr;
-    Jim_HashTableIterator htiter;
-    Jim_HashEntry *he;
-
-    listObjPtr = Jim_NewListObj(interp, NULL, 0);
-
-    JimInitHashTableIterator(&interp->references, &htiter);
-    while ((he = Jim_NextHashEntry(&htiter)) != NULL) {
-        char buf[JIM_REFERENCE_SPACE + 1];
-        Jim_Reference *refPtr = Jim_GetHashEntryVal(he);
-        const unsigned long *refId = he->key;
-
-        JimFormatReference(buf, refPtr, *refId);
-        Jim_ListAppendElement(interp, listObjPtr, Jim_NewStringObj(interp, buf, -1));
-    }
-    Jim_SetResult(interp, listObjPtr);
-    return JIM_OK;
-}
-#endif /* JIM_REFERENCES && !JIM_BOOTSTRAP */
-
 /* [rename] */
 static int Jim_RenameCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16221,12 +15613,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             }
             break;
         case INFO_REFERENCES:
-#ifdef JIM_REFERENCES
-            return JimInfoReferences(interp, argc, argv);
-#else
             Jim_SetResultString(interp, "not supported", -1);
             return JIM_ERR;
-#endif
     }
     return JIM_OK;
 }
@@ -16801,13 +16189,6 @@ static const struct {
     {"exit", Jim_ExitCoreCommand},
     {"catch", Jim_CatchCoreCommand},
     {"try", Jim_TryCoreCommand},
-#ifdef JIM_REFERENCES
-    {"ref", Jim_RefCoreCommand},
-    {"getref", Jim_GetrefCoreCommand},
-    {"setref", Jim_SetrefCoreCommand},
-    {"finalize", Jim_FinalizeCoreCommand},
-    {"collect", Jim_CollectCoreCommand},
-#endif
     {"rename", Jim_RenameCoreCommand},
     {"dict", Jim_DictCoreCommand},
     {"subst", Jim_SubstCoreCommand},

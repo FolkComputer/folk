@@ -287,12 +287,14 @@ typedef struct Jim_HashTableIterator {
  *
  * The refcount of a freed object is always -1.
  * ---------------------------------------------------------------------------*/
+struct Jim_Interp;
+
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
     int refCount; /* reference count */
     int length; /* number of bytes in 'bytes', not including the null term. */
-    int threadId;
+    struct Jim_Interp *interp; /* parent interpreter */
     /* Internal representation union */
     union {
         /* integer number type */
@@ -359,11 +361,6 @@ typedef struct Jim_Obj {
             int argc;
         } scriptLineValue;
     } internalRep;
-    /* These fields add 8 or 16 bytes more for every object
-     * but this is required for efficient garbage collection
-     * of Jim references. */
-    struct Jim_Obj *prevObjPtr; /* pointer to the prev object. */
-    struct Jim_Obj *nextObjPtr; /* pointer to the next object. */
 } Jim_Obj;
 
 /* Jim_Obj related macros */
@@ -409,8 +406,6 @@ typedef struct Jim_Obj {
  *
  * - updateStringProc is used to create the string from the internal repr.
  */
-
-struct Jim_Interp;
 
 typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
