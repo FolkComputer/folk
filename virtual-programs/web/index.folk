@@ -1,11 +1,8 @@
 When the db library is /dbLib/ {
   Wish the web server handles route "/" with handler [list apply {{db dbLib} {
     set l [list]
-    foreach result [QuerySimple! /...terms/] {
-        set ref [dict get $result __ref]
-        set terms [dict get $result terms]
-
-        set childMatchRefs [$dbLib childMatches $db $ref]
+    Query! /...terms/ {
+        set childMatchRefs [$dbLib childMatches $db $__ref]
         set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
             set childStatementRefs [$dbLib childStatements $db $childMatchRef]
             subst {
@@ -20,7 +17,7 @@ When the db library is /dbLib/ {
               [lsearch -exact $terms error] != -1
               ? "color: red"
               : ""}]">
-            $ref ([$dbLib statementParentCount $db $ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
+            $__ref ([$dbLib statementParentCount $db $__ref]): <code>[htmlEscape [string range $terms 0 100]]</code> ($childMatchInfo)</summary>
             <pre>[htmlEscape $terms]</pre>
             </details>
             </li>
