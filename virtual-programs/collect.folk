@@ -3,7 +3,8 @@ When when the collected matches for /clause/ are /matchesVar/ /body/ with enviro
 }
 When /someone/ wishes to collect matches for /clause/ {
     When /someone/ wishes to recollect matches for $clause with timestamp /ts/ {
-        Say the collected matches for $clause are [Query! {*}$clause]
+        Say the collected matches for $clause are [QueryAcquire! guard {*}$clause]
+        QueryRelease! guard
     }
 
     # the Hold! should hopefully dedupe
