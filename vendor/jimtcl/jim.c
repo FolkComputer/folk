@@ -143,7 +143,7 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *const 
     Jim_Obj **resultObj, int flags);
 static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands);
 static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr);
-static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr);
+static void SetDictSubstFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr);
 static void JimSetFailedEnumResult(Jim_Interp *interp, const char *arg, const char *badtype,
     const char *prefix, const char *const *tablePtr, const char *name);
 static int JimCallProcedure(Jim_Interp *interp, Jim_Cmd *cmd, int argc, Jim_Obj *const *argv);
@@ -2214,11 +2214,13 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
      * kind of GC implemented should take care to avoid
      * scanning objects with refCount == 0. */
     objPtr->refCount = 0;
+    objPtr->threadId = interp->threadId;
+
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
      * value anyway. */
 
-    if (onTempList == JIM_TEMP_LIST) {
+    if (onTempList > 0) {
         /* -- Put the object into the temp list -- */
         objPtr->prevObjPtr = NULL;
         objPtr->nextObjPtr = interp->tempList;
@@ -2288,11 +2290,11 @@ void Jim_InvalidateStringRep(Jim_Obj *objPtr)
 
 // smj-edison: audited
 /* Duplicate an object. The returned object has refcount = 0. */
-Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
+Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     Jim_Obj *dupPtr;
 
-    dupPtr = Jim_NewObj(interp, onTempList);
+    dupPtr = Jim_NewObj(interp, flags & JIM_TEMP_LIST);
     if (objPtr->bytes == NULL) {
         /* Object does not have a valid string representation. */
         dupPtr->bytes = NULL;
@@ -2324,15 +2326,25 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList)
             objPtr->typePtr->dupIntRepProc(interp, objPtr, dupPtr);
         }
     }
+
+    if (flags & JIM_FORCE_STRING) {
+        SetStringFromAnyUnshared(interp, objPtr);
+    }
+    
     return dupPtr;
 }
 
 // smj-edison: audited
 /* Duplicates the object and sets the refCount to 1 if shared, else
- * just return the object */
-Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int onTempList) {
+ * just return the object
+ * 
+ * FLAGS:
+ * JIM_TEMP_LIST: put it on the temp list to be cleared later
+ * JIM_FORCE_STRING: when duplicating it, convert it to its string representation
+ * JIM_ON_OTHER_THREAD:  */
+Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     if (Jim_IsShared(objPtr)) {
-        objPtr = Jim_DuplicateObj(interp, objPtr, onTempList);
+        objPtr = Jim_DuplicateObj(interp, objPtr, flags);
         Jim_IncrRefCount(objPtr);
     }
 
@@ -3975,7 +3987,6 @@ static void JimVariablesHTValDestructor(void *interp, void *val)
 }
 
 // smj-edison: audited
-/* must be called with unshared objects only due to shimmering */
 static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
 {
     Jim_Obj *keyObj = (Jim_Obj *)key;
@@ -4013,8 +4024,8 @@ static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
 
 static int JimObjectHTKeyCompare(void *privdata, const void *key1, const void *key2)
 {
-    // FIXME: make sure this doesn't cause a race condition if keys are compared
-    // on a different thread (when inserting objects on the temp list)
+    // FIXME: make sure this doesn't cause a race condition if keys are compared on a 
+    // different thread (when inserting objects on the temp list, the linked list could corrupt)
     Jim_Interp *interp = (Jim_Interp *)privdata;
 
     return Jim_StringEqObj(interp, (Jim_Obj *)key1, (Jim_Obj *)key2);
@@ -4031,7 +4042,6 @@ static void JimObjectHTKeyValDestructor(void *interp, void *val)
     Jim_DecrRefCount(interp, (Jim_Obj *)val);
 }
 
-// must be used on unshared objects only due to shimmering
 static const Jim_HashTableType JimVariablesHashTableType = {
     JimObjectHTHashFunction, /* hash function */
     JimObjectHTKeyValDup,       /* key dup */
@@ -4077,7 +4087,7 @@ static unsigned int JimCommandsHT_HashFunction(Jim_Interp *interp, const void *k
 static int JimCommandsHT_KeyCompare(void *privdata, const void *key1, const void *key2)
 {
     // FIXME: make sure this doesn't cause a race condition if keys are compared
-    // on a different thread (when inserting objects on the temp list)
+    // on a different thread (when inserting objects on the temp list the linked list could corrupt)
     Jim_Interp *interp = (Jim_Interp *)privdata;
 
     int len1, len2;
@@ -4526,15 +4536,20 @@ static const Jim_ObjType commandObjType = {
  *
  * Respects the 'upcall' setting.
  * 
- * NOT thread safe with objects from another thread. It shimmers to cache
- * what command was run previously.
+ * NOT thread safe with objects from another thread.
  */
 Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     Jim_Cmd *cmd;
 
+    JimPanic((
+        interp->threadId != objPtr->threadId,
+        "interpreter thread (%d) doesn't match object (%d) when running Jim_GetCommand",
+        interp->threadId, objPtr->threadId
+    ));
+
     /* In order to be valid, the proc epoch must match and
-     * the lookup must have occurred in the same namespace
+     * the lookup must have occurred in the same namespace.
      */
     if (objPtr->typePtr == &commandObjType
         && objPtr->internalRep.cmdValue.procEpoch == interp->procEpoch
@@ -4608,7 +4623,7 @@ static const Jim_ObjType variableObjType = {
  * a variable name, but syntax glue for [dict] i.e. the last
  * character is ')'
  * 
- * NOT thread safe with objects from another thread. */
+ * Panics if used with objects from another thread. */
 static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     const char *varName;
@@ -4616,6 +4631,12 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     int global;
     int len;
     Jim_Var *var;
+
+    JimPanic((
+        interp->threadId != objPtr->threadId,
+        "interpreter thread (%d) doesn't match object (%d) when running SetVariableFromAny",
+        interp->threadId, objPtr->threadId
+    ));
 
     /* Check if the object is already an uptodate variable */
     if (objPtr->typePtr == &variableObjType) {
@@ -4703,6 +4724,12 @@ static int JimUnsetVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr)
 /* NOT thread safe with objects from another thread. */
 static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Obj *valObjPtr)
 {
+    JimPanic((
+        interp->threadId != nameObjPtr->threadId,
+        "interpreter thread (%d) doesn't match name object (%d) when running JimCreateVariable",
+        interp->threadId, nameObjPtr->threadId
+    ));
+
     const char *name;
     Jim_CallFrame *framePtr;
     int global;
@@ -4928,7 +4955,7 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
  * This allows the array element to be updated (e.g. append, lappend) without
  * affecting other references to the dictionary.
  * 
- * NOT thread safe with objects from another thread.
+ * Panics if used with an object from another thread.
  */
 Jim_Obj *Jim_GetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
 {
@@ -5079,9 +5106,7 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
  * For example "foo(bar)" will return objects with string repr. of
  * "foo" and "bar".
  *
- * The returned objects have refcount = 1. The function can't fail.
- * 
- * NOT thread safe with objects from another thread. */
+ * The returned objects have refcount = 1. The function can't fail. */
 static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj **varPtrPtr, Jim_Obj **keyPtrPtr)
 {
@@ -5114,13 +5139,15 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
 // smj-edison: audited
 /* Helper of Jim_SetVariable() to deal with dict-syntax variable names.
  * Also used by Jim_UnsetVariable() with valObjPtr = NULL.
- *
- * NOT thread safe with objects from another thread. */
+ * 
+ * Thread safe. */
 static int JimDictSugarSet(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *valObjPtr)
 {
     int err;
 
-    SetDictSubstFromAny(interp, objPtr);
+    // force to string because the internal rep may contain references to other threads
+    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST | JIM_FORCE_STRING);
+    SetDictSubstFromAnyUnshared(interp, objPtr);
 
     err = Jim_SetDictKeysVector(interp, objPtr->internalRep.dictSubstValue.varNameObjPtr,
         &objPtr->internalRep.dictSubstValue.indexObjPtr, 1, valObjPtr, JIM_MUSTEXIST);
@@ -5152,7 +5179,7 @@ static int JimDictSugarSet(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *valObjP
  * If JIM_UNSHARED is set and the dictionary is shared, it will be duplicated
  * and stored back to the variable before expansion.
  * 
- * NOT thread safe with objects from another thread.
+ * Panics if varObjPtr is from another thread.
  */
 static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPtr,
     Jim_Obj *keyObjPtr, int flags)
@@ -5183,7 +5210,7 @@ static Jim_Obj *JimDictExpandArrayVariable(Jim_Interp *interp, Jim_Obj *varObjPt
 // smj-edison: audited
 /* Helper of Jim_GetVariable() to deal with dict-syntax variable names
  * 
- * NOT thread safe with objects from another thread. */
+ * Panics if used with an object from another thread. */
 static Jim_Obj *JimDictSugarGet(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     SetDictSubstFromAny(interp, objPtr);
@@ -5213,11 +5240,11 @@ static void DupDictSubstInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj
 }
 
 // smj-edison: audited
-/* Note: The object *must* be in dict-sugar format
- * 
- * NOT thread safe with objects from another thread. */
-static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+/* Note: The object *must* be in dict-sugar format */
+static void SetDictSubstFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetDictSubstFromAnyUnshared called with shared object"));
+
     if (objPtr->typePtr != &dictSubstObjType) {
         Jim_Obj *varObjPtr, *keyObjPtr;
 
@@ -8103,11 +8130,12 @@ Jim_Obj *Jim_NewDictObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
     return objPtr;
 }
 
-// smj-edison: audited
 /* Return the value associated to the specified dict key
  * Returns JIM_OK if OK, JIM_ERR if entry not found or -1 if can't create dict value
  *
  * Sets *objPtrPtr to non-NULL only upon success.
+ * 
+ * Thread safe.
  */
 int Jim_DictKey(Jim_Interp *interp, Jim_Obj *dictPtr, Jim_Obj *keyPtr,
     Jim_Obj **objPtrPtr, int flags)
@@ -8201,7 +8229,7 @@ int Jim_DictKeysVector(Jim_Interp *interp, Jim_Obj *dictPtr,
  *
  * Normally the result is stored in the interp result. If JIM_NORESULT is set, this is not done.
  * 
- * NOT thread safe with objects from another thread (variable lookup).
+ * Will panic if varNamePtr is from another thread (due to variable lookup).
  */
 int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
     Jim_Obj *const *keyv, int keyc, Jim_Obj *newObjPtr, int flags)
@@ -16999,6 +17027,7 @@ int Jim_IsList(Jim_Obj *objPtr)
     return objPtr->typePtr == &listObjType;
 }
 
+// smj-edison: audited
 /**
  * Very simple printf-like formatting, designed for error messages.
  *
@@ -17041,7 +17070,7 @@ void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...)
         else if (strncmp(format + i, "%#s", 3) == 0) {
             Jim_Obj *objPtr = va_arg(args, Jim_Obj *);
 
-            params[n] = Jim_GetString(objPtr, &l);
+            params[n] = Jim_GetString(objPtr, &l, JIM_TEMP_LIST);
             objparam[nobjparam++] = objPtr;
             Jim_IncrRefCount(objPtr);
         }

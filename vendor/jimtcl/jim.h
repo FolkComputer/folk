@@ -173,9 +173,11 @@ extern "C" {
 /* Unused arguments generate annoying warnings... */
 #define JIM_NOTUSED(V) ((void) V)
 
-/* Whether to put on live list or temp list */
-#define JIM_LIVE_LIST 0
-#define JIM_TEMP_LIST 1
+/* Duplication flags */
+#define JIM_LIVE_LIST        0
+#define JIM_TEMP_LIST        1
+#define JIM_FORCE_STRING     2
+#define JIM_ON_OTHER_THREAD  4
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -290,6 +292,7 @@ typedef struct Jim_Obj {
     const struct Jim_ObjType *typePtr; /* object type. */
     int refCount; /* reference count */
     int length; /* number of bytes in 'bytes', not including the null term. */
+    int threadId;
     /* Internal representation union */
     union {
         /* integer number type */
@@ -609,6 +612,7 @@ typedef struct Jim_Interp {
     Jim_PrngState *prngState; /* per interpreter Random Number Gen. state. */
     struct Jim_HashTable packages; /* Provided packages hash table */
     Jim_Stack *loadHandles; /* handles of loaded modules [load] */
+    int threadId;
 } Jim_Interp;
 
 /* Currently provided as macro that performs the increment.
@@ -746,9 +750,9 @@ JIM_EXPORT int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* string object */
 JIM_EXPORT Jim_Obj * Jim_NewStringObj (Jim_Interp *interp,
-        const char *s, int len, int onTempList);
+        const char *s, int len);
 JIM_EXPORT Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp,
-        const char *s, int charlen, int onTempList);
+        const char *s, int charlen);
 JIM_EXPORT Jim_Obj * Jim_NewStringObjNoAlloc (Jim_Interp *interp,
         char *s, int len, int onTempList);
 JIM_EXPORT void Jim_AppendString (Jim_Interp *interp, Jim_Obj *objPtr,
