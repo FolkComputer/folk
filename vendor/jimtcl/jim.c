@@ -2197,33 +2197,13 @@ static int JimParseListStr(struct JimParserCtx *pc)
 /* Return a new initialized object. */
 Jim_Obj *Jim_NewObj(Jim_Interp *interp)
 {
-    Jim_Obj *objPtr;
+    Jim_Obj *objPtr = Jim_Alloc(sizeof(*objPtr));
 
-    /* -- Check if there are objects in the free list -- */
-    if (interp->freeList != NULL) {
-        /* -- Unlink the object from the free list -- */
-        objPtr = interp->freeList;
-        interp->freeList = objPtr->nextObjPtr;
-    }
-    else {
-        /* -- No ready to use objects: allocate a new one -- */
-        objPtr = Jim_Alloc(sizeof(*objPtr));
-    }
-
-    /* Object is returned with refCount of 0. Every
-     * kind of GC implemented should take care to avoid
-     * scanning objects with refCount == 0. */
+    /* Object is returned with refCount of 0. */
     objPtr->refCount = 0;
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
      * value anyway. */
-
-    /* -- Put the object into the live list -- */
-    objPtr->prevObjPtr = NULL;
-    objPtr->nextObjPtr = interp->liveList;
-    if (interp->liveList)
-        interp->liveList->prevObjPtr = objPtr;
-    interp->liveList = objPtr;
 
     return objPtr;
 }
@@ -2239,29 +2219,14 @@ void Jim_FreeObj(Jim_Interp *interp, Jim_Obj *objPtr)
 
     /* Free the internal representation */
     Jim_FreeIntRep(interp, objPtr);
+
     /* Free the string representation */
     if (objPtr->bytes != NULL) {
         if (objPtr->bytes != JimEmptyStringRep)
             Jim_Free(objPtr->bytes);
     }
-    /* Unlink the object from the live objects list */
-    if (objPtr->prevObjPtr)
-        objPtr->prevObjPtr->nextObjPtr = objPtr->nextObjPtr;
-    if (objPtr->nextObjPtr)
-        objPtr->nextObjPtr->prevObjPtr = objPtr->prevObjPtr;
-    if (interp->liveList == objPtr)
-        interp->liveList = objPtr->nextObjPtr;
-#ifdef JIM_DISABLE_OBJECT_POOL
+
     Jim_Free(objPtr);
-#else
-    /* Link the object into the free objects list */
-    objPtr->prevObjPtr = NULL;
-    objPtr->nextObjPtr = interp->freeList;
-    if (interp->freeList)
-        interp->freeList->prevObjPtr = objPtr;
-    interp->freeList = objPtr;
-    objPtr->refCount = -1;
-#endif
 }
 
 /* Invalidate the string representation of an object. */
@@ -5390,13 +5355,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     }
 #endif
 
-    /* Free all the freed objects. */
-    objPtr = i->freeList;
-    while (objPtr) {
-        nextObjPtr = objPtr->nextObjPtr;
-        Jim_Free(objPtr);
-        objPtr = nextObjPtr;
-    }
+    /* FIXME: Free all the freed objects. */
 
     /* Free the free call frames list */
     for (cf = i->freeFramesList; cf; cf = cfx) {
