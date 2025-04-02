@@ -346,6 +346,7 @@ $gpuc code [csubst {
 
 $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
     GpuImageHandle imageId = allocateGpuImageHandle();
+
     GpuImageBlock* block = &gpuImages[imageId];
     block->alive = true;
 
@@ -438,6 +439,10 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
         }
     }
 
+    if (imageId == 0) {
+        // We allocate image 0 as a permanent placeholder image.
+        return createGpuImage(width, height, format);
+    }
     return block;
 }
 

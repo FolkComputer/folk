@@ -6,12 +6,8 @@ When display /disp/ has width /w/ height /h/ {
 
 # HACK: we need one image that never gets destroyed to act as a
 # placeholder.
-Wish the GPU creates writable image ZERO with width 128 height 128
-When the GPU creates writable image ZERO as /something/ {
-    Wish the GPU creates writable image TEST with width 1024 height 1024
-}
-
 When the page is out {
+    Wish the GPU creates writable image TEST with width 1024 height 1024
     Wish the GPU draws pipeline "fillTriangle" onto image TEST \
         with arguments [list {
             {1 0 0}
