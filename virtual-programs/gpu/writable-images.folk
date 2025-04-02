@@ -284,24 +284,22 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             set wi [$gpuWritableLib create $width $height]
 
             Claim the GPU creates writable image $id as $wi \
-                -destructor {
-                    $gpuWritableLib destroy $wi
-                }
+                -destructor [list $gpuWritableLib destroy $wi]
         }
 
         set missingPipelines [dict create]
         set missingWritableImages [dict create]
         while true {
-            set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+            set matches [QueryAcquire! guard /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
             foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
-            set matches [Query! /someone/ claims the GPU creates writable image /id/ as /wi/]
+            set matches [QueryAcquire! guard /someone/ claims the GPU creates writable image /id/ as /wi/]
             set writableImages [dict create]
             foreach match $matches { dict with match { dict set writableImages $id $wi } }
 
             set displayListsByImage [dict create]
-            foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto image /id/ with /...options/] {
+            foreach match [QueryAcquire! guard /wisher/ wishes the GPU draws pipeline /name/ onto image /id/ with /...options/] {
                 try {
                     set name [dict get $match name]
                     if {![dict exists $pipelines $name]} {
@@ -359,6 +357,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                 $gpuWritableLib drawEnd
             }
 
+            QueryRelease! guard
             sleep 0.01
         }
     }

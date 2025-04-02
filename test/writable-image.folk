@@ -41,7 +41,7 @@ When the page is out {
 Assert! the page is out
 When {
     sleep 1
-    Retract! the page is out
+    # Retract! the page is out
 }
 
 ##############

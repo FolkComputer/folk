@@ -14,7 +14,10 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 
 # HACK: We just query for this information outright, because we need
 # to know it at C compile time.
-set isGlfw [expr {[llength [Query! /anyone/ wishes $::thisNode uses display glfw]] > 0}]
+set isGlfw false
+Query! /anyone/ wishes $::thisNode uses display glfw {
+    set isGlfw true
+}
 
 # First, we build the C GPU library, which can make direct calls into
 # Vulkan -- this library then exposes functions that we can call from
@@ -1287,16 +1290,17 @@ set gpu [makeGpu $gpuLib]
 if {$macos} {
     # HACK: to guarantee that GPU init runs on main thread.
     local proc When' {args} {
-        set gpuImageLibResults [list]
-        while {[llength $gpuImageLibResults] == 0} {
-            set gpuImageLibResults [Query! the GPU image library is /gpuImageLib/]
+        while {![info exists gpuImageLib]} {
+            Query! the GPU image library is /gpuImageLib/ {
+                break
+            }
             sleep 0.1
         }
         set body [lindex $args end]
         uplevel {set __envStack [list]}
         uplevel {set displayIdx 0}
         uplevel {set this "virtual-programs/gpu.folk"}
-        uplevel [list set gpuImageLib [dict get [lindex $gpuImageLibResults 0] gpuImageLib]]
+        uplevel [list set gpuImageLib $gpuImageLib]
         uplevel [list applyBlock $body [uplevel captureEnvStack]]
     }
 } else {
@@ -1321,9 +1325,8 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
 
     fn QueryAllFns! {} {
         set fns [dict create]
-        set results [Query! /someone/ claims the GPU compiles function /name/ to /fn/]
-        foreach result $results {
-            dict set fns [dict get $result name] [dict get $result fn]
+        Query! /someone/ claims the GPU compiles function /name/ to /fn/ {
+            dict set fns $name $fn
         }
         return $fns
     }
@@ -1382,12 +1385,12 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
-        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set matches [QueryAcquire! guard /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
         set pipelines [dict create]
         foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
         set displayList [dict create]
-        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+        foreach match [QueryAcquire! guard /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
                 set name [dict get $match name]
                 if {![dict exists $pipelines $name]} {
@@ -1432,12 +1435,14 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         }
 
         # tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
-        tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
+        # tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
         # tracy plot $kDrawCount $drawCount
         tracy zoneEnd
         $gpu drawEnd
 
         tracy frameMarkNamed $kGpu
+
+        QueryRelease! guard
         $gpu poll
 
         # TODO: sleep for 5ms or something?

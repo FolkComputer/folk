@@ -44,6 +44,8 @@ typedef union MatchRef {
 Statement* statementAcquire(Db* db, StatementRef ref);
 void statementRelease(Db* db, Statement* stmt);
 
+Statement* statementUnsafeGet(Db* db, StatementRef ref);
+
 bool statementCheck(Db* db, StatementRef ref);
 
 StatementRef statementRef(Db* db, Statement* stmt);
