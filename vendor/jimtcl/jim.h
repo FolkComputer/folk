@@ -286,6 +286,7 @@ typedef struct Jim_Obj {
     const struct Jim_ObjType *typePtr; /* object type. */
     int refCount; /* reference count */
     int length; /* number of bytes in 'bytes', not including the null term. */
+    Jim_Interp *interp; /* parent interpreter */
     /* Internal representation union */
     union {
         /* integer number type */
@@ -352,11 +353,6 @@ typedef struct Jim_Obj {
             int argc;
         } scriptLineValue;
     } internalRep;
-    /* These fields add 8 or 16 bytes more for every object
-     * but this is required for efficient garbage collection
-     * of Jim references. */
-    struct Jim_Obj *prevObjPtr; /* pointer to the prev object. */
-    struct Jim_Obj *nextObjPtr; /* pointer to the next object. */
 } Jim_Obj;
 
 /* Jim_Obj related macros */
