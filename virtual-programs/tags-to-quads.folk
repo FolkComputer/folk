@@ -366,11 +366,8 @@ set spaceLib [library create {
             set v [{*}$changer $v]
             return [change $changedSpace $targetSpace $v]
         }
-        set changers [Query! /someone/ claims the changer \
-                          from space $sourceSpace to space $targetSpace is /changer/]
-        if {[llength $changers] > 0} {
-            set changer [dict get [lindex $changers 0] changer]
-
+        Query! /someone/ claims the changer \
+               from space $sourceSpace to space $targetSpace is /changer/ {
             return [{*}$changer $v]
         }
         error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
