@@ -367,10 +367,13 @@ set spaceLib [library create {
             return [change $changedSpace $targetSpace $v]
         }
         Query! /someone/ claims the changer \
-               from space $sourceSpace to space $targetSpace is /changer/ {
-            return [{*}$changer $v]
+                 from space $sourceSpace to space $targetSpace is /changer/ {
+            set ret [{*}$changer $v]
         }
-        error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
+        if {![info exists ret]} {
+            error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
+        }
+        return $ret
     }
 }]
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {

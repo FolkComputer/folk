@@ -547,6 +547,7 @@ proc Query! {args} {
     set results [QueryAcquire! guard {*}$pattern]
     upvar __result result
     foreach result $results {
+        # TODO: support early return in body
         uplevel [list dict with __result $body]
     }
     QueryRelease! guard
