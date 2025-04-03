@@ -61,7 +61,7 @@ $camc struct Image {
 }
 
 $camc proc cameraOpen {char* device int width int height} Camera* {
-    printf("device [%s]\n", device);
+    printf("camera-usb: Loading '%s'\n", device);
     int fd = open(device, O_RDWR | O_NONBLOCK, 0);
     if (fd == -1) quit("open");
     Camera* camera = malloc(sizeof(Camera));
@@ -110,7 +110,8 @@ $camc proc cameraInit {Camera* camera uint32_t requested_buffer_count} void {
     int ret;
     do {
         ret = xioctl(camera->fd, VIDIOC_S_FMT, &format);
-        fprintf(stderr, "VIDIOC_S_FMT: %d; %d\n", ret, errno);
+        fprintf(stderr, "camera-usb: VIDIOC_S_FMT: ret = %d (%d) (%s)\n",
+                ret, errno, strerror(errno));
         usleep(100000);
     } while (ret == -1 && errno == EBUSY);
     if (ret == -1) quit("VIDIOC_S_FMT");
@@ -336,7 +337,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
         proc new {device width height bufferCount} {
             set camera [cameraOpen $device $width $height]
-            puts "camera-usb: Loaded $camera"
+            puts "camera-usb: Loaded $device -> $camera"
             cameraInit $camera $bufferCount
             cameraStart $camera
             # skip 5 frames for booting a cam
