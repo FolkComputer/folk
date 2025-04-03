@@ -62,7 +62,10 @@ $camc struct Image {
 
 $camc proc cameraOpen {char* device int width int height} Camera* {
     printf("camera-usb: Loading '%s'\n", device);
-    int fd = open(device, O_RDWR | O_NONBLOCK, 0);
+    // O_CLOEXEC is necessary so long-running child processes (like
+    // fswatch) don't keep the camera open past the death of folk
+    // itself, which causes EBUSY for the next Folk process.
+    int fd = open(device, O_RDWR | O_NONBLOCK | O_CLOEXEC, 0);
     if (fd == -1) quit("open");
     Camera* camera = malloc(sizeof(Camera));
     camera->fd = fd;
