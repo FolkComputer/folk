@@ -97,7 +97,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         } GpuWritableImage;
     }
     $gpuc proc gpuImage {GpuWritableImage* wi} GpuImageHandle {
-        return wi->gpuImages[wi->imageIndex];
+        return wi->gpuImages[wi->imageIndex % 2];
     }
     $gpuc proc create {int width int height} GpuWritableImage* {
         GpuWritableImage* wi = malloc(sizeof(GpuWritableImage));
