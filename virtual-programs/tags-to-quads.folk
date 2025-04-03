@@ -411,7 +411,7 @@ set quadLib [library create quadLib {spaceLib} {
     proc buffer {q args} {
         # TODO: this should probably be with respect to the centroid
         # of the quad?
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         foreach {direction distance} $args {
             if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
                 error "quad buffer: Invalid distance $distance"
@@ -451,17 +451,17 @@ set quadLib [library create quadLib {spaceLib} {
                 error "quad buffer: Invalid direction $direction"
             }
         }
-        return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
     # TODO: we need to either return 'space-tagged points' for these
     # or just change them into some default space like camera space.
     proc left {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
     }
     proc right {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
     }
 }]
@@ -555,13 +555,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set tagSpace [$spaceLib changeableTo $camera $tagToCameraSpaceChanger]
 
         set r [expr {$tagSize / 2}]
-        # Vertex order is bottom-left, bottom-right, top-right,
-        # top-left.
+        # Vertex order needs to be clockwise to align with
+        # Vulkan. Top-left to bottom-left.
         set vertices \
-            [list [list [- $r]    $r  0] \
-                 [list     $r     $r  0] \
+            [list [list [- $r] [- $r] 0] \
                  [list     $r  [- $r] 0] \
-                 [list  [- $r] [- $r] 0]]
+                 [list     $r     $r  0] \
+                 [list  [- $r]    $r  0]]
         set quad [$quadLib create $tagSpace $vertices]
         Claim tag $tag has quad $quad
 
