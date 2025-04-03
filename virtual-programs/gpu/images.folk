@@ -53,6 +53,7 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
 $gpuc code {
     VkDevice device;
+    static void initPlaceholderImage();
 }
 $gpuc proc imageManagerInit {} void {
     $[vktry volkInitialize()]
@@ -112,6 +113,8 @@ $gpuc proc imageManagerInit {} void {
         $[vktry {vkAllocateDescriptorSets(device, &allocInfo, imageDescriptorSet_ptr())}]
     }
     pthread_rwlock_init(imageDescriptorSetLock_ptr(), NULL);
+
+    initPlaceholderImage();
 }
 
 # Buffer allocation:
@@ -167,6 +170,7 @@ $gpuc code [csubst {
         imageInfo.arrayLayers = 1;
         imageInfo.format = format;
         imageInfo.tiling = tiling;
+        // TODO: this means it can't be drawn right away (validation error).
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         imageInfo.usage = usage;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -344,6 +348,9 @@ $gpuc code [csubst {
     }
 }]
 
+$gpuc proc getGpuImage {GpuImageHandle handle} GpuImageBlock* {
+    return &gpuImages[handle];
+}
 $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
     GpuImageHandle imageId = allocateGpuImageHandle();
 
@@ -439,10 +446,6 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
         }
     }
 
-    if (imageId == 0) {
-        // We allocate image 0 as a permanent placeholder image.
-        return createGpuImage(width, height, format);
-    }
     return block;
 }
 
@@ -548,6 +551,28 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     vkFreeMemory(device, block->textureImageMemory, NULL);
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
+}
+
+$gpuc proc initPlaceholderImage {} void {
+    // Set up a placeholder image in slot 0 that can always be drawn
+    // that we can swap in when images get invalidated.
+    Image magentaIm = {
+        .width = 128, .height = 128,
+        .components = 4,
+        .bytesPerRow = 128 * 4,
+        .data = malloc(128 * 128 * 4)
+    };
+    for (int y = 0; y < magentaIm.height; y++) {
+        for (int x = 0; x < magentaIm.width; x++) {
+            int i = y * magentaIm.bytesPerRow + x * magentaIm.components;
+            magentaIm.data[i+0] = 255;
+            magentaIm.data[i+1] = 0;
+            magentaIm.data[i+2] = 255;
+            magentaIm.data[i+3] = 255;
+        }
+    }
+    GpuImageHandle han = copyImageToGpu(magentaIm);
+    FOLK_ENSURE(han == 0);
 }
 
 set gpuImageLib [$gpuc compile]
