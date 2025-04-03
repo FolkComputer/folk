@@ -1,7 +1,9 @@
 When the db library is /dbLib/ {
   Wish the web server handles route "/" with handler [list apply {{db dbLib} {
     set l [list]
-    Query! /...terms/ {
+    # You need to use the Simple form so it doesn't auto-claimize it.
+    set results [QueryAcquireSimple! guard /...terms/]
+    foreach result $results { dict with result {
         set childMatchRefs [$dbLib childMatches $db $__ref]
         set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
             set childStatementRefs [$dbLib childStatements $db $childMatchRef]
@@ -22,7 +24,9 @@ When the db library is /dbLib/ {
             </details>
             </li>
         }]
-    }
+    } }
+    QueryRelease! guard
+
     html [subst {
         <html>
         <head>
