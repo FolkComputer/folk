@@ -112,20 +112,16 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneName "incrementalDetect: $frameTs"
 
     # Query all the existing tag detections that are out there.
-    set rows [Query! /someone/ claims tag /id/ has detection /det/ \
-                  on camera $camera at timestamp /timestamp/]
     # Find the most recent detection of each tag; will use these to
     # give us regions of interest to do partial scans on the new
     # camera frame.
     set dets [dict create]
-    foreach row $rows {
-        dict with row {
-            if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
-                ![dict exists $dets $id]} {
+    Query! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
+        if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
+            ![dict exists $dets $id]} {
 
-                dict set dets $id $det
-                dict set dets $id timestamp $timestamp
-            }
+            dict set dets $id $det
+            dict set dets $id timestamp $timestamp
         }
     }
 
