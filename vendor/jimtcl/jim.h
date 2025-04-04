@@ -74,6 +74,7 @@ extern "C" {
 #include <stdio.h>  /* for the FILE typedef definition */
 #include <stdlib.h> /* In order to export the Jim_Free() macro */
 #include <stdarg.h> /* In order to get type va_list */
+#include <stdatomic.h>
 
 /* -----------------------------------------------------------------------------
  * System configuration
@@ -292,7 +293,7 @@ struct Jim_Interp;
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
-    int refCount; /* reference count */
+    atomic_int refCount; /* reference count */
     int length; /* number of bytes in 'bytes', not including the null term. */
     struct Jim_Interp *interp; /* parent interpreter */
     /* Internal representation union */
@@ -365,11 +366,12 @@ typedef struct Jim_Obj {
 
 /* Jim_Obj related macros */
 #define Jim_IncrRefCount(objPtr) \
-    ++(objPtr)->refCount
-#define Jim_DecrRefCount(interp, objPtr) \
-    if (--(objPtr)->refCount <= 0) Jim_FreeObj(interp, objPtr)
+    atomic_fetch_add_explicit(&((objPtr)->refCount), 1, memory_order_relaxed)
+#define Jim_DecrRefCount(objPtr) \
+    do { int res = atomic_fetch_sub_explicit(&((objPtr)->refCount), 1, memory_order_release); \
+         if (res <= 0) { Jim_FreeObj(objPtr); } } while(0)
 #define Jim_IsShared(objPtr) \
-    ((objPtr)->refCount > 1)
+    (atomic_fetch_add_explicit(&((objPtr)->refCount), 1, memory_order_relaxed) > 1)
 
 /* This macro is used when we allocate a new object using
  * Jim_New...Obj(), but for some error we need to destroy it.
@@ -381,9 +383,9 @@ typedef struct Jim_Obj {
 #define Jim_FreeNewObj Jim_FreeObj
 
 /* Free the internal representation of the object. */
-#define Jim_FreeIntRep(i,o) \
+#define Jim_FreeIntRep(o) \
     if ((o)->typePtr && (o)->typePtr->freeIntRepProc) \
-        (o)->typePtr->freeIntRepProc(i, o)
+        (o)->typePtr->freeIntRepProc(o)
 
 /* Get the internal representation pointer */
 #define Jim_GetIntRepPtr(o) (o)->internalRep.ptr
@@ -407,8 +409,7 @@ typedef struct Jim_Obj {
  * - updateStringProc is used to create the string from the internal repr.
  */
 
-typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
-        struct Jim_Obj *objPtr);
+typedef void (Jim_FreeInternalRepProc)(struct Jim_Obj *objPtr);
 typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 typedef void (Jim_UpdateStringProc)(struct Jim_Interp *interp,
@@ -537,6 +538,13 @@ typedef struct Jim_PrngState {
     unsigned int i, j;
 } Jim_PrngState;
 
+/* simple bump allocator for temp objects */
+#define JIM_TEMP_LIST_SIZE (128 * 1024)
+typedef struct Jim_TempList {
+    size_t length;
+    Jim_Obj objects[JIM_TEMP_LIST_SIZE];
+} Jim_TempList;
+
 /* -----------------------------------------------------------------------------
  * Jim interpreter structure.
  * Fields similar to the real Tcl interpreter structure have the same names.
@@ -569,9 +577,6 @@ typedef struct Jim_Interp {
     int local; /* If 'local' is in effect, newly defined procs keep a reference to the old defn */
     int quitting; /* Set to 1 during Jim_FreeInterp() */
     int safeexpr; /* Set when evaluating a "safe" expression, no var subst or command eval */
-    Jim_Obj *liveList; /* Linked list of all the live objects. */
-    Jim_Obj *freeList; /* Linked list of all the unused objects. */
-    Jim_Obj *tempList; /* Linked list of temporary objects (should be periodically freed) */
     Jim_Obj *currentScriptObj; /* Script currently in execution. */
     Jim_EvalFrame topEvalFrame;  /* dummy top evaluation frame */
     Jim_EvalFrame *evalFrame;  /* evaluation stack */
@@ -607,7 +612,7 @@ typedef struct Jim_Interp {
     Jim_PrngState *prngState; /* per interpreter Random Number Gen. state. */
     struct Jim_HashTable packages; /* Provided packages hash table */
     Jim_Stack *loadHandles; /* handles of loaded modules [load] */
-    int threadId;
+    struct Jim_TempList *tempList; /* list of intermediate objects to free periodically */
 } Jim_Interp;
 
 /* Currently provided as macro that performs the increment.
@@ -627,7 +632,7 @@ typedef struct Jim_Interp {
 #define Jim_SetResult(i,o) do {     \
     Jim_Obj *_resultObjPtr_ = (o);    \
     Jim_IncrRefCount(_resultObjPtr_); \
-    Jim_DecrRefCount(i,(i)->result);  \
+    Jim_DecrRefCount((i)->result);  \
     (i)->result = _resultObjPtr_;     \
 } while(0)
 
@@ -734,10 +739,10 @@ JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
 
 /* objects */
 JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
-JIM_EXPORT void Jim_FreeObj (Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
-        Jim_Obj *objPtr, int onTempList);
+        Jim_Obj *objPtr, int flags);
 JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
 JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
@@ -912,7 +917,7 @@ JIM_EXPORT void Jim_SetDouble(Jim_Interp *interp, Jim_Obj *objPtr,
 JIM_EXPORT Jim_Obj * Jim_NewDoubleObj(Jim_Interp *interp, double doubleValue);
 
 /* script/source object */
-JIM_EXPORT void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
+JIM_EXPORT void Jim_SetSourceInfo(Jim_Obj *objPtr,
         Jim_Obj *fileNameObj, int lineNumber);
 JIM_EXPORT int Jim_ScriptGetSourceFileName(Jim_Interp *interp, Jim_Obj *scriptObj, const char **sourceFileName);
 JIM_EXPORT int Jim_ScriptGetSourceLineNumber(Jim_Interp *interp, Jim_Obj *scriptObj, int* sourceLineNumber);
