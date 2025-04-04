@@ -4504,7 +4504,7 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     Jim_Cmd *cmd;
 
     JimPanic((interp != objPtr->interp,
-        "object from another thread when running Jim_GetCommand"));
+        "object from another interpreter when running Jim_GetCommand"));
 
     /* In order to be valid, the proc epoch must match and
      * the lookup must have occurred in the same namespace.
@@ -4680,7 +4680,7 @@ static int JimUnsetVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr)
 static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Obj *valObjPtr)
 {
     JimPanic((interp != objPtr->interp,
-        "object from another thread when running JimCreateVariable"));
+        "object from another interpreter when running JimCreateVariable"));
 
     const char *name;
     Jim_CallFrame *framePtr;
@@ -5223,11 +5223,11 @@ static void SetDictSubstFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
  * The 'index' part is [subst]ituted, and is used to lookup a key inside
  * the [dict]ionary contained in variable VARNAME.
  * 
- * Not safe with objects from another interpreter. */
+ * Panics if called with an object from another interpreter. */
 static Jim_Obj *JimExpandDictSugar(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     JimPanic((interp != objPtr->interp,
-        "object from another thread when running JimExpandDictSugar"));
+        "object from another interpreter when running JimExpandDictSugar"));
 
     Jim_Obj *resObjPtr = NULL;
     Jim_Obj *substKeyObjPtr = NULL;
@@ -5448,6 +5448,9 @@ Jim_Interp *Jim_CreateInterp(void)
     i->currentScriptObj = Jim_NewEmptyStringObj(i);
     i->nullScriptObj = Jim_NewEmptyStringObj(i);
     i->evalFrame = &i->topEvalFrame;
+    i->tempList = Jim_Alloc(sizeof(Jim_TempList));
+    memset(i->tempList, 0, sizeof(Jim_TempList));
+
     Jim_IncrRefCount(i->emptyObj);
     Jim_IncrRefCount(i->errorFileNameObj);
     Jim_IncrRefCount(i->result);
@@ -5511,6 +5514,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_FreeHashTable(&i->commands);
     Jim_FreeHashTable(&i->packages);
     Jim_Free(i->prngState);
+    Jim_Free(i->tempList);
     Jim_FreeHashTable(&i->assocData);
     if (i->traceCmdObj) {
         Jim_DecrRefCount(i->traceCmdObj);
@@ -7060,7 +7064,7 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
     Jim_Obj *varObjPtr, *objPtr, *listObjPtr;
     int shared, i, idx;
 
-    varNamePtr = DuplicateIfShared(interp, varNamePtr, JIM_TEMP_LIST);
+    varNamePtr = DuplicateIfShared(interp, varNamePtr, JIM_TEMP_LIST | JIM_FORCE_STRING);
     varObjPtr = objPtr = Jim_GetVariable(interp, varNamePtr, JIM_ERRMSG | JIM_UNSHARED);
     if (objPtr == NULL)
         return JIM_ERR;
@@ -7100,7 +7104,6 @@ int Jim_ListSetIndex(Jim_Interp *interp, Jim_Obj *varNamePtr,
 }
 
 // smj-edison: audited
-/* listObjPtr must be non-shared */
 Jim_Obj *Jim_ListJoin(Jim_Interp *interp, Jim_Obj *listObjPtr, const char *joinStr, int joinStrLen)
 {
     int i;
@@ -7722,6 +7725,7 @@ int Jim_DictKeysVector(Jim_Interp *interp, Jim_Obj *dictPtr,
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* Modify the dict stored into the variable named 'varNamePtr'
  * setting the element specified by the 'keyc' keys objects in 'keyv',
  * with the new value of the element 'newObjPtr'.
@@ -7760,7 +7764,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
         dictObjPtr = objPtr;
 
         /* Check if it's a valid dictionary */
-        if (SetDictFromAny(interp, dictObjPtr) != JIM_OK) {
+        if (SetDictFromAnyUnshared(interp, dictObjPtr) != JIM_OK) {
             goto err;
         }
 
@@ -7782,7 +7786,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
              * Make sure it's not shared!. */
             if (Jim_IsShared(objPtr)) {
                 objPtr = Jim_DuplicateObj(interp, objPtr, JIM_LIVE_LIST);
-                DictAddElement(interp, dictObjPtr, keyv[i], objPtr);
+                DictAddElementUnshared(interp, dictObjPtr, keyv[i], objPtr);
             }
         }
         else {
@@ -7795,7 +7799,7 @@ int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
             /* Otherwise set an empty dictionary
              * as key's value. */
             objPtr = Jim_NewDictObj(interp, NULL, 0);
-            DictAddElement(interp, dictObjPtr, keyv[i], objPtr);
+            DictAddElementUnshared(interp, dictObjPtr, keyv[i], objPtr);
         }
     }
     /* XXX: Is this necessary? */
@@ -7923,6 +7927,7 @@ static int SetIndexFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 }
 
 // smj-edison: audited
+/* Thread safe. */
 int Jim_GetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int *indexPtr)
 {
     /* Avoid shimmering if the object is an integer. */
@@ -7988,6 +7993,8 @@ const char *Jim_ReturnCode(int code)
 // smj-edison: audited
 static int SetReturnCodeFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetReturnCodeFromAnyUnshared called with shared object"));
+
     int returnCode;
     jim_wide wideValue;
 
@@ -8345,8 +8352,8 @@ static int JimExprOpDoubleUnary(Jim_Interp *interp, struct JimExprNode *node)
 }
 #endif
 
-/* A binary operation on two ints */
 // smj-edison: skipped
+/* A binary operation on two ints */
 static int JimExprOpIntBin(Jim_Interp *interp, struct JimExprNode *node)
 {
     jim_wide wA, wB;
@@ -8443,9 +8450,8 @@ static int JimExprOpIntBin(Jim_Interp *interp, struct JimExprNode *node)
     return rc;
 }
 
-
-/* A binary operation on two ints or two doubles (or two strings for some ops) */
 // smj-edison: skipped
+/* A binary operation on two ints or two doubles (or two strings for some ops) */
 static int JimExprOpBin(Jim_Interp *interp, struct JimExprNode *node)
 {
     int rc = JIM_OK;
@@ -8639,6 +8645,7 @@ doubleresult:
     goto done;
 }
 
+// smj-edison: audited
 static int JimSearchList(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *valObj)
 {
     listObjPtr = DuplicateIfShared(interp, listObjPtr, JIM_TEMP_LIST);
@@ -8655,8 +8662,7 @@ static int JimSearchList(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *valOb
     return 0;
 }
 
-
-
+// smj-edison: audited
 static int JimExprOpStrBin(Jim_Interp *interp, struct JimExprNode *node)
 {
     Jim_Obj *A, *B;
@@ -9244,6 +9250,7 @@ static void JimShowExprNode(struct JimExprNode *node, int level)
 #define EXPR_FUNC_ARGS   0x0002
 #define EXPR_TERNARY     0x0004
 
+// smj-edison: skipped
 /**
  * Parse the subexpression at builder->token and return with the node on the stack.
  * builder->token is advanced to the next unconsumed token.
@@ -9258,7 +9265,6 @@ static void JimShowExprNode(struct JimExprNode *node, int level)
  *
  * 'exp_numterms' indicates how many terms are expected. Normally this is 1, but may be more for EXPR_FUNC_ARGS and EXPR_TERNARY.
  */
-// smj-edison: skipped
 static int ExprTreeBuildTree(Jim_Interp *interp, struct ExprBuilder *builder, int precedence, int flags, int exp_numterms) {
     int rc;
     struct JimExprNode *node;
@@ -9554,6 +9560,8 @@ static struct ExprTree *ExprTreeCreateTree(Jim_Interp *interp, const ParseTokenL
 
 /* This method takes the string representation of an expression
  * and generates a program for the expr engine
+ *
+ * Race conditions if called with an object from another interpreter.
  *  */
 static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
@@ -9638,8 +9646,12 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     return rc;
 }
 
+/* Panics if called with an object from another interpreter. */
 static struct ExprTree *JimGetExpression(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JimPanic((interp != objPtr->interp,
+        "object from another interpreter when running JimGetExpression"));
+
     if (objPtr->typePtr != &exprObjType) {
         if (SetExprFromAny(interp, objPtr) != JIM_OK) {
             return NULL;
@@ -9649,6 +9661,7 @@ static struct ExprTree *JimGetExpression(Jim_Interp *interp, Jim_Obj *objPtr)
 }
 
 #ifdef JIM_OPTIMIZATION
+/* May panic if called with an object from another interpreter. */
 static Jim_Obj *JimExprIntValOrVar(Jim_Interp *interp, struct JimExprNode *node)
 {
     Jim_Obj *objPtr;
@@ -9658,7 +9671,6 @@ static Jim_Obj *JimExprIntValOrVar(Jim_Interp *interp, struct JimExprNode *node)
     } else if (node->type == JIM_TT_VAR) {
         return Jim_GetVariable(interp, node->objPtr, JIM_NONE);
     } else if (node->type == JIM_TT_DICTSUGAR) {
-        objPtr = DuplicateIfShared(interp, node->objPtr, JIM_TEMP_LIST | JIM_FORCE_STRING);
         return JimExpandDictSugar(interp, objPtr);
     } else {
         return NULL;
@@ -9682,6 +9694,8 @@ static Jim_Obj *JimExprIntValOrVar(Jim_Interp *interp, struct JimExprNode *node)
  * error on the interp.
  * ---------------------------------------------------------------------------*/
 
+// smj-edison: audited
+/* May panic if called with an object from another interpreter. */
 static int JimExprEvalTermNode(Jim_Interp *interp, struct JimExprNode *node)
 {
     if (TOKEN_IS_EXPR_OP(node->type)) {
@@ -9739,6 +9753,8 @@ static int JimExprEvalTermNode(Jim_Interp *interp, struct JimExprNode *node)
     }
 }
 
+// smj-edison: audited
+/* May panic if called with an object from another interpreter. */
 static int JimExprGetTerm(Jim_Interp *interp, struct JimExprNode *node, Jim_Obj **objPtrPtr)
 {
     int rc = JimExprEvalTermNode(interp, node);
@@ -9749,6 +9765,8 @@ static int JimExprGetTerm(Jim_Interp *interp, struct JimExprNode *node, Jim_Obj 
     return rc;
 }
 
+// smj-edison: audited
+/* May panic if called with an object from another interpreter. */
 static int JimExprGetTermBoolean(Jim_Interp *interp, struct JimExprNode *node)
 {
     if (JimExprEvalTermNode(interp, node) == JIM_OK) {
@@ -9757,6 +9775,8 @@ static int JimExprGetTermBoolean(Jim_Interp *interp, struct JimExprNode *node)
     return -1;
 }
 
+// smj-edison: audited
+/* Panics if called with an object from another interpreter. */
 int Jim_EvalExpression(Jim_Interp *interp, Jim_Obj *exprObjPtr)
 {
     struct ExprTree *expr;
@@ -9868,6 +9888,8 @@ done:
     return retcode;
 }
 
+// smj-edison: audited
+/* Panics if called with an object from another interpreter. */
 int Jim_GetBoolFromExpr(Jim_Interp *interp, Jim_Obj *exprObjPtr, int *boolPtr)
 {
     int retcode = Jim_EvalExpression(interp, exprObjPtr);
@@ -10823,7 +10845,7 @@ static void JimAddErrorToStack(Jim_Interp *interp, ScriptObj *script)
     if (interp->addStackTrace > 0) {
         /* Add the stack info for the current level */
 
-        JimAppendStackTrace(interp, Jim_String(interp->errorProc), script->fileNameObj, script->linenr);
+        JimAppendStackTrace(interp, Jim_String(interp, interp->errorProc), script->fileNameObj, script->linenr);
 
         /* Note: if we didn't have a filename for this level,
          * don't clear the addStackTrace flag
@@ -11009,8 +11031,12 @@ int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
     return JimEvalObjList(interp, listPtr);
 }
 
+/* Panics if called with an object from another interpreter. */
 int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 {
+    JimPanic((interp != scriptObjPtr->interp,
+        "object from another interpreter when running Jim_EvalObj"));
+
     int i;
     ScriptObj *script;
     ScriptToken *token;
