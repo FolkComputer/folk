@@ -376,7 +376,6 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     Claim camera $camera has width $width height $height
     set camObj [Camera::new $camera $width $height $bufferCount]
 
-    set oldFrames [list]
     try -signal {
         while true {
             tracy zoneBegin
@@ -392,14 +391,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             set timestamp [expr {[clock milliseconds] / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
             HoldStatement! camera \
+                -destructor [list $camLib freeImage $frame] \
                 [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
-
-            lappend oldFrames $frame
-            if {[llength $oldFrames] >= 50} {
-                set oldFrames [lassign $oldFrames oldestFrame]
-                # puts stderr "freeing old frame ($oldestFrame)"
-                $camLib freeImage $oldestFrame
-            }
 
             tracy zoneEnd
         }

@@ -126,6 +126,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause, long keepMs,
+                             Destructor destructor,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement);
 

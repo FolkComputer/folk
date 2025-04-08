@@ -961,6 +961,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 StatementRef dbHoldStatement(Db* db,
                              const char* key, int64_t version,
                              Clause* clause, long keepMs,
+                             Destructor destructor,
                              const char* sourceFileName, int sourceLineNumber,
                              StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
@@ -1012,7 +1013,7 @@ StatementRef dbHoldStatement(Db* db,
             hold->version = version;
 
             newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
-                                               (Destructor) { .fn = NULL },
+                                               destructor,
                                                sourceFileName,
                                                sourceLineNumber,
                                                MATCH_REF_NULL);

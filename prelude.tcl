@@ -259,6 +259,7 @@ proc HoldStatement! {args} {
     set key [list]
     set clause [lindex $args end]
     set keepMs 0
+    set destructorCode {}
     for {set i 0} {$i < [llength $args] - 1} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "(on"} {
@@ -275,6 +276,9 @@ proc HoldStatement! {args} {
         } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
             incr i
             lassign [lindex $args $i] filename lineno
+        } elseif {$arg eq "-destructor"} {
+            incr i
+            set destructorCode [lindex $args $i]
         } else {
             lappend key $arg
         }
@@ -288,7 +292,7 @@ proc HoldStatement! {args} {
     set key [list $this {*}$key]
 
     tailcall HoldStatementGlobally! \
-        $key $clause $keepMs \
+        $key $clause $keepMs $destructorCode \
         $filename $lineno
 }
 proc Hold! {args} {

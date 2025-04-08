@@ -21,7 +21,7 @@ extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, int64_t version,
-                                  Clause *clause, long keepMs,
+                                  Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();
 
@@ -165,7 +165,7 @@ void sysmon() {
              (double)timeNs / 1000000000.0);
 
     HoldStatementGlobally("clock-time", currentTick,
-                          clockTimeClause, 5,
+                          clockTimeClause, 5, "",
                           "sysmon.c", __LINE__);
 }
 

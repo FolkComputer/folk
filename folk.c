@@ -223,7 +223,7 @@ static void reactToNewStatement(StatementRef ref);
 
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 void HoldStatementGlobally(const char *key, int64_t version,
-                           Clause *clause, long keepMs,
+                           Clause *clause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
     char *s = clauseToString(clause);
@@ -232,8 +232,12 @@ void HoldStatementGlobally(const char *key, int64_t version,
 
     StatementRef oldRef; StatementRef newRef;
 
+    Destructor destructor = {
+        .fn = destructorCode == NULL ? NULL : destructorHelper,
+        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
+    };
     newRef = dbHoldStatement(db, key, version,
-                             clause, keepMs,
+                             clause, keepMs, destructor,
                              sourceFileName, sourceLineNumber,
                              &oldRef);
     if (!statementRefIsNull(newRef)) {
@@ -248,13 +252,13 @@ void HoldStatementGlobally(const char *key, int64_t version,
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 6);
+    assert(argc == 7);
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[4]);
+    sourceFileName = Jim_String(argv[5]);
     if (sourceFileName == NULL) { return JIM_ERR; }
-    if (Jim_GetLong(interp, argv[5], &sourceLineNumber) == JIM_ERR) {
+    if (Jim_GetLong(interp, argv[6], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
     }
 
@@ -262,9 +266,14 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
     int64_t version = ++latestVersion;
     Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
     long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
+    int destructorCodeLen;
+    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    if (destructorCodeLen == 0) {
+        destructorCode = NULL;
+    }
 
     HoldStatementGlobally(key, version,
-                          clause, keepMs,
+                          clause, keepMs, destructorCode,
                           sourceFileName, sourceLineNumber);
     return (JIM_OK);
 }
