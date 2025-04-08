@@ -2332,7 +2332,7 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
 }
 
 // smj-edison: audited
-/* Just returns the length (in bytes) of the object's string rep. DOES NOT SHIMMER ANYMORE */
+/* Just returns the length (in bytes) of the object's string rep. Will not shimmer if shared */
 int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int lenPtr = 0;
@@ -6913,7 +6913,7 @@ void Jim_ListAppendElement(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *objPtr
 void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendListPtr)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendList called with shared object"));
-    SetListFromAny(interp, listPtr);
+    SetListFromAnyUnshared(interp, listPtr);
 
     Jim_Obj* newAppendListPtr;
     GetList(interp, appendListPtr, &newAppendListPtr);
@@ -9978,12 +9978,14 @@ static const Jim_ObjType scanFmtStringObjType = {
     JIM_TYPE_NONE,
 };
 
+// smj-edison: skipped
 void FreeScanFmtInternalRep(Jim_Obj *objPtr)
 {
     Jim_Free((char *)objPtr->internalRep.ptr);
     objPtr->internalRep.ptr = 0;
 }
 
+// smj-edison: skipped
 void DupScanFmtInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     size_t size = (size_t) ((ScanFmtStringObj *) srcPtr->internalRep.ptr)->size;
@@ -10003,20 +10005,22 @@ static void UpdateStringOfScanFmt(Jim_Interp *interp, Jim_Obj *objPtr)
     JimSetStringBytes(objPtr, ((ScanFmtStringObj *) objPtr->internalRep.ptr)->stringRep);
 }
 
+// smj-edison: audited
 /* SetScanFmtFromAny will parse a given string and create the internal
  * representation of the format specification. In case of an error
  * the error data member of the internal representation will be set
  * to an descriptive error text and the function will be left with
  * JIM_ERR to indicate unsucessful parsing (aka. malformed scanformat
  * specification */
-
-static int SetScanFmtFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
+static int SetScanFmtFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetScanFmtFromAnyUnshared called with shared object"));
+
     ScanFmtStringObj *fmtObj;
     char *buffer;
     int maxCount, i, approxSize, lastPos = -1;
-    const char *fmt = Jim_String(objPtr);
-    int maxFmtLen = Jim_Length(objPtr);
+    const char *fmt = Jim_String(interp, objPtr);
+    int maxFmtLen = Jim_Length(interp, objPtr);
     const char *fmtEnd = fmt + maxFmtLen;
     int curr;
 
@@ -10194,6 +10198,7 @@ static int SetScanFmtFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
 #define FormatGetError(_fo_) \
     ((ScanFmtStringObj*)((_fo_)->internalRep.ptr))->error
 
+// smj-edison: audited
 /* JimScanAString is used to scan an unspecified string that ends with
  * next WS, or a string that is specified via a charset.
  *
@@ -10217,15 +10222,15 @@ static Jim_Obj *JimScanAString(Jim_Interp *interp, const char *sdescr, const cha
             *p++ = *str++;
     }
     *p = 0;
-    return Jim_NewStringObjNoAlloc(interp, buffer, p - buffer);
+    return Jim_NewStringObjNoAlloc(interp, buffer, p - buffer, JIM_LIVE_LIST);
 }
 
+// smj-edison: audited
 /* ScanOneEntry will scan one entry out of the string passed as argument.
  * It use the sscanf() function for this task. After extracting and
  * converting of the value, the count of scanned characters will be
  * returned of -1 in case of no conversion tool place and string was
  * already scanned thru */
-
 static int ScanOneEntry(Jim_Interp *interp, const char *str, int pos, int str_bytelen,
     ScanFmtStringObj * fmtObj, long idx, Jim_Obj **valObjPtr)
 {
@@ -10333,7 +10338,7 @@ static int ScanOneEntry(Jim_Interp *interp, const char *str, int pos, int str_by
             case 's':
             case '[':{
                     *valObjPtr = JimScanAString(interp, descr->arg, tok);
-                    scanned += Jim_Length(*valObjPtr);
+                    scanned += Jim_Length(interp, *valObjPtr);
                     break;
                 }
             case 'e':
@@ -10360,22 +10365,22 @@ static int ScanOneEntry(Jim_Interp *interp, const char *str, int pos, int str_by
         /* If a substring was allocated (due to pre-defined width) do not
          * forget to free it */
         if (tmpObj) {
-            Jim_FreeNewObj(interp, tmpObj);
+            Jim_FreeNewObj(tmpObj);
         }
     }
     return scanned;
 }
 
+// smj-edison: audited
 /* Jim_ScanString is the workhorse of string scanning. It will scan a given
  * string and returns all converted (and not ignored) values in a list back
  * to the caller. If an error occured, a NULL pointer will be returned */
-
 Jim_Obj *Jim_ScanString(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *fmtObjPtr, int flags)
 {
     size_t i, pos;
     int scanned = 1;
-    const char *str = Jim_String(strObjPtr);
-    int str_bytelen = Jim_Length(strObjPtr);
+    const char *str = Jim_String(interp, strObjPtr);
+    int str_bytelen = Jim_Length(interp, strObjPtr);
     Jim_Obj *resultList = 0;
     Jim_Obj **resultVec = 0;
     int resultc;
@@ -10437,7 +10442,7 @@ Jim_Obj *Jim_ScanString(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *fmtObjP
         }
         else {
             /* Otherwise, the slot was already used - free obj and ERROR */
-            Jim_FreeNewObj(interp, value);
+            Jim_FreeNewObj(value);
             goto err;
         }
     }
@@ -10445,17 +10450,19 @@ Jim_Obj *Jim_ScanString(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *fmtObjP
     return resultList;
   eof:
     Jim_DecrRefCount(emptyStr);
-    Jim_FreeNewObj(interp, resultList);
+    Jim_FreeNewObj(resultList);
     return (Jim_Obj *)EOF;
   err:
     Jim_DecrRefCount(emptyStr);
-    Jim_FreeNewObj(interp, resultList);
+    Jim_FreeNewObj(resultList);
     return 0;
 }
 
 /* -----------------------------------------------------------------------------
  * Pseudo Random Number Generation
  * ---------------------------------------------------------------------------*/
+
+// smj-edison: skipped
 /* Initialize the sbox with the numbers from 0 to 255 */
 static void JimPrngInit(Jim_Interp *interp)
 {
@@ -10474,6 +10481,7 @@ static void JimPrngInit(Jim_Interp *interp)
     Jim_Free(seed);
 }
 
+// smj-edison: skipped
 /* Generates N bytes of random data */
 static void JimRandomBytes(Jim_Interp *interp, void *dest, unsigned int len)
 {
@@ -10497,6 +10505,7 @@ static void JimRandomBytes(Jim_Interp *interp, void *dest, unsigned int len)
     }
 }
 
+// smj-edison: skipped
 /* Re-seed the generator with user-provided bytes */
 static void JimPrngSeed(Jim_Interp *interp, unsigned char *seed, int seedLen)
 {
@@ -10529,6 +10538,7 @@ static void JimPrngSeed(Jim_Interp *interp, unsigned char *seed, int seedLen)
     }
 }
 
+// smj-edison: audited
 /* [incr] */
 static int Jim_IncrCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -10539,11 +10549,13 @@ static int Jim_IncrCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         Jim_WrongNumArgs(interp, 1, argv, "varName ?increment?");
         return JIM_ERR;
     }
+    Jim_Obj *varName = DuplicateIfShared(interp, argv[1], JIM_TEMP_LIST | JIM_FORCE_STRING);
+
     if (argc == 3) {
         if (Jim_GetWideExpr(interp, argv[2], &increment) != JIM_OK)
             return JIM_ERR;
     }
-    intObjPtr = Jim_GetVariable(interp, argv[1], JIM_UNSHARED);
+    intObjPtr = Jim_GetVariable(interp, varName, JIM_UNSHARED);
     if (!intObjPtr) {
         /* Set missing variable to 0 */
         wideValue = 0;
@@ -10553,8 +10565,8 @@ static int Jim_IncrCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     }
     if (!intObjPtr || Jim_IsShared(intObjPtr)) {
         intObjPtr = Jim_NewIntObj(interp, wideValue + increment);
-        if (Jim_SetVariable(interp, argv[1], intObjPtr) != JIM_OK) {
-            Jim_FreeNewObj(interp, intObjPtr);
+        if (Jim_SetVariable(interp, varName, intObjPtr) != JIM_OK) {
+            Jim_FreeNewObj(intObjPtr);
             return JIM_ERR;
         }
     }
@@ -10565,9 +10577,9 @@ static int Jim_IncrCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
 
         /* The following step is required in order to invalidate the
          * string repr of "FOO" if the var name is on the form of "FOO(IDX)" */
-        if (argv[1]->typePtr != &variableObjType) {
+        if (varName->typePtr != &variableObjType) {
             /* Note that this can't fail since GetVariable already succeeded */
-            Jim_SetVariable(interp, argv[1], intObjPtr);
+            Jim_SetVariable(interp, varName, intObjPtr);
         }
     }
     Jim_SetResult(interp, intObjPtr);
@@ -10581,6 +10593,7 @@ static int Jim_IncrCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
 #define JIM_EVAL_SARGV_LEN 8    /* static arguments vector length */
 #define JIM_EVAL_SINTV_LEN 8    /* static interpolation vector length */
 
+// smj-edison: audited
 static int JimTraceCallback(Jim_Interp *interp, const char *type, int argc, Jim_Obj *const *argv)
 {
     JimPanic((interp->traceCmdObj == NULL, "xtrace invoked with no object"));
@@ -10649,6 +10662,7 @@ static int JimUnknown(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     return retcode;
 }
 
+// smj-edison: audited
 static void JimPushEvalFrame(Jim_Interp *interp, Jim_EvalFrame *frame)
 {
     memset(frame, 0, sizeof(*frame));
@@ -10665,11 +10679,14 @@ static void JimPushEvalFrame(Jim_Interp *interp, Jim_EvalFrame *frame)
 #endif
 }
 
+// smj-edison: audited
 static void JimPopEvalFrame(Jim_Interp *interp)
 {
     interp->evalFrame = interp->evalFrame->parent;
 }
 
+// smj-edison: audited
+// Panics if objv[0] is from another thread
 static int JimInvokeCommand(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 {
     int retcode;
@@ -10785,6 +10802,7 @@ out:
     return retcode;
 }
 
+// smj-edison: audited
 /* Eval the object vector 'objv' composed of 'objc' elements.
  * Every element is used as single argument.
  * Jim_EvalObj() will call this function every time its object
@@ -10793,7 +10811,9 @@ out:
  * This is possible because the string representation of a
  * list object generated by the UpdateStringOfList is made
  * in a way that ensures that every list element is a different
- * command argument. */
+ * command argument.
+ * 
+ * Panics if objv[0] is from another thread */
 int Jim_EvalObjVector(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 {
     int i, retcode;
@@ -10811,8 +10831,11 @@ int Jim_EvalObjVector(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
     return retcode;
 }
 
+// smj-edison: audited
 /**
  * Invokes 'prefix' as a command with the objv array as arguments.
+ * 
+ * Panics if prefix is from another thread
  */
 int Jim_EvalObjPrefix(Jim_Interp *interp, Jim_Obj *prefix, int objc, Jim_Obj *const *objv)
 {
@@ -10826,6 +10849,7 @@ int Jim_EvalObjPrefix(Jim_Interp *interp, Jim_Obj *prefix, int objc, Jim_Obj *co
     return ret;
 }
 
+// smj-edison: skipped
 static void JimAddErrorToStack(Jim_Interp *interp, ScriptObj *script)
 {
     if (!interp->errorFlag) {
@@ -10851,7 +10875,7 @@ static void JimAddErrorToStack(Jim_Interp *interp, ScriptObj *script)
          * don't clear the addStackTrace flag
          * so we can pick it up at the next level
          */
-        if (Jim_Length(script->fileNameObj)) {
+        if (Jim_Length(interp, script->fileNameObj)) {
             interp->addStackTrace = 0;
         }
 
@@ -10861,6 +10885,7 @@ static void JimAddErrorToStack(Jim_Interp *interp, ScriptObj *script)
     }
 }
 
+// smj-edison: audited (never called with a cross thread token)
 static int JimSubstOneToken(Jim_Interp *interp, const ScriptToken *token, Jim_Obj **objPtrPtr)
 {
     Jim_Obj *objPtr;
@@ -10908,6 +10933,7 @@ static int JimSubstOneToken(Jim_Interp *interp, const ScriptToken *token, Jim_Ob
     return ret;
 }
 
+// smj-edison: audited
 /* Interpolate the given tokens into a unique Jim_Obj returned by reference
  * via *objPtrPtr. This function is only called by Jim_EvalObj() and Jim_SubstObj()
  * The returned object has refcount = 0.
@@ -10956,15 +10982,14 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
                 }
                 return NULL;
         }
-        Jim_IncrRefCount(intv[i]);
-        Jim_String(intv[i]);
-        totlen += intv[i]->length;
+        Jim_IncrRefCount(intv[i]);        
+        totlen += Jim_Length(interp, intv[i]);
     }
 
     /* Fast path return for a single token */
     if (tokens == 1 && intv[0] && intv == sintv) {
         /* Reverse the Jim_IncrRefCount() above, but don't free the object */
-        atomic_sub_fetch_explicit(&(objPtr->refCount), memory_order_relaxed);
+        atomic_fetch_sub_explicit(&(objPtr->refCount), 1, memory_order_relaxed);
         return intv[0];
     }
 
@@ -10982,7 +11007,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     }
     else if (tokens && intv[0] && intv[0]->typePtr == &sourceObjType) {
         /* The first interpolated token is source, so preserve the source info */
-        Jim_SetSourceInfo(interp, objPtr, intv[0]->internalRep.sourceValue.fileNameObj, intv[0]->internalRep.sourceValue.lineNumber);
+        Jim_SetSourceInfo(objPtr, intv[0]->internalRep.sourceValue.fileNameObj, intv[0]->internalRep.sourceValue.lineNumber);
     }
 
 
@@ -11004,7 +11029,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     return objPtr;
 }
 
-
+// smj-edison: audited
 /* listPtr *must* be a list.
  * The contents of the list is evaluated with the first element as the command and
  * the remaining elements as the arguments.
@@ -11025,9 +11050,11 @@ static int JimEvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
     return retcode;
 }
 
+// smj-edison: audited
 int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
 {
-    SetListFromAny(interp, listPtr);
+    listPtr = DuplicateIfShared(interp, listPtr, JIM_TEMP_LIST);
+    listPtr = SetListFromAnyUnshared(interp, listPtr);
     return JimEvalObjList(interp, listPtr);
 }
 
@@ -11307,6 +11334,7 @@ static int JimSetProcArg(Jim_Interp *interp, Jim_Obj *argNameObj, Jim_Obj *argVa
     return retcode;
 }
 
+// smj-edison: audited
 /**
  * Sets the interp result to be an error message indicating the required proc args.
  */
@@ -11389,6 +11417,7 @@ int Jim_EvalNamespace(Jim_Interp *interp, Jim_Obj *scriptObj, Jim_Obj *nsObj)
 }
 #endif
 
+// smj-edison: audited
 /* Call a procedure implemented in Tcl.
  * It's possible to speed-up a lot this function, currently
  * the callframes are not cached, but allocated and
@@ -11410,7 +11439,7 @@ static int JimCallProcedure(Jim_Interp *interp, Jim_Cmd *cmd, int argc, Jim_Obj 
         return JIM_ERR;
     }
 
-    if (Jim_Length(cmd->u.proc.bodyObjPtr) == 0) {
+    if (Jim_Length(interp, cmd->u.proc.bodyObjPtr) == 0) {
         /* Optimise for procedure with no body - useful for optional debugging */
         return JIM_OK;
     }
@@ -11526,7 +11555,7 @@ int Jim_EvalSource(Jim_Interp *interp, const char *filename, int lineno, const c
     if (filename) {
         Jim_Obj *prevScriptObj;
 
-        Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno);
+        Jim_SetSourceInfo(scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno);
 
         prevScriptObj = interp->currentScriptObj;
         interp->currentScriptObj = scriptObjPtr;
@@ -16478,7 +16507,7 @@ void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...)
         else if (strncmp(format + i, "%#s", 3) == 0) {
             Jim_Obj *objPtr = va_arg(args, Jim_Obj *);
 
-            params[n] = Jim_GetString(objPtr, &l, JIM_TEMP_LIST);
+            params[n] = Jim_GetString(interp, objPtr, &l);
             objparam[nobjparam++] = objPtr;
             Jim_IncrRefCount(objPtr);
         }
