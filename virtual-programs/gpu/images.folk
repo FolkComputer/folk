@@ -14,6 +14,7 @@ $gpuc code {
     #include "volk/volk.h"
 }
 $gpuc include <pthread.h>
+$gpuc include <stdatomic.h>
 $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
 
@@ -339,7 +340,8 @@ $gpuc code [csubst {
 
     GpuImageHandle allocateGpuImageHandle() {
         for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
-            if (!gpuImages[i].alive) {
+            bool notAlive = false;
+            if (atomic_compare_exchange_weak(&gpuImages[i].alive, &notAlive, true)) {
                 gpuImages[i].handle = i;
                 return i;
             }
@@ -353,9 +355,7 @@ $gpuc proc getGpuImage {GpuImageHandle handle} GpuImageBlock* {
 }
 $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
     GpuImageHandle imageId = allocateGpuImageHandle();
-
     GpuImageBlock* block = &gpuImages[imageId];
-    block->alive = true;
 
     createImage(width, height,
                 (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,
@@ -519,7 +519,6 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
 }
 $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     GpuImageBlock* block = &gpuImages[gim];
-    block->alive = false;
 
     pthread_mutex_lock(graphicsQueueMutex_ptr());
     vkDeviceWaitIdle(device); // FIXME: this is probably slow
@@ -551,6 +550,8 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     vkFreeMemory(device, block->textureImageMemory, NULL);
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
+
+    block->alive = false;
 }
 
 $gpuc proc initPlaceholderImage {} void {
