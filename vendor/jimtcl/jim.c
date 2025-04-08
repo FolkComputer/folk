@@ -2287,7 +2287,7 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
         }
     }
 
-    if (flags & JIM_FORCE_STRING) {
+    if (flags & JIM_FORCE_STRING != 0) {
         SetStringFromAnyUnshared(interp, objPtr);
     }
     
@@ -2295,8 +2295,9 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 }
 
 // smj-edison: audited
-/* Duplicates the object and sets the refCount to 1 if shared, else
- * just return the object
+/* Duplicates the object if shared. Else just return the object.
+ * 
+ * If duplicated onto the temp list, it will set the refCount to 1
  * 
  * FLAGS:
  * JIM_TEMP_LIST: put it on the temp list to be cleared later
@@ -2304,7 +2305,11 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 Jim_Obj *DuplicateIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     if (Jim_IsShared(objPtr)) {
         objPtr = Jim_DuplicateObj(interp, objPtr, flags);
-        Jim_IncrRefCount(objPtr);
+
+        if (flags & JIM_TEMP_LIST != 0) {
+            // only increment refCount if it's on the temp list
+            Jim_IncrRefCount(objPtr);
+        }
     }
 
     return objPtr;
@@ -3669,6 +3674,8 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
  * If the script has extra characters after a close brace, this still returns 1,
  * but sets *stateCharPtr to '}'
  * Evaluating the script will give the error "extra characters after close-brace".
+ * 
+ * Panics if called with an object from another interpreter.
  */
 int Jim_ScriptIsComplete(Jim_Interp *interp, Jim_Obj *scriptObj, char *stateCharPtr)
 {
@@ -3747,10 +3754,13 @@ static void SubstObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
  *
  * On parse error, sets an error message and returns JIM_ERR
  * (Note: the object is still converted to a script, even if an error occurs)
+ * 
+ * Panics if called with an object from another interpreter.
  */
-static void JimSetScriptFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
+static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    JimPanic((Jim_IsShared(objPtr), "JimSetScriptFromAnyUnshared called with shared object"));
+    JimPanic((interp != objPtr->interp,
+        "object from another interpreter when running JimSetScriptFromAny"));
 
     int scriptTextLen;
     const char *scriptText = Jim_GetString(interp, objPtr, &scriptTextLen);
@@ -3809,11 +3819,13 @@ static void JimAddErrorToStack(Jim_Interp *interp, ScriptObj *script);
  * Returns the parsed script.
  * Note that if there is any possibility that the script is not valid,
  * call JimScriptValid() to check.
- * ScriptObj may be from temp list
+ * 
+ * Panics if called with an object from another interpreter.
  */
 static ScriptObj *JimGetScript(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    objPtr = DuplicateIfShared(interp, objPtr, JIM_TEMP_LIST);
+    JimPanic((interp != objPtr->interp,
+        "object from another interpreter when running JimGetScript"));
 
     if (objPtr == interp->emptyObj) {
         /* Avoid converting emptyObj to a script. use nullScriptObj instead. */
@@ -3821,7 +3833,7 @@ static ScriptObj *JimGetScript(Jim_Interp *interp, Jim_Obj *objPtr)
     }
 
     if (objPtr->typePtr != &scriptObjType || ((struct ScriptObj *)Jim_GetIntRepPtr(objPtr))->substFlags) {
-        JimSetScriptFromAnyUnshared(interp, objPtr);
+        JimSetScriptFromAny(interp, objPtr);
     }
 
     return (ScriptObj *)Jim_GetIntRepPtr(objPtr);
@@ -5566,6 +5578,21 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_Free(i);
 }
 
+void Jim_FreeTempList(Jim_Interp *interp)
+{
+    Jim_TempList *tempList = interp->tempList;
+
+    for (size_t i = 0; i < tempList->length; i++) {
+        // IsShared means refCount > 1 which means it's still being used
+        JimPanic((Jim_IsShared(&tempList->objects[i]), 
+            "tempList object still in use when freed"));
+
+        Jim_DecrRefCount(&tempList->objects[i]);
+    }
+
+    tempList->length = 0;
+}
+
 // smj-edison: audited
 /* Returns the call frame relative to the level represented by
  * levelObjPtr. If levelObjPtr == NULL, the level is assumed to be '1'.
@@ -6901,6 +6928,7 @@ static void ListAppendList(Jim_Obj *listPtr, Jim_Obj *appendListPtr)
 }
 
 // smj-edison: audited
+/* Panics if listPtr is shared. */
 void Jim_ListAppendElement(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *objPtr)
 {
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendElement called with shared object"));
@@ -7738,7 +7766,7 @@ int Jim_DictKeysVector(Jim_Interp *interp, Jim_Obj *dictPtr,
  *
  * Normally the result is stored in the interp result. If JIM_NORESULT is set, this is not done.
  * 
- * Will panic if varNamePtr is from another thread (due to variable lookup).
+ * Will panic if varNamePtr is from another interpreter (due to variable lookup).
  */
 int Jim_SetDictKeysVector(Jim_Interp *interp, Jim_Obj *varNamePtr,
     Jim_Obj *const *keyv, int keyc, Jim_Obj *newObjPtr, int flags)
@@ -10686,7 +10714,7 @@ static void JimPopEvalFrame(Jim_Interp *interp)
 }
 
 // smj-edison: audited
-// Panics if objv[0] is from another thread
+/* Panics if objv[0] is from another interpreter. */
 static int JimInvokeCommand(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 {
     int retcode;
@@ -10813,7 +10841,7 @@ out:
  * in a way that ensures that every list element is a different
  * command argument.
  * 
- * Panics if objv[0] is from another thread */
+ * Panics if objv[0] is from another interpreter */
 int Jim_EvalObjVector(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 {
     int i, retcode;
@@ -10835,7 +10863,7 @@ int Jim_EvalObjVector(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
 /**
  * Invokes 'prefix' as a command with the objv array as arguments.
  * 
- * Panics if prefix is from another thread
+ * Panics if prefix is from another interpreter
  */
 int Jim_EvalObjPrefix(Jim_Interp *interp, Jim_Obj *prefix, int objc, Jim_Obj *const *objv)
 {
@@ -11058,6 +11086,7 @@ int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
     return JimEvalObjList(interp, listPtr);
 }
 
+// smj-edison: audited
 /* Panics if called with an object from another interpreter. */
 int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 {
@@ -11070,7 +11099,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
     int retcode = JIM_OK;
     Jim_Obj *sargv[JIM_EVAL_SARGV_LEN], **argv = NULL;
     Jim_Obj *prevScriptObj;
-
+    
     /* If the object is of type "list", with no string rep we can call
      * a specialized version of Jim_EvalObj() */
     if (Jim_IsList(scriptObjPtr) && scriptObjPtr->bytes == NULL) {
@@ -11305,11 +11334,13 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
     return retcode;
 }
 
+// smj-edison: audited
+/* Panics if either object is from another interpreter */
 static int JimSetProcArg(Jim_Interp *interp, Jim_Obj *argNameObj, Jim_Obj *argValObj)
 {
     int retcode;
     /* If argObjPtr begins with '&', do an automatic upvar */
-    const char *varname = Jim_String(argNameObj);
+    const char *varname = Jim_String(interp, argNameObj);
     if (*varname == '&') {
         /* First check that the target variable exists */
         Jim_Obj *objPtr;
@@ -11366,7 +11397,7 @@ static void JimSetProcWrongArgs(Jim_Interp *interp, Jim_Obj *procNameObj, Jim_Cm
                 Jim_AppendString(interp, argmsg, "?", 1);
             }
             else {
-                const char *arg = Jim_String(cmd->u.proc.arglist[i].nameObjPtr);
+                const char *arg = Jim_String(interp, cmd->u.proc.arglist[i].nameObjPtr);
                 if (*arg == '&') {
                     arg++;
                 }
@@ -11378,8 +11409,11 @@ static void JimSetProcWrongArgs(Jim_Interp *interp, Jim_Obj *procNameObj, Jim_Cm
 }
 
 #ifdef jim_ext_namespace
+// smj-edison: audited
 /*
  * [namespace eval]
+ * 
+ * Panics if scriptObj is from another interpreter.
  */
 int Jim_EvalNamespace(Jim_Interp *interp, Jim_Obj *scriptObj, Jim_Obj *nsObj)
 {
@@ -11399,7 +11433,7 @@ int Jim_EvalNamespace(Jim_Interp *interp, Jim_Obj *scriptObj, Jim_Obj *nsObj)
     Jim_IncrRefCount(scriptObj);
     interp->framePtr = callFramePtr;
 
-    /* Check if there are too nested calls */
+    /* Check if there are too many nested calls */
     if (interp->framePtr->level == interp->maxCallFrameDepth) {
         Jim_SetResultString(interp, "Too many nested calls. Infinite recursion?", -1);
         retcode = JIM_ERR;
@@ -11419,10 +11453,10 @@ int Jim_EvalNamespace(Jim_Interp *interp, Jim_Obj *scriptObj, Jim_Obj *nsObj)
 
 // smj-edison: audited
 /* Call a procedure implemented in Tcl.
- * It's possible to speed-up a lot this function, currently
+ * It's possible to speed up this function a lot. Currently
  * the callframes are not cached, but allocated and
- * destroied every time. What is expecially costly is
- * to create/destroy the local vars hash table every time.
+ * destroyed every time. What is especially costly is
+ * creating/destroying the local vars hash table every time.
  *
  * This can be fixed just implementing callframes caching
  * in JimCreateCallFrame() and JimFreeCallFrame(). */
@@ -11544,6 +11578,7 @@ badargset:
     return retcode;
 }
 
+// smj-edison: audited
 int Jim_EvalSource(Jim_Interp *interp, const char *filename, int lineno, const char *script)
 {
     int retval;
@@ -11571,11 +11606,13 @@ int Jim_EvalSource(Jim_Interp *interp, const char *filename, int lineno, const c
     return retval;
 }
 
+// smj-edison: audited
 int Jim_Eval(Jim_Interp *interp, const char *script)
 {
     return Jim_EvalObj(interp, Jim_NewStringObj(interp, script, -1));
 }
 
+// smj-edison: audited
 /* Execute script in the scope of the global level */
 int Jim_EvalGlobal(Jim_Interp *interp, const char *script)
 {
@@ -11589,6 +11626,7 @@ int Jim_EvalGlobal(Jim_Interp *interp, const char *script)
     return retval;
 }
 
+// smj-edison: audited
 int Jim_EvalFileGlobal(Jim_Interp *interp, const char *filename)
 {
     int retval;
@@ -11603,6 +11641,7 @@ int Jim_EvalFileGlobal(Jim_Interp *interp, const char *filename)
 
 #include <sys/stat.h>
 
+// smj-edison: audited
 int Jim_EvalFile(Jim_Interp *interp, const char *filename)
 {
     FILE *fp;
@@ -11634,7 +11673,7 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
     buf[readlen] = 0;
 
     scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen, JIM_LIVE_LIST);
-    Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
+    Jim_SetSourceInfo(scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
     Jim_IncrRefCount(scriptObjPtr);
 
     prevScriptObj = interp->currentScriptObj;
@@ -11665,6 +11704,8 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
 /* -----------------------------------------------------------------------------
  * Subst
  * ---------------------------------------------------------------------------*/
+
+// smj-edison: audited
 static void JimParseSubst(struct JimParserCtx *pc, int flags)
 {
     pc->tstart = pc->p;
@@ -11706,6 +11747,7 @@ static void JimParseSubst(struct JimParserCtx *pc, int flags)
     pc->tt = (flags & JIM_SUBST_NOESC) ? JIM_TT_STR : JIM_TT_ESC;
 }
 
+// smj-edison: audited
 /* The subst object type reuses most of the data structures and functions
  * of the script object. Script's data structures are a bit more complex
  * for what is needed for [subst]itution tasks, but the reuse helps to
@@ -11714,11 +11756,17 @@ static void JimParseSubst(struct JimParserCtx *pc, int flags)
 
 /* This method takes the string representation of an object
  * as a Tcl string where to perform [subst]itution, and generates
- * the pre-parsed internal representation. */
+ * the pre-parsed internal representation.
+ * 
+ * Panics if called with an object from another interpreter
+ * (due to this internally creating a ScriptObj) */
 static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags)
 {
+    JimPanic((interp != objPtr->interp,
+        "object from another interpreter when running SetSubstFromAny"));
+
     int scriptTextLen;
-    const char *scriptText = Jim_GetString(objPtr, &scriptTextLen);
+    const char *scriptText = Jim_GetString(interp, objPtr, &scriptTextLen);
     struct JimParserCtx parser;
     struct ScriptObj *script = Jim_Alloc(sizeof(*script));
     ParseTokenList tokenlist;
@@ -11766,6 +11814,8 @@ static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags
     return JIM_OK;
 }
 
+// smj-edison: audited
+/* May panic if called with an object from another interpreter. */
 static ScriptObj *Jim_GetSubst(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
     if (objPtr->typePtr != &scriptObjType || ((ScriptObj *)Jim_GetIntRepPtr(objPtr))->substFlags != flags)
@@ -11773,9 +11823,12 @@ static ScriptObj *Jim_GetSubst(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     return (ScriptObj *) Jim_GetIntRepPtr(objPtr);
 }
 
+// smj-edison: audited
 /* Performs commands,variables,blackslashes substitution,
  * storing the result object (with refcount 0) into
- * resObjPtrPtr. */
+ * resObjPtrPtr.
+ * 
+ * Panics if substObjPtr is from another interpreter. */
 int Jim_SubstObj(Jim_Interp *interp, Jim_Obj *substObjPtr, Jim_Obj **resObjPtrPtr, int flags)
 {
     ScriptObj *script;
@@ -11802,6 +11855,8 @@ int Jim_SubstObj(Jim_Interp *interp, Jim_Obj *substObjPtr, Jim_Obj **resObjPtrPt
 /* -----------------------------------------------------------------------------
  * Core commands utility functions
  * ---------------------------------------------------------------------------*/
+
+ // smj-edison: audited
 void Jim_WrongNumArgs(Jim_Interp *interp, int argc, Jim_Obj *const *argv, const char *msg)
 {
     Jim_Obj *objPtr;
@@ -11829,6 +11884,7 @@ typedef void JimHashtableIteratorCallbackType(Jim_Interp *interp, Jim_Obj *listO
 
 #define JimTrivialMatch(pattern)    (strpbrk((pattern), "*[?\\") == NULL)
 
+// smj-edison: audited
 /**
  * For each key of the hash table 'ht' with object keys that
  * matches the glob pattern (all if NULL), invoke the callback to add entries to a list.
@@ -11841,7 +11897,7 @@ static Jim_Obj *JimHashtablePatternMatch(Jim_Interp *interp, Jim_HashTable *ht, 
     Jim_Obj *listObjPtr = Jim_NewListObj(interp, NULL, 0);
 
     /* Check for the non-pattern case. We can do this much more efficiently. */
-    if (patternObjPtr && JimTrivialMatch(Jim_String(patternObjPtr))) {
+    if (patternObjPtr && JimTrivialMatch(Jim_String(interp, patternObjPtr))) {
         he = Jim_FindHashEntry(ht, patternObjPtr);
         if (he) {
             callback(interp, listObjPtr, Jim_GetHashEntryKey(he), Jim_GetHashEntryVal(he),
@@ -11864,8 +11920,11 @@ static Jim_Obj *JimHashtablePatternMatch(Jim_Interp *interp, Jim_HashTable *ht, 
 #define JIM_CMDLIST_PROCS 1
 #define JIM_CMDLIST_CHANNELS 2
 
+// smj-edison: audited
 /**
  * Adds matching command names (procs, channels) to the list.
+ * 
+ * Panics if listObjPtr is shared.
  */
 static void JimCommandMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
     Jim_Obj *keyObj, void *value, Jim_Obj *patternObj, int type)
@@ -11883,8 +11942,8 @@ static void JimCommandMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
         int match = 1;
         if (patternObj) {
             int plen, slen;
-            const char *pattern = Jim_GetStringNoQualifier(patternObj, &plen);
-            const char *str = Jim_GetStringNoQualifier(keyObj, &slen);
+            const char *pattern = Jim_GetStringNoQualifier(interp, patternObj, &plen);
+            const char *str = Jim_GetStringNoQualifier(interp, keyObj, &slen);
             match = JimGlobMatch(pattern, plen, str, slen, 0);
         }
         if (match) {
@@ -11894,6 +11953,7 @@ static void JimCommandMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
     Jim_DecrRefCount(keyObj);
 }
 
+// smj-edison: audited
 static Jim_Obj *JimCommandsList(Jim_Interp *interp, Jim_Obj *patternObjPtr, int type)
 {
     return JimHashtablePatternMatch(interp, &interp->commands, patternObjPtr, JimCommandMatch, type);
@@ -11907,8 +11967,11 @@ static Jim_Obj *JimCommandsList(Jim_Interp *interp, Jim_Obj *patternObjPtr, int 
 
 #define JIM_VARLIST_VALUES 0x1000
 
+// smj-edison: audited
 /**
  * Adds matching variable names to the list.
+ * 
+ * Panics if listObjPtr is shared.
  */
 static void JimVariablesMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
     Jim_Obj *keyObj, void *value, Jim_Obj *patternObj, int type)
@@ -11925,6 +11988,7 @@ static void JimVariablesMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
     }
 }
 
+// smj-edison: audited
 /* mode is JIM_VARLIST_xxx */
 static Jim_Obj *JimVariablesList(Jim_Interp *interp, Jim_Obj *patternObjPtr, int mode)
 {
@@ -11940,6 +12004,7 @@ static Jim_Obj *JimVariablesList(Jim_Interp *interp, Jim_Obj *patternObjPtr, int
     }
 }
 
+// smj-edison: audited
 static int JimInfoLevel(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objPtrPtr)
 {
     long level;
@@ -11955,6 +12020,7 @@ static int JimInfoLevel(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objP
     return JIM_ERR;
 }
 
+// smj-edison: audited
 static int JimInfoFrame(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objPtrPtr)
 {
     long level;
@@ -12002,6 +12068,7 @@ static int JimInfoFrame(Jim_Interp *interp, Jim_Obj *levelObjPtr, Jim_Obj **objP
     Jim_SetResultFormatted(interp, "bad level \"%#s\"", levelObjPtr);
     return JIM_ERR;
 }
+
 /* -----------------------------------------------------------------------------
  * Core commands
  * ---------------------------------------------------------------------------*/
