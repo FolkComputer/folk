@@ -33,7 +33,7 @@ Wish the GPU compiles pipeline "line" {
 
 When the color map is /colorMap/ &\
      /p/ has writable image /id/ &\
-     /p/ has writable image projection /proj/ &\
+     /p/ has writable image projection /surfaceToClip/ &\
      /someone/ wishes to draw a line onto /p/ with /...options/ {
 
     set points [dict get $options points]
@@ -45,7 +45,7 @@ When the color map is /colorMap/ &\
     for {set i 0} {$i < [llength $points] - 1} {incr i} {
         set from [lindex $points $i]
         set to [lindex $points [+ $i 1]]
-        lappend instances [list [list 1024 1024] $proj $from $to $width $color]
+        lappend instances [list [list 1024 1024] $surfaceToClip $from $to $width $color]
     }
 
     Wish the GPU draws pipeline "line" onto image $id \

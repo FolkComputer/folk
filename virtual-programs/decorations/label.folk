@@ -1,12 +1,17 @@
-When /thing/ has region /region/ {
-    lassign [region centroid $region] x y
-    set radians [region angle $region]
-
-    When the collected matches for [list /someone/ wishes $thing is labelled /text/ with font /font/] are /matches/ {
-        set text [join [lmap match $matches {dict get $match text}] "\n"]
+When /thing/ has resolved geometry /geom/ {
+    When the collected matches for [list /someone/ wishes $thing is labelled /text/ with /...options/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
-        Wish to draw text with x $x y $y text $text radians $radians font [dict get $match font]
+        set x [/ [dict get $geom width] 2.0]
+        set y [/ [dict get $geom height] 2.0]
+        set options [dict create x $x y $y]
+        # FIXME: support per-label options; right now, this just
+        # applies an arbitrary label's options to all of them
+        # together.
+        set options [dict merge $options [dict get $result options]]
+        dict set options text $text
+        Wish to draw text onto $thing with {*}$options
     }
 }
 
