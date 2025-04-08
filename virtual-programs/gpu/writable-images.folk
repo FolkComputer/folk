@@ -88,7 +88,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
             GpuImageHandle gpuImages[2];
             VkFramebuffer framebuffers[2];
-            int imageIndex;
+            int _Atomic imageIndex;
 
             VkFence inFlightFence;
             VkCommandBuffer commandBuffer;
@@ -182,7 +182,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = wi->framebuffers[wi->imageIndex++ % 2];
+            renderPassInfo.framebuffer = wi->framebuffers[(wi->imageIndex + 1) % 2];
             renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
             renderPassInfo.renderArea.extent = wi->extent;
 
@@ -264,6 +264,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         }
 
         vkWaitForFences(device, 1, &boundWritableImage->inFlightFence, VK_TRUE, UINT64_MAX);
+        boundWritableImage->imageIndex++;
 
         pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
 
