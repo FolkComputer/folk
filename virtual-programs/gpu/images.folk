@@ -337,11 +337,12 @@ $gpuc struct GpuImageBlock {
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
-    VkSampler textureSampler; 
+    VkSampler textureSampler;
+
+    // mostly for debugging:
+    char* description;
 }
 $gpuc code [csubst {
-    // FIXME: THIS IS NOT THREAD-SAFE
-
     // Points to all GPU-side data structures associated with
     // an image (that we will destroy when we evict that
     // image).
@@ -355,7 +356,11 @@ $gpuc code [csubst {
                 return i;
             }
         }
-        fprintf(stderr, "Gpu: Exceeded GPU_MAX_IMAGES\n"); exit(1);
+        fprintf(stderr, "gpu/images: Exceeded GPU_MAX_IMAGES:\n");
+        for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
+            fprintf(stderr, "  %d: %s\n", i, gpuImages[i].alive ? gpuImages[i].description : "<not alive>");
+        }
+        exit(1);
     }
 }]
 
@@ -459,6 +464,7 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
 
     addToImageDescriptorSet(imageId);
 
+    asprintf(&block->description, "%dx%d image", width, height);
     return block;
 }
 
@@ -567,6 +573,7 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     vkDestroySampler(device, block->textureSampler, NULL);
     vkDestroyImageView(device, block->textureImageView, NULL);
 
+    free(block->description);
     block->alive = false;
 }
 
