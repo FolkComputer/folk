@@ -326,8 +326,10 @@ C method enum {type values} {
     rtype $type [dict get $rtypes int]
 }
 
-C method typedef {t newt} {
-    lappend code "typedef $t $newt;" :extend
+C method typedef {t newt {emitC true}} {
+    if {$emitC} {
+        lappend code "typedef $t $newt;" :extend
+    }
     set argtype $t; set rtype $t
 
     try {
