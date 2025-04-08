@@ -165,10 +165,15 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             return;
         }
         boundWritableImage = wi;
+        int idx = (wi->imageIndex + 1) % 2;
 
         vkResetFences(device, 1, &wi->inFlightFence);
 
         vkResetCommandBuffer(wi->commandBuffer, 0);
+
+        // Update the descriptor set to mask out the image we're
+        // rendering to while we're rendering.
+        removeFromImageDescriptorSet(wi->gpuImages[idx]);
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -182,7 +187,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = wi->framebuffers[(wi->imageIndex + 1) % 2];
+            renderPassInfo.framebuffer = wi->framebuffers[idx];
             renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
             renderPassInfo.renderArea.extent = wi->extent;
 
@@ -267,6 +272,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         boundWritableImage->imageIndex++;
 
         pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+
+        addToImageDescriptorSet(boundWritableImage->gpuImages[boundWritableImage->imageIndex % 2]);
 
         pthread_mutex_unlock(&boundWritableImage->mutex);
         boundWritableImage = NULL;

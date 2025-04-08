@@ -350,6 +350,56 @@ $gpuc code [csubst {
     }
 }]
 
+$gpuc proc addToImageDescriptorSet {GpuImageHandle imageId} void {
+    // Write this image+sampler to the imageDescriptorSet
+    {
+        VkDescriptorImageInfo imageInfo = {0};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = gpuImages[imageId].textureImageView;
+        imageInfo.sampler = gpuImages[imageId].textureSampler;
+
+        static bool _Atomic didInitializeDescriptors = false;
+        if (!didInitializeDescriptors) {
+            // Hack: if we're not using the descriptor
+            // indexing extension, we can't have a partially
+            // bound descriptor set, so we need to fill all
+            // the slots in the image array with
+            // _something_. We just fill all slots wtih the
+            // first image for now. See
+            // http://roar11.com/2019/06/vulkan-textures-unbound/
+            VkWriteDescriptorSet descriptorWrites[getMaxImages()];
+            for (int i = 0; i < getMaxImages(); i++) {
+                memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
+                descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrites[i].dstSet = *imageDescriptorSet_ptr();
+                descriptorWrites[i].dstBinding = 0;
+                descriptorWrites[i].dstArrayElement = i;
+                descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrites[i].descriptorCount = 1;
+                descriptorWrites[i].pImageInfo = &imageInfo;
+            }
+            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
+            vkUpdateDescriptorSets(device, getMaxImages(), descriptorWrites, 0, NULL);
+            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+
+            didInitializeDescriptors = true;
+        } else {
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = *imageDescriptorSet_ptr();
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = imageId;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+        }
+    }
+}
+
 $gpuc proc getGpuImage {GpuImageHandle handle} GpuImageBlock* {
     return &gpuImages[handle];
 }
@@ -398,53 +448,7 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
         $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
     }
 
-    // Write this image+sampler to the imageDescriptorSet
-    {
-        VkDescriptorImageInfo imageInfo = {0};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = block->textureImageView;
-        imageInfo.sampler = block->textureSampler;
-
-        static bool _Atomic didInitializeDescriptors = false;
-        if (!didInitializeDescriptors) {
-            // Hack: if we're not using the descriptor
-            // indexing extension, we can't have a partially
-            // bound descriptor set, so we need to fill all
-            // the slots in the image array with
-            // _something_. We just fill all slots wtih the
-            // first image for now. See
-            // http://roar11.com/2019/06/vulkan-textures-unbound/
-            VkWriteDescriptorSet descriptorWrites[getMaxImages()];
-            for (int i = 0; i < getMaxImages(); i++) {
-                memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
-                descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrites[i].dstSet = *imageDescriptorSet_ptr();
-                descriptorWrites[i].dstBinding = 0;
-                descriptorWrites[i].dstArrayElement = i;
-                descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                descriptorWrites[i].descriptorCount = 1;
-                descriptorWrites[i].pImageInfo = &imageInfo;
-            }
-            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
-            vkUpdateDescriptorSets(device, getMaxImages(), descriptorWrites, 0, NULL);
-            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
-
-            didInitializeDescriptors = true;
-        } else {
-            VkWriteDescriptorSet descriptorWrite = {0};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = *imageDescriptorSet_ptr();
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = imageId;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pImageInfo = &imageInfo;
-
-            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
-            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
-        }
-    }
+    addToImageDescriptorSet(imageId);
 
     return block;
 }
@@ -517,13 +521,7 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     if (im0.components != 4) { free(im.data); }
     return block->handle;
 }
-$gpuc proc freeGpuImage {GpuImageHandle gim} void {
-    GpuImageBlock* block = &gpuImages[gim];
-
-    pthread_mutex_lock(graphicsQueueMutex_ptr());
-    vkDeviceWaitIdle(device); // FIXME: this is probably slow
-    pthread_mutex_unlock(graphicsQueueMutex_ptr());
-
+$gpuc proc removeFromImageDescriptorSet {GpuImageHandle gim} void {
     // HACK: Use GPU image 0 as a placeholder so it doesn't
     // fault if it tries to access this freed image.
     {
@@ -545,6 +543,15 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
         pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
     }
+}
+$gpuc proc freeGpuImage {GpuImageHandle gim} void {
+    GpuImageBlock* block = &gpuImages[gim];
+
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    vkDeviceWaitIdle(device); // FIXME: this is probably slow
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+
+    removeFromImageDescriptorSet(gim);
 
     vkDestroyImage(device, block->textureImage, NULL);
     vkFreeMemory(device, block->textureImageMemory, NULL);
