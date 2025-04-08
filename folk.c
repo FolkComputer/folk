@@ -149,7 +149,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
     Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
     env->nBindings = 0;
 
-    for (int i = 0; i < a->nTerms; i++) {
+    for (int i = 0; i < a->nTerms && i < b->nTerms; i++) {
         char aVarName[100] = {0}; char bVarName[100] = {0};
         if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
             if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
