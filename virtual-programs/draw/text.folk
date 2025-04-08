@@ -37,7 +37,7 @@ $cc proc vec2f_toObj {vec2f a} Jim_Obj* {
     return Jim_NewListObj(interp, v, 2);
 }
 $cc proc textExtent {Font* font char* text float scale} vec2f {
-    float em = scale * 25.0;
+    float em = scale;
     float x = 0; float y = 0;
     float width = 0;
     for (int i = 0; text[i] != 0; i++) {
@@ -58,7 +58,7 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
                     Font* font char* text
                     float x0 float y0 float scale float anchorx float anchory float radians Jim_Obj* color} Jim_Obj* {
     vec2f extent = textExtent(font, text, scale);
-    float em = scale * 25.0;
+    float em = scale;
 
     // The anchor origin is the top left of the text
     float x = anchorx * extent.x;
