@@ -600,6 +600,8 @@ When the GPU writable image library is /gpuWritableLib/ &\
         list $x $y
     }] a b c d
 
+    # TODO: ideally delay wi -> gpuImage resolution until
+    # immediately before draw time.
     set wim [$gpuWritableLib gpuImage $wi]
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \

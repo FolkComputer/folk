@@ -143,6 +143,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             $[vktry {vkCreateFence(device, &fenceInfo, NULL, &wi->inFlightFence)}]
         }
+
         return wi;
     }
     $gpuc proc destroy {GpuWritableImage* wi} void {
@@ -175,9 +176,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
         vkResetCommandBuffer(wi->commandBuffer, 0);
 
-        // Update the descriptor set to mask out the image we're
-        // rendering to while we're rendering.
-        removeFromImageDescriptorSet(wi->gpuImages[idx]);
+        // Update the descriptor set to redirect the image we're
+        // rendering to while we're rendering to the other image.
+        replaceInImageDescriptorSet(wi->gpuImages[idx], wi->gpuImages[(idx + 1) % 2]);
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -277,7 +278,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
 
         pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
 
-        addToImageDescriptorSet(boundWritableImage->gpuImages[boundWritableImage->imageIndex % 2]);
+        int idx = boundWritableImage->imageIndex % 2;
+        replaceInImageDescriptorSet(boundWritableImage->gpuImages[idx],
+                                    boundWritableImage->gpuImages[idx]);
 
         pthread_mutex_unlock(&boundWritableImage->mutex);
         boundWritableImage = NULL;

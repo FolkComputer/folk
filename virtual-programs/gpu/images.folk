@@ -536,20 +536,20 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     if (im0.components != 4) { free(im.data); }
     return block->handle;
 }
-$gpuc proc removeFromImageDescriptorSet {GpuImageHandle gim} void {
-    // HACK: Use GPU image 0 as a placeholder so it doesn't
+$gpuc proc replaceInImageDescriptorSet {GpuImageHandle oldHandle GpuImageHandle newHandle} void {
+    // newHandle = 0 is used as a placeholder so it doesn't
     // fault if it tries to access this freed image.
     {
         VkDescriptorImageInfo imageInfo = {0};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = gpuImages[0].textureImageView;
-        imageInfo.sampler = gpuImages[0].textureSampler;
+        imageInfo.imageView = gpuImages[newHandle].textureImageView;
+        imageInfo.sampler = gpuImages[newHandle].textureSampler;
 
         VkWriteDescriptorSet descriptorWrite = {0};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrite.dstSet = *imageDescriptorSet_ptr();
         descriptorWrite.dstBinding = 0;
-        descriptorWrite.dstArrayElement = gim;
+        descriptorWrite.dstArrayElement = oldHandle;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pImageInfo = &imageInfo;
@@ -566,7 +566,7 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     vkDeviceWaitIdle(device); // FIXME: this is probably slow
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 
-    removeFromImageDescriptorSet(gim);
+    replaceInImageDescriptorSet(gim, 0);
 
     vkDestroyImage(device, block->textureImage, NULL);
     vkFreeMemory(device, block->textureImageMemory, NULL);
