@@ -747,6 +747,7 @@ JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
         Jim_Obj *objPtr, int flags);
 JIM_EXPORT Jim_Obj * DupIfWrongInterp(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
 JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
 JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);

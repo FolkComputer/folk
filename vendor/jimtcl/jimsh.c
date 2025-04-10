@@ -62,7 +62,7 @@ static void JimSetArgv(Jim_Interp *interp, int argc, char *const argv[])
 static void JimPrintErrorMessage(Jim_Interp *interp)
 {
     Jim_MakeErrorMessage(interp);
-    fprintf(stderr, "%s\n", Jim_String(Jim_GetResult(interp)));
+    fprintf(stderr, "%s\n", Jim_String(interp, Jim_GetResult(interp)));
 }
 
 void usage(const char* executable_name)
@@ -129,7 +129,7 @@ int main(int argc, char *const argv[])
             retcode = Jim_Eval(interp, argv[2]);
             if (retcode != JIM_ERR) {
                 int len;
-                const char *msg = Jim_GetString(Jim_GetResult(interp), &len);
+                const char *msg = Jim_GetString(interp, Jim_GetResult(interp), &len);
                 if (fwrite(msg, len, 1, stdout) == 0) {
                     /* nothing */
                 }
