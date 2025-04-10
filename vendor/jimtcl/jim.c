@@ -2210,6 +2210,9 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
         objPtr = Jim_Alloc(sizeof(*objPtr));
     }
 
+    objPtr->interp = interp;
+    objPtr->refCount = 0;
+
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
      * value anyway. */
@@ -11304,7 +11307,10 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
             }
             else {
                 /* Need to expand wordObjPtr into multiple args from argv[j] ... */
-                int len = Jim_ListLength(interp, wordObjPtr);
+                Jim_Obj *wordListPtr;
+                GetList(interp, wordObjPtr, &wordListPtr);
+
+                int len = Jim_ListLength(interp, wordListPtr);
                 int newargc = argc + len - 1;
                 int k;
 
@@ -11323,8 +11329,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 
                 /* Now copy in the expanded version */
                 for (k = 0; k < len; k++) {
-                    argv[j++] = wordObjPtr->internalRep.listValue.ele[k];
-                    Jim_IncrRefCount(wordObjPtr->internalRep.listValue.ele[k]);
+                    argv[j++] = wordListPtr->internalRep.listValue.ele[k];
+                    Jim_IncrRefCount(wordListPtr->internalRep.listValue.ele[k]);
                 }
 
                 /* The original object reference is no longer needed,
