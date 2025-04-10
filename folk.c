@@ -100,7 +100,7 @@ static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
     }
     return jimObjsToClause(objc, objv);
 }
-static Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
+Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
     int objc = Jim_ListLength(interp, obj);
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
@@ -405,7 +405,7 @@ static int QueryAcquireSimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *
     Jim_ListAppendElement(interp, guardObj, rsObj);
     Jim_SetVariable(interp, argv[1], guardObj);
 
-    Jim_Obj *ret = Jim_NewListObj(interp, NULL, 0);
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
@@ -428,10 +428,11 @@ static int QueryAcquireSimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *
     }
 
     clauseFree(pattern);
-
+    
     Jim_SetResult(interp, ret);
     return JIM_OK;
 }
+
 static int QueryReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
@@ -764,7 +765,7 @@ static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRe
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
 // shouldn't be claimized. Returns a new heap-allocated Clause* that
 // must be freed by the caller.
-static Clause* claimizeClause(Clause* clause) {
+Clause* claimizeClause(Clause* clause) {
     if (clause->nTerms >= 2 &&
         (strcmp(clause->terms[1], "claims") == 0 ||
          strcmp(clause->terms[1], "wishes") == 0)) {

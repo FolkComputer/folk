@@ -446,7 +446,7 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             // Tentatively trigger a removal in `keepMs` ms, but the
             // statement is still able to be revived in the
             // intervening time.
-            sysmonRemoveAfter(statementRef(db, stmt), keepMs);
+            sysmonScheduleRemoveAfter(statementRef(db, stmt), keepMs);
 
             stmt->parentCount++;
         }
