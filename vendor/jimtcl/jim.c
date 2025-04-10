@@ -3715,7 +3715,8 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
  * but sets *stateCharPtr to '}'
  * Evaluating the script will give the error "extra characters after close-brace".
  * 
- * Panics if called with an object from another interpreter.
+ * Panics if called with an object from another interpreter (it converts
+ * the object into a script internal rep)
  */
 int Jim_ScriptIsComplete(Jim_Interp *interp, Jim_Obj *scriptObj, char *stateCharPtr)
 {
@@ -4037,7 +4038,7 @@ static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
 static int JimObjectHTKeyCompare(void *privdata, const void *key1, const void *key2)
 {
     // FIXME: make sure this doesn't cause a race condition if keys are compared on a 
-    // different thread (when inserting objects on the temp list, the linked list could corrupt)
+    // different thread (when inserting objects on the temp list, the list could corrupt)
     Jim_Interp *interp = (Jim_Interp *)privdata;
 
     return Jim_StringEqObj(interp, (Jim_Obj *)key1, (Jim_Obj *)key2);
@@ -10084,7 +10085,7 @@ static void UpdateStringOfScanFmt(Jim_Interp *interp, Jim_Obj *objPtr)
 }
 
 // smj-edison: audited
-/* SetScanFmtFromAny will parse a given string and create the internal
+/* SetScanFmtFromAnyUnshared will parse a given string and create the internal
  * representation of the format specification. In case of an error
  * the error data member of the internal representation will be set
  * to an descriptive error text and the function will be left with
@@ -14385,6 +14386,7 @@ static int Jim_GlobalCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* does the [string map] operation. On error NULL is returned,
  * otherwise a new string object with the result, having refcount = 0,
  * is returned. */
@@ -14402,7 +14404,7 @@ static Jim_Obj *JimStringMap(Jim_Interp *interp, Jim_Obj *mapListObjPtr,
         return NULL;
     }
 
-    str = Jim_String(objPtr);
+    str = Jim_String(interp, objPtr);
     strLen = Jim_Utf8Length(interp, objPtr);
 
     /* Map it */
@@ -14414,7 +14416,7 @@ static Jim_Obj *JimStringMap(Jim_Interp *interp, Jim_Obj *mapListObjPtr,
             int kl;
 
             eachObjPtr = Jim_ListGetIndex(interp, mapListObjPtr, i);
-            k = Jim_String(eachObjPtr);
+            k = Jim_String(interp, eachObjPtr);
             kl = Jim_Utf8Length(interp, eachObjPtr);
 
             if (strLen >= kl && kl) {
@@ -14446,6 +14448,7 @@ static Jim_Obj *JimStringMap(Jim_Interp *interp, Jim_Obj *mapListObjPtr,
     return resultObjPtr;
 }
 
+// smj-edison: audited
 /* [string] */
 static int Jim_StringCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -14489,7 +14492,7 @@ static int Jim_StringCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
                 len = Jim_Utf8Length(interp, argv[2]);
             }
             else {
-                len = Jim_Length(argv[2]);
+                len = Jim_Length(interp, argv[2]);
             }
             Jim_SetResultInt(interp, len);
             return JIM_OK;
@@ -14550,12 +14553,12 @@ badcompareargs:
                 argv += argc - 2;
                 if (opt_length < 0 && option != OPT_COMPARE && opt_case) {
                     /* Fast version - [string equal], case sensitive, no length */
-                    Jim_SetResultBool(interp, Jim_StringEqObj(argv[0], argv[1]));
+                    Jim_SetResultBool(interp, Jim_StringEqObj(interp, argv[0], argv[1]));
                 }
                 else {
-                    const char *s1 = Jim_String(argv[0]);
+                    const char *s1 = Jim_String(interp, argv[0]);
                     int l1 = Jim_Utf8Length(interp, argv[0]);
-                    const char *s2 = Jim_String(argv[1]);
+                    const char *s2 = Jim_String(interp, argv[1]);
                     int l2 = Jim_Utf8Length(interp, argv[1]);
                     if (opt_length >= 0) {
                         if (l1 > opt_length) {
@@ -14677,7 +14680,7 @@ badcompareargs:
                     return JIM_ERR;
                 }
 
-                str = Jim_GetString(argv[2], &len);
+                str = Jim_GetString(interp, argv[2], &len);
                 buf = Jim_Alloc(len + 1);
                 assert(buf);
                 p = buf + len;
@@ -14705,13 +14708,13 @@ badcompareargs:
                 if (Jim_GetIndex(interp, argv[3], &idx) != JIM_OK) {
                     return JIM_ERR;
                 }
-                str = Jim_String(argv[2]);
+                str = Jim_String(interp, argv[2]);
                 len = Jim_Utf8Length(interp, argv[2]);
                 idx = JimRelToAbsIndex(len, idx);
                 if (idx < 0 || idx >= len || str == NULL) {
                     Jim_SetResultString(interp, "", 0);
                 }
-                else if (len == Jim_Length(argv[2])) {
+                else if (len == Jim_Length(interp, argv[2])) {
                     /* ASCII optimisation */
                     Jim_SetResultString(interp, str + idx, 1);
                 }
@@ -14732,8 +14735,8 @@ badcompareargs:
                     Jim_WrongNumArgs(interp, 2, argv, "subString string ?index?");
                     return JIM_ERR;
                 }
-                s1 = Jim_String(argv[2]);
-                s2 = Jim_String(argv[3]);
+                s1 = Jim_String(interp, argv[2]);
+                s2 = Jim_String(interp, argv[3]);
                 l1 = Jim_Utf8Length(interp, argv[2]);
                 l2 = Jim_Utf8Length(interp, argv[3]);
                 if (argc == 5) {
@@ -14811,6 +14814,7 @@ badcompareargs:
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [time] */
 static int Jim_TimeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -14828,11 +14832,14 @@ static int Jim_TimeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     if (count < 0)
         return JIM_OK;
     i = count;
+
+    Jim_Obj *scriptPtr = DupIfWrongInterp(interp, argv[1], JIM_TEMP_LIST);
+
     start = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW);
     while (i-- > 0) {
         int retval;
 
-        retval = Jim_EvalObj(interp, argv[1]);
+        retval = Jim_EvalObj(interp, scriptPtr);
         if (retval != JIM_OK) {
             return retval;
         }
@@ -14848,6 +14855,7 @@ static int Jim_TimeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [timerate] */
 static int Jim_TimeRateCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -14872,11 +14880,13 @@ static int Jim_TimeRateCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const 
         us = 1000 * 1000;
     }
 
+    Jim_Obj *scriptPtr = DupIfWrongInterp(interp, argv[1], JIM_TEMP_LIST);
+
     /* Run until we exceed the time limit */
     start = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW);
     count = 0;
     do {
-        int retval = Jim_EvalObj(interp, argv[1]);
+        int retval = Jim_EvalObj(interp, scriptPtr);
         delta = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW) - start;
         if (retval != JIM_OK) {
             return retval;
@@ -14913,6 +14923,7 @@ static int Jim_TimeRateCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const 
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [exit] */
 static int Jim_ExitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -14931,6 +14942,7 @@ static int Jim_ExitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     return JIM_EXIT;
 }
 
+// smj-edison: audited
 static int JimMatchReturnCodes(Jim_Interp *interp, Jim_Obj *retcodeListObj, int rc)
 {
     int len = Jim_ListLength(interp, retcodeListObj);
@@ -14947,6 +14959,7 @@ static int JimMatchReturnCodes(Jim_Interp *interp, Jim_Obj *retcodeListObj, int 
     return -1;
 }
 
+// smj-edison: audited
 /* Implements both [try] and [catch] */
 static int JimCatchTryHelper(Jim_Interp *interp, int istry, int argc, Jim_Obj *const *argv)
 {
@@ -14977,7 +14990,7 @@ static int JimCatchTryHelper(Jim_Interp *interp, int istry, int argc, Jim_Obj *c
     Jim_SetGlobalVariableStr(interp, "errorCode", Jim_NewStringObj(interp, "NONE", -1));
 
     for (i = 1; i < argc - 1; i++) {
-        const char *arg = Jim_String(argv[i]);
+        const char *arg = Jim_String(interp, argv[i]);
         jim_wide option;
         int ignore;
 
@@ -15035,7 +15048,8 @@ wrongargs:
         exitCode = JIM_SIGNAL;
     }
     else {
-        exitCode = Jim_EvalObj(interp, argv[idx]);
+        Jim_Obj *scriptObjPtr = DupIfWrongInterp(interp, argv[idx], JIM_TEMP_LIST);
+        exitCode = Jim_EvalObj(interp, scriptObjPtr);
         /* Don't want any caught error included in a later stack trace */
         interp->errorFlag = 0;
     }
@@ -15125,6 +15139,7 @@ wrongargs:
     if (exitCode >= 0 && exitCode < max_ignore_code && (((unsigned jim_wide)1 << exitCode) & ignore_mask)) {
         /* Not caught, pass it up */
         if (finallyScriptObj) {
+            finallyScriptObj = DupIfWrongInterp(interp, finallyScriptObj, JIM_TEMP_LIST);
             Jim_EvalObj(interp, finallyScriptObj);
         }
         return exitCode;
@@ -15142,12 +15157,12 @@ wrongargs:
     }
 
     ok = 1;
-    if (msgVarObj && Jim_Length(msgVarObj)) {
+    if (msgVarObj && Jim_Length(interp, msgVarObj)) {
         if (Jim_SetVariable(interp, msgVarObj, Jim_GetResult(interp)) != JIM_OK) {
             ok = 0;
         }
     }
-    if (ok && optsVarObj && Jim_Length(optsVarObj)) {
+    if (ok && optsVarObj && Jim_Length(interp, optsVarObj)) {
         Jim_Obj *optListObj = Jim_NewListObj(interp, NULL, 0);
 
         Jim_ListAppendElement(interp, optListObj, Jim_NewStringObj(interp, "-code", -1));
@@ -15171,6 +15186,7 @@ wrongargs:
     }
     if (ok && handlerScriptObj) {
         /* Execute the on script. Any return code replaces the original. */
+        handlerScriptObj = DupIfWrongInterp(interp, handlerScriptObj, JIM_TEMP_LIST);
         exitCode = Jim_EvalObj(interp, handlerScriptObj);
     }
 
@@ -15178,6 +15194,7 @@ wrongargs:
         /* Execute the on script. If OK, restore previous resul/exitcode */
         Jim_Obj *prevResultObj = Jim_GetResult(interp);
         Jim_IncrRefCount(prevResultObj);
+        finallyScriptObj = DupIfWrongInterp(interp, finallyScriptObj, JIM_TEMP_LIST);
         int ret = Jim_EvalObj(interp, finallyScriptObj);
         if (ret == JIM_OK) {
             Jim_SetResult(interp, prevResultObj);
@@ -15194,18 +15211,21 @@ wrongargs:
     return exitCode;
 }
 
+// smj-edison: audited
 /* [catch] */
 static int Jim_CatchCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     return JimCatchTryHelper(interp, 0, argc, argv);
 }
 
+// smj-edison: audited
 /* [try] */
 static int Jim_TryCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     return JimCatchTryHelper(interp, 1, argc, argv);
 }
 
+// smj-edison: audited
 /* [rename] */
 static int Jim_RenameCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15220,6 +15240,7 @@ static int Jim_RenameCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
 #define JIM_DICTMATCH_KEYS 0x0001
 #define JIM_DICTMATCH_VALUES 0x002
 
+// smj-edison: audited
 /**
  * match_type must be one of JIM_DICTMATCH_KEYS or JIM_DICTMATCH_VALUES
  * return_types should be either or both
@@ -15230,7 +15251,8 @@ int Jim_DictMatchTypes(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *patternObj,
     Jim_Dict *dict;
     int i;
 
-    if (SetDictFromAny(interp, objPtr) != JIM_OK) {
+    objPtr = DupIfSharedAndWrongRep(interp, objPtr, &dictObjType, JIM_TEMP_LIST);
+    if (objPtr->typePtr != &dictObjType && SetDictFromAnyUnshared(interp, objPtr) != JIM_OK) {
         return JIM_ERR;
     }
     dict = objPtr->internalRep.dictValue;
@@ -15259,14 +15281,17 @@ int Jim_DictMatchTypes(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj *patternObj,
     return JIM_OK;
 }
 
+// smj-edison: audited
 int Jim_DictSize(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    if (SetDictFromAny(interp, objPtr) != JIM_OK) {
+    objPtr = DupIfSharedAndWrongRep(interp, objPtr, &dictObjType, JIM_TEMP_LIST);
+    if (objPtr->typePtr != &dictObjType && SetDictFromAnyUnshared(interp, objPtr) != JIM_OK) {
         return -1;
     }
     return objPtr->internalRep.dictValue->len / 2;
 }
 
+// smj-edison: audited
 /**
  * Must be called with at least one object.
  * Returns the new dictionary, or NULL on error.
@@ -15290,7 +15315,7 @@ Jim_Obj *Jim_DictMerge(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
          */
         table = Jim_DictPairs(interp, objv[i], &tablelen);
         if (tablelen && !table) {
-            Jim_FreeNewObj(interp, objPtr);
+            Jim_FreeNewObj(objPtr);
             return NULL;
         }
         for (j = 0; j < tablelen; j += 2) {
@@ -15300,13 +15325,15 @@ Jim_Obj *Jim_DictMerge(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
     return objPtr;
 }
 
+// smj-edison: audited
 int Jim_DictInfo(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     char buffer[100];
     Jim_Obj *output;
     Jim_Dict *dict;
 
-    if (SetDictFromAny(interp, objPtr) != JIM_OK) {
+    objPtr = DupIfSharedAndWrongRep(interp, objPtr, &dictObjType, JIM_TEMP_LIST);
+    if (objPtr->typePtr != &dictObjType && SetDictFromAnyUnshared(interp, objPtr) != JIM_OK) {
         return JIM_ERR;
     }
 
@@ -15319,6 +15346,8 @@ int Jim_DictInfo(Jim_Interp *interp, Jim_Obj *objPtr)
     return JIM_OK;
 }
 
+// smj-edison: audited
+/* Thread safe. */
 static int Jim_EvalEnsemble(Jim_Interp *interp, const char *basecmd, const char *subcmd, int argc, Jim_Obj *const *argv)
 {
     Jim_Obj *prefixObj = Jim_NewStringObj(interp, basecmd, -1);
@@ -15329,8 +15358,11 @@ static int Jim_EvalEnsemble(Jim_Interp *interp, const char *basecmd, const char 
     return Jim_EvalObjPrefix(interp, prefixObj, argc, argv);
 }
 
+// smj-edison: audited
 /**
  * Implements the [dict with] command
+ * 
+ * Thread safe.
  */
 static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const *keyv, int keyc, Jim_Obj *scriptObj)
 {
@@ -15340,6 +15372,8 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
     Jim_Obj **dictValues;
     int len;
     int ret = JIM_OK;
+
+    dictVarName = DupIfWrongInterp(interp, dictVarName, JIM_TEMP_LIST);
 
     /* Open up the appropriate level of the dictionary */
     dictObj = Jim_GetVariable(interp, dictVarName, JIM_ERRMSG);
@@ -15352,13 +15386,15 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
         return JIM_ERR;
     }
     for (i = 0; i < len; i += 2) {
-        if (Jim_SetVariable(interp, dictValues[i], dictValues[i + 1]) == JIM_ERR) {
+        Jim_Obj *varNameObjPtr = DupIfWrongInterp(interp, dictValues[i], JIM_TEMP_LIST);
+        if (Jim_SetVariable(interp, varNameObjPtr, dictValues[i + 1]) == JIM_ERR) {
             return JIM_ERR;
         }
     }
 
     /* As an optimisation, if the script is empty, no need to evaluate it or update the dict */
-    if (Jim_Length(scriptObj)) {
+    if (Jim_Length(interp, scriptObj)) {
+        scriptObj = DupIfWrongInterp(interp, scriptObj, JIM_TEMP_LIST);
         ret = Jim_EvalObj(interp, scriptObj);
 
         /* Now if the dictionary still exists, update it based on the local variables */
@@ -15372,8 +15408,9 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
             for (i = 0; i < len; i += 2) {
                 /* If the an element mirrors the dictionary name, skip it to avoid creating a recursive data structure */
                 if (Jim_StringCompareObj(interp, dictVarName, dictValues[i], 0) != 0) {
+                    Jim_Obj *varNameObjPtr = DupIfWrongInterp(interp, dictValues[i], JIM_TEMP_LIST);
                     /* This will be NULL if the variable no longer exists, thus deleting the variable */
-                    objPtr = Jim_GetVariable(interp, dictValues[i], 0);
+                    objPtr = Jim_GetVariable(interp, varNameObjPtr, 0);
                     newkeyv[keyc] = dictValues[i];
                     Jim_SetDictKeysVector(interp, dictVarName, newkeyv, keyc + 1, objPtr, JIM_NORESULT);
                 }
@@ -15385,6 +15422,7 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
     return ret;
 }
 
+// smj-edison: audited
 /* [dict] */
 static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15453,7 +15491,8 @@ static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "varName key ?key ...? value");
                 return JIM_ERR;
             }
-            return Jim_SetDictKeysVector(interp, argv[2], argv + 3, argc - 4, argv[argc - 1], JIM_ERRMSG);
+            Jim_Obj *dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            return Jim_SetDictKeysVector(interp, dictPtr, argv + 3, argc - 4, argv[argc - 1], JIM_ERRMSG);
 
         case OPT_EXISTS:
             if (argc < 4) {
@@ -15474,7 +15513,8 @@ static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "varName key ?key ...?");
                 return JIM_ERR;
             }
-            if (Jim_SetDictKeysVector(interp, argv[2], argv + 3, argc - 3, NULL, JIM_NONE) != JIM_OK) {
+            Jim_Obj *dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            if (Jim_SetDictKeysVector(interp, dictPtr, argv + 3, argc - 3, NULL, JIM_NONE) != JIM_OK) {
                 return JIM_ERR;
             }
             return JIM_OK;
@@ -15545,6 +15585,7 @@ static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     return Jim_EvalEnsemble(interp, "dict", options[option], argc - 2, argv + 2);
 }
 
+// smj-edison: audited
 /* [subst] */
 static int Jim_SubstCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15580,7 +15621,8 @@ static int Jim_SubstCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
                 break;
         }
     }
-    if (Jim_SubstObj(interp, argv[argc - 1], &objPtr, flags) != JIM_OK) {
+    Jim_Obj *substPtr = DupIfWrongInterp(interp, argv[argc - 1], JIM_TEMP_LIST);
+    if (Jim_SubstObj(interp, substPtr, &objPtr, flags) != JIM_OK) {
         return JIM_ERR;
     }
     Jim_SetResult(interp, objPtr);
@@ -15588,14 +15630,16 @@ static int Jim_SubstCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
 }
 
 #ifdef jim_ext_namespace
-static int JimIsGlobalNamespace(Jim_Obj *objPtr)
+// smj-edison: audited
+static int JimIsGlobalNamespace(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int len;
-    const char *str = Jim_GetString(objPtr, &len);
+    const char *str = Jim_GetString(interp, objPtr, &len);
     return len >= 2 && str[0] == ':' && str[1] == ':';
 }
 #endif
 
+// smj-edison: audited
 /* [info] */
 static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15642,7 +15686,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "varName");
                 return JIM_ERR;
             }
-            Jim_SetResultBool(interp, Jim_GetVariable(interp, argv[2], 0) != NULL);
+            Jim_Obj *varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            Jim_SetResultBool(interp, Jim_GetVariable(interp, varNamePtr, 0) != NULL);
             break;
 
         case INFO_ALIAS:{
@@ -15652,7 +15697,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "command");
                 return JIM_ERR;
             }
-            if ((cmdPtr = Jim_GetCommand(interp, argv[2], JIM_ERRMSG)) == NULL) {
+            Jim_Obj *varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            if ((cmdPtr = Jim_GetCommand(interp, varNamePtr, JIM_ERRMSG)) == NULL) {
                 return JIM_ERR;
             }
             if (cmdPtr->isproc || cmdPtr->u.native.cmdProc != JimAliasCmd) {
@@ -15681,7 +15727,7 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             }
 #ifdef jim_ext_namespace
             if (!nons) {
-                if (Jim_Length(interp->framePtr->nsObj) || (argc == 3 && JimIsGlobalNamespace(argv[2]))) {
+                if (Jim_Length(interp, interp->framePtr->nsObj) || (argc == 3 && JimIsGlobalNamespace(interp, argv[2]))) {
                     return Jim_EvalPrefix(interp, "namespace info", argc - 1, argv + 1);
                 }
             }
@@ -15703,7 +15749,7 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             }
 #ifdef jim_ext_namespace
             if (!nons) {
-                if (Jim_Length(interp->framePtr->nsObj) || (argc == 3 && JimIsGlobalNamespace(argv[2]))) {
+                if (Jim_Length(interp, interp->framePtr->nsObj) || (argc == 3 && JimIsGlobalNamespace(interp, argv[2]))) {
                     return Jim_EvalPrefix(interp, "namespace info", argc - 1, argv + 1);
                 }
             }
@@ -15732,8 +15778,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                     if (Jim_GetWide(interp, argv[4], &line) != JIM_OK) {
                         return JIM_ERR;
                     }
-                    resObjPtr = Jim_NewStringObj(interp, Jim_String(argv[2]), Jim_Length(argv[2]));
-                    Jim_SetSourceInfo(interp, resObjPtr, argv[3], line);
+                    resObjPtr = Jim_NewStringObj(interp, Jim_String(interp, argv[2]), Jim_Length(interp, argv[2]));
+                    Jim_SetSourceInfo(resObjPtr, argv[3], line);
                 }
                 else {
                     if (argv[2]->typePtr == &sourceObjType) {
@@ -15741,7 +15787,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                         line = argv[2]->internalRep.sourceValue.lineNumber;
                     }
                     else if (argv[2]->typePtr == &scriptObjType) {
-                        ScriptObj *script = JimGetScript(interp, argv[2]);
+                        Jim_Obj *scriptObjPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+                        ScriptObj *script = JimGetScript(interp, scriptObjPtr);
                         fileNameObj = script->fileNameObj;
                         line = script->firstline;
                     }
@@ -15820,7 +15867,8 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                     Jim_WrongNumArgs(interp, 2, argv, "procname");
                     return JIM_ERR;
                 }
-                if ((cmdPtr = Jim_GetCommand(interp, argv[2], JIM_ERRMSG)) == NULL) {
+                Jim_Obj *scriptObjPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+                if ((cmdPtr = Jim_GetCommand(interp, scriptObjPtr, JIM_ERRMSG)) == NULL) {
                     return JIM_ERR;
                 }
                 if (!cmdPtr->isproc) {
@@ -15861,9 +15909,11 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             else {
                 char missing;
 
-                Jim_SetResultBool(interp, Jim_ScriptIsComplete(interp, argv[2], &missing));
+                Jim_Obj *scriptObjPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+                Jim_SetResultBool(interp, Jim_ScriptIsComplete(interp, scriptObjPtr, &missing));
                 if (missing != ' ' && argc == 4) {
-                    Jim_SetVariable(interp, argv[3], Jim_NewStringObj(interp, &missing, 1));
+                    Jim_Obj *varNameObjPtr = DupIfWrongInterp(interp, argv[3], JIM_TEMP_LIST);
+                    Jim_SetVariable(interp, varNameObjPtr, Jim_NewStringObj(interp, &missing, 1));
                 }
             }
             break;
@@ -15916,6 +15966,7 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [exists] */
 static int Jim_ExistsCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15946,6 +15997,7 @@ static int Jim_ExistsCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
         return JIM_ERR;
     }
 
+    objPtr = DupIfWrongInterp(interp, objPtr, JIM_TEMP_LIST);
     if (option == OPT_VAR) {
         result = Jim_GetVariable(interp, objPtr, 0) != NULL;
     }
@@ -15973,6 +16025,7 @@ static int Jim_ExistsCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [split] */
 static int Jim_SplitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -15987,7 +16040,7 @@ static int Jim_SplitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
         return JIM_ERR;
     }
 
-    str = Jim_GetString(argv[1], &len);
+    str = Jim_GetString(interp, argv[1], &len);
     if (len == 0) {
         return JIM_OK;
     }
@@ -15999,7 +16052,7 @@ static int Jim_SplitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
         splitLen = 4;
     }
     else {
-        splitChars = Jim_String(argv[2]);
+        splitChars = Jim_String(interp, argv[2]);
         splitLen = Jim_Utf8Length(interp, argv[2]);
     }
 
@@ -16062,6 +16115,7 @@ static int Jim_SplitCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [join] */
 static int Jim_JoinCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16078,12 +16132,13 @@ static int Jim_JoinCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         joinStrLen = 1;
     }
     else {
-        joinStr = Jim_GetString(argv[2], &joinStrLen);
+        joinStr = Jim_GetString(interp, argv[2], &joinStrLen);
     }
     Jim_SetResult(interp, Jim_ListJoin(interp, argv[1], joinStr, joinStrLen));
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [format] */
 static int Jim_FormatCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16100,6 +16155,7 @@ static int Jim_FormatCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [scan] */
 static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16110,15 +16166,17 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         Jim_WrongNumArgs(interp, 1, argv, "string format ?varName varName ...?");
         return JIM_ERR;
     }
-    if (argv[2]->typePtr != &scanFmtStringObjType)
-        SetScanFmtFromAny(interp, argv[2]);
-    if (FormatGetError(argv[2]) != 0) {
-        Jim_SetResultString(interp, FormatGetError(argv[2]), -1);
+
+    Jim_Obj *scannerObjPtr = DupIfSharedAndWrongRep(interp, argv[2], &scanFmtStringObjType, JIM_TEMP_LIST);
+    if (scannerObjPtr != &scanFmtStringObjType)
+        SetScanFmtFromAnyUnshared(interp, scannerObjPtr);
+    if (FormatGetError(scannerObjPtr) != 0) {
+        Jim_SetResultString(interp, FormatGetError(scannerObjPtr), -1);
         return JIM_ERR;
     }
     if (argc > 3) {
-        int maxPos = FormatGetMaxPos(argv[2]);
-        int count = FormatGetCnvCount(argv[2]);
+        int maxPos = FormatGetMaxPos(scannerObjPtr);
+        int count = FormatGetCnvCount(scannerObjPtr);
 
         if (maxPos > argc - 3) {
             Jim_SetResultString(interp, "\"%n$\" argument index out of range", -1);
@@ -16135,7 +16193,7 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
             return JIM_ERR;
         }
     }
-    listPtr = Jim_ScanString(interp, argv[1], argv[2], JIM_ERRMSG);
+    listPtr = Jim_ScanString(interp, argv[1], scannerObjPtr, JIM_ERRMSG);
     if (listPtr == 0)
         return JIM_ERR;
     if (argc > 3) {
@@ -16150,7 +16208,8 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 for (i = 0; i < outc; ++i) {
                     if (Jim_Length(interp, outVec[i]) > 0) {
                         ++count;
-                        if (Jim_SetVariable(interp, argv[3 + i], outVec[i]) != JIM_OK) {
+                        Jim_Obj *varNameObjPtr = DupIfWrongInterp(interp, argv[3 + i], JIM_TEMP_LIST);
+                        if (Jim_SetVariable(interp, varNameObjPtr, outVec[i]) != JIM_OK) {
                             rc = JIM_ERR;
                         }
                     }
@@ -16176,6 +16235,7 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [error] */
 static int Jim_ErrorCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16185,13 +16245,19 @@ static int Jim_ErrorCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     }
     Jim_SetResult(interp, argv[1]);
     if (argc == 3) {
-        JimSetStackTrace(interp, argv[2]);
+        if (Jim_SameInterp(interp, argv[2])) {
+            JimSetStackTrace(interp, argv[2]);
+        }
+        // TODO: what should be put in stack trace if it's from another thread?
+        // same with another command that's similar to this (can't remember now)
+
         return JIM_ERR;
     }
     interp->addStackTrace++;
     return JIM_ERR;
 }
 
+// smj-edison: audited
 /* [lrange] */
 static int Jim_LrangeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16207,6 +16273,7 @@ static int Jim_LrangeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [lrepeat] */
 static int Jim_LrepeatCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16235,6 +16302,7 @@ static int Jim_LrepeatCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *
     return JIM_OK;
 }
 
+// smj-edison: audited
 char **Jim_GetEnviron(void)
 {
 #if defined(HAVE__NSGETENVIRON)
@@ -16248,6 +16316,7 @@ char **Jim_GetEnviron(void)
 #endif
 }
 
+// smj-edison: audited
 void Jim_SetEnviron(char **env)
 {
 #if defined(HAVE__NSGETENVIRON)
@@ -16261,6 +16330,7 @@ void Jim_SetEnviron(char **env)
 #endif
 }
 
+// smj-edison: audited
 /* [env] */
 static int Jim_EnvCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16291,19 +16361,20 @@ static int Jim_EnvCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv
         Jim_WrongNumArgs(interp, 1, argv, "varName ?default?");
         return JIM_ERR;
     }
-    key = Jim_String(argv[1]);
+    key = Jim_String(interp, argv[1]);
     val = getenv(key);
     if (val == NULL) {
         if (argc < 3) {
             Jim_SetResultFormatted(interp, "environment variable \"%#s\" does not exist", argv[1]);
             return JIM_ERR;
         }
-        val = Jim_String(argv[2]);
+        val = Jim_String(interp, argv[2]);
     }
     Jim_SetResult(interp, Jim_NewStringObj(interp, val, -1));
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [source] */
 static int Jim_SourceCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16313,12 +16384,13 @@ static int Jim_SourceCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *a
         Jim_WrongNumArgs(interp, 1, argv, "fileName");
         return JIM_ERR;
     }
-    retval = Jim_EvalFile(interp, Jim_String(argv[1]));
+    retval = Jim_EvalFile(interp, Jim_String(interp, argv[1]));
     if (retval == JIM_RETURN)
         return JIM_OK;
     return retval;
 }
 
+// smj-edison: audited
 /* [lreverse] */
 static int Jim_LreverseCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16339,6 +16411,7 @@ static int Jim_LreverseCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const 
     return JIM_OK;
 }
 
+// smj-edison: audited
 static int JimRangeLen(jim_wide start, jim_wide end, jim_wide step)
 {
     jim_wide len;
@@ -16365,6 +16438,7 @@ static int JimRangeLen(jim_wide start, jim_wide end, jim_wide step)
     return (int)((len < 0) ? -1 : len);
 }
 
+// smj-edison: audited
 /* [range] */
 static int Jim_RangeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16399,6 +16473,7 @@ static int Jim_RangeCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     return JIM_OK;
 }
 
+// smj-edison: audited
 /* [rand] */
 static int Jim_RandCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
@@ -16524,6 +16599,8 @@ void Jim_RegisterCoreCommands(Jim_Interp *interp)
 /* -----------------------------------------------------------------------------
  * Interactive prompt
  * ---------------------------------------------------------------------------*/
+
+// smj-edison: audited
 void Jim_MakeErrorMessage(Jim_Interp *interp)
 {
     Jim_Obj *argv[2];
@@ -16534,6 +16611,7 @@ void Jim_MakeErrorMessage(Jim_Interp *interp)
     Jim_EvalObjVector(interp, 2, argv);
 }
 
+// smj-edison: audited
 /*
  * Given a null terminated array of strings, returns an allocated, sorted
  * copy of the array.
@@ -16556,6 +16634,7 @@ static char **JimSortStringTable(const char *const *tablePtr)
     return tablePtrSorted;
 }
 
+// smj-edison: audited
 static void JimSetFailedEnumResult(Jim_Interp *interp, const char *arg, const char *badtype,
     const char *prefix, const char *const *tablePtr, const char *name)
 {
@@ -16581,6 +16660,7 @@ static void JimSetFailedEnumResult(Jim_Interp *interp, const char *arg, const ch
 }
 
 
+// smj-edison: audited
 /*
  * If objPtr is "-commands" sets the Jim result as a sorted list of options in the table
  * and returns JIM_OK.
@@ -16683,6 +16763,7 @@ int Jim_GetEnum(Jim_Interp *interp, Jim_Obj *objPtr,
     return JIM_ERR;
 }
 
+// smj-edison: audited
 int Jim_FindByName(const char *name, const char * const array[], size_t len)
 {
     int i;
@@ -16695,11 +16776,13 @@ int Jim_FindByName(const char *name, const char * const array[], size_t len)
     return -1;
 }
 
+// smj-edison: audited
 int Jim_IsDict(Jim_Obj *objPtr)
 {
     return objPtr->typePtr == &dictObjType;
 }
 
+// smj-edison: audited
 int Jim_IsList(Jim_Obj *objPtr)
 {
     return objPtr->typePtr == &listObjType;
@@ -16775,6 +16858,7 @@ void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...)
     }
 }
 
+// smj-edison: audited
 /* Should be called as the first thing in a loadable module to verify
  * that the interpeter ABI is compatible with the ABI that the module was compiled against.
  * Returns JIM_ERR and sets an error if mismatch.
@@ -16790,12 +16874,14 @@ int Jim_CheckAbiVersion(Jim_Interp *interp, int abi_version)
 
 /* stubs */
 #ifndef jim_ext_package
+// smj-edison: audited
 int Jim_PackageProvide(Jim_Interp *interp, const char *name, const char *ver, int flags)
 {
     return JIM_OK;
 }
 #endif
 #ifndef jim_ext_aio
+// smj-edison: audited
 FILE *Jim_AioFilehandle(Jim_Interp *interp, Jim_Obj *fhObj)
 {
     Jim_SetResultString(interp, "aio not enabled", -1);
