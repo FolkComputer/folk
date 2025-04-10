@@ -12,6 +12,6 @@ When /p/ is an editor {
 }
 
 sleep 1
-set whens [QueryAcquire! guard when this is a test /body/ with /...anything/]
+set whens [Query! when this is a test /body/ with /...anything/]
 assert {[llength $whens] == 1}
 __conclude 0

@@ -103,7 +103,7 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     # give us regions of interest to do partial scans on the new
     # camera frame.
     set dets [dict create]
-    Query! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
+    ForEach! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
         if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
             ![dict exists $dets $id]} {
 

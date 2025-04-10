@@ -474,12 +474,10 @@ proc On {event args} {
     }
 }
 
-# QueryAcquire! is like QueryAcquireSimple! but with added support for
+# Query! is like QuerySimple! but with added support for
 # & joins, and it'll automatically also test the claimized pattern
 # (with `/someone/ claims` prepended).
-proc QueryAcquire! {guardVar args} {
-    upvar $guardVar guard
-
+proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
 
@@ -504,7 +502,7 @@ proc QueryAcquire! {guardVar args} {
         } elseif {[set varName [__scanVariable $term]] != 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
-                error "QueryAcquire!: negation is not supported"
+                error "Query!: negation is not supported"
 
             } else {
                 # Rewrite subsequent instances of this variable name /x/
@@ -521,13 +519,13 @@ proc QueryAcquire! {guardVar args} {
 
     if {[llength $pattern] >= 2 && ([lindex $pattern 1] eq "claims" ||
                                     [lindex $pattern 1] eq "wishes")} {
-        set results0 [QueryAcquireSimple! guard {*}$pattern]
+        set results0 [QuerySimple! {*}$pattern]
     } else {
         # If the pattern doesn't already have `claims` or `wishes` in
         # second position, then automatically query for the claimized
         # version of the pattern as well.
-        set results0 [concat [QueryAcquireSimple! guard {*}$pattern] \
-                          [QueryAcquireSimple! guard /someone/ claims {*}$pattern]]
+        set results0 [concat [QuerySimple! {*}$pattern] \
+                          [QuerySimple! /someone/ claims {*}$pattern]]
     }
 
     if {![info exists remainingPattern]} {
@@ -537,24 +535,24 @@ proc QueryAcquire! {guardVar args} {
     set results [list]
     foreach result0 $results0 {
         dict with result0 {
-            foreach result [QueryAcquire! guard {*}$remainingPattern] {
+            foreach result [Query! {*}$remainingPattern] {
                 lappend results [dict merge $result0 $result]
             }
         }
     }
     return $results
 }
-proc Query! {args} {
+proc ForEach! {args} {
     set body [lindex $args end]
     set pattern [lreplace $args end end]
 
-    set results [QueryAcquire! guard {*}$pattern]
+    set results [Query! {*}$pattern]
     upvar __result result
     foreach result $results {
         # TODO: support early return in body
+        # TODO: acquire the __result while running $body
         uplevel [list dict with __result $body]
     }
-    QueryRelease! guard
 }
 
 set ::thisNode [info hostname]

@@ -359,51 +359,8 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static void UpdateStringOfResultSet(Jim_Obj *objPtr);
-static Jim_ObjType resultSetObjType = {
-    .name = "ResultSet",
-    .freeIntRepProc = NULL,
-    .dupIntRepProc = NULL,
-    .updateStringProc = UpdateStringOfResultSet,
-    .flags = JIM_TYPE_NONE
-};
-static void UpdateStringOfResultSet(Jim_Obj *objPtr) {
-    ResultSet *rs = objPtr->internalRep.ptr;
-    objPtr->bytes = malloc(100);
-    objPtr->length = snprintf(objPtr->bytes, 100, "(ResultSet*) %p", rs);
-}
-static void SetResultSetFromAny(Jim_Interp *interp, Jim_Obj *objPtr) {
-    ResultSet *rs;
-    if (sscanf(Jim_String(objPtr), "(ResultSet*) %p", &rs) != 1) {
-        fprintf(stderr, "SetResultFromAny: failed (%s)\n", Jim_String(objPtr));
-        exit(1);
-    }
-    objPtr->typePtr = &resultSetObjType;
-    objPtr->internalRep.ptr = rs;
-}
-
-static int QueryAcquireSimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 3);
-
-    Jim_Obj *guardObj = Jim_GetVariable(interp, argv[1], 0);
-    if (guardObj == NULL) {
-        guardObj = Jim_NewListObj(interp, NULL, 0);
-    }
-
-    Clause* pattern = jimObjsToClauseWithCaching(argc - 2, argv + 2);
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(pattern);
-    TracyCMessageFmt("query: %.200s", s); free(s);
-#endif
-
+Jim_Obj* QuerySimple(Clause* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
-
-    Jim_Obj *rsObj = Jim_NewObj(interp);
-    rsObj->bytes = NULL;
-    rsObj->typePtr = &resultSetObjType;
-    rsObj->internalRep.ptr = rs;
-    Jim_ListAppendElement(interp, guardObj, rsObj);
-    Jim_SetVariable(interp, argv[1], guardObj);
 
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
@@ -420,6 +377,7 @@ static int QueryAcquireSimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *
             envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
             envDict[(j+1)*2+1] = env->bindings[j].value;
         }
+        statementRelease(db, result);
 
         Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         Jim_ListAppendElement(interp, ret, resultObj);
@@ -427,31 +385,22 @@ static int QueryAcquireSimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *
         free(env);
     }
 
-    clauseFree(pattern);
-    
-    Jim_SetResult(interp, ret);
-    return JIM_OK;
+    return ret;
 }
 
-static int QueryReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 2);
+static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc >= 2);
 
-    Jim_Obj *guardObj = Jim_GetVariable(interp, argv[1], 0);
-    int rsCount = Jim_ListLength(interp, guardObj);
-    for (int i = 0; i < rsCount; i++) {
-        Jim_Obj *rsObj = Jim_ListGetIndex(interp, guardObj, i);
-        SetResultSetFromAny(interp, rsObj);
-        ResultSet *rs = (ResultSet *)rsObj->internalRep.ptr;
+    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+#ifdef TRACY_ENABLE
+    char *s = clauseToString(pattern);
+    TracyCMessageFmt("query: %.200s", s); free(s);
+#endif
 
-        for (size_t i = 0; i < rs->nResults; i++) {
-            // We know the get is safe because we should still have
-            // acquired the statement from QueryAcquire!.
-            statementRelease(db, statementUnsafeGet(db, rs->results[i]));
-        }
-        free(rs);
-    }
-
-    Jim_UnsetVariable(interp, argv[1], 0);
+    Jim_Obj *retObj = QuerySimple(pattern);
+    clauseFree(pattern);
+    
+    Jim_SetResult(interp, retObj);
     return JIM_OK;
 }
 
@@ -564,8 +513,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "QueryAcquireSimple!", QueryAcquireSimpleFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "QueryRelease!", QueryReleaseFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);

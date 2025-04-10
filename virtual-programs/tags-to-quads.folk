@@ -367,7 +367,7 @@ set spaceLib [library create {
             return [change $changedSpace $targetSpace $v]
         }
 
-        Query! /someone/ claims the changer from space $sourceSpace to space $targetSpace is /changer/ {
+        ForEach! /someone/ claims the changer from space $sourceSpace to space $targetSpace is /changer/ {
             set ret [{*}$changer $v]
         }
         if {![info exists ret]} {
@@ -480,7 +480,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         set tagSize [dict get $geom tagSize]
 
-        set prevResults [QueryAcquire! guard tag $tag has pose /tagPose/ at timestamp /timestamp/]
+        set prevResults [Query! tag $tag has pose /tagPose/ at timestamp /timestamp/]
         if {[llength $prevResults] > 0} {
             set latestResult [lindex [lsort -command {apply {{a b} {
                 expr { [dict get $b timestamp] < [dict get $a timestamp] }
@@ -505,11 +505,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         ## tag stabilization ##
         # (can't use When here as it can't exfiltrate info). Is there a better way to do this?
-        set stabilizedMatches [QueryAcquire! guard /someone/ wishes tag $tag is stabilized]
+        set stabilizedMatches [Query! /someone/ wishes tag $tag is stabilized]
         set isTagStabilized [expr {[llength $stabilizedMatches] > 0}]
 
         if {$isTagStabilized} {
-            set stateResults [QueryAcquire! guard tag $tag is stabilized with state /state/]
+            set stateResults [Query! tag $tag is stabilized with state /state/]
             if {[llength $stateResults] > 0} {
                 set state [dict get [lindex $stateResults 0] state]
                 dict with state {
@@ -564,8 +564,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list  [- $r]    $r  0]]
         set quad [$quadLib create $tagSpace $vertices]
         Claim tag $tag has quad $quad
-
-        QueryRelease! guard
     }
 }
 

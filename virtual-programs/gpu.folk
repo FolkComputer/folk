@@ -1291,9 +1291,7 @@ if {$macos} {
     # HACK: to guarantee that GPU init runs on main thread.
     local proc When' {args} {
         while {![info exists gpuImageLib]} {
-            Query! the GPU image library is /gpuImageLib/ {
-                break
-            }
+            ForEach! the GPU image library is /gpuImageLib/ {}
             sleep 0.1
         }
         set body [lindex $args end]
@@ -1325,7 +1323,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
 
     fn QueryAllFns! {} {
         set fns [dict create]
-        Query! /someone/ claims the GPU compiles function /name/ to /fn/ {
+        ForEach! /someone/ claims the GPU compiles function /name/ to /fn/ {
             dict set fns $name $fn
         }
         return $fns
@@ -1385,12 +1383,12 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
-        set matches [QueryAcquire! guard /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
         set pipelines [dict create]
         foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
         set displayList [dict create]
-        foreach match [QueryAcquire! guard /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
                 set name [dict get $match name]
                 if {![dict exists $pipelines $name]} {
@@ -1442,7 +1440,6 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
 
         tracy frameMarkNamed $kGpu
 
-        QueryRelease! guard
         $gpu poll
 
         # TODO: sleep for 5ms or something?
