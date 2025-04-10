@@ -3266,10 +3266,11 @@ void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
     Jim_IncrRefCount(dupPtr->internalRep.sourceValue.fileNameObj);
 }
 
-void Jim_SetSourceInfo(Jim_Obj *objPtr,
+void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj *fileNameObj, int lineNumber)
 {
-    JimPanic((Jim_IsShared(objPtr), "Jim_SetSourceInfo called with shared object"));
+    JimPanic((!Jim_SameInterp(interp, objPtr),
+        "object from another interpreter when running Jim_SetSourceInfo"));
     Jim_FreeIntRep(objPtr);
     Jim_IncrRefCount(fileNameObj);
     objPtr->internalRep.sourceValue.fileNameObj = fileNameObj;
@@ -3680,7 +3681,7 @@ static void ScriptObjAddTokens(Jim_Interp *interp, struct ScriptObj *script,
             /* Every object is initially a string of type 'source', but the
              * internal type may be specialized during execution of the
              * script. */
-            Jim_SetSourceInfo(token->objPtr, script->fileNameObj, t->line);
+            Jim_SetSourceInfo(interp, token->objPtr, script->fileNameObj, t->line);
             token++;
         }
     }
@@ -6612,7 +6613,7 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
             if (parser.tt != JIM_TT_STR && parser.tt != JIM_TT_ESC)
                 continue;
             elementPtr = JimParserGetTokenObj(interp, &parser);
-            Jim_SetSourceInfo(elementPtr, fileNameObj, parser.tline);
+            Jim_SetSourceInfo(interp, elementPtr, fileNameObj, parser.tline);
             ListAppendElement(objPtr, elementPtr);
         }
     }
@@ -9526,7 +9527,7 @@ missingoperand:
                 objPtr = Jim_NewStringObj(interp, t->token, t->len);
                 if (t->type == JIM_TT_CMD) {
                     /* Only commands need source info */
-                    Jim_SetSourceInfo(objPtr, builder->fileNameObj, t->line);
+                    Jim_SetSourceInfo(interp, objPtr, builder->fileNameObj, t->line);
                 }
             }
 
@@ -11054,6 +11055,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
                 }
                 return NULL;
         }
+        intv[i] = DupIfShared(interp, intv[i], JIM_LIVE_LIST);
         Jim_IncrRefCount(intv[i]);        
         totlen += Jim_Length(interp, intv[i]);
     }
@@ -11079,7 +11081,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     }
     else if (tokens && intv[0] && intv[0]->typePtr == &sourceObjType) {
         /* The first interpolated token is source, so preserve the source info */
-        Jim_SetSourceInfo(objPtr, intv[0]->internalRep.sourceValue.fileNameObj, intv[0]->internalRep.sourceValue.lineNumber);
+        Jim_SetSourceInfo(interp, objPtr, intv[0]->internalRep.sourceValue.fileNameObj, intv[0]->internalRep.sourceValue.lineNumber);
     }
 
 
@@ -11654,7 +11656,7 @@ int Jim_EvalSource(Jim_Interp *interp, const char *filename, int lineno, const c
     if (filename) {
         Jim_Obj *prevScriptObj;
 
-        Jim_SetSourceInfo(scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno);
+        Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), lineno);
 
         prevScriptObj = interp->currentScriptObj;
         interp->currentScriptObj = scriptObjPtr;
@@ -11737,7 +11739,7 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
     buf[readlen] = 0;
 
     scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen);
-    Jim_SetSourceInfo(scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
+    Jim_SetSourceInfo(interp, scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
     Jim_IncrRefCount(scriptObjPtr);
 
     prevScriptObj = interp->currentScriptObj;
@@ -15720,7 +15722,7 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                         return JIM_ERR;
                     }
                     resObjPtr = Jim_NewStringObj(interp, Jim_String(interp, argv[2]), Jim_Length(interp, argv[2]));
-                    Jim_SetSourceInfo(resObjPtr, argv[3], line);
+                    Jim_SetSourceInfo(interp, resObjPtr, argv[3], line);
                 }
                 else {
                     if (argv[2]->typePtr == &sourceObjType) {
