@@ -1086,8 +1086,9 @@ static Jim_HashEntry *JimInsertHashEntry(Jim_HashTable *ht, const void *key, int
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
 
-static unsigned int JimStringCopyHTHashFunction(const void *key)
+static unsigned int JimStringCopyHTHashFunction(void *privdata, const void *key)
 {
+    JIM_NOTUSED(privdata);
     return Jim_GenHashFunction(key, strlen(key));
 }
 
@@ -2222,7 +2223,7 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
 void Jim_FreeObj(Jim_Obj *objPtr)
 {
     /* Check if the object was already freed, panic. */
-    int refCount = atomic_load_explicit(&objPtr->refCount, memory_order_relaxed);
+    int refCount = atomic_load_explicit(&(objPtr->refCount), memory_order_relaxed);
     JimPanic((refCount != 0, "!!!Object %p freed with bad refcount %d, type=%s", objPtr,
         refCount, objPtr->typePtr ? objPtr->typePtr->name : "<none>"));
 
@@ -2247,6 +2248,8 @@ void Jim_InvalidateStringRep(Jim_Obj *objPtr)
     }
     objPtr->bytes = NULL;
 }
+
+static int SetStringFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 // smj-edison: audited
 /* Duplicate an object. The returned object has refcount = 0. */
@@ -2287,7 +2290,7 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
         }
     }
 
-    if (flags & JIM_FORCE_STRING != 0) {
+    if ((flags & JIM_FORCE_STRING) != 0) {
         SetStringFromAnyUnshared(interp, objPtr);
     }
     
@@ -2306,7 +2309,7 @@ Jim_Obj *DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     if (Jim_IsShared(objPtr)) {
         objPtr = Jim_DuplicateObj(interp, objPtr, flags);
 
-        if (flags & JIM_TEMP_LIST != 0) {
+        if ((flags & JIM_TEMP_LIST) != 0) {
             // only increment refCount if it's on the temp list
             Jim_IncrRefCount(objPtr);
         }
@@ -2315,7 +2318,7 @@ Jim_Obj *DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     return objPtr;
 }
 
-Jim_Obj *DupIfSharedAndWrongRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_ObjType *typePtr, int flags) {
+Jim_Obj *DupIfSharedAndWrongRep(Jim_Interp *interp, Jim_Obj *objPtr, const Jim_ObjType *typePtr, int flags) {
     if (objPtr->typePtr != typePtr) {
         return DupIfShared(interp, objPtr, flags);
     }
@@ -2342,11 +2345,10 @@ Jim_Obj *DupIfWrongInterp(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     // when it holds variable references. Therefore, we should always force
     // it to be a string for safety.
     flags |= JIM_FORCE_STRING;
-
     if (!Jim_SameInterp(interp, objPtr)) {
         objPtr = Jim_DuplicateObj(interp, objPtr, flags);
 
-        if (flags & JIM_TEMP_LIST != 0) {
+        if ((flags & JIM_TEMP_LIST) != 0) {
             // only increment refCount if it's on the temp list
             Jim_IncrRefCount(objPtr);
         }
@@ -2449,7 +2451,6 @@ static void DupInterpolatedInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_
  * String Object
  * ---------------------------------------------------------------------------*/
 static void DupStringInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType stringObjType = {
     "string",
@@ -2505,7 +2506,7 @@ int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
 #ifdef JIM_UTF8
     int len = 0;
-    char *strValue = Jim_GetString(interp, objPtr, &len);
+    const char *strValue = Jim_GetString(interp, objPtr, &len);
 
     return utf8_strlen(strValue, len);
 #else
@@ -2631,7 +2632,7 @@ void Jim_AppendStrings(Jim_Interp *interp, Jim_Obj *objPtr, ...)
 {
     va_list ap;
 
-    SetStringFromAny(interp, objPtr);
+    SetStringFromAnyUnshared(interp, objPtr);
     va_start(ap, objPtr);
     while (1) {
         const char *s = va_arg(ap, const char *);
@@ -3993,15 +3994,17 @@ static void JimDecrCmdRefCount(Jim_Interp *interp, Jim_Cmd *cmdPtr)
  *
  * Keys are Jim_Obj. Values are Jim_Var.
  */
-static void JimVariablesHTValDestructor(void *interp, void *val)
+static void JimVariablesHTValDestructor(void *privdata, void *val)
 {
+    JIM_NOTUSED(privdata);
     Jim_DecrRefCount(((Jim_Var *)val)->objPtr);
     Jim_Free(val);
 }
 
 // smj-edison: audited
-static unsigned int JimObjectHTHashFunction(Jim_Interp *interp, const void *key)
+static unsigned int JimObjectHTHashFunction(void *privdata, const void *key)
 {
+    Jim_Interp *interp = (Jim_Interp *)privdata;
     Jim_Obj *keyObj = (Jim_Obj *)key;
     int length;
     const char *string;
@@ -4089,8 +4092,10 @@ static const char *Jim_GetStringNoQualifier(Jim_Interp *interp, Jim_Obj *objPtr,
 }
 
 // smj-edison: audited
-static unsigned int JimCommandsHT_HashFunction(Jim_Interp *interp, const void *key)
+static unsigned int JimCommandsHT_HashFunction(void *privdata, const void *key)
 {
+    Jim_Interp *interp = (Jim_Interp *)privdata;
+
     int len;
     const char *str = Jim_GetStringNoQualifier(interp, (Jim_Obj *)key, &len);
     return Jim_GenHashFunction((const unsigned char *)str, len);
@@ -4245,6 +4250,8 @@ int Jim_CreateCommand(Jim_Interp *interp, const char *cmdNameStr,
 {
     return Jim_CreateCommandObj(interp, Jim_NewStringObj(interp, cmdNameStr, -1), cmdProc, privData, delProc);
 }
+
+static const Jim_ObjType listObjType;
 
 // smj-edison: audited
 static int JimCreateProcedureStatics(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj *staticsListObjPtr)
@@ -4732,7 +4739,7 @@ static int JimUnsetVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr)
 /* Panics if nameObjPtr is from another interpreter. */
 static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Obj *valObjPtr)
 {
-    JimPanic((!Jim_SameInterp(interp, objPtr),
+    JimPanic((!Jim_SameInterp(interp, nameObjPtr),
         "object from another interpreter when running JimCreateVariable"));
 
     const char *name;
@@ -5538,8 +5545,6 @@ void Jim_FreeInterp(Jim_Interp *i)
 {
     Jim_CallFrame *cf, *cfx;
 
-    Jim_Obj *objPtr, *nextObjPtr;
-
     i->quitting = 1;
 
     /* Free the active call frames list - must be done before i->commands is destroyed */
@@ -5572,38 +5577,6 @@ void Jim_FreeInterp(Jim_Interp *i)
     if (i->traceCmdObj) {
         Jim_DecrRefCount(i->traceCmdObj);
     }
-
-    /* Check that the live object list is empty, otherwise
-     * there is a memory leak. */
-#ifdef JIM_MAINTAINER
-    if (i->liveList != NULL) {
-        objPtr = i->liveList;
-
-        printf("\n-------------------------------------\n");
-        printf("Objects still in the free list:\n");
-        while (objPtr) {
-            const char *type = objPtr->typePtr ? objPtr->typePtr->name : "string";
-            Jim_String(objPtr);
-            
-            if (objPtr->bytes && strlen(objPtr->bytes) > 20) {
-                printf("%p (%d) %-10s: '%.20s...'\n",
-                    (void *)objPtr, objPtr->refCount, type, objPtr->bytes);
-            }
-            else {
-                printf("%p (%d) %-10s: '%s'\n",
-                    (void *)objPtr, objPtr->refCount, type, objPtr->bytes ? objPtr->bytes : "(null)");
-            }
-            if (objPtr->typePtr == &sourceObjType) {
-                printf("FILE %s LINE %d\n",
-                    Jim_String(objPtr->internalRep.sourceValue.fileNameObj),
-                    objPtr->internalRep.sourceValue.lineNumber);
-            }
-            objPtr = objPtr->nextObjPtr;
-        }
-        printf("-------------------------------------\n\n");
-        JimPanic((1, "Live list non empty freeing the interpreter! Leak?"));
-    }
-#endif
 
     /* FIXME: Free all the freed objects. */
 
@@ -5861,7 +5834,7 @@ int Jim_GetExitCode(Jim_Interp *interp)
  * Integer object
  * ---------------------------------------------------------------------------*/
 static void UpdateStringOfInt(Jim_Interp *interp, struct Jim_Obj *objPtr);
-static int SetIntFromAny(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+static int SetIntFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
 
 static const Jim_ObjType intObjType = {
     "int",
@@ -5887,7 +5860,7 @@ static const Jim_ObjType coercedDoubleObjType = {
 // smj-edison: audited (never called with shared object)
 static void UpdateStringOfInt(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    JIM_UNUSED(interp);
+    JIM_NOTUSED(interp);
     char buf[JIM_INTEGER_SPACE + 1];
     jim_wide wideValue = JimWideValue(objPtr);
     int pos = 0;
@@ -6616,7 +6589,7 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
     Jim_IncrRefCount(fileNameObj);
 
     /* Get the string representation */
-    str = Jim_GetStringUnshared(objPtr, &strLen);
+    str = Jim_GetString(interp, objPtr, &strLen);
 
     /* Free the old internal repr just now and initialize the
      * new one just now. The string->list conversion can't fail. */
@@ -6689,7 +6662,7 @@ Jim_Obj *Jim_NewListObj(Jim_Interp *interp, Jim_Obj *const *elements, int len)
 static void JimListGetElements(Jim_Interp *interp, Jim_Obj *listObj, int *listLen,
     Jim_Obj ***listVec)
 {
-    listObj = DupIfSharedAndWrongRep(interp, listObj, &listObj, JIM_TEMP_LIST);
+    listObj = DupIfSharedAndWrongRep(interp, listObj, &listObjType, JIM_TEMP_LIST);
     *listLen = Jim_ListLength(interp, listObj);
     *listVec = listObj->internalRep.listValue.ele;
 }
@@ -7114,7 +7087,7 @@ err:
 static int ListSetIndexUnshared(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
     Jim_Obj *newObjPtr, int flags)
 {
-    JimPanic((Jim_IsShared(objPtr), "ListSetIndexUnshared called with shared object"));
+    JimPanic((Jim_IsShared(listPtr), "ListSetIndexUnshared called with shared object"));
 
     SetListFromAnyUnshared(interp, listPtr);
     if ((idx >= 0 && idx >= listPtr->internalRep.listValue.len) ||
@@ -7616,7 +7589,7 @@ static int SetDictFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 
 // smj-edison: audited
 /* Add an element to a dict. objPtr must be of the "dict" type.
- * The higher-level exported function is Jim_DictAddElement().
+ * The higher-level exported function is Jim_DictAddElementUnshared().
  * If an element with the specified key already exists, the value
  * associated is replaced with the new one.
  *
@@ -9743,14 +9716,12 @@ static struct ExprTree *JimGetExpression(Jim_Interp *interp, Jim_Obj *objPtr)
 /* May panic if called with an object from another interpreter. */
 static Jim_Obj *JimExprIntValOrVar(Jim_Interp *interp, struct JimExprNode *node)
 {
-    Jim_Obj *objPtr;
-
     if (node->type == JIM_TT_EXPR_INT) {
         return node->objPtr;
     } else if (node->type == JIM_TT_VAR) {
         return Jim_GetVariable(interp, node->objPtr, JIM_NONE);
     } else if (node->type == JIM_TT_DICTSUGAR) {
-        return JimExpandDictSugar(interp, objPtr);
+        return JimExpandDictSugar(interp, node->objPtr);
     } else {
         return NULL;
     }
@@ -10918,9 +10889,14 @@ int Jim_EvalObjVectorThreadSafe(Jim_Interp *interp, int objc, Jim_Obj *const *ob
     if (Jim_SameInterp(interp, objv[0])) {
         return Jim_EvalObjVector(interp, objc, objv);
     } else {
-        Jim_Obj *tmpList = Jim_NewListObj(interp, objc, objv);
+        Jim_Obj *tmpList = Jim_NewListObj(interp, objv, objc);
         ListSetIndexUnshared(interp, tmpList, 0, Jim_DuplicateObj(interp, objv[0], JIM_TEMP_LIST), JIM_NONE);
-        return Jim_EvalObjVector(interp, objc, tmpList);
+        
+        Jim_Obj **elements;
+        int listlen;
+        JimListGetElements(interp, tmpList, &listlen, &elements);
+
+        return Jim_EvalObjVector(interp, listlen, elements);
     }
 }
 
@@ -11082,7 +11058,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     /* Fast path return for a single token */
     if (tokens == 1 && intv[0] && intv == sintv) {
         /* Reverse the Jim_IncrRefCount() above, but don't free the object */
-        atomic_fetch_sub_explicit(&(objPtr->refCount), 1, memory_order_relaxed);
+        atomic_fetch_sub_explicit(&(intv[0]->refCount), 1, memory_order_relaxed);
         return intv[0];
     }
 
@@ -11149,7 +11125,7 @@ static int JimEvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
 int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
 {
     listPtr = DupIfShared(interp, listPtr, JIM_TEMP_LIST);
-    listPtr = SetListFromAnyUnshared(interp, listPtr);
+    SetListFromAnyUnshared(interp, listPtr);
 
     Jim_Obj *firstItem = Jim_ListGetIndex(interp, listPtr, 0);
     if (firstItem && !Jim_SameInterp(interp, firstItem)) {
@@ -11163,7 +11139,7 @@ int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
 /* Panics if called with an object from another interpreter. */
 int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 {
-    JimPanic((!Jim_SameInterp(interp, objPtr),
+    JimPanic((!Jim_SameInterp(interp, scriptObjPtr),
         "object from another interpreter when running Jim_EvalObj"));
 
     int i;
@@ -13749,57 +13725,12 @@ static int Jim_DebugCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
         return JIM_OK;
     }
     else if (option == OPT_OBJCOUNT) {
-        int freeobj = 0, liveobj = 0;
-        char buf[256];
-        Jim_Obj *objPtr;
-
-        if (argc != 2) {
-            Jim_WrongNumArgs(interp, 2, argv, "");
-            return JIM_ERR;
-        }
-        /* Count the number of free objects. */
-        objPtr = interp->freeList;
-        while (objPtr) {
-            freeobj++;
-            objPtr = objPtr->nextObjPtr;
-        }
-        /* Count the number of live objects. */
-        objPtr = interp->liveList;
-        while (objPtr) {
-            liveobj++;
-            objPtr = objPtr->nextObjPtr;
-        }
-        /* Set the result string and return. */
-        sprintf(buf, "free %d used %d", freeobj, liveobj);
-        Jim_SetResultString(interp, buf, -1);
-        return JIM_OK;
+        Jim_SetResultString(interp, "[debug objcount] not implemented", -1);
+        return JIM_ERR;
     }
     else if (option == OPT_OBJECTS) {
-        Jim_Obj *objPtr, *listObjPtr, *subListObjPtr;
-
-        if (argc != 2) {
-            Jim_WrongNumArgs(interp, 2, argv, "");
-            return JIM_ERR;
-        }
-
-        /* Count the number of live objects. */
-        objPtr = interp->liveList;
-        listObjPtr = Jim_NewListObj(interp, NULL, 0);
-        while (objPtr) {
-            char buf[128];
-            const char *type = objPtr->typePtr ? objPtr->typePtr->name : "";
-
-            subListObjPtr = Jim_NewListObj(interp, NULL, 0);
-            sprintf(buf, "%p", objPtr);
-            Jim_ListAppendElement(interp, subListObjPtr, Jim_NewStringObj(interp, buf, -1));
-            Jim_ListAppendElement(interp, subListObjPtr, Jim_NewStringObj(interp, type, -1));
-            Jim_ListAppendElement(interp, subListObjPtr, Jim_NewIntObj(interp, objPtr->refCount));
-            Jim_ListAppendElement(interp, subListObjPtr, objPtr);
-            Jim_ListAppendElement(interp, listObjPtr, subListObjPtr);
-            objPtr = objPtr->nextObjPtr;
-        }
-        Jim_SetResult(interp, listObjPtr);
-        return JIM_OK;
+        Jim_SetResultString(interp, "[debug objects] not implemented", -1);
+        return JIM_ERR;
     }
     else if (option == OPT_INVSTR) {
         Jim_Obj *objPtr;
@@ -13822,7 +13753,7 @@ static int Jim_DebugCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
             Jim_WrongNumArgs(interp, 2, argv, "object");
             return JIM_ERR;
         }
-        s = Jim_GetString(argv[2], &len);
+        s = Jim_GetString(interp, argv[2], &len);
 #ifdef JIM_UTF8
         charlen = utf8_strlen(s, len);
 #else
@@ -14117,8 +14048,9 @@ static int JimAliasCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 }
 
 // smj-edison: audited
-static void JimAliasCmdDelete(void *privData)
+static void JimAliasCmdDelete(Jim_Interp *interp, void *privData)
 {
+    JIM_NOTUSED(interp);
     Jim_Obj *prefixListObj = privData;
     Jim_DecrRefCount(prefixListObj);
 }
@@ -14209,7 +14141,7 @@ static int Jim_LocalCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
 
     /* Evaluate the arguments with 'local' in force */
     interp->local++;
-    Jim_EvalObjVectorThreadSafe(interp, argc - 1, argv + 1);
+    retcode = Jim_EvalObjVectorThreadSafe(interp, argc - 1, argv + 1);
     interp->local--;
 
 
@@ -15319,7 +15251,7 @@ Jim_Obj *Jim_DictMerge(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
             return NULL;
         }
         for (j = 0; j < tablelen; j += 2) {
-            DictAddElement(interp, objPtr, table[j], table[j + 1]);
+            DictAddElementUnshared(interp, objPtr, table[j], table[j + 1]);
         }
     }
     return objPtr;
@@ -15427,6 +15359,7 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
 static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     Jim_Obj *objPtr;
+    Jim_Obj *dictPtr;
     int rc;
     int types = JIM_DICTMATCH_KEYS;
     int option;
@@ -15491,7 +15424,7 @@ static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "varName key ?key ...? value");
                 return JIM_ERR;
             }
-            Jim_Obj *dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
             return Jim_SetDictKeysVector(interp, dictPtr, argv + 3, argc - 4, argv[argc - 1], JIM_ERRMSG);
 
         case OPT_EXISTS:
@@ -15513,7 +15446,7 @@ static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 Jim_WrongNumArgs(interp, 2, argv, "varName key ?key ...?");
                 return JIM_ERR;
             }
-            Jim_Obj *dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            dictPtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
             if (Jim_SetDictKeysVector(interp, dictPtr, argv + 3, argc - 3, NULL, JIM_NONE) != JIM_OK) {
                 return JIM_ERR;
             }
@@ -16168,7 +16101,7 @@ static int Jim_ScanCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     }
 
     Jim_Obj *scannerObjPtr = DupIfSharedAndWrongRep(interp, argv[2], &scanFmtStringObjType, JIM_TEMP_LIST);
-    if (scannerObjPtr != &scanFmtStringObjType)
+    if (scannerObjPtr->typePtr != &scanFmtStringObjType)
         SetScanFmtFromAnyUnshared(interp, scannerObjPtr);
     if (FormatGetError(scannerObjPtr) != 0) {
         Jim_SetResultString(interp, FormatGetError(scannerObjPtr), -1);

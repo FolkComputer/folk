@@ -178,7 +178,7 @@ extern "C" {
 #define JIM_LIVE_LIST        0
 #define JIM_TEMP_LIST        1
 #define JIM_FORCE_STRING     2
-#define JIM_ON_OTHER_THREAD  4
+#define JIM_NO_REF_INCR      4
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -207,7 +207,7 @@ typedef struct Jim_HashEntry {
 } Jim_HashEntry;
 
 typedef struct Jim_HashTableType {
-    unsigned int (*hashFunction)(const void *key);
+    unsigned int (*hashFunction)(void *privdata, const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
@@ -265,7 +265,7 @@ typedef struct Jim_HashTableIterator {
         (ht)->type->keyCompare((ht)->privdata, (key1), (key2)) : \
         (key1) == (key2))
 
-#define Jim_HashKey(ht, key) ((ht)->type->hashFunction(key) + (ht)->uniq)
+#define Jim_HashKey(ht, key) ((ht)->type->hashFunction((ht)->privdata, key) + (ht)->uniq)
 
 #define Jim_GetHashEntryKey(he) ((he)->key)
 #define Jim_GetHashEntryVal(he) ((he)->u.val)
@@ -371,7 +371,10 @@ typedef struct Jim_Obj {
     do { int res = atomic_fetch_sub_explicit(&((objPtr)->refCount), 1, memory_order_release); \
          if (res <= 0) { Jim_FreeObj(objPtr); } } while(0)
 #define Jim_IsShared(objPtr) \
-    (atomic_fetch_add_explicit(&((objPtr)->refCount), 1, memory_order_relaxed) > 1)
+    (atomic_load_explicit(&((objPtr)->refCount), memory_order_relaxed) > 1)
+
+#define Jim_SameInterp(interp, objPtr) \
+    ((interp) == (objPtr)->interp)
 
 /* This macro is used when we allocate a new object using
  * Jim_New...Obj(), but for some error we need to destroy it.
