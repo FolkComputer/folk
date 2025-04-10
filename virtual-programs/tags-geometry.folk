@@ -45,7 +45,7 @@ When the default program geometry is /defaultGeom/ &\
         set writableImageId [list $tag writable image]
         # TODO: Set writable image resolution based on physical width
         # & height.
-        Wish the GPU creates writable image $writableImageId with width 1024 height 1024
+        Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
         Claim $tag has writable image $writableImageId
     }
 }

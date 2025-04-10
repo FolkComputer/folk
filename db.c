@@ -113,7 +113,7 @@ typedef struct Statement {
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
-    long keepMs;
+    _Atomic long keepMs;
 
     Destructor destructor;
 
@@ -433,12 +433,54 @@ bool statementTryIncrParentCount(Statement* stmt) {
 }
 
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
-    /* printf("statementRemoveParentAndMaybeRemoveSelf: s%d:%d\n", */
-    /*        stmt - &db->statementPool[0], stmt->gen); */
-    if (--stmt->parentCount == 0) {
-        // Note that we should have exclusive access to stmt at this point.
+    if (stmt->keepMs > 0) {
+        if (--stmt->parentCount == 0) {
+            // Note that we should have exclusive access to stmt at
+            // this point.
 
-        // Deindex the statement:
+            // Prevent future removers now that we've already
+            // scheduled removal.
+            long keepMs = stmt->keepMs;
+            stmt->keepMs = -keepMs;
+
+            // Tentatively trigger a removal in `keepMs` ms, but the
+            // statement is still able to be revived in the
+            // intervening time.
+            sysmonRemoveAfter(statementRef(db, stmt), keepMs);
+
+            stmt->parentCount++;
+        }
+
+    } else if (stmt->keepMs < 0) {
+        // We're carrying out a previously-scheduled removal.
+        if (--stmt->parentCount == 0) {
+            // Note that we should have exclusive access to stmt at
+            // this point.
+            statementRemoveSelf(db, stmt, true);
+
+        } else {
+            // The statement's been revived; restore keepMs.
+
+            // TODO: there's a race here if parentCount gets zeroed
+            // without ever getting scheduled for removal.
+            stmt->keepMs = -stmt->keepMs;
+        }
+
+    } else if (stmt->keepMs == 0) {
+        if (--stmt->parentCount == 0) {
+            // Note that we should have exclusive access to stmt at
+            // this point.
+            statementRemoveSelf(db, stmt, true);
+        }
+    }
+}
+
+// Call statementRemoveSelf when ALL of the statement's parents
+// (matches or other) are removed (parentCount has hit 0).
+void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex) {
+    assert(stmt->parentCount == 0);
+
+    if (doDeindex) {
         uint64_t results[100]; int resultsCount;
         epochBegin();
 
@@ -460,28 +502,7 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
                                                &oldClauseToStatementRef,
                                                newClauseToStatementRef));
         epochEnd();
-
-        if (resultsCount != 1) {
-            /* fprintf(stderr, "statementRemoveParentAndMaybeRemoveSelf: " */
-            /*         "warning: trieRemove (%s) nResults != 1 (%d)\n", */
-            /*         clauseToString(stmt->clause), */
-            /*         nResults); */
-        }
-
-        if (stmt->keepMs == 0) {
-            statementRemoveSelf(db, stmt);
-        } else {
-            // The statement is in a 'deindexed, but not removed'
-            // state at this point.
-            sysmonRemoveAfter(statementRef(db, stmt), stmt->keepMs);
-        }
     }
-}
-
-// Call statementRemoveSelf when ALL of the statement's parents
-// (matches or other) are removed (parentCount has hit 0).
-void statementRemoveSelf(Db* db, Statement* stmt) {
-    assert(stmt->parentCount == 0);
 
     /* printf("reactToRemovedStatement: s%d:%d (%s)\n", stmt - &db->statementPool[0], stmt->gen, */
     /*        clauseToString(stmt->clause)); */
@@ -741,6 +762,7 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
             // one is on the way out, so tell the caller to retry.
             return false;
         }
+
         matchAddChildStatement(db, parentMatch, statementRef(db, stmt));
         return true;
     }
@@ -839,7 +861,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                     // since we won't be using it.
                     Statement* newStmt = statementAcquire(db, ref);
                     newStmt->parentCount = 0;
-                    statementRemoveSelf(db, newStmt);
+                    statementRemoveSelf(db, newStmt, false);
                     statementRelease(db, newStmt);
 
                     if (parentMatch != NULL) {
