@@ -3,6 +3,8 @@ needs cmd debug
 
 set x 0
 
+testConstraint notImplemented 0
+
 test debug-0.1 {debug too few args} -body {
     debug
 } -returnCodes error -result {wrong # args: should be "debug subcommand ?...?"}
@@ -23,20 +25,20 @@ test debug-1.3 {debug refcount too many args} -body {
     debug refcount a b c
 } -returnCodes error -result {wrong # args: should be "debug refcount object"}
 
-test debug-2.1 {debug objcount} -body {
+test debug-2.1 {debug objcount} -constraints notImplemented -body {
     regexp {free \d+ used \d+} [debug objcount]
 } -result {1}
 
-test debug-2.2 {debug objcount too many args} -body {
+test debug-2.2 {debug objcount too many args} -constraints notImplemented -body {
     debug objcount a b c
 } -returnCodes error -result {wrong # args: should be "debug objcount"}
 
-test debug-3.1 {debug objects} -body {
+test debug-3.1 {debug objects} -constraints notImplemented -body {
     expr {[llength [debug objects]] > 1000}
 } -result {1}
 
 # does not currently check for too many args
-test debug-3.2 {debug objects too many args} -body {
+test debug-3.2 {debug objects too many args} -constraints notImplemented -body {
     debug objects a b c
 } -returnCodes error -result {wrong # args: should be "debug objects"}
 

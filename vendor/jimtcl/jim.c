@@ -2199,7 +2199,6 @@ static int JimParseListStr(struct JimParserCtx *pc)
 Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
 {
     Jim_Obj *objPtr;
-
     if (onTempList != 0) {
         int index = interp->tempList->length;
         JimPanic((index >= JIM_TEMP_LIST_SIZE, "ran out of space on temp list"));
@@ -4549,13 +4548,19 @@ static void DupCommandInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *
     Jim_IncrRefCount(dupPtr->internalRep.cmdValue.nsObj);
 }
 
+static void UpdateStringOfCommand(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    JIM_NOTUSED(interp);
+    JIM_NOTUSED(objPtr);
+}
+
 /* commandObjType is NOT thread-safe, as it contains cached references to commands
  * (see Jim_GetCommand) */ 
 static const Jim_ObjType commandObjType = {
     "command",
     FreeCommandInternalRep,
     DupCommandInternalRep,
-    NULL,
+    UpdateStringOfCommand,
     JIM_TYPE_REFERENCES,
 };
 
@@ -5603,7 +5608,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_Free(i);
 }
 
-void Jim_FreeTempList(Jim_Interp *interp)
+void Jim_ClearTempList(Jim_Interp *interp)
 {
     Jim_TempList *tempList = interp->tempList;
 

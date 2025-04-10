@@ -281,6 +281,8 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
             }
             putchar('\n');
         }
+
+        Jim_ClearTempList(interp);
     }
   out:
     Jim_Free(history_file);

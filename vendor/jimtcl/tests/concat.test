@@ -34,7 +34,7 @@ test concat-4.3 {pruning off extra white space sets length correctly} {
 test concat-5.1 {Tcl_ScanCountedElement procedure - don't leave unmatched braces} {
     # This test checks for a very tricky feature.  Any list element
     # generated with Tcl_ScanCountedElement and Tcl_ConvertElement must
-    # have the property that it can be enclosing in curly braces to make
+    # have the property that it can be enclosed in curly braces to make
     # an embedded sub-list.  If this property doesn't hold, then
     # Tcl_DStringStartSublist doesn't work.
 
