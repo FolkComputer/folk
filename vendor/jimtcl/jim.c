@@ -3246,12 +3246,13 @@ static int qsortCompareStringPointers(const void *a, const void *b)
 
 static void FreeSourceInternalRep(Jim_Obj *objPtr);
 static void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType sourceObjType = {
     "source",
     FreeSourceInternalRep,
     DupSourceInternalRep,
-    NULL,
+    UpdateStringOfSource,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3264,6 +3265,12 @@ void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 {
     dupPtr->internalRep.sourceValue = srcPtr->internalRep.sourceValue;
     Jim_IncrRefCount(dupPtr->internalRep.sourceValue.fileNameObj);
+}
+
+void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr)
+{
+    JIM_NOTUSED(interp);
+    JIM_NOTUSED(objPtr);
 }
 
 void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
@@ -6622,18 +6629,14 @@ static int SetListFromAnyUnshared(Jim_Interp *interp, struct Jim_Obj *objPtr)
 }
 
 // smj-edison: audited
-static int GetList(Jim_Interp *interp, struct Jim_Obj *objPtr, struct Jim_Obj **listOut)
+static Jim_Obj *GetList(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
-    int res = JIM_OK;
-
     if (objPtr->typePtr != &listObjType) {
         objPtr = DupIfShared(interp, objPtr, JIM_TEMP_LIST);
-
-        res = SetListFromAnyUnshared(interp, objPtr);
+        SetListFromAnyUnshared(interp, objPtr);
     }
 
-    *listOut = objPtr;
-    return res;
+    return objPtr;
 }
 
 // smj-edison: audited
@@ -6969,10 +6972,9 @@ void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendLis
     JimPanic((Jim_IsShared(listPtr), "Jim_ListAppendList called with shared object"));
     SetListFromAnyUnshared(interp, listPtr);
 
-    Jim_Obj* newAppendListPtr;
-    GetList(interp, appendListPtr, &newAppendListPtr);
+    appendListPtr = GetList(interp, appendListPtr);
     Jim_InvalidateStringRep(listPtr);
-    ListAppendList(listPtr, newAppendListPtr);
+    ListAppendList(listPtr, appendListPtr);
 }
 
 // smj-edison: audited
@@ -6985,9 +6987,8 @@ int Jim_ListLengthUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 // smj-edison: audited
 int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
 {
-    Jim_Obj *listPtr;
-    GetList(interp, objPtr, &listPtr);
-    return listPtr->internalRep.listValue.len;
+    objPtr = GetList(interp, objPtr);
+    return objPtr->internalRep.listValue.len;
 }
 
 // smj-edison: audited
@@ -7007,8 +7008,7 @@ void Jim_ListInsertElements(Jim_Interp *interp, Jim_Obj *listPtr, int idx,
 // smj-edison: audited
 Jim_Obj *Jim_ListGetIndex(Jim_Interp *interp, Jim_Obj *objPtr, int idx)
 {
-    Jim_Obj *listPtr;
-    GetList(interp, objPtr, &listPtr);
+    Jim_Obj *listPtr = GetList(interp, objPtr);
 
     if ((idx >= 0 && idx >= listPtr->internalRep.listValue.len) ||
         (idx < 0 && (-idx - 1) >= listPtr->internalRep.listValue.len)) {
@@ -11092,7 +11092,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
             int strLen;
             const char *str = Jim_GetString(interp, intv[i], &strLen);
             memcpy(s, str, strLen);
-            s += intv[i]->length;
+            s += strLen;
             Jim_DecrRefCount(intv[i]);
         }
     }
@@ -11311,8 +11311,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
             }
             else {
                 /* Need to expand wordObjPtr into multiple args from argv[j] ... */
-                Jim_Obj *wordListPtr;
-                GetList(interp, wordObjPtr, &wordListPtr);
+                Jim_Obj *wordListPtr = GetList(interp, wordObjPtr);
 
                 int len = Jim_ListLength(interp, wordListPtr);
                 int newargc = argc + len - 1;
@@ -12750,7 +12749,7 @@ static int JimForeachMapHelper(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         iters = Jim_Alloc(numargs * sizeof(*iters));
     }
     for (i = 0; i < numargs; i++) {
-        GetList(interp, argv[i + 1], &tmpListObj);
+        tmpListObj = GetList(interp, argv[i + 1]);
 
         JimListIterInit(&iters[i], tmpListObj);
         if (i % 2 == 0 && JimListIterDone(interp, &iters[i])) {
@@ -12858,7 +12857,7 @@ static int Jim_LassignCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *
         return JIM_ERR;
     }
 
-    GetList(interp, argv[1], &tmpListObj);
+    tmpListObj = GetList(interp, argv[1]);
     JimListIterInit(&iter, tmpListObj);
 
     for (i = 2; i < argc; i++) {
@@ -13237,8 +13236,7 @@ static int Jim_LsearchCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *
         Jim_IncrRefCount(commandObj);
     }
 
-    Jim_Obj *listObj;
-    GetList(interp, argv[0], &listObj);
+    Jim_Obj *listObj = GetList(interp, argv[0]);
 
     for (i = 0; i < listlen; i += stride) {
         int eq = 0;
@@ -13247,6 +13245,7 @@ static int Jim_LsearchCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *
         int offset;
 
         if (indexObj) {
+            indexObj = GetList(interp, indexObj);
             int indexlen = Jim_ListLength(interp, indexObj);
             if (stride == 1) {
                 searchListObj = Jim_ListGetIndex(interp, listObj, i);
