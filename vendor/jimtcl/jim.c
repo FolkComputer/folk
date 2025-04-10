@@ -11087,7 +11087,9 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
     objPtr->length = totlen;
     for (i = 0; i < tokens; i++) {
         if (intv[i]) {
-            memcpy(s, intv[i]->bytes, intv[i]->length);
+            int strLen;
+            const char *str = Jim_GetString(interp, intv[i], &strLen);
+            memcpy(s, str, strLen);
             s += intv[i]->length;
             Jim_DecrRefCount(intv[i]);
         }
