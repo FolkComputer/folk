@@ -111,11 +111,13 @@ static phandle_t JimStartWinProcess(Jim_Interp *interp, char **argv, char **env,
 /*
  * If the last character of 'objPtr' is a newline, then remove
  * the newline character.
+ * 
+ * objPtr must be non-shared.
  */
-static void Jim_RemoveTrailingNewline(Jim_Obj *objPtr)
+static void Jim_RemoveTrailingNewline(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     int len;
-    const char *s = Jim_GetString(objPtr, &len);
+    const char *s = Jim_GetString(interp, objPtr, &len);
 
     if (len > 0 && s[len - 1] == '\n') {
         objPtr->length--;
@@ -190,7 +192,7 @@ static char **JimBuildEnv(Jim_Interp *interp)
      * A list has at least one space for each element except the first.
      * We need one extra char for the extra null terminator and one for the equal sign.
      */
-    size = Jim_Length(objPtr) + 2;
+    size = Jim_Length(interp, objPtr) + 2;
 
     envptr = Jim_Alloc(sizeof(*envptr) * (num / 2 + 1) + size);
     envdata = (char *)&envptr[num / 2 + 1];
@@ -201,9 +203,9 @@ static char **JimBuildEnv(Jim_Interp *interp)
         Jim_Obj *elemObj;
 
         Jim_ListIndex(interp, objPtr, i, &elemObj, JIM_NONE);
-        s1 = Jim_String(elemObj);
+        s1 = Jim_String(interp, elemObj);
         Jim_ListIndex(interp, objPtr, i + 1, &elemObj, JIM_NONE);
-        s2 = Jim_String(elemObj);
+        s2 = Jim_String(interp, elemObj);
 
         envptr[n] = envdata;
         envdata += sprintf(envdata, "%s=%s", s1, s2);
@@ -458,10 +460,10 @@ static int Jim_ExecCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         /* Append the child siginfo to the result */
         Jim_AppendObj(interp, errStrObj, childErrObj);
     }
-    Jim_DecrRefCount(interp, childErrObj);
+    Jim_DecrRefCount(childErrObj);
 
     /* Finally remove any trailing newline from the result */
-    Jim_RemoveTrailingNewline(errStrObj);
+    Jim_RemoveTrailingNewline(interp, errStrObj);
 
     /* Set this as the result */
     Jim_SetResult(interp, errStrObj);
@@ -762,14 +764,14 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
     cmdCount = 1;
     lastBar = -1;
     for (i = 0; i < argc; i++) {
-        const char *arg = Jim_String(argv[i]);
+        const char *arg = Jim_String(interp, argv[i]);
 
         if (arg[0] == '<') {
             inputFile = FILE_NAME;
             input = arg + 1;
             if (*input == '<') {
                 inputFile = FILE_TEXT;
-                input_len = Jim_Length(argv[i]) - 2;
+                input_len = Jim_Length(interp, argv[i]) - 2;
                 input++;
             }
             else if (*input == '@') {
@@ -778,7 +780,7 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
             }
 
             if (!*input && ++i < argc) {
-                input = Jim_GetString(argv[i], &input_len);
+                input = Jim_GetString(interp, argv[i], &input_len);
             }
         }
         else if (arg[0] == '>') {
@@ -801,7 +803,7 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
                 output++;
             }
             if (!*output && ++i < argc) {
-                output = Jim_String(argv[i]);
+                output = Jim_String(interp, argv[i]);
             }
             if (dup_error) {
                 errorFile = outputFile;
@@ -821,7 +823,7 @@ JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv, phandle_t 
                 error++;
             }
             if (!*error && ++i < argc) {
-                error = Jim_String(argv[i]);
+                error = Jim_String(interp, argv[i]);
             }
         }
         else {

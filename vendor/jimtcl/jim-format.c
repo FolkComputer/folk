@@ -72,7 +72,7 @@ Jim_Obj *Jim_FormatString(Jim_Interp *interp, Jim_Obj *fmtObjPtr, int objc, Jim_
     char *num_buffer = NULL;
     int num_buffer_size = 0;
 
-    span = format = Jim_GetString(fmtObjPtr, &formatLen);
+    span = format = Jim_GetString(interp, fmtObjPtr, &formatLen);
     formatEnd = format + formatLen;
     resultPtr = Jim_NewEmptyStringObj(interp);
 
@@ -286,7 +286,7 @@ Jim_Obj *Jim_FormatString(Jim_Interp *interp, Jim_Obj *fmtObjPtr, int objc, Jim_
             msg = "format string ended in middle of field specifier";
             goto errorMsg;
         case 's': {
-            formatted_buf = Jim_GetString(objv[objIndex], &formatted_bytes);
+            formatted_buf = Jim_GetString(interp, objv[objIndex], &formatted_bytes);
             formatted_chars = Jim_Utf8Length(interp, objv[objIndex]);
             if (gotPrecision && (precision < formatted_chars)) {
                 /* Need to build a (null terminated) truncated string */
@@ -466,7 +466,7 @@ Jim_Obj *Jim_FormatString(Jim_Interp *interp, Jim_Obj *fmtObjPtr, int objc, Jim_
   errorMsg:
     Jim_SetResultString(interp, msg, -1);
   error:
-    Jim_FreeNewObj(interp, resultPtr);
+    Jim_FreeNewObj(resultPtr);
     Jim_Free(num_buffer);
     return NULL;
 }

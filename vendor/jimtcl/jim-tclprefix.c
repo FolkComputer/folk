@@ -50,7 +50,7 @@ int JimStringComparePrefix(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *se
     Jim_IncrRefCount(objPtr);
 
     ret = Jim_StringCompareObj(interp, firstObjPtr, objPtr, 0);
-    Jim_DecrRefCount(interp, objPtr);
+    Jim_DecrRefCount(objPtr);
     return ret;
 }
 

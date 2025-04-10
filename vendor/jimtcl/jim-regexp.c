@@ -61,7 +61,7 @@
 #include "jim.h"
 #include "utf8.h"
 
-static void FreeRegexpInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
+static void FreeRegexpInternalRep(Jim_Obj *objPtr)
 {
     jim_regfree(objPtr->internalRep.ptrIntValue.ptr);
     Jim_Free(objPtr->internalRep.ptrIntValue.ptr);
@@ -79,8 +79,10 @@ static const Jim_ObjType regexpObjType = {
     JIM_TYPE_NONE
 };
 
-static regex_t *SetRegexpFromAny(Jim_Interp *interp, Jim_Obj *objPtr, unsigned flags)
+static regex_t *SetRegexpFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr, unsigned flags)
 {
+    JimPanic((Jim_IsShared(objPtr), "SetRegexpFromAnyUnshared called with shared object"));
+
     regex_t *compre;
     const char *pattern;
     int ret;
@@ -108,7 +110,7 @@ static regex_t *SetRegexpFromAny(Jim_Interp *interp, Jim_Obj *objPtr, unsigned f
         return NULL;
     }
 
-    Jim_FreeIntRep(interp, objPtr);
+    Jim_FreeIntRep(objPtr);
 
     objPtr->typePtr = &regexpObjType;
     objPtr->internalRep.ptrIntValue.int1 = flags;

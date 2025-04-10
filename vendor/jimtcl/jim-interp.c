@@ -15,7 +15,7 @@ static Jim_Obj *JimInterpCopyObj(Jim_Interp *target, Jim_Obj *obj)
     const char *rep;
     int len;
 
-    rep = Jim_GetString(obj, &len);
+    rep = Jim_GetString(target, obj, &len);
     return Jim_NewStringObj(target, rep, len);
 }
 
@@ -30,11 +30,11 @@ static int interp_cmd_eval(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     scriptObj = Jim_ConcatObj(interp, argc, argv);
     targetScriptObj = JimInterpCopyObj(child, scriptObj);
-    Jim_FreeNewObj(interp, scriptObj);
+    Jim_FreeNewObj(scriptObj);
 
     Jim_IncrRefCount(targetScriptObj);
     ret = Jim_EvalObj(child, targetScriptObj);
-    Jim_DecrRefCount(child, targetScriptObj);
+    Jim_DecrRefCount(targetScriptObj);
 
     JimInterpCopyResult(interp, child);
     return ret;
@@ -47,8 +47,8 @@ static int interp_cmd_delete(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
 static void JimInterpDelAlias(Jim_Interp *interp, void *privData)
 {
-    Jim_Interp *parent = Jim_GetAssocData(interp, "interp.parent");
-    Jim_DecrRefCount(parent, (Jim_Obj *)privData);
+    JIM_NOTUSED(interp);
+    Jim_DecrRefCount((Jim_Obj *)privData);
 }
 
 static int JimInterpAliasProc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
@@ -61,7 +61,7 @@ static int JimInterpAliasProc(Jim_Interp *interp, int argc, Jim_Obj *const *argv
     assert(parent);
 
     /* Build the complete command */
-    targetScriptObj = Jim_DuplicateObj(parent, targetPrefixObj);
+    targetScriptObj = Jim_DuplicateObj(parent, targetPrefixObj, JIM_LIVE_LIST);
     for (i = 1; i < argc; i++) {
         Jim_ListAppendElement(parent, targetScriptObj,
             JimInterpCopyObj(parent, argv[i]));
@@ -69,7 +69,7 @@ static int JimInterpAliasProc(Jim_Interp *interp, int argc, Jim_Obj *const *argv
 
     Jim_IncrRefCount(targetScriptObj);
     ret = Jim_EvalObj(parent, targetScriptObj);
-    Jim_DecrRefCount(parent, targetScriptObj);
+    Jim_DecrRefCount(targetScriptObj);
 
     JimInterpCopyResult(interp, parent);
     return ret;
@@ -87,7 +87,7 @@ static int interp_cmd_alias(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     aliasPrefixList = Jim_NewListObj(interp, argv + 1, argc - 1);
     Jim_IncrRefCount(aliasPrefixList);
 
-    Jim_CreateCommand(child, Jim_String(argv[0]), JimInterpAliasProc, aliasPrefixList, JimInterpDelAlias);
+    Jim_CreateCommand(child, Jim_String(interp, argv[0]), JimInterpAliasProc, aliasPrefixList, JimInterpDelAlias);
     return JIM_OK;
 }
 
@@ -127,7 +127,7 @@ static void JimInterpCopyVariable(Jim_Interp *target, Jim_Interp *source, const 
     Jim_Obj *value = Jim_GetGlobalVariableStr(source, var, JIM_NONE);
     const char *str;
 
-    str = value ? Jim_String(value) : default_value;
+    str = value ? Jim_String(target, value) : default_value;
     if (str) {
         Jim_SetGlobalVariableStr(target, var, Jim_NewStringObj(target, str, -1));
     }

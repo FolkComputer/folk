@@ -74,7 +74,7 @@ static void show_cmd_usage(Jim_Interp *interp, const jim_subcmd_type * command_t
 static void add_cmd_usage(Jim_Interp *interp, const jim_subcmd_type * ct, Jim_Obj *cmd)
 {
     if (cmd) {
-        Jim_AppendStrings(interp, Jim_GetResult(interp), Jim_String(cmd), " ", NULL);
+        Jim_AppendStrings(interp, Jim_GetResult(interp), Jim_String(interp, cmd), " ", NULL);
     }
     Jim_AppendStrings(interp, Jim_GetResult(interp), ct->cmd, NULL);
     if (ct->args && *ct->args) {
@@ -146,7 +146,7 @@ const jim_subcmd_type *Jim_ParseSubCmd(Jim_Interp *interp, const jim_subcmd_type
         return &dummy_subcmd;
     }
 
-    cmdstr = Jim_GetString(cmd, &cmdlen);
+    cmdstr = Jim_GetString(interp, cmd, &cmdlen);
 
     for (ct = command_table; ct->cmd; ct++) {
         if (Jim_CompareStringImmediate(interp, cmd, ct->cmd)) {
@@ -193,7 +193,7 @@ const jim_subcmd_type *Jim_ParseSubCmd(Jim_Interp *interp, const jim_subcmd_type
     }
 
     /* Cache the result for a successful non-help lookup */
-    Jim_FreeIntRep(interp, cmd);
+    Jim_FreeIntRep(cmd);
     cmd->typePtr = &subcmdLookupObjType;
     cmd->internalRep.ptrIntValue.ptr = (void *)command_table;
     cmd->internalRep.ptrIntValue.int1 = ct - command_table;

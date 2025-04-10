@@ -199,7 +199,7 @@ static int Jim_Decompress(Jim_Interp *interp, const char *in, int len, long bufs
                 break;
 
             default:
-                Jim_DecrRefCount(interp, out);
+                Jim_DecrRefCount(out);
                 Jim_Free(buf);
                 inflateEnd(&strm);
                 if (strm.msg != NULL)
@@ -214,7 +214,7 @@ static int Jim_Decompress(Jim_Interp *interp, const char *in, int len, long bufs
     inflateEnd(&strm);
 
     Jim_SetResult(interp, out);
-    Jim_DecrRefCount(interp, out);
+    Jim_DecrRefCount(out);
 
     return JIM_OK;
 }

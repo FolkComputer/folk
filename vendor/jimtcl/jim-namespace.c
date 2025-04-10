@@ -72,7 +72,7 @@
 Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *nameObj)
 {
     Jim_Obj *objPtr;
-    const char *name = Jim_String(nameObj);
+    const char *name = Jim_String(interp, nameObj);
     assert(nameObj->refCount != 0);
     assert(nsObj->refCount != 0);
     if (name[0] == ':' && name[1] == ':') {
@@ -81,12 +81,12 @@ Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *name
         }
         return Jim_NewStringObj(interp, name, -1);
     }
-    if (Jim_Length(nsObj) == 0) {
+    if (Jim_Length(interp, nsObj) == 0) {
         /* Relative to the global namespace */
         return nameObj;
     }
     /* Relative to non-global namespace */
-    objPtr = Jim_DuplicateObj(interp, nsObj);
+    objPtr = Jim_DuplicateObj(interp, nsObj, JIM_LIVE_LIST);
     Jim_AppendString(interp, objPtr, "::", 2);
     Jim_AppendObj(interp, objPtr, nameObj);
     return objPtr;
@@ -94,6 +94,8 @@ Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *name
 
 int Jim_CreateNamespaceVariable(Jim_Interp *interp, Jim_Obj *varNameObj, Jim_Obj *targetNameObj)
 {
+    varNameObj = DupIfWrongInterp(interp, varNameObj, JIM_LIVE_LIST);
+
     int rc;
     Jim_IncrRefCount(varNameObj);
     Jim_IncrRefCount(targetNameObj);
@@ -105,8 +107,8 @@ int Jim_CreateNamespaceVariable(Jim_Interp *interp, Jim_Obj *varNameObj, Jim_Obj
         Jim_SetResultFormatted(interp, "can't define \"%#s\": name refers to an element in an array", varNameObj);
     }
 
-    Jim_DecrRefCount(interp, varNameObj);
-    Jim_DecrRefCount(interp, targetNameObj);
+    Jim_DecrRefCount(varNameObj);
+    Jim_DecrRefCount(targetNameObj);
 
     return rc;
 }
@@ -123,7 +125,7 @@ int Jim_CreateNamespaceVariable(Jim_Interp *interp, Jim_Obj *varNameObj, Jim_Obj
  */
 Jim_Obj *Jim_NamespaceQualifiers(Jim_Interp *interp, Jim_Obj *ns)
 {
-    const char *name = Jim_String(ns);
+    const char *name = Jim_String(interp, ns);
     const char *pt = strrchr(name, ':');
     if (pt && pt != name && pt[-1] == ':') {
         return Jim_NewStringObj(interp, name, pt - name - 1);
@@ -135,7 +137,7 @@ Jim_Obj *Jim_NamespaceQualifiers(Jim_Interp *interp, Jim_Obj *ns)
 
 Jim_Obj *Jim_NamespaceTail(Jim_Interp *interp, Jim_Obj *ns)
 {
-    const char *name = Jim_String(ns);
+    const char *name = Jim_String(interp, ns);
     const char *pt = strrchr(name, ':');
     if (pt && pt != name && pt[-1] == ':') {
         return Jim_NewStringObj(interp, pt + 1, -1);
@@ -167,8 +169,9 @@ static int JimVariableCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         targetNameObj = JimCanonicalNamespace(interp, interp->framePtr->nsObj, argv[1]);
 
         localNameObj = Jim_NamespaceTail(interp, argv[1]);
+        localNameObj = DupIfWrongInterp(interp, localNameObj, JIM_LIVE_LIST);
         Jim_IncrRefCount(localNameObj);
-        if (interp->framePtr->level != 0 || Jim_Length(interp->framePtr->nsObj) != 0) {
+        if (interp->framePtr->level != 0 || Jim_Length(interp, interp->framePtr->nsObj) != 0) {
             retcode = Jim_CreateNamespaceVariable(interp, localNameObj, targetNameObj);
         }
 
@@ -176,7 +179,7 @@ static int JimVariableCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         if (retcode == JIM_OK && argc > 2) {
             retcode = Jim_SetVariable(interp, localNameObj, argv[2]);
         }
-        Jim_DecrRefCount(interp, localNameObj);
+        Jim_DecrRefCount(localNameObj);
     }
     return retcode;
 }
@@ -293,19 +296,19 @@ static int JimNamespaceCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
                 else {
                     objPtr = interp->framePtr->nsObj;
                 }
-                if (Jim_Length(objPtr) == 0 || Jim_CompareStringImmediate(interp, objPtr, "::")) {
+                if (Jim_Length(interp, objPtr) == 0 || Jim_CompareStringImmediate(interp, objPtr, "::")) {
                     return JIM_OK;
                 }
                 objPtr = Jim_NamespaceQualifiers(interp, objPtr);
 
-                name = Jim_String(objPtr);
+                name = Jim_String(interp, objPtr);
 
                 if (name[0] != ':' || name[1] != ':') {
                     /* Make it fully scoped */
                     Jim_SetResultString(interp, "::", 2);
                     Jim_AppendObj(interp, Jim_GetResult(interp), objPtr);
                     Jim_IncrRefCount(objPtr);
-                    Jim_DecrRefCount(interp, objPtr);
+                    Jim_DecrRefCount(objPtr);
                 }
                 else {
                     Jim_SetResult(interp, objPtr);

@@ -746,6 +746,7 @@ JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
         Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * DupIfWrongInterp(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
 JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
 JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
@@ -757,7 +758,7 @@ JIM_EXPORT Jim_Obj * Jim_NewStringObj (Jim_Interp *interp,
 JIM_EXPORT Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp,
         const char *s, int charlen);
 JIM_EXPORT Jim_Obj * Jim_NewStringObjNoAlloc (Jim_Interp *interp,
-        char *s, int len, int onTempList);
+        char *s, int len);
 JIM_EXPORT void Jim_AppendString (Jim_Interp *interp, Jim_Obj *objPtr,
         const char *str, int len);
 JIM_EXPORT void Jim_AppendObj (Jim_Interp *interp, Jim_Obj *objPtr,

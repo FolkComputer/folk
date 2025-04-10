@@ -2075,7 +2075,7 @@ static Jim_Obj *JimParserGetTokenObj(Jim_Interp *interp, struct JimParserCtx *pc
         len = JimEscape(token, start, len);
     }
 
-    return Jim_NewStringObjNoAlloc(interp, token, len, 1);
+    return Jim_NewStringObjNoAlloc(interp, token, len);
 }
 
 /* -----------------------------------------------------------------------------
@@ -2554,16 +2554,16 @@ Jim_Obj *Jim_NewStringObjUtf8(Jim_Interp *interp, const char *s, int charlen)
 
     return objPtr;
 #else
-    return Jim_NewStringObj(interp, s, charlen, onTempList);
+    return Jim_NewStringObj(interp, s, charlen);
 #endif
 }
 
 // smj-edison: audited (all call sites allocate just for this function)
 /* This version does not try to duplicate the 's' pointer, but
  * use it directly. */
-Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len, int onTempList)
+Jim_Obj *Jim_NewStringObjNoAlloc(Jim_Interp *interp, char *s, int len)
 {
-    Jim_Obj *objPtr = Jim_NewObj(interp, onTempList);
+    Jim_Obj *objPtr = Jim_NewObj(interp, JIM_LIVE_LIST);
 
     objPtr->bytes = s;
     objPtr->length = (len == -1) ? strlen(s) : len;
@@ -2863,7 +2863,7 @@ static Jim_Obj *JimStringToLower(Jim_Interp *interp, Jim_Obj *strObjPtr)
 #endif
     buf = Jim_Alloc(len + 1);
     JimStrCopyUpperLower(buf, str, 0);
-    return Jim_NewStringObjNoAlloc(interp, buf, -1, JIM_LIVE_LIST);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1);
 }
 
 // smj-edison: audited
@@ -2886,7 +2886,7 @@ static Jim_Obj *JimStringToUpper(Jim_Interp *interp, Jim_Obj *strObjPtr)
 #endif
     buf = Jim_Alloc(len + 1);
     JimStrCopyUpperLower(buf, str, 1);
-    return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1);
 }
 
 // smj-edison: audited
@@ -2915,7 +2915,7 @@ static Jim_Obj *JimStringToTitle(Jim_Interp *interp, Jim_Obj *strObjPtr)
 
     JimStrCopyUpperLower(p, str, 0);
 
-    return Jim_NewStringObjNoAlloc(interp, buf, -1, 0);
+    return Jim_NewStringObjNoAlloc(interp, buf, -1);
 }
 
 /* Similar to memchr() except searches a UTF-8 string 'str' of byte length 'len'
@@ -3566,7 +3566,7 @@ static Jim_Obj *JimMakeScriptObj(Jim_Interp *interp, const ParseToken *t)
         int len = t->len;
         char *str = Jim_Alloc(len + 1);
         len = JimEscape(str, t->token, len);
-        objPtr = Jim_NewStringObjNoAlloc(interp, str, len, 0);
+        objPtr = Jim_NewStringObjNoAlloc(interp, str, len);
     }
     else {
         /* XXX: For strict Tcl compatibility, JIM_TT_STR should replace <backslash><newline><whitespace>
@@ -7233,7 +7233,7 @@ Jim_Obj *Jim_ConcatObj(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
             }
         }
         *p = '\0';
-        return Jim_NewStringObjNoAlloc(interp, bytes, len, 0);
+        return Jim_NewStringObjNoAlloc(interp, bytes, len);
     }
 }
 
@@ -10272,7 +10272,7 @@ static Jim_Obj *JimScanAString(Jim_Interp *interp, const char *sdescr, const cha
             *p++ = *str++;
     }
     *p = 0;
-    return Jim_NewStringObjNoAlloc(interp, buffer, p - buffer, JIM_LIVE_LIST);
+    return Jim_NewStringObjNoAlloc(interp, buffer, p - buffer);
 }
 
 // smj-edison: audited
@@ -11064,7 +11064,7 @@ static Jim_Obj *JimInterpolateTokens(Jim_Interp *interp, const ScriptToken * tok
 
     /* Concatenate every token in an unique
      * object. */
-    objPtr = Jim_NewStringObjNoAlloc(interp, NULL, 0, JIM_LIVE_LIST);
+    objPtr = Jim_NewStringObjNoAlloc(interp, NULL, 0);
 
     if (tokens == 4 && token[0].type == JIM_TT_ESC && token[1].type == JIM_TT_ESC
         && token[2].type == JIM_TT_VAR) {
@@ -11728,7 +11728,7 @@ int Jim_EvalFile(Jim_Interp *interp, const char *filename)
     fclose(fp);
     buf[readlen] = 0;
 
-    scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen, JIM_LIVE_LIST);
+    scriptObjPtr = Jim_NewStringObjNoAlloc(interp, buf, readlen);
     Jim_SetSourceInfo(scriptObjPtr, Jim_NewStringObj(interp, filename, -1), 1);
     Jim_IncrRefCount(scriptObjPtr);
 
@@ -14625,7 +14625,7 @@ badcompareargs:
                     i += l;
                     str += l;
                 }
-                Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len, JIM_LIVE_LIST));
+                Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len));
                 return JIM_OK;
             }
 
@@ -16784,7 +16784,7 @@ void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...)
 
     va_end(args);
 
-    Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len, JIM_LIVE_LIST));
+    Jim_SetResult(interp, Jim_NewStringObjNoAlloc(interp, buf, len));
 
     for (i = 0; i < nobjparam; i++) {
         Jim_DecrRefCount(objparam[i]);

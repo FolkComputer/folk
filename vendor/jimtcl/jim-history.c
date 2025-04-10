@@ -9,7 +9,7 @@
 static int history_cmd_getline(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     Jim_Obj *objPtr;
-    char *line = Jim_HistoryGetline(interp, Jim_String(argv[0]));
+    char *line = Jim_HistoryGetline(interp, Jim_String(interp, argv[0]));
 
     /* On EOF returns -1 if varName was specified; otherwise the empty string. */
     if (line == NULL) {
@@ -24,10 +24,10 @@ static int history_cmd_getline(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     /* Returns the length of the string if varName was specified */
     if (argc == 2) {
         if (Jim_SetVariable(interp, argv[1], objPtr) != JIM_OK) {
-            Jim_FreeNewObj(interp, objPtr);
+            Jim_FreeNewObj(objPtr);
             return JIM_ERR;
         }
-        Jim_SetResultInt(interp, Jim_Length(objPtr));
+        Jim_SetResultInt(interp, Jim_Length(interp, objPtr));
     }
     else {
         Jim_SetResult(interp, objPtr);
@@ -37,25 +37,25 @@ static int history_cmd_getline(Jim_Interp *interp, int argc, Jim_Obj *const *arg
 
 static int history_cmd_setcompletion(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    Jim_HistorySetCompletion(interp, Jim_Length(argv[0]) ? argv[0] : NULL);
+    Jim_HistorySetCompletion(interp, Jim_Length(interp, argv[0]) ? argv[0] : NULL);
     return JIM_OK;
 }
 
 static int history_cmd_load(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    Jim_HistoryLoad(Jim_String(argv[0]));
+    Jim_HistoryLoad(Jim_String(interp, argv[0]));
     return JIM_OK;
 }
 
 static int history_cmd_save(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    Jim_HistorySave(Jim_String(argv[0]));
+    Jim_HistorySave(Jim_String(interp, argv[0]));
     return JIM_OK;
 }
 
 static int history_cmd_add(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    Jim_HistoryAdd(Jim_String(argv[0]));
+    Jim_HistoryAdd(Jim_String(interp, argv[0]));
     return JIM_OK;
 }
 

@@ -154,7 +154,7 @@ static void JimHistoryFreeCompletion(Jim_Interp *interp, void *data)
 {
     struct JimCompletionInfo *compinfo = data;
 
-    Jim_DecrRefCount(interp, compinfo->command);
+    Jim_DecrRefCount(compinfo->command);
 
     Jim_Free(compinfo);
 }
@@ -237,11 +237,11 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
                 if (errno == EINTR) {
                     continue;
                 }
-                Jim_DecrRefCount(interp, scriptObjPtr);
+                Jim_DecrRefCount(scriptObjPtr);
                 retcode = JIM_OK;
                 goto out;
             }
-            if (Jim_Length(scriptObjPtr) != 0) {
+            if (Jim_Length(interp, scriptObjPtr) != 0) {
                 /* Line continuation */
                 Jim_AppendString(interp, scriptObjPtr, "\n", 1);
             }
@@ -256,7 +256,7 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
         if (strcmp(Jim_String(scriptObjPtr), "h") == 0) {
             /* built-in history command */
             Jim_HistoryShow();
-            Jim_DecrRefCount(interp, scriptObjPtr);
+            Jim_DecrRefCount(scriptObjPtr);
             continue;
         }
 
@@ -266,7 +266,7 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
         }
 #endif
         retcode = Jim_EvalObj(interp, scriptObjPtr);
-        Jim_DecrRefCount(interp, scriptObjPtr);
+        Jim_DecrRefCount(scriptObjPtr);
 
         if (retcode == JIM_EXIT) {
             break;
@@ -274,7 +274,7 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
         if (retcode == JIM_ERR) {
             Jim_MakeErrorMessage(interp);
         }
-        result = Jim_GetString(Jim_GetResult(interp), &reslen);
+        result = Jim_GetString(interp, Jim_GetResult(interp), &reslen);
         if (reslen) {
             if (fwrite(result, reslen, 1, stdout) == 0) {
                 /* nothing */

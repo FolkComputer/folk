@@ -81,7 +81,7 @@ int Jim_ReaddirCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    dirPath = Jim_String(argv[1 + nocomplain]);
+    dirPath = Jim_String(interp, argv[1 + nocomplain]);
 
     dirPtr = opendir(dirPath);
     if (dirPtr == NULL) {

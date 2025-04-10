@@ -188,7 +188,7 @@ static int array_cmd_set(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     if (Jim_IsShared(dictObj)) {
-        dictObj = Jim_DuplicateObj(interp, dictObj);
+        dictObj = Jim_DuplicateObj(interp, dictObj, JIM_LIVE_LIST);
     }
 
     for (i = 0; i < len; i += 2) {

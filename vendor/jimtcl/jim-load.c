@@ -125,7 +125,7 @@ static int Jim_LoadCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
         Jim_WrongNumArgs(interp, 1, argv, "libraryFile");
         return JIM_ERR;
     }
-    return Jim_LoadLibrary(interp, Jim_String(argv[1]));
+    return Jim_LoadLibrary(interp, Jim_String(interp, argv[1]));
 }
 
 int Jim_loadInit(Jim_Interp *interp)

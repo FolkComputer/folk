@@ -46,7 +46,7 @@ static char *JimFindPackage(Jim_Interp *interp, Jim_Obj *prefixListObj, const ch
 
     for (i = 0; i < prefixc; i++) {
         Jim_Obj *prefixObjPtr = Jim_ListGetIndex(interp, prefixListObj, i);
-        const char *prefix = Jim_String(prefixObjPtr);
+        const char *prefix = Jim_String(interp, prefixObjPtr);
 
         /* Loadable modules are tried first */
 #ifdef jim_ext_load
@@ -97,7 +97,7 @@ static int JimLoadPackage(Jim_Interp *interp, const char *name, int flags)
             if (p && strcmp(p, ".tcl") == 0) {
                 Jim_IncrRefCount(libPathObjPtr);
                 retCode = Jim_EvalFileGlobal(interp, path);
-                Jim_DecrRefCount(interp, libPathObjPtr);
+                Jim_DecrRefCount(libPathObjPtr);
             }
 #ifdef jim_ext_load
             else {
@@ -129,7 +129,7 @@ int Jim_PackageRequire(Jim_Interp *interp, const char *name, int flags)
         int retcode = JimLoadPackage(interp, name, flags);
         if (retcode != JIM_OK) {
             if (flags & JIM_ERRMSG) {
-                int len = Jim_Length(Jim_GetResult(interp));
+                int len = Jim_Length(interp, Jim_GetResult(interp));
                 Jim_SetResultFormatted(interp, "%#s%sCan't load package %s",
                     Jim_GetResult(interp), len ? "\n" : "", name);
             }
@@ -163,7 +163,7 @@ int Jim_PackageRequire(Jim_Interp *interp, const char *name, int flags)
  */
 static int package_cmd_provide(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    return Jim_PackageProvide(interp, Jim_String(argv[0]), package_version_1, JIM_ERRMSG);
+    return Jim_PackageProvide(interp, Jim_String(interp, argv[0]), package_version_1, JIM_ERRMSG);
 }
 
 /*
@@ -184,7 +184,7 @@ static int package_cmd_require(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     /* package require failing is important enough to add to the stack */
     interp->addStackTrace++;
 
-    return Jim_PackageRequire(interp, Jim_String(argv[0]), JIM_ERRMSG);
+    return Jim_PackageRequire(interp, Jim_String(interp, argv[0]), JIM_ERRMSG);
 }
 
 /*
