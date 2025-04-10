@@ -36,7 +36,7 @@ int JimStringComparePrefix(Jim_Interp *interp, Jim_Obj *firstObjPtr, Jim_Obj *se
 {
     /* We do this the easy way by creating a (possibly) shorter version of secondObjPtr */
     int l1 = Jim_Utf8Length(interp, firstObjPtr);
-    const char *s2 = Jim_String(secondObjPtr);
+    const char *s2 = Jim_String(interp, secondObjPtr);
     int l2 = Jim_Utf8Length(interp, secondObjPtr);
     Jim_Obj *objPtr;
     int ret;
@@ -106,7 +106,7 @@ static int Jim_TclPrefixCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const
                             return JIM_ERR;
                         }
                         errorObj = argv[i];
-                        if (Jim_Length(errorObj) % 2) {
+                        if (Jim_Length(interp, errorObj) % 2) {
                             Jim_SetResultString(interp, "error options must have an even number of elements", -1);
                             return JIM_ERR;
                         }
@@ -117,7 +117,7 @@ static int Jim_TclPrefixCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const
                             Jim_SetResultString(interp, "missing message", -1);
                             return JIM_ERR;
                         }
-                        message = Jim_String(argv[i]);
+                        message = Jim_String(interp, argv[i]);
                         break;
                 }
             }
@@ -126,7 +126,7 @@ static int Jim_TclPrefixCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const
             table = Jim_Alloc((tablesize + 1) * sizeof(*table));
             for (i = 0; i < tablesize; i++) {
                 Jim_ListIndex(interp, tableObj, i, &objPtr, JIM_NONE);
-                table[i] = Jim_String(objPtr);
+                table[i] = Jim_String(interp, objPtr);
             }
             table[i] = NULL;
 
@@ -142,7 +142,7 @@ static int Jim_TclPrefixCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const
                 return JIM_ERR;
             }
             if (errorObj) {
-                if (Jim_Length(errorObj) == 0) {
+                if (Jim_Length(interp, errorObj) == 0) {
                     Jim_SetEmptyResult(interp);
                     return JIM_OK;
                 }
@@ -197,10 +197,11 @@ static int Jim_TclPrefixCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const
 
                     if (longeststr == NULL) {
                         longestlen = Jim_Utf8Length(interp, valObj);
-                        longeststr = Jim_String(valObj);
+                        longeststr = Jim_String(interp, valObj);
                     }
                     else {
-                        longestlen = JimStringCommonLength(longeststr, longestlen, Jim_String(valObj), Jim_Utf8Length(interp, valObj));
+                        longestlen = JimStringCommonLength(
+                            longeststr, longestlen, Jim_String(interp, valObj), Jim_Utf8Length(interp, valObj));
                     }
                 }
                 if (longeststr) {

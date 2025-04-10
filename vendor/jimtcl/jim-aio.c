@@ -1493,7 +1493,7 @@ static int aio_cmd_ssl(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
                 if (argc != 4) {
                     return JIM_ERR;
                 }
-                sni = Jim_String(argv[3]);
+                sni = Jim_String(interp, argv[3]);
                 break;
         }
     }
@@ -1520,8 +1520,8 @@ static int aio_cmd_ssl(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     if (server) {
-        const char *certfile = Jim_String(argv[3]);
-        const char *keyfile = (argc == 4) ? certfile : Jim_String(argv[4]);
+        const char *certfile = Jim_String(interp, argv[3]);
+        const char *keyfile = (argc == 4) ? certfile : Jim_String(interp, argv[4]);
         if (SSL_use_certificate_file(ssl, certfile, SSL_FILETYPE_PEM) != 1) {
             goto out;
         }
@@ -2453,7 +2453,7 @@ static int JimAioLoadSSLCertsCommand(Jim_Interp *interp, int argc, Jim_Obj *cons
     if (!ssl_ctx) {
         return JIM_ERR;
     }
-    if (SSL_CTX_load_verify_locations(ssl_ctx, NULL, Jim_String(argv[1])) == 1) {
+    if (SSL_CTX_load_verify_locations(ssl_ctx, NULL, Jim_String(interp, argv[1])) == 1) {
         return JIM_OK;
     }
     Jim_SetResultString(interp, ERR_error_string(ERR_get_error(), NULL), -1);

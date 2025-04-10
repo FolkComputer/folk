@@ -241,7 +241,7 @@ int Jim_SetTtySettings(Jim_Interp *interp, int fd, Jim_Obj *dictObjPtr)
                 break;
 
             case OPT_PARITY:
-                p = flag_name_to_value(parity_map, ARRAYSIZE(parity_map), Jim_String(valueObj));
+                p = flag_name_to_value(parity_map, ARRAYSIZE(parity_map), Jim_String(interp, valueObj));
                 if (p == NULL) {
 badvalue:
                     Jim_SetResultFormatted(interp, "bad value for %#s: %#s", nameObj, valueObj);
@@ -252,7 +252,7 @@ badvalue:
                 break;
 
             case OPT_STOP:
-                p = flag_name_to_value(stop_size_map, ARRAYSIZE(stop_size_map), Jim_String(valueObj));
+                p = flag_name_to_value(stop_size_map, ARRAYSIZE(stop_size_map), Jim_String(interp, valueObj));
                 if (p == NULL) {
                     goto badvalue;
                 }
@@ -261,7 +261,7 @@ badvalue:
                 break;
 
             case OPT_DATA:
-                p = flag_name_to_value(data_size_map, ARRAYSIZE(data_size_map), Jim_String(valueObj));
+                p = flag_name_to_value(data_size_map, ARRAYSIZE(data_size_map), Jim_String(interp, valueObj));
                 if (p == NULL) {
                     goto badvalue;
                 }
@@ -298,7 +298,7 @@ badvalue:
                 break;
 
             case OPT_OUTPUT:
-                p = flag_name_to_value(output_map, ARRAYSIZE(output_map), Jim_String(valueObj));
+                p = flag_name_to_value(output_map, ARRAYSIZE(output_map), Jim_String(interp, valueObj));
                 if (p == NULL) {
                     goto badvalue;
                 }
@@ -307,7 +307,7 @@ badvalue:
                 break;
 
             case OPT_INPUT:
-                p = flag_name_to_value(input_map, ARRAYSIZE(input_map), Jim_String(valueObj));
+                p = flag_name_to_value(input_map, ARRAYSIZE(input_map), Jim_String(interp, valueObj));
                 if (p == NULL) {
                     goto badvalue;
                 }

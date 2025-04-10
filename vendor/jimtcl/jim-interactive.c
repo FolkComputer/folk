@@ -145,7 +145,7 @@ static void JimCompletionCallback(const char *prefix, linenoiseCompletions *comp
         Jim_Obj *listObj = Jim_GetResult(info->interp);
         int len = Jim_ListLength(info->interp, listObj);
         for (i = 0; i < len; i++) {
-            linenoiseAddCompletion(comp, Jim_String(Jim_ListGetIndex(info->interp, listObj, i)));
+            linenoiseAddCompletion(comp, Jim_String(info->interp, Jim_ListGetIndex(info->interp, listObj, i)));
         }
     }
 }
@@ -253,14 +253,14 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
             snprintf(prompt, sizeof(prompt), "%c> ", state);
         }
 #ifdef USE_LINENOISE
-        if (strcmp(Jim_String(scriptObjPtr), "h") == 0) {
+        if (strcmp(Jim_String(interp, scriptObjPtr), "h") == 0) {
             /* built-in history command */
             Jim_HistoryShow();
             Jim_DecrRefCount(scriptObjPtr);
             continue;
         }
 
-        Jim_HistoryAdd(Jim_String(scriptObjPtr));
+        Jim_HistoryAdd(Jim_String(interp, scriptObjPtr));
         if (history_file) {
             Jim_HistorySave(history_file);
         }

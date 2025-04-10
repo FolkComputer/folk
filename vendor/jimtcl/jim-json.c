@@ -365,7 +365,7 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 		goto done;
 	}
 
-	state.json = Jim_GetString(argv[argc - 1], &len);
+	state.json = Jim_GetString(interp, argv[argc - 1], &len);
 
 	if (!len) {
 		Jim_SetResultString(interp, "empty JSON string", -1);
