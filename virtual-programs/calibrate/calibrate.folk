@@ -450,20 +450,24 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <h3>Run the calibration process.</h3>
 
             <p>Choose camera to calibrate: 
-              <select id="camera-select">
-                <script>
-                  ws.watchCollected(`camera /camera/ has width /w/ height /h/`, (matches) => {
-                    const select = document.getElementById('camera-select');
-                    select.innerHTML = '';
-                    matches.forEach(match => {
-                      const option = document.createElement('option');
-                      option.value = match.camera;
-                      option.textContent = match.camera;
-                      select.appendChild(option);
-                    });
-                  });
-                </script>
+              <select id="cameraSelect">
               </select>
+              <script>
+                ws.watchCollected(`camera /camera/ has width /w/ height /h/`, (matches) => {
+                  const select = document.getElementById('cameraSelect');
+                  select.innerHTML = '';
+                  matches.forEach(match => {
+                    const option = document.createElement('option');
+                    option.value = match.camera;
+                    option.textContent = match.camera;
+                    select.appendChild(option);
+                  });
+                });
+
+                document.getElementById('cameraSelect').addEventListener('change', () => {
+                  advanceCamera();
+                });
+              </script>
             </p>
 
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
@@ -475,7 +479,7 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                   return;
                 }
 
-                const camera = document.getElementById("camera-select").value;
+                const camera = document.getElementById("cameraSelect").value;
 
                 // TODO: using Assert is a little ugly (it's so it can be
                 // retracted when calibration is done)
@@ -506,12 +510,14 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               });
 
               function advanceCamera() {
-                cameraFrame.src = cameraFrame.src + '0'
+                const camera = encodeURIComponent(document.getElementById('cameraSelect').value);
+                const uniqueId = Math.random().toString(36).substring(2);
+                cameraFrame.src = `/camera-frame?camera=\${camera}&n=\${uniqueId}`;
               }
             </script>
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
-  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
+  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?n=0" id="cameraFrame" style="max-width: 100%"> 
 
             <script>
                 const refreshButton = document.getElementById('refreshButton');
