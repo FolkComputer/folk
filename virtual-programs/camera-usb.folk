@@ -321,10 +321,10 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     set height [dict get $options height]
     set bufferCount [dict_getdef $options bufferCount 2]
 
-    if {[dict exists $options crop]} {
-        set crop [dict get $options crop]
+    if {[dict exists $options crops]} {
+        set crops [dict get $options crops]
     }
-    Start process "camera $cameraPath $options" {
+    Start process "camera $cameraPath" {
         # HACK: we should share this
         proc subimage {im x y subwidth subheight} {
             dict with im {
@@ -341,7 +341,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         }
 
         Wish $::thisProcess shares statements like \
-            [list /someone/ claims camera $cameraPath /...anything/]
+            [list /someone/ claims camera /...anything/]
         Wish $::thisProcess receives statements like \
             [list /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us]
 
@@ -349,7 +349,16 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         set camera [Camera::new $cameraPath $width $height $bufferCount]
 
         # TODO: report actual width and height from v4l2
-        Claim camera $cameraPath has width $width height $height
+        if {[info exists crops]} {
+            for {set i 0} {$i < [llength $crops]} {incr i} {
+                set cropPath [list $cameraPath $i]
+                Claim camera $cropPath has \
+                    width [dict get [lindex $crops $i] width] \
+                    height [dict get [lindex $crops $i] height]
+            }
+        } else {
+            Claim camera $cameraPath has width $width height $height
+        }
 
         puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
@@ -364,16 +373,22 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {
             set frame [Camera::grayFrame $camera]
-            if {[info exists crop]} {
-                dict with crop {
-                    set cropped [subimage $frame $x $y $width $height]
-                }
-            } else {
-                set cropped $frame
-            }
+            set timestamp [expr {[clock milliseconds] / 1000.0}]
             Hold {
-                Claim camera $cameraPath has camera time $::stepTime
-                Claim camera $cameraPath has frame $cropped at timestamp [expr {[clock milliseconds] / 1000.0}]
+                if {[info exists crops]} {
+                    for {set i 0} {$i < [llength $crops]} {incr i} {
+                        set crop [lindex $crops $i]
+                        set cropPath [list $cameraPath $i]
+                        dict with crop {
+                            set cropped [subimage $frame $x $y $width $height]
+                            Claim camera $cropPath has camera time $::stepTime
+                            Claim camera $cropPath has frame $cropped at timestamp $timestamp
+                        }
+                    }
+                } else {
+                    Claim camera $cameraPath has camera time $::stepTime
+                    Claim camera $cameraPath has frame $frame at timestamp $timestamp
+                }
             }
             lappend ::oldFrames $frame
             if {[llength $::oldFrames] >= 10} {
