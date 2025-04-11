@@ -5588,13 +5588,12 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_FreeHashTable(&i->commands);
     Jim_FreeHashTable(&i->packages);
     Jim_Free(i->prngState);
+    Jim_ClearTempList(i);
     Jim_Free(i->tempList);
     Jim_FreeHashTable(&i->assocData);
     if (i->traceCmdObj) {
         Jim_DecrRefCount(i->traceCmdObj);
     }
-
-    /* FIXME: Free all the freed objects. */
 
     /* Free the free call frames list */
     for (cf = i->freeFramesList; cf; cf = cfx) {
@@ -7049,7 +7048,7 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
     Jim_Obj *const *indexv, int indexc, Jim_Obj **resultObj, int flags)
 {
     // to prevent lots of duplications when using Jim_GetIndex
-    listPtr = DupIfSharedAndWrongRep(interp, listPtr, &listObjType, JIM_TEMP_LIST);
+    listPtr = DupIfSharedAndWrongRep(interp, listPtr, &listObjType, JIM_LIVE_LIST);
 
     int i;
     int static_idxes[5];
@@ -7081,7 +7080,8 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
                     Jim_SetResultFormatted(interp, "element %#s missing from sublist \"%#s\"", indexv[i], listPtr);
                 }
             }
-            return -1;
+            ret = -1;
+            goto err;
         }
         listPtr = objPtr;
     }
@@ -7089,6 +7089,13 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
 err:
     if (idxes != static_idxes)
         Jim_Free(idxes);
+
+    // through several calls, listPtr may end up being passed into SetListFromAnyUnshared
+    // which tracks listPtr as a source (Jim_SetSourceInfo), so we can't put it on the
+    // temp list
+    Jim_IncrRefCount(listPtr);
+    Jim_DecrRefCount(listPtr);
+
     return ret;
 }
 
