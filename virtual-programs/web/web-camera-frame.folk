@@ -1,12 +1,27 @@
-When camera /any/ has frame /im/ at timestamp /any/ {
-    Wish the web server handles route {/camera-frame(?:\?.*)?$} with handler [list apply {{im} {
-        set filename "/tmp/web-image-frame.jpg"
-        image saveAsJpeg $im $filename
-        set fsize [file size $filename]
-        set fd [open $filename r]
-        fconfigure $fd -encoding binary -translation binary
-        set body [read $fd $fsize]
-        close $fd
-        dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-    }} $im]
+Wish the web server handles route {/camera-frame(?:\?.*)?$} with handler {
+    set camera /camera/
+    if {[regexp {^/camera-frame\?(.*)} $path -> queryString]} {
+        foreach param [split $queryString &] {
+            if {[regexp {^camera=(.*)} $param -> encodedCamera]} {
+                set camera [encoding convertfrom utf-8 [subst [regsub -all {%([0-9A-Fa-f][0-9A-Fa-f])} $encodedCamera {[format %c 0x\1]}]]]
+            }
+        }
+    }
+
+    set pattern [list /someone/ claims camera $camera has frame /im/ at timestamp /any/]
+    set matches [Statements::findMatches $pattern]
+    if {[llength $matches] != 1} {
+        error "Expected 1 match for '$pattern'; found [llength $matches]"
+    }
+
+    set im [dict get [lindex $matches 0] im]
+
+    set filename "/tmp/web-image-frame.jpg"
+    image saveAsJpeg $im $filename
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -encoding binary -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
 }
