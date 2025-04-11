@@ -449,6 +449,23 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
           <li>
             <h3>Run the calibration process.</h3>
 
+            <p>Choose camera to calibrate: 
+              <select id="camera-select">
+                <script>
+                  ws.watchCollected(`camera /camera/ has width /w/ height /h/`, (matches) => {
+                    const select = document.getElementById('camera-select');
+                    select.innerHTML = '';
+                    matches.forEach(match => {
+                      const option = document.createElement('option');
+                      option.value = match.camera;
+                      option.textContent = match.camera;
+                      select.appendChild(option);
+                    });
+                  });
+                </script>
+              </select>
+            </p>
+
             <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
             <script>
               document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
@@ -458,11 +475,13 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                   return;
                 }
 
+                const camera = document.getElementById("camera-select").value;
+
                 // TODO: using Assert is a little ugly (it's so it can be
                 // retracted when calibration is done)
                 ws.send(tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Assert \${self} wishes to calibrate
+                  Assert \${self} wishes to calibrate camera \${camera}
                 `);
               });
             </script>
@@ -719,7 +738,7 @@ Claim the default program geometry is \$geom
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
-     /someone/ wishes to calibrate {
+     /someone/ wishes to calibrate camera /camera/ {
     # Project projected tags once the printed side length has been
     # dialed in.
 
@@ -1115,7 +1134,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             Hold calibration {
                 Claim the calibration poses are $::calibrationPoses
             }
-            Retract /someone/ wishes to calibrate
+            Retract /someone/ wishes to calibrate camera $camera
         }
     }
 }
