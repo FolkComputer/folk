@@ -343,7 +343,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         Wish $::thisProcess shares statements like \
             [list /someone/ claims camera /...anything/]
         Wish $::thisProcess receives statements like \
-            [list /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us]
+            [list /someone/ wishes camera /any/ uses exposure time /exposureTimeUs/ us]
 
         namespace eval Camera $makeCamera
         set camera [Camera::new $cameraPath $width $height $bufferCount]
@@ -362,11 +362,15 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
         puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
-        When /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us {
-            if {$exposureTimeUs eq "auto"} {
-                Camera::setExposureAuto $camera
-            } else {
-                Camera::setExposure $camera [expr {int($exposureTimeUs / 100)}]
+        When /someone/ wishes camera /exposureCameraPath/ uses exposure time /exposureTimeUs/ us {
+            if {$exposureCameraPath eq $cameraPath ||
+                [llength $exposureCameraPath] > 1 && [lindex $exposureCameraPath 0] eq $cameraPath} {
+
+                if {$exposureTimeUs eq "auto"} {
+                    Camera::setExposureAuto $camera
+                } else {
+                    Camera::setExposure $camera [expr {int($exposureTimeUs / 100)}]
+                }
             }
         }
 

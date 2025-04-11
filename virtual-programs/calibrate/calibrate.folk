@@ -384,9 +384,6 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                                            [list /someone/ claims the default program geometry is /defaultGeom/]] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
-    set camera [dict get [lindex [Statements::findMatches \
-                                      [list /someone/ claims camera /camera/ has width /cameraWidth/ height /cameraHeight/]] 0] camera]
-
     upvar ^html ^html
     html [csubst {
       <html>
@@ -549,8 +546,10 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
                 slider.value = sliderValue;
                 numberInput.value = valueInMicroseconds;
                 
+                const camera = document.getElementById("cameraSelect").value;
+
                 ws.hold('exposure', tcl`
-                    Wish camera $camera uses exposure time \${valueInMicroseconds} us
+                        Wish camera \${camera} uses exposure time \${valueInMicroseconds} us
                 `, 'virtual-programs/calibrate/calibrate.folk');
                 
                 if (lastRefreshTimeout != null) {
@@ -751,12 +750,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # VERY IMPORTANT: disable autofocus forever.
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
 
-    if {$cameraWidth < 1920} {
-        Retract /someone/ wishes $::thisNode uses camera $camera \
-            with width $cameraWidth height $cameraHeight
-        Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
-        # TODO: restore old camera resolution later
-    }
+    # if {$cameraWidth < 1920} {
+    #     Retract /someone/ wishes $::thisNode uses camera $camera \
+    #         with width $cameraWidth height $cameraHeight
+    #     Assert $this wishes $::thisNode uses camera $camera with width 1920 height 1080
+    #     # TODO: restore old camera resolution later
+    # }
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
