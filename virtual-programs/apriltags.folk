@@ -23,6 +23,10 @@ set makeAprilTagDetector {{TAG_FAMILY} {
             td->nthreads = 2;
         }]
         $cc proc detect {image_t gray} Tcl_Obj* {
+            if (gray.width == 0 || gray.height == 0) {
+                return Tcl_NewListObj(0, NULL);
+            }
+
             assert(gray.components == 1);
             image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
