@@ -1,9 +1,10 @@
 Wish the GPU compiles pipeline "apriltag" {
-    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
+    {vec2 viewport mat3 surfaceToClip
+     uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[4] = vec2[4](a, b, d, c);
         return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
     } {fn invBilinear} {
-        vec2 p = gl_FragCoord.xy;
+        vec2 p = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
         vec2 uv = invBilinear(p, a, b, c, d);
 
         int x = int(uv.x * 10); int y = int(uv.y * 10);
@@ -14,7 +15,10 @@ Wish the GPU compiles pipeline "apriltag" {
 }
 
 When the image library is /imageLib/ & the print library is /printLib/ &\
-     /someone/ wishes to draw an AprilTag with /...options/ {
+     /p/ has writable image /writableImage/ &\
+     /p/ has writable image projection /surfaceToClip/ &\
+     /someone/ wishes to draw an AprilTag onto /p/ with /...options/ {
+
     set id [dict get $options id]
     set corners [dict get $options corners]
     set layer [dict getdef $options layer 0]
@@ -35,6 +39,7 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
                         0b[join [lreverse [lrange $tagBits 64 95]] ""] \
                         0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
-    Wish the GPU draws pipeline "apriltag" with \
-        arguments [list $tagBitsVec {*}$corners] layer $layer
+    Wish the GPU draws pipeline "apriltag" onto image $writableImage with \
+        arguments [list [list 1024 1024] $surfaceToClip $tagBitsVec {*}$corners] \
+        layer $layer
 }

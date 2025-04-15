@@ -726,10 +726,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     HoldStatement! cycleTime [list $this claims the calibration cycle time is 0]
 
+    set board [list $this board]
+    set boardWritableImage [list $board writable image]
+    Wish the GPU creates writable image $boardWritableImage with width 1024 height 1024
+    Claim $board has writable image $boardWritableImage
+
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
-    When the calibration model-to-display homography is /H_modelToDisplay/ with \
+    When the GPU creates writable image $boardWritableImage as /wi/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /anything/ timestamp /anything/ &\
          the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ {
@@ -757,16 +763,36 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         # White backdrop to hopefully make the projected tags pop out more:
-        Wish to draw a quad with \
-            p0 [list 0 0] p1 [list $displayWidth 0] \
-            p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
-            color white layer 99
+        set surfaceToClip {{1 0 0} {0 1 0} {0 0 1}}
+        set p0 [list -1 -1]
+        set p1 [list 1 -1]
+        set p2 [list 1 1]
+        set p3 [list -1 1]
+        set color {1 1 1 1}
+        Wish the GPU draws pipeline "fillTriangle" with arguments \
+            [list $surfaceToClip $p1 $p2 $p3 $color] layer 99
+        Wish the GPU draws pipeline "fillTriangle" with arguments \
+            [list $surfaceToClip $p0 $p1 $p3 $color] layer 99
 
-        # Instructions for the user:
+        # Now draw the board image (which has the projected tags) onto the display:
+
+        # Corners in model-space:
         set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]
         set modelTopRight [lindex [dict get $model [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
         set modelBottomRight [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
         set modelBottomLeft [lindex [dict get $model [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
+
+        set modelCorners [list $modelTopLeft $modelTopRight $modelBottomRight $modelBottomLeft]
+        # Transform into display-space:
+        lassign [lmap p $modelCorners {
+            $matLib applyHomography $H_modelToDisplay $p
+        }] a b c d
+
+        set wim [$gpuWritableLib gpuImage $wi]
+        Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] \
+                 $wim $a $b $c $d]
+
         # FIXME: Last 2 points' angle is screwed up.
         set sides \
             [list \
