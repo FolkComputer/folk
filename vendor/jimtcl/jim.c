@@ -11154,6 +11154,18 @@ int Jim_EvalObjList(Jim_Interp *interp, Jim_Obj *listPtr)
     return JimEvalObjList(interp, listPtr);
 }
 
+int Jim_IsStringValidScript(Jim_Interp *interp, const char *script)
+{
+    Jim_Obj *scriptObjPtr = Jim_NewStringObj(interp, script, -1);
+
+    Jim_IncrRefCount(scriptObjPtr);
+    ScriptObj *scriptObj = JimGetScript(interp, scriptObjPtr);
+    int res = JimScriptValid(interp, scriptObj);
+    Jim_DecrRefCount(scriptObjPtr);
+
+    return res;
+}
+
 // smj-edison: audited
 /* Panics if called with an object from another interpreter. */
 int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
@@ -11176,6 +11188,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 
     Jim_IncrRefCount(scriptObjPtr);     /* Make sure it's shared. */
     script = JimGetScript(interp, scriptObjPtr);
+
     if (!JimScriptValid(interp, script)) {
         Jim_DecrRefCount(scriptObjPtr);
         return JIM_ERR;

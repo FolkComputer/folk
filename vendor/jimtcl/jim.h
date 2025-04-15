@@ -690,6 +690,7 @@ JIM_EXPORT int Jim_MakeTempFile(Jim_Interp *interp, const char *filename_templat
 #endif
 JIM_EXPORT jim_wide Jim_GetTimeUsec(unsigned type);
 
+JIM_EXPORT int Jim_IsStringValidScript(Jim_Interp *interp, const char *script);
 /* evaluation */
 JIM_EXPORT int Jim_Eval(Jim_Interp *interp, const char *script);
 /* in C code, you can do this and get better error messages */
