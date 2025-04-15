@@ -6,7 +6,7 @@ When /thing/ has region /region/ {
     Claim $thing has a region
 }
 
-When $thing has a region {
+When /thing/ has a region {
     When the collected matches for [list /someone/ wishes $thing is titled /text/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }
