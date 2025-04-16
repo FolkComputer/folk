@@ -1,3 +1,4 @@
 folk
 folk.pid
 *.o
+.vscode
