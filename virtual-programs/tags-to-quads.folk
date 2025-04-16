@@ -588,20 +588,20 @@ When the GPU writable image library is /gpuWritableLib/ &\
 
     # Composite each quad's writable image onto the screen based on
     # its quad.
+    set displayToClip [list \
+        [list [expr {2.0/$displayWidth}] 0 -1] \
+        [list 0 [expr {2.0/$displayHeight}] -1] \
+        [list 0 0 1]]
 
     lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
-        lassign [$poseLib project $displayIntrinsics \
-                     $displayWidth $displayHeight $v] \
-            x y
-        set x $($x / $displayWidth * 2.0 - 1.0)
-        set y $($y / $displayHeight * 2.0 - 1.0)
-        list $x $y
+        $poseLib project $displayIntrinsics \
+                     $displayWidth $displayHeight $v
     }] a b c d
 
-    # TODO: ideally delay wi -> gpuImage resolution until
-    # immediately before draw time.
     set wim [$gpuWritableLib gpuImage $wi]
+
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \
+             $displayToClip \
              $wim $a $b $c $d]
 }

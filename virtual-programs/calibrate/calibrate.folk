@@ -777,9 +777,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         #         id $id corners $modelOuterCorners
         # }
 
-        Wish the GPU draws pipeline "fillTriangle" onto image $wi with arguments \
-            [list {{1 0 0} {0 1 0} {0 0 1}} \
-                 [list -1 -1] [list 1 -1] [list 1 1] [list 1 0 1 1]] layer 99
+        Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
+            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+                                [list -1 -1] [list 1 -1] [list 1 1] [list 1 0 1 1]] \
+            layer 99
 
         # White backdrop across whole projector area to hopefully make
         # the projected tags pop out more:
@@ -802,10 +803,17 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             $matLib applyHomography $H_modelToDisplay $p
         }] a b c d
 
+        set displayToClip \
+            [list [list [expr {2.0/$displayWidth}] 0 -1] \
+                 [list 0 [expr {2.0/$displayHeight}] -1] \
+                 [list 0 0 1]]
+
         set wim [$gpuWritableLib gpuImage $wi]
         Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
-                 $wim $a $b $c $d] layer 100
+                 $displayToClip \
+                 $wim $a $b $c $d] \
+            layer 100
 
         # FIXME: Last 2 points' angle is screwed up.
         # set sides \
