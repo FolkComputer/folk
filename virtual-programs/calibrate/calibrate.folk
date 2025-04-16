@@ -731,10 +731,24 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     Wish the GPU creates writable image $boardWritableImage with width 1024 height 1024
     Claim $board has writable image $boardWritableImage
 
-    set boardTopLeft [lindex [dict get $baseModel [expr {48600 + 0*$COLS + 0}] p] 3]
-    set boardTopRight [lindex [dict get $baseModel [expr {48600 + 0*$COLS + $COLS-1}] p] 2]
-    set boardBottomRight [lindex [dict get $baseModel [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}] p] 1]
-    set boardBottomLeft [lindex [dict get $baseModel [expr {48600 + ($ROWS-1)*$COLS + 0}] p] 0]
+    package require linalg
+    namespace import ::math::linearalgebra::scale \
+        ::math::linearalgebra::add ::math::linearalgebra::sub
+
+    fn innerToOuter {center corner} {
+        set r [sub $corner $center]
+        return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
+    }
+
+    set topLeftTag [dict get $baseModel [expr {48600 + 0*$COLS + 0}]]
+    set topRightTag [dict get $baseModel [expr {48600 + 0*$COLS + $COLS-1}]]
+    set bottomRightTag [dict get $baseModel [expr {48600 + ($ROWS-1)*$COLS + $COLS-1}]]
+    set bottomLeftTag [dict get $baseModel [expr {48600 + ($ROWS-1)*$COLS + 0}]]
+
+    set boardTopLeft [innerToOuter [dict get $topLeftTag c] [lindex [dict get $topLeftTag p] 3]]
+    set boardTopRight [innerToOuter [dict get $topRightTag c] [lindex [dict get $topRightTag p] 2]]
+    set boardBottomRight [innerToOuter [dict get $bottomRightTag c] [lindex [dict get $bottomRightTag p] 1]]
+    set boardBottomLeft [innerToOuter [dict get $bottomLeftTag c] [lindex [dict get $bottomLeftTag p] 0]]
 
     set boardCorners [list $boardTopLeft $boardTopRight $boardBottomRight $boardBottomLeft]
     set boardToClipSpaceCorners \
@@ -759,11 +773,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
 
-        fn innerToOuter {center corner} {
-            set r [sub $corner $center]
-            return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
-        }
-
         dict for {id modelTag} $model {
             if {![isProjectedTag $id]} { continue }
 
@@ -777,10 +786,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 id $id corners $modelOuterCorners layer 100
         }
 
-        Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
-            with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
-                                [list -1 -1] [list 1 -1] [list 1 1] [list 1 0 1 1]] \
-            layer 99
+        # Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
+        #     with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
+        #                         [list -1 -1] [list 1 -1] [list 1 1] [list 1 0 1 1]] \
+        #     layer 99
 
         # White backdrop across whole projector area to hopefully make
         # the projected tags pop out more:
