@@ -132,29 +132,32 @@ $gpuc code [csubst {
 
         exit(1);
     }
-
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-                      VkBuffer* buffer, VkDeviceMemory* bufferMemory) {
-        VkBufferCreateInfo bufferInfo = {0};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = size;
-        bufferInfo.usage = usage;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
-
-        VkMemoryRequirements memRequirements;
-        vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
-
-        VkMemoryAllocateInfo allocInfo = {0};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-        $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
-        vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
-    }
 }]
+
+$gpuc typedef size_t VkDeviceSize false
+$gpuc typedef uint32_t VkBufferUsageFlags false
+$gpuc typedef uint32_t VkMemoryPropertyFlags false
+$gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
+                         VkBuffer* buffer VkDeviceMemory* bufferMemory} void {
+    VkBufferCreateInfo bufferInfo = {0};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+    $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
+    vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+}
 
 # Image allocation:
 $gpuc code [csubst {
@@ -191,41 +194,43 @@ $gpuc code [csubst {
 
         vkBindImageMemory(device, *image, *imageMemory, 0);
     }
-    VkCommandBuffer beginSingleTimeCommands() {
-        VkCommandBufferAllocateInfo allocInfo = {0};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        tryInitCommandPool();
-        allocInfo.commandPool = *commandPool_ptr();
-        allocInfo.commandBufferCount = 1;
-
-        VkCommandBuffer commandBuffer;
-        vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
-
-        VkCommandBufferBeginInfo beginInfo = {0};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-        vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-        return commandBuffer;
-    }
-    void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
-        vkEndCommandBuffer(commandBuffer);
-
-        VkSubmitInfo submitInfo = {0};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer;
-
-        pthread_mutex_lock(graphicsQueueMutex_ptr());
-        vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(*graphicsQueue_ptr());
-        pthread_mutex_unlock(graphicsQueueMutex_ptr());
-
-        vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
-    }
 }]
+
+defineVulkanHandleType $gpuc VkCommandBuffer
+$gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
+    VkCommandBufferAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    tryInitCommandPool();
+    allocInfo.commandPool = *commandPool_ptr();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+}
+$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(*graphicsQueue_ptr());
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+
+    vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
+}
 
 defineVulkanHandleType $gpuc VkImage
 $gpuc typedef int VkFormat false
@@ -332,6 +337,9 @@ defineVulkanHandleType $gpuc VkSampler
 $gpuc struct GpuImageBlock {
     bool _Atomic alive;
 
+    int width;
+    int height;
+
     GpuImageHandle handle;
 
     VkImage textureImage;
@@ -420,6 +428,9 @@ $gpuc proc getGpuImage {GpuImageHandle handle} GpuImageBlock* {
 $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
     GpuImageHandle imageId = allocateGpuImageHandle();
     GpuImageBlock* block = &gpuImages[imageId];
+
+    block->width = width;
+    block->height = height;
 
     createImage(width, height,
                 (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,

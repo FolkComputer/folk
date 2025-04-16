@@ -1,0 +1,233 @@
+When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
+    set cc [C]
+    $cc endcflags -lpng
+    $cc cflags -I./vendor
+    $cc include <png.h>
+    $cc code {
+        #define VOLK_IMPLEMENTATION
+        #include "volk/volk.h"
+
+        VkDevice device;
+    }
+
+    # HACK: to make gpuLib extend properly
+    $cc typedef {struct PushConstantsEncoder} PushConstantsEncoder
+    $cc typedef {struct Pipeline} Pipeline
+    $cc extend $gpuLib
+    $cc extend $gpuImageLib
+    $cc proc imagesLibInit {} void {
+        volkInitialize();
+        volkLoadInstanceOnly(*instance_ptr());
+
+        device = *device_ptr();
+        volkLoadDevice(device);
+    }
+
+    $cc proc copyImageFromGpu {GpuImageHandle han} Image {
+        GpuImageBlock* block = getGpuImage(han);
+        if (!block->alive) {
+            return (Image){0};
+        }
+
+        Image im = {
+            .width = block->width,
+            .height = block->height,
+            .components = 4, // HACK: hard-coded for now
+            .bytesPerRow = block->width * 4,
+            .data = malloc(block->width * block->height * 4)
+        };
+
+        // Create staging buffer
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        size_t stagingBufferSize = block->width * block->height * 4;
+        createBuffer(stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    &stagingBuffer, &stagingBufferMemory);
+
+        // Create command buffer for copy operation
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        // Transition image layout to transfer source
+        VkImageMemoryBarrier barrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = block->textureImage,
+            .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .subresourceRange.baseMipLevel = 0,
+            .subresourceRange.levelCount = 1,
+            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.layerCount = 1,
+            .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
+        };
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0, NULL,
+            0, NULL,
+            1, &barrier
+        );
+
+        // Copy image to buffer
+        VkBufferImageCopy region = {
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .imageSubresource.mipLevel = 0,
+            .imageSubresource.baseArrayLayer = 0,
+            .imageSubresource.layerCount = 1,
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {block->width, block->height, 1}
+        };
+
+        vkCmdCopyImageToBuffer(
+            commandBuffer,
+            block->textureImage,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            stagingBuffer,
+            1,
+            &region
+        );
+
+        // Transition image layout back
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0,
+            0, NULL,
+            0, NULL,
+            1, &barrier
+        );
+
+        endSingleTimeCommands(commandBuffer);
+
+        // Copy staging buffer back to CPU
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
+        memcpy(im.data, data, stagingBufferSize);
+        vkUnmapMemory(device, stagingBufferMemory);
+
+        // Cleanup staging buffer
+        vkDestroyBuffer(device, stagingBuffer, NULL);
+        vkFreeMemory(device, stagingBufferMemory, NULL);
+
+        return im;
+    }
+
+    $cc proc imageToPngBuffer {Image im size_t* outSize} uint8_t* {
+        // Allocate memory buffer to store PNG data
+        size_t bufferSize = im.width * im.height * im.components * 2; // Initial size estimate
+        uint8_t* buffer = malloc(bufferSize);
+        *outSize = 0;
+
+        // Set up PNG write struct
+        png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if (!png_w) {
+            free(buffer);
+            return NULL;
+        }
+
+        png_infop info_w = png_create_info_struct(png_w);
+        if (!info_w) {
+            png_destroy_write_struct(&png_w, NULL);
+            free(buffer);
+            return NULL;
+        }
+
+        // Set up memory write
+        png_set_write_fn(png_w, buffer, 
+            // Custom write function that writes to our buffer
+            (png_rw_ptr)memcpy,
+            // Custom flush function (not needed for memory)
+            NULL
+        );
+
+        // Write PNG header
+        if (im.components == 4) {
+            png_set_IHDR(png_w, info_w, im.width, im.height, 8, PNG_COLOR_TYPE_RGBA,
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        } else if (im.components == 3) {
+            png_set_IHDR(png_w, info_w, im.width, im.height, 8, PNG_COLOR_TYPE_RGB, 
+                PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                PNG_FILTER_TYPE_DEFAULT);
+        } else {
+            png_destroy_write_struct(&png_w, &info_w);
+            free(buffer);
+            return NULL;
+        }
+
+        // Set up row pointers
+        png_bytep* row_pointers = malloc(sizeof(png_bytep) * im.height);
+        for (int y = 0; y < im.height; y++) {
+            row_pointers[y] = im.data + y * im.bytesPerRow;
+        }
+
+        // Write PNG data
+        png_set_rows(png_w, info_w, row_pointers);
+        png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
+
+        // Clean up
+        free(row_pointers);
+        png_destroy_write_struct(&png_w, &info_w);
+
+        *outSize = bufferSize;
+        return buffer;
+    }
+
+    $cc proc copyAllImagesFromGpu {} Jim_Obj* {
+        Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+        for (int i = 0; i < getMaxImages(); i++) {
+            if (getGpuImage(i)->alive) {
+                Image im = copyImageFromGpu(i);
+                size_t pngSize;
+                uint8_t* pngData = imageToPngBuffer(im, &pngSize);
+                
+                Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, (char*)pngData, pngSize));
+
+                free(pngData);
+                free(im.data);
+            }
+        }
+        return ret;
+    }
+    set imagesLib [$cc compile]
+    $imagesLib imagesLibInit
+
+    Wish the web server handles route {/images$} with handler [list apply {{imagesLib} {
+        set images [$imagesLib copyAllImagesFromGpu]
+        
+        html [subst {
+            <html>
+            <head>
+                <title>Images</title>
+                <style>
+                    img { max-width: 100%; }
+                </style>
+            </head>
+            <body>
+                [join [lmap match $images {
+                    set imageData [dict get $match imageData]
+                    set imageName [dict get $match imageName]
+                    set b64 [binary encode base64 $imageData]
+                    format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} $imageName $b64
+                }] "\n"]
+            </body>
+            </html>
+        }]
+    }} $imagesLib]
+}
