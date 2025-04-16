@@ -759,23 +759,23 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
 
-        # fn innerToOuter {center corner} {
-        #     set r [sub $corner $center]
-        #     return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
-        # }
+        fn innerToOuter {center corner} {
+            set r [sub $corner $center]
+            return [add $center [scale [expr {sqrt(50)/sqrt(18)}] $r]]
+        }
 
-        # dict for {id modelTag} $model {
-        #     if {![isProjectedTag $id]} { continue }
+        dict for {id modelTag} $model {
+            if {![isProjectedTag $id]} { continue }
 
-        #     set modelInnerCorners [lreverse [dict get $modelTag p]]
-        #     set modelCenter [dict get $modelTag c]
+            set modelInnerCorners [lreverse [dict get $modelTag p]]
+            set modelCenter [dict get $modelTag c]
 
-        #     set modelOuterCorners [lmap modelInnerCorner $modelInnerCorners {
-        #         innerToOuter $modelCenter $modelInnerCorner
-        #     }]
-        #     Wish to draw an AprilTag onto $board with \
-        #         id $id corners $modelOuterCorners
-        # }
+            set modelOuterCorners [lmap modelInnerCorner $modelInnerCorners {
+                innerToOuter $modelCenter $modelInnerCorner
+            }]
+            Wish to draw an AprilTag onto $board with \
+                id $id corners $modelOuterCorners layer 100
+        }
 
         Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \

@@ -1,11 +1,16 @@
 Wish the GPU compiles pipeline "apriltag" {
     {vec2 viewport mat3 surfaceToClip
      uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
-        vec2 vertices[4] = vec2[4](a, b, d, c);
-        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+
     } {fn invBilinear} {
-        vec2 p = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
-        vec2 uv = invBilinear(p, a, b, c, d);
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
 
         int x = int(uv.x * 10); int y = int(uv.y * 10);
         int bitIdx = y * 10 + x;
