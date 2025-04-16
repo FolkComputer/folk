@@ -585,7 +585,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // evaluateWhenBlock.
     Jim_Obj *envStackObj; {
         int nenvs = Jim_ListLength(interp, capturedEnvStackObj);
-        if (nenvs > 20) {
+        if (nenvs > 30) {
             fprintf(stderr, "runWhenBlock: Too many envs in stack: %d\n", nenvs);
             return;
         }
