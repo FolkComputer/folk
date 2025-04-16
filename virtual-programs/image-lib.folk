@@ -72,7 +72,7 @@ Claim the image library is [apply {{} {
             png_set_IHDR(png_w, info_w, width, height, 8, PNG_COLOR_TYPE_GRAY,
                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
                 PNG_FILTER_TYPE_DEFAULT);
-        else exit(1);
+        else FOLK_ERROR("Unsupported number of components");
 
         png_bytep* row_pointers = (png_bytep *)malloc(sizeof(png_bytep) * height);
         for (int i = 0; i < height; i++) {

@@ -1,4 +1,5 @@
-When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
+When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
+     display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng
     $cc cflags -I./vendor
@@ -37,7 +38,6 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             .data = malloc(block->width * block->height * 4)
         };
 
-        // Create staging buffer
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
         size_t stagingBufferSize = block->width * block->height * 4;
@@ -45,10 +45,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                     &stagingBuffer, &stagingBufferMemory);
 
-        // Create command buffer for copy operation
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
-        // Transition image layout to transfer source
         VkImageMemoryBarrier barrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -128,13 +126,22 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
         return im;
     }
 
+    $cc code {
+        struct WriteState {
+            uint8_t* buffer;
+            size_t* size; 
+        };
+        void pngWriteCallback(png_structp png_ptr, png_bytep data, png_size_t length) {
+            struct WriteState* state = (struct WriteState*)png_get_io_ptr(png_ptr);
+            memcpy(state->buffer + *state->size, data, length);
+            *state->size += length;
+        }
+    }
     $cc proc imageToPngBuffer {Image im size_t* outSize} uint8_t* {
-        // Allocate memory buffer to store PNG data
-        size_t bufferSize = im.width * im.height * im.components * 2; // Initial size estimate
+        size_t bufferSize = im.width * im.height * im.components * 2; // max size estimate
         uint8_t* buffer = malloc(bufferSize);
         *outSize = 0;
 
-        // Set up PNG write struct
         png_structp png_w = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
         if (!png_w) {
             free(buffer);
@@ -148,15 +155,12 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             return NULL;
         }
 
-        // Set up memory write
-        png_set_write_fn(png_w, buffer, 
-            // Custom write function that writes to our buffer
-            (png_rw_ptr)memcpy,
-            // Custom flush function (not needed for memory)
-            NULL
-        );
+        struct WriteState state = {
+            .buffer = buffer,
+            .size = outSize
+        };
+        png_set_write_fn(png_w, &state, pngWriteCallback, NULL);
 
-        // Write PNG header
         if (im.components == 4) {
             png_set_IHDR(png_w, info_w, im.width, im.height, 8, PNG_COLOR_TYPE_RGBA,
                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
@@ -171,17 +175,14 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
             return NULL;
         }
 
-        // Set up row pointers
         png_bytep* row_pointers = malloc(sizeof(png_bytep) * im.height);
         for (int y = 0; y < im.height; y++) {
             row_pointers[y] = im.data + y * im.bytesPerRow;
         }
 
-        // Write PNG data
         png_set_rows(png_w, info_w, row_pointers);
         png_write_png(png_w, info_w, PNG_TRANSFORM_IDENTITY, NULL);
 
-        // Clean up
         free(row_pointers);
         png_destroy_write_struct(&png_w, &info_w);
 
@@ -209,6 +210,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
     $imagesLib imagesLibInit
 
     Wish the web server handles route {/images$} with handler [list apply {{imagesLib} {
+        package require base64
+
         set images [$imagesLib copyAllImagesFromGpu]
         
         html [subst {
@@ -220,11 +223,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ {
                 </style>
             </head>
             <body>
-                [join [lmap match $images {
-                    set imageData [dict get $match imageData]
-                    set imageName [dict get $match imageName]
-                    set b64 [binary encode base64 $imageData]
-                    format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} $imageName $b64
+                [join [lmap imageData $images {
+                    set b64 [::base64::encode $imageData]
+                    format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} hello $b64
                 }] "\n"]
             </body>
             </html>
