@@ -10,7 +10,7 @@ Wish the GPU compiles function "wedge2d" {{vec2 v vec2 w} float {
 }}
 # See https://www.reedbeta.com/blog/quadrilateral-interpolation-part-2/
 Wish the GPU compiles function "invBilinear" {
-      {vec2 pos vec2 p0 vec2 p2 vec2 p3 vec2 p1 fn wedge2d} vec2 {
+      {vec2 pos vec2 p2 vec2 p3 vec2 p1 vec2 p0 fn wedge2d} vec2 {
 
     vec2 q = pos - p0;
     vec2 b1 = p1 - p0;
@@ -40,5 +40,6 @@ Wish the GPU compiles function "invBilinear" {
     else
         uv.x = (q.y - b2.y * uv.y) / denom.y;
 
+    uv.y = 1.0 - uv.y;
     return uv;
 }}
