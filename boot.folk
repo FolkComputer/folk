@@ -40,10 +40,11 @@ set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
 puts "boot: Using config at $setupFilename"
 LoadProgram! $setupFilename
 
-foreach programFilename [list $setupFilename \
-                             {*}[glob -nocomplain virtual-programs/*.folk] \
+foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
                              {*}[glob -nocomplain virtual-programs/*/*.folk] \
-                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"]] {
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
     if {[string match "*/_archive/*" $programFilename] ||
         [string match "*/folk-printed-programs/*" $programFilename] ||
         [string match "*/setup.folk" $programFilename]} { continue }
