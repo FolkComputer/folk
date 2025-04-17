@@ -2201,7 +2201,7 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
     Jim_Obj *objPtr;
     if (onTempList != 0) {
         int index = interp->tempList->length;
-        JimPanic((index >= JIM_TEMP_LIST_SIZE, "ran out of space on temp list"));
+        JimPanicDump(index >= JIM_TEMP_LIST_SIZE, "ran out of space on temp list");
 
         interp->tempList->length++; // do here to prevent integer overflow
         objPtr = &interp->tempList->objects[index];
@@ -2372,6 +2372,22 @@ const char *Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
         JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
 
         objPtr = DupIfShared(interp, objPtr, JIM_TEMP_LIST);
+
+        objPtr->typePtr->updateStringProc(interp, objPtr);
+    }
+    if (lenPtr)
+        *lenPtr = objPtr->length;
+    return objPtr->bytes;
+}
+
+const char *Jim_GetStringSameInterp(Jim_Interp *interp, Jim_Obj *objPtr, int *lenPtr)
+{
+    JimPanic((!Jim_SameInterp(interp, objPtr),
+        "object from another interpreter when running Jim_GetStringSameInterp"));
+
+    if (objPtr->bytes == NULL) {
+        /* Invalid string repr. Generate it. */
+        JimPanic((objPtr->typePtr->updateStringProc == NULL, "UpdateStringProc called against '%s' type.", objPtr->typePtr->name));
 
         objPtr->typePtr->updateStringProc(interp, objPtr);
     }
@@ -3815,7 +3831,12 @@ static void JimSetScriptFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         "object from another interpreter when running JimSetScriptFromAny"));
 
     int scriptTextLen;
-    const char *scriptText = Jim_GetString(interp, objPtr, &scriptTextLen);
+    // needs to shimmer here so that the script gets its
+    // string rep if coming from something that was invalidated
+    // (otherwise string rep will be null and script rep
+    // will be null after `DupScriptInternalRep` is called on it.
+    // Both can't be simultainously null without *exciting* stuff happening)
+    const char *scriptText = Jim_GetStringSameInterp(interp, objPtr, &scriptTextLen);
     struct JimParserCtx parser;
     struct ScriptObj *script;
     ParseTokenList tokenlist;
@@ -6274,6 +6295,8 @@ static const Jim_ObjType listObjType = {
 // smj-edison: audited
 void FreeListInternalRep(Jim_Obj *objPtr)
 {
+    if (objPtr->internalRep.listValue.ele == NULL) return;
+
     int i;
 
     for (i = 0; i < objPtr->internalRep.listValue.len; i++) {
@@ -6291,13 +6314,19 @@ void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr)
 
     dupPtr->internalRep.listValue.len = srcPtr->internalRep.listValue.len;
     dupPtr->internalRep.listValue.maxLen = srcPtr->internalRep.listValue.maxLen;
-    dupPtr->internalRep.listValue.ele =
-        Jim_Alloc(sizeof(Jim_Obj *) * srcPtr->internalRep.listValue.maxLen);
-    memcpy(dupPtr->internalRep.listValue.ele, srcPtr->internalRep.listValue.ele,
-        sizeof(Jim_Obj *) * srcPtr->internalRep.listValue.len);
-    for (i = 0; i < dupPtr->internalRep.listValue.len; i++) {
-        Jim_IncrRefCount(dupPtr->internalRep.listValue.ele[i]);
+
+    if (srcPtr->internalRep.listValue.ele != NULL) {
+        dupPtr->internalRep.listValue.ele =
+            Jim_Alloc(sizeof(Jim_Obj *) * srcPtr->internalRep.listValue.maxLen);
+        memcpy(dupPtr->internalRep.listValue.ele, srcPtr->internalRep.listValue.ele,
+            sizeof(Jim_Obj *) * srcPtr->internalRep.listValue.len);
+        for (i = 0; i < dupPtr->internalRep.listValue.len; i++) {
+            Jim_IncrRefCount(dupPtr->internalRep.listValue.ele[i]);
+        }
+    } else {
+        dupPtr->internalRep.listValue.ele = NULL;
     }
+
     dupPtr->typePtr = &listObjType;
 }
 
