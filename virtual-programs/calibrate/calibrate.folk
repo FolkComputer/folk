@@ -1026,8 +1026,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             return
         }
 
-        # Update H_modelToDisplay to project the tags into the middle
-        # of the board next frame.
+        # Update H_modelToDisplay to project the tags into the right
+        # spots on the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
         set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
         set nextVersion [+ $version 1]
