@@ -46,7 +46,7 @@ debug-test/%: test/%.folk folk
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o
 remote-clean: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make clean'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make clean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer' && cd -; \
@@ -69,29 +69,29 @@ FOLK_REMOTE_NODE := folk-live
 sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
-		. $(FOLK_REMOTE_NODE):~/folk \
+		. $(FOLK_REMOTE_NODE):~/folk2 \
 		--delete-after
 setup-remote:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk/vendor/jimtcl; make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && ./folk'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" ./folk'
 debug-sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb -ex "handle SIGUSR1 nostop" ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb -ex "handle SIGUSR1 nostop" ./folk'
 valgrind-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
 heapprofile-remote-show:
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; google-pprof --text folk $(HEAPPROFILE)'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk $(HEAPPROFILE)'
 heapprofile-remote-svg:
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; google-pprof --svg folk $(HEAPPROFILE)' > out.svg
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --svg folk $(HEAPPROFILE)' > out.svg
 
 flamegraph:
 	sudo perf record --freq=997 --call-graph lbr --pid=$(shell cat folk.pid) -g -- sleep 30
