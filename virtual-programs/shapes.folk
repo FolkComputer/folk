@@ -1,111 +1,301 @@
-# sides 2 => line
-# sides 3 => triangle
-# sides 4 => square
+set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 septagon 7 octagon 8 nonagon 9]
+
+proc process_offset {offset region} {
+  if {![info exists region]} {
+    return $offset
+  }
+  
+  set w [region width $region]
+  set h [region height $region]
+  
+  if {[llength $offset] == 2 && 
+      ![string match *%* $offset] && 
+      ![string is alpha -strict [lindex $offset 0]]} {
+    return $offset
+  }
+  
+  # Handle simple percentage string: "50%"
+  if {[string match *%* $offset] && [llength $offset] == 1} {
+    set pct [expr {[string map {% ""} $offset] / 100.0}]
+    return [list [expr {$w * $pct}] 0]  # Default to horizontal offset
+  }
+  
+  # Handle directional strings: "right", "left", "up", "down"
+  if {$offset eq "right"} {
+    return [list [expr {$w * 0.5}] 0]
+  } elseif {$offset eq "left"} {
+    return [list [expr {-$w * 0.5}] 0]
+  } elseif {$offset eq "up"} {
+    return [list 0 [expr {-$h * 0.5}]]
+  } elseif {$offset eq "down"} {
+    return [list 0 [expr {$h * 0.5}]]
+  }
+  
+  # Handle directional percentage: "right 50%", "left 25%", etc.
+  if {[llength $offset] == 2 && [string is alpha -strict [lindex $offset 0]]} {
+    set direction [lindex $offset 0]
+    set amount [lindex $offset 1]
+    
+    if {[string match *%* $amount]} {
+      set pct [expr {[string map {% ""} $amount] / 100.0}]
+      
+      switch $direction {
+        "right" { return [list [expr {$w * $pct}] 0] }
+        "left"  { return [list [expr {-$w * $pct}] 0] }
+        "up"    { return [list 0 [expr {-$h * $pct}]] }
+        "down"  { return [list 0 [expr {$h * $pct}]] }
+        default { return [list 0 0] }
+      }
+    }
+  }
+  
+  # Handle x y vector where one or both components have percentage notation
+  if {[llength $offset] == 2} {
+    lassign $offset ox oy
+    
+    if {[string match *%* $ox]} {
+      set pct [expr {[string map {% ""} $ox] / 100.0}]
+      set ox [expr {$w * $pct}]
+    }
+    
+    if {[string match *%* $oy]} {
+      set pct [expr {[string map {% ""} $oy] / 100.0}]
+      set oy [expr {$h * $pct}]
+    }
+    
+    return [list $ox $oy]
+  }
+  
+  # Default fallback
+  return $offset
+}
+
 When /someone/ wishes to draw a shape with /...options/ {
-  set numPoints [dict get $options sides]
-  set c [dict get $options center]
-  set r [dict get $options radius]
-  set radians [dict_getdef $options radians 0]
+  set isRect 0
+  if {[dict exists $options type] && [dict get $options type] eq "rect"} {
+    set isRect 1
+  }
+  
+  set c [dict_getdef $options center {0 0}]
+  
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
+  set thickness [dict_getdef $options thickness 1]
   set layer [dict_getdef $options layer 0]
-
-  set p [list 0 0]
-  set center $p
-  set points [list $p]
-
-  set incr [expr {2 * 3.14159 / $numPoints}]
-  set a [expr {$incr + 3.14159}]
-  for {set i 0} {$i < $numPoints} {incr i} {
-    set p [vec2 add $p [vec2 scale [list [expr {cos($a)}] [expr {sin($a)}]] $r]]
-    lappend points $p
-    # Accumulate center
-    set center [vec2 add $center $p]
-    set a [expr {$a + $incr}]
+  set angle [dict_getdef $options angle 0]
+  
+  if {$isRect} {
+    set w [dict_getdef $options width 100]
+    set h [dict_getdef $options height 100]
+    
+    set hw [expr {$w / 2.0}]
+    set hh [expr {$h / 2.0}]
+    
+    set points [lmap v [list \
+      [list [expr {-$hw}] [expr {-$hh}]] \
+      [list [expr {$hw}] [expr {-$hh}]] \
+      [list [expr {$hw}] [expr {$hh}]] \
+      [list [expr {-$hw}] [expr {$hh}]] \
+      [list [expr {-$hw}] [expr {-$hh}]] \
+    ] {
+      vec2 add [vec2 rotate $v $angle] $c
+    }]
+  } else {
+    set numPoints [dict_getdef $options sides 4]
+    if {[dict exists $options shape] && [dict exists $shapes [dict get $options shape]]} {
+      set numPoints [dict get $shapes [dict get $options shape]]
+    }
+    set r [dict_getdef $options radius 50]
+    
+    set points {{0 0}}
+    set centerPoint {0 0}
+    set polyAngle [expr {2 * 3.14159 / $numPoints + 3.14159}]
+    set angleIncr [expr {2 * 3.14159 / $numPoints}]
+    
+    for {set i 0} {$i < $numPoints} {incr i} {
+      set p [vec2 add [lindex $points end] [vec2 scale [list [expr {cos($polyAngle)}] [expr {sin($polyAngle)}]] $r]]
+      lappend points $p
+      set centerPoint [vec2 add $centerPoint $p]
+      set polyAngle [expr {$polyAngle + $angleIncr}]
+    }
+    
+    set points [lmap v $points {
+      vec2 add [vec2 rotate [vec2 sub $v [vec2 scale $centerPoint [expr {1.0/$numPoints}]]] $angle] $c
+    }]
   }
-  set center [vec2 scale $center [expr {1.0/$numPoints}]]
-
-  set points [lmap v $points {
-      set v [vec2 sub $v $center]
-      set v [vec2 rotate $v $radians]
-      set v [vec2 add $v $c]
-      set v
-  }]
-
+  
   if {$filled} {
     Wish to draw a polygon with points $points color $color layer $layer
   } else {
-    Wish to draw a stroke with points $points width 1 color $color layer $layer
+    Wish to draw a stroke with points $points width $thickness color $color layer $layer
   }
 }
 
-set shapes [dict create triangle 3 square 4 pentagon 5 hexagon 6 \
-                septagon 7 octagon 8 nonagon 9]
 When /someone/ wishes /p/ draws a /shape/ {
-  # TODO: This is a hack because rest pattern doesn't match empty
-  # sequence at end.
   Wish $p draws a $shape with color white
 }
-When /someone/ wishes /p/ draws an /shape/ { Wish $p draws a $shape }
+
+# Handle "a" vs "an" grammar variations
+When /someone/ wishes /p/ draws an /shape/ {
+  Wish $p draws a $shape
+}
+
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
-  lassign [region centroid $r] x y
-  set width [region width $r]
-  set height [region height $r]
-  lassign [dict_getdef $options offset {0 0}] offsetX offsetY
-  set radius [dict_getdef $options radius 50]
+  lassign [region centroid $r] cx cy
+  set angle [region angle $r]
+  
   set color [dict_getdef $options color white]
   set filled [dict_getdef $options filled false]
   set thickness [dict_getdef $options thickness 5]
   set layer [dict_getdef $options layer 0]
- 
-  if {$offsetX != 0} {
-    set x [expr {$x + $offsetX}]
-  }
-  if {$offsetY != 0} {
-    set y [expr {$y + $offsetY}]
-  }
-
-  set angle [region angle $r]
-  set p [list $x $y]
-
+  
+  set offset [dict_getdef $options offset {0 0}]
+  set offset [process_offset $offset $r]
+  
+  set center [vec2 add [list $cx $cy] [vec2 rotate $offset $angle]]
+  
   if {$shape eq "circle"} {
-      Wish to draw a circle with \
-          center $p radius $radius thickness $thickness \
-          color $color filled $filled layer $layer
+    set radius [dict_getdef $options radius 50]
+    
+    Wish to draw a circle with center $center radius $radius thickness $thickness \
+      color $color filled $filled layer $layer
+      
+  } elseif {$shape eq "rect"} {
+    set w [dict_getdef $options width [region width $r]]
+    set h [dict_getdef $options height [region height $r]]
+    
+    Wish to draw a shape with type rect center $center width $w height $h angle $angle \
+      color $color filled $filled thickness $thickness layer $layer
+      
   } elseif {[dict exists $shapes $shape]} {
-      Wish to draw a shape with sides [dict get $shapes $shape] \
-          center $p radius $radius radians $angle \
-          color $color filled $filled layer $layer
+    set radius [dict_getdef $options radius 50]
+    
+    Wish to draw a shape with sides [dict get $shapes $shape] center $center radius $radius \
+      angle $angle color $color filled $filled thickness $thickness layer $layer
+      
   } else {
-      Wish to draw a shape with sides 2 \
-          center $p radius $radius radians $angle \
-          color $color filled $filled layer $layer
+    set radius [dict_getdef $options radius 50]
+    
+    Wish to draw a shape with sides 4 center $center radius $radius \
+      angle $angle color $color filled $filled thickness $thickness layer $layer
   }
 }
+
+# Pass through options for "an" version
 When /someone/ wishes /p/ draws an /shape/ with /...options/ {
   Wish $p draws a $shape with {*}$options
 }
 
-Claim $this has demo {
-  Wish $this draws a circle
-  Wish $this draws a triangle with color skyblue
-  Wish $this draws a triangle with color green offset {280 0}
-  Wish $this draws a pentagon with color gold offset {200 0}
-  Wish $this draws an octagon with color red offset {250 80}
+When /someone/ wishes /p/ draws a rect with width /w/ height /h/ {
+  Wish $p draws a rect with width $w height $h
+}
 
+When /someone/ wishes /p/ draws a /shape/ with radius /rad/ {
+  Wish $p draws a $shape with radius $rad
+}
+
+When /someone/ wishes /page/ draws a set of points /points/ with /...options/ & /page/ has region /r/ {
+  set radius [dict_getdef $options radius 5]
+  set color [dict_getdef $options color white]
+  set filled [dict_getdef $options filled true]
+  set thickness [dict_getdef $options thickness 2]
+  set layer [dict_getdef $options layer 0]
+  
+  lassign [region centroid $r] cx cy
+  set angle [region angle $r]
+  set center [list $cx $cy]
+  
+  if {[dict exists $options offset]} {
+    set offset [dict get $options offset]
+    set offset [process_offset $offset $r]
+    set center [vec2 add $center [vec2 rotate $offset $angle]]
+  }
+  
+  foreach point $points {
+    set pointPos [vec2 add $center [vec2 rotate $point $angle]]
+    
+    Wish to draw a circle with center $pointPos radius $radius thickness $thickness \
+      color $color filled $filled layer $layer
+  }
+}
+
+When /someone/ wishes /page/ draws a polyline /points/ with /...options/ & /page/ has region /r/ {
+  set color [dict_getdef $options color white]
+  set thickness [dict_getdef $options thickness 2]
+  set layer [dict_getdef $options layer 0]
+  set dashed [dict_getdef $options dashed false]
+  set dashlength [dict_getdef $options dashlength 20]
+  set dashoffset [dict_getdef $options dashoffset 0]
+  
+  lassign [region centroid $r] cx cy
+  set angle [region angle $r]
+  set center [list $cx $cy]
+  
+  if {[dict exists $options offset]} {
+    set offset [dict get $options offset]
+    set offset [process_offset $offset $r]
+    set center [vec2 add $center [vec2 rotate $offset $angle]]
+  }
+  
+  set transformedPoints {}
+  foreach point $points {
+    lappend transformedPoints [vec2 add $center [vec2 rotate $point $angle]]
+  }
+  
+  if {$dashed} {
+    Wish to draw a dashed stroke with points $transformedPoints color $color width $thickness \
+      dashlength $dashlength dashoffset $dashoffset layer $layer
+  } else {
+    Wish to draw a stroke with points $transformedPoints color $color width $thickness layer $layer
+  }
+}
+
+Claim $this has demo {
+  # Center circle
+  Wish $this draws a circle
+  
+  # Grid of shapes with varying thickness
+  set baseX -850
+  set baseY -200
+  set gridSpacing 130
+  
+  # Row 1: Regular polygons with different colors and thickness
+  Wish $this draws a triangle with color skyblue thickness 2 offset [list $baseX [expr {$baseY}]]
+  Wish $this draws a square with color green thickness 4 offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY}]]
+  Wish $this draws a pentagon with color gold thickness 6 offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY}]]
+  Wish $this draws a hexagon with color orange thickness 8 offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY}]]
+  
+  # Row 2: Filled shapes
+  Wish $this draws a triangle with color skyblue filled true offset [list $baseX [expr {$baseY + $gridSpacing}]]
+  Wish $this draws a square with color green filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing}]]
+  Wish $this draws a pentagon with color gold filled true offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY + $gridSpacing}]]
+  Wish $this draws a hexagon with color orange filled true offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY + $gridSpacing}]]
+  
+  # Row 3: Directional offset examples (replacing shift)
+  Wish $this draws a triangle with radius 40 offset "right 50%"
+  Wish $this draws a square with radius 40 offset  "left 50%"
+  Wish $this draws a pentagon with radius 40 offset "up 50%"
+  Wish $this draws a hexagon with radius 40 offset "down 50%"
+  
+  # Row 4: Rectangles with different properties
+  Wish $this draws a rect with width 80 height 50 color cyan thickness 3 offset [list $baseX [expr {$baseY + $gridSpacing*3}]]
+  Wish $this draws a rect with width 80 height 50 color magenta filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing*3}]]
+  Wish $this draws a rect with width 80 height 50 offset "right 50%"
+  Wish $this draws a rect with width 80 height 50 offset  "left 50%"
+  
+  # Animated elements
   When the clock time is /t/ {
     set offsetVector [list [sin $t] [cos $t]]
     set offsetVector [::vec2::scale $offsetVector 105]
     Wish $this draws a circle with color palegoldenrod offset $offsetVector
   }
-
-  # This toggles a square between filled and unfilled
+  
   When $this has region /r/ & the clock time is /t/ {
     lassign [region centroid $r] x y
     set fill [expr {round(sin($t) * 2) % 2 == 0}]
     set y [- $y 150]
     Wish to draw a shape with sides 4 center [list [- $x 100] $y] radius 60 color white filled $fill
   }
-
+  
   Wish $this is outlined white
 }

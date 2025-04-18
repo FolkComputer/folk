@@ -227,6 +227,24 @@ $camc proc cameraFrame {Camera* camera} int {
     return camera_capture(camera);
 }
 
+$camc proc setExposure {Camera* camera int value} void {
+    struct v4l2_control c;
+
+    c.id = V4L2_CID_EXPOSURE_AUTO;
+    c.value = V4L2_EXPOSURE_MANUAL;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+
+    c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+    c.value = value;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+}
+$camc proc setExposureAuto {Camera* camera} void {
+    struct v4l2_control c;
+    c.id = V4L2_CID_EXPOSURE_AUTO;
+    c.value = V4L2_EXPOSURE_APERTURE_PRIORITY;
+    FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+}
+
 $camc proc cameraDecompressRgb {Camera* camera Image dest} void {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
@@ -315,6 +333,10 @@ set camLib [$camc compile]
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {![string match "/dev*" $camera]} { return }
 
+    set width [dict get $options width]
+    set height [dict get $options height]
+    set bufferCount [dict getdef $options bufferCount 2]
+
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
     }
@@ -373,14 +395,24 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set width [dict get $options width]
     set height [dict get $options height]
     set bufferCount [dict getdef $options bufferCount 4]
-    Claim camera $camera has width $width height $height
     set camObj [Camera::new $camera $width $height $bufferCount]
+
+    Claim camera $camera has width $width height $height
+
+    When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+        if {$exposureTimeUs eq "auto"} {
+            $camLib setExposureAuto $camObj
+        } else {
+            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+        }
+    }
 
     try -signal {
         while true {
             tracy zoneBegin
 
             set frame [Camera::grayFrame $camObj]
+
             if {[info exists crop]} {
                 dict with crop {
                     set cropped [subimage $frame $x $y $width $height]

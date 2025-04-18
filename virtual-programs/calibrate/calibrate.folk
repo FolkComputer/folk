@@ -386,6 +386,8 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
     set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
     fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
 
+    set camera [dict get [lindex [Query! camera /camera/ has width /cameraWidth/ height /cameraHeight/] 0] camera]
+
     upvar ^html ^html
     html [csubst {
       <html>
@@ -466,15 +468,15 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
               });
             </script>
 
-            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <strong>so that at least one projected tag sits inside the gap between printed AprilTags</strong>, wait a second for the projected tags to refit into the grid,
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
           then <strong>hold the board still for a few seconds until
               the pose is recorded.</strong></p>
 
             <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
-            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibration the Folk0 system (playing at 2x speed).</p>
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
 
-            <p>Are the projected tags too big to fit in the gaps between printed tags? Adjust this slider to reset & adjust the default projected tag size:
+            <p><strong>Are the projected tags too big to fit in the gaps between printed tags?</strong> Adjust this slider to reset & adjust the default projected tag size:
               <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
             </p>
             <script>
@@ -485,11 +487,69 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
                   {*}[set HoldDefaultModel!] \${scale}
                 `);
               });
+
+              function advanceCamera() {
+                cameraFrame.src = cameraFrame.src + '0'
+              }
             </script>
 
-          <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button onclick="cameraFrame.src = cameraFrame.src + '0'">Refresh Preview</button></p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
+            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
+  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
 
-          <p>Once you've recorded the first pose, <strong>slowly drag the board around your space</strong>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
+            <script>
+                const refreshButton = document.getElementById('refreshButton');
+                const autoRefreshCheckbox = document.getElementById('auto-refresh-checkbox');
+                setInterval(() => {
+                     if (autoRefreshCheckbox.checked) {
+                        refreshButton.click()
+                     } 
+                     console.log("checked?", autoRefreshCheckbox.checked)
+                }, 100)
+            </script>
+
+
+            <p><strong>Is the projection too bright and washing out the camera?</strong>
+            <br/>
+            Adjust camera exposure:
+                <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
+                <input type="number" min="1000" max="320000" step="100" value="10000" id="camera-exposure-number">μs
+            </p>
+
+            <script>
+            const slider = document.getElementById('camera-exposure-slider');
+            const numberInput = document.getElementById('camera-exposure-number');
+            let lastRefreshTimeout = null;
+            
+            function updateExposure(valueInMicroseconds) {
+                const sliderValue = valueInMicroseconds / 100;
+                
+                slider.value = sliderValue;
+                numberInput.value = valueInMicroseconds;
+                
+                ws.hold('exposure', tcl`
+                    Wish camera $camera uses exposure time \${valueInMicroseconds} us
+                `, 'virtual-programs/calibrate/calibrate.folk');
+                
+                if (lastRefreshTimeout != null) {
+                    window.clearTimeout(lastRefreshTimeout);
+                }
+                lastRefreshTimeout = setTimeout(() => { advanceCamera() }, 500);
+            }
+            
+            slider.addEventListener('input', (e) => {
+                const exposureValue = Math.round(e.target.value * 100);
+                updateExposure(exposureValue);
+            });
+            
+            numberInput.addEventListener('input', (e) => {
+                const exposureValue = parseInt(e.target.value);
+                updateExposure(exposureValue);
+            });
+            
+            updateExposure(10000);
+            </script>
+
+          <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
 
           <p>Repeat this process of dragging the board around and
           capturing a new pose. You'll need to record 10 different
@@ -501,7 +561,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
             <details>
               <summary>Troubleshooting</summary>
               <p>Look at ~/folk-calibration-poses to see images of the captured poses (maybe tags are distorted or washed out?).</p>
-              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, but you might also want to turn off autoexposure and set a manual exposure time. For example:</p>
+              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, and you might also want to check that your camera actually has an exposure setting and focus setting. For example:</p>
               <pre>
 \$ v4l2-ctl --device=/dev/video0 --list-ctrls
 
@@ -527,9 +587,10 @@ Camera Controls
                  focus_absolute 0x009a090a (int)    : min=0 max=250 step=5 default=0 value=30
      focus_automatic_continuous 0x009a090c (bool)   : default=1 value=0
                   zoom_absolute 0x009a090d (int)    : min=100 max=500 step=1 default=100 value=100
-\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1 # to set them manually from terminal
 \$ v4l2-ctl --device=/dev/video0 --set-ctrl=exposure_time_absolute=25
               </pre>
+              <p>Camera needs to have auto_exposure and exposure_time_absolute settings listed for Folk to be able to set them.</p>
             </details>
           </li>
 
@@ -691,10 +752,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     package require linalg
     namespace import ::math::linearalgebra::scale
-
-    # HACK: hard-coded for now; assumes dark room. Won't work on USB
-    # webcams yet, either (just Pi).
-    # Wish camera $camera uses exposure time 16000 us
 
     set tagSideLength 1.0
     set tagOuterLength [expr {$tagSideLength * 10/6}]
@@ -878,9 +935,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
     Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
-
     HoldDefaultModel! 1.0
-    On unmatch { Hold! H_modelToDisplay {} }
+
+    On unmatch {
+        Hold H_modelToDisplay {}
+        Hold exposure {
+            Wish camera $camera uses exposure time auto us
+        }
+    }
 
     When /detector/ detects tags /tags/ on camera $camera \
              at timestamp /timestamp/ in time /something/ &\

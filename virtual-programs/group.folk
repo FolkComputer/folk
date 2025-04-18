@@ -1,0 +1,42 @@
+return
+# FIXME: re-enable group.folk
+
+# load all programs
+When group /group/ contains /...programs/ {
+    Wish tag $group is stabilized
+    foreach program $programs {
+        # HACK: claim 'tag' specifically so it doesn't run twice
+        Claim tag $program has a program
+    }
+}
+
+# figure out the text to display below
+When group /group/ contains /...programs/ &\
+     the collected matches for [list /someone/ wishes /program/ is titled /title/] are /matches/ {
+    set programTitles [dict create]
+
+    foreach match $matches {
+        set programId [dict get $match program]
+
+        if {[lsearch $programs $programId] != -1} {
+            dict set programTitles $programId [dict get $match title]
+        }
+    }
+
+    set programTitleText ""
+
+    foreach program $programs {
+        set title [dict_getdef $programTitles $program "(no title)"]
+        append programTitleText \n $program ": " $title
+    }
+
+    Claim group $group has program titles $programTitleText
+}
+
+# display said text
+When group /group/ has program titles /programTitles/ &\
+     /group/ has region /r/ {
+    set radians [region angle $r]
+    set pos [region topleft [region move $r down 40px right 15px]]
+    Wish to draw text with position $pos text $programTitles scale 0.7 radians $radians anchor topleft
+}
