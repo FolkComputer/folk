@@ -385,6 +385,7 @@ Jim_Obj* QuerySimple(Clause* pattern) {
         free(env);
     }
 
+    free(rs);
     return ret;
 }
 
