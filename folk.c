@@ -405,6 +405,28 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+static int StatementAcquireFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+
+    if (statementAcquire(db, ref) == NULL) {
+        Jim_SetResultString(interp, "Unable to acquire statement.", -1);
+        return JIM_ERR;
+    }
+    return JIM_OK;
+}
+static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+
+    StatementRef ref;
+    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+
+    statementRelease(db, statementUnsafeGet(db, ref));
+    return JIM_OK;
+}
+
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     char varName[100];
@@ -515,6 +537,9 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "StatementAcquire!", StatementAcquireFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "StatementRelease!", StatementReleaseFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "__scanVariable", __scanVariableFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__variableNameIsNonCapturing", __variableNameIsNonCapturingFunc, NULL, NULL);

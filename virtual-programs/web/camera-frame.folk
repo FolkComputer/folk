@@ -1,14 +1,15 @@
-When the image library is /imageLib/ &\
-     camera /any/ has frame /im/ at timestamp /any/ {
-
-    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{imageLib im} {
-        set filename "/tmp/web-image-frame.jpg"
-        $imageLib saveAsJpeg $im $filename
-        set fsize [file size $filename]
-        set fd [open $filename r]
-        fconfigure $fd -translation binary
-        set body [read $fd $fsize]
-        close $fd
+When the image library is /imageLib/ {
+    Wish the web server handles route {/camera-frame(?:\?.*)?} with handler [list apply {{imageLib} {
+        ForEach! camera /any/ has frame /im/ at timestamp /any/ {
+            set filename "/tmp/web-image-frame.jpg"
+            $imageLib saveAsJpeg $im $filename
+            set fsize [file size $filename]
+            set fd [open $filename r]
+            fconfigure $fd -translation binary
+            set body [read $fd $fsize]
+            close $fd
+            break
+        }
         dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
-    }} $imageLib $im]
+    }} $imageLib]
 }

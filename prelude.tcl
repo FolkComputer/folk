@@ -550,8 +550,13 @@ proc ForEach! {args} {
     upvar __result result
     foreach result $results {
         # TODO: support early return in body
-        # TODO: acquire the __result while running $body
+
+        set ref [dict get $result __ref]
+        StatementAcquire! $ref
+
         uplevel [list dict with __result $body]
+
+        StatementRelease! $ref
     }
 }
 
