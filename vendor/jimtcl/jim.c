@@ -111,8 +111,8 @@
 
 const char *jim_tt_name(int type);
 
-#ifdef JIM_DEBUG_PANIC
 static void JimPanicDump(int fail_condition, const char *fmt, ...);
+#ifdef JIM_DEBUG_PANIC
 #define JimPanic(X) JimPanicDump X
 #else
 #define JimPanic(X)
@@ -621,7 +621,6 @@ static jim_wide JimPowWide(jim_wide b, jim_wide e)
 /* -----------------------------------------------------------------------------
  * Special functions
  * ---------------------------------------------------------------------------*/
-#ifdef JIM_DEBUG_PANIC
 static void JimPanicDump(int condition, const char *fmt, ...)
 {
     va_list ap;
@@ -654,7 +653,6 @@ static void JimPanicDump(int condition, const char *fmt, ...)
 
     exit(1);
 }
-#endif
 
 /* -----------------------------------------------------------------------------
  * Memory allocation
