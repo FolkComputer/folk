@@ -4702,7 +4702,7 @@ static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_O
     Jim_IncrRefCount(valObjPtr);
     var->linkFramePtr = NULL;
 
-    name = Jim_GetString(interp, nameObjPtr, &len);
+    name = Jim_GetStringSameInterp(interp, nameObjPtr, &len);
     if (name[0] == ':' && name[1] == ':') {
         while (*name == ':') {
             name++;
