@@ -735,15 +735,13 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
         // they take; this is so that pipelines are all
         // layout-compatible so we can reuse descriptor set
         // between pipelines without needing to rebind it.
-        {
-            VkPushConstantRange pushConstantRange = {0};
-            pushConstantRange.offset = 0;
-            pushConstantRange.size = 128;
-            pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkPushConstantRange pushConstantRange = {0};
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = 128;
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
-            pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-            pipelineLayoutInfo.pushConstantRangeCount = 1;
-        }
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
 
         $[vktry {vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout)}]
     }
