@@ -685,16 +685,30 @@ extern "C" \{
     if {[__isTracyEnabled]} {
         lappend cflags -DTRACY_ENABLE=1
     }
-    exec $compiler -Wall -g -fno-omit-frame-pointer -fPIC \
-        {*}$cflags $cfile -c -o [file rootname $cfile].o
+    try {
+        exec $compiler -fsanitize=address -Wall -g -fno-omit-frame-pointer -fPIC \
+            {*}$cflags $cfile -c -o [file rootname $cfile].o
+    } on error e {}
     # HACK: Why do we need this / only when running in lldb?
-    while {![file exists [file rootname $cfile].o]} { sleep 0.0001 }
+    set n 0
+    while {![file exists [file rootname $cfile].o]} {
+        sleep 0.01
+        incr n
+        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+    }
 
-    exec $compiler -shared $ignoreUnresolved \
-        -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$endcflags
+    try {
+        exec $compiler -fsanitize=address -shared $ignoreUnresolved \
+            -o /tmp/$cid.so [file rootname $cfile].o \
+            {*}$endcflags
+    } on error e {}
     # HACK: Why do we need this / only when running in lldb?
-    while {![file exists /tmp/$cid.so]} { sleep 0.0001 }
+    set n 0
+    while {![file exists /tmp/$cid.so]} {
+        sleep 0.01
+        incr n
+        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+    }
 
     set cInfo [dict create]
     foreach varName [$self vars] {

@@ -16,7 +16,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET)
 
-	$(LINKER) -g -fno-omit-frame-pointer -o$@ \
+	$(LINKER) -g -fno-omit-frame-pointer -fsanitize=address -o$@ \
 		$(CFLAGS) $(TRACY_CFLAGS) \
 		-L./vendor/jimtcl \
 		$^ \
@@ -26,7 +26,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	fi
 
 %.o: %.c trie.h
-	cc -c -O2 -g -fno-omit-frame-pointer -o$@  \
+	cc -c -O2 -g -fno-omit-frame-pointer -fsanitize=address -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
@@ -77,7 +77,7 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libasan.so.8 ./folk'
 sudo-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
@@ -87,7 +87,9 @@ debug-sudo-remote: sync
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+debug-heapprofile-remote: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 gdb -ex "handle SIGUSR1 nostop" ./folk'
 heapprofile-remote-show:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk $(HEAPPROFILE)'
 heapprofile-remote-svg:

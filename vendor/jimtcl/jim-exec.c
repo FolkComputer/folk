@@ -1053,6 +1053,11 @@ badargs:
             goto error;
         }
         if (phandle == 0) {
+            for (int i = 0; child_environ[i] != NULL; i++) {
+                if (strstr(child_environ[i], "LD_PRELOAD=")) {
+                    child_environ[i][0] = 'D';
+                }
+            }
             /* Child */
             /* Set up stdin, stdout, stderr */
             if (inputId != -1 && inputId != STDIN_FILENO) {
