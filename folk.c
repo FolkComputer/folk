@@ -1148,6 +1148,36 @@ void workerSpawn() {
     pthread_t th;
     pthread_create(&th, NULL, workerMain, NULL);
 }
+static void workerInfo(int threadIndex) {
+    if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
+        /* printf("No thread at index %d\n", threadIndex); */
+        return;
+    }
+    ThreadControlBlock *thread = &threads[threadIndex];
+
+    // Print current operation
+    char opBuf[10000];
+    traceItem(opBuf, sizeof(opBuf), thread->currentItem);
+    printf("Current operation: %s\n", opBuf);
+
+    // Print work queue items
+    WorkQueueItem items[100];
+    int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
+    printf("Work queue (%d items):\n", nitems);
+    for (int i = 0; i < nitems; i++) {
+        char itemBuf[10000];
+        traceItem(itemBuf, sizeof(itemBuf), items[i]);
+        printf("  %d: %s\n", i, itemBuf);
+    }
+
+    // Print timing info
+    printf("Current item start timestamp: %" PRId64 "\n", thread->currentItemStartTimestamp);
+
+    int64_t now = timestamp_get(thread->clockid);
+    double elapsed = (double)(now - thread->currentItemStartTimestamp) / 1000.0;
+    printf("Elapsed time: %.3f us\n", elapsed);
+}
+
 void workerReactivateOrSpawn() {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
@@ -1161,6 +1191,17 @@ void workerReactivateOrSpawn() {
     }
     if (nLivingThreads > 20) {
         fprintf(stderr, "folk: workerReactivateOrSpawn: Not spawning new thread; too many already\n");
+
+        {
+            printf("SPAWN NEW WORKER\n"
+                   "============================\n");
+            for (int i = 0; i < THREADS_MAX; i++) {
+                printf("\nthread %d\n"
+                       "------------------\n", i);
+                workerInfo(i);
+            }
+        }
+
         return;
     }
     fprintf(stderr, "workerSpawn\n");
