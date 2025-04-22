@@ -4517,6 +4517,9 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     JimPanic((!Jim_SameInterp(interp, objPtr),
         "object from another interpreter when running Jim_GetCommand"));
 
+    /* make sure objPtr has a string representation */
+    Jim_GetStringSameInterp(interp, objPtr, NULL);
+
     /* In order to be valid, the proc epoch must match and
      * the lookup must have occurred in the same namespace.
      */
@@ -11636,7 +11639,7 @@ static int SetSubstFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr, int flags
         "object from another interpreter when running SetSubstFromAny"));
 
     int scriptTextLen;
-    const char *scriptText = Jim_GetString(interp, objPtr, &scriptTextLen);
+    const char *scriptText = Jim_GetStringSameInterp(interp, objPtr, &scriptTextLen);
     struct JimParserCtx parser;
     struct ScriptObj *script = Jim_Alloc(sizeof(*script));
     ParseTokenList tokenlist;
