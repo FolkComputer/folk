@@ -14776,6 +14776,8 @@ wrongargs:
                     }
                     else if (errorCodeObj) {
                         int len = Jim_ListLength(interp, argv[idx + 1]);
+                        int errorCodeLen = Jim_ListLength(interp, errorCodeObj);
+                        if (errorCodeLen < len) len = errorCodeLen;
                         int i;
 
                         ret = JIM_OK;
@@ -14783,8 +14785,7 @@ wrongargs:
                         for (i = 0; i < len; i++) {
                             Jim_Obj *matchObj = Jim_ListGetIndex(interp, argv[idx + 1], i);
                             Jim_Obj *objPtr = Jim_ListGetIndex(interp, errorCodeObj, i);
-                            /* objPtr may be NULL if errorCodeObj is an empty list */
-                            if (!objPtr || Jim_StringCompareObj(interp, matchObj, objPtr, 0) != 0) {
+                            if (Jim_StringCompareObj(interp, matchObj, objPtr, 0) != 0) {
                                 ret = -1;
                                 break;
                             }
