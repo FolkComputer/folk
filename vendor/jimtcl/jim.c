@@ -14783,7 +14783,8 @@ wrongargs:
                         for (i = 0; i < len; i++) {
                             Jim_Obj *matchObj = Jim_ListGetIndex(interp, argv[idx + 1], i);
                             Jim_Obj *objPtr = Jim_ListGetIndex(interp, errorCodeObj, i);
-                            if (Jim_StringCompareObj(interp, matchObj, objPtr, 0) != 0) {
+                            /* objPtr may be NULL if errorCodeObj is an empty list */
+                            if (!objPtr || Jim_StringCompareObj(interp, matchObj, objPtr, 0) != 0) {
                                 ret = -1;
                                 break;
                             }
