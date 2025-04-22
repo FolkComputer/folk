@@ -4616,7 +4616,7 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         return JIM_DICT_SUGAR;
     }
 
-    varName = Jim_GetString(interp, objPtr, &len);
+    varName = Jim_GetStringSameInterp(interp, objPtr, &len);
 
     /* Make sure it's not syntax glue to get/set dict. */
     if (len && varName[len - 1] == ')' && strchr(varName, '(') != NULL) {
