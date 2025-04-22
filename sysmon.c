@@ -45,6 +45,8 @@ void sysmonInit() {
     timestampAtBoot = timestamp_get(CLOCK_MONOTONIC);
 }
 
+static void workerInfo(int threadIndex);
+
 void sysmon() {
     /* trace("%" PRId64 "ns: Sysmon Tick", */
     /*       timestamp_get(CLOCK_MONOTONIC) - timestampAtBoot); */
@@ -52,6 +54,7 @@ void sysmon() {
     // This is the system monitoring routine that runs on every tick
     // (every few milliseconds).
     int64_t currentTick = tick;
+    int64_t currentMs = currentTick * SYSMON_TICK_MS;
 
     // First: check that we have a reasonable amount of free RAM.
 #ifdef __linux__
@@ -105,7 +108,7 @@ void sysmon() {
     epochGlobalCollect();
 
     ///////////////////////////////////
-    if (currentTick < 400) { return; }
+    if (currentMs < 1000) { return; }
     // Don't do the management tasks after this if the system isn't
     // fully online yet.
     ///////////////////////////////////
@@ -143,6 +146,16 @@ void sysmon() {
     }
     // TODO: Use NCPUS for this.
     if (notBlockedWorkersCount < 3) {
+        if (currentMs > 10000) {
+            printf("SPAWN NEW WORKER\n"
+                   "============================\n");
+            for (int i = 0; i < THREADS_MAX; i++) {
+                printf("\nthread %d\n"
+                       "------------------\n", i);
+                workerInfo(i);
+            }
+        }
+
         // Too many threads are blocked on I/O. Let's pull in another
         // one to occupy a CPU and do Folk work.
         workerReactivateOrSpawn();
@@ -187,6 +200,38 @@ void *sysmonMain(void *ptr) {
     }
     return NULL;
 }
+
+static void workerInfo(int threadIndex) {
+    if (threadIndex >= threadCount || threads[threadIndex].tid == 0) {
+        /* printf("No thread at index %d\n", threadIndex); */
+        return;
+    }
+    ThreadControlBlock *thread = &threads[threadIndex];
+
+    // Print current operation
+    char opBuf[10000];
+    traceItem(opBuf, sizeof(opBuf), thread->currentItem);
+    printf("Current operation: %s\n", opBuf);
+
+    // Print work queue items
+    WorkQueueItem items[100];
+    int nitems = unsafe_workQueueCopy(items, 100, thread->workQueue);
+    printf("Work queue (%d items):\n", nitems);
+    for (int i = 0; i < nitems; i++) {
+        char itemBuf[10000];
+        traceItem(itemBuf, sizeof(itemBuf), items[i]);
+        printf("  %d: %s\n", i, itemBuf);
+    }
+
+    // Print timing info
+    printf("Current item start timestamp: %" PRId64 "\n", thread->currentItemStartTimestamp);
+
+    int64_t now = timestamp_get(thread->clockid);
+    double elapsed = (double)(now - thread->currentItemStartTimestamp) / 1000.0;
+    printf("Elapsed time: %.3f us\n", elapsed);
+}
+
+
 // This gets called from other threads.
 void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
     int afterTicks = afterMs / SYSMON_TICK_MS;
