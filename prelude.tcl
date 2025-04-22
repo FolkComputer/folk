@@ -552,10 +552,12 @@ proc ForEach! {args} {
         # TODO: support early return in body
 
         set ref [dict get $result __ref]
-        StatementAcquire! $ref
-
+        try {
+            StatementAcquire! $ref
+        } on error e {
+            continue
+        }
         uplevel [list dict with __result $body]
-
         StatementRelease! $ref
     }
 }
