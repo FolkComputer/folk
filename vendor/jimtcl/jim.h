@@ -218,7 +218,6 @@ typedef struct Jim_HashTableType {
 typedef struct Jim_HashTable {
     Jim_HashEntry **table;
     const Jim_HashTableType *type;
-    void *privdata;
     unsigned int size;
     unsigned int sizemask;
     unsigned int used;
@@ -236,36 +235,36 @@ typedef struct Jim_HashTableIterator {
 #define JIM_HT_INITIAL_SIZE     16
 
 /* ------------------------------- Macros ------------------------------------*/
-#define Jim_FreeEntryVal(ht, entry) \
+#define Jim_FreeEntryVal(ht, privdata, entry) \
     if ((ht)->type->valDestructor) \
-        (ht)->type->valDestructor((ht)->privdata, (entry)->u.val)
+        (ht)->type->valDestructor((privdata), (entry)->u.val)
 
-#define Jim_SetHashVal(ht, entry, _val_) do { \
+#define Jim_SetHashVal(ht, privdata, entry, _val_) do { \
     if ((ht)->type->valDup) \
-        (entry)->u.val = (ht)->type->valDup((ht)->privdata, (_val_)); \
+        (entry)->u.val = (ht)->type->valDup((privdata), (_val_)); \
     else \
         (entry)->u.val = (_val_); \
 } while(0)
 
 #define Jim_SetHashIntVal(ht, entry, _val_) (entry)->u.intval = (_val_)
 
-#define Jim_FreeEntryKey(ht, entry) \
+#define Jim_FreeEntryKey(ht, privdata, entry) \
     if ((ht)->type->keyDestructor) \
-        (ht)->type->keyDestructor((ht)->privdata, (entry)->key)
+        (ht)->type->keyDestructor((privdata), (entry)->key)
 
-#define Jim_SetHashKey(ht, entry, _key_) do { \
+#define Jim_SetHashKey(ht, privdata, entry, _key_) do { \
     if ((ht)->type->keyDup) \
-        (entry)->key = (ht)->type->keyDup((ht)->privdata, (_key_)); \
+        (entry)->key = (ht)->type->keyDup((privdata), (_key_)); \
     else \
         (entry)->key = (void *)(_key_); \
 } while(0)
 
-#define Jim_CompareHashKeys(ht, key1, key2) \
+#define Jim_CompareHashKeys(ht, privdata, key1, key2) \
     (((ht)->type->keyCompare) ? \
-        (ht)->type->keyCompare((ht)->privdata, (key1), (key2)) : \
+        (ht)->type->keyCompare((privdata), (key1), (key2)) : \
         (key1) == (key2))
 
-#define Jim_HashKey(ht, key) ((ht)->type->hashFunction((ht)->privdata, key) + (ht)->uniq)
+#define Jim_HashKey(ht, privdata, key) ((ht)->type->hashFunction((privdata), key) + (ht)->uniq)
 
 #define Jim_GetHashEntryKey(he) ((he)->key)
 #define Jim_GetHashEntryVal(he) ((he)->u.val)
@@ -723,19 +722,18 @@ JIM_EXPORT void * Jim_StackPeek(Jim_Stack *stack);
 JIM_EXPORT void Jim_FreeStackElements(Jim_Stack *stack, void (*freeFunc)(void *ptr));
 
 /* hash table */
-JIM_EXPORT int Jim_InitHashTable (Jim_HashTable *ht,
-        const Jim_HashTableType *type, void *privdata);
-JIM_EXPORT void Jim_ExpandHashTable (Jim_HashTable *ht,
+JIM_EXPORT int Jim_InitHashTable (Jim_HashTable *ht, const Jim_HashTableType *type);
+JIM_EXPORT void Jim_ExpandHashTable (Jim_HashTable *ht, void *privdata,
         unsigned int size);
-JIM_EXPORT int Jim_AddHashEntry (Jim_HashTable *ht, const void *key,
+JIM_EXPORT int Jim_AddHashEntry (Jim_HashTable *ht, void *privdata, const void *key,
         void *val);
-JIM_EXPORT int Jim_ReplaceHashEntry (Jim_HashTable *ht,
+JIM_EXPORT int Jim_ReplaceHashEntry (Jim_HashTable *ht, void *privdata,
         const void *key, void *val);
-JIM_EXPORT int Jim_DeleteHashEntry (Jim_HashTable *ht,
+JIM_EXPORT int Jim_DeleteHashEntry (Jim_HashTable *ht, void *privdata,
         const void *key);
-JIM_EXPORT int Jim_FreeHashTable (Jim_HashTable *ht);
+JIM_EXPORT int Jim_FreeHashTable (Jim_HashTable *ht, void *privdata);
 JIM_EXPORT Jim_HashEntry * Jim_FindHashEntry (Jim_HashTable *ht,
-        const void *key);
+        void *privdata, const void *key);
 JIM_EXPORT Jim_HashTableIterator *Jim_GetHashTableIterator
         (Jim_HashTable *ht);
 JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry

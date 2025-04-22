@@ -151,8 +151,8 @@ static int JimGetWideNoErr(Jim_Interp *interp, Jim_Obj *objPtr, jim_wide * wideP
 static int JimSign(jim_wide w);
 static void JimPrngSeed(Jim_Interp *interp, unsigned char *seed, int seedLen);
 static void JimRandomBytes(Jim_Interp *interp, void *dest, unsigned int len);
-static int JimSetNewVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr, Jim_Var *var);
-static Jim_Var *JimFindVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr);
+static int JimSetNewVariable(Jim_Interp *interp, Jim_HashTable *ht, Jim_Obj *nameObjPtr, Jim_Var *var);
+static Jim_Var *JimFindVariable(Jim_Interp *interp, Jim_HashTable *ht, Jim_Obj *nameObjPtr);
 
 /* Fast access to the int (wide) value of an object which is known to be of int type */
 #define JimWideValue(objPtr) (objPtr)->internalRep.wideValue
@@ -726,9 +726,9 @@ jim_wide Jim_GetTimeUsec(unsigned type)
  * ---------------------------------------------------------------------------*/
 
 /* -------------------------- private prototypes ---------------------------- */
-static void JimExpandHashTableIfNeeded(Jim_HashTable *ht);
+static void JimExpandHashTableIfNeeded(Jim_HashTable *ht, void *privdata);
 static unsigned int JimHashTableNextPower(unsigned int size);
-static Jim_HashEntry *JimInsertHashEntry(Jim_HashTable *ht, const void *key, int replace);
+static Jim_HashEntry *JimInsertHashEntry(Jim_HashTable *ht, void *privdata, const void *key, int replace);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -761,7 +761,7 @@ unsigned int Jim_GenHashFunction(const unsigned char *string, int length)
  * Reset a hashtable already initialized.
  * The table data should already have been freed.
  *
- * Note that type and privdata are not initialised
+ * Note that type is not initialised
  * to allow the now-empty hashtable to be reused
  */
 static void JimResetHashTable(Jim_HashTable *ht)
@@ -790,16 +790,15 @@ static void JimInitHashTableIterator(Jim_HashTable *ht, Jim_HashTableIterator *i
 }
 
 /* Initialize the hash table */
-int Jim_InitHashTable(Jim_HashTable *ht, const Jim_HashTableType *type, void *privDataPtr)
+int Jim_InitHashTable(Jim_HashTable *ht, const Jim_HashTableType *type)
 {
     JimResetHashTable(ht);
     ht->type = type;
-    ht->privdata = privDataPtr;
     return JIM_OK;
 }
 
 /* Expand or create the hashtable */
-void Jim_ExpandHashTable(Jim_HashTable *ht, unsigned int size)
+void Jim_ExpandHashTable(Jim_HashTable *ht, void *privdata, unsigned int size)
 {
     Jim_HashTable n;            /* the new hashtable */
     unsigned int realsize = JimHashTableNextPower(size), i;
@@ -809,7 +808,7 @@ void Jim_ExpandHashTable(Jim_HashTable *ht, unsigned int size)
      if (size <= ht->used)
         return;
 
-    Jim_InitHashTable(&n, ht->type, ht->privdata);
+    Jim_InitHashTable(&n, ht->type);
     n.size = realsize;
     n.sizemask = realsize - 1;
     n.table = Jim_Alloc(realsize * sizeof(Jim_HashEntry *));
@@ -836,7 +835,7 @@ void Jim_ExpandHashTable(Jim_HashTable *ht, unsigned int size)
 
             nextHe = he->next;
             /* Get the new element index */
-            h = Jim_HashKey(ht, he->key) & n.sizemask;
+            h = Jim_HashKey(ht, privdata, he->key) & n.sizemask;
             he->next = n.table[h];
             n.table[h] = he;
             ht->used--;
@@ -854,27 +853,27 @@ void Jim_ExpandHashTable(Jim_HashTable *ht, unsigned int size)
 /* Add an element to the target hash table
  * Returns JIM_ERR if the entry already exists
  */
-int Jim_AddHashEntry(Jim_HashTable *ht, const void *key, void *val)
+int Jim_AddHashEntry(Jim_HashTable *ht, void *privdata, const void *key, void *val)
 {
-    Jim_HashEntry *entry = JimInsertHashEntry(ht, key, 0);;
+    Jim_HashEntry *entry = JimInsertHashEntry(ht, privdata, key, 0);
     if (entry == NULL)
         return JIM_ERR;
 
     /* Set the hash entry fields. */
-    Jim_SetHashKey(ht, entry, key);
-    Jim_SetHashVal(ht, entry, val);
+    Jim_SetHashKey(ht, privdata, entry, key);
+    Jim_SetHashVal(ht, privdata, entry, val);
     return JIM_OK;
 }
 
 /* Add an element, discarding the old if the key already exists */
-int Jim_ReplaceHashEntry(Jim_HashTable *ht, const void *key, void *val)
+int Jim_ReplaceHashEntry(Jim_HashTable *ht, void *privdata, const void *key, void *val)
 {
     int existed;
     Jim_HashEntry *entry;
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    entry = JimInsertHashEntry(ht, key, 1);
+    entry = JimInsertHashEntry(ht, privdata, key, 1);
     if (entry->key) {
         /* It already exists, so only replace the value.
          * Note if both a destructor and a duplicate function exist,
@@ -882,20 +881,20 @@ int Jim_ReplaceHashEntry(Jim_HashTable *ht, const void *key, void *val)
          * reference counted object
          */
         if (ht->type->valDestructor && ht->type->valDup) {
-            void *newval = ht->type->valDup(ht->privdata, val);
-            ht->type->valDestructor(ht->privdata, entry->u.val);
+            void *newval = ht->type->valDup(privdata, val);
+            ht->type->valDestructor(privdata, entry->u.val);
             entry->u.val = newval;
         }
         else {
-            Jim_FreeEntryVal(ht, entry);
-            Jim_SetHashVal(ht, entry, val);
+            Jim_FreeEntryVal(ht, privdata, entry);
+            Jim_SetHashVal(ht, privdata, entry, val);
         }
         existed = 1;
     }
     else {
         /* Doesn't exist, so set the key */
-        Jim_SetHashKey(ht, entry, key);
-        Jim_SetHashVal(ht, entry, val);
+        Jim_SetHashKey(ht, privdata, entry, key);
+        Jim_SetHashVal(ht, privdata, entry, val);
         existed = 0;
     }
 
@@ -907,23 +906,23 @@ int Jim_ReplaceHashEntry(Jim_HashTable *ht, const void *key, void *val)
  * If found, removes the hash entry and returns JIM_OK.
  * Otherwise returns JIM_ERR.
  */
-int Jim_DeleteHashEntry(Jim_HashTable *ht, const void *key)
+int Jim_DeleteHashEntry(Jim_HashTable *ht, void *privdata, const void *key)
 {
     if (ht->used) {
-        unsigned int h = Jim_HashKey(ht, key) & ht->sizemask;
+        unsigned int h = Jim_HashKey(ht, privdata, key) & ht->sizemask;
         Jim_HashEntry *prevHe = NULL;
         Jim_HashEntry *he = ht->table[h];
 
         while (he) {
-            if (Jim_CompareHashKeys(ht, key, he->key)) {
+            if (Jim_CompareHashKeys(ht, privdata, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
                 else
                     ht->table[h] = he->next;
                 ht->used--;
-                Jim_FreeEntryKey(ht, he);
-                Jim_FreeEntryVal(ht, he);
+                Jim_FreeEntryKey(ht, privdata, he);
+                Jim_FreeEntryVal(ht, privdata, he);
                 Jim_Free(he);
                 return JIM_OK;
             }
@@ -939,7 +938,7 @@ int Jim_DeleteHashEntry(Jim_HashTable *ht, const void *key)
  * Clear all hash entries from the table, but don't free
  * the table.
  */
-void Jim_ClearHashTable(Jim_HashTable *ht)
+void Jim_ClearHashTable(Jim_HashTable *ht, void *privdata)
 {
     unsigned int i;
 
@@ -950,8 +949,8 @@ void Jim_ClearHashTable(Jim_HashTable *ht)
         he = ht->table[i];
         while (he) {
             nextHe = he->next;
-            Jim_FreeEntryKey(ht, he);
-            Jim_FreeEntryVal(ht, he);
+            Jim_FreeEntryKey(ht, privdata, he);
+            Jim_FreeEntryVal(ht, privdata, he);
             Jim_Free(he);
             ht->used--;
             he = nextHe;
@@ -963,9 +962,9 @@ void Jim_ClearHashTable(Jim_HashTable *ht)
 /* Remove all entries from the hash table
  * and leave it empty for reuse
  */
-int Jim_FreeHashTable(Jim_HashTable *ht)
+int Jim_FreeHashTable(Jim_HashTable *ht, void *privdata)
 {
-    Jim_ClearHashTable(ht);
+    Jim_ClearHashTable(ht, privdata);
     /* Free the table and the allocated cache structure */
     Jim_Free(ht->table);
     /* Re-initialize the table */
@@ -973,17 +972,17 @@ int Jim_FreeHashTable(Jim_HashTable *ht)
     return JIM_OK;              /* never fails */
 }
 
-Jim_HashEntry *Jim_FindHashEntry(Jim_HashTable *ht, const void *key)
+Jim_HashEntry *Jim_FindHashEntry(Jim_HashTable *ht, void *privdata, const void *key)
 {
     Jim_HashEntry *he;
     unsigned int h;
 
     if (ht->used == 0)
         return NULL;
-    h = Jim_HashKey(ht, key) & ht->sizemask;
+    h = Jim_HashKey(ht, privdata, key) & ht->sizemask;
     he = ht->table[h];
     while (he) {
-        if (Jim_CompareHashKeys(ht, key, he->key))
+        if (Jim_CompareHashKeys(ht, privdata, key, he->key))
             return he;
         he = he->next;
     }
@@ -1022,14 +1021,14 @@ Jim_HashEntry *Jim_NextHashEntry(Jim_HashTableIterator *iter)
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
-static void JimExpandHashTableIfNeeded(Jim_HashTable *ht)
+static void JimExpandHashTableIfNeeded(Jim_HashTable *ht, void *privdata)
 {
     /* If the hash table is empty expand it to the intial size,
      * if the table is "full" double its size. */
     if (ht->size == 0)
-        Jim_ExpandHashTable(ht, JIM_HT_INITIAL_SIZE);
+        Jim_ExpandHashTable(ht, privdata, JIM_HT_INITIAL_SIZE);
     if (ht->size == ht->used)
-        Jim_ExpandHashTable(ht, ht->size * 2);
+        Jim_ExpandHashTable(ht, privdata, ht->size * 2);
 }
 
 /* Our hash table capability is a power of two */
@@ -1054,20 +1053,20 @@ static unsigned int JimHashTableNextPower(unsigned int size)
  * Note that existing vs new cases can be distinguished because he->key will be NULL
  * if the key is new
  */
-static Jim_HashEntry *JimInsertHashEntry(Jim_HashTable *ht, const void *key, int replace)
+static Jim_HashEntry *JimInsertHashEntry(Jim_HashTable *ht, void *privdata, const void *key, int replace)
 {
     unsigned int h;
     Jim_HashEntry *he;
 
     /* Expand the hashtable if needed */
-    JimExpandHashTableIfNeeded(ht);
+    JimExpandHashTableIfNeeded(ht, privdata);
 
     /* Compute the key hash value */
-    h = Jim_HashKey(ht, key) & ht->sizemask;
+    h = Jim_HashKey(ht, privdata, key) & ht->sizemask;
     /* Search if this slot does not already contain the given key */
     he = ht->table[h];
     while (he) {
-        if (Jim_CompareHashKeys(ht, key, he->key))
+        if (Jim_CompareHashKeys(ht, privdata, key, he->key))
             return replace ? he : NULL;
         he = he->next;
     }
@@ -3921,7 +3920,7 @@ static void JimDecrCmdRefCount(Jim_Interp *interp, Jim_Cmd *cmdPtr)
             Jim_DecrRefCount(cmdPtr->u.proc.bodyObjPtr);
             Jim_DecrRefCount(cmdPtr->u.proc.nsObj);
             if (cmdPtr->u.proc.staticVars) {
-                Jim_FreeHashTable(cmdPtr->u.proc.staticVars);
+                Jim_FreeHashTable(cmdPtr->u.proc.staticVars, (void *)interp);
                 Jim_Free(cmdPtr->u.proc.staticVars);
             }
         }
@@ -4003,8 +4002,6 @@ static unsigned int JimObjectHTHashFunction(void *privdata, const void *key)
 
 static int JimObjectHTKeyCompare(void *privdata, const void *key1, const void *key2)
 {
-    // FIXME: make sure this doesn't cause a race condition if keys are compared on a 
-    // different thread (when inserting objects on the temp list, the list could corrupt)
     Jim_Interp *interp = (Jim_Interp *)privdata;
 
     return Jim_StringEqObj(interp, (Jim_Obj *)key1, (Jim_Obj *)key2);
@@ -4064,8 +4061,6 @@ static unsigned int JimCommandsHT_HashFunction(void *privdata, const void *key)
 
 static int JimCommandsHT_KeyCompare(void *privdata, const void *key1, const void *key2)
 {
-    // FIXME: make sure this doesn't cause a race condition if keys are compared
-    // on a different thread (when inserting objects on the temp list the linked list could corrupt)
     Jim_Interp *interp = (Jim_Interp *)privdata;
 
     int len1, len2;
@@ -4160,11 +4155,11 @@ static void JimCreateCommand(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Cmd *c
      * proc, we stash a reference to the old proc here.
      */
     if (interp->local) {
-        Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, nameObjPtr);
+        Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, (void *)interp, nameObjPtr);
         if (he) {
             /* Push this command over the top of the previous one */
             cmd->prevCmd = Jim_GetHashEntryVal(he);
-            Jim_SetHashVal(&interp->commands, he, cmd);
+            Jim_SetHashVal(&interp->commands, (void *)interp, he, cmd);
             /* Need to increment the proc epoch here so that the new command will be used */
             Jim_InterpIncrProcEpoch(interp);
             return;
@@ -4177,7 +4172,7 @@ static void JimCreateCommand(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Cmd *c
      * existing command that is replaced will be held as a negative cache entry
      * until the next time the proc epoch is incremented.
      */
-    Jim_ReplaceHashEntry(&interp->commands, nameObjPtr, cmd);
+    Jim_ReplaceHashEntry(&interp->commands, (void *)interp, nameObjPtr, cmd);
 }
 
 int Jim_CreateCommandObj(Jim_Interp *interp, Jim_Obj *cmdNameObj,
@@ -4220,7 +4215,7 @@ static int JimCreateProcedureStatics(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Ob
     }
 
     cmdPtr->u.proc.staticVars = Jim_Alloc(sizeof(Jim_HashTable));
-    Jim_InitHashTable(cmdPtr->u.proc.staticVars, &JimVariablesHashTableType, interp);
+    Jim_InitHashTable(cmdPtr->u.proc.staticVars, &JimVariablesHashTableType);
     for (i = 0; i < len; i++) {
         Jim_Obj *objPtr, *initObjPtr, *nameObjPtr;
         Jim_Var *varPtr;
@@ -4250,7 +4245,7 @@ static int JimCreateProcedureStatics(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Ob
             varPtr->objPtr = initObjPtr;
             Jim_IncrRefCount(initObjPtr);
             varPtr->linkFramePtr = NULL;
-            if (JimSetNewVariable(cmdPtr->u.proc.staticVars, nameObjPtr, varPtr) != JIM_OK) {
+            if (JimSetNewVariable(interp, cmdPtr->u.proc.staticVars, nameObjPtr, varPtr) != JIM_OK) {
                 Jim_SetResultFormatted(interp,
                     "static variable name \"%#s\" duplicated in statics list", nameObjPtr);
                 Jim_DecrRefCount(initObjPtr);
@@ -4303,7 +4298,7 @@ static void JimUpdateProcNamespace(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj 
             Jim_IncrRefCount(cmdPtr->u.proc.nsObj);
 
             Jim_Obj *tempObj = Jim_NewStringObj(interp, pt, len - (pt - cmdname));
-            if (Jim_FindHashEntry(&interp->commands, tempObj)) {
+            if (Jim_FindHashEntry(&interp->commands, (void *)interp, tempObj)) {
                 /* This command shadows a global command, so a proc epoch update is required */
                 Jim_InterpIncrProcEpoch(interp);
             }
@@ -4406,7 +4401,7 @@ int Jim_DeleteCommand(Jim_Interp *interp, Jim_Obj *nameObj)
 
     nameObj = JimQualifyName(interp, nameObj);
 
-    if (Jim_DeleteHashEntry(&interp->commands, nameObj) == JIM_ERR) {
+    if (Jim_DeleteHashEntry(&interp->commands, (void *)interp, nameObj) == JIM_ERR) {
         Jim_SetResultFormatted(interp, "can't delete \"%#s\": command doesn't exist", nameObj);
         ret = JIM_ERR;
     }
@@ -4431,11 +4426,11 @@ int Jim_RenameCommand(Jim_Interp *interp, Jim_Obj *oldNameObj, Jim_Obj *newNameO
     newNameObj = JimQualifyName(interp, newNameObj);
 
     /* Does it exist? */
-    he = Jim_FindHashEntry(&interp->commands, oldNameObj);
+    he = Jim_FindHashEntry(&interp->commands, (void *)interp, oldNameObj);
     if (he == NULL) {
         Jim_SetResultFormatted(interp, "can't rename \"%#s\": command doesn't exist", oldNameObj);
     }
-    else if (Jim_FindHashEntry(&interp->commands, newNameObj)) {
+    else if (Jim_FindHashEntry(&interp->commands, (void *)interp, newNameObj)) {
         Jim_SetResultFormatted(interp, "can't rename to \"%#s\": command already exists", newNameObj);
     }
     else {
@@ -4450,10 +4445,10 @@ int Jim_RenameCommand(Jim_Interp *interp, Jim_Obj *oldNameObj, Jim_Obj *newNameO
             /* Add the new name first */
             JimIncrCmdRefCount(cmdPtr);
             JimUpdateProcNamespace(interp, cmdPtr, newNameObj);
-            Jim_AddHashEntry(&interp->commands, newNameObj, cmdPtr);
+            Jim_AddHashEntry(&interp->commands, (void *)interp, newNameObj, cmdPtr);
 
             /* Now remove the old name */
-            Jim_DeleteHashEntry(&interp->commands, oldNameObj);
+            Jim_DeleteHashEntry(&interp->commands, (void *)interp, oldNameObj);
 
             /* Increment the epoch */
             Jim_InterpIncrProcEpoch(interp);
@@ -4534,10 +4529,10 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
     }
     else {
         Jim_Obj *qualifiedNameObj = JimQualifyName(interp, objPtr);
-        Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, qualifiedNameObj);
+        Jim_HashEntry *he = Jim_FindHashEntry(&interp->commands, (void *)interp, qualifiedNameObj);
 #ifdef jim_ext_namespace
         if (he == NULL && Jim_Length(interp, interp->framePtr->nsObj)) {
-            he = Jim_FindHashEntry(&interp->commands, objPtr);
+            he = Jim_FindHashEntry(&interp->commands, (void *)interp, objPtr);
         }
 #endif
         if (he == NULL) {
@@ -4635,17 +4630,17 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
         framePtr = interp->topFramePtr;
         /* XXX should use length */
         Jim_Obj *tempObj = Jim_NewStringObj(interp, varName, len);
-        var = JimFindVariable(&framePtr->vars, tempObj);
+        var = JimFindVariable(interp, &framePtr->vars, tempObj);
         Jim_FreeNewObj(tempObj);
     }
     else {
         global = 0;
         framePtr = interp->framePtr;
         /* Resolve this name in the variables hash table */
-        var = JimFindVariable(&framePtr->vars, objPtr);
+        var = JimFindVariable(interp, &framePtr->vars, objPtr);
         if (var == NULL && framePtr->staticVars) {
             /* Try with static vars. */
-            var = JimFindVariable(framePtr->staticVars, objPtr);
+            var = JimFindVariable(interp, framePtr->staticVars, objPtr);
         }
     }
 
@@ -4666,23 +4661,23 @@ static int SetVariableFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 static int JimDictSugarSet(Jim_Interp *interp, Jim_Obj *ObjPtr, Jim_Obj *valObjPtr);
 static Jim_Obj *JimDictSugarGet(Jim_Interp *interp, Jim_Obj *ObjPtr, int flags);
 
-static int JimSetNewVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr, Jim_Var *var)
+static int JimSetNewVariable(Jim_Interp *interp, Jim_HashTable *ht, Jim_Obj *nameObjPtr, Jim_Var *var)
 {
-    return Jim_AddHashEntry(ht, nameObjPtr, var);
+    return Jim_AddHashEntry(ht, (void *)interp, nameObjPtr, var);
 }
 
-static Jim_Var *JimFindVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr)
+static Jim_Var *JimFindVariable(Jim_Interp *interp, Jim_HashTable *ht, Jim_Obj *nameObjPtr)
 {
-    Jim_HashEntry *he = Jim_FindHashEntry(ht, nameObjPtr);
+    Jim_HashEntry *he = Jim_FindHashEntry(ht, (void *)interp, nameObjPtr);
     if (he) {
         return (Jim_Var *)Jim_GetHashEntryVal(he);
     }
     return NULL;
 }
 
-static int JimUnsetVariable(Jim_HashTable *ht, Jim_Obj *nameObjPtr)
+static int JimUnsetVariable(Jim_Interp *interp, Jim_HashTable *ht, Jim_Obj *nameObjPtr)
 {
-    return Jim_DeleteHashEntry(ht, nameObjPtr);
+    return Jim_DeleteHashEntry(ht, (void *)interp, nameObjPtr);
 }
 
 /* Panics if nameObjPtr is from another interpreter. */
@@ -4711,12 +4706,12 @@ static Jim_Var *JimCreateVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_O
         }
         framePtr = interp->topFramePtr;
         global = 1;
-        JimSetNewVariable(&framePtr->vars, Jim_NewStringObj(interp, name, len), var);
+        JimSetNewVariable(interp, &framePtr->vars, Jim_NewStringObj(interp, name, len), var);
     }
     else {
         framePtr = interp->framePtr;
         global = 0;
-        JimSetNewVariable(&framePtr->vars, nameObjPtr, var);
+        JimSetNewVariable(interp, &framePtr->vars, nameObjPtr, var);
     }
 
     /* Make the object int rep a variable */
@@ -5026,12 +5021,12 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
                 }
                 framePtr = interp->topFramePtr;
                 Jim_Obj *tempObj = Jim_NewStringObj(interp, name, len);
-                retval = JimUnsetVariable(&framePtr->vars, tempObj);
+                retval = JimUnsetVariable(interp, &framePtr->vars, tempObj);
                 Jim_FreeNewObj(tempObj);
             }
             else {
                 framePtr = interp->framePtr;
-                retval = JimUnsetVariable(&framePtr->vars, nameObjPtr);
+                retval = JimUnsetVariable(interp, &framePtr->vars, nameObjPtr);
             }
 
             if (retval == JIM_OK) {
@@ -5270,7 +5265,7 @@ static Jim_CallFrame *JimCreateCallFrame(Jim_Interp *interp, Jim_CallFrame *pare
         cf = Jim_Alloc(sizeof(*cf));
         memset(cf, 0, sizeof(*cf));
 
-        Jim_InitHashTable(&cf->vars, &JimVariablesHashTableType, interp);
+        Jim_InitHashTable(&cf->vars, &JimVariablesHashTableType);
     }
 
     cf->id = interp->callFrameEpoch++;
@@ -5290,7 +5285,7 @@ static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands)
 
         while ((cmdNameObj = Jim_StackPop(localCommands)) != NULL) {
             Jim_HashTable *ht = &interp->commands;
-            Jim_HashEntry *he = Jim_FindHashEntry(ht, cmdNameObj);
+            Jim_HashEntry *he = Jim_FindHashEntry(ht, (void *)interp, cmdNameObj);
             if (he) {
                 Jim_Cmd *cmd = Jim_GetHashEntryVal(he);
                 if (cmd->prevCmd) {
@@ -5301,10 +5296,10 @@ static int JimDeleteLocalProcs(Jim_Interp *interp, Jim_Stack *localCommands)
                     JimDecrCmdRefCount(interp, cmd);
 
                     /* And restore the original */
-                    Jim_SetHashVal(ht, he, prevCmd);
+                    Jim_SetHashVal(ht, (void *)interp, he, prevCmd);
                 }
                 else {
-                    Jim_DeleteHashEntry(ht, cmdNameObj);
+                    Jim_DeleteHashEntry(ht, (void *)interp, cmdNameObj);
                 }
             }
             Jim_DecrRefCount(cmdNameObj);
@@ -5327,7 +5322,7 @@ static int JimInvokeDefer(Jim_Interp *interp, int retcode)
     Jim_Obj *objPtr;
 
     /* Fast check for the likely case that the variable doesn't exist */
-    if (JimFindVariable(&interp->framePtr->vars, interp->defer) == NULL) {
+    if (JimFindVariable(interp, &interp->framePtr->vars, interp->defer) == NULL) {
         return retcode;
     }
     objPtr = Jim_GetVariable(interp, interp->defer, JIM_NONE);
@@ -5383,9 +5378,9 @@ static void JimFreeCallFrame(Jim_Interp *interp, Jim_CallFrame *cf, int action)
         Jim_DecrRefCount(cf->procBodyObjPtr);
     Jim_DecrRefCount(cf->nsObj);
     if (action == JIM_FCF_FULL || cf->vars.size != JIM_HT_INITIAL_SIZE)
-        Jim_FreeHashTable(&cf->vars);
+        Jim_FreeHashTable(&cf->vars, (void *)interp);
     else {
-        Jim_ClearHashTable(&cf->vars);
+        Jim_ClearHashTable(&cf->vars, (void *)interp);
     }
     cf->next = interp->freeFramesList;
     interp->freeFramesList = cf;
@@ -5418,9 +5413,9 @@ Jim_Interp *Jim_CreateInterp(void)
     /* Note that we can create objects only after the
      * interpreter liveList and freeList pointers are
      * initialized to NULL. */
-    Jim_InitHashTable(&i->commands, &JimCommandsHashTableType, i);
-    Jim_InitHashTable(&i->assocData, &JimAssocDataHashTableType, i);
-    Jim_InitHashTable(&i->packages, &JimPackageHashTableType, NULL);
+    Jim_InitHashTable(&i->commands, &JimCommandsHashTableType);
+    Jim_InitHashTable(&i->assocData, &JimAssocDataHashTableType);
+    Jim_InitHashTable(&i->packages, &JimPackageHashTableType);
     i->emptyObj = Jim_NewEmptyStringObj(i);
     i->trueObj = Jim_NewIntObj(i, 1);
     i->falseObj = Jim_NewIntObj(i, 0);
@@ -5494,12 +5489,12 @@ void Jim_FreeInterp(Jim_Interp *i)
 
     Jim_InterpIncrProcEpoch(i);
 
-    Jim_FreeHashTable(&i->commands);
-    Jim_FreeHashTable(&i->packages);
+    Jim_FreeHashTable(&i->commands, (void *)i);
+    Jim_FreeHashTable(&i->packages, NULL);
     Jim_Free(i->prngState);
     Jim_ClearTempList(i);
     Jim_Free(i->tempList);
-    Jim_FreeHashTable(&i->assocData);
+    Jim_FreeHashTable(&i->assocData, (void *)i);
     if (i->traceCmdObj) {
         Jim_DecrRefCount(i->traceCmdObj);
     }
@@ -5508,7 +5503,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     for (cf = i->freeFramesList; cf; cf = cfx) {
         cfx = cf->next;
         if (cf->vars.table)
-            Jim_FreeHashTable(&cf->vars);
+            Jim_FreeHashTable(&cf->vars, (void *)i);
         Jim_Free(cf);
     }
 
@@ -5720,12 +5715,12 @@ int Jim_SetAssocData(Jim_Interp *interp, const char *key, Jim_InterpDeleteProc *
 
     assocEntryPtr->delProc = delProc;
     assocEntryPtr->data = data;
-    return Jim_AddHashEntry(&interp->assocData, key, assocEntryPtr);
+    return Jim_AddHashEntry(&interp->assocData, (void *)interp, key, assocEntryPtr);
 }
 
 void *Jim_GetAssocData(Jim_Interp *interp, const char *key)
 {
-    Jim_HashEntry *entryPtr = Jim_FindHashEntry(&interp->assocData, key);
+    Jim_HashEntry *entryPtr = Jim_FindHashEntry(&interp->assocData, (void *)interp, key);
 
     if (entryPtr != NULL) {
         AssocDataValue *assocEntryPtr = Jim_GetHashEntryVal(entryPtr);
@@ -5736,7 +5731,7 @@ void *Jim_GetAssocData(Jim_Interp *interp, const char *key)
 
 int Jim_DeleteAssocData(Jim_Interp *interp, const char *key)
 {
-    return Jim_DeleteHashEntry(&interp->assocData, key);
+    return Jim_DeleteHashEntry(&interp->assocData, (void *)interp, key);
 }
 
 int Jim_GetExitCode(Jim_Interp *interp)
@@ -11764,7 +11759,7 @@ static Jim_Obj *JimHashtablePatternMatch(Jim_Interp *interp, Jim_HashTable *ht, 
 
     /* Check for the non-pattern case. We can do this much more efficiently. */
     if (patternObjPtr && JimTrivialMatch(Jim_String(interp, patternObjPtr))) {
-        he = Jim_FindHashEntry(ht, patternObjPtr);
+        he = Jim_FindHashEntry(ht, (void *)interp, patternObjPtr);
         if (he) {
             callback(interp, listObjPtr, Jim_GetHashEntryKey(he), Jim_GetHashEntryVal(he),
                 patternObjPtr, type);
