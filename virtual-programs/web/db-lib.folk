@@ -1,7 +1,8 @@
 Claim the db library is [apply {{} {
     set cc [C]
-    $cc cflags -I.
+    $cc cflags -I. -I./vendor/tracy/public
     $cc include "db.h"
+    $cc include "common.h"
 
     $cc code {
         typedef struct ListOfEdgeTo {
@@ -21,6 +22,8 @@ Claim the db library is [apply {{} {
     set dbCFd [open "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
     $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
+    $cc code [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]
+    $cc code [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
     $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
     $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
@@ -118,6 +121,17 @@ Claim the db library is [apply {{} {
         pthread_mutex_unlock(&match->childStatementsMutex);
         matchRelease(db, match);
         return Jim_NewListObj(interp, childObjs, nChildren);
+    }
+
+    $cc proc countAliveStatements {Db* db} int {
+      int count = 0;
+      for (int i = 1; i < 65536; i++) {  // slot 0 is reserved
+        GenRc genRc = db->statementPool[i].genRc;
+        if (genRc.alive) {
+          count++;
+        }
+      }
+      return count;
     }
 
     return [$cc compile]
