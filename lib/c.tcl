@@ -685,8 +685,12 @@ extern "C" \{
     if {[__isTracyEnabled]} {
         lappend cflags -DTRACY_ENABLE=1
     }
+    set asan_flags {}
+    if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
+        set asan_flags "-fsanitize=address -fsanitize-recover=address"
+    }
     try {
-        exec $compiler -fsanitize=address -Wall -g -fno-omit-frame-pointer -fPIC \
+        exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
             {*}$cflags $cfile -c -o [file rootname $cfile].o
     } on error e {}
     # HACK: Why do we need this / only when running in lldb?
@@ -698,7 +702,7 @@ extern "C" \{
     }
 
     try {
-        exec $compiler -fsanitize=address -shared $ignoreUnresolved \
+        exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
             -o /tmp/$cid.so [file rootname $cfile].o \
             {*}$endcflags
     } on error e {}

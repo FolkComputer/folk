@@ -16,7 +16,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET)
 
-	$(LINKER) -g -fno-omit-frame-pointer -fsanitize=address -o$@ \
+	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
 		$(CFLAGS) $(TRACY_CFLAGS) \
 		-L./vendor/jimtcl \
 		$^ \
@@ -26,7 +26,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	fi
 
 %.o: %.c trie.h
-	cc -c -O2 -g -fno-omit-frame-pointer -fsanitize=address -o$@  \
+	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
@@ -44,9 +44,15 @@ debug-test/%: test/%.folk folk
 	lldb -- ./folk $<
 
 clean:
-	rm -f folk *.o vendor/tracy/public/TracyClient.o
+	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
+distclean: clean
+	make -C vendor/jimtcl distclean
+	make -C vendor/apriltag clean
+
 remote-clean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make clean'
+remote-distclean: sync
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make distclean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
 		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer' && cd -; \
@@ -77,7 +83,7 @@ setup-remote:
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf; cd folk2/vendor/jimtcl; make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libasan.so.8 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE) && make start ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
@@ -107,7 +113,7 @@ remote-flamegraph:
 	scp $(FOLK_REMOTE_NODE):~/folk/out.perf .
 
 start: folk
-	./folk
+	$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk
 
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler

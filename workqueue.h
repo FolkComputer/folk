@@ -52,4 +52,7 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item);
 // Removes the top item from work queue:
 WorkQueueItem workQueueSteal(WorkQueue* q);
 
+int unsafe_workQueueCopy(WorkQueueItem* into, int maxn,
+                         WorkQueue* q);
+
 #endif

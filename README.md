@@ -144,6 +144,20 @@ or (if remote machine):
 $ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
 ```
 
+### Address Sanitizer
+
+Address Sanitizer (ASan) support can be enabled by setting the `ASAN_ENABLE` environment variable:
+
+```
+make ASAN_ENABLE=1
+```
+
+Then when running:
+
+```
+ASAN_ENABLE=1 make start
+```
+
 ### Tracy profiling
 
 To use Tracy, first do `git submodule update --init` here.
@@ -721,3 +735,14 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - implement collect in C
   - how to have hold-like behavior for collections? just keep a
     collect for an arbitrary amount of time?
+
+
+### next
+- why memory leak?
+  - newImage (1.7GB) and ~~dbQuery (340MB)~~
+    - only a few images don't get freed -- destructor not firing,
+      presumably
+    - 930 newImage vs 938 freeImage??
+    - 1404 newImage vs 1399 freeImage
+    - 8981 new vs 8976 free
+- why is calibration board off on portable system
