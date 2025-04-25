@@ -61,6 +61,13 @@ set threadMonitorLib [apply {{} {
                            Jim_NewStringObj(interp, "elapsed", -1),
                            Jim_NewDoubleObj(interp, (double)(now - thread->currentItemStartTimestamp) / 1000.0));
 
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "_allocs", -1),
+                           Jim_NewDoubleObj(interp, thread->_allocs));
+        Jim_DictAddElement(interp, ret,
+                           Jim_NewStringObj(interp, "_frees", -1),
+                           Jim_NewDoubleObj(interp, thread->_frees));
+
         return ret;
     }
     $cc proc workerInfoFromTid {int tid} Jim_Obj* {
@@ -155,6 +162,8 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 set kernelStack "<not permitted>"
             }
 
+            set allocs [dict get $workerInfo _allocs]
+            set frees [dict get $workerInfo _frees]
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
                   [if {$workerInfo eq ""} {subst {
@@ -162,6 +171,7 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                   }} else {
                       set workQueue [dict get $workerInfo workQueue]
                       subst {
+                          allocs: $allocs; frees: $frees; allocs - frees: [expr {$allocs - $frees}]<br>
                           [htmlEscape [dict get $workerInfo op]] (elapsed: [dict get $workerInfo elapsed] us)<br>
                           <details>
                             <summary>Work queue ([llength $workQueue] items):</summary>

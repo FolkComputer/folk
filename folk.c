@@ -1109,6 +1109,9 @@ void workerInit(int index) {
     self->index = index;
     self->pthread = pthread_self();
 
+    self->_allocs = 0;
+    self->_frees = 0;
+
 #ifdef TRACY_ENABLE
     char threadName[100]; snprintf(threadName, 100, "folk-worker-%d", index);
     TracyCSetThreadName(threadName);
@@ -1208,8 +1211,38 @@ void workerReactivateOrSpawn() {
     workerSpawn();
 }
 
+void *debugAllocator(void *ptr, size_t size) {
+    if (size == 0) {
+        if (ptr == NULL) { return NULL; }
+
+        // Check magic number before free
+        if (ptr && *(uint32_t*)((char*)ptr - 4) != 0xBABE) {
+            // Magic number corruption detected
+            fprintf(stderr, "debugAllocator: WARNING: Magic number corruption detected\n");
+            return NULL;
+        }
+        self->_frees++;
+        free((char*)ptr - 4);
+        return NULL;
+    }
+    else if (ptr) {
+        return realloc((char*)ptr - 4, size + 4) + 4;
+    }
+    else {
+        void *allocation = malloc(size + 4);
+        if (allocation) {
+            *(uint32_t*)allocation = 0xBABE;
+            self->_allocs++;
+            return (char*)allocation + 4;
+        }
+        return NULL;
+    }
+}
+
 int main(int argc, char** argv) {
     // Do all setup.
+
+    Jim_Allocator = debugAllocator;
 
     // Set up database.
     db = dbNew();
