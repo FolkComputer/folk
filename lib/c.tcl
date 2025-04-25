@@ -403,7 +403,7 @@ C method struct {type fields} {
                 }
             }] "\n"]
             objPtr->length = snprintf(NULL, 0, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
-            objPtr->bytes = (char *) malloc(objPtr->length + 1);
+            objPtr->bytes = (char *) Jim_Alloc(objPtr->length + 1);
             snprintf(objPtr->bytes, objPtr->length + 1, format, $[join [lmap fieldname $fieldnames {expr {"Jim_String(robj_$fieldname)"}}] ", "]);
             $[join [lmap {fieldtype fieldname} $fields {
                 csubst {

@@ -39,7 +39,7 @@ $cc code {
     void matd_updateStringProc(Jim_Obj *objPtr) {
         matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
 
-        objPtr->bytes = calloc(mat->nrows, 1 + mat->ncols * 17 + 1);
+        objPtr->bytes = Jim_Alloc(mat->nrows * (1 + mat->ncols * 17 + 1));
         char *s = objPtr->bytes;
         int i = 0;
         
@@ -52,6 +52,7 @@ $cc code {
             }
             s[i++] = '}';
         }
+        s[i] = 0;
         objPtr->length = strlen(s);
     }
     int matd_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
