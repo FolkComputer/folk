@@ -70,53 +70,56 @@ static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
 
 void cacheInsert(Cache* cache, Jim_Interp* interp,
                  Jim_Obj* obj) {
-    const char* term = Jim_GetString(obj, NULL);
+    /* const char* term = Jim_GetString(obj, NULL); */
 
-    Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term);
-    if (ent != NULL) { return; }
+    /* Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term); */
+    /* if (ent != NULL) { return; } */
 
-    ent = Jim_FindHashEntry(&cache->oldTable, term);
-    if (ent != NULL) {
-        // Bump the entry to the new table, since it's now
-        // recently-used.
-        Jim_Obj* obj = Jim_GetHashEntryVal(ent);
-        Jim_AddHashEntry(&cache->newTable, term, obj);
-        Jim_DeleteHashEntry(&cache->oldTable, term);
-        cache->size++;
-        cacheTryEvict(cache, interp);
-        return;
-    }
+    /* ent = Jim_FindHashEntry(&cache->oldTable, term); */
+    /* if (ent != NULL) { */
+    /*     // Bump the entry to the new table, since it's now */
+    /*     // recently-used. */
+    /*     Jim_Obj* obj = Jim_GetHashEntryVal(ent); */
+    /*     Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /*     Jim_DeleteHashEntry(&cache->oldTable, term); */
+    /*     cache->size++; */
+    /*     cacheTryEvict(cache, interp); */
+    /*     return; */
+    /* } */
 
-    // Not in cache yet. Insert into cache.
-    Jim_AddHashEntry(&cache->newTable, term, obj);
-    cache->size++;
-    cacheTryEvict(cache, interp);
+    /* // Not in cache yet. Insert into cache. */
+    /* Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /* cache->size++; */
+    /* cacheTryEvict(cache, interp); */
 }
 
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term) {
-    Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term);
-    if (ent != NULL) {
-        return Jim_GetHashEntryVal(ent);
-    }
-
-    ent = Jim_FindHashEntry(&cache->oldTable, term);
-    if (ent != NULL) {
-        // Bump the entry to the new table, since it's now
-        // recently-used.
-        Jim_Obj* obj = Jim_GetHashEntryVal(ent);
-        Jim_AddHashEntry(&cache->newTable, term, obj);
-        Jim_DeleteHashEntry(&cache->oldTable, term);
-        cache->size++;
-        cacheTryEvict(cache, interp);
-        return obj;
-    }
-
-    // Not in cache yet. Insert into cache.
     Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
-    Jim_AddHashEntry(&cache->newTable, term, obj);
-    cache->size++;
-    cacheTryEvict(cache, interp);
-
     return obj;
+
+    /* Jim_HashEntry* ent = Jim_FindHashEntry(&cache->newTable, term); */
+    /* if (ent != NULL) { */
+    /*     return Jim_GetHashEntryVal(ent); */
+    /* } */
+
+    /* ent = Jim_FindHashEntry(&cache->oldTable, term); */
+    /* if (ent != NULL) { */
+    /*     // Bump the entry to the new table, since it's now */
+    /*     // recently-used. */
+    /*     Jim_Obj* obj = Jim_GetHashEntryVal(ent); */
+    /*     Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /*     Jim_DeleteHashEntry(&cache->oldTable, term); */
+    /*     cache->size++; */
+    /*     cacheTryEvict(cache, interp); */
+    /*     return obj; */
+    /* } */
+
+    /* // Not in cache yet. Insert into cache. */
+    /* Jim_Obj* obj = Jim_NewStringObj(interp, term, -1); */
+    /* Jim_AddHashEntry(&cache->newTable, term, obj); */
+    /* cache->size++; */
+    /* cacheTryEvict(cache, interp); */
+
+    /* return obj; */
 }
