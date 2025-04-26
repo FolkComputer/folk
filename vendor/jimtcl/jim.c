@@ -14438,6 +14438,10 @@ badcompareargs:
                 else if (option == OPT_LAST) {
                     idx = l2;
                 }
+                if (idx >= l1 || idx >= l2) {
+                    Jim_SetResultInt(interp, -1);
+                    return JIM_OK;
+                }
                 if (option == OPT_FIRST) {
                     Jim_SetResultInt(interp, JimStringFirst(s1, l1, s2, l2, idx));
                 }
