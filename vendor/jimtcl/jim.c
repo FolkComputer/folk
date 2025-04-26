@@ -6709,12 +6709,15 @@ static int ListSortElements(Jim_Interp *interp, Jim_Obj *listObjPtr, struct lsor
     JimPanic((Jim_IsShared(listObjPtr), "ListSortElements called with shared object"));
     SetListFromAnyUnshared(interp, listObjPtr);
 
+    vector = listObjPtr->internalRep.listValue.ele;
+    len = listObjPtr->internalRep.listValue.len;
+
+    if (len == 0) return JIM_OK;
+
     /* Allow lsort to be called reentrantly */
     prev_info = sort_info;
     sort_info = info;
 
-    vector = listObjPtr->internalRep.listValue.ele;
-    len = listObjPtr->internalRep.listValue.len;
     switch (info->type) {
         case JIM_LSORT_ASCII:
             fn = ListSortString;
