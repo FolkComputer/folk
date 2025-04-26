@@ -5049,7 +5049,9 @@ int Jim_UnsetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
  * For example "foo(bar)" will return objects with string repr. of
  * "foo" and "bar".
  *
- * The returned objects have refcount = 1. The function can't fail. */
+ * The returned objects have refcount = 1. The function can't fail.
+ * 
+ * Panics if `objPtr` is from another interpreter */
 static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     Jim_Obj **varPtrPtr, Jim_Obj **keyPtrPtr)
 {
@@ -5057,7 +5059,7 @@ static void JimDictSugarParseVarKey(Jim_Interp *interp, Jim_Obj *objPtr,
     int len, keyLen;
     Jim_Obj *varObjPtr, *keyObjPtr;
 
-    str = Jim_GetString(interp, objPtr, &len);
+    str = Jim_GetStringSameInterp(interp, objPtr, &len);
 
     p = strchr(str, '(');
     JimPanic((p == NULL, "JimDictSugarParseVarKey() called for non-dict-sugar (%s)", str));
@@ -9446,8 +9448,8 @@ static struct ExprTree *ExprTreeCreateTree(Jim_Interp *interp, const ParseTokenL
 /* This method takes the string representation of an expression
  * and generates a program for the expr engine
  *
- * Race conditions if called with an object from another interpreter.
- *  */
+ * Panics if called with an object from another interpreter.
+ */
 static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     int exprTextLen;
@@ -9470,7 +9472,7 @@ static int SetExprFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
     }
     Jim_IncrRefCount(fileNameObj);
 
-    exprText = Jim_GetString(interp, objPtr, &exprTextLen);
+    exprText = Jim_GetStringSameInterp(interp, objPtr, &exprTextLen);
 
     /* Initially tokenise the expression into tokenlist */
     ScriptTokenListInit(&tokenlist);
