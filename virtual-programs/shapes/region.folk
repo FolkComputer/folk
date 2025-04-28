@@ -7,29 +7,16 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
   set index [dict_getdef $options index 0]
   set height [dict_getdef $options height 55]
   set width [dict_getdef $options width 55]
-  set outline [dict_getdef $options outline false]
+  set highlight [dict_getdef $options highlight false]
+  set color [dict_getdef $options color red]
 
   set offset [dict_getdef $options offset {0 0}]
   set offset [::process_offset $offset $r]
   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $angle]]
 
-  # draw a small debug box within the setting.
-  # if {$outline} {
-  #  Wish $p draws a rect with color orange thickness 1 width [expr {$width + 3}] height [expr {$height + 3}] offset $offset
-  #}
- 
   # compute points offset from $p
   set hw [expr {$width / 2.0}]
   set hh [expr {$height / 2.0}]
-  set points [lmap v [list \
-    [list [expr {-$hw}] [expr {-$hh}]] \
-    [list [expr {$hw}] [expr {-$hh}]] \
-    [list [expr {$hw}] [expr {$hh}]] \
-    [list [expr {-$hw}] [expr {$hh}]] \
-    [list [expr {-$hw}] [expr {-$hh}]] \
-  ] {
-    vec2 add $v $offset
-  }]
 
   # compute points in table coordinates
   set tablePoints [lmap v [list \
@@ -42,24 +29,11 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
     vec2 add $center [vec2 rotate $v $angle] 
   }]
 
-  # debug: display little red dots around the region on table points.
-#   if {$outline} {
-#     lassign $tablePoints tp1 tp2 tp3 tp4
-#     Wish to draw a circle with center $tp1 radius 5 thickness 2 \
-#         color red filled true 
-#     Wish to draw a circle with center $tp2 radius 5 thickness 2 \
-#         color red filled true 
-#     Wish to draw a circle with center $tp3 radius 5 thickness 2 \
-#         color red filled true 
-#     Wish to draw a circle with center $tp4 radius 5 thickness 2 \
-#         color red filled true 
-#   }
-
   set edges [list]
   for {set i 0} {$i < [llength $tablePoints]} {incr i} {
     if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
   }
-  lappend edges [list [expr {[llength $tablePoints] - 1}] 0]
+  lappend edges [list [expr {[llength $tablePoints] - 1}] [lindex $tablePoints 0]]
   
   # Create new region in table points
   set indexedRegion [region create $tablePoints $edges $angle]
@@ -67,43 +41,8 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
   Claim "${p}:${index}" has region $indexedRegion
 
   # debug: display dashed line around the points
-  if {$outline} {
-    Wish region $indexedRegion has highlight $outline with color red
-  }
-}
-
-When /someone/ wishes region /r/ has boundingbox /highlighted/ with color /color/ {
-
-  if {$highlighted} {
-    lassign [regionToBbox $r] bMinX bMinY bMaxX bMaxY 
-
-    # minpoint on a circle
-    set mx [expr {($bMaxX + $bMinX) / 2}]
-    set my [expr {($bMaxY + $bMinY) / 2}]
-
-    # direction vector
-    set dx [expr {$bMaxX - $bMinX}]
-    set dy [expr {$bMaxY - $bMinY}]
-
-    # radius - half hypotenuse  
-    set length [expr {sqrt($dx * $dx + $dy * $dy)}]
-    set r [expr {$length / 2}]
-
-    # normal vector
-    set nx [- $dy]
-    set ny $dx
-    set ux [expr {$nx / $length}]    
-    set uy [expr {$ny / $length}]    
-
-    # up
-    set upX [expr {$mx + $r * $ux}]
-    set upY [expr {$my + $r * $uy}]
-    set downX [expr {$mx - $r * $ux}]
-    set downY [expr {$my - $r * $uy}]
-
-    Display::stroke [list [list $bMinX $bMinY] [list $bMaxX $bMaxY]] 3 blue
-    Display::stroke [list [list $upX $upY] [list $downX $downY]] 3 red 
-
+  if {$highlight} {
+    Wish region $indexedRegion has highlight $highlight with color $color
   }
 }
 
@@ -124,3 +63,23 @@ When /someone/ wishes region /r/ has highlight /highlighted/ with /...options/ {
   }
 }
 
+Claim $this has demo {
+
+  # How to use
+  # When virtual-programs/shapes/region.folk has demo /code/ & \
+  #     $this has region /r/ {
+  #     Claim $this has program code $code
+  #     set angle [region angle $r]
+  #     set pos [region bottom $r]
+  #     Wish to draw text with position $pos scale 0.6 text $code radians $angle anchor topright
+  # }
+
+  When $this has region /r/ {
+    Wish region $r has highlight true with color yellow thickness 1 dashed true
+
+    Wish $this adds region with index 0 width 50 height 50 offset [list -250 0] highlight true color yellow
+    Wish $this draws text "Region 0" with offset [list -250 -50] scale 0.6 color yellow 
+    Wish $this adds region with index 1 width 50 height 50 offset [list 250 0] highlight true color yellow
+    Wish $this draws text "Region 1" with offset [list 250 -50] scale 0.6 color yellow 
+  }
+}
