@@ -162,8 +162,8 @@ Wish the web server handles route "/threads" with handler [list apply {{threadMo
                 set kernelStack "<not permitted>"
             }
 
-            set allocs [dict get $workerInfo _allocs]
-            set frees [dict get $workerInfo _frees]
+            set allocs [dict getdef $workerInfo _allocs -1]
+            set frees [dict getdef $workerInfo _frees -1]
             subst {<li style="[expr {$workerInfo eq "" ? "color: gray" : ""}]">
                 $taskdir: [regexp -inline {State:[^\n]*\n} $status]<br>
                   [if {$workerInfo eq ""} {subst {
