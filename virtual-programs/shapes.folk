@@ -143,15 +143,26 @@ When /someone/ wishes /p/ draws an /shape/ {
 When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /r/ {
    # As shapes.folk but for text.
    lassign [region centroid $r] cx cy
-   set angle [region angle $r]
+   set pageAngle [region angle $r]
 
-   set color [dict_getdef $options color white]
-   set scale [dict_getdef $options scale 1.0]
-   set layer [dict_getdef $options layer 0]
+   # Use the page's angle unless explicitly overwritten
+   set defaults [dict create \
+       color white \
+       scale 1.0 \
+       layer 0 \
+       angle $pageAngle \
+   ]
+
+   set options [dict merge $defaults $options]
+
+   set color [dict get $options color]
+   set scale [dict get $options scale]
+   set layer [dict get $options layer]
+   set angle [dict get $options angle]
 
    set offset [dict_getdef $options offset {0 0}]
    set offset [::process_offset $offset $r]
-   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $angle]]
+   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $pageAngle]]
 
    Wish to draw text with position $center scale $scale text $text color $color radians $angle
 } 
