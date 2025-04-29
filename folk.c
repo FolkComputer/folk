@@ -1216,24 +1216,31 @@ void *webDebugAllocator(void *ptr, size_t size) {
         if (ptr == NULL) { return NULL; }
 
         // Check magic number before free
-        if (ptr && *(uint32_t*)((char*)ptr - 4) != 0xBABE) {
+        if (ptr && *(uint32_t*)((char*)ptr - 4 - sizeof(size_t)) != 0xBABE) {
             // Magic number corruption detected
             fprintf(stderr, "debugAllocator: WARNING: Magic number corruption detected\n");
             return NULL;
         }
-        self->_frees++;
-        free((char*)ptr - 4);
+        size_t allocSize = *(size_t*)((char*)ptr - sizeof(size_t));
+        self->_frees += allocSize;
+        free((char*)ptr - 4 - sizeof(size_t));
         return NULL;
     }
     else if (ptr) {
-        return realloc((char*)ptr - 4, size + 4) + 4;
+        size_t oldSize = *(size_t*)((char*)ptr - sizeof(size_t));
+        self->_frees += oldSize;
+        void *newAlloc = realloc((char*)ptr - 4 - sizeof(size_t), size + 4 + sizeof(size_t)) + 4 + sizeof(size_t);
+        *(size_t*)((char*)newAlloc - sizeof(size_t)) = size;
+        self->_allocs += size;
+        return newAlloc;
     }
     else {
-        void *allocation = malloc(size + 4);
+        void *allocation = malloc(size + 4 + sizeof(size_t));
         if (allocation) {
             *(uint32_t*)allocation = 0xBABE;
-            self->_allocs++;
-            return (char*)allocation + 4;
+            *(size_t*)((char*)allocation + 4) = size;
+            self->_allocs += size;
+            return (char*)allocation + 4 + sizeof(size_t);
         }
         return NULL;
     }
