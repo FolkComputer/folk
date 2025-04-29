@@ -1211,7 +1211,7 @@ void workerReactivateOrSpawn() {
     workerSpawn();
 }
 
-void *debugAllocator(void *ptr, size_t size) {
+void *webDebugAllocator(void *ptr, size_t size) {
     if (size == 0) {
         if (ptr == NULL) { return NULL; }
 
@@ -1238,11 +1238,29 @@ void *debugAllocator(void *ptr, size_t size) {
         return NULL;
     }
 }
+void *tracyDebugAllocator(void *ptr, size_t size) {
+    if (size == 0) {
+        TracyCFree(ptr);
+        free(ptr);
+        return NULL;
+    }
+    else if (ptr) {
+        TracyCFree(ptr);
+        void *nptr = realloc(ptr, size);
+        TracyCAlloc(nptr, size);
+        return nptr;
+    }
+    else {
+        void *ptr = malloc(size);
+        TracyCAllocS(ptr, size, 5);
+        return ptr;
+    }
+}
 
 int main(int argc, char** argv) {
     // Do all setup.
 
-    Jim_Allocator = debugAllocator;
+    Jim_Allocator = webDebugAllocator;
 
     // Set up database.
     db = dbNew();
