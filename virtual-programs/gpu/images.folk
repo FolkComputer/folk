@@ -89,7 +89,7 @@ $gpuc proc imageManagerInit {} void {
     device = *device_ptr();
     volkLoadDevice(device);
 
-    gpuImages = malloc(sizeof(GpuImageBlock) * getMaxImages());
+    gpuImages = calloc(sizeof(GpuImageBlock), getMaxImages());
 
     // Set up imageDescriptorSetLayout:
     {

@@ -119,8 +119,6 @@ $gpuc define {
     VkPhysicalDeviceProperties physicalDeviceProperties;
     VkDevice device;
 
-    int maxImages;
-
     uint32_t computeQueueFamilyIndex;
     uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 
@@ -552,7 +550,11 @@ $gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
     return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
 }
 $gpuc proc getMaxImages {} int {
-    return physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
+    int maxImages = physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
+    // If it's actually a low cap (often 16), stick with that.
+    if (maxImages < 128) { return maxImages; }
+    // HACK: for now, I don't want to deal with all the other descriptor caps etc.
+    return 128;
 }
 
 fn defineVulkanHandleType {cc type} {
