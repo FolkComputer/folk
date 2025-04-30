@@ -1,14 +1,22 @@
-# Creates a id "${p}:${index}" and assigns region.
+# Creates an id "${p}:${index}" and assigns region.
 # Extra regions can be used to create sensitive areas other pages can collect.
 When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
 
-  set index [dict_getdef $options index 0]
-  set height [dict_getdef $options height 55]
-  set width [dict_getdef $options width 55]
-  set highlight [dict_getdef $options highlight false]
-  set color [dict_getdef $options color red]
+  set defaults {
+    index 0 \
+    height 55 \
+    width 55 \
+    highlight false \
+    color red \
+  }
+
+  set index [dict get $options index]
+  set height [dict get $options height]
+  set width [dict get $options width]
+  set highlight [dict get $options highlight]
+  set color [dict get $options color]
 
   set offset [dict_getdef $options offset {0 0}]
   set offset [::process_offset $offset $r]
@@ -34,7 +42,7 @@ When /someone/ wishes /p/ adds region with /...options/ & /p/ has region /r/ {
     if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
   }
   lappend edges [list [expr {[llength $tablePoints] - 1}] [lindex $tablePoints 0]]
-  
+
   # Create new region in table points
   set indexedRegion [region create $tablePoints $edges $angle]
   Claim $p has indexedRegion with index $index region $indexedRegion
@@ -64,7 +72,6 @@ When /someone/ wishes region /r/ has highlight /highlighted/ with /...options/ {
 }
 
 Claim $this has demo {
-
   # How to use
   # When virtual-programs/shapes/region.folk has demo /code/ & \
   #     $this has region /r/ {
