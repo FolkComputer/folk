@@ -4,18 +4,16 @@ When display /disp/ has width /w/ height /h/ {
     }
 }
 
-# HACK: we need one image that never gets destroyed to act as a
-# placeholder.
-When the page is out {
-    Wish the GPU creates writable image TEST with width 1024 height 1024
-    Wish the GPU draws pipeline "fillTriangle" onto image TEST \
+When page /p/ is out {
+    Wish the GPU creates writable image [list im $p] with width 1024 height 1024
+    Wish the GPU draws pipeline "fillTriangle" onto image [list im $p] \
         with arguments [list {
             {1 0 0}
             {0 1 0}
             {0 0 1}
         } {-1 -1} {1 -1} {-1 1} {0.5 0 0.5 0.5}]
 
-    Wish the GPU draws pipeline "fillTriangle" onto image TEST \
+    Wish the GPU draws pipeline "fillTriangle" onto image [list im $p] \
         with arguments [list {
             {1 0 0}
             {0 1 0}
@@ -25,14 +23,25 @@ When the page is out {
 
 When the GPU library is /gpuLib/ &\
      the GPU writable image library is /gpuDrawableLib/ &\
-     the GPU creates writable image TEST as /surf/ {
+     the GPU creates writable image /imId/ as /surf/ {
 
     puts ON---------------
     set testim [$gpuDrawableLib gpuImage $surf]
-    set a [list -0.5 -0.5]
-    set b [list 0.5 -0.5]
-    set c [list 0.5 0.5]
-    set d [list -0.5 0.5]
+
+    set xSize 2.0
+    set ySize 2.0
+    set xStep [expr {$xSize / 4.0}]
+    set yStep [expr {$ySize / 4.0}]
+
+    set idx [lindex $imId 1]
+    set row [expr {$idx / 4}]
+    set col [expr {$idx % 4}]
+
+    set a [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + $row * $yStep}]]
+    set b [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + $row * $yStep}]]
+    set c [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+    set d [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+
     Wish the GPU draws pipeline "image" with arguments \
         [list [list [$gpuLib getWidth] [$gpuLib getHeight]] \
              {
@@ -45,11 +54,13 @@ When the GPU library is /gpuLib/ &\
 
 ##############
 
-Assert! the page is out
-When {
-    sleep 5
-    Retract! the page is out
+for {set i 0} {$i < 10} {incr i} {
+    Assert! page $i is out
 }
+# When {
+#     sleep 5
+#     Retract! the page is out
+# }
 
 ##############
 
