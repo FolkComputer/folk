@@ -1,5 +1,3 @@
-return
-
 source vendor/blobdetect/blobdetect.tcl
 
 When camera /any/ has frame /grayFrame/ at timestamp /timestamp/ {

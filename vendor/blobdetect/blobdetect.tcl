@@ -1,10 +1,10 @@
 namespace eval ::BlobDetect {
-    rename [c create] apc
-    apc cflags -I$::env(HOME)/apriltag $::env(HOME)/folk/vendor/blobdetect/hk.c
-    apc include <apriltag.h>
-    apc include <math.h>
-    apc include <assert.h>
-    apc code {
+    set cc [c create]
+    $cc cflags -I$::env(HOME)/apriltag $::env(HOME)/folk/vendor/blobdetect/hk.c
+    $cc include <apriltag.h>
+    $cc include <math.h>
+    $cc include <assert.h>
+    $cc code {
         int hoshen_kopelman(int **matrix, int m, int n);
 
         typedef struct {
@@ -36,6 +36,7 @@ namespace eval ::BlobDetect {
             // for(int i = 0; i < rows; i++)
             //     memset(matrix[i], 0, cols * sizeof(int));
             
+            // filter the raster into on or off
             for (int y = 0; y < im_orig->height; y++) {
                 for (int x = 0; x < im_orig->width; x++) {
                     int i = y * im_orig->stride + x;
@@ -54,6 +55,7 @@ namespace eval ::BlobDetect {
             int clusters = hoshen_kopelman(matrix,m,n);
             // printf("clusters: %d\n", clusters);
 
+            // initialize a structure 
             for (int i=0; i<clusters; i++) {
                 detected_blob_t *det = calloc(1, sizeof(detected_blob_t));
                 det->id = i;
@@ -120,9 +122,9 @@ namespace eval ::BlobDetect {
             zarray_destroy(detections);
         }
     }
-    defineImageType apc
+    defineImageType $cc
 
-    apc proc detect {image_t gray int threshold} Tcl_Obj* {
+    $cc proc detect {image_t gray int threshold} Tcl_Obj* {
         assert(gray.components == 1);
         image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
@@ -134,7 +136,7 @@ namespace eval ::BlobDetect {
             detected_blob_t *det;
             zarray_get(detections, i, &det);
 
-            // printf("detection %3d: id %-4d\n cx %f cy %f size %d\n", i, det->id, det->c[0], det->c[1], det->size);
+            printf("detection %3d: id %-4d\n cx %f cy %f size %d\n", i, det->id, det->c[0], det->c[1], det->size);
 
             // int size = sqrt((det->p[0][0] - det->p[1][0])*(det->p[0][0] - det->p[1][0]) + (det->p[0][1] - det->p[1][1])*(det->p[0][1] - det->p[1][1]));
             int size = det->size;
@@ -154,5 +156,5 @@ namespace eval ::BlobDetect {
         return result;
     }
 
-    apc compile
+    $cc compile
 }
