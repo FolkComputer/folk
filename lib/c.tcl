@@ -86,6 +86,7 @@ class C {
             Jim_SetResultString(interp, __msg, -1); \
             longjmp(__onError, 0); \
           } while (0)
+        #define FOLK_ABORT() longjmp(__onError, 0)
         #define FOLK_ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultString(interp, "assertion failed: " #EXPR, -1); longjmp(__onError, 0); }
         #define FOLK_CHECK(EXPR, MSG) if (!(EXPR)) { FOLK_ERROR(MSG); }
 

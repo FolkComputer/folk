@@ -849,6 +849,9 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     {
         uint8_t pushConstantsData[128];
         int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
+        if (pushConstantsDataSize == -1) {
+            FOLK_ABORT();
+        }
         if (pushConstantsDataSize != pipeline.pushConstantsSize) {
             FOLK_ERROR("Gpu draw: Expected push constants size %zu; push constants data size was %d\n",
                        pipeline.pushConstantsSize, pushConstantsDataSize);
