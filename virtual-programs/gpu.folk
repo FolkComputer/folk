@@ -53,13 +53,6 @@ $gpuc struct Image {
     uint8_t* data;
 }
 
-# TODO: Support more than 16 concurrent images. This
-# constraint is imposed by Vulkan by default (device
-# maxPerStageDescriptorSamplers limit is 16). I think we can
-# increase it by querying GPU settings somehow.
-set GPU_MAX_IMAGES 16
-$gpuc proc getMaxImages {} int { return $GPU_MAX_IMAGES; }
-
 $gpuc include <stdlib.h>
 $gpuc include <pthread.h>
 $gpuc code {
@@ -123,7 +116,10 @@ $gpuc define {
     VkInstance instance;
     VkPhysicalDevice physicalDevice;
     VkPhysicalDeviceFeatures physicalDeviceFeatures;
+    VkPhysicalDeviceProperties physicalDeviceProperties;
     VkDevice device;
+
+    int maxImages;
 
     uint32_t computeQueueFamilyIndex;
     uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
@@ -226,6 +222,7 @@ $gpuc proc init {int displayIdx} void {
 
         physicalDevice = physicalDevices[0];
         vkGetPhysicalDeviceFeatures(physicalDevice, &physicalDeviceFeatures);
+        vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
     }
 
     computeQueueFamilyIndex = UINT32_MAX; {
@@ -553,6 +550,9 @@ $gpuc proc getWidth {} uint32_t { return swapchainExtent.width; }
 $gpuc proc getHeight {} uint32_t { return swapchainExtent.height; }
 $gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
     return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
+}
+$gpuc proc getMaxImages {} int {
+    return physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
 }
 
 fn defineVulkanHandleType {cc type} {

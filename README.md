@@ -745,4 +745,31 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     - 930 newImage vs 938 freeImage??
     - 1404 newImage vs 1399 freeImage
     - 8981 new vs 8976 free
+  - leak in web
+  - THE APRILTAGS ! THE APRILTAGS.FOLK LEAKS ??? 
 - why is calibration board off on portable system
+- **why does calibration glitch out**
+  - the GPU texture looks correct, it feels like the rendering to
+    display is just screwed up
+- REMOVE IMAGE CAP
+- keep 8ms didn't retract detection once, outline stuck around
+- fix editor
+
+```
+When the clock time is /t/ {
+Claim tag 13 has quad [list [list changeableTo /dev/video0 [list apply {{tagPose v} {
+package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::matmul
+            set R [dict get $tagPose R]; set t [dict get $tagPose t]
+            add [matmul $R $v] $t
+        } <library:/tmp/library_l5z6jg.tcl>} [list R {{0.0338667232336 -0.974048414314 0.223791714879} {0.972898023171 0.0833797840793 0.215678576027} {-0.228741079816 0.210422190365 0.950473576799}} t [list [expr {sin($t)}] 0.141294678981 0.64924951029]]]] {{-0.015 -0.015 0} {0.015 -0.015 0} {0.015 0.015 0} {-0.015 0.015 0}}]
+
+}
+
+Wish 13 has resolved geometry
+Claim tag 13 is a tag
+Claim tag 13 has a program
+puts hello
+```

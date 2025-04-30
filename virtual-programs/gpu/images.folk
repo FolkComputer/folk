@@ -20,8 +20,6 @@ $gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
 
-set GPU_MAX_IMAGES [$gpuLib getMaxImages]
-
 $gpuc include <pthread.h>
 
 local proc vktry {call} { string map {\n " "} [csubst {{
@@ -56,12 +54,42 @@ $gpuc code {
     VkDevice device;
     static void initPlaceholderImage();
 }
+
+$gpuc typedef int GpuImageHandle
+defineVulkanHandleType $gpuc VkImage
+defineVulkanHandleType $gpuc VkDeviceMemory
+defineVulkanHandleType $gpuc VkImageView
+defineVulkanHandleType $gpuc VkSampler
+$gpuc struct GpuImageBlock {
+    bool _Atomic alive;
+
+    int width;
+    int height;
+
+    GpuImageHandle handle;
+
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+    VkSampler textureSampler;
+
+    // mostly for debugging:
+    char* description;
+}
+$gpuc code {
+    // Points to all GPU-side data structures associated with
+    // an image (that we will destroy when we evict that
+    // image).
+    struct GpuImageBlock* gpuImages;
+}
 $gpuc proc imageManagerInit {} void {
     $[vktry volkInitialize()]
     volkLoadInstanceOnly(*instance_ptr());
 
     device = *device_ptr();
     volkLoadDevice(device);
+
+    gpuImages = malloc(sizeof(GpuImageBlock) * getMaxImages());
 
     // Set up imageDescriptorSetLayout:
     {
@@ -232,7 +260,6 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
     vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
 }
 
-defineVulkanHandleType $gpuc VkImage
 $gpuc typedef int VkFormat false
 $gpuc typedef int VkImageLayout false
 $gpuc proc transitionImageLayout {VkImage image VkFormat format
@@ -330,42 +357,17 @@ $gpuc proc copyImageToRgba {Image im} Image {
     return ret;
 }
 
-$gpuc typedef int GpuImageHandle
-defineVulkanHandleType $gpuc VkDeviceMemory
-defineVulkanHandleType $gpuc VkImageView
-defineVulkanHandleType $gpuc VkSampler
-$gpuc struct GpuImageBlock {
-    bool _Atomic alive;
-
-    int width;
-    int height;
-
-    GpuImageHandle handle;
-
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
-    VkImageView textureImageView;
-    VkSampler textureSampler;
-
-    // mostly for debugging:
-    char* description;
-}
 $gpuc code [csubst {
-    // Points to all GPU-side data structures associated with
-    // an image (that we will destroy when we evict that
-    // image).
-    GpuImageBlock gpuImages[$GPU_MAX_IMAGES];
-
     GpuImageHandle allocateGpuImageHandle() {
-        for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
+        for (int i = 0; i < getMaxImages(); i++) {
             bool notAlive = false;
             if (atomic_compare_exchange_weak(&gpuImages[i].alive, &notAlive, true)) {
                 gpuImages[i].handle = i;
                 return i;
             }
         }
-        fprintf(stderr, "gpu/images: Exceeded GPU_MAX_IMAGES:\n");
-        for (int i = 0; i < $GPU_MAX_IMAGES; i++) {
+        fprintf(stderr, "gpu/images: Exceeded GPU max images (%d):\n", getMaxImages());
+        for (int i = 0; i < getMaxImages(); i++) {
             fprintf(stderr, "  %d: %s\n", i, gpuImages[i].alive ? gpuImages[i].description : "<not alive>");
         }
         exit(1);

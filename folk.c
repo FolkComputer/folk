@@ -1259,7 +1259,7 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
     }
     else {
         void *ptr = malloc(size);
-        TracyCAllocS(ptr, size, 5);
+        TracyCAlloc(ptr, size);
         return ptr;
     }
 }
@@ -1267,7 +1267,7 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
 int main(int argc, char** argv) {
     // Do all setup.
 
-    Jim_Allocator = webDebugAllocator;
+    // Jim_Allocator = webDebugAllocator;
 
     // Set up database.
     db = dbNew();
