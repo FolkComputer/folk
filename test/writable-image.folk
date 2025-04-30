@@ -35,6 +35,11 @@ When the GPU library is /gpuLib/ &\
     set d [list -0.5 0.5]
     Wish the GPU draws pipeline "image" with arguments \
         [list [list [$gpuLib getWidth] [$gpuLib getHeight]] \
+             {
+                 {1 0 0}
+                 {0 1 0}
+                 {0 0 1}
+             } \
              $testim $a $b $c $d]
 }
 
