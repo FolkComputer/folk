@@ -3,15 +3,37 @@ When the keyboards are /keyboards/ {
     upvar ^html ^html
     html [subst {
       <html>
+          <head>
+          <style>
+          body {
+              background-color: #222;
+              color: whitesmoke;
+          }
+            .kbinfo {
+                outline: 1px solid whitesmoke;
+                border-radius: 6px;
+                font-family: monospace;
+                margin: 1%;
+                padding: 1%;
+            }
+            .path:before {
+                content: "Path: "
+            }
+          </style>
+          </head>
       <body>
         <span id="status">Status</span>
         <dl>
         [join [lmap kb $keyboards { subst {
-          <dt>$kb</dt>
-          <dd>
-            <code id="$kb-presses"></code><br>
-            <button onclick="handlePrint('$kb')">Print</button>
-          </dd>
+            <div class=kbinfo>
+                <dt class=path>$kb</dt>
+                <dd>
+                    <span>Keys typed: </span><code id="$kb-presses"></code>
+                </dd>
+                <dd>
+                    <button onclick="handlePrint('$kb')">Print</button>
+                </dd>
+            </div>
         } }] "\n"]
         </dl>
 
