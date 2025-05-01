@@ -5513,11 +5513,13 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_Free(i);
 }
 
-void Jim_ClearTempList(Jim_Interp *interp)
+void Jim_ClearTempListAfter(Jim_Interp *interp, size_t after)
 {
     Jim_TempList *tempList = interp->tempList;
 
-    for (size_t i = 0; i < tempList->length; i++) {
+    if (after >= tempList->length) return;
+
+    for (size_t i = after; i < tempList->length; i++) {
         /* IsShared means refCount > 1 which means it's still being used */
         JimPanic((Jim_IsShared(&tempList->objects[i]), 
             "tempList object still in use when freed"));
@@ -5525,7 +5527,12 @@ void Jim_ClearTempList(Jim_Interp *interp)
         Jim_DecrRefCount(&tempList->objects[i]);
     }
 
-    tempList->length = 0;
+    tempList->length = after;
+}
+
+void Jim_ClearTempList(Jim_Interp *interp)
+{
+    Jim_ClearTempListAfter(interp, 0);
 }
 
 /* Returns the call frame relative to the level represented by
@@ -10965,6 +10972,7 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
         "object from another interpreter when running Jim_EvalObj"));
 
     int i;
+    size_t tempListLen = interp->tempList->length;
     ScriptObj *script;
     ScriptToken *token;
     int retcode = JIM_OK;
@@ -10974,7 +10982,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
     /* If the object is of type "list", with no string rep we can call
      * a specialized version of Jim_EvalObj() */
     if (Jim_IsList(scriptObjPtr) && scriptObjPtr->bytes == NULL) {
-        return JimEvalObjList(interp, scriptObjPtr);
+        retcode = JimEvalObjList(interp, scriptObjPtr);
+        goto out;
     }
 
     Jim_IncrRefCount(scriptObjPtr);     /* Make sure it's shared. */
@@ -10982,7 +10991,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
 
     if (!JimScriptValid(interp, script)) {
         Jim_DecrRefCount(scriptObjPtr);
-        return JIM_ERR;
+        retcode = JIM_ERR;
+        goto out;
     }
 
     /* Reset the interpreter result. This is useful to
@@ -10999,7 +11009,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
      */
     if (script->len == 0) {
         Jim_DecrRefCount(scriptObjPtr);
-        return JIM_OK;
+        retcode = JIM_OK;
+        goto out;
     }
     if (script->len == 3
         && token[1].objPtr->typePtr == &commandObjType
@@ -11014,7 +11025,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
             Jim_InvalidateStringRep(objPtr);
             Jim_DecrRefCount(scriptObjPtr);
             Jim_SetResult(interp, objPtr);
-            return JIM_OK;
+            retcode = JIM_OK;
+            goto out;
         }
     }
 #endif
@@ -11205,6 +11217,8 @@ int Jim_EvalObj(Jim_Interp *interp, Jim_Obj *scriptObjPtr)
     Jim_SetIntRepPtr(scriptObjPtr, script);
     Jim_DecrRefCount(scriptObjPtr);
 
+out:
+    Jim_ClearTempListAfter(interp, tempListLen);
     return retcode;
 }
 
