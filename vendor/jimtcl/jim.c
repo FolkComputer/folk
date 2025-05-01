@@ -2207,7 +2207,7 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int onTempList)
     }
 
     objPtr->interp = interp;
-    objPtr->refCount = 0;
+    objPtr->refCount = onTempList ? 1 : 0;
 
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
@@ -2305,11 +2305,6 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 Jim_Obj *DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags) {
     if (Jim_IsShared(objPtr)) {
         objPtr = Jim_DuplicateObj(interp, objPtr, flags);
-
-        if ((flags & JIM_TEMP_LIST) != 0) {
-            /* only increment refCount if it's on the temp list (owned by temp list) */
-            Jim_IncrRefCount(objPtr);
-        }
     }
 
     return objPtr;
@@ -2498,10 +2493,20 @@ static int SetStringFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr)
 int Jim_Utf8Length(Jim_Interp *interp, Jim_Obj *objPtr)
 {
 #ifdef JIM_UTF8
-    int len = 0;
-    const char *strValue = Jim_GetString(interp, objPtr, &len);
+    if (objPtr->typePtr != &stringObjType) {
+        if (Jim_IsShared(objPtr)) {
+            objPtr = Jim_DuplicateObj(interp, objPtr, JIM_TEMP_LIST);
+        }
 
-    return utf8_strlen(strValue, len);
+        SetStringFromAnyUnshared(interp, objPtr);
+    }
+
+    // data races for setting this shouldn't be an issue
+    // (setting it twice is fine, there's no tricky invariants either)
+    if (objPtr->internalRep.strValue.charLength < 0) {
+        objPtr->internalRep.strValue.charLength = utf8_strlen(objPtr->bytes, objPtr->length);
+    }
+    return objPtr->internalRep.strValue.charLength;
 #else
     return Jim_Length(interp, objPtr);
 #endif
@@ -5513,6 +5518,7 @@ void Jim_FreeInterp(Jim_Interp *i)
     Jim_Free(i);
 }
 
+// includes `after` in removal
 void Jim_ClearTempListAfter(Jim_Interp *interp, size_t after)
 {
     Jim_TempList *tempList = interp->tempList;
@@ -5520,11 +5526,14 @@ void Jim_ClearTempListAfter(Jim_Interp *interp, size_t after)
     if (after >= tempList->length) return;
 
     for (size_t i = after; i < tempList->length; i++) {
-        /* IsShared means refCount > 1 which means it's still being used */
-        JimPanic((Jim_IsShared(&tempList->objects[i]), 
-            "tempList object still in use when freed"));
+        /* refCount should be exactly 1, e.g. owned by this list
+         * (don't use Jim's DecrRefCount as the temp list can't have its
+          * interior freed with the global allocator) */
+        int refCount = atomic_load_explicit(&(tempList->objects[i].refCount), memory_order_relaxed);
+        JimPanic((refCount != 1, "tempList object with bad refCount %d (should be 1)", refCount));
 
-        Jim_DecrRefCount(&tempList->objects[i]);
+        Jim_FreeIntRep(&tempList->objects[i]);
+        Jim_InvalidateStringRep(&tempList->objects[i]);
     }
 
     tempList->length = after;
