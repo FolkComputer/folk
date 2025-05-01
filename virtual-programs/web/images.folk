@@ -197,7 +197,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
                 Image im = copyImageFromGpu(i);
                 size_t pngSize;
                 uint8_t* pngData = imageToPngBuffer(im, &pngSize);
-                
+
+                Jim_ListAppendElement(interp, ret, Jim_ObjPrintf("Image %d (%d x %d)", i, im.width, im.height));
                 Jim_ListAppendElement(interp, ret, Jim_NewStringObj(interp, (char*)pngData, pngSize));
 
                 free(pngData);
@@ -223,9 +224,9 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
                 </style>
             </head>
             <body>
-                [join [lmap imageData $images {
+                [join [lmap {description imageData} $images {
                     set b64 [::base64::encode $imageData]
-                    format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} hello $b64
+                    format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} $description $b64
                 }] "\n"]
             </body>
             </html>
