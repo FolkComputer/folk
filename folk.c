@@ -1195,15 +1195,15 @@ void workerReactivateOrSpawn() {
     if (nLivingThreads > 20) {
         fprintf(stderr, "folk: workerReactivateOrSpawn: Not spawning new thread; too many already\n");
 
-        {
-            printf("SPAWN NEW WORKER\n"
-                   "============================\n");
-            for (int i = 0; i < THREADS_MAX; i++) {
-                printf("\nthread %d\n"
-                       "------------------\n", i);
-                workerInfo(i);
-            }
-        }
+        /* { */
+        /*     printf("SPAWN NEW WORKER\n" */
+        /*            "============================\n"); */
+        /*     for (int i = 0; i < THREADS_MAX; i++) { */
+        /*         printf("\nthread %d\n" */
+        /*                "------------------\n", i); */
+        /*         workerInfo(i); */
+        /*     } */
+        /* } */
 
         return;
     }
