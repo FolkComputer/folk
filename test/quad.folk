@@ -1,0 +1,90 @@
+Claim display 0 has intrinsics \
+    [dict create width 640 height 480 \
+         fx 320 fy 240 \
+         cx 320 cy 240 \
+         s 0 k1 0 k2 0]
+
+
+
+When the quad library is /quadLib/ {
+    puts stderr "====== QUAD LIBRARY ================"
+
+    set topLeft     [list -0.1 -0.1 0.5]
+    set topRight    [list  0.1 -0.1 0.5]
+    set bottomRight [list  0.1  0.1 0.5]
+    set bottomLeft  [list -0.1  0.1 0.5]
+    Claim BLOOP has quad [$quadLib create "display 0" \
+                              [list $topLeft $topRight $bottomRight $bottomLeft]]
+
+    Wish the GPU creates writable image [list BLOOP im] with width 1024 height 1024
+    Claim BLOOP has writable image [list BLOOP im]
+    Claim BLOOP has writable image projection {
+        {1 0 -0.98}
+        {0 1 -0.98}
+        {0 0 1}
+    }
+    Claim BLOOP has resolved geometry {
+        width 1.95
+        height 1.95
+    }
+
+    Wish the GPU draws pipeline "fillTriangle" onto image [list BLOOP im] \
+        with arguments [list {
+            {1 0 0}
+            {0 1 0}
+            {0 0 1}
+        } {-1 -1} {1 -1} {-1 1} {0.5 0 0.5 0.5}] layer -1
+    Wish the GPU draws pipeline "fillTriangle" onto image [list BLOOP im] \
+        with arguments [list {
+            {1 0 0}
+            {0 1 0}
+            {0 0 1}
+        } {1 -1} {1 1} {-1 1} {1 0 1 0.5}] layer -1
+}
+
+Wish BLOOP is outlined green
+
+When {
+    set page BLOOP
+    set id BLOOP2
+    set writableImageId [list $id writable image]
+    Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
+    Claim $id has writable image $writableImageId
+    When the quad library is /quadLib/ & $page has quad /q/ {
+        puts "Q: ($q)"
+        puts "Q': ([$quadLib move $q up 1%])"
+        Claim $id has quad [$quadLib move $q up 210%]
+    }
+}
+
+##############
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    HoldStatement! (keep 100ms) (on boot.folk) [list $programFilename code] \
+        [list boot.folk claims $programFilename has program code [read $fp]]
+    close $fp
+}
+apply {{} {
+    LoadProgram! virtual-programs/web/db-lib.folk
+    LoadProgram! virtual-programs/web/web.folk
+    LoadProgram! virtual-programs/web/images.folk
+    LoadProgram! virtual-programs/web/index.folk
+
+    LoadProgram! virtual-programs/tags-to-quads.folk
+
+    LoadProgram! virtual-programs/gpu/images.folk
+    LoadProgram! virtual-programs/gpu/writable-images.folk
+    LoadProgram! virtual-programs/draw/color-map.folk
+    LoadProgram! virtual-programs/draw/dashed-line.folk
+    LoadProgram! virtual-programs/draw/fill.folk
+    LoadProgram! virtual-programs/draw/image.folk
+    LoadProgram! virtual-programs/draw/line.folk
+    LoadProgram! virtual-programs/decorations/outline.folk
+    LoadProgram! virtual-programs/gpu-fns.folk
+    source virtual-programs/gpu.folk
+}}

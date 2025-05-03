@@ -751,9 +751,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **why does calibration glitch out**
   - the GPU texture looks correct, it feels like the rendering to
     display is just screwed up
-- REMOVE IMAGE CAP
+- ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
-- fix editor
+- **fix editor**
+- make calibrate retract properly when closed
 
 ```
 When the clock time is /t/ {
@@ -772,4 +773,25 @@ Wish 13 has resolved geometry
 Claim tag 13 is a tag
 Claim tag 13 has a program
 puts hello
+```
+
+```
+Wish the GPU creates writable image {{virtual-programs/calibrate/calibrate.folk board} writable image} with width 1024 height 1024
+Claim {virtual-programs/calibrate/calibrate.folk board} has writable image {{virtual-programs/calibrate/calibrate.folk board} writable image}
+
+Wish the GPU draws pipeline fillTriangle onto image {{virtual-programs/calibrate/calibrate.folk board} writable image} with arguments {{{1 0 0} {0 1 0} {0 0 1}} {-1 -1} {1 -1} {1 1} {1 1 1 1}} layer 99
+
+Wish the GPU draws pipeline fillTriangle onto image {{virtual-programs/calibrate/calibrate.folk board} writable image} with arguments {{{1 0 0} {0 1 0} {0 0 1}} {-1 -1} {1 1} {-1 1} {1 1 1 1}} layer 99
+
+Wish to draw an AprilTag onto {virtual-programs/calibrate/calibrate.folk board} with id 48601 corners {{0.049833333295 -3.82999985893e-11} {0.088166666705 -3.82999985893e-11} {0.088166666705 0.0383333333715} {0.049833333295 0.0383333333715}} layer 100
+
+Wish to draw an AprilTag onto {virtual-programs/calibrate/calibrate.folk board} with id 48603 corners {{0.149499999962 -3.82999985893e-11} {0.187833333372 -3.82999985893e-11} {0.187833333372 0.0383333333715} {0.149499999962 0.0383333333715}} layer 100
+
+
+When the GPU writable image library is /gpuDrawableLib/ & the GPU creates writable image /imId/ as /surf/ {
+  set im [$gpuDrawableLib gpuImage $surf]
+  Wish the GPU draws pipeline image with arguments [list {3840 2160} {{0.000520833333333 0 -1} {0 0.000925925925926 -1} {0 0 1}} $im {-101.140927021 -101.140927021} {1355.28841707 -101.140927021} {1355.28841707 829.355598662} {-101.140927021 829.355598662}] layer 100
+}
+
+Retract! /any/ wishes to calibrate
 ```

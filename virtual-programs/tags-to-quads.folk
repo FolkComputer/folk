@@ -388,7 +388,9 @@ set quadLib [library create quadLib {spaceLib} {
     package require linalg
     namespace import \
         ::math::linearalgebra::add \
-        ::math::linearalgebra::matmul
+        ::math::linearalgebra::matmul \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm
 
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
@@ -454,6 +456,61 @@ set quadLib [library create quadLib {spaceLib} {
         return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
+    # Moves the quad left/right/up/down along the x and y axes of
+    # the plane of the quad (not the global x and y).
+    proc move {q args} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set width [::math::max [norm [sub $topRight $topLeft]] \
+                       [norm [sub $bottomRight $bottomLeft]]]
+        set height [::math::max [norm [sub $bottomRight $topRight]] \
+                        [norm [sub $bottomLeft $topLeft]]]
+        foreach {direction distance} $args {
+            if {![regexp {^([\-0-9\.]+)(cm|mm|m|%)?$} $distance -> distance unit]} {
+                error "quad move: Invalid distance $distance"
+            }
+
+            if {$distance == 0} { continue }
+
+            if {$unit eq "%"} {
+                if {$direction eq "up" || $direction eq "down"} {
+                    set distance [* $height $distance 0.01]
+                } else {
+                    set distance [* $width $distance 0.01]
+                }
+                set unit "m"
+            }
+            if {$unit eq "mm"} {
+                set distance [* $distance 0.001]
+                set unit "m"
+            }
+            if {$unit eq "cm"} {
+                set distance [* $distance 0.01]
+                set unit "m"
+            }
+            if {$unit ne "" && $unit ne "m"} {
+                error "quad move: Invalid unit $unit"
+            }
+
+            if {$direction eq "up"} {
+                set disp [list 0 [- $distance] 0]
+            } elseif {$direction eq "down"} {
+                set disp [list 0 $distance 0]
+            } elseif {$direction eq "left"} {
+                set disp [list [- $distance] 0 0]
+            } elseif {$direction eq "right"} {
+                set disp [list $distance 0 0]
+            } else {
+                error "quad move: Invalid direction $direction"
+            }
+
+            set topLeft [add $topLeft $disp]
+            set topRight [add $topRight $disp]
+            set bottomRight [add $bottomRight $disp]
+            set bottomLeft [add $bottomLeft $disp]
+        }
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
+    }
+
     # TODO: we need to either return 'space-tagged points' for these
     # or just change them into some default space like camera space.
     proc left {q} {
@@ -465,7 +522,7 @@ set quadLib [library create quadLib {spaceLib} {
         return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
     }
 }]
-
+Claim the quad library is $quadLib
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {

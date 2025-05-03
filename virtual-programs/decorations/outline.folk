@@ -1,14 +1,3 @@
-set loopRegion {{colorMap edges vertices width color} {
-    set instances [list]
-    set color [dict getdef $colorMap $color $color]
-    foreach edge $edges {
-        set from [lindex $vertices [lindex $edge 0]]
-        set to [lindex $vertices [lindex $edge 1]]
-        lappend instances [list $from $to $width $color]
-    }
-    Wish the GPU draws pipeline "line" with instances $instances
-}}
-
 When /someone/ wishes /thing/ is outlined /color/ &\
      /thing/ has resolved geometry /geom/ {
     dict with geom {
@@ -18,6 +7,8 @@ When /someone/ wishes /thing/ is outlined /color/ &\
                         [list 0 $height] \
                         [list 0 0]]
     }
+
+    puts "DRAW THE OUTLINE"
     Wish to draw a line onto $thing with \
-        points $points width 0.005 color $color
+        points $points width 0.01 color $color
 }

@@ -54,12 +54,16 @@ When the GPU library is /gpuLib/ &\
 
 ##############
 
-for {set i 0} {$i < 10} {incr i} {
-    Assert! page $i is out
+Assert! page 3 is out
+When {
+    sleep 5
+    Retract! page 3 is out
 }
-# When {
-#     sleep 5
-#     Retract! the page is out
+
+##############
+
+# for {set i 0} {$i < 10} {incr i} {
+#     Assert! page $i is out
 # }
 
 ##############

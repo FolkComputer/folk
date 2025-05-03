@@ -2,11 +2,11 @@
 # for wishes of the form:
 # "Wish $tag is titled "This is a tag"" or "Wish $tag is footnoted "This is a footnote""
 
-When /thing/ has region /region/ {
-    Claim $thing has a region
+When /thing/ has quad /quad/ {
+    Claim $thing has a quad
 }
 
-When /thing/ has a region {
+When /thing/ has a quad {
     When the collected matches for [list /someone/ wishes $thing is titled /text/] are /matches/ {
         set text [join [lmap match $matches {dict get $match text}] "\n"]
         if {$text eq ""} { return }

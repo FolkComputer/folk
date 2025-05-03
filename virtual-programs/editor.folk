@@ -4,7 +4,8 @@ set baseCode "Wish \$this is outlined green"
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
 When /page/ is a keyboard with /...opts/ {
-    if {[dict exists $opts path] && [dict exists $opts locale]} {
+    dict set opts locale [dict getdef $opts locale us]
+    if {[dict exists $opts path]} {
         Wish (keep 100ms) $page is an editor with {*}$opts
     }
 }
@@ -19,9 +20,13 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   Wish tag $page is stabilized
 
   set id [list editing $page $kbPath]
+  # Wish $id is outlined red
 
-  When $page has region /r/ {
-    Claim $id has region [region move $r up 210%]
+  set writableImageId [list $id writable image]
+  Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
+  Claim $id has writable image $writableImageId
+  When the quad library is /quadLib/ & $page has quad /q/ {
+      Claim $id has quad [$quadLib move $q up 210%]
   }
 
   if {[llength [Query! /someone/ claims $id has program code /c/]] == 0} {
