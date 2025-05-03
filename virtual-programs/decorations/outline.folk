@@ -8,7 +8,6 @@ When /someone/ wishes /thing/ is outlined /color/ &\
                         [list 0 0]]
     }
 
-    puts "DRAW THE OUTLINE"
     Wish to draw a line onto $thing with \
         points $points width 0.01 color $color
 }

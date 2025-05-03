@@ -20,11 +20,16 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   Wish tag $page is stabilized
 
   set id [list editing $page $kbPath]
-  # Wish $id is outlined red
 
   set writableImageId [list $id writable image]
   Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
   Claim $id has writable image $writableImageId
+  When $page has resolved geometry /geom/ {
+      Claim $id has resolved geometry $geom
+  }
+  When $page has writable image projection /proj/ {
+      Claim $id has writable image projection $proj
+  }
   When the quad library is /quadLib/ & $page has quad /q/ {
       Claim $id has quad [$quadLib move $q up 210%]
   }
