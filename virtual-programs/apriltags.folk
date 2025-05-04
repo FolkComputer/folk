@@ -89,10 +89,6 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
         [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
              at timestamp $frameTs in time $aprilTime]
 
-    # HoldStatementGlobally! [list $this entire-frame] \
-    #     [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
-    #          at timestamp $frameTs in time $aprilTime] 0 {} FILE 0
-
     tracy zoneEnd
 }
 

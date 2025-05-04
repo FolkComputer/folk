@@ -52,6 +52,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     collectedClause->terms[6] = strdup(Jim_String(patternObj));
     collectedClause->terms[7] = strdup("are");
     collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+    Jim_DecrRefCount(interp, matchesObj);
 
     HoldStatementGlobally(makeCollectKey(patternObj), version++,
                           collectedClause, 0, "", 0);
