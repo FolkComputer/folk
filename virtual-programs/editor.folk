@@ -200,23 +200,19 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
             scale $scale anchor topleft font NeomatrixCode
 
         When the $kbPath cursor is /cursor/ {
-            set em [expr {$scale * 25}]
+            set em [expr {$scale * 1}]
             # From NeomatrixCode.csv
-            set advance [expr {0.5859375 * $em}]
-            set margin [expr {$advance * 3 + 10}]
+            set advance [expr {0.5859375 * $scale}]
 
             # Draw cursor
             set curs [vec2 scale $cursor $advance $em]
 
-            set x1 [vec2 sub $p $curs]
-            set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+            set x1 [vec2 add $p $curs]
+            set x2 [vec2 add $x1 [list 0 [expr {$em + 0.004}]]]
 
-            set theta [expr {$radians + 3.14159}]
-            set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
-            set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
-            set s [expr {$scale * 4}]
-            Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
-            Wish to draw a line with points [list $x1 $x2] width $s color green
+            set s [expr {$scale / 6}]
+            Wish to draw a circle onto $id' with center $x1 radius $s thickness 0 color green filled true
+            Wish to draw a line onto $id' with points [list $x1 $x2] width $s color green
         }
     }
 }
