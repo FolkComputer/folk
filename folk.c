@@ -602,30 +602,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // when the time is /t/ /body/ with environment /capturedEnvStack/
     const char* body = whenClause->terms[whenClause->nTerms - 4];
     const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    // We don't cache the whole stack -- instead, we'll cache the
-    // records inside it.
-    Jim_Obj *capturedEnvStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
-
-    // Goal: we need to replace every record in capturedEnvStackObj
-    // with the cached version, then send _that_ stack to
-    // evaluateWhenBlock.
-    Jim_Obj *envStackObj; {
-        int nenvs = Jim_ListLength(interp, capturedEnvStackObj);
-        if (nenvs > 30) {
-            fprintf(stderr, "runWhenBlock: Too many envs in stack: %d\n", nenvs);
-            return;
-        }
-
-        Jim_Obj *envs[nenvs];
-        for (int i = 0; i < nenvs; i++) {
-            envs[i] = Jim_ListGetIndex(interp, capturedEnvStackObj, i);
-            // TODO: wasteful on the path where we make a new object
-            envs[i] = cacheGetOrInsert(cache, interp, Jim_String(envs[i]));
-        }
-
-        envStackObj = Jim_NewListObj(interp, envs, nenvs);
-        Jim_DecrRefCount(interp, capturedEnvStackObj);
-    }
+    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
     Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
@@ -673,6 +650,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
+        Jim_DecrRefCount(interp, envStackObj);
+        Jim_DecrRefCount(interp, bodyObj);
         return;
     }
 
