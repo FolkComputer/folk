@@ -36,7 +36,9 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
     Clause* claimizedPattern = claimizeClause(pattern);
     if (claimizedPattern != NULL) {
-        Jim_ListAppendList(interp, matchesObj, QuerySimple(claimizedPattern));
+        Jim_Obj* claimizedMatchesObj = QuerySimple(claimizedPattern);
+        Jim_ListAppendList(interp, matchesObj, claimizedMatchesObj);
+        Jim_DecrRefCount(interp, claimizedMatchesObj);
         free(claimizedPattern);
     }
     clauseFree(pattern);
@@ -52,6 +54,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     collectedClause->terms[6] = strdup(Jim_String(patternObj));
     collectedClause->terms[7] = strdup("are");
     collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+
     Jim_DecrRefCount(interp, matchesObj);
 
     HoldStatementGlobally(makeCollectKey(patternObj), version++,
