@@ -714,6 +714,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - delay sysmon for a few seconds to reduce extra threads
 - **why does collect take 100 microseconds?**
 - why doesn't epoch stack trace show anything in Tracy?
+- don't waste time on rerendering unchanged writable images
 
 ### editor bugs
 
@@ -732,28 +733,20 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - retain quad images, slightly larger than page size so we can draw on
   fringes?
 - ~~put terms into hashtable on transmit~~
-- implement collect in C
+- ~~implement collect in C~~
   - how to have hold-like behavior for collections? just keep a
     collect for an arbitrary amount of time?
 
 
 ### next
-- why memory leak?
-  - newImage (1.7GB) and ~~dbQuery (340MB)~~
-    - only a few images don't get freed -- destructor not firing,
-      presumably
-    - 930 newImage vs 938 freeImage??
-    - 1404 newImage vs 1399 freeImage
-    - 8981 new vs 8976 free
-  - leak in web
-  - THE APRILTAGS ! THE APRILTAGS.FOLK LEAKS ??? 
 - why is calibration board off on portable system
 - **why does calibration glitch out**
   - the GPU texture looks correct, it feels like the rendering to
     display is just screwed up
 - ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
-- **fix editor**
+- ~~fix editor~~
+- minor memory leak
 - make calibrate retract properly when closed
 
 ```
