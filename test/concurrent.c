@@ -13,18 +13,28 @@ void* thread_interpreter(void* arg) {
     Jim_InitStaticExtensions(interp);
 
     if (sharedObj == NULL) {
-        const char* script = "expr {10 * 2}";
+        const char* script = "return {A B C}";
         Jim_Eval(interp, script);
         sharedObj = Jim_GetResult(interp);
+        // this is needed since we're retaining the ref
+        Jim_IncrRefCount(sharedObj); 
 
     } else {
-        const char* lambda = "{sharedObj} {incr sharedObj; puts \"The result was $sharedObj\"}";
+        printf("sharedObj: %p, typePtr: %p, rc: %d\n",
+               sharedObj,
+               sharedObj->typePtr, sharedObj->refCount);
+        const char* lambda = "{sharedObj} {\
+llength $sharedObj; \
+puts \"sharedObj is ($sharedObj)\"; \
+return $sharedObj; \
+}";
         Jim_Obj* objv[] = {
             Jim_NewStringObj(interp, "apply", -1),
             Jim_NewStringObj(interp, lambda, -1),
             sharedObj
         };
         Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+        printf("  -> result: %p\n", Jim_GetResult(interp));
     }
     
     Jim_FreeInterp(interp);
