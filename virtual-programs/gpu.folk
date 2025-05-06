@@ -560,9 +560,9 @@ $gpuc proc getMaxImages {} int {
 fn defineVulkanHandleType {cc type} {
     $cc argtype $type [format {
 #ifdef VK_USE_64_BIT_PTR_DEFINES
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
+        %s $argname; sscanf(Jim_String(interp, $obj), "(%s) 0x%%p", &$argname);
 #else
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
+        %s $argname; sscanf(Jim_String(interp, $obj), "(%s) 0x%%llx", &$argname);
 #endif
     } $type $type $type $type]
     # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,

@@ -60,12 +60,12 @@ $cc code {
                                      void* user_data) {
         WsSession* session = (WsSession*) user_data;
         if (!wslay_is_ctrl_frame(arg->opcode)) {
-            Jim_Obj* msgObj = Jim_NewStringObj(interp, arg->msg, arg->msg_length);
+            Jim_Obj* msgObj = Jim_NewStringObj(interp, (const char *)arg->msg, arg->msg_length);
             if (Jim_EvalObjPrefix(interp, session->onMsgRecv,
                                   1, &msgObj) == JIM_ERR) {
                 Jim_MakeErrorMessage(interp);
                 fprintf(stderr, "ws.tcl: on_msg_recv_callback: Error: (%s)\n",
-                        Jim_GetString(Jim_GetResult(interp), NULL));
+                        Jim_GetString(interp, Jim_GetResult(interp), NULL));
             }
         }
     }

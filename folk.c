@@ -90,7 +90,7 @@ static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
     for (int i = 0; i < objc; i++) {
-        clause->terms[i] = strdup(Jim_GetString(objv[i], NULL));
+        clause->terms[i] = strdup(Jim_GetString(interp, objv[i], NULL));
     }
     return clause;
 }
@@ -107,7 +107,7 @@ Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
     for (int i = 0; i < objc; i++) {
         Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
         cacheInsert(cache, interp, termObj);
-        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
+        clause->terms[i] = strdup(Jim_GetString(interp, termObj, NULL));
     }
     return clause;
 }
@@ -256,18 +256,18 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[5]);
+    sourceFileName = Jim_String(interp, argv[5]);
     if (sourceFileName == NULL) { return JIM_ERR; }
     if (Jim_GetLong(interp, argv[6], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
     }
 
-    const char *key = Jim_GetString(argv[1], NULL);
+    const char *key = Jim_GetString(interp, argv[1], NULL);
     int64_t version = ++latestVersion;
     Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
     long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(interp, argv[4], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
@@ -311,7 +311,7 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[1]);
+    sourceFileName = Jim_String(interp, argv[1]);
     if (sourceFileName == NULL) { return JIM_ERR; }
     if (Jim_GetLong(interp, argv[2], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
@@ -323,7 +323,7 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(interp, argv[4], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
@@ -337,7 +337,7 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     Destructor d = {
         .fn = destructorHelper,
-        .arg = strdup(Jim_GetString(argv[1], NULL))
+        .arg = strdup(Jim_GetString(interp, argv[1], NULL))
     };
     matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
@@ -345,7 +345,7 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
-    const char *unmatchRefStr = Jim_GetString(argv[1], NULL);
+    const char *unmatchRefStr = Jim_GetString(interp, argv[1], NULL);
     MatchRef unmatchRef;
     if (sscanf(unmatchRefStr, "m%u:%u", &unmatchRef.idx, &unmatchRef.gen) != 2) {
         return JIM_ERR;
@@ -409,7 +409,7 @@ static int StatementAcquireFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     if (statementAcquire(db, ref) == NULL) {
         Jim_SetResultString(interp, "Unable to acquire statement.", -1);
@@ -421,7 +421,7 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
@@ -430,7 +430,7 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     char varName[100];
-    if (trieScanVariable(Jim_String(argv[1]), varName, 100)) {
+    if (trieScanVariable(Jim_String(interp, argv[1]), varName, 100)) {
         Jim_SetResultString(interp, varName, strlen(varName));
     } else {
         Jim_SetResultBool(interp, false);
@@ -439,12 +439,12 @@ static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv
 }
 static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(argv[1])));
+    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(interp, argv[1])));
     return JIM_OK;
 }
 static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
+    Jim_SetResultBool(interp, Jim_String(interp, argv[1])[0] == '$');
     return JIM_OK;
 }
 static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -552,7 +552,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__conclude", __concludeFunc, NULL, NULL);
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "prelude: %s\n", Jim_GetString(interp, Jim_GetResult(interp), NULL));
         exit(1);
     }
 }
@@ -562,7 +562,7 @@ void eval(const char* code) {
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(interp, Jim_GetResult(interp), NULL));
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
@@ -650,8 +650,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
-        Jim_DecrRefCount(interp, envStackObj);
-        Jim_DecrRefCount(interp, bodyObj);
+        Jim_DecrRefCount(envStackObj);
+        Jim_DecrRefCount(bodyObj);
         return;
     }
 
@@ -691,7 +691,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        const char *errorMessage = Jim_GetString(interp, Jim_GetResult(interp), NULL);
         fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
                 body, errorMessage);
         Jim_FreeInterp(interp);
@@ -947,7 +947,7 @@ void workerRun(WorkQueueItem item) {
         if (error == JIM_ERR) {
             Jim_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
-                    code, Jim_String(Jim_GetResult(interp)));
+                    code, Jim_String(interp, Jim_GetResult(interp)));
         }
         free(code);
 

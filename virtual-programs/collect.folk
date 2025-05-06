@@ -21,10 +21,10 @@ $cc code {
         const char COLLECT[] = "collect ";
         int collectLen = sizeof(COLLECT) - 1;
 
-        int keyLen = Jim_Length(patternObj);
+        int keyLen = Jim_Length(interp, patternObj);
         char *collectKey = malloc(collectLen + keyLen + 1);
         memcpy(collectKey, COLLECT, collectLen);
-        memcpy(collectKey + collectLen, Jim_String(patternObj), keyLen + 1);
+        memcpy(collectKey + collectLen, Jim_String(interp, patternObj), keyLen + 1);
         return collectKey;
     }
 
@@ -38,7 +38,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     if (claimizedPattern != NULL) {
         Jim_Obj* claimizedMatchesObj = QuerySimple(claimizedPattern);
         Jim_ListAppendList(interp, matchesObj, claimizedMatchesObj);
-        Jim_DecrRefCount(interp, claimizedMatchesObj);
+        Jim_DecrRefCount(claimizedMatchesObj);
         free(claimizedPattern);
     }
     clauseFree(pattern);
@@ -51,11 +51,11 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     collectedClause->terms[3] = strdup("collected");
     collectedClause->terms[4] = strdup("matches");
     collectedClause->terms[5] = strdup("for");
-    collectedClause->terms[6] = strdup(Jim_String(patternObj));
+    collectedClause->terms[6] = strdup(Jim_String(interp, patternObj));
     collectedClause->terms[7] = strdup("are");
-    collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+    collectedClause->terms[8] = strdup(Jim_String(interp, matchesObj));
 
-    Jim_DecrRefCount(interp, matchesObj);
+    Jim_DecrRefCount(matchesObj);
 
     HoldStatementGlobally(makeCollectKey(patternObj), version++,
                           collectedClause, 0, "", 0);

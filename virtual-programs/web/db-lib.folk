@@ -24,8 +24,8 @@ Claim the db library is [apply {{} {
     $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
-    $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String($obj), "s%d:%d", &$argname.idx, &$argname.gen); }
-    $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String($obj), "m%d:%d", &$argname.idx, &$argname.gen); }
+    $cc argtype StatementRef { StatementRef $argname; sscanf(Jim_String(interp, $obj), "s%d:%d", &$argname.idx, &$argname.gen); }
+    $cc argtype MatchRef { MatchRef $argname; sscanf(Jim_String(interp, $obj), "m%d:%d", &$argname.idx, &$argname.gen); }
 
     $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
         Jim_Obj* termObjs[clause->nTerms];

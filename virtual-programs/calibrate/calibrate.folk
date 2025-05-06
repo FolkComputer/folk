@@ -30,13 +30,13 @@ $cc include <common/homography.h>
 
 $cc code {
     extern Jim_ObjType matd_ObjType;
-    void matd_freeIntRepProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+    void matd_freeIntRepProc(Jim_Obj *objPtr) {
         matd_destroy((matd_t*) objPtr->internalRep.ptr);
     }
     void matd_dupIntRepProc(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
         dupPtr->internalRep.ptr = (void*) matd_copy((matd_t*) srcPtr->internalRep.ptr);
     }
-    void matd_updateStringProc(Jim_Obj *objPtr) {
+    void matd_updateStringProc(Jim_Interp *interp, Jim_Obj *objPtr) {
         matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
 
         objPtr->bytes = Jim_Alloc(mat->nrows * (1 + mat->ncols * 17 + 1));
@@ -94,7 +94,7 @@ $cc argtype matd_t* {
     $argname = (matd_t*) $obj->internalRep.ptr;
 }
 $cc rtype matd_t* {
-    $robj = Jim_NewObj(interp);
+    $robj = Jim_NewObj(interp, 0);
     $robj->bytes = NULL;
     $robj->typePtr = &matd_ObjType;
     $robj->internalRep.ptr = $rvalue;
