@@ -42,6 +42,12 @@ test/%: test/%.folk folk
 	./folk $<
 debug-test/%: test/%.folk folk
 	lldb -- ./folk $<
+test/%: test/%.o vendor/jimtcl/libjim.a
+	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
+		$(CFLAGS) $(TRACY_CFLAGS) \
+		-L./vendor/jimtcl \
+		$^ \
+		-ljim -lm -lssl -lcrypto -lz
 
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
