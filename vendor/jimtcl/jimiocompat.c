@@ -226,12 +226,12 @@ int Jim_MakeTempFile(Jim_Interp *interp, const char *filename_template, int unli
 #endif
     umask(mask);
     if (fd < 0) {
-        Jim_SetResultErrno(interp, Jim_String(filenameObj));
-        Jim_FreeNewObj(interp, filenameObj);
+        Jim_SetResultErrno(interp, Jim_String(interp, filenameObj));
+        Jim_FreeNewObj(filenameObj);
         return -1;
     }
     if (unlink_file) {
-        remove(Jim_String(filenameObj));
+        remove(Jim_String(interp, filenameObj));
     }
 
     Jim_SetResult(interp, filenameObj);

@@ -64,7 +64,7 @@ static int Jim_Crc32(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         }
     }
 
-    in = Jim_GetString(argv[0], &len);
+    in = Jim_GetString(interp, argv[0], &len);
     Jim_SetResultInt(interp, crc32((uLong)init, (const Bytef *)in, (uInt)len) & 0xFFFFFFFF);
 
     return JIM_OK;
@@ -132,7 +132,7 @@ static int Jim_Deflate(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         }
     }
 
-    in = Jim_GetString(argv[0], &len);
+    in = Jim_GetString(interp, argv[0], &len);
     return Jim_Compress(interp, in, len, level, -MAX_WBITS);
 }
 
@@ -156,7 +156,7 @@ static int Jim_Gzip(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return -1;
     }
 
-    in = Jim_GetString(argv[0], &len);
+    in = Jim_GetString(interp, argv[0], &len);
     return Jim_Compress(interp, in, len, level, WBITS_GZIP);
 }
 
@@ -199,7 +199,7 @@ static int Jim_Decompress(Jim_Interp *interp, const char *in, int len, long bufs
                 break;
 
             default:
-                Jim_DecrRefCount(interp, out);
+                Jim_DecrRefCount(out);
                 Jim_Free(buf);
                 inflateEnd(&strm);
                 if (strm.msg != NULL)
@@ -214,7 +214,7 @@ static int Jim_Decompress(Jim_Interp *interp, const char *in, int len, long bufs
     inflateEnd(&strm);
 
     Jim_SetResult(interp, out);
-    Jim_DecrRefCount(interp, out);
+    Jim_DecrRefCount(out);
 
     return JIM_OK;
 }
@@ -235,7 +235,7 @@ static int Jim_Inflate(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         }
     }
 
-    in = Jim_GetString(argv[0], &len);
+    in = Jim_GetString(interp, argv[0], &len);
     return Jim_Decompress(interp, in, len, bufsiz, -MAX_WBITS);
 }
 
@@ -259,7 +259,7 @@ static int Jim_Gunzip(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return -1;
     }
 
-    in = Jim_GetString(argv[0], &len);
+    in = Jim_GetString(interp, argv[0], &len);
     return Jim_Decompress(interp, in, len, bufsiz, WBITS_GZIP);
 }
 

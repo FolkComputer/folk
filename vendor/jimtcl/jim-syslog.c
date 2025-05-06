@@ -88,7 +88,7 @@ int Jim_SyslogCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     while (i < argc - 1) {
         if (Jim_CompareStringImmediate(interp, argv[i], "-facility")) {
             int entry =
-                Jim_FindByName(Jim_String(argv[i + 1]), facilities,
+                Jim_FindByName(Jim_String(interp, argv[i + 1]), facilities,
                 sizeof(facilities) / sizeof(*facilities));
             if (entry < 0) {
                 Jim_SetResultString(interp, "Unknown facility", -1);
@@ -115,7 +115,7 @@ int Jim_SyslogCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
             }
         }
         else if (Jim_CompareStringImmediate(interp, argv[i], "-ident")) {
-            strncpy(info->ident, Jim_String(argv[i + 1]), sizeof(info->ident));
+            strncpy(info->ident, Jim_String(interp, argv[i + 1]), sizeof(info->ident));
             info->ident[sizeof(info->ident) - 1] = 0;
             if (info->logOpened) {
                 closelog();
@@ -136,7 +136,7 @@ int Jim_SyslogCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     if (i < argc - 1) {
         priority =
-            Jim_FindByName(Jim_String(argv[i]), priorities,
+            Jim_FindByName(Jim_String(interp, argv[i]), priorities,
             sizeof(priorities) / sizeof(*priorities));
         if (priority < 0) {
             Jim_SetResultString(interp, "Unknown priority", -1);
@@ -153,7 +153,7 @@ int Jim_SyslogCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
             Jim_Obj *argv0 = Jim_GetGlobalVariableStr(interp, "argv0", JIM_NONE);
 
             if (argv0) {
-                strncpy(info->ident, Jim_String(argv0), sizeof(info->ident));
+                strncpy(info->ident, Jim_String(interp, argv0), sizeof(info->ident));
             }
             else {
                 strcpy(info->ident, "Tcl script");
@@ -163,7 +163,7 @@ int Jim_SyslogCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         openlog(info->ident, info->options, info->facility);
         info->logOpened = 1;
     }
-    syslog(priority, "%s", Jim_String(argv[i]));
+    syslog(priority, "%s", Jim_String(interp, argv[i]));
 
     return JIM_OK;
 }

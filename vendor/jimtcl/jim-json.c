@@ -75,7 +75,7 @@ static void json_decode_schema_pop(Jim_Interp *interp, struct json_state *state,
 {
 	if (state->enable_schema) {
 		Jim_ListAppendElement(interp, prevSchemaObj, state->schemaObj);
-		Jim_DecrRefCount(interp, state->schemaObj);
+		Jim_DecrRefCount(state->schemaObj);
 		state->schemaObj = prevSchemaObj;
 	}
 }
@@ -270,7 +270,7 @@ static int parse_json_decode_options(Jim_Interp *interp, int argc, Jim_Obj *cons
 			case OPT_NULL:
 				i++;
 				Jim_IncrRefCount(argv[i]);
-				Jim_DecrRefCount(interp, state->nullObj);
+				Jim_DecrRefCount(state->nullObj);
 				state->nullObj = argv[i];
 				break;
 
@@ -365,7 +365,7 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 		goto done;
 	}
 
-	state.json = Jim_GetString(argv[argc - 1], &len);
+	state.json = Jim_GetString(interp, argv[argc - 1], &len);
 
 	if (!len) {
 		Jim_SetResultString(interp, "empty JSON string", -1);
@@ -393,7 +393,7 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 		Jim_Obj *newList;
 		Jim_SubstObj(interp, list, &newList, JIM_SUBST_FLAG | JIM_SUBST_NOCMD | JIM_SUBST_NOVAR);
 		Jim_IncrRefCount(newList);
-		Jim_DecrRefCount(interp, list);
+		Jim_DecrRefCount(list);
 		list = newList;
 	}
 
@@ -402,15 +402,15 @@ json_decode(Jim_Interp *interp, int argc, Jim_Obj *const argv[])
 		Jim_ListAppendElement(interp, resultObj, list);
 		Jim_ListAppendElement(interp, resultObj, state.schemaObj);
 		Jim_SetResult(interp, resultObj);
-		Jim_DecrRefCount(interp, state.schemaObj);
+		Jim_DecrRefCount(state.schemaObj);
 	}
 	else {
 		Jim_SetResult(interp, list);
 	}
-	Jim_DecrRefCount(interp, list);
+	Jim_DecrRefCount(list);
 
 done:
-	Jim_DecrRefCount(interp, state.nullObj);
+	Jim_DecrRefCount(state.nullObj);
 
 	return ret;
 }

@@ -609,7 +609,7 @@ static int JimSetVariableSocketAddress(Jim_Interp *interp, Jim_Obj *varObjPtr, c
     Jim_Obj *objPtr = JimFormatSocketAddress(interp, sa, salen);
     Jim_IncrRefCount(objPtr);
     ret = Jim_SetVariable(interp, varObjPtr, objPtr);
-    Jim_DecrRefCount(interp, objPtr);
+    Jim_DecrRefCount(objPtr);
     return ret;
 }
 
@@ -668,15 +668,15 @@ static void JimAioDelProc(Jim_Interp *interp, void *privData)
         /* If this is bound, delete the socket file now */
         Jim_Obj *filenameObj = aio_sockname(interp, af);
         if (filenameObj) {
-            if (Jim_Length(filenameObj)) {
-                remove(Jim_String(filenameObj));
+            if (Jim_Length(interp, filenameObj)) {
+                remove(Jim_String(interp, filenameObj));
             }
-            Jim_FreeNewObj(interp, filenameObj);
+            Jim_FreeNewObj(filenameObj);
         }
     }
 #endif
 
-    Jim_DecrRefCount(interp, af->filename);
+    Jim_DecrRefCount(af->filename);
 
 #ifdef jim_ext_eventloop
     /* remove all existing EventHandlers */
@@ -692,7 +692,7 @@ static void JimAioDelProc(Jim_Interp *interp, void *privData)
         fclose(af->fp);
     }
     if (af->getline_partial) {
-        Jim_FreeNewObj(interp, af->getline_partial);
+        Jim_FreeNewObj(af->getline_partial);
     }
 
     Jim_Free(af);
@@ -711,7 +711,7 @@ static int aio_cmd_read(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     int option;
 
     if (argc) {
-        if (*Jim_String(argv[0]) == '-') {
+        if (*Jim_String(interp, argv[0]) == '-') {
             if (Jim_GetEnum(interp, argv[0], options, &option, NULL, JIM_ERRMSG) != JIM_OK) {
                 return JIM_ERR;
             }
@@ -776,13 +776,14 @@ static int aio_cmd_read(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
     /* Check for error conditions */
     if (JimCheckStreamError(interp, af)) {
-        Jim_FreeNewObj(interp, objPtr);
+        Jim_FreeNewObj(objPtr);
         return JIM_ERR;
     }
     if (nonewline) {
         int len;
-        const char *s = Jim_GetString(objPtr, &len);
+        const char *s = Jim_GetString(interp, objPtr, &len);
 
+        // can modify internal rep as we're the only owners
         if (len > 0 && s[len - 1] == '\n') {
             objPtr->length--;
             objPtr->bytes[objPtr->length] = '\0';
@@ -915,7 +916,7 @@ static int aio_cmd_gets(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         }
 
         if (errno == EAGAIN) {
-            if (Jim_Length(objPtr)) {
+            if (Jim_Length(interp, objPtr)) {
                 /* Stash the partial line */
                 af->getline_partial = objPtr;
                 /* And indicate that no line is (yet) available */
@@ -930,19 +931,19 @@ static int aio_cmd_gets(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         }
     }
 
-    if (Jim_Length(objPtr) == 0 && JimCheckStreamError(interp, af)) {
+    if (Jim_Length(interp, objPtr) == 0 && JimCheckStreamError(interp, af)) {
         /* I/O error */
-        Jim_FreeNewObj(interp, objPtr);
+        Jim_FreeNewObj(objPtr);
         return JIM_ERR;
     }
 
     if (argc) {
         if (Jim_SetVariable(interp, argv[0], objPtr) != JIM_OK) {
-            Jim_FreeNewObj(interp, objPtr);
+            Jim_FreeNewObj(objPtr);
             return JIM_ERR;
         }
 
-        len = Jim_Length(objPtr);
+        len = Jim_Length(interp, objPtr);
 
         if (eof_or_partial && len == 0) {
             /* On EOF or partial line with empty result, returns -1 if varName was specified */
@@ -973,7 +974,7 @@ static int aio_cmd_puts(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         strObj = argv[0];
     }
 
-    wdata = Jim_GetString(strObj, &wlen);
+    wdata = Jim_GetString(interp, strObj, &wlen);
     if (af->fops->writer(af, wdata, wlen) == wlen) {
         if (argc == 2 || af->fops->writer(af, "\n", 1) == 1) {
             return JIM_OK;
@@ -1035,13 +1036,13 @@ static int aio_cmd_sendto(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     int len;
     const char *wdata;
     union sockaddr_any sa;
-    const char *addr = Jim_String(argv[1]);
+    const char *addr = Jim_String(interp, argv[1]);
     socklen_t salen;
 
     if (JimParseSocketAddress(interp, af->addr_family, SOCK_DGRAM, addr, &sa, &salen) != JIM_OK) {
         return JIM_ERR;
     }
-    wdata = Jim_GetString(argv[0], &wlen);
+    wdata = Jim_GetString(interp, argv[0], &wlen);
 
     /* Note that we don't validate the socket type. Rely on sendto() failing if appropriate */
     len = sendto(fileno(af->fp), wdata, wlen, 0, &sa.sa, salen);
@@ -1330,7 +1331,7 @@ static int aio_cmd_sockopt(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     /* Set an option */
     for (i = 0; i < sizeof(sockopts) / sizeof(*sockopts); i++) {
-        if (strcmp(Jim_String(argv[0]), sockopts[i].name) == 0) {
+        if (strcmp(Jim_String(interp, argv[0]), sockopts[i].name) == 0) {
             int on;
             if (sockopts[i].type == SOCKOPT_BOOL) {
                 if (Jim_GetBoolean(interp, argv[1], &on) != JIM_OK) {
@@ -1420,7 +1421,7 @@ static int aio_eventinfo(Jim_Interp *interp, AioFile * af, unsigned mask,
     Jim_DeleteFileHandler(interp, af->fd, mask);
 
     /* Now possibly add the new script(s) */
-    if (Jim_Length(argv[0])) {
+    if (Jim_Length(interp, argv[0])) {
         Jim_CreateScriptFileHandler(interp, af->fd, mask, argv[0]);
     }
 
@@ -1492,7 +1493,7 @@ static int aio_cmd_ssl(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
                 if (argc != 4) {
                     return JIM_ERR;
                 }
-                sni = Jim_String(argv[3]);
+                sni = Jim_String(interp, argv[3]);
                 break;
         }
     }
@@ -1519,8 +1520,8 @@ static int aio_cmd_ssl(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     if (server) {
-        const char *certfile = Jim_String(argv[3]);
-        const char *keyfile = (argc == 4) ? certfile : Jim_String(argv[4]);
+        const char *certfile = Jim_String(interp, argv[3]);
+        const char *keyfile = (argc == 4) ? certfile : Jim_String(interp, argv[4]);
         if (SSL_use_certificate_file(ssl, certfile, SSL_FILETYPE_PEM) != 1) {
             goto out;
         }
@@ -1663,7 +1664,7 @@ static int aio_cmd_tty(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     if (Jim_ListLength(interp, dictObjPtr) % 2) {
         /* Must be a valid dictionary */
-        Jim_DecrRefCount(interp, dictObjPtr);
+        Jim_DecrRefCount(dictObjPtr);
         return -1;
     }
 
@@ -1672,7 +1673,7 @@ static int aio_cmd_tty(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         JimAioSetError(interp, NULL);
         ret = JIM_ERR;
     }
-    Jim_DecrRefCount(interp, dictObjPtr);
+    Jim_DecrRefCount(dictObjPtr);
 
     return ret;
 }
@@ -1937,8 +1938,8 @@ static int JimAioOpenCommand(Jim_Interp *interp, int argc,
         return JIM_ERR;
     }
 
-    filename = Jim_String(argv[1]);
-    mode = (argc == 3) ? Jim_String(argv[2]) : "r";
+    filename = Jim_String(interp, argv[1]);
+    mode = (argc == 3) ? Jim_String(interp, argv[2]) : "r";
 
 #ifdef jim_ext_tclcompat
     {
@@ -2225,7 +2226,7 @@ static int JimAioSockCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     int async = 0;
 
 
-    while (argc > 1 && Jim_String(argv[1])[0] == '-') {
+    while (argc > 1 && Jim_String(interp, argv[1])[0] == '-') {
         static const char * const options[] = { "-async", "-ipv6", NULL };
         enum { OPT_ASYNC, OPT_IPV6 };
         int option;
@@ -2263,7 +2264,7 @@ static int JimAioSockCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     Jim_SetEmptyResult(interp);
 
     if (argc > 2) {
-        addr = Jim_String(argv[2]);
+        addr = Jim_String(interp, argv[2]);
 		filename = argv[2];
     }
 
@@ -2349,7 +2350,7 @@ static int JimAioSockCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
                 }
                 close(tmpfd);
                 /* This will be valid until a result is next set, which is long enough here */
-                bind_addr = Jim_String(Jim_GetResult(interp));
+                bind_addr = Jim_String(interp, Jim_GetResult(interp));
             }
             break;
 
@@ -2452,7 +2453,7 @@ static int JimAioLoadSSLCertsCommand(Jim_Interp *interp, int argc, Jim_Obj *cons
     if (!ssl_ctx) {
         return JIM_ERR;
     }
-    if (SSL_CTX_load_verify_locations(ssl_ctx, NULL, Jim_String(argv[1])) == 1) {
+    if (SSL_CTX_load_verify_locations(ssl_ctx, NULL, Jim_String(interp, argv[1])) == 1) {
         return JIM_OK;
     }
     Jim_SetResultString(interp, ERR_error_string(ERR_get_error(), NULL), -1);

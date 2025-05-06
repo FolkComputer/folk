@@ -610,7 +610,7 @@ typedef struct MkCursor {
 #define JimCursorValue(obj) ((MkCursor *)(obj->internalRep.ptr))
 static void FreeCursorInternalRep(Jim_Interp *interp, Jim_Obj *obj)
 {
-    Jim_DecrRefCount(interp, JimCursorValue(obj)->viewObj);
+    Jim_DecrRefCount(JimCursorValue(obj)->viewObj);
     Jim_Free(obj->internalRep.ptr);
 }
 
@@ -675,13 +675,13 @@ static int SetCursorFromAny(Jim_Interp *interp, Jim_Obj *obj)
     posObj = Jim_NewStringObj(interp, delim + 1, len - (delim - rep) - 1);
 
     if (GetPosition(interp, posObj, &cur.pos) != JIM_OK) {
-        Jim_FreeNewObj(interp, posObj);
-        Jim_FreeNewObj(interp, cur.viewObj);
+        Jim_FreeNewObj(posObj);
+        Jim_FreeNewObj(cur.viewObj);
         return JIM_ERR;
     }
 
     Jim_FreeIntRep(interp, obj);
-    Jim_FreeNewObj(interp, posObj);
+    Jim_FreeNewObj(posObj);
     Jim_IncrRefCount(cur.viewObj);
 
     obj->typePtr = &cursorObjType;
@@ -1186,7 +1186,7 @@ static int JimCursorCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     if (Jim_GetCommand(interp, cmdObj, 0) != NULL)
         return Jim_EvalObjPrefix(interp, cmdObj, argc - 2, argv + 2);
     else {
-        Jim_FreeNewObj(interp, cmdObj);
+        Jim_FreeNewObj(cmdObj);
         return Jim_CallSubCmd(interp,
             Jim_ParseSubCmd(interp, cursor_command_table, argc, argv), argc, argv);
     }
@@ -1344,14 +1344,14 @@ static int view_cmd_sort(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
         if (JimGetProperty(interp, propObj, *viewPtr, NULL, &propPtr) != JIM_OK) {
             if (reverse)
-                Jim_FreeNewObj(interp, propObj);
+                Jim_FreeNewObj(propObj);
             return JIM_ERR;
         }
 
         sortProps.AddProperty(*propPtr);
         if (reverse) {
             revProps.AddProperty(*propPtr);
-            Jim_FreeNewObj(interp, propObj);
+            Jim_FreeNewObj(propObj);
         }
     }
 
@@ -1782,7 +1782,7 @@ static int JimViewSubCmdProc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
         Jim_Free(objv);
     } else {
-        Jim_FreeNewObj(interp, cmdObj);
+        Jim_FreeNewObj(cmdObj);
         result = Jim_CallSubCmd(interp, Jim_ParseSubCmd(interp, view_command_table, pipe, argv), pipe, argv);
     }
 
@@ -2111,7 +2111,7 @@ static void JimStorageDelProc(Jim_Interp *interp, void *privData)
 
     mk->storage.~c4_Storage();
     mk->content.~c4_Cursor();
-    Jim_DecrRefCount(interp, mk->filename);
+    Jim_DecrRefCount(mk->filename);
     Jim_Free(mk);
 }
 
@@ -2135,7 +2135,7 @@ static int JimStorageSubCmdProc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
         Jim_Free(objv);
         return result;
     } else {
-        Jim_FreeNewObj(interp, cmdObj);
+        Jim_FreeNewObj(cmdObj);
         return Jim_CallSubCmd(interp, Jim_ParseSubCmd(interp,
             storage_command_table, argc, argv), argc, argv);
     }

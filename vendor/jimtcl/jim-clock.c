@@ -58,7 +58,7 @@ static int parse_clock_options(Jim_Interp *interp, int argc, Jim_Obj *const *arg
                 }
                 break;
             case OPT_FORMAT:
-                opts->format = Jim_String(argv[i + 1]);
+                opts->format = Jim_String(interp, argv[i + 1]);
                 break;
         }
     }
@@ -136,7 +136,7 @@ static int clock_cmd_scan(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     localtime_r(&now, &tm);
 
-    pt = strptime(Jim_String(argv[0]), options.format, &tm);
+    pt = strptime(Jim_String(interp, argv[0]), options.format, &tm);
     if (pt == 0 || *pt != 0) {
         Jim_SetResultString(interp, "Failed to parse time according to format", -1);
         return JIM_ERR;

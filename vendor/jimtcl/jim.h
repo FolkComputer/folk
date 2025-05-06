@@ -74,6 +74,7 @@ extern "C" {
 #include <stdio.h>  /* for the FILE typedef definition */
 #include <stdlib.h> /* In order to export the Jim_Free() macro */
 #include <stdarg.h> /* In order to get type va_list */
+#include <stdatomic.h>
 
 /* -----------------------------------------------------------------------------
  * System configuration
@@ -173,6 +174,12 @@ extern "C" {
 /* Unused arguments generate annoying warnings... */
 #define JIM_NOTUSED(V) ((void) V)
 
+/* Duplication flags */
+#define JIM_LIVE_LIST        0
+#define JIM_TEMP_LIST        1
+#define JIM_FORCE_STRING     2
+#define JIM_NO_REF_INCR      4
+
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
 
@@ -200,7 +207,7 @@ typedef struct Jim_HashEntry {
 } Jim_HashEntry;
 
 typedef struct Jim_HashTableType {
-    unsigned int (*hashFunction)(const void *key);
+    unsigned int (*hashFunction)(void *privdata, const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
@@ -211,7 +218,6 @@ typedef struct Jim_HashTableType {
 typedef struct Jim_HashTable {
     Jim_HashEntry **table;
     const Jim_HashTableType *type;
-    void *privdata;
     unsigned int size;
     unsigned int sizemask;
     unsigned int used;
@@ -229,36 +235,36 @@ typedef struct Jim_HashTableIterator {
 #define JIM_HT_INITIAL_SIZE     16
 
 /* ------------------------------- Macros ------------------------------------*/
-#define Jim_FreeEntryVal(ht, entry) \
+#define Jim_FreeEntryVal(ht, privdata, entry) \
     if ((ht)->type->valDestructor) \
-        (ht)->type->valDestructor((ht)->privdata, (entry)->u.val)
+        (ht)->type->valDestructor((privdata), (entry)->u.val)
 
-#define Jim_SetHashVal(ht, entry, _val_) do { \
+#define Jim_SetHashVal(ht, privdata, entry, _val_) do { \
     if ((ht)->type->valDup) \
-        (entry)->u.val = (ht)->type->valDup((ht)->privdata, (_val_)); \
+        (entry)->u.val = (ht)->type->valDup((privdata), (_val_)); \
     else \
         (entry)->u.val = (_val_); \
 } while(0)
 
 #define Jim_SetHashIntVal(ht, entry, _val_) (entry)->u.intval = (_val_)
 
-#define Jim_FreeEntryKey(ht, entry) \
+#define Jim_FreeEntryKey(ht, privdata, entry) \
     if ((ht)->type->keyDestructor) \
-        (ht)->type->keyDestructor((ht)->privdata, (entry)->key)
+        (ht)->type->keyDestructor((privdata), (entry)->key)
 
-#define Jim_SetHashKey(ht, entry, _key_) do { \
+#define Jim_SetHashKey(ht, privdata, entry, _key_) do { \
     if ((ht)->type->keyDup) \
-        (entry)->key = (ht)->type->keyDup((ht)->privdata, (_key_)); \
+        (entry)->key = (ht)->type->keyDup((privdata), (_key_)); \
     else \
         (entry)->key = (void *)(_key_); \
 } while(0)
 
-#define Jim_CompareHashKeys(ht, key1, key2) \
+#define Jim_CompareHashKeys(ht, privdata, key1, key2) \
     (((ht)->type->keyCompare) ? \
-        (ht)->type->keyCompare((ht)->privdata, (key1), (key2)) : \
+        (ht)->type->keyCompare((privdata), (key1), (key2)) : \
         (key1) == (key2))
 
-#define Jim_HashKey(ht, key) ((ht)->type->hashFunction(key) + (ht)->uniq)
+#define Jim_HashKey(ht, privdata, key) ((ht)->type->hashFunction((privdata), key) + (ht)->uniq)
 
 #define Jim_GetHashEntryKey(he) ((he)->key)
 #define Jim_GetHashEntryVal(he) ((he)->u.val)
@@ -281,11 +287,14 @@ typedef struct Jim_HashTableIterator {
  *
  * The refcount of a freed object is always -1.
  * ---------------------------------------------------------------------------*/
+struct Jim_Interp;
+
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
-    int refCount; /* reference count */
+    atomic_int refCount; /* reference count */
     int length; /* number of bytes in 'bytes', not including the null term. */
+    struct Jim_Interp *interp; /* parent interpreter */
     /* Internal representation union */
     union {
         /* integer number type */
@@ -352,20 +361,19 @@ typedef struct Jim_Obj {
             int argc;
         } scriptLineValue;
     } internalRep;
-    /* These fields add 8 or 16 bytes more for every object
-     * but this is required for efficient garbage collection
-     * of Jim references. */
-    struct Jim_Obj *prevObjPtr; /* pointer to the prev object. */
-    struct Jim_Obj *nextObjPtr; /* pointer to the next object. */
 } Jim_Obj;
 
 /* Jim_Obj related macros */
 #define Jim_IncrRefCount(objPtr) \
-    ++(objPtr)->refCount
-#define Jim_DecrRefCount(interp, objPtr) \
-    if (--(objPtr)->refCount <= 0) Jim_FreeObj(interp, objPtr)
+    atomic_fetch_add_explicit(&((objPtr)->refCount), 1, memory_order_relaxed)
+#define Jim_DecrRefCount(objPtr) \
+    do { int res = atomic_fetch_sub_explicit(&((objPtr)->refCount), 1, memory_order_release); \
+         if (res <= 0) { Jim_FreeObj(objPtr); } } while(0)
 #define Jim_IsShared(objPtr) \
-    ((objPtr)->refCount > 1)
+    (atomic_load_explicit(&((objPtr)->refCount), memory_order_relaxed) > 1)
+
+#define Jim_SameInterp(interp, objPtr) \
+    ((interp) == (objPtr)->interp)
 
 /* This macro is used when we allocate a new object using
  * Jim_New...Obj(), but for some error we need to destroy it.
@@ -377,9 +385,9 @@ typedef struct Jim_Obj {
 #define Jim_FreeNewObj Jim_FreeObj
 
 /* Free the internal representation of the object. */
-#define Jim_FreeIntRep(i,o) \
+#define Jim_FreeIntRep(o) \
     if ((o)->typePtr && (o)->typePtr->freeIntRepProc) \
-        (o)->typePtr->freeIntRepProc(i, o)
+        (o)->typePtr->freeIntRepProc(o)
 
 /* Get the internal representation pointer */
 #define Jim_GetIntRepPtr(o) (o)->internalRep.ptr
@@ -403,13 +411,11 @@ typedef struct Jim_Obj {
  * - updateStringProc is used to create the string from the internal repr.
  */
 
-struct Jim_Interp;
-
-typedef void (Jim_FreeInternalRepProc)(struct Jim_Interp *interp,
-        struct Jim_Obj *objPtr);
+typedef void (Jim_FreeInternalRepProc)(struct Jim_Obj *objPtr);
 typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
         struct Jim_Obj *srcPtr, Jim_Obj *dupPtr);
-typedef void (Jim_UpdateStringProc)(struct Jim_Obj *objPtr);
+typedef void (Jim_UpdateStringProc)(struct Jim_Interp *interp,
+        struct Jim_Obj *objPtr);
 
 typedef struct Jim_ObjType {
     const char *name; /* The name of the type. */
@@ -534,6 +540,13 @@ typedef struct Jim_PrngState {
     unsigned int i, j;
 } Jim_PrngState;
 
+/* simple bump allocator for temp objects */
+#define JIM_TEMP_LIST_SIZE (512 * 1024)
+typedef struct Jim_TempList {
+    size_t length;
+    Jim_Obj objects[JIM_TEMP_LIST_SIZE];
+} Jim_TempList;
+
 /* -----------------------------------------------------------------------------
  * Jim interpreter structure.
  * Fields similar to the real Tcl interpreter structure have the same names.
@@ -566,8 +579,6 @@ typedef struct Jim_Interp {
     int local; /* If 'local' is in effect, newly defined procs keep a reference to the old defn */
     int quitting; /* Set to 1 during Jim_FreeInterp() */
     int safeexpr; /* Set when evaluating a "safe" expression, no var subst or command eval */
-    Jim_Obj *liveList; /* Linked list of all the live objects. */
-    Jim_Obj *freeList; /* Linked list of all the unused objects. */
     Jim_Obj *currentScriptObj; /* Script currently in execution. */
     Jim_EvalFrame topEvalFrame;  /* dummy top evaluation frame */
     Jim_EvalFrame *evalFrame;  /* evaluation stack */
@@ -603,6 +614,7 @@ typedef struct Jim_Interp {
     Jim_PrngState *prngState; /* per interpreter Random Number Gen. state. */
     struct Jim_HashTable packages; /* Provided packages hash table */
     Jim_Stack *loadHandles; /* handles of loaded modules [load] */
+    struct Jim_TempList *tempList; /* list of intermediate objects to free periodically */
 } Jim_Interp;
 
 /* Currently provided as macro that performs the increment.
@@ -622,7 +634,7 @@ typedef struct Jim_Interp {
 #define Jim_SetResult(i,o) do {     \
     Jim_Obj *_resultObjPtr_ = (o);    \
     Jim_IncrRefCount(_resultObjPtr_); \
-    Jim_DecrRefCount(i,(i)->result);  \
+    Jim_DecrRefCount((i)->result);  \
     (i)->result = _resultObjPtr_;     \
 } while(0)
 
@@ -677,6 +689,7 @@ JIM_EXPORT int Jim_MakeTempFile(Jim_Interp *interp, const char *filename_templat
 #endif
 JIM_EXPORT jim_wide Jim_GetTimeUsec(unsigned type);
 
+JIM_EXPORT int Jim_IsStringValidScript(Jim_Interp *interp, const char *script);
 /* evaluation */
 JIM_EXPORT int Jim_Eval(Jim_Interp *interp, const char *script);
 /* in C code, you can do this and get better error messages */
@@ -709,34 +722,35 @@ JIM_EXPORT void * Jim_StackPeek(Jim_Stack *stack);
 JIM_EXPORT void Jim_FreeStackElements(Jim_Stack *stack, void (*freeFunc)(void *ptr));
 
 /* hash table */
-JIM_EXPORT int Jim_InitHashTable (Jim_HashTable *ht,
-        const Jim_HashTableType *type, void *privdata);
-JIM_EXPORT void Jim_ExpandHashTable (Jim_HashTable *ht,
+JIM_EXPORT int Jim_InitHashTable (Jim_HashTable *ht, const Jim_HashTableType *type);
+JIM_EXPORT void Jim_ExpandHashTable (Jim_HashTable *ht, void *privdata,
         unsigned int size);
-JIM_EXPORT int Jim_AddHashEntry (Jim_HashTable *ht, const void *key,
+JIM_EXPORT int Jim_AddHashEntry (Jim_HashTable *ht, void *privdata, const void *key,
         void *val);
-JIM_EXPORT int Jim_ReplaceHashEntry (Jim_HashTable *ht,
+JIM_EXPORT int Jim_ReplaceHashEntry (Jim_HashTable *ht, void *privdata,
         const void *key, void *val);
-JIM_EXPORT int Jim_DeleteHashEntry (Jim_HashTable *ht,
+JIM_EXPORT int Jim_DeleteHashEntry (Jim_HashTable *ht, void *privdata,
         const void *key);
-JIM_EXPORT int Jim_FreeHashTable (Jim_HashTable *ht);
+JIM_EXPORT int Jim_FreeHashTable (Jim_HashTable *ht, void *privdata);
 JIM_EXPORT Jim_HashEntry * Jim_FindHashEntry (Jim_HashTable *ht,
-        const void *key);
+        void *privdata, const void *key);
 JIM_EXPORT Jim_HashTableIterator *Jim_GetHashTableIterator
         (Jim_HashTable *ht);
 JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
         (Jim_HashTableIterator *iter);
 
 /* objects */
-JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp);
-JIM_EXPORT void Jim_FreeObj (Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
+JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
-        Jim_Obj *objPtr);
-JIM_EXPORT const char * Jim_GetString(Jim_Obj *objPtr,
+        Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * DupIfWrongInterp(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
-JIM_EXPORT const char *Jim_String(Jim_Obj *objPtr);
-JIM_EXPORT int Jim_Length(Jim_Obj *objPtr);
+JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
+JIM_EXPORT int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* string object */
 JIM_EXPORT Jim_Obj * Jim_NewStringObj (Jim_Interp *interp,
@@ -751,7 +765,7 @@ JIM_EXPORT void Jim_AppendObj (Jim_Interp *interp, Jim_Obj *objPtr,
         Jim_Obj *appendObjPtr);
 JIM_EXPORT void Jim_AppendStrings (Jim_Interp *interp,
         Jim_Obj *objPtr, ...);
-JIM_EXPORT int Jim_StringEqObj(Jim_Obj *aObjPtr, Jim_Obj *bObjPtr);
+JIM_EXPORT int Jim_StringEqObj(Jim_Interp *interp, Jim_Obj *aObjPtr, Jim_Obj *bObjPtr);
 JIM_EXPORT int Jim_StringMatchObj (Jim_Interp *interp, Jim_Obj *patternObjPtr,
         Jim_Obj *objPtr, int nocase);
 JIM_EXPORT Jim_Obj * Jim_StringRangeObj (Jim_Interp *interp,
@@ -778,6 +792,7 @@ JIM_EXPORT int Jim_GetFinalizer (Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
 /* interpreter */
 JIM_EXPORT Jim_Interp * Jim_CreateInterp (void);
 JIM_EXPORT void Jim_FreeInterp (Jim_Interp *i);
+JIM_EXPORT void Jim_ClearTempList(Jim_Interp *interp);
 JIM_EXPORT int Jim_GetExitCode (Jim_Interp *interp);
 JIM_EXPORT const char *Jim_ReturnCode(int code);
 JIM_EXPORT void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...);

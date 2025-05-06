@@ -61,7 +61,7 @@
 #include "jim.h"
 #include "utf8.h"
 
-static void FreeRegexpInternalRep(Jim_Interp *interp, Jim_Obj *objPtr)
+static void FreeRegexpInternalRep(Jim_Obj *objPtr)
 {
     jim_regfree(objPtr->internalRep.ptrIntValue.ptr);
     Jim_Free(objPtr->internalRep.ptrIntValue.ptr);
@@ -79,7 +79,7 @@ static const Jim_ObjType regexpObjType = {
     JIM_TYPE_NONE
 };
 
-static regex_t *SetRegexpFromAny(Jim_Interp *interp, Jim_Obj *objPtr, unsigned flags)
+static regex_t *SetRegexpFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr, unsigned flags)
 {
     regex_t *compre;
     const char *pattern;
@@ -95,7 +95,7 @@ static regex_t *SetRegexpFromAny(Jim_Interp *interp, Jim_Obj *objPtr, unsigned f
     /* Not a regexp or the flags do not match */
 
     /* Get the string representation */
-    pattern = Jim_String(objPtr);
+    pattern = Jim_String(interp, objPtr);
     compre = Jim_Alloc(sizeof(regex_t));
 
     if ((ret = jim_regcomp(compre, pattern, REG_EXTENDED | flags)) != 0) {
@@ -108,7 +108,7 @@ static regex_t *SetRegexpFromAny(Jim_Interp *interp, Jim_Obj *objPtr, unsigned f
         return NULL;
     }
 
-    Jim_FreeIntRep(interp, objPtr);
+    Jim_FreeIntRep(objPtr);
 
     objPtr->typePtr = &regexpObjType;
     objPtr->internalRep.ptrIntValue.int1 = flags;
@@ -151,7 +151,7 @@ int Jim_RegexpCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     for (i = 1; i < argc; i++) {
-        const char *opt = Jim_String(argv[i]);
+        const char *opt = Jim_String(interp, argv[i]);
 
         if (*opt != '-') {
             break;
@@ -198,13 +198,14 @@ int Jim_RegexpCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto wrongNumArgs;
     }
 
-    regex = SetRegexpFromAny(interp, argv[i], regcomp_flags);
+    Jim_Obj* regexObjPtr = DupIfShared(interp, argv[i], JIM_TEMP_LIST);
+    regex = SetRegexpFromAnyUnshared(interp, regexObjPtr, regcomp_flags);
     if (!regex) {
         return JIM_ERR;
     }
 
-    pattern = Jim_String(argv[i]);
-    source_str = Jim_GetString(argv[i + 1], &source_len);
+    pattern = Jim_String(interp, argv[i]);
+    source_str = Jim_GetString(interp, argv[i + 1], &source_len);
 
     num_vars = argc - i - 2;
 
@@ -305,7 +306,7 @@ int Jim_RegexpCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
             result = Jim_SetVariable(interp, argv[i], resultObj);
 
             if (result != JIM_OK) {
-                Jim_FreeObj(interp, resultObj);
+                Jim_FreeObj(resultObj);
                 break;
             }
         }
@@ -379,7 +380,7 @@ int Jim_RegsubCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     for (i = 1; i < argc; i++) {
-        const char *opt = Jim_String(argv[i]);
+        const char *opt = Jim_String(interp, argv[i]);
 
         if (*opt != '-') {
             break;
@@ -418,14 +419,15 @@ int Jim_RegsubCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         goto wrongNumArgs;
     }
 
-    regex = SetRegexpFromAny(interp, argv[i], regcomp_flags);
+    Jim_Obj* regexObjPtr = DupIfShared(interp, argv[i], JIM_TEMP_LIST);
+    regex = SetRegexpFromAnyUnshared(interp, regexObjPtr, regcomp_flags);
     if (!regex) {
         return JIM_ERR;
     }
-    pattern = Jim_String(argv[i]);
+    pattern = Jim_String(interp, argv[i]);
 
-    source_str = Jim_GetString(argv[i + 1], &source_len);
-    replace_str = Jim_GetString(argv[i + 2], &replace_len);
+    source_str = Jim_GetString(interp, argv[i + 1], &source_len);
+    replace_str = Jim_GetString(interp, argv[i + 2], &replace_len);
     varname = argv[i + 3];
 
     /* Create the result string */
@@ -568,7 +570,7 @@ int Jim_RegsubCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
             Jim_SetResultInt(interp, num_matches);
         }
         else {
-            Jim_FreeObj(interp, resultObj);
+            Jim_FreeObj(resultObj);
         }
     }
     else {

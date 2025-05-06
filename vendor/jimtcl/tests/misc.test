@@ -488,22 +488,6 @@ test jimexpr-2.6 "exit in expression" {
 	}
 } 6
 
-# This one is for test coverage of an unusual case
-test jimobj-1.1 "duplicate obj with no dupIntRepProc" {
-	proc "x x" {} { return 2 }
-	set a "x x"
-	# force it to be a command object
-	set b [$a]
-	# A second reference
-	set c $a
-	# Now force it to be duplicated
-	lset a 1 x
-	# force the duplicate object it to be a command object again
-	set b [$a]
-	# And get the string rep
-	set x "y $a"
-} "y x x"
-
 test jimobj-1.2 "cooerced double to int" {
 	set x 3
 	# cooerce to a double

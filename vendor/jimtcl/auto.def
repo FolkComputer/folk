@@ -18,7 +18,7 @@ define CXXFLAGS [get-env CFLAGS ""]
 options {
     utf8=1          => "Disable support for utf8-encoded strings"
     lineedit=1      => "Disable line editing"
-    references=1    => "Disable support for references"
+    references=0    => "Disable support for references"
     math=1          => "Disable math functions"
     ssl=1           => "Disable ssl/tls support in the aio extension"
     ipv6=1          => "Disable ipv6 support in the aio extension"

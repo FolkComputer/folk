@@ -92,7 +92,7 @@ static Jim_Obj *JimSqliteFormatQuery(Jim_Interp *interp, Jim_Obj *fmtObjPtr,
         fmtLen--;               /* skip '%' */
         if (*fmt != '%') {
             if (objc == 0) {
-                Jim_FreeNewObj(interp, resObjPtr);
+                Jim_FreeNewObj(resObjPtr);
                 Jim_SetResultString(interp, "not enough arguments for all format specifiers", -1);
                 return NULL;
             }
@@ -120,7 +120,7 @@ static Jim_Obj *JimSqliteFormatQuery(Jim_Interp *interp, Jim_Obj *fmtObjPtr,
             default:
                 spec[0] = *fmt;
                 spec[1] = '\0';
-                Jim_FreeNewObj(interp, resObjPtr);
+                Jim_FreeNewObj(resObjPtr);
                 Jim_SetResultFormatted(interp,
                     "bad field specifier \"%s\", only %%s and %%%% are valid", spec);
                 return NULL;
@@ -188,11 +188,11 @@ static int JimSqliteHandlerCommand(Jim_Interp *interp, int argc, Jim_Obj *const 
         Jim_IncrRefCount(objPtr);
         /* Compile the query into VM code */
         if (sqlite3_prepare_v2(db, query, len, &stmt, &tail) != SQLITE_OK) {
-            Jim_DecrRefCount(interp, objPtr);
+            Jim_DecrRefCount(objPtr);
             Jim_SetResultString(interp, sqlite3_errmsg(db), -1);
             goto err;
         }
-        Jim_DecrRefCount(interp, objPtr);       /* query no longer needed. */
+        Jim_DecrRefCount(objPtr);       /* query no longer needed. */
         /* Build a list of rows (that are lists in turn) */
         rowsListPtr = Jim_NewListObj(interp, NULL, 0);
         Jim_IncrRefCount(rowsListPtr);
@@ -236,9 +236,9 @@ static int JimSqliteHandlerCommand(Jim_Interp *interp, int argc, Jim_Obj *const 
             Jim_SetResult(interp, rowsListPtr);
             retcode = JIM_OK;
         }
-        Jim_DecrRefCount(interp, rowsListPtr);
+        Jim_DecrRefCount(rowsListPtr);
 err:
-        Jim_DecrRefCount(interp, nullStrObj);
+        Jim_DecrRefCount(nullStrObj);
 
         return retcode;
     }

@@ -308,7 +308,7 @@ static int Jim_UnpackCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     if (option == OPT_STR) {
         int len;
-        const char *str = Jim_GetString(argv[1], &len);
+        const char *str = Jim_GetString(interp, argv[1], &len);
 
         if (pos < len * 8) {
             if (pos + width > len * 8) {
@@ -320,7 +320,7 @@ static int Jim_UnpackCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
     else {
         int len;
-        const unsigned char *str = (const unsigned char *)Jim_GetString(argv[1], &len);
+        const unsigned char *str = (const unsigned char *)Jim_GetString(interp, argv[1], &len);
         jim_wide result = 0;
 
         if (pos < len * 8) {
@@ -420,10 +420,10 @@ static int Jim_PackCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
     else if (Jim_IsShared(stringObjPtr)) {
         freeobj = 1;
-        stringObjPtr = Jim_DuplicateObj(interp, stringObjPtr);
+        stringObjPtr = Jim_DuplicateObj(interp, stringObjPtr, JIM_LIVE_LIST);
     }
 
-    len = Jim_Length(stringObjPtr) * 8;
+    len = Jim_Length(interp, stringObjPtr) * 8;
 
     /* Extend the string as necessary first */
     while (len < pos + width) {
@@ -456,17 +456,17 @@ static int Jim_PackCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     else {
         pos /= 8;
         width /= 8;
-
-        if (width > Jim_Length(argv[2])) {
-            width = Jim_Length(argv[2]);
+        
+        if (width > Jim_Length(interp, argv[2])) {
+            width = Jim_Length(interp, argv[2]);
         }
-        memcpy(stringObjPtr->bytes + pos, Jim_String(argv[2]), width);
+        memcpy(stringObjPtr->bytes + pos, Jim_String(interp, argv[2]), width);
         /* No padding is needed since the string is already extended */
     }
 
     if (Jim_SetVariable(interp, argv[1], stringObjPtr) != JIM_OK) {
         if (freeobj) {
-            Jim_FreeNewObj(interp, stringObjPtr);
+            Jim_FreeNewObj(stringObjPtr);
             return JIM_ERR;
         }
     }
