@@ -30,7 +30,10 @@ Wish the GPU compiles function "invBilinear" {
     } else {
         // Quadratic form. Take positive root for CCW winding with V-up
         float discrim = B * B - 4.0 * A * C;
-        uv.y = 0.5 * (-B + sqrt(discrim)) / A;
+        // Fix from https://www.reedbeta.com/blog/quadrilateral-interpolation-part-2/#comment-3629608573
+        // (makes images not break with certain vertex inputs)
+        uv.y = 2.0 * C / (-B - sqrt(discrim));
+        // uv.y = 0.5 * (-B + sqrt(discrim)) / A;
     }
     
     // Solve for u, using largest-magnitude component
