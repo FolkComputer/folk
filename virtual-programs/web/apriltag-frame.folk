@@ -12,7 +12,6 @@ When the image library is /imageLib/ {
             set tags [Query! tag /id/ has detection /det/ on camera $cam \
                           at timestamp $ts]
             puts "Tags: $tags"
-
             break
         }
 
@@ -20,7 +19,20 @@ When the image library is /imageLib/ {
         html [subst {
             <html>
             <body>
-            <img src="data:image/png;base64,[::base64::encode $imageData]">
+            <img src="data:image/png;base64,[::base64::encode $imageData]"
+                 style="position:absolute;top:0;left:0">
+            <svg width="100%" height="100%" style="position:absolute;top:0;left:0;pointer-events:none;">
+                [join [lmap tag $tags {
+                    set points [dict get $tag det p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3"/>
+                    }
+                }] "\n"]
+            </svg>
             </body>
             </html>
         }]
