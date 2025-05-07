@@ -11,6 +11,13 @@ proc binary {cmd args} {
 	tailcall "binary $cmd" {*}$args
 }
 
+proc "binary encode" {cmd args} {
+	tailcall "binary encode $cmd" {*}$args
+}
+proc "binary decode" {cmd args} {
+	tailcall "binary decode $cmd" {*}$args
+}
+
 proc "binary format" {formatString args} {
 	set bitoffset 0
 	set result {}

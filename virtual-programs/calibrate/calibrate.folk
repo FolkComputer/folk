@@ -417,7 +417,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
             <p>Print this calibration board and glue/tape it to
             something solid and flat (hardcover book, solid cardboard,
             etc):</p>
-            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[::base64::encode $calibrationBoardPdf]">
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
             </iframe>
             <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
             <script>
@@ -425,7 +425,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
                 const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
 
                 ws.evaluate(`
-                  set boardPdf [::base64::decode {\${boardSrc}}]
+                  set boardPdf [binary decode base64 {\${boardSrc}}]
                   set fd [open /tmp/folk-calibration-board.pdf w]
                   fconfigure \$fd -encoding binary -translation binary
                   puts \$fd \$boardPdf; close \$fd
@@ -650,7 +650,7 @@ Camera Controls
               if you don't have one already.</p>
 
             <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
-            <img width="306" src="data:image/png;base64,$[::base64::encode $exampleProgramPng]"
+            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
               style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
 
             <ul>

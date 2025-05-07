@@ -225,7 +225,7 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
             </head>
             <body>
                 [join [lmap {description imageData} $images {
-                    set b64 [::base64::encode $imageData]
+                    set b64 [binary encode base64 $imageData]
                     format {<div><p>%s</p><img src="data:image/png;base64,%s"></div>} $description $b64
                 }] "\n"]
             </body>

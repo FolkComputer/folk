@@ -1,5 +1,6 @@
 When the image library is /imageLib/ {
     Wish the web server handles route {/apriltag-frame(?:\?.*)?} with handler [list apply {{imageLib} {
+        puts "START APRILTAG-FRAME"
         ForEach! camera /cam/ has frame /im/ at timestamp /ts/ {
             set filename "/tmp/web-image-frame.jpg"
             $imageLib saveAsJpeg $im $filename
@@ -16,10 +17,10 @@ When the image library is /imageLib/ {
         }
 
         package require base64
-        html [subst {
+        set r [html [subst {
             <html>
             <body>
-            <img src="data:image/png;base64,[::base64::encode $imageData]"
+            <img src="data:image/png;base64,[binary encode base64 $imageData]"
                  style="position:absolute;top:0;left:0">
             <svg width="100%" height="100%" style="position:absolute;top:0;left:0;pointer-events:none;">
                 [join [lmap tag $tags {
@@ -37,6 +38,8 @@ When the image library is /imageLib/ {
             </svg>
             </body>
             </html>
-        }]
+        }]]
+        puts "DONE APRILTAG-FRAME"
+        return $r
     }} $imageLib]
 }

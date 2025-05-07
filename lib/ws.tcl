@@ -242,7 +242,7 @@ set ::wsConnections [dict create]
 # channel and key from /ws upgrade request header.
 proc {WsConnection upgrade} {chan clientKey} {wsLib sha1Lib} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-    set acceptKey [::base64::encode [$sha1Lib sha1 $acceptKeyRaw]]
+    set acceptKey [binary encode base64 [$sha1Lib sha1 $acceptKeyRaw]]
 
     puts -nonewline $chan \
         "HTTP/1.1 101 Switching Protocols\r

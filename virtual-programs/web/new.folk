@@ -139,7 +139,7 @@ Wish the web server handles route "/new" with handler {
     // would elide them: https://www.tcl.tk/man/tcl8.7/TclCmd/Tcl.html#M10)
     ws.hold('code', tcl`
       package require base64
-      Claim ${program} has program code [::base64::decode ${btoa(code)}]
+      Claim ${program} has program code [binary decode base64 ${btoa(code)}]
     `);
   }
   function handlePrint() {

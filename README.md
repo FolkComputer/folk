@@ -728,63 +728,16 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - running program bugs out
   - recollect happening at weird time maybe?
 
-### strategies
-- use immortal objects
-- retain quad images, slightly larger than page size so we can draw on
-  fringes?
-- ~~put terms into hashtable on transmit~~
-- ~~implement collect in C~~
-  - how to have hold-like behavior for collections? just keep a
-    collect for an arbitrary amount of time?
-
+### perf
+- on folk-live at home, folk2-leakfix: 160ms calibration cycle
+- on folk-live at home, folk2-shared-objects: TODO
 
 ### next
 - why is calibration board off on portable system
-- **why does calibration glitch out**
-  - the GPU texture looks correct, it feels like the rendering to
-    display is just screwed up
+- ~~why does calibration glitch out~~
 - ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
 - ~~fix editor~~
 - minor memory leak
 - make calibrate retract properly when closed
-
-```
-When the clock time is /t/ {
-Claim tag 13 has quad [list [list changeableTo /dev/video0 [list apply {{tagPose v} {
-package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::matmul
-            set R [dict get $tagPose R]; set t [dict get $tagPose t]
-            add [matmul $R $v] $t
-        } <library:/tmp/library_l5z6jg.tcl>} [list R {{0.0338667232336 -0.974048414314 0.223791714879} {0.972898023171 0.0833797840793 0.215678576027} {-0.228741079816 0.210422190365 0.950473576799}} t [list [expr {sin($t)}] 0.141294678981 0.64924951029]]]] {{-0.015 -0.015 0} {0.015 -0.015 0} {0.015 0.015 0} {-0.015 0.015 0}}]
-
-}
-
-Wish 13 has resolved geometry
-Claim tag 13 is a tag
-Claim tag 13 has a program
-puts hello
-```
-
-```
-Wish the GPU creates writable image {{virtual-programs/calibrate/calibrate.folk board} writable image} with width 1024 height 1024
-Claim {virtual-programs/calibrate/calibrate.folk board} has writable image {{virtual-programs/calibrate/calibrate.folk board} writable image}
-
-Wish the GPU draws pipeline fillTriangle onto image {{virtual-programs/calibrate/calibrate.folk board} writable image} with arguments {{{1 0 0} {0 1 0} {0 0 1}} {-1 -1} {1 -1} {1 1} {1 1 1 1}} layer 99
-
-Wish the GPU draws pipeline fillTriangle onto image {{virtual-programs/calibrate/calibrate.folk board} writable image} with arguments {{{1 0 0} {0 1 0} {0 0 1}} {-1 -1} {1 1} {-1 1} {1 1 1 1}} layer 99
-
-Wish to draw an AprilTag onto {virtual-programs/calibrate/calibrate.folk board} with id 48601 corners {{0.049833333295 -3.82999985893e-11} {0.088166666705 -3.82999985893e-11} {0.088166666705 0.0383333333715} {0.049833333295 0.0383333333715}} layer 100
-
-Wish to draw an AprilTag onto {virtual-programs/calibrate/calibrate.folk board} with id 48603 corners {{0.149499999962 -3.82999985893e-11} {0.187833333372 -3.82999985893e-11} {0.187833333372 0.0383333333715} {0.149499999962 0.0383333333715}} layer 100
-
-
-When the GPU writable image library is /gpuDrawableLib/ & the GPU creates writable image /imId/ as /surf/ {
-  set im [$gpuDrawableLib gpuImage $surf]
-  Wish the GPU draws pipeline image with arguments [list {3840 2160} {{0.000520833333333 0 -1} {0 0.000925925925926 -1} {0 0 1}} $im {-101.140927021 -101.140927021} {1355.28841707 -101.140927021} {1355.28841707 829.355598662} {-101.140927021 829.355598662}] layer 100
-}
-
-Retract! /any/ wishes to calibrate
-```
+- on old folk2 with term copying: 245 microseconds -- apriltags.folk:170 (collection)
