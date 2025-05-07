@@ -63,6 +63,7 @@ global extdb
 foreach {mod attrs help} {
     aio       { static }            {File and socket (networking) I/O}
     array     {}                    {Tcl-compatible array command}
+    base64    {}                    {Tcl-compatible binary encode/decode base64 commands}
     binary    { tcl optional }      {Tcl-compatible binary command}
     clock     {}                    {Tcl-compatible clock command}
     ensemble  { optional tcl }      {Ensemble command}
