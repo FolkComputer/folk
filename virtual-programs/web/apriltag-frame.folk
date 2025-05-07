@@ -28,8 +28,10 @@ When the image library is /imageLib/ {
                         format "%g,%g" [lindex $point 0] [lindex $point 1]
                     }]
                     lappend coords [lindex $coords 0]
+                    set id [dict get $tag det id]
                     subst {
-                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3"/>
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
                     }
                 }] "\n"]
             </svg>
