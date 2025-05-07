@@ -1,0 +1,28 @@
+When the image library is /imageLib/ {
+    Wish the web server handles route {/apriltag-frame(?:\?.*)?} with handler [list apply {{imageLib} {
+        ForEach! camera /cam/ has frame /im/ at timestamp /ts/ {
+            set filename "/tmp/web-image-frame.jpg"
+            $imageLib saveAsJpeg $im $filename
+            set fsize [file size $filename]
+            set fd [open $filename r]
+            fconfigure $fd -translation binary
+            set imageData [read $fd $fsize]
+            close $fd
+
+            set tags [Query! tag /id/ has detection /det/ on camera $cam \
+                          at timestamp $ts]
+            puts "Tags: $tags"
+
+            break
+        }
+
+        package require base64
+        html [subst {
+            <html>
+            <body>
+            <img src="data:image/png;base64,[::base64::encode $imageData]">
+            </body>
+            </html>
+        }]
+    }} $imageLib]
+}
