@@ -70,6 +70,10 @@ $cc include "mpfit.h"
 $cc include "mpfit.c"
 $cc include <apriltag_pose.h>
 $cc include <common/matd.h>
+
+# Mono calibration
+# ----------------
+
 $cc code [csubst {
     #define MAX_POINTS_PER_POSE $[* $NUM_TAGS_IN_MODEL 4]
     #define MAX_POSES 10
@@ -298,65 +302,8 @@ $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Jim_Obj
     return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
 }
 
-# Refines the calibration of an individual camera or
-# projector. Takes a dict with intrinsics (dict of fx, s, cx, etc)
-# and poses (list of pose dicts). Each pose dict should have
-# modelPoints (list of 3D points) and points (list of 2D points)
-# and R and t. Returns dict with updated intrinsics and poses.
-fn refineMonoCalibration {calibration} {
-    # Load the example data for fitting.
-    set poseModelPoints [list]
-    set posePoints [list]
-    set posePointsCount [list]
-    foreach pose [dict get $calibration poses] {
-        set modelPoints [dict get $pose modelPoints]
-        lappend poseModelPoints {*}[concat {*}$modelPoints]
-
-        set points [dict get $pose points]
-        lappend posePoints {*}[concat {*}$points]
-
-        lappend posePointsCount [llength $points]
-    }
-    $refineLib monoSetPoints [llength [dict get $calibration poses]] \
-        $posePointsCount $poseModelPoints $posePoints
-
-    set intrNames {fx cx fy cy k1 k2}
-
-    # Load the initial guesses for all parameters for fitting.
-    set params [lmap intrName $intrNames {
-        dict get $calibration intrinsics $intrName
-    }]
-    foreach pose [dict get $calibration poses] {
-        lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
-        lappend params {*}[dict get $pose t]
-    }
-
-    # Do the actual optimization:
-    set refined [$refineLib monoRefineCalibrationOptimize $params [llength $params]]
-
-    # Unspool the optimization result into the calibration data
-    # structure and return that.
-
-    set refined [lassign $refined rmse {*}$intrNames]
-    dict set calibration rmse $rmse
-    foreach intrName $intrNames {
-        dict set calibration intrinsics $intrName [set $intrName]
-    }
-    # HACK: zero out skew.
-    dict set calibration intrinsics s 0.0
-
-    set poses [dict get $calibration poses]
-    for {set i 0} {$i < [llength $poses]} {incr i} {
-        set pose [lindex $poses $i]
-        dict set pose R [rotationVectorToRotationMatrix [lrange $refined 0 2]]
-        dict set pose t [lrange $refined 3 5]
-        lset poses $i $pose
-        set refined [lrange $refined 6 end]
-    }
-    dict set calibration poses $poses
-
-    return $calibration
-}
+# Stereo calibration
+# ------------------
 
 $cc code {
     int StereoPoseCount;
@@ -506,8 +453,70 @@ $cc proc stereoRefineCalibrationOptimize {double[] params int paramsCount} Jim_O
     return Jim_NewListObj(interp, paramObjs, 1 + paramsCount);
 }
 
+# Folk level
+# ----------
+
 set refineLib [$cc compile] ;# takes about a half-second
 
+# Refines the calibration of an individual camera or
+# projector. Takes a dict with intrinsics (dict of fx, s, cx, etc)
+# and poses (list of pose dicts). Each pose dict should have
+# modelPoints (list of 3D points) and points (list of 2D points)
+# and R and t. Returns dict with updated intrinsics and poses.
+fn refineMonoCalibration {calibration} {
+    # Load the example data for fitting.
+    set poseModelPoints [list]
+    set posePoints [list]
+    set posePointsCount [list]
+    foreach pose [dict get $calibration poses] {
+        set modelPoints [dict get $pose modelPoints]
+        lappend poseModelPoints {*}[concat {*}$modelPoints]
+
+        set points [dict get $pose points]
+        lappend posePoints {*}[concat {*}$points]
+
+        lappend posePointsCount [llength $points]
+    }
+    $refineLib monoSetPoints [llength [dict get $calibration poses]] \
+        $posePointsCount $poseModelPoints $posePoints
+
+    set intrNames {fx cx fy cy k1 k2}
+
+    # Load the initial guesses for all parameters for fitting.
+    set params [lmap intrName $intrNames {
+        dict get $calibration intrinsics $intrName
+    }]
+    foreach pose [dict get $calibration poses] {
+        lappend params {*}[rotationMatrixToRotationVector [dict get $pose R]]
+        lappend params {*}[dict get $pose t]
+    }
+
+    # Do the actual optimization:
+    set refined [$refineLib monoRefineCalibrationOptimize $params [llength $params]]
+
+    # Unspool the optimization result into the calibration data
+    # structure and return that.
+
+    set refined [lassign $refined rmse {*}$intrNames]
+    dict set calibration rmse $rmse
+    foreach intrName $intrNames {
+        dict set calibration intrinsics $intrName [set $intrName]
+    }
+    # HACK: zero out skew.
+    dict set calibration intrinsics s 0.0
+
+    set poses [dict get $calibration poses]
+    for {set i 0} {$i < [llength $poses]} {incr i} {
+        set pose [lindex $poses $i]
+        dict set pose R [rotationVectorToRotationMatrix [lrange $refined 0 2]]
+        dict set pose t [lrange $refined 3 5]
+        lset poses $i $pose
+        set refined [lrange $refined 6 end]
+    }
+    dict set calibration poses $poses
+
+    return $calibration
+}
 
 fn refineCalibration {isPrintedTag isProjectedTag matLib 
                       calibrationPoses calibration} {
