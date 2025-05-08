@@ -1315,7 +1315,7 @@ int main(int argc, char** argv) {
     char *bootFile = argc == 1 ? "boot.folk" : argv[1];
     char code[1024];
     snprintf(code, sizeof(code),
-             "set __envStack [list]; set this {%s}; source {%s}",
+             "apply {{} {set __envStack [list]; set this {%s}; source {%s}}}",
              bootFile, bootFile);
     eval(code);
 
