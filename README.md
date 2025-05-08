@@ -740,4 +740,15 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~fix editor~~
 - minor memory leak
 - make calibrate retract properly when closed
-- on old folk2 with term copying: 245 microseconds -- apriltags.folk:170 (collection)
+- on old folk2 with term copying:, in tracy 245 microseconds --
+  apriltags.folk:170 (collection)
+
+- ~~cannot use apriltag debugger on folk0 (which i need to fix
+  calibration, which i need to do perf testing)~~
+
+why aren't we passing the gate in calibration? why am i only getting a
+pass once every 54s?
+  - GARBAGE HOMOGRAPHY
+
+- blinking during calibrate
+- fix uncalibrated Folk message
