@@ -112,14 +112,42 @@ $cc rtype matd_t* {
 # Returns a 3x3 homography that maps model (x, y) to image (u, v)
 # (using homogeneous coordinates).
 $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
-    // HACK: (sort of) point to the existing data block.
-    zarray_t correspondencesArr = {
-        .el_sz = sizeof(float[4]),
-        .size = nPointPairs, .alloc = nPointPairs,
-        .data = (char*) pointPairs
-    };
-    return homography_compute(&correspondencesArr,
-                              HOMOGRAPHY_COMPUTE_FLAG_SVD);
+    matd_t *A = matd_create(2*nPointPairs, 9);
+
+    // TODO: normalize centroid and scale
+
+    for (int i = 0; i < nPointPairs; i++) {
+        float x = pointPairs[i][0];
+        float y = pointPairs[i][1];
+        float u = pointPairs[i][2];
+        float v = pointPairs[i][3];
+
+        float row0[9] = {x, y, 1, 0, 0, 0, -u*x, -u*y, -u};
+        float row1[9] = {0, 0, 0, x, y, 1, -v*x, -v*y, -v};
+
+        for (int j = 0; j < 9; j++) {
+            MATD_EL(A, 2*i, j) = row0[j];
+            MATD_EL(A, 2*i+1, j) = row1[j];
+        }
+    }
+
+    matd_svd_t svd = matd_svd_flags(A, MATD_SVD_NO_WARNINGS);
+    matd_destroy(A);
+
+    // H = V[-1].reshape(3, 3)
+    // H /= H[2, 2]
+    matd_t *H = matd_create(3, 3);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            MATD_EL(H, i, j) = MATD_EL(svd.V, 3*i+j, svd.V->ncols-1);
+        }
+    }
+    matd_destroy(svd.U);
+    matd_destroy(svd.S);
+    matd_destroy(svd.V);
+
+    matd_scale_inplace(H, 1.0 / MATD_EL(H, 2, 2));
+    return H;
 }
 $cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
     double out[2];
