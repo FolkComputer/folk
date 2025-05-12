@@ -549,16 +549,18 @@ proc ForEach! {args} {
     set results [Query! {*}$pattern]
     upvar __result result
     foreach result $results {
-        # TODO: support early return in body
-
         set ref [dict get $result __ref]
         try {
             StatementAcquire! $ref
         } on error e {
             continue
         }
-        uplevel [list dict with __result $body]
-        StatementRelease! $ref
+
+        try {
+            uplevel [list dict with __result $body]
+        } finally {
+            StatementRelease! $ref
+        }
     }
 }
 
