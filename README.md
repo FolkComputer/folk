@@ -746,9 +746,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~cannot use apriltag debugger on folk0 (which i need to fix
   calibration, which i need to do perf testing)~~
 
-why aren't we passing the gate in calibration? why am i only getting a
-pass once every 54s?
-  - GARBAGE HOMOGRAPHY
-
 - blinking during calibrate
 - fix uncalibrated Folk message
+- calibrate autorefresh doesn't work?

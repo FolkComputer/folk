@@ -518,12 +518,12 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
               });
 
               function advanceCamera() {
-                cameraFrame.src = cameraFrame.src + '0'
+                cameraFrame.src = '/camera-frame?' + Math.random()
               }
             </script>
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
-  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
+  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame" id="cameraFrame" style="max-width: 100%"> 
 
             <script>
                 const refreshButton = document.getElementById('refreshButton');
@@ -967,8 +967,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     HoldDefaultModel! 1.0
 
     On unmatch {
-        Hold H_modelToDisplay {}
-        Hold exposure {
+        Hold! H_modelToDisplay {}
+        Hold! exposure {
             Wish camera $camera uses exposure time auto us
         }
     }
