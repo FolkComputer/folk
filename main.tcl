@@ -308,7 +308,7 @@ source "lib/math.tcl"
 # this defines $this in the contained scopes
 # it's also used to implement Hold
 Assert when /this/ has program /__program/ {{this __program} {
-    set pattern [list /nobody/ wishes program $this is supressed]
+    set pattern [list /nobody/ wishes program $this is suppressed]
 
     Say when the collected matches for $pattern are /__matches/ {{this __program __matches} {
         if {[llength $__matches] == 0} {
