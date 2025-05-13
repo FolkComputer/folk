@@ -1,29 +1,219 @@
+proc applyTextViewport {originalText x y width height} {
+  set lines [split $originalText \n]
+  set lines [lrange $lines $y [expr {($height - 1) + $y}]]
+  set lines [lmap line $lines {
+    set line [string range $line $x [expr {($width - 1) + $x}]]
+  }]
+  return [join $lines \n]
+}
+
+proc cursorToXy {code cursor} {
+  set codeBeforeCursor [string range $code 0 [- $cursor 1]]
+  set linesBeforeCursor [split $codeBeforeCursor "\n"]
+  set lineCountBeforeCursor [llength $linesBeforeCursor]
+
+  set cursorX [string length [lindex $linesBeforeCursor end]]
+  set cursorY [expr {max($lineCountBeforeCursor - 1, 0)}]
+  
+  return [list $cursorX $cursorY]
+}
+
+proc xyToCursor {code cursorX cursorY} {
+  if { $cursorX < 0 } { set cursorX 0 }
+  if { $cursorY < 0 } { set cursorY 0 }
+
+  set lines [split $code "\n"]
+  set maxCursorY [max 0 [- [llength $lines] 1]]
+  set cursorY [min $cursorY $maxCursorY]
+
+  set relevantLines [lrange $lines 0 [- $cursorY 1]]
+  set relevantLineLen [string length [lindex $lines $cursorY]]
+  set joined [join $relevantLines "\n"]
+  # make sure cursorX < line length
+  set cursorX [min $cursorX $relevantLineLen]
+  set cursor [+ [string length $joined] $cursorX]
+  # don't forget to add the length of \n at the beginning
+  if {$cursorY > 0} { incr cursor }
+  
+  return $cursor
+}
+
+proc insertText {code cursor text} {
+  set before [string range $code 0 [- $cursor 1]]
+  set after [string range $code $cursor end]
+  set joined [join [list $before $text $after] ""]
+  
+  return $joined
+}
+
+proc deleteText {code cursor count} {
+  set before [string range $code 0 [- $cursor 1]]
+  set after [string range $code [+ $cursor $count] end]
+  set joined [join [list $before $after] ""]
+  
+  return $joined
+}
+
+# initial setup
 When /view/ is a code view &\
-     /view/ has region /r/ {
-  Hold {
-    Claim $view has selected program "virtual-programs/shapes.folk"
+     /view/ has region /r/ &\
+     "virtual-programs/group.folk" has program code /code/ {
+  When /nobody/ claims $view has text /anything/ {
+    Hold text-$view {
+      Claim $view has text $code
+    }
+  }
+  
+  When /nobody/ claims $view has view dimensions /d/  {
+    Hold $view {
+      Claim $view has view dimensions [list 0 0 75 18]
+      Claim $view has cursor 0
+      Claim $view has max cursor x 0
+    }
   }
 
   Wish tag $view is stabilized
+}
 
-  # shift region
-  lassign $r vertices edges angle
-  set vertices [concat \
-    [lrange $vertices 3 3] \
-    [lrange $vertices 0 2] \
-  ]
-  set angle [expr {fmod($angle + 3.1415 + (3.1415/2), 6.2831)}]
-  set r [list $vertices $edges $angle]
-  Claim $view has rotated region $r
+# keyboard logic
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /keyboard/ points up at /view/ &\
+     /view/ is a code view {
+  Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
+        /view/ has view dimensions /dims/ &\
+        /view/ has text /code/ &\
+        /view/ has max cursor x /maxCursorX/ &\
+        /view/ has cursor /cursor/ {
+    lassign $dims vpX vpY vpWidth vpHeight
+    
+    if {$keyState == "up"} { return }
+
+    Hold (on virtual-programs/code-view.folk) $view {
+      if {[dict exists $options printable]} {
+        set code [insertText $code $cursor [dict get $options printable]]
+
+        Hold (on virtual-programs/code-view.folk) text-$view {
+          Claim $view has text $code
+        }
+
+        incr cursor
+        incr maxCursorX
+      } else {
+        switch $key {
+          Left {
+            set cursor [- $cursor 1]
+            set cursor [max $cursor 0]
+            
+            lassign [cursorToXy $code $cursor] cursorX cursorY
+            set maxCursorX $cursorX
+          }
+          Right {
+            set cursor [+ $cursor 1]
+            set codeLength [string length $code]
+            set cursor [min $cursor $codeLength]
+            
+            lassign [cursorToXy $code $cursor] cursorX cursorY
+            set maxCursorX $cursorX
+          }
+          Up {
+            lassign [cursorToXy $code $cursor] cursorX cursorY
+            set cursorX $maxCursorX
+            set cursorY [- $cursorY 1]
+            set cursor [xyToCursor $code $cursorX $cursorY]
+          }
+          Down {
+            lassign [cursorToXy $code $cursor] cursorX cursorY
+            set cursorX $maxCursorX
+            set cursorY [+ $cursorY 1]
+            set cursor [xyToCursor $code $cursorX $cursorY]
+          }
+          Delete {
+            if { $cursor == 0 } { return }
+            
+            set cursor [- $cursor 1]
+            set code [deleteText $code $cursor 1]
+            set maxCursorX [lindex [cursorToXy $code $cursor] 0]
+            
+            Hold (on virtual-programs/code-view.folk) text-$view {
+              Claim $view has text $code
+            }
+          }
+          Remove {
+            set code [deleteText $code $cursor 1]
+            Hold (on virtual-programs/code-view.folk) text-$view {
+              Claim $view has text $code
+            }
+          }
+          Return {
+            set code [insertText $code $cursor "\n"]
+            Hold (on virtual-programs/code-view.folk) text-$view {
+              Claim $view has text $code
+            }
+            
+            set maxCursorX 0
+            incr cursor
+          }
+        }
+      }
+
+      lassign [cursorToXy $code $cursor] cursorX cursorY
+      if {$cursorX < $vpX} { set vpX $cursorX }
+      if {$cursorX >= $vpX + $vpWidth} {
+        set vpX [expr {$cursorX - $vpWidth}]
+      }
+      if {$cursorY < $vpY} { set vpY $cursorY }
+      if {$cursorY >= $vpY + $vpHeight - 1} {
+        set vpY [expr {$cursorY - $vpHeight + 1}]
+      }
+
+      Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
+      Claim $view has cursor $cursor
+      Claim $view has max cursor x $maxCursorX
+    }
+  }
+}
+
+# calculate cursor position
+When /view/ is a code view &\
+     /view/ has cursor /cursor/ &\
+     /view/ has text /code/ &\
+     /view/ has view dimensions /dims/ {
+  lassign $dims vpX vpY vpWidth vpHeight
+
+  lassign [cursorToXy $code $cursor] cursorX cursorY
+
+  set scale 0.60
+  set em [expr {$scale * 25}]
+  # From NeomatrixCode.csv
+  set advance [expr {0.5859375 * $em}]
+  set margin [expr {$advance * 3 + 10}]
+
+  set offsetX [expr {($cursorX - $vpX) * $advance}]
+  set offsetY [expr {($cursorY - $vpY) * $em}]
+
+  Claim $view has cursor position [list $offsetX $offsetY]
 }
 
 When /view/ is a code view &\
-     /view/ has rotated region /r/ {
-  When $view has selected program /page/ &\
-       /page/ has program code /code/ {
-    lassign $r vertices edges angle
-    set pos [region topleft [region move $r down 0px right 100px]]
-    Wish to draw text with position $pos text $code \
-      scale 0.6 radians $angle anchor topleft
+     /view/ has view dimensions /dims/ &\
+     /view/ has region /r/ {
+  # vp = viewport
+  lassign $dims vpX vpY vpWidth vpHeight
+  set regionWidth [region width $r]; set regionHeight [region height $r]
+
+  When $view has text /code/ &\
+       $view has cursor position /cursorPos/ {
+    set scale 0.60
+    set em [expr {$scale * 25}]
+    
+    set textOrigin [list [expr {-($regionWidth / 2) + 10}] [expr {-($regionHeight / 2) + 130}]]
+    set cursorPos [vec2 add $textOrigin $cursorPos]
+    set cursorPos [vec2 add $cursorPos [list 0 [/ $em 2]]]
+
+    set text [applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+    Wish $view draws text $text with offset $textOrigin \
+      scale 0.6 anchor topleft font NeomatrixCode
+
+    Wish $view draws a rect with width 0 height $em color green thickness 3 offset $cursorPos
   }
 }
