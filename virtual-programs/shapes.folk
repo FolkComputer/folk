@@ -151,7 +151,8 @@ When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /
        scale 1.0 \
        layer 0 \
        angle $pageAngle \
-       anchor center
+       anchor center \
+       font "PTSans-Regular"
    ]
 
    set options [dict merge $defaults $options]
@@ -161,13 +162,14 @@ When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /
    set layer [dict get $options layer]
    set angle [dict get $options angle]
    set anchor [dict get $options anchor]
+   set font [dict get $options font]
 
    set offset [dict_getdef $options offset {0 0}]
    set offset [::process_offset $offset $r]
    set center [vec2 add [list $cx $cy] [vec2 rotate $offset $pageAngle]]
 
    Wish to draw text with position $center scale $scale text $text\
-        color $color radians $angle anchor $anchor
+        color $color radians $angle anchor $anchor font $font
 } 
 
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
