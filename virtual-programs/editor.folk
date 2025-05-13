@@ -4,7 +4,7 @@ set baseCode "Wish \$this is outlined green"
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
 When /page/ is a keyboard with path /...anything/ {
-    Claim $page is an editor
+    # Claim $page is an editor
 }
 
 When /page/ is a keyboard with path /kbPath/ /...anything/ &\
@@ -147,7 +147,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
 
     set relativeRegion [region move $r down 105%]
     Claim $id' has region $relativeRegion
-    Wish $id' is outlined white
+    # Wish $id' is outlined white
     lassign [region topleft $r] xstart ystart
     set em [expr {$scale * 25}]
     # From NeomatrixCode.csv
