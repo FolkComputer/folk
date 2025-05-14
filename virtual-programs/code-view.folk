@@ -77,8 +77,11 @@ When /view/ is a code view &\
 
 # keyboard logic
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /nobody/ claims /keyboard/ is an editor &\
      /keyboard/ points up at /view/ &\
      /view/ is a code view {
+  Wish $keyboard is outlined green
+
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
         /view/ has view dimensions /dims/ &\
         /view/ has text /code/ &\
