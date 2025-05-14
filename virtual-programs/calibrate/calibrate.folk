@@ -25,6 +25,7 @@ foreach p {add norm sub scale matmul
 # loop, to help with performance:
 set cc [C]
 $cc cflags -I./vendor/apriltag
+$cc include <math.h>
 $cc include <common/matd.h>
 $cc include <common/homography.h>
 
@@ -100,6 +101,44 @@ $cc rtype matd_t* {
     $robj->internalRep.ptr = $rvalue;
 }
 
+$cc proc computeNormalizer {int nPoints float points[][2]} matd_t* {
+    double cx = 0, cy = 0;
+    for (int i = 0; i < nPoints; i++) {
+        cx += points[i][0]; cy += points[i][1];
+    }
+    cx /= nPoints; cy /= nPoints;
+
+    double avgDist = 0;
+    for (int i = 0; i < nPoints; i++) {
+        double dx = points[i][0] - cx;
+        double dy = points[i][1] - cy;
+        avgDist += sqrt(dx*dx + dy*dy);
+    }
+    avgDist /= nPoints;
+
+    double scale = sqrt(2.0) / avgDist;
+
+    matd_t *normalizer = matd_create(3, 3);
+    MATD_EL(normalizer, 0, 0) = scale;
+    MATD_EL(normalizer, 1, 1) = scale;
+    MATD_EL(normalizer, 2, 2) = 1.0;
+    MATD_EL(normalizer, 0, 2) = -scale * cx;
+    MATD_EL(normalizer, 1, 2) = -scale * cy;
+
+    return normalizer;
+}
+
+$cc code {
+    static void homographyProject(const matd_t *H, double x, double y, double *ox, double *oy)
+    {
+        double xx = MATD_EL(H, 0, 0)*x + MATD_EL(H, 0, 1)*y + MATD_EL(H, 0, 2);
+        double yy = MATD_EL(H, 1, 0)*x + MATD_EL(H, 1, 1)*y + MATD_EL(H, 1, 2);
+        double zz = MATD_EL(H, 2, 0)*x + MATD_EL(H, 2, 1)*y + MATD_EL(H, 2, 2);
+
+        *ox = xx / zz;
+        *oy = yy / zz;
+    }
+}
 
 # Takes a list of at least 4 point pairs (model -> image) like
 #
@@ -112,18 +151,32 @@ $cc rtype matd_t* {
 # Returns a 3x3 homography that maps model (x, y) to image (u, v)
 # (using homogeneous coordinates).
 $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
-    matd_t *A = matd_create(2*nPointPairs, 9);
-
-    // TODO: normalize centroid and scale
-
+    float xys[nPointPairs][2];
+    float uvs[nPointPairs][2];
     for (int i = 0; i < nPointPairs; i++) {
-        float x = pointPairs[i][0];
-        float y = pointPairs[i][1];
-        float u = pointPairs[i][2];
-        float v = pointPairs[i][3];
+        xys[i][0] = pointPairs[i][0]; xys[i][1] = pointPairs[i][1];
+        uvs[i][0] = pointPairs[i][2]; uvs[i][1] = pointPairs[i][3];
+    }
 
-        float row0[9] = {x, y, 1, 0, 0, 0, -u*x, -u*y, -u};
-        float row1[9] = {0, 0, 0, x, y, 1, -v*x, -v*y, -v};
+    // Compute a similarity transformation T that normalizes model
+    // points.
+    matd_t *T = computeNormalizer(nPointPairs, xys);
+
+    // Compute a similarity transformation T' that normalizes image
+    // points.
+    matd_t *T_ = computeNormalizer(nPointPairs, uvs);
+
+    // Apply DLT to obtain a homography H.
+
+    matd_t *A = matd_create(2*nPointPairs, 9);
+    for (int i = 0; i < nPointPairs; i++) {
+        double x, y;
+        homographyProject(T, xys[i][0], xys[i][1], &x, &y);
+        double u, v;
+        homographyProject(T_, uvs[i][0], uvs[i][1], &u, &v);
+
+        double row0[9] = {x, y, 1, 0, 0, 0, -u*x, -u*y, -u};
+        double row1[9] = {0, 0, 0, x, y, 1, -v*x, -v*y, -v};
 
         for (int j = 0; j < 9; j++) {
             MATD_EL(A, 2*i, j) = row0[j];
@@ -134,19 +187,25 @@ $cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* 
     matd_svd_t svd = matd_svd_flags(A, MATD_SVD_NO_WARNINGS);
     matd_destroy(A);
 
-    // H = V[-1].reshape(3, 3)
-    // H /= H[2, 2]
-    matd_t *H = matd_create(3, 3);
+    // H' = V[-1].reshape(3, 3)
+    // H' /= H'[2, 2]
+    matd_t *H_ = matd_create(3, 3);
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
-            MATD_EL(H, i, j) = MATD_EL(svd.V, 3*i+j, svd.V->ncols-1);
+            MATD_EL(H_, i, j) = MATD_EL(svd.V, 3*i+j, svd.V->ncols-1);
         }
     }
     matd_destroy(svd.U);
     matd_destroy(svd.S);
     matd_destroy(svd.V);
 
-    matd_scale_inplace(H, 1.0 / MATD_EL(H, 2, 2));
+    matd_scale_inplace(H_, 1.0 / MATD_EL(H_, 2, 2));
+
+    // Set H = inv(T_) * H' * T.
+    matd_t *H = matd_op("M^-1 * M * M", T_, H_, T);
+    matd_destroy(T);
+    matd_destroy(T_);
+    matd_destroy(H_);
     return H;
 }
 $cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
@@ -1206,9 +1265,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
-        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        $imageLib saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
-            "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $calibrationPoses].jpeg"
+        try {
+            exec mkdir -p "$::env(HOME)/folk-calibration-poses"
+            $imageLib saveAsJpeg [dict get [lindex [Query! /someone/ claims camera /any/ has frame /frame/ at timestamp /any/] 0] frame] \
+                "$::env(HOME)/folk-calibration-poses/pose-[clock milliseconds]-[llength $calibrationPoses].jpeg"
+        } on error e {}
 
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
