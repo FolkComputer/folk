@@ -57,18 +57,13 @@ proc deleteText {code cursor count} {
 # initial setup
 When /view/ is a code view &\
      /view/ has region /r/ &\
-     "virtual-programs/group.folk" has program code /code/ {
-  When /nobody/ claims $view has text /anything/ {
-    Hold text-$view {
-      Claim $view has text $code
-    }
-  }
-  
-  When /nobody/ claims $view has view dimensions /d/  {
+     "virtual-programs/group.folk" has program code /code/ {  
+  When /nobody/ claims $view has cursor /anything/ {
     Hold $view {
       Claim $view has view dimensions [list 0 0 75 18]
       Claim $view has cursor 0
       Claim $view has max cursor x 0
+      Claim $view has text $code
     }
   }
 
@@ -80,8 +75,6 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /nobody/ claims /keyboard/ is an editor &\
      /keyboard/ points up at /view/ &\
      /view/ is a code view {
-  Wish $keyboard is outlined green
-
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
         /view/ has view dimensions /dims/ &\
         /view/ has text /code/ &\
@@ -91,13 +84,9 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
     
     if {$keyState == "up"} { return }
 
-    Hold (on virtual-programs/code-view.folk) $view {
+    Hold $view {
       if {[dict exists $options printable]} {
         set code [insertText $code $cursor [dict get $options printable]]
-
-        Hold (on virtual-programs/code-view.folk) text-$view {
-          Claim $view has text $code
-        }
 
         incr cursor
         incr maxCursorX
@@ -136,22 +125,12 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set cursor [- $cursor 1]
             set code [deleteText $code $cursor 1]
             set maxCursorX [lindex [cursorToXy $code $cursor] 0]
-            
-            Hold (on virtual-programs/code-view.folk) text-$view {
-              Claim $view has text $code
-            }
           }
           Remove {
             set code [deleteText $code $cursor 1]
-            Hold (on virtual-programs/code-view.folk) text-$view {
-              Claim $view has text $code
-            }
           }
           Return {
             set code [insertText $code $cursor "\n"]
-            Hold (on virtual-programs/code-view.folk) text-$view {
-              Claim $view has text $code
-            }
             
             set maxCursorX 0
             incr cursor
@@ -172,6 +151,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
       Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
       Claim $view has cursor $cursor
       Claim $view has max cursor x $maxCursorX
+      Claim $view has text $code
     }
   }
 }
