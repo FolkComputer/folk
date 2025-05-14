@@ -1,3 +1,4 @@
+# helper functions
 proc applyTextViewport {originalText x y width height} {
   set lines [split $originalText \n]
   set lines [lrange $lines $y [expr {($height - 1) + $y}]]
@@ -55,15 +56,13 @@ proc deleteText {code cursor count} {
 }
 
 # initial setup
-When /view/ is a code view &\
-     /view/ has region /r/ &\
-     "virtual-programs/group.folk" has program code /code/ {  
+When /view/ is a code view {  
   When /nobody/ claims $view has cursor /anything/ {
     Hold $view {
-      Claim $view has view dimensions [list 0 0 75 18]
+      Claim $view has view dimensions [list 0 0 68 17]
       Claim $view has cursor 0
       Claim $view has max cursor x 0
-      Claim $view has text $code
+      Claim $view has text "# default text"
     }
   }
 
@@ -165,7 +164,7 @@ When /view/ is a code view &\
 
   lassign [cursorToXy $code $cursor] cursorX cursorY
 
-  set scale 0.60
+  set scale 0.6
   set em [expr {$scale * 25}]
   # From NeomatrixCode.csv
   set advance [expr {0.5859375 * $em}]
@@ -177,6 +176,7 @@ When /view/ is a code view &\
   Claim $view has cursor position [list $offsetX $offsetY]
 }
 
+# Draw text and cursor
 When /view/ is a code view &\
      /view/ has view dimensions /dims/ &\
      /view/ has region /r/ {
@@ -186,16 +186,16 @@ When /view/ is a code view &\
 
   When $view has text /code/ &\
        $view has cursor position /cursorPos/ {
-    set scale 0.60
+    set scale 0.6
     set em [expr {$scale * 25}]
     
     set textOrigin [list [expr {-($regionWidth / 2) + 10}] [expr {-($regionHeight / 2) + 130}]]
     set cursorPos [vec2 add $textOrigin $cursorPos]
-    set cursorPos [vec2 add $cursorPos [list 0 [/ $em 2]]]
+    set cursorPos [vec2 add $cursorPos [list 0 [* $em $scale]]]
 
     set text [applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
     Wish $view draws text $text with offset $textOrigin \
-      scale 0.6 anchor topleft font NeomatrixCode
+      scale $scale anchor topleft font NeomatrixCode
 
     Wish $view draws a rect with width 0 height $em color green thickness 3 offset $cursorPos
   }
