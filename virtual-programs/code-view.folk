@@ -172,18 +172,20 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
             puts $fp $code
             close $fp
+
+            # give the user some feedback
+            Hold saved-alert:$keyboard {
+              Wish $keyboard is labelled "Saved!"
+            }
+
+            After 250 milliseconds {
+              Hold saved-alert:$keyboard {}
+            }
           }
           Control_p {
             set jobid [expr {rand()}]
 
             Wish to print $code with job-id $jobid
-            Hold print-${jobid} {
-              Claim $id' is printing $jobid
-            }
-
-            After 2000 milliseconds {
-              Hold print-${jobid} {}
-            }
           }
           Control_e {
             Hold new-code-for:$program {}
