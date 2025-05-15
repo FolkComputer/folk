@@ -56,13 +56,31 @@ proc deleteText {code cursor count} {
 }
 
 # initial setup
-When /view/ is a code view {  
+When /view/ is a code view {
+  # select which program the view is viewing
+  # also, `has program code /anything/` is important so it
+  # will re-Hold when new code comes
+  When $view points up at /program/ & /program/ has program code /anything/ {
+    Hold selected-program:$view {
+      Claim $view has selected program $program
+    }
+  }
+
+  # load in defaults for the view if it hasn't been initialized
   When /nobody/ claims $view has cursor /anything/ {
-    Hold $view {
+    Hold view-state-of:$view {
       Claim $view has view dimensions [list 0 0 68 17]
       Claim $view has cursor 0
       Claim $view has max cursor x 0
-      Claim $view has text "# default text"
+    }
+  }
+
+  # load in initial program code
+  When $view has selected program /program/ &\
+       /program/ has program code /programCode/ &\
+       /nobody/ claims view code for /program/ is /anything/ {
+    Hold code-for:$program {
+      Claim view code for $program is $programCode
     }
   }
 
@@ -76,14 +94,17 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /view/ is a code view {
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
         /view/ has view dimensions /dims/ &\
-        /view/ has text /code/ &\
+        /view/ has selected program /program/ &\
+        view code for /program/ is /code/ &\
         /view/ has max cursor x /maxCursorX/ &\
         /view/ has cursor /cursor/ {
     lassign $dims vpX vpY vpWidth vpHeight
     
     if {$keyState == "up"} { return }
 
-    Hold $view {
+    set resetCode false
+
+    Hold view-state-of:$view {
       if {[dict exists $options printable]} {
         set code [insertText $code $cursor [dict get $options printable]]
 
@@ -134,6 +155,14 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set maxCursorX 0
             incr cursor
           }
+          Control_r {
+            set resetCode true
+          }
+          Control_s {
+            Hold new-code-for:$program {
+              Wish program $program is replaced with $code
+            }
+          }
         }
       }
 
@@ -150,7 +179,14 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
       Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
       Claim $view has cursor $cursor
       Claim $view has max cursor x $maxCursorX
-      Claim $view has text $code
+
+      if {$resetCode} {
+        Hold code-for:$program {}
+      } else {
+        Hold code-for:$program {
+          Claim view code for $program is $code
+        }
+      }
     }
   }
 }
@@ -158,7 +194,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 # calculate cursor position
 When /view/ is a code view &\
      /view/ has cursor /cursor/ &\
-     /view/ has text /code/ &\
+     /view/ has selected program /program/ &\
+     view code for /program/ is /code/ &\
      /view/ has view dimensions /dims/ {
   lassign $dims vpX vpY vpWidth vpHeight
 
@@ -184,7 +221,8 @@ When /view/ is a code view &\
   lassign $dims vpX vpY vpWidth vpHeight
   set regionWidth [region width $r]; set regionHeight [region height $r]
 
-  When $view has text /code/ &\
+  When $view has selected program /program/ &\
+       view code for /program/ is /code/ &\
        $view has cursor position /cursorPos/ {
     set scale 0.6
     set em [expr {$scale * 25}]
