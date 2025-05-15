@@ -134,5 +134,38 @@ Claim the db library is [apply {{} {
       return count;
     }
 
+    $cc proc holds {Db* db} Jim_Obj* {
+        Jim_Obj* retObj = Jim_NewListObj(interp, NULL, 0);
+
+        mutexLock(&db->holdsMutex);
+        for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
+            Hold* hold = &db->holds[i];
+            if (hold->key == NULL) { continue; }
+
+            Statement* stmt = statementAcquire(db, hold->statement);
+            if (stmt == NULL) {
+                fprintf(stderr, "db-lib: holds: WARNING: held statement for (%s) is invalid!\n",
+                        hold->key);
+                continue;
+            }
+
+            char* clauseStr = clauseToString(statementClause(stmt));
+            Jim_Obj* holdObjv[] = {
+                Jim_NewStringObj(interp, hold->key, -1),
+                Jim_NewIntObj(interp, hold->version),
+                Jim_NewStringObj(interp, clauseStr, -1)
+            };
+            statementRelease(db, stmt);
+            free(clauseStr);
+
+            Jim_Obj* holdObj = Jim_NewListObj(interp, holdObjv,
+                                              sizeof(holdObjv)/sizeof(holdObjv[0]));
+            Jim_ListAppendElement(interp, retObj, holdObj);
+        }
+        mutexUnlock(&db->holdsMutex);
+
+        return retObj;
+    }
+
     return [$cc compile]
 }}]

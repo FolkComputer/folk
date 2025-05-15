@@ -749,3 +749,4 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - blinking during calibrate
 - fix uncalibrated Folk message
 - calibrate autorefresh doesn't work?
+  - fix collection of negated calibration
