@@ -17,10 +17,10 @@ When the db library is /dbLib/ {
       </nav>
       <h1>Statement Holds</h1>
       <ol>
-        [lmap holdObj $holds {
-            lassign $holdObj key version clause
-            subst {<li>$key ($version): <pre>[htmlEscape [string range $clause 0 300]]</pre></li>}
-        }]
+        [join [lmap holdObj $holds {
+            lassign $holdObj key version ref clause
+            subst {<li>$key ($version): ($ref) <pre>[htmlEscape [string range $clause 0 300]]</pre></li>}
+        }] "\n"]
       </ol>
       </html>
     }]

@@ -153,6 +153,7 @@ Claim the db library is [apply {{} {
             Jim_Obj* holdObjv[] = {
                 Jim_NewStringObj(interp, hold->key, -1),
                 Jim_NewIntObj(interp, hold->version),
+                Jim_ObjPrintf("s%d:%d", hold->statement.idx, hold->statement.gen),
                 Jim_NewStringObj(interp, clauseStr, -1)
             };
             statementRelease(db, stmt);
