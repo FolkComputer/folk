@@ -66,6 +66,11 @@ When /view/ is a code view {
     }
   }
 
+  # reset selected program when it's not pointing at anything
+  When /nobody/ claims $view points up at /anything/ {
+    Hold selected-program:$view {}
+  }
+
   # load in defaults for the view if it hasn't been initialized
   When /nobody/ claims $view has cursor /anything/ {
     Hold view-state-of:$view {
@@ -167,6 +172,23 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
             puts $fp $code
             close $fp
+          }
+          Control_p {
+            set jobid [expr {rand()}]
+
+            Wish to print $code with job-id $jobid
+            Hold print-${jobid} {
+              Claim $id' is printing $jobid
+            }
+
+            After 2000 milliseconds {
+              Hold print-${jobid} {}
+            }
+          }
+          Control_e {
+            Hold new-code-for:$program {}
+            set resetCode true
+            file delete "$::env(HOME)/folk-printed-programs/$program.folk.edited"
           }
         }
       }
