@@ -161,7 +161,12 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
           Control_s {
             Hold new-code-for:$program {
               Wish program $program is replaced with $code
+              Wish $program is titled "EDITED"
             }
+
+            set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
+            puts $fp $code
+            close $fp
           }
         }
       }
