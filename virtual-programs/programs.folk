@@ -41,6 +41,7 @@ When (non-capturing) /type/ /obj/ has a program {
             close $fd
         }
 
+        Claim $obj has original program code $code
         When /nobody/ wishes program $obj is replaced with /anything/ {
             Claim $obj has program code $code
         }
