@@ -699,7 +699,7 @@ extern "C" \{
     while {![file exists [file rootname $cfile].o]} {
         sleep 0.01
         incr n
-        if {$n > 10} { error "Failed! [string range $e 0 500]" }
+        if {$n > 500} { error "Failed on $cfile! Timed out" }
     }
 
     try {
