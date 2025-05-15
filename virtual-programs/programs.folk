@@ -28,7 +28,13 @@ When (non-capturing) /type/ /obj/ has a program {
         set code [read $fd]
         close $fd
 
-        Claim $obj has program code $code
+        When /nobody/ wishes program $obj is replaced with /anything/ {
+            Claim $obj has program code $code
+        }
+
+        When /someone/ wishes program $obj is replaced with /newCode/ {
+            Claim $obj has program code $newCode
+        }
 
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.meta.folk"]} {
             set mfd [open "$::env(HOME)/folk-printed-programs/$obj.meta.folk" r]
