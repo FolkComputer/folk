@@ -144,8 +144,8 @@ Claim the db library is [apply {{} {
 
             Statement* stmt = statementAcquire(db, hold->statement);
             if (stmt == NULL) {
-                fprintf(stderr, "db-lib: holds: WARNING: held statement for (%s) is invalid!\n",
-                        hold->key);
+                fprintf(stderr, "db-lib: holds: WARNING: held statement on (%s) is invalid! (s%d:%d)\n",
+                        hold->key, hold->statement.idx, hold->statement.gen);
                 continue;
             }
 

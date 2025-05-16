@@ -774,31 +774,39 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
     }
 }
 
-// Inserts a new statement with clause `clause` and returns a ref to
-// that newly created statement, UNLESS:
+// Inserts a new statement with clause `clause` & returns a ref to
+// that newly created statement & sets outReusedStatementRef to a null
+// ref, UNLESS:
 // 
 //   - a statement is already present with that clause, in which case
-//     we increment that statement's parent count and return a null
-//     ref
+//     we increment that statement's parent count & return a null ref
+//     & set outReusedStatementRef to the already-present statement
 //
 //   - parentMatchRef has been invalidated, or its parentMatch has
-//     childStatements invalidated, in which case we do nothing and
-//     return a null ref
+//     childStatements invalidated, in which case we do nothing &
+//     return a null ref & set outReusedStatementRef to a null ref
+//     (because the whole situation has been invalidated)
 // 
-// (both of these mean that the caller won't trigger a reaction, since
-// no new statement is being created).
+// (both of these mean that the caller shouldn't trigger a reaction,
+// since no new statement is being created).
 //
 // Takes ownership of clause (i.e., you can't touch clause at the
 // caller after calling this!).
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       Destructor destructor,
                                       const char* sourceFileName, int sourceLineNumber,
-                                      MatchRef parentMatchRef) {
+                                      MatchRef parentMatchRef,
+                                      StatementRef* outReusedStatementRef) {
+#define setReusedStatementRef(ref) \
+    if (outReusedStatementRef != NULL) \
+        *outReusedStatementRef = STATEMENT_REF_NULL;
+
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
         // Need to set up parent match.
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
+            setReusedStatementRef(STATEMENT_REF_NULL);
             return STATEMENT_REF_NULL; // Abort!
         }
 
@@ -806,6 +814,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         if (parentMatch->childStatements == NULL) {
             pthread_mutex_unlock(&parentMatch->childStatementsMutex);
             matchRelease(db, parentMatch);
+
+            setReusedStatementRef(STATEMENT_REF_NULL);
             return STATEMENT_REF_NULL; // Abort!
         }
 
@@ -868,6 +878,8 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
                         matchRelease(db, parentMatch);
                     }
+
+                    setReusedStatementRef(existingRefs[0]);
                     return STATEMENT_REF_NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -902,7 +914,11 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
         matchRelease(db, parentMatch);
     }
+
+    setReusedStatementRef(STATEMENT_REF_NULL);
     return ref;
+
+#undef setReusedStatementRef
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
@@ -1034,12 +1050,21 @@ StatementRef dbHoldStatement(Db* db,
         if (clause->nTerms > 0) {
             hold->version = version;
 
+            StatementRef reusedStatementRef;
             newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
                                                destructor,
                                                sourceFileName,
                                                sourceLineNumber,
-                                               MATCH_REF_NULL);
-            hold->statement = newStmt;
+                                               MATCH_REF_NULL,
+                                               &reusedStatementRef);
+            if (!statementRefIsNull(newStmt)) {
+                hold->statement = newStmt;
+            } else if (!statementRefIsNull(reusedStatementRef)) {
+                hold->statement = reusedStatementRef;
+            } else {
+                fprintf(stderr, "dbHoldStatement: ERROR: Ref neither reused nor created\n");
+                exit(1);
+            }
         } else {
             clauseFree(clause);
             hold->statement = STATEMENT_REF_NULL;

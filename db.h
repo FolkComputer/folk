@@ -106,7 +106,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       Destructor destructor,
                                       const char* sourceFileName, int sourceLineNumber,
-                                      MatchRef parent);
+                                      MatchRef parent,
+                                      StatementRef* outReusedStatementRef);
 
 // Call when you're about to begin a match (i.e., evaluating the body
 // of a When) -- creates the Match object that you'll attach any

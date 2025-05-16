@@ -299,7 +299,7 @@ static void Say(Clause* clause, long keepMs, const char *destructorCode,
     };
     ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
                                    sourceFileName, sourceLineNumber,
-                                   parent);
+                                   parent, NULL);
 
     if (!statementRefIsNull(ref)) {
         reactToNewStatement(ref);
@@ -922,7 +922,7 @@ void workerRun(WorkQueueItem item) {
                                        (Destructor) { .fn = NULL },
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
-                                       MATCH_REF_NULL);
+                                       MATCH_REF_NULL, NULL);
         if (!statementRefIsNull(ref)) {
             reactToNewStatement(ref);
         }
