@@ -748,5 +748,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 - blinking during calibrate
 - fix uncalibrated Folk message
-- calibrate autorefresh doesn't work?
-  - fix collection of negated calibration
+- ~~calibrate autorefresh doesn't work?~~
+  - ~~fix collection of negated calibration~~
+  - ~~the Hold is still around, so it hasn't been stomped, but somehow
+    its refcount hit 0 and the statement itself was reaped?~~
