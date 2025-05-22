@@ -797,9 +797,10 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                                       const char* sourceFileName, int sourceLineNumber,
                                       MatchRef parentMatchRef,
                                       StatementRef* outReusedStatementRef) {
-#define setReusedStatementRef(ref) \
-    if (outReusedStatementRef != NULL) \
-        *outReusedStatementRef = STATEMENT_REF_NULL;
+#define setReusedStatementRef(_ref) \
+    if (outReusedStatementRef != NULL) { \
+        *outReusedStatementRef = (_ref); \
+    }
 
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
