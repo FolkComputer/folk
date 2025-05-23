@@ -556,7 +556,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When /detector/ detects tags /tags/ on camera $camera \
              at timestamp /timestamp/ in time /something/ &\
-         camera $camera has frame /frame/ at timestamp /timestamp/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
 
@@ -794,9 +793,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             [list $this claims the calibration poses are $calibrationPoses]
 
         # Save the pose / camera image to a jpeg (for debugging purposes)
-        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        $imageLib saveAsJpeg $frame \
-            "$::env(HOME)/folk-calibration-poses/pose-$calibrationId-[llength $calibrationPoses].jpeg"
+        # exec mkdir -p "$::env(HOME)/folk-calibration-poses"
+        # $imageLib saveAsJpeg $frame \
+        #     "$::env(HOME)/folk-calibration-poses/pose-$calibrationId-[llength $calibrationPoses].jpeg"
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
