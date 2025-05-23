@@ -148,7 +148,7 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
 
     set relativeRegion [region move $r down 105%]
     Claim $id' has region $relativeRegion
-    # Wish $id' is outlined white
+    Wish $id' is outlined white
     lassign [region topleft $r] xstart ystart
     set em [expr {$scale * 25}]
     # From NeomatrixCode.csv
