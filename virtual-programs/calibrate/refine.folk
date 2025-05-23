@@ -520,12 +520,8 @@ fn refineMonoCalibration {calibration} {
 
 fn refineCalibration {isPrintedTag isProjectedTag matLib 
                       calibrationPoses calibration} {
-    local proc isPrintedTag {args} {isPrintedTag} {
-        tailcall {*}$isPrintedTag {*}$args
-    }
-    local proc isProjectedTag {args} {isProjectedTag} {
-        tailcall {*}$isProjectedTag {*}$args
-    }
+    fn isPrintedTag
+    fn isProjectedTag
 
     # We start by individually refining the mono calibration of
     # the camera and the mono calibration of the projector.

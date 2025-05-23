@@ -33,6 +33,15 @@ proc unknown {cmdName args} {
         set fnVarName ^$cmdName
         upvar $fnVarName fn
         if {[info exists fn]} {
+            if {[llength $fn] == 1} {
+                # fn[0] is a sealed obj that includes its own
+                # environment (probably passed through a statement)
+                # and can just be applied to args.
+                set fnObj [lindex $fn 0]
+                proc $cmdName args {fnObj} { tailcall {*}$fnObj {*}$args }
+                tailcall $cmdName {*}$args
+            }
+
             lassign $fn argNames body sourceInfo
             if {[info source $body] ne $sourceInfo} {
                 set body [info source $body {*}$sourceInfo]
@@ -128,15 +137,31 @@ proc evaluateWhenBlock {whenBody envStack} {
 
 proc fn {args} {
     if {[llength $args] == 1} {
+        set fnName [lindex $args 0]
+
+        if {[uplevel info exists $fnName]} {
+            upvar $fnName fnObj
+
+            # They want to just be able to call an existing fn that
+            # already exists in scope as a `fnName` variable.
+
+            # Create this function (both in lexical variable scope, so
+            # it can be inherited by child scopes, and in
+            # callable-function namespace) and then return.
+
+            uplevel [list set ^$fnName [list $fnObj]]
+            proc $fnName args {fnObj} { tailcall {*}$fnObj {*}$args }
+            return
+        }
+
         # They just want to capture an existing fn + env as a
         # self-contained value, to share in a statement or
         # whatever. This is a pretty slow operation.
 
+        upvar ^$fnName fn
+
         # TODO: Probably not safe to call outside the original context
         # where the fn was defined.
-
-        set fnName [lindex $args 0]
-        upvar ^$fnName fn
 
         set envStack [uplevel captureEnvStack]
 
@@ -158,7 +183,7 @@ proc fn {args} {
                 {*}$args
         }} $fn $envStack]
     }
-    lassign $args name argNames body
+    lassign $args fnName argNames body
 
     # Creates a variable in the caller lexical env called ^$name. Our
     # custom unknown implementation will check ^$name on call.
@@ -169,7 +194,7 @@ proc fn {args} {
     # function! we don't expect people to pass it around really), so
     # the caller of this function will just rehydrate that enclosing
     # environment.
-    uplevel [list set ^$name [list $argNames $body [info source $body]]]
+    uplevel [list set ^$fnName [list $argNames $body [info source $body]]]
 
     # In case they actually want to call the fn in the same context,
     # we make a proc immediately also:
@@ -177,7 +202,7 @@ proc fn {args} {
     # We need to use tailcall here to preserve the filename/lineno
     # info for $body for some reason.
     # TODO: also capture info statics?
-    tailcall proc $name $argNames [uplevel info locals] $body
+    tailcall proc $fnName $argNames [uplevel info locals] $body
 }
 
 proc assert condition {
@@ -558,6 +583,8 @@ proc ForEach! {args} {
 
         try {
             uplevel [list dict with __result $body]
+        } on error {err opts} {
+            puts stderr "Error in ForEach!: $err --  $opts"
         } finally {
             StatementRelease! $ref
         }
