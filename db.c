@@ -1019,6 +1019,7 @@ StatementRef dbHoldStatement(Db* db,
             if (db->holds[i].key == NULL) {
                 hold = &db->holds[i];
                 hold->key = strdup(key);
+                hold->version = -1;
                 break;
             }
         }
