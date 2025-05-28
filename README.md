@@ -753,3 +753,5 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - ~~fix collection of negated calibration~~
   - ~~the Hold is still around, so it hasn't been stomped, but somehow
     its refcount hit 0 and the statement itself was reaped?~~
+- **calibrate render loop blinks out regularly**
+- **calibrate auto refresh preview is broken(?)**

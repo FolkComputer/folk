@@ -488,7 +488,7 @@ Claim the default program geometry is \$geom
 
 When the calibration poses are /calibrationPoses/ {
     # Hold reporting info for the Web page.
-    set calibrationReport [subst {
+    set posesReport [subst {
       <p>Poses:</p><ol>
       [join [lmap pose $calibrationPoses {
         set width [dict get $pose cameraWidth]
@@ -521,7 +521,28 @@ When the calibration poses are /calibrationPoses/ {
       [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
       </ol>
     }]
-    Claim the calibration report is $calibrationReport
+
+    When /nobody/ claims the calibration is /anything/ {
+        Claim the calibration report is $posesReport
+    }
+    When the calibration is /calibration/ {
+        set calibrationReport "$posesReport
+        <p>Calibration:</p><pre>
+Camera intrinsics --------
+[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
+
+Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
+
+Projector intrinsics -----
+[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+
+Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
+
+----
+Stereo RMSE [dict getdef $calibration rmse (unavailable)]
+</pre>"
+        Claim the calibration report is $calibrationReport
+    }
 }
 
 Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {

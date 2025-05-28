@@ -1126,29 +1126,6 @@ When the calibration poses are /calibrationPoses/ &\
     puts $calibration
     puts "."
 
-    set calibrationReport "<p>Poses:</p><ol>
-        [join [lmap pose $calibrationPoses {subst {
-            <li>RMSE [dict getdef $pose rmse (unavailable)]</li>
-        }}] \n]
-        [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
-        </ol>
-        <p>Calibration:</p><pre>
-Camera intrinsics --------
-[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
-
-Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
-
-Projector intrinsics -----
-[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
-
-Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
-
-----
-Stereo RMSE [dict getdef $calibration rmse (unavailable)]
-</pre>"
-    Hold! (non-capturing) calibration report \
-        [list Claim the calibration report is $calibrationReport]
-
     When the printed calibration tag size is /tagSizeMm/ mm {
         puts "======== Reproject pose 0 ========="
         set pose [lindex $calibrationPoses 0]
