@@ -490,12 +490,34 @@ When the calibration poses are /calibrationPoses/ {
     # Hold reporting info for the Web page.
     set calibrationReport [subst {
       <p>Poses:</p><ol>
-      [join [lmap pose $calibrationPoses {subst {
-        <li>
-          <img style="max-width: 300px" src="/calibration-poses/[dict get $pose imageName]"><br>
+      [join [lmap pose $calibrationPoses {
+        set width [dict get $pose cameraWidth]
+        set height [dict get $pose cameraHeight]
+        subst {
+          <li>
+          <div style="position: relative; width: 300px; height: [expr {(300.0 / $width) * $height}]px">
+            <img style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px"
+                 src="/calibration-poses/[dict get $pose imageName]">
+            <svg style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px; pointer-events: none"
+                 viewBox="0 0 [dict get $pose cameraWidth] [dict get $pose cameraHeight]">
+               [join [lmap det [dict values [dict get $pose tags]] {
+                    set points [dict get $det p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $det id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                }] "\n"]
+            </svg>
+          </div>
           RMSE [dict getdef $pose rmse (unavailable)]
-        </li>
-      }}] \n]
+          </li>
+        }
+      }] \n]
       [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
       </ol>
     }]
