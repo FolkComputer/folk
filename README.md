@@ -712,9 +712,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - only intern long strings?
 - ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
-- **why does collect take 100 microseconds?**
+- ~~why does collect take 100 microseconds?~~
 - why doesn't epoch stack trace show anything in Tracy?
 - don't waste time on rerendering unchanged writable images
+- stack traces don't work inside web handlers
 
 ### editor bugs
 

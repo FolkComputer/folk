@@ -422,7 +422,15 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             }
             set timestamp [expr {[clock milliseconds] / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
-            HoldStatement! camera \
+            # HACK: We retain the statement for 400ms (which is
+            # probably pretty memory-expensive...) so that it's still
+            # around when its AprilTags are fully detected, so we can
+            # store the image for debugging during calibration. Note
+            # that HoldStatement! will deindex this immediately on the
+            # next frame, so you need to match this first before
+            # matching the tag detection if you want to have a handle
+            # on it later.
+            HoldStatement! (keep 400ms) camera \
                 -destructor [list $camLib freeImage $frame] \
                 [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
 

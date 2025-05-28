@@ -554,7 +554,13 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    When /detector/ detects tags /tags/ on camera $camera \
+    # HACK: We match the camera frame image first so that we have a
+    # handle on it (it's retained for 400ms but deindexed immediately,
+    # so we can't query for it later) when the tag detection comes in
+    # some tens of ms later, so we can save the frame image for
+    # debugging.
+    When camera $camera has frame /frame/ at timestamp /timestamp/ &\
+         /detector/ detects tags /tags/ on camera $camera \
              at timestamp /timestamp/ in time /something/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ with \
              model /model/ version /version/ timestamp /hTimestamp/ {
@@ -778,7 +784,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
         # calibration pose to save.
-        set calibrationPoses [dict get [lindex [Query! /someone/ claims the calibration poses are /calibrationPoses/] 0] calibrationPoses]
+        set calibrationPoses [dict get [lindex [Query! the calibration poses are /calibrationPoses/] 0] calibrationPoses]
         if {[llength $calibrationPoses] > 0} {
             set prevCalibrationPose [lindex $calibrationPoses end]
             if {[meanPoseDifference $pose $prevCalibrationPose] < 50} {
@@ -786,16 +792,17 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
 
+        # Save the pose / camera image to a jpeg (for debugging purposes)
+        exec mkdir -p "$::env(HOME)/folk-calibration-poses"
+        set imageName "pose-$calibrationId-[llength $calibrationPoses].jpeg"
+        $imageLib saveAsJpeg $frame "$::env(HOME)/folk-calibration-poses/$imageName"
+        dict set pose imageName $imageName
+
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
         HoldStatement! (on calibration) poses \
             [list $this claims the calibration poses are $calibrationPoses]
-
-        # Save the pose / camera image to a jpeg (for debugging purposes)
-        # exec mkdir -p "$::env(HOME)/folk-calibration-poses"
-        # $imageLib saveAsJpeg $frame \
-        #     "$::env(HOME)/folk-calibration-poses/pose-$calibrationId-[llength $calibrationPoses].jpeg"
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
