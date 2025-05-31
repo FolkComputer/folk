@@ -9,6 +9,7 @@ source "lib/ws.tcl"
 Claim the websocket library is $wsLib
 
 proc handleConnect {chan addr} {
+    $chan timeout 2000
     fileevent $chan readable [list handleRead $chan $addr]
 }
 
