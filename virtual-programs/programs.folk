@@ -25,10 +25,30 @@ When (non-capturing) /type/ /obj/ has a program {
             }
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
         }
+
         set code [read $fd]
         close $fd
 
-        Claim $obj has program code $code
+        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.edited"]} {
+            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.edited" r]
+            set editedCode [read $fd]
+
+            Hold (on virtual-programs/code-view.folk) new-code-for:$obj {
+                Wish program $obj is replaced with code $editedCode
+                Wish $obj is titled "EDITED"
+            }
+
+            close $fd
+        }
+
+        Claim $obj has original program code $code
+        When /nobody/ wishes program $obj is replaced with code /anything/ {
+            Claim $obj has program code $code
+        }
+
+        When /someone/ wishes program $obj is replaced with code /newCode/ {
+            Claim $obj has program code $newCode
+        }
 
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.meta.folk"]} {
             set mfd [open "$::env(HOME)/folk-printed-programs/$obj.meta.folk" r]

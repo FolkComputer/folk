@@ -1,0 +1,14 @@
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /nobody/ claims /keyboard/ is an editor {
+    Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+        if {$keyState == "up"} { return }
+
+        if {$key == "Control_b"} {
+            Hold {
+                set jobid [expr {rand()}]
+
+                Wish to print "# blank" with job-id $jobid
+            }
+        }
+    }
+}

@@ -1,0 +1,174 @@
+# initial setup
+When /view/ is a code view {
+  # select which program the view is viewing
+  # also, `has program code /anything/` is important so it
+  # will re-Hold when new code comes
+  When $view points up at /program/ & /program/ has program code /anything/ {
+    Hold selected-program:$view {
+      Claim $view has selected program $program
+    }
+  }
+
+  # reset selected program when it's not pointing at anything
+  When /nobody/ claims $view points up at /anything/ {
+    Hold selected-program:$view {}
+  }
+
+  # load in defaults for the view if it hasn't been initialized
+  When /nobody/ claims $view has cursor /anything/ {
+    Hold view-state-of:$view {
+      Claim $view has view dimensions [list 0 0 68 17]
+      Claim $view has cursor 0
+      Claim $view has max cursor x 0
+    }
+  }
+
+  # load in initial program code
+  When $view has selected program /program/ &\
+       /program/ has program code /programCode/ &\
+       /nobody/ claims view code for /program/ is /anything/ {
+    Hold code-for:$program {
+      Claim view code for $program is $programCode
+    }
+  }
+
+  Wish tag $view is stabilized
+}
+
+# keyboard logic
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /nobody/ claims /keyboard/ is an editor &\
+     /keyboard/ points up at /view/ &\
+     /view/ is a code view {
+  Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
+        /view/ has view dimensions /dims/ &\
+        /view/ has selected program /program/ &\
+        view code for /program/ is /code/ &\
+        /view/ has max cursor x /maxCursorX/ &\
+        /view/ has cursor /cursor/ {
+    lassign $dims vpX vpY vpWidth vpHeight
+    
+    if {$keyState == "up"} { return }
+
+    set resetCode false
+
+    Hold view-state-of:$view {
+      if {[dict exists $options printable]} {
+        set code [editor::insertText $code $cursor [dict get $options printable]]
+
+        incr cursor
+        incr maxCursorX
+      } else {
+        lassign [editor::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+        lassign [editor::handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
+
+        switch $key {
+          Control_r {
+            set resetCode true
+          }
+          Control_s {
+            Hold new-code-for:$program {
+              Wish program $program is replaced with code $code
+              Wish $program is titled "EDITED"
+            }
+
+            set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
+            puts -nonewline $fp $code
+            close $fp
+
+            # give the user some feedback
+            Hold saved-alert:$keyboard {
+              Wish $keyboard is labelled "Saved!"
+            }
+
+            After 250 milliseconds {
+              Hold saved-alert:$keyboard {}
+            }
+          }
+          Control_p {
+            set jobid [expr {rand()}]
+
+            Wish to print $code with job-id $jobid
+          }
+          Control_t {
+            # remove the edited code to restore the program to its original code
+            Hold new-code-for:$program {}
+            set resetCode true
+            file delete "$::env(HOME)/folk-printed-programs/$program.folk.edited"
+          }
+        }
+      }
+
+      lassign [editor::cursorToXy $code $cursor] cursorX cursorY
+      if {$cursorX < $vpX} { set vpX $cursorX }
+      if {$cursorX >= $vpX + $vpWidth} {
+        set vpX [expr {$cursorX - $vpWidth}]
+      }
+      if {$cursorY < $vpY} { set vpY $cursorY }
+      if {$cursorY >= $vpY + $vpHeight - 1} {
+        set vpY [expr {$cursorY - $vpHeight + 1}]
+      }
+
+      Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
+      Claim $view has cursor $cursor
+      Claim $view has max cursor x $maxCursorX
+
+      if {$resetCode} {
+        # the init code will rerun when nothing is held for the code
+        Hold code-for:$program {}
+      } else {
+        Hold code-for:$program {
+          Claim view code for $program is $code
+        }
+      }
+    }
+  }
+}
+
+# calculate cursor position
+When /view/ is a code view &\
+     /view/ has cursor /cursor/ &\
+     /view/ has selected program /program/ &\
+     view code for /program/ is /code/ &\
+     /view/ has view dimensions /dims/ {
+  lassign $dims vpX vpY vpWidth vpHeight
+
+  lassign [editor::cursorToXy $code $cursor] cursorX cursorY
+
+  set scale 0.6
+  set em [expr {$scale * 25}]
+  # From NeomatrixCode.csv
+  set advance [expr {0.5859375 * $em}]
+  set margin [expr {$advance * 3 + 10}]
+
+  set offsetX [expr {($cursorX - $vpX) * $advance}]
+  set offsetY [expr {($cursorY - $vpY) * $em}]
+
+  Claim $view has cursor position [list $offsetX $offsetY]
+}
+
+# Draw text and cursor
+When /view/ is a code view &\
+     /view/ has view dimensions /dims/ &\
+     /view/ has region /r/ {
+  # vp = viewport
+  lassign $dims vpX vpY vpWidth vpHeight
+  set regionWidth [region width $r]; set regionHeight [region height $r]
+
+  When $view has selected program /program/ &\
+       view code for /program/ is /code/ &\
+       $view has cursor position /cursorPos/ {
+    set scale 0.6
+    set em [expr {$scale * 25}]
+    
+    set textOrigin [list [expr {-($regionWidth / 2) + 10}] [expr {-($regionHeight / 2) + 130}]]
+    set cursorPos [vec2 add $textOrigin $cursorPos]
+    set cursorPos [vec2 add $cursorPos [list 0 [* $em $scale]]]
+
+    set text [editor::applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+    Wish $view draws text $text with offset $textOrigin \
+      scale $scale anchor topleft font NeomatrixCode
+
+    Wish $view draws a rect with width 0 height $em color green thickness 3 offset $cursorPos
+  }
+}
