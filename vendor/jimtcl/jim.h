@@ -71,7 +71,6 @@ extern "C" {
 
 #include <time.h>
 #include <limits.h>
-#include <stdio.h>  /* for the FILE typedef definition */
 #include <stdlib.h> /* In order to export the Jim_Free() macro */
 #include <stdarg.h> /* In order to get type va_list */
 
@@ -309,7 +308,7 @@ typedef struct Jim_Obj {
         } ptrIntValue;
         /* Variable object */
         struct {
-            struct Jim_Var *varPtr;
+            struct Jim_VarVal *vv;
             unsigned long callFrameId; /* for caching */
             int global; /* If the variable name is globally scoped with :: */
         } varValue;
@@ -440,8 +439,8 @@ typedef struct Jim_CallFrame {
     Jim_Obj *procBodyObjPtr; /* body object of the running procedure */
     struct Jim_CallFrame *next; /* Callframes are in a linked list */
     Jim_Obj *nsObj;             /* Namespace for this proc call frame */
-    Jim_Obj *fileNameObj;       /* file and line of caller of this proc (if available) */
-    int line;
+    Jim_Obj *unused_fileNameObj;
+    int unused_line;
     Jim_Stack *localCommands; /* commands to be destroyed when the call frame is destroyed */
     struct Jim_Obj *tailcallObj;  /* Pending tailcall invocation */
     struct Jim_Cmd *tailcallCmd;  /* Resolved command for pending tailcall invocation */
@@ -449,27 +448,28 @@ typedef struct Jim_CallFrame {
 
 /* Evaluation frame */
 typedef struct Jim_EvalFrame {
-    const char *type;           /* "cmd", "source", etc. */
-    int level; /* Level of this evaluation frame. 0 = global */
-    int callFrameLevel;         /* corresponding call frame level */
+    Jim_CallFrame *framePtr;    /* Pointer to corresponding proc call frame */
+    int level;                  /* Level of this evaluation frame. 0 = global */
+    int procLevel;              /* Total proc depth */
     struct Jim_Cmd *cmd;        /* The currently executing command */
-    struct Jim_EvalFrame *parent; /* The parent frame or NULL if at top */
+    struct Jim_EvalFrame *parent; /* The parent eval frame or NULL if at top */
     Jim_Obj *const *argv; /* object vector of the current command . */
     int argc; /* number of args */
     Jim_Obj *scriptObj;
 } Jim_EvalFrame;
 
-/* The var structure. It just holds the pointer of the referenced
- * object. If linkFramePtr is not NULL the variable is a link
+/* The var structure. It holds the pointer of the referenced
+ * object and a reference count. If linkFramePtr is not NULL the variable is a link
  * to a variable of name stored in objPtr living in the given callframe
  * (this happens when the [global] or [upvar] command is used).
- * The interp in order to always know how to free the Jim_Obj associated
- * with a given variable because in Jim objects memory management is
+ * refCount is normally 1, but may be more than 1 if this has additional references
+ * (e.g. from proc static &var)
  * bound to interpreters. */
-typedef struct Jim_Var {
+typedef struct Jim_VarVal {
     Jim_Obj *objPtr;
     struct Jim_CallFrame *linkFramePtr;
-} Jim_Var;
+    int refCount;
+} Jim_VarVal;
 
 /* The cmd structure. */
 typedef int Jim_CmdProc(struct Jim_Interp *interp, int argc,
@@ -540,9 +540,9 @@ typedef struct Jim_PrngState {
  * ---------------------------------------------------------------------------*/
 typedef struct Jim_Interp {
     Jim_Obj *result; /* object returned by the last command called. */
-    int errorLine; /* Error line where an error occurred. */
-    Jim_Obj *errorFileNameObj; /* Error file where an error occurred. */
-    int addStackTrace; /* > 0 if a level should be added to the stack trace */
+    int unused_errorLine; /* Error line where an error occurred. */
+    Jim_Obj *currentFilenameObj; /* filename of current Jim_EvalFile() */
+    int break_level;       /* break/continue level */
     int maxCallFrameDepth; /* Used for infinite loop detection. */
     int maxEvalDepth; /* Used for infinite loop detection. */
     int evalDepth;  /* Current eval depth */
@@ -568,11 +568,11 @@ typedef struct Jim_Interp {
     int safeexpr; /* Set when evaluating a "safe" expression, no var subst or command eval */
     Jim_Obj *liveList; /* Linked list of all the live objects. */
     Jim_Obj *freeList; /* Linked list of all the unused objects. */
-    Jim_Obj *currentScriptObj; /* Script currently in execution. */
+    Jim_Obj *unused_currentScriptObj; /* Script currently in execution. */
     Jim_EvalFrame topEvalFrame;  /* dummy top evaluation frame */
     Jim_EvalFrame *evalFrame;  /* evaluation stack */
-    int argc;
-    Jim_Obj * const *argv;
+    int procLevel;
+    Jim_Obj * const *unused_argv;
     Jim_Obj *nullScriptObj; /* script representation of an empty string */
     Jim_Obj *emptyObj; /* Shared empty string object. */
     Jim_Obj *trueObj; /* Shared true int object. */
@@ -698,6 +698,14 @@ JIM_EXPORT int Jim_EvalObjPrefix(Jim_Interp *interp, Jim_Obj *prefix,
 JIM_EXPORT int Jim_EvalNamespace(Jim_Interp *interp, Jim_Obj *scriptObj, Jim_Obj *nsObj);
 JIM_EXPORT int Jim_SubstObj (Jim_Interp *interp, Jim_Obj *substObjPtr,
         Jim_Obj **resObjPtrPtr, int flags);
+
+/* source information */
+JIM_EXPORT Jim_Obj *Jim_GetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
+        int *lineptr);
+/* may only be called on an unshared object */
+JIM_EXPORT void Jim_SetSourceInfo(Jim_Interp *interp, Jim_Obj *objPtr,
+        Jim_Obj *fileNameObj, int lineNumber);
+
 
 /* stack */
 JIM_EXPORT void Jim_InitStack(Jim_Stack *stack);
@@ -956,7 +964,8 @@ JIM_EXPORT int Jim_InteractivePrompt (Jim_Interp *interp);
 JIM_EXPORT void Jim_HistoryLoad(const char *filename);
 JIM_EXPORT void Jim_HistorySave(const char *filename);
 JIM_EXPORT char *Jim_HistoryGetline(Jim_Interp *interp, const char *prompt);
-JIM_EXPORT void Jim_HistorySetCompletion(Jim_Interp *interp, Jim_Obj *commandObj);
+JIM_EXPORT void Jim_HistorySetCompletion(Jim_Interp *interp, Jim_Obj *completionCommandObj);
+JIM_EXPORT void Jim_HistorySetHints(Jim_Interp *interp, Jim_Obj *hintsCommandObj);
 JIM_EXPORT void Jim_HistoryAdd(const char *line);
 JIM_EXPORT void Jim_HistoryShow(void);
 JIM_EXPORT void Jim_HistorySetMaxLen(int length);
@@ -979,7 +988,7 @@ JIM_EXPORT int Jim_LoadLibrary(Jim_Interp *interp, const char *pathName);
 JIM_EXPORT void Jim_FreeLoadHandles(Jim_Interp *interp);
 
 /* jim-aio.c */
-JIM_EXPORT FILE *Jim_AioFilehandle(Jim_Interp *interp, Jim_Obj *command);
+JIM_EXPORT int Jim_AioFilehandle(Jim_Interp *interp, Jim_Obj *command);
 
 /* type inspection - avoid where possible */
 JIM_EXPORT int Jim_IsDict(Jim_Obj *objPtr);

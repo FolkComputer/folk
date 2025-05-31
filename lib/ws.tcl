@@ -85,24 +85,21 @@ $cc code {
 }
 $cc typedef {struct wslay_event_context*} wslay_event_context_ptr
 $cc proc init {Jim_Obj* pipeReadObj Jim_Obj* pipeWriteObj} void {
-    FILE* pipeReadPtr = Jim_AioFilehandle(interp, pipeReadObj);
-    if (pipeReadPtr == NULL) { FOLK_ERROR("ws: pipeReadPtr is null\n"); }
-    wsPipeRead = fileno(pipeReadPtr);
+    wsPipeRead = Jim_AioFilehandle(interp, pipeReadObj);
+    if (wsPipeRead < 0) { FOLK_ERROR("ws: wsPipeRead is invalid\n"); }
 
     int flags = fcntl(wsPipeRead, F_GETFL, 0);
     fcntl(wsPipeRead, F_SETFL, flags | O_NONBLOCK);
 
-    FILE* pipeWritePtr = Jim_AioFilehandle(interp, pipeWriteObj);
-    if (pipeWritePtr == NULL) { FOLK_ERROR("ws: pipeWritePtr is null\n"); }
-    wsPipeWrite = fileno(pipeWritePtr);
+    wsPipeWrite = Jim_AioFilehandle(interp, pipeWriteObj);
+    if (wsPipeWrite < 0) { FOLK_ERROR("ws: wsPipeWrite is invalid\n"); }
 }
 $cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
     // Convert chan to an int fd:
-    FILE* fp = Jim_AioFilehandle(interp, chan);
-    if (fp == NULL) {
+    int fd = Jim_AioFilehandle(interp, chan);
+    if (fd < 0) {
         FOLK_ERROR("web: Unable to open channel as file\n");
     }
-    int fd = fileno(fp);
 
     WsSession* session = (WsSession*) malloc(sizeof(WsSession));
     session->fd = fd;

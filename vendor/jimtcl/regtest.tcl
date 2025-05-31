@@ -384,6 +384,27 @@ foreach i $chars1 {
 alarm 0
 puts "TEST 54 PASSED"
 
+# info frame should work even if in an anonymous proc
+apply {{} {info frame 0}}
+puts "TEST 55 PASSED"
+
+# json decode should not core dump on invalid input
+set json {
+{
+    "fossil":"9c65b5432e4aeecf3556e5550c338ce93fd861cc",
+    "timestamp":1435827337,
+    "command":"timeline/checkin", /* this is line 3 */
+    "procTimeUs":3333,
+}}
+catch {json::decode $json}
+puts "TEST 56 PASSED"
+
+if {[exists -command debug]} {
+    set f [open /dev/null w]
+    $f puts [debug objects]
+    $f close
+}
+puts "TEST 57 PASSED"
 
 # TAKE THE FOLLOWING puts AS LAST LINE
 

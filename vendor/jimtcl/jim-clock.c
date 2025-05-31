@@ -6,18 +6,6 @@
 
 #include "jimautoconf.h"
 
-/* For strptime() - currently nothing sets this */
-#ifdef STRPTIME_NEEDS_XOPEN_SOURCE
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 500
-#endif
-#endif
-
-/* For timegm() */
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -143,6 +131,7 @@ static int clock_cmd_scan(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     /* Now convert into a time_t */
+    tm.tm_isdst = options.gmt ? 0 : -1;
     Jim_SetResultInt(interp, options.gmt ? jim_timegm(&tm) : mktime(&tm));
 
     return JIM_OK;

@@ -33,57 +33,32 @@ proc function {value} {
 	return $value
 }
 
-# Returns a live stack trace as a list of proc filename line ...
-# with 3 entries for each stack frame (proc),
-# (deepest level first)
-proc stacktrace {{skip 0}} {
-	set trace {}
-	# Need to skip info frame 0 and this (stacktrace) level
-	incr skip 2
-	loop level $skip [info level]+1 {
-		set frame [info frame -$level]
-		lappend trace [lindex [dict get $frame cmd] 0] [dict get $frame file] [dict get $frame line]
-	}
-	return $trace
-}
-proc stacktrace {{skip 0}} {
-	set trace {}
-	# skip the internal frames
-	incr skip 1
-	set last 0
-	loop level $skip [info frame]+1 {
-		set frame [info frame -$level]
-		set file [dict get $frame file]
-		set line [dict get $frame line]
-		set lev [dict get $frame level]
-		if {$lev != $last && $lev > $skip} {
-			set proc [lindex [dict get $frame cmd] 0]
-			lappend trace $proc $file $line
-		}
-		set last $lev
-	}
-	return $trace
-}
-
 # Returns a human-readable version of a stack trace
 proc stackdump {stacktrace} {
 	set lines {}
-	foreach {l f p} [lreverse $stacktrace] {
+	lappend lines "Traceback (most recent call last):"
+	foreach {cmd l f p} [lreverse $stacktrace] {
 		set line {}
-		if {$p ne ""} {
-			append line "in procedure '$p' "
-			if {$f ne ""} {
-				append line "called "
-			}
-		}
 		if {$f ne ""} {
-			append line "at file \"$f\", line $l"
+			append line "  File \"$f\", line $l"
+		}
+		if {$p ne ""} {
+			append line ", in $p"
 		}
 		if {$line ne ""} {
 			lappend lines $line
+			if {$cmd ne ""} {
+				set nl [string first \n $cmd 1]
+				if {$nl >= 0} {
+					set cmd [string range $cmd 0 $nl-1]...
+				}
+				lappend lines "    $cmd"
+			}
 		}
 	}
-	join $lines \n
+	if {[llength $lines] > 1} {
+		return [join $lines \n]
+	}
 }
 
 # Add the given script to $jim::defer, to be evaluated when the current
@@ -99,10 +74,8 @@ proc errorInfo {msg {stacktrace ""}} {
 	if {$stacktrace eq ""} {
 		# By default add the stack backtrace and the live stacktrace
 		set stacktrace [info stacktrace]
-		# omit the procedure 'errorInfo' from the stack
-		lappend stacktrace {*}[stacktrace 1]
 	}
-	lassign $stacktrace p f l
+	lassign $stacktrace p f l cmd
 	if {$f ne ""} {
 		set result "$f:$l: Error: "
 	}

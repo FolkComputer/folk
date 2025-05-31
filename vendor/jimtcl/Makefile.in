@@ -40,9 +40,15 @@ SHOBJ_LDFLAGS ?= @SHOBJ_LDFLAGS@
 @else
 SHOBJ_LDFLAGS ?= @SHOBJ_LDFLAGS_R@
 @endif
-AS_CFLAGS = @AS_CFLAGS@
-AS_CXXFLAGS = @AS_CFLAGS@
-AS_CPPFLAGS = @AS_CPPFLAGS@
+@if [get-define srcdir] ne "."
+VPATH := @srcdir@
+AS_CFLAGS = -I@srcdir@
+AS_CXXFLAGS = -I@srcdir@
+@endif
+
+AS_CFLAGS += @AS_CFLAGS@
+AS_CXXFLAGS += @AS_CFLAGS@
+AS_CPPFLAGS += @AS_CPPFLAGS@
 CFLAGS ?= @CFLAGS@
 CXXFLAGS ?= @CXXFLAGS@
 LDFLAGS = @LDFLAGS@
@@ -52,12 +58,6 @@ exec_prefix ?= @exec_prefix@
 prefix ?= @prefix@
 docdir = @docdir@
 srcdir := @srcdir@
-
-AS_CPPFLAGS += -Wall -I.
-@if [get-define srcdir] ne "."
-AS_CPPFLAGS += -I@srcdir@
-VPATH := @srcdir@
-@endif
 
 @if JIM_STATICLIB
 LIBJIM := libjim.a
@@ -118,7 +118,9 @@ install: all @TCL_EXTS@ install-exec install-docs
 		@srcdir@/jim-subcmd.h @srcdir@/jim-win32compat.h $(DESTDIR)@includedir@
 	$(INSTALL_DATA) jim-config.h $(DESTDIR)@includedir@
 	$(INSTALL_DATA_DIR) $(DESTDIR)@bindir@
+@if BUILD_JIM_EXT
 	$(INSTALL_DATA) build-jim-ext $(DESTDIR)@bindir@
+@endif
 	$(INSTALL_DATA_DIR) $(DESTDIR)@libdir@/pkgconfig
 	$(INSTALL_DATA) jimtcl.pc $(DESTDIR)@libdir@/pkgconfig
 
@@ -217,6 +219,7 @@ coverage:
 
 clean:
 	rm -f *.o *.so *.dll *.exe lib*.a $(JIMSH) $(LIBJIM) Tcl.html _*.c libjim@SH_SOEXT@
+	rm -f jsmn/*.o
 @if COVERAGE
 	rm -f *.gcno *.gcov *.gcda */*.gcno */*.gcda */*.gcov coverage*.html
 	rm -rf coverage_html lcov.txt genhtml_output.txt

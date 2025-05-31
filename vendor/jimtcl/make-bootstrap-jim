@@ -40,16 +40,16 @@ EOF
     echo "}"
 }
 
-cexts="aio readdir regexp file exec clock array posix"
+cexts="aio readdir regexp file exec clock array"
 tclexts="bootstrap initjimsh glob stdlib tclcompat"
 
 # Note ordering
-allexts="bootstrap aio readdir regexp file glob exec posix clock array stdlib tclcompat"
+allexts="bootstrap aio readdir regexp file glob exec clock array stdlib tclcompat"
 
 echo "/* This is single source file, bootstrap version of Jim Tcl. See http://jim.tcl.tk/ */"
 
 # define some core features
-for i in JIM_TCL_COMPAT JIM_ANSIC JIM_REGEXP HAVE_NO_AUTOCONF _JIMAUTOCONF_H; do
+for i in JIM_COMPAT JIM_ANSIC JIM_REGEXP HAVE_NO_AUTOCONF JIM_TINY _JIMAUTOCONF_H; do
 	echo "#define $i"
 done
 echo '#define TCL_LIBRARY "."'
@@ -92,7 +92,11 @@ cat <<EOF
 #else
 #define _GNU_SOURCE
 #endif
+#ifndef __ixemul__
 #define HAVE_FORK
+#else
+#define HAVE_VFORK
+#endif
 #define HAVE_WAITPID
 #define HAVE_ISATTY
 #define HAVE_MKSTEMP
@@ -101,6 +105,8 @@ cat <<EOF
 #define HAVE_DIRENT_H
 #define HAVE_UNISTD_H
 #define HAVE_UMASK
+#define HAVE_PIPE
+#define _FILE_OFFSET_BITS 64
 #endif
 EOF
 

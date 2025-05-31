@@ -1,18 +1,28 @@
 source [file dirname [info script]]/testing.tcl
 
 needs constraint jim
-testCmdConstraints socket
-testConstraint posixaio [expr {$tcl_platform(platform) eq {unix} && !$tcl_platform(bootstrap)}]
+constraint cmd socket
+constraint cmd os.fork
+constraint expr posixaio {$tcl_platform(platform) eq {unix} && !$tcl_platform(bootstrap)}
 
 # Create and open in binary mode for compatibility between Windows and Unix
 set f [open testdata.in wb]
 $f puts test-data
 $f close
+# create a test file file with several lines
+set f [open copy.in wb]
+$f puts line1
+$f puts line2
+$f puts line3
+$f close
+
 set f [open testdata.in rb]
 
 defer {
 	$f close
 	file delete testdata.in
+	file delete copy.in
+	file delete copy.out
 }
 
 test aio-1.1 {seek usage} -body {
@@ -72,11 +82,7 @@ test aio-2.3 {read -ve len} -body {
 
 test aio-2.4 {read too many args} -body {
 	$f read 20 extra
-} -returnCodes error -match glob -result {wrong # args: should be "* read ?-nonewline|-pending|len?"}
-
-test aio-2.5 {read -pending on non-ssl} -body {
-	$f read -pending
-} -returnCodes error -result {-pending not supported on this connection type}
+} -returnCodes error -match glob -result {wrong # args: should be "* read ?-nonewline|len?"}
 
 test aio-3.1 {copy to invalid fh} -body {
 	$f copy lambda
@@ -118,7 +124,7 @@ test aio-7.1 {close args} -constraints socket -body {
 
 test aio-7.2 {close w on non-socket} -constraints socket -body {
 	$f close w
-} -returnCodes error -match regexp -result {^(Socket operation on non-socket|Not a socket)$}
+} -returnCodes error -match regexp -result {(bad|socket)}
 
 test aio-7.3 {close -nodelete on non-socket} -constraints socket -body {
 	$f close -nodelete
@@ -137,7 +143,7 @@ test aio-9.1 {open: posix modes} -constraints posixaio -body {
 
 test aio-9.2 {open: posix modes, bad modes} -constraints posixaio -body {
 	open testdata.in {CREAT TRUNC}
-} -returnCodes error -result {testdata.in: Invalid argument}
+} -returnCodes error -result {testdata.in: invalid open mode 'CREAT TRUNC'}
 
 test aio-9.3 {open: posix modes, bad modes} -constraints posixaio -body {
 	open testdata.in {WRONG TRUNC}
@@ -155,5 +161,183 @@ test aio-9.4 {open: posix modes} -constraints posixaio -cleanup {
 	$io close
 	set buf
 } -result {write-data}
+
+test aio-10.1 {open: -noclose} -constraints os.fork -cleanup {
+	file delete testdata.out
+} -body {
+	# Keep this file descriptor open for children
+	set f [open testdata.out -noclose w]
+	$f puts parent
+	$f flush
+	# Now the child process can write to the same file via the file descriptor
+	exec sh -c "echo child >&[$f getfd]"
+	$f close
+	set in [open testdata.out]
+	set lines [list [$in gets] [$in gets]]
+	$in close
+	set lines
+} -result {parent child}
+
+test copyto-1.1 {basic copyto} {
+	set in [open copy.in]
+	set out [open copy.out w]
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {line1 line2 line3}
+
+test copyto-1.2 {copyto with limit} {
+	set in [open copy.in]
+	set out [open copy.out w]
+	$in copyto $out 8
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {line1 li {}}
+
+test copyto-1.3 {copyto after gets} {
+	set in [open copy.in]
+	set out [open copy.out w]
+	$in gets
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {line2 line3 {}}
+
+test copyto-1.4 {copyto after read} {
+	set in [open copy.in]
+	$in read 3
+	set out [open copy.out w]
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {e1 line2 line3}
+
+test copyto-1.5 {copyto after gets, seek} {
+	set in [open copy.in]
+	$in gets
+	$in seek 2 start
+	set out [open copy.out w]
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {ne1 line2 line3}
+
+test copyto-1.6 {copyto from pipe} {
+	set in [open "|cat copy.in"]
+	set out [open copy.out w]
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {line1 line2 line3}
+
+test copyto-1.6 {copyto to pipe} {
+	set out [open "|cat >copy.out" w]
+	set in [open copy.in]
+	$in copyto $out
+	$in close
+	$out close
+	set ff [open copy.out]
+	set result [list [$ff gets] [$ff gets] [$ff gets]]
+	$ff close
+	set result
+} {line1 line2 line3}
+
+# Creates a child process and returns {pid writehandle}
+# The child expects to read $numlines lines of input and exits with a return
+# code of 0 if ok
+proc child_reader {numlines} {
+	# create a pipe with the child as a slightly slow reader
+	lassign [socket pipe] r w
+
+	set pid [os.fork]
+	if {$pid == 0} {
+		# child
+		$w close
+		# sleep a moment to make sure the parent fills up the send buffer
+		sleep 0.5
+		set n 0
+		while {[$r gets buf] >= 0} {
+			incr n
+		}
+		#puts "child got $n/$numlines lines"
+		$r close
+		if {$n == $numlines} {
+			# This is what we expect
+			exit 99
+		}
+		# This is not expected
+		exit 98
+	}
+	# parent
+	$r close
+
+	list $pid $w
+}
+
+test autoflush-1.1 {pipe writer, blocking} -constraints {socket os.fork} -body {
+	lassign [child_reader 10000] pid w
+
+	# Send data fast enough to fill up the send buffer
+	loop i 10000 {
+		$w puts "this is line $i"
+	}
+
+	# No autoflush needed. The write won't return
+	# until queued
+	$w close
+
+	lassign [wait $pid] - - rc
+
+	list $rc
+} -result {99}
+
+test autoflush-1.2 {pipe writer, non blocking} -constraints {socket os.fork} -body {
+	lassign [child_reader 10000] pid w
+
+	$w ndelay 1
+
+	# Send data fast enough to fill up the send buffer
+	# With older jimtcl this would return an error "pipe: Resource temporarily unavailable"
+	loop i 10000 {
+		$w puts "this is line $i"
+	}
+
+	# Now data should still be queued, wait for autoflush
+	lassign [time {
+		after idle {}
+		vwait done
+	}] t1
+
+	# puts "autoflush finished in ${t1}us, closing pipe"
+	$w close
+
+	lassign [wait $pid] - - rc
+
+	list $rc $t1
+} -match glob -result {99 *}
 
 testreport

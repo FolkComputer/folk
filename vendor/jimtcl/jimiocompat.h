@@ -31,7 +31,7 @@ int Jim_OpenForWrite(const char *filename, int append);
  */
 int Jim_OpenForRead(const char *filename);
 
-#if defined(__MINGW32__)
+#if defined(__MINGW32__) || defined(_WIN32)
     #ifndef STRICT
     #define STRICT
     #endif
@@ -68,11 +68,39 @@ int Jim_OpenForRead(const char *filename);
     typedef struct __stat64 jim_stat_t;
     #define Jim_Stat _stat64
     #define Jim_FileStat _fstat64
+    #define Jim_Lseek _lseeki64
+    #define O_TEXT _O_TEXT
+    #define O_BINARY _O_BINARY
+    #define Jim_SetMode _setmode
+    #ifndef STDIN_FILENO
+    #define STDIN_FILENO 0
+    #endif
 
 #else
-    typedef struct stat jim_stat_t;
-    #define Jim_Stat stat
-    #define Jim_FileStat fstat
+    #if defined(HAVE_STAT64)
+        typedef struct stat64 jim_stat_t;
+        #define Jim_Stat stat64
+        #if defined(HAVE_FSTAT64)
+            #define Jim_FileStat fstat64
+        #endif
+        #if defined(HAVE_LSTAT64)
+            #define Jim_LinkStat lstat64
+        #endif
+    #else
+        typedef struct stat jim_stat_t;
+        #define Jim_Stat stat
+        #if defined(HAVE_FSTAT)
+            #define Jim_FileStat fstat
+        #endif
+        #if defined(HAVE_LSTAT)
+            #define Jim_LinkStat lstat
+        #endif
+    #endif
+    #if defined(HAVE_LSEEK64)
+        #define Jim_Lseek lseek64
+    #else
+        #define Jim_Lseek lseek
+    #endif
 
     #if defined(HAVE_UNISTD_H)
         #include <unistd.h>
@@ -89,7 +117,20 @@ int Jim_OpenForRead(const char *filename);
             #define execvpe(ARG0, ARGV, ENV) execvp(ARG0, ARGV)
         #endif
     #endif
+
+    #ifndef O_TEXT
+        #define O_TEXT 0
+    #endif
+
 #endif
+
+# ifndef MAXPATHLEN
+# ifdef PATH_MAX
+# define MAXPATHLEN PATH_MAX
+# else
+# define MAXPATHLEN JIM_PATH_LEN
+# endif
+# endif
 
 /* jim-file.c */
 /* Note that this is currently an internal function only.

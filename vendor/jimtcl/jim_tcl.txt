@@ -3,7 +3,7 @@ Jim Tcl(n)
 
 NAME
 ----
-Jim Tcl v0.82 - reference manual for the Jim Tcl scripting language
+Jim Tcl v0.83+ - reference manual for the Jim Tcl scripting language
 
 SYNOPSIS
 --------
@@ -33,116 +33,136 @@ available only in Jim Tcl.
 
 Some notable differences with Tcl 8.5/8.6/8.7 are:
 
-1. Object-based I/O (aio), but with a Tcl-compatibility layer
-2. I/O: Support for sockets and pipes including udp, unix domain sockets and IPv6
-3. Integers are 64bit
-4. Support for references (`ref`/`getref`/`setref`) and garbage collection
-5. Builtin dictionary type (`dict`) with some limitations compared to Tcl 8.6
-6. `env` command to access environment variables
-7. Operating system features: `os.fork`, `os.uptime`, `wait`, `signal`, `alarm`, `sleep`
-8. Much better error reporting. `info stacktrace` as a replacement for '$errorInfo', '$errorCode'
-9. Support for "static" variables in procedures
-10. Threads and coroutines are not supported
-11. Command and variable traces are not supported
-12. Built-in command line editing
-13. Expression shorthand syntax: +$(...)+
-14. Modular build allows many features to be omitted or built as dynamic, loadable modules
-15. Highly suitable for use in an embedded environment
-16. Support for UDP, IPv6, Unix-Domain sockets in addition to TCP sockets
+#. Object-based I/O (aio), but with a Tcl-compatibility layer
+#. I/O: Support for sockets and pipes including udp, unix domain sockets and IPv6
+#. Integers are 64bit
+#. Support for references (`ref`/`getref`/`setref`) and garbage collection
+#. Builtin dictionary type (`dict`) with some limitations compared to Tcl 8.6
+#. `env` command to access environment variables
+#. Operating system features: `os.fork`, `os.uptime`, `wait`, `signal`, `alarm`, `sleep`
+#. Much better error reporting. `info stacktrace` as a replacement for '$errorInfo', '$errorCode'
+#. Support for "static" variables in procedures
+#. Threads and coroutines are not supported
+#. Command and variable traces are not supported
+#. Built-in command line editing
+#. Expression shorthand syntax: +$(...)+
+#. Modular build allows many features to be omitted or built as dynamic, loadable modules
+#. Highly suitable for use in an embedded environment
+#. Support for UDP, IPv6, Unix-Domain sockets in addition to TCP sockets
+#. Jim does not convert backslash-newline within braces (in order to preserve accurate line numbers)
 
 RECENT CHANGES
 --------------
+Changes since 0.83
+~~~~~~~~~~~~~~~~~~
+#. `aio` - support for configurable read and write buffering
+#. Add support for `package forget`
+#. Add `aio translation` support (and fconfigure -translation)
+
+Changes between 0.82 and 0.83
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#. Multi-level `break` and `continue` are now supported
+#. `info frame` now only returns 'proc' levels
+#. `stacktrace` is now a builtin command
+#. The stack trace on error now includes the full stack trace, not just back to where it was caught
+#. Improvements with `aio`, related to eventloop and buffering. Add `aio timeout`.
+#. `socket` , `open` and `aio accept` now support '-noclose'
+#. Add support for hinting with `history hints`
+#. Support for `proc` statics by reference (lexical closure) rather than by value
+#. `regsub` now supports '-command' (per Tcl 8.7)
+#. Add support for `lsort -dict`
+
 Changes between 0.81 and 0.82
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. `try` now supports trap to match on errorcode
-2. TIP 603, `aio stat` is now supported to stat a file handle
-3. Add support for `socket -async`
-4. The handles created by `socket pty` now make the replica name available via 'filename'
-5. `info frame` now returns a (largely) Tcl-compatible dictionary, and supports 'info frame 0'
-6. `vwait -signal` is now supported
-7. ./configure now defaults to '--full'
-8. New `timerate` command as an improvement over `time`, somewhat compatible with TIP 527
-9. Add `ensemble` command and support for `namespace ensemble` (as an optional extension)
+#. `try` now supports trap to match on errorcode
+#. TIP 603, `aio stat` is now supported to stat a file handle
+#. Add support for `socket -async`
+#. The handles created by `socket pty` now make the replica name available via 'filename'
+#. `info frame` now returns a (largely) Tcl-compatible dictionary, and supports 'info frame 0'
+#. `vwait -signal` is now supported
+#. ./configure now defaults to '--full'
+#. New `timerate` command as an improvement over `time`, somewhat compatible with TIP 527
+#. Add `ensemble` command and support for `namespace ensemble` (as an optional extension)
 
 Changes between 0.80 and 0.81
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. TIP 582, comments allowed in expressions
-2. Many commands now accept "safe" integer expressions rather than simple integers:
+#. TIP 582, comments allowed in expressions
+#. Many commands now accept "safe" integer expressions rather than simple integers:
    `loop`, `range`, `incr`, `string repeat`, `lrepeat`, `pack`, `unpack`, `rand`
-3. String and list indexes now accept integer expressions (<<_string_and_list_index_specifications,STRING AND LIST INDEX SPECIFICATIONS>>)
-4. `loop` can now omit the start value
-5. Add the `xtrace` command for execution trace support
-6. Add `history keep`
-7. Add support for `lsearch -index` and `lsearch -stride`, the latter per TIP 351
-8. `lsort -index` now supports multiple indices
-9. Add support for `lsort -stride`
-10. `open` now supports POSIX-style access arguments
-11. TIP 526, `expr` now only allows a single argument (unless --compat is enabled)
+#. String and list indexes now accept integer expressions (<<_string_and_list_index_specifications,STRING AND LIST INDEX SPECIFICATIONS>>)
+#. `loop` can now omit the start value
+#. Add the `xtrace` command for execution trace support
+#. Add `history keep`
+#. Add support for `lsearch -index` and `lsearch -stride`, the latter per TIP 351
+#. `lsort -index` now supports multiple indices
+#. Add support for `lsort -stride`
+#. `open` now supports POSIX-style access arguments
+#. TIP 526, `expr` now only allows a single argument (unless --compat is enabled)
 
 Changes between 0.79 and 0.80
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. `regsub` now fully supports +{backslash}A+
-2. Add `socket pty` to create a pseudo-tty pair
-3. Null characters (\x00) are now supported in variable and proc names
-4. dictionaries and arrays now preserve insertion order, matching Tcl and the documentation
-5. Add `dict getwithdefault` (and the alias `dict getdef`) per TIP 342
-6. Add string comparison operators (lt, gt, le, ge) per TIP 461
-7. Implement 0d radix prefix for decimal per TIP 472
+#. `regsub` now fully supports +{backslash}A+
+#. Add `socket pty` to create a pseudo-tty pair
+#. Null characters (\x00) are now supported in variable and proc names
+#. dictionaries and arrays now preserve insertion order, matching Tcl and the documentation
+#. Add `dict getwithdefault` (and the alias `dict getdef`) per TIP 342
+#. Add string comparison operators (lt, gt, le, ge) per TIP 461
+#. Implement 0d radix prefix for decimal per TIP 472
 
 Changes between 0.78 and 0.79
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Add `file mtimeus` for high resolution file timestamps
-2. `aio` now supports datagram Unix-Domain sockets
-3. Add support for `aio lock -wait`
-4. Add `signal block` to prevent delivery of signals
-5. Add support for `file split`
-6. Add support for `json::encode` and `json::decode`
-7. `aio tty` now allows setting +echo+ without full +raw+ mode
+#. Add `file mtimeus` for high resolution file timestamps
+#. `aio` now supports datagram Unix-Domain sockets
+#. Add support for `aio lock -wait`
+#. Add `signal block` to prevent delivery of signals
+#. Add support for `file split`
+#. Add support for `json::encode` and `json::decode`
+#. `aio tty` now allows setting +echo+ without full +raw+ mode
 
 Changes between 0.77 and 0.78
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Add serial/tty support with `aio tty`
-2. Add support for 'jimsh -'
-3. Add hidden '-commands' option to many commands
-4. Add scriptable autocompletion support in interactive mode with `tcl::autocomplete`
-5. Add `aio sockopt`
-6. Add scriptable autocompletion support with `history completion`
-7. Add support for `tree delete`
-8. Add support for `defer` and '$jim::defer'
-9. Renamed `os.wait` to `wait`, now more Tcl-compatible and compatible with `exec ... &`
-10. `pipe` is now a synonym for `socket pipe`
-11. Closing a pipe open with `open |...` now returns Tcl-like status
-12. It is now possible to used `exec` redirection with a pipe opened with `open |...`
-13. Interactive line editing now supports multiline mode if $::history::multiline is set
+#. Add serial/tty support with `aio tty`
+#. Add support for 'jimsh -'
+#. Add hidden '-commands' option to many commands
+#. Add scriptable autocompletion support in interactive mode with `tcl::autocomplete`
+#. Add `aio sockopt`
+#. Add scriptable autocompletion support with `history completion`
+#. Add support for `tree delete`
+#. Add support for `defer` and '$jim::defer'
+#. Renamed `os.wait` to `wait`, now more Tcl-compatible and compatible with `exec ... &`
+#. `pipe` is now a synonym for `socket pipe`
+#. Closing a pipe open with `open |...` now returns Tcl-like status
+#. It is now possible to used `exec` redirection with a pipe opened with `open |...`
+#. Interactive line editing now supports multiline mode if $::history::multiline is set
 
 Changes between 0.76 and 0.77
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. Add support for `aio sync`
-2. Add SSL and TLS support in aio
-3. Added `zlib`
-4. Added support for boolean constants in `expr`
-5. `string is` now supports 'boolean' class
-6. Add support for `aio lock` and `aio unlock`
-7. Add new `interp` command
+#. Add support for `aio sync`
+#. Add SSL and TLS support in aio
+#. Added `zlib`
+#. Added support for boolean constants in `expr`
+#. `string is` now supports 'boolean' class
+#. Add support for `aio lock` and `aio unlock`
+#. Add new `interp` command
 
 Changes between 0.75 and 0.76
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. `glob` now supports the +-tails+ option
-2. Add support for `string cat`
-3. Allow `info source` to add source info
+#. `glob` now supports the +-tails+ option
+#. Add support for `string cat`
+#. Allow `info source` to add source info
 
 Changes between 0.74 and 0.75
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1. `binary`, `pack` and `unpack` now support floating point
-2. `file copy` +-force+ handles source and target as the same file
-3. `format` now supports +%b+ for binary conversion
-4. `lsort` now supports +-unique+ and +-real+
-5. Add support for half-close with `aio close` +?r|w?+
-6. Add `socket pair` for a bidirectional pipe
-7. Add '--random-hash' to randomise hash tables for greater security
-8. `dict` now supports 'for', 'values', 'incr', 'append', 'lappend', 'update', 'info' and 'replace'
-9. `file stat` no longer requires the variable name
-10. Add support for `file link`
+#. `binary`, `pack` and `unpack` now support floating point
+#. `file copy` +-force+ handles source and target as the same file
+#. `format` now supports +%b+ for binary conversion
+#. `lsort` now supports +-unique+ and +-real+
+#. Add support for half-close with `aio close` +?r|w?+
+#. Add `socket pair` for a bidirectional pipe
+#. Add '--random-hash' to randomise hash tables for greater security
+#. `dict` now supports 'for', 'values', 'incr', 'append', 'lappend', 'update', 'info' and 'replace'
+#. `file stat` no longer requires the variable name
+#. Add support for `file link`
 
 TCL INTRODUCTION
 -----------------
@@ -578,41 +598,12 @@ sequence is replaced by the given character:
 +{backslash}v+::
     Vertical tab (0xb).
 
-+{backslash}{+::
-    Left brace ({).
-
-+{backslash}}+::
-    Right brace (}).
-
-+{backslash}[+::
-    Open bracket ([).
-
-+{backslash}]+::
-    Close bracket (]).
-
-+{backslash}$+::
-    Dollar sign ($).
-
-+{backslash}<space>+::
-    Space ( ): doesn't terminate argument.
-
-+{backslash};+::
-    Semi-colon: doesn't terminate command.
-
-+{backslash}"+::
-    Double-quote.
-
-+{backslash}<newline>+::
-    Nothing:  this joins two lines together
-    into a single line.  This backslash feature is unique in that
-    it will be applied even when the sequence occurs within braces.
-
-+{backslash}{backslash}+::
-    Backslash ('{backslash}').
-
 +{backslash}ddd+::
     The digits +'ddd'+ (one, two, or three of them) give the octal value of
-    the character.  Note that Jim supports null characters in strings.
+    the byte.  Note that Jim supports null characters in strings.
+
++{backslash}xnn+::
+    The hexidecimal digits +'nn'+ give the value of the byte.
 
 +{backslash}unnnn+::
 +{backslash}u\{nnn\}+::
@@ -621,32 +612,24 @@ sequence is replaced by the given character:
     The 'u' form allows for one to four hex digits.
     The 'U' form allows for one to eight hex digits.
     The 'u\{nnn\}' form allows for one to eight hex digits, but makes it easier to insert
-    characters UTF-8 characters which are followed by a hex digit.
+    UTF-8 characters that are followed by a hex digit.
+
+If a backslash is followed by something other than one of the options
+described above, the backslash is skipped and character following the backslash is treated
+as a normal character without any special meaning. The Tcl scanner continues
+normal processing with the next character.  For example, in the
+command
 
 For example, in the command
 
 ----
-    set a \{x\[\ yz\141
+    set a \\{x\[\ yz\141
 ----
 
 the second argument to `set` will be +{x[ yza+.
 
-If a backslash is followed by something other than one of the options
-described above, then the backslash is transmitted to the argument
-field without any special processing, and the Tcl scanner continues
-normal processing with the next character.  For example, in the
-command
-
-----
-    set \*a \\\{foo
-----
-
-The first argument to `set` will be +{backslash}*a+ and the second
-argument will be +{backslash}{foo+.
-
 If an argument is enclosed in braces, then backslash sequences inside
-the argument are parsed but no substitution occurs (except for
-backslash-newline):  the backslash
+the argument are parsed but no substitution occurs:  the backslash
 sequence is passed through to the argument as is, without making
 any special interpretation of the characters in the backslash sequence.
 In particular, backslashed braces are not counted in locating the
@@ -655,10 +638,10 @@ For example, in the
 command
 
 ----
-    set a {\{abc}
+    set a {\\{abc}
 ----
 
-the second argument to `set` will be +{backslash}{abc+.
+the second argument to `set` will be `\\{abc`.
 
 This backslash mechanism is not sufficient to generate absolutely
 any argument structure; it only covers the
@@ -788,25 +771,25 @@ String constants representing boolean constants
 (+'0'+, +'1'+, +'false'+, +'off'+, +'no'+, +'true'+, +'on'+, +'yes'+)
 are also recognized and can be used in logical operations.
 
-1. Operands may be specified in any of the following ways:
+Operands may be specified in any of the following ways:
 
-2. As a numeric value, either integer or floating-point.
+1. As a numeric value, either integer or floating-point.
 
-3. As one of valid boolean constants
+2. As one of valid boolean constants
 
-4. As a Tcl variable, using standard '$' notation.
+3. As a Tcl variable, using standard '$' notation.
 The variable's value will be used as the operand.
 
-5. As a string enclosed in double-quotes.
+4. As a string enclosed in double-quotes.
 The expression parser will perform backslash, variable, and
 command substitutions on the information between the quotes,
 and use the resulting value as the operand
 
-6. As a string enclosed in braces.
+5. As a string enclosed in braces.
 The characters between the open brace and matching close brace
 will be used as the operand without any substitutions.
 
-7. As a Tcl command enclosed in brackets.
+6. As a Tcl command enclosed in brackets.
 The command will be executed and its result will be used as
 the operand.
 
@@ -1359,6 +1342,25 @@ has an initialiser, so it is initialised to 2.
 Unlike a local variable, the value of a static variable is retained across
 invocations of the procedure.
 
+In addition to static variables by value, static variables may also be
+defined by "reference" by using a leading "&" character. In this case,
+the statics point to the original variable and when one changes, they
+both change.  For example, here 'a' changes changes the value of the
+original 'x'.
+
+----
+    . set x 1
+    . proc a {} {&x} {
+        incr x
+    }
+    . a
+    2
+    . a
+    3
+    . puts $x
+    3
+----
+
 See the `proc` command for information on how to define procedures
 and what happens when they are invoked. See also <<_namespaces,NAMESPACES>>.
 
@@ -1882,11 +1884,25 @@ command.  The legal +'options'+ (which may be abbreviated) are:
 
 break
 ~~~~~
-+*break*+
++*break* ?n?+
 
 This command may be invoked only inside the body of a loop command
-such as `for` or `foreach` or `while`.  It returns a +JIM_BREAK+ code
+such as `for`, `foreach`, `while` or `loop`.  It returns a +JIM_BREAK+ code
 to signal the innermost containing loop command to return immediately.
+
+If +'n'+ is given it breaks out of that many loops. +'break 1'+ is equivalent
+to a simple +'break'+ while in the following example, +'break'+ will exit both
+loops.
+
+----
+    loop i 5 {
+        loop j 6 {
+            if {$i == 3 && $j == 2} {
+                break 2
+            }
+        }
+    }
+----
 
 case
 ~~~~
@@ -1994,12 +2010,9 @@ close
 ~~~~~
 +*close* 'fileId'+
 
-+'fileId' *close*+
+Tcl-compatible version of +'fileId' *close*+
 
-Closes the file given by +'fileId'+.
-+'fileId'+ must be the return value from a previous invocation
-of the `open` command; after this command, it should not be
-used anymore.
+See `aio close`
 
 collect
 ~~~~~~~
@@ -2032,16 +2045,19 @@ as its result.
 
 continue
 ~~~~~~~~
-+*continue*+
++*continue* ?n?+
 
 This command may be invoked only inside the body of a loop command such
-as `for` or `foreach` or `while`.  It returns a  +JIM_CONTINUE+ code to
+as `for`, `foreach`, `while` or `loop`.  It returns a  +JIM_CONTINUE+ code to
 signal the innermost containing loop command to skip the remainder of
 the loop's body but continue with the next iteration of the loop.
 
+If +'n'+ is given it breaks out of +'n-1'+ loops and then continues the +'nth'+ loop.
++'continue 1'+ is equivalent to a simple +'continue'+. (See also `break`).
+
 curry
 ~~~~~
-+*alias* 'args\...'+
++*curry* 'args\...'+
 
 Similar to `alias` except it creates an anonymous procedure (lambda) instead of
 a named procedure.
@@ -2207,14 +2223,9 @@ eof
 ~~~
 +*eof* 'fileId'+
 
-+'fileId' *eof*+
+Tcl-compatible alternative to +'fileId' *eof*+
 
-Returns 1 if an end-of-file condition has occurred on +'fileId'+,
-0 otherwise.
-
-+'fileId'+ must have been the return value from a previous call to `open`,
-or it may be +stdin+, +stdout+, or +stderr+ to refer to one of the
-standard I/O channels.
+See `aio eof`
 
 error
 ~~~~~
@@ -2449,6 +2460,23 @@ The following two are identical.
   set x $(3 * 2 + 1)
 ----
 
+However, note that the expr shorthand syntax may not be nested in an expression.
+This is to prevent the common mistake of writing:
+
+----
+  if {$(1 + 2) == 3} {
+    ...
+  }
+----
+
+rather than:
+
+----
+  if {(1 + 2) == 3} {
+    ...
+  }
+----
+
 file
 ~~~~
 +*file* 'option name ?arg\...?'+
@@ -2642,13 +2670,9 @@ flush
 ~~~~~
 +*flush* 'fileId'+
 
-+'fileId' *flush*+
+Tcl-compatible alternative to +'fileId' *flush*+
 
-Flushes any output that has been buffered for +'fileId'+.  +'fileId'+ must
-have been the return value from a previous call to `open`, or it may be
-+stdout+ or +stderr+ to access one of the standard I/O streams; it must
-refer to a file that was opened for writing.  This command returns an
-empty string.
+See `aio flush`
 
 for
 ~~~
@@ -2746,36 +2770,12 @@ See <<_garbage_collection_references_lambda_function,GARBAGE COLLECTION>> for mo
 
 gets
 ~~~~
+
 +*gets* 'fileId ?varName?'+
 
-+'fileId' *gets* '?varName?'+
+Tcl-compatible alterative version of +'fileId' *gets* '?varName?'+
 
-Reads the next line from the file given by +'fileId'+ and discards
-the terminating newline character.
-
-If +'varName'+ is specified, then the line is placed in the variable
-by that name and the return value is a count of the number of characters
-read (not including the newline).
-
-If the end of the file is reached before reading
-any characters then -1 is returned and +'varName'+ is set to an
-empty string.
-
-If +'varName'+ is not specified then the return value will be
-the line (minus the newline character) or an empty string if
-the end of the file is reached before reading any characters.
-
-An empty string will also be returned if a line contains no characters
-except the newline, so `eof` may have to be used to determine
-what really happened.
-
-If the last character in the file is not a newline character, then
-`gets` behaves as if there were an additional newline character
-at the end of the file.
-
-+'fileId'+ must be +stdin+ or the return value from a previous
-call to `open`; it must refer to a file that was opened
-for reading.
+See `aio gets`
 
 glob
 ~~~~
@@ -2989,7 +2989,7 @@ The legal +'option'+'s (which may be abbreviated) are:
 
 +*info stacktrace*+::
     After an error is caught with `catch`, returns the stack trace as a list
-    of +{procedure filename line \...}+.
+    of +{procedure filename line cmd \...}+.
 
 +*info statics* 'procname'+::
     Returns a dictionary of the static variables of procedure
@@ -3466,17 +3466,28 @@ lsort
 Sort the elements of +'list'+, returning a new list in sorted order.
 By default, ASCII (or UTF-8) sorting is used, with the result in increasing order.
 
-Note that only one sort type may be selected with +-integer+, +-real+, +-nocase+ or +-command+
+Note that only one sort type may be selected with +-ascii+, +-dict+, +-integer+, +-real+, +-nocase+ or +-command+
 with last option being used.
+
++*-ascii*+::
+    Sort using string comparison. This is the default.
+
++*-nocase*+::
+    Sort using using string comparison without regard for case.
+
++*-dict*+::
+    Sort using using string comparison without regard for case.
+    Use dictionary-style comparison. This is the same as '-ascii'
+    except (a) case is ignored except as a tie-breaker and (b) if
+    two strings contain embedded numbers, the numbers compare as
+    integers, not characters.  For example, in -dictionary mode,
+    x10y sorts between x9y and x11y.
 
 +*-integer*+::
     Sort using numeric (integer) comparison.
 
 +*-real*+::
     Sort using floating point comparison.
-
-+*-nocase*+::
-    Sort using using string comparison without regard for case.
 
 +*-command* 'cmdname'+::
     +'cmdname'+ is treated as a command name. For each comparison,
@@ -3518,7 +3529,7 @@ with last option being used.
 
 open
 ~~~~
-+*open* 'fileName ?access?'+
++*open* 'fileName *?-noclose?* ?access?'+
 
 +*open* '|command-pipeline ?access?'+
 
@@ -3526,6 +3537,9 @@ Opens a file and returns an identifier
 that may be used in future invocations
 of commands like `read`, `puts`, and `close`.
 +'fileName'+ gives the name of the file to open.
+
+If +'-noclose'+ is given, the returned handle is not automatically
+closed for child proceses.
 
 The +'access'+ argument indicates the way in which the file is to be accessed.
 It may have any of the following values:
@@ -3613,6 +3627,12 @@ See also `socket`, `pid`, `exec`
 
 package
 ~~~~~~~
++*package forget* '?name ...?'+
+
+Removes the knowledge that the given packages were loaded. This allows new, replacement
+packages to be loaded. Note that it does not remove any effects of the previous packages
+being loaded.
+
 +*package provide* 'name ?version?'+
 
 Indicates that the current script provides the package named +'name'+.
@@ -3682,22 +3702,9 @@ puts
 ~~~~
 +*puts* ?*-nonewline*? '?fileId? string'+
 
-+'fileId' *puts* ?*-nonewline*? 'string'+
+Tcl-compatible version of +'fileId' *puts* ?*-nonewline*? 'string'+
 
-Writes the characters given by +'string'+ to the file given
-by +'fileId'+. +'fileId'+ must have been the return
-value from a previous call to `open`, or it may be
-+stdout+ or +stderr+ to refer to one of the standard I/O
-channels; it must refer to a file that was opened for
-writing.
-
-In the first form, if no +'fileId'+ is specified then it defaults to +stdout+.
-`puts` normally outputs a newline character after +'string'+,
-but this feature may be suppressed by specifying the +-nonewline+
-switch.
-
-Output to files is buffered internally by Tcl; the `flush`
-command may be used to force buffered characters to be output.
+See `aio puts`
 
 pipe
 ~~~~
@@ -3712,6 +3719,8 @@ Creates a pair of `aio` channels and returns the handles as a list: +{read write
 
     $r readable ...
 ----
+
+Note that if '+-noclose+' is desired, use `socket -noclose pipe` instead.
 
 pwd
 ~~~
@@ -3750,45 +3759,11 @@ Integer parameters may be any integer expression.
 
 read
 ~~~~
-+*read* ?*-nonewline*? 'fileId'+
++*read ?-nonewline? 'fileId ?length?'+
 
-+'fileId' *read* ?*-nonewline*?+
+Tcl-compatible alterative version of +'fileId' *read ?-nonewline?* '?length?'+
 
-+*read* 'fileId numBytes'+
-
-+'fileId' *read* 'numBytes'+
-
-+*read* ?*-pending*? 'fileId'+
-
-+'fileId' *read* ?*-pending*?+
-
-In the first form, all of the remaining bytes are read from the file
-given by +'fileId'+; they are returned as the result of the command.
-If the +-nonewline+ switch is specified then the last
-character of the file is discarded if it is a newline.
-
-In the second form, the extra argument specifies how many bytes to read;
-exactly this many bytes will be read and returned, unless there are fewer than
-+'numBytes'+ bytes left in the file; in this case, all the remaining
-bytes are returned.
-
-The third form is currently only useful with SSL sockets. It reads at least 1 byte
-and then any additional data that is buffered. This allows for use in an event handler.
-e.g.
-
-----
-    $sock readable {
-        set buf [$sock read -pending]
-    }
-----
-
-This is necessary because otherwise pending data may be buffered, but
-the underlying socket will not be marked 'readable'. This featured is not
-currently supported for regular sockets, and so these sockets must be
-set to unbufferred (+$sock buffering false+) to work in an event loop.
-
-+'fileId'+ must be +stdin+ or the return value from a previous call
-to `open`; it must refer to a file that was opened for reading.
+See `aio read`
 
 regexp
 ~~~~~~
@@ -3871,7 +3846,7 @@ The following switches modify the behaviour of +'regexp'+
 
 regsub
 ~~~~~~
-+*regsub ?-nocase? ?-all? ?-line? ?-start* 'offset'? ?*--*? 'exp string subSpec ?varName?'+
++*regsub ?-nocase? ?-all? ?-line? ?-command? ?-start* 'offset'? ?*--*? 'exp string subSpec ?varName?'+
 
 This command matches the regular expression +'exp'+ against
 +'string'+ using the rules described in REGULAR EXPRESSIONS
@@ -3927,6 +3902,26 @@ The following switches modify the behaviour of +'regsub'+
     string after any newline in the string in addition to its normal
     function, and the +$+ anchor matches the empty string before any
     newline in the string in addition to its normal function.
+
++*-command*+::
+
+    Changes the handling of +'subSpec'+ so that it is not treated
+    as a template for a substitution string and the substrings +*&*+
+    and +*\n*+ no longer have special meaning. Instead +'subSpec'+ must
+    be a command prefix, that is, a non-empty list. The substring
+    of string that matches +'exp'+, and then each substring that matches
+    each capturing sub-RE within +'exp'+, are appended as additional
+    elements to that list. (The items appended to the list are much
+    like what `regexp -inline` would return). The completed list is
+    then evaluated as a Tcl command, and the result of that command
+    is the substitution string. Any error or exception from command
+    evaluation becomes an error or exception from the regsub command.
+  ::
+    If +*-all*+ is not also given, the command callback will be invoked
+    at most once (exactly when the regular expression matches). If
+    +*-all*+ is given, the command callback will be invoked for each
+    matched location, in sequence. The exact location indices that
+    matched are not made available to the script.
 
 +*-start* 'offset'+::
     Specifies a character index offset into the string at which to
@@ -4008,36 +4003,9 @@ seek
 ~~~~
 +*seek* 'fileId offset ?origin?'+
 
-+'fileId' *seek* 'offset ?origin?'+
+Tcl-compatible version of +'fileId' *seek* 'offset ?origin?'+
 
-Change the current access position for +'fileId'+.
-The +'offset'+ and +'origin'+ arguments specify the position at
-which the next read or write will occur for +'fileId'+.
-+'offset'+ must be a number (which may be negative) and +'origin'+
-must be one of the following:
-
-+*start*+::
-    The new access position will be +'offset'+ bytes from the start
-    of the file.
-
-+*current*+::
-    The new access position will be +'offset'+ bytes from the current
-    access position; a negative +'offset'+ moves the access position
-    backwards in the file.
-
-+*end*+::
-    The new access position will be +'offset'+ bytes from the end of
-    the file.  A negative +'offset'+ places the access position before
-    the end-of-file, and a positive +'offset'+ places the access position
-    after the end-of-file.
-
-The +'origin'+ argument defaults to +start+.
-
-+'fileId'+ must have been the return value from a previous call to
-`open`, or it may be +stdin+, +stdout+, or +stderr+ to refer to one
-of the standard I/O channels.
-
-This command returns an empty string.
+See `aio seek`
 
 set
 ~~~
@@ -4230,8 +4198,8 @@ stacktrace
 
 +*stacktrace*+
 
-Returns a live stack trace as a list of +proc file line proc file line \...+.
-Iteratively uses `info frame` to create the stack trace. This stack trace is in the
+Returns a live stack trace as a list of +proc file line cmd proc file line cmd \...+.
+uses the same information as `info frame` to create the stack trace. This stack trace is in the
 same form as produced by `catch` and `info stacktrace`
 
 See also `stackdump`.
@@ -4579,14 +4547,9 @@ tell
 ~~~~
 +*tell* 'fileId'+
 
-+'fileId' *tell*+
+Tcl-compatible version of +'fileId' *tell*+
 
-Returns a decimal string giving the current access position in
-+'fileId'+.
-
-+'fileId'+ must have been the return value from a previous call to
-`open`, or it may be +stdin+, +stdout+, or +stderr+ to refer to one
-of the standard I/O channels.
+See `aio tell`
 
 throw
 ~~~~~
@@ -4947,112 +4910,236 @@ posix: os.fork, os.gethostname, os.getids, os.uptime
 
 ANSI I/O (aio) and EVENTLOOP API
 --------------------------------
-Jim provides an alternative object-based API for I/O.
+In addition to the traditional Tcl I/O commands (`gets`, `read`, `puts`, `close`, `seek`, `tell`),
+Jim provides an alternative object-based API for I/O. Commands that create a channel, `open` and `socket`,
+return a handle to an I/O channel that is used to control that channel.
 
-See `open` and `socket` for commands which return an I/O handle.
+For example, the traditional Tcl usage would be:
+
+----
+    set f [open file.txt]
+    while {[gets $f buf] >= 0} {
+        puts stderr $buf
+    }
+    close $f
+----
+
+While the Jim usage would be:
+----
+    set f [open file.txt]
+    while {[$f gets buf] >= 0} {
+        stderr puts $buf
+    }
+    $f close
+----
+
+Thus channels are commands that support the various subcommands. They can be renamed handled
+like any other command. In additional to file I/O and stream (TCP) sockets, Jim supports many
+kinds of socket streams including UDP, Unix domain sockets, psuedo-tty pairs, pipes and others.
+(See `socket` for more detail). The TLS (SSL) protocol may also be seamlessly layered over a channel
+with the `ssl` command. In addition Jim I/O supports both blocking and non-blocking modes,
+fully integrates with the eventloop, supports serial ports and tty control.
+
+Note that while most channels are stream channels, some channels (socket types with 'dgram') are
+datagram channels. For those channels, `aio recv` and `aio sendto` is generally preferable
+over `aio read` and `aio puts`.
 
 aio
 ~~~
-+$handle *accept* ?addrvar?+::
-    Server socket only: Accept a connection and return stream.
-    If +'addrvar'+ is specified, the address of the connected client is stored
-    in the named variable in the form 'addr:port' for IP sockets or 'path' for Unix domain sockets.
-    See `socket` for details.
++$handle *accept ?-noclose?* ?addrvar?+::
+    Server socket only: Accept a connection and return a stream channel.
+    If +'addrvar'+ is specified, the address of the connected client is
+    stored in the named variable in the form 'addr:port' for IP sockets
+    or 'path' for Unix domain sockets.  See `socket` for details.
+    If +'-noclose'+ is given, the returned handle is not automatically
+    closed for child proceses.  See `socket` for details.
 
-+$handle *buffering none|line|full*+::
-    Sets the buffering mode of the stream.
++$handle *buffering none|line|full* ?size?+::
+    Sets the output buffering mode of the stream channel. +'none'+ means
+    that puts immediately writes output.  +'line'+ means output (including
+    previously buffered output) is written if a newline is to be written.
+    +'full'+ means that data is written when the output buffer is full
+    (default 64KB). Size may be specified in full mode.
+    Note that line buffering will also write
+    once the output buffer limit is reached, even if there is no newline.
+    Channels usually begin in full buffering mode, unless they identify
+    as a tty channel, in which case line buffering is used, and `stderr`
+    begins with no buffering. Returns the current buffering mode (including
+    size in full mode - e.g. +'line'+ or +'full 65536+'.
+    See also `aio puts` and `aio flush`.
 
-+$handle *close ?r(ead)|w(rite)|-nodelete?*+::
++$handle *close ?r(ead)|w(rite)? ?-nodelete?*+::
     Closes the stream.
     The +'read'+ and +'write'+ arguments perform a "half-close" on a socket. See the 'shutdown(2)' man page.
     The +'-nodelete'+ option is applicable only for Unix domain sockets. It closes the socket
     but does not delete the bound path (e.g. after `os.fork`).
+    After a full close, the channel handle is no longer valid.
 
-
-+$handle *copyto* 'tofd ?size?'+::
-    Copy bytes to the file descriptor +'tofd'+. If +'size'+ is specified, at most
++$handle *copyto* '$tohandle ?size?'+::
+    Copy bytes to channel +'$tohandle'+. If +'size'+ is specified, at most
     that many bytes will be copied. Otherwise copying continues until the end
-    of the input file. Returns the number of bytes actually copied.
+    of the input channel. Returns the number of bytes actually copied.
 
 +$handle *eof*+::
-    Returns 1 if stream is at eof
+    Returns 1 if an end-of-file condition has occurred on the channel. Note that
+    this condition may only be checked after reading from the channel.
 
 +$handle *filename*+::
     Returns the original filename associated with the handle.
-    Handles returned by `socket` provide different information.
-	See `socket` for each socket type.
+    Handles returned by `socket` provide different information such as the peer address
+    or a generic name if no useful filename can be provided.
+    See `socket` for each socket type.
 
 +$handle *flush*+::
-    Flush the stream
+    Flushes any output that has been buffered for the channel.
+    In blocking mode, command does not return until all data has been written.
+    In non-blocking mode, the behaviour depends on whether an `aio writable` handler
+    has been set. If it has, and not all data could be written and error will be returned
+    with the message "send buffer full". Otherwise an "autoflush" eventloop handler is installed
+    to flush the remaining data. As long as the eventloop runs (`vwait`, `update`), the write
+    data will be automatically flushed.
 
-+$handle *gets* '?var?'+::
-    Read one line and return it or store it in the var
++$handle *gets* '?varName?'+::
+    Read one line from the cannel and return it or store it in the
+    var A terminating newline character is discarded.  If +'varName'+
+    is specified, then the line is placed in the variable by that name
+    and the return value is a count of the number of characters read
+    (not including the newline).  If the end of the file is reached
+    before reading any characters then -1 is returned and +'varName'+
+    is set to an empty string.  If +'varName'+ is not specified then
+    the return value will be the line (minus the newline character) or
+    an empty string if the end of the file is reached before reading
+    any characters.  An empty string will also be returned if a line
+    contains no characters except the newline, so `eof` may have to be
+    used to determine what really happened.  If the last character in
+    the file is not a newline character, then `gets` behaves as if there
+    were an additional newline character at the end of the file.
+
++$handle *getfd*+::
+    Returns the underlying file descriptor. On Unix platforms this is a small integer.
 
 +$handle *isatty*+::
-    Returns 1 if the stream is a tty device.
+    Returns 1 if the channel is a tty device.
 
 +$handle *lock ?-wait?*+::
-    Apply a POSIX lock to the open file associated with the handle using
-    'fcntl(F_SETLK)', or 'fcntl(F_SETLKW)' to wait for the lock to be available if +'-wait'+
-    is specified.
-    The handle must be open for write access.
-    Returns 1 if the lock was successfully obtained, 0 otherwise.
-    An error occurs if the handle is not suitable for locking (e.g.
-    if it is not open for write)
+    Apply a POSIX lock to the open file associated with the channel using
+    'fcntl(F_SETLK)', or 'fcntl(F_SETLKW)' to wait for the lock to be
+    available if +'-wait'+ is specified.  The channel must be open for
+    write access.  Returns 1 if the lock was successfully obtained,
+    0 otherwise.  An error occurs if the channel is not suitable for
+    locking (e.g.  if it is not open for write)
 
 +$handle *ndelay ?0|1?*+::
-    Set O_NDELAY (if arg). Returns current/new setting.
-    Note that in general ANSI I/O interacts badly with non-blocking I/O.
-    Use with care.
+    With no argument, returns the non-blocking status of the channel
+    (1 means non-blocking).  With an arguments, sets the non-blocking
+    status of the channel.
 
 +$handle *peername*+::
     Returns the remote address or path of the connected socket. See 'getpeername(2)'.
 
-+$handle *puts ?-nonewline?* 'str'+::
-    Write the string, with newline unless -nonewline
++$handle *puts ?-nonewline?* 'string'+::
+    Writes the characters given by +'string'+ to the channel given
+    With +'-nonewline'+, the string is written as-is to the channel.
+    Otherwise a newline character is written after the string.
+    See `aio buffering` and `aio flush` for how output is buffered.
 
 +$handle *read ?-nonewline|-pending*|len?'+::
-    Read and return bytes from the stream. To eof if no len. See `read`.
+    Read and return bytes from the channel.
+    If 'len' is not given, reads until end-of-file.
+    reading from non-blocking channels.
+    For backward compatibility, +'-pending'+ is accepted, but ignored.
+    If the +-nonewline+ switch is specified then the last
+    character (at end-of-file) is discarded if it is a newline.
+    Note that read on a non-blocking channel may read less than the
+    expected number of bytes (including zero). Use `aio eof` to determine
+    if the end-of-file has been reached.
+
++$handle *readsize* ?size?'+::
+    Sets or returns the current size of the read buffer used
+    for read, gets and copyto.
+    Defaults to 256, but can be increased to improve performance
+    for large reads.
 
 +$handle *recvfrom* 'maxlen ?addrvar?'+::
-    Receives a message from the handle via recvfrom(2) and returns it.
+    Receives a message from the datagram channel via recvfrom(2) and returns it.
     At most +'maxlen'+ bytes are read. If +'addrvar'+ is specified, the sending address
     of the message is stored in the named variable in the form 'addr:port' for IP sockets
     or 'path' for Unix domain sockets. See `socket` for details.
 
 +$handle *seek* 'offset' *?start|current|end?*+::
-    Seeks in the stream (default 'current')
+    Change the current access position for the channel. This is only applicable
+    to regular files, not sockets.
+    The +'offset'+ and +'origin'+ arguments specify the position at
+    which the next read or write will occur for +'fileId'+.
+    +'offset'+ must be a number (which may be negative) and +'origin'+
+    must be one of the following:
+
++*start*+::
+    The new access position will be +'offset'+ bytes from the start
+    of the file.
+
++*current*+::
+    The new access position will be +'offset'+ bytes from the current
+    access position; a negative +'offset'+ moves the access position
+    backwards in the file.
+
++*end*+::
+    The new access position will be +'offset'+ bytes from the end of
+    the file.  A negative +'offset'+ places the access position before
+    the end-of-file, and a positive +'offset'+ places the access position
+    after the end-of-file.
+
+The +'origin'+ argument defaults to +start+.
+
+This command returns an empty string.
 
 +$handle *sendto* 'str ?address'+::
-    Sends the string, +'str'+, to the given address (host:port or path) via the socket using 'sendto(2)'.
+    Sends the string, +'str'+, to the given address (host:port or path) via datagram socket channel
+    using 'sendto(2)'.
     This is intended for udp/dgram sockets and may give an error or behave in unintended
     ways for other handle types.
     Returns the number of bytes written.
 
 +$handle *sockname*+::
-    Returns the bound address or path of the socket. See 'getsockname(2)'.
+    Returns the bound address or path of the socket channel. See 'getsockname(2)'.
 
 +$handle *stat* ?varName?+::
-    Implements the same functionality as `file stat` for a filehandle.
+    Implements the same functionality as `file stat` for a file channel.
     Only available on platforms that support 'fstat(2)' or equivalent.
 
 +$handle *sockopt* '?name value?'+::
-    With no arguments, returns a dictionary of socket options currently set for the handle
-    (will be empty for a non-socket). With +'name'+ and +'value'+, sets the socket option
-    to the given value. Currently supports the following boolean socket options:
-    +broadcast, debug, keepalive, nosigpipe, oobinline, tcp_nodelay+, and the following
-    integer socket options: +sndbuf, rcvbuf+
+    With no arguments, returns a dictionary of socket options currently
+    set for the socket channel (will be empty for a non-socket). With
+    +'name'+ and +'value'+, sets the socket option to the given
+    value. Currently supports the following boolean socket options:
+    +broadcast, debug, keepalive, nosigpipe, oobinline, tcp_nodelay+,
+    and the following integer socket options: +sndbuf, rcvbuf+
 
 +$handle *sync*+::
-    Flush the stream, then 'fsync(2)' to commit any changes to storage.
+    Flushes the channel, then calls 'fsync(2)' to commit any changes to storage.
     Only available on platforms that support 'fsync(2)'.
+    If the flush fails (perhaps because the channel is non-blocking), an error
+    will be returned instead. Although this is designed for normal files and
+    those should be used in blocking mode.
 
 +$handle *tell*+::
-    Returns the current seek position
+    Returns the current seek position or -1 if the channel is not seekable.
+
++$handle *timeout* '?ms?'+::
+    With no argument, returns the current timeout of the channel, in milliseconds.
+    If an argument is given, it is set as the timeout of the channel, in milliseconds.
+    See `aio read` and `aio gets` for command that use the timeout.
+    Note that the timeout is only used if the channel is in blocking mode.
+
++$handle *translation binary|text*+::
+    This has no effect on Unix platforms, but on Windows it changes the mode of the file
+    handle to binary or text. In general, use "wb" as the open mode instead, but this
+    can be useful on existing filehandles such as +stdout+ and +stderr+. It is probably
+    a good idea to do this immediately before sending any output.
 
 +$handle *tty* ?settings?+::
     If no arguments are given, returns a dictionary containing the tty settings for the stream.
-    If arguments are given, they must either be a dictionary, or +setting value \...+
+    If arguments are given, they must either be a dictionary, or +setting value \...+.
     Abbreviations are supported for both settings and values, so the following is acceptable:
     +$f tty parity e input c out raw+.
     Only available on platforms that support 'termios(3)'. Supported settings are:
@@ -5089,6 +5176,31 @@ aio
     +*vtime* 'time'+;;
         Timeout for noncanonical read (units of 0.1 seconds)
 
+    +*vstart* 'char'+;;
+        Start character for xonoff, usually 0x11 (^Q)
+
+    +*vstop* 'char'+;;
+        Stop character for xonoff, usually 0x13 (^S)
+
++$handle *ttycontrol* ?settings?+::
+    If no arguments are given, returns a dictionary containing the modem control signals
+    from the stream (must be a serial-type device). e.g. +{rts 1 dtr 1 dcd 0 dsr 0 ring 0 cts 0}+.
+    Note that +rts+ and +dtr+ are controlled by the local system while the other signals reflect
+    the remote system.
+    If arguments are given, they must either be a dictionary, or +setting value \...+.
+    Abbreviations are supported for both settings and values.
+    Supported settings are:
+
+    +*rts 0|1*+;;
+        Set the RTS (Request To Send) signal
+
+    +*dtr 0|1*+;;
+        Set the DTR (Data Terminal Ready) signal
+
+    +*break* 'duration'+;;
+        Generate a break condition. +duration+ is generally ignored but may be used
+        in a platform-dependent manner.
+
 +$handle *ssl* ?*-server* 'cert ?key?'|*-sni* 'servername'?+::
     Upgrades the stream to a SSL/TLS session and returns the handle.
     If +-server+ is specified, either both the certificate and private key files
@@ -5105,6 +5217,30 @@ aio
 +*load_ssl_certs* 'dir'+::
     Loads SSL/TLS CA certificates for use during verification
 
+*Buffering, non-blocking and timeouts*
+
+Channels normally operate in blocking mode. This means that reads (gets,
+read, copyto) block until data is received or end-of-file is reached,
+or an error occurs. Similarly, writes (puts, copyto) block if the channel
+is not current writable.
+
+It is possible to set a timeout for blocking reads with `aio timeout`,
+generally useful on stream socket channels.  If a timeout is specified
+for a channel (the default is 0/indefinite), a blocking read will return
+with no data if the timeout expires without reading any data.
+
+For some applications, and especially when using the eventloop, blocking
+I/O and timeouts are not appropriate. Instead we wish to read what is
+available, and write what is possible in the `readable` and `writable`
+scripts and then return until the next event. This can be achived by
+setting a channel non-blocking mode with `aio ndelay`. In this case, `aio read`, `aio gets`
+and `aio puts` will return early if they would otherwise block, performing
+us much work as posssible. For example, `aio read` may return less data than requested
+and `aio puts` may write less data than requested (although see `aio flush` about
+additional write data can be automatically flushed). If `aio gets` does not receive an
+entire line, it returns -1. In all these cases `aio eof` can be used to determine
+if end-of-file was reached.
+
 fconfigure
 ~~~~~~~~~~
 +*fconfigure* 'handle' *?-blocking 0|1? ?-buffering noneline|full? ?-translation* 'mode'?+::
@@ -5112,7 +5248,7 @@ fconfigure
     command is supported.
     * `fconfigure ... -blocking` maps to `aio ndelay`
     * `fconfigure ... -buffering` maps to `aio buffering`
-    * `fconfigure ... -translation` is accepted but ignored
+    * `fconfigure ... -translation` maps to `aio translation` and suppports only +binary+ and +text+
 
 [[cmd_2]]
 eventloop: after, vwait, update
@@ -5191,55 +5327,55 @@ to prevent infinite errors. (A time event handler is always removed after execut
 
 socket
 ~~~~~~
-Various socket types may be created.
+Various socket types may be created as follows.
 
-+*socket unix* 'path'+::
++*socket ?-noclose? unix* 'path'+::
     A unix domain socket client connected to 'path'
-	'filename' returns +'path'+
+    'filename' returns +'path'+
 
-+*socket unix.server* 'path'+::
++*socket ?-noclose? unix.server* 'path'+::
     A unix domain socket server listening on 'path'
-	'filename' returns +'path'+
+    'filename' returns +'path'+
 
-+*socket unix.dgram* '?path?'+::
++*socket ?-noclose? unix.dgram* '?path?'+::
     A unix domain socket datagram client, optionally connected to 'path'
-	'filename' returns +'path'+ if provided or "dgram" if not
+    'filename' returns +'path'+ if provided or "dgram" if not
 
-+*socket unix.dgram.server* 'path'+::
++*socket ?-noclose? unix.dgram.server* 'path'+::
     A unix domain socket datagram server server listening on 'path'
-	'filename' returns +'path'+
+    'filename' returns +'path'+
 
-+*socket ?-async? ?-ipv6? stream* 'addr:port'+::
++*socket ?-noclose? ?-async? ?-ipv6? stream* 'addr:port'+::
     A TCP socket client. (See the forms for +'addr'+ below)
-	'filename' returns +'addr:port'+
+    'filename' returns +'addr:port'+
 
-+*socket ?-async? ?-ipv6? stream.server* '?addr:?port'+::
++*socket ?-noclose? ?-async? ?-ipv6? stream.server* '?addr:?port'+::
     A TCP socket server (+'addr'+ defaults to +0.0.0.0+ for IPv4 or +[::]+ for IPv6).
-	'filename' returns +'addr:port'+
+    'filename' returns +'addr:port'+
 
-+*socket ?-async? ?-ipv6? dgram* ?'addr:port'?+::
++*socket ?-noclose? ?-async? ?-ipv6? dgram* ?'addr:port'?+::
     A UDP socket client. If the address is not specified,
     the client socket will be unbound and 'sendto' must be used
     to indicated the destination.
-	'filename' returns +'addr:port'+ if provided or "dgram" if not
+    'filename' returns +'addr:port'+ if provided or "dgram" if not
 
-+*socket ?-async? ?-ipv6? dgram.server* 'addr:port'+::
++*socket ?-noclose? ?-async? ?-ipv6? dgram.server* 'addr:port'+::
     A UDP socket server.
-	'filename' returns +'addr:port'+
+    'filename' returns +'addr:port'+
 
-+*socket pipe*+::
++*socket ?-noclose? pipe*+::
     A synonym for `pipe`
-	'filename' returns "pipe"
+    'filename' returns "pipe"
 
-+*socket pair*+::
++*socket ?-noclose? pair*+::
     A socketpair (see socketpair(2)). Like `pipe`, this command returns
     a list of two channels: {s1 s2}. These channels are both readable and writable.
-	'filename' returns "pair"
+    'filename' returns "pair"
 
-+*socket pty*+::
++*socket ?-noclose? pty*+::
     A pseudo-tty pair (see openpty(3)). Like `pipe`, this command returns
     a list of two channels: {primary replica}. These channels are both readable and writable.
-	'filename' for both handles returns the replica filename.
+    'filename' for both handles returns the replica filename.
 
 This command creates a socket connected (client) or bound (server) to the given
 address.
@@ -5320,6 +5456,15 @@ will succeed if connected or fail if connect failed. Typical usage is as follows
     }
 
     vwait done
+----
+
+If '+-noclose+' is specified, the socket is not automatically closed for child proceses. e.g.
+
+----
+    lassign [socket -noclose pipe] r w
+    # This file descriptor will be open in the child process
+    # with the file descriptors passed on the command line
+    exec subcommand [$r getfd] [$w getfd]
 ----
 
 syslog
@@ -5525,6 +5670,45 @@ In the interactive shell, press <TAB> to activate command line completion.
     The command should return a list of all possible command lines that match the current command line.
     For example if +*pr*+ is the current command line, the list +*{prefix proc}*+ may be returned.
 
+tcl::stdhint
+~~~~~~~~~~~~
+Scriptable hinting is supported in the interactive shell, 'jimsh', through
+the `tcl::stdhint` callback. A simple implementation is provided, however this may
+be replaced with a custom command instead if desired.
+
+In the interactive shell, press <TAB> to activate command line completion.
+
++*tcl::stdhint* 'commandline'+::
+    This command is called with the current command line. It should return a list of +*{hint ?ANSI cols?}*+ or ""
+    if no hint is available.
+    For example, if passed +*"dict get"*+ it could return +*{"dict get dictionary ?key ...?" 36 1}*+ to show the given hint
+    in light cyan.
+
+The built-in `tcl::stdhint` callback uses 'tcl::stdhint_col' for the colour. 'tcl::stdhint_cols' can be used
+to easily change this colour, e.g. in ~/.jimrc.
+
+----
+    . parray tcl::stdhint_cols
+    tcl::stdhint_cols(black)   = 30
+    tcl::stdhint_cols(blue)    = 34
+    tcl::stdhint_cols(cyan)    = 36
+    tcl::stdhint_cols(gray)    = 30 1
+    tcl::stdhint_cols(green)   = 32
+    tcl::stdhint_cols(grey)    = 30 1
+    tcl::stdhint_cols(lblue)   = 34 1
+    tcl::stdhint_cols(lcyan)   = 36 1
+    tcl::stdhint_cols(lgreen)  = 32 1
+    tcl::stdhint_cols(lpurple) = 35 1
+    tcl::stdhint_cols(lred)    = 31 1
+    tcl::stdhint_cols(lyellow) = 33 1
+    tcl::stdhint_cols(none)    = 0
+    tcl::stdhint_cols(normal)  = 37
+    tcl::stdhint_cols(purple)  = 35
+    tcl::stdhint_cols(red)     = 31
+    tcl::stdhint_cols(white)   = 37 1
+    tcl::stdhint_cols(yellow)  = 33
+----
+
 history
 ~~~~~~~
 The optional history extension provides script access to the command line editing
@@ -5545,6 +5729,10 @@ the remaining subcommands do nothing.
     Sets an autocompletion command (see `tcl::autocomplete`) that is active during `history getline`.
     If the command is empty, autocompletion is disabled.
 
++*history hints* 'command'+::
+    Sets a hinting command (see `tcl::stdhint`) that is active during `history getline`.
+    If the command is empty, hinting is disabled.
+
 +*history add* 'line'+::
     Adds the given line to the history buffer.
 
@@ -5561,6 +5749,11 @@ namespace
 ~~~~~~~~~
 Provides namespace-related functions. See also: http://www.tcl.tk/man/tcl8.6/TclCmd/namespace.htm
 
++*namespace canonical* ?current? ?name?+::
+   Returns the full name of +'name'+ within namespace '+current+'.
+   If '+current+' is not given, `namespace current` is used.
+   If neither are given, returns the current namespace (not qualified with a leading '::').
+
 +*namespace code* 'script'+::
     Captures the current namespace context for later execution of
     the script +'script'+. It returns a new script in which script has
@@ -5572,7 +5765,7 @@ Provides namespace-related functions. See also: http://www.tcl.tk/man/tcl8.6/Tcl
 +*namespace delete* '?namespace ...?'+::
     Deletes all commands and variables with the given namespace prefixes.
 
-+*namespace ensemble create*'+::
++*namespace ensemble create*+::
     Creates an ensemble command for the current namespace (requires the 'ensemble' extension').
 
 +*namespace eval* 'namespace arg ?arg...?'+::
@@ -5739,14 +5932,16 @@ The following global variables are set by jimsh.
     example of the contents of this array.
 
 ----
+    tcl_platform(bootstrap)     = 0
     tcl_platform(byteOrder)     = littleEndian
     tcl_platform(engine)        = Jim
-    tcl_platform(os)            = Darwin
+    tcl_platform(os)            = darwin
+    tcl_platform(pathSeparator) = :
     tcl_platform(platform)      = unix
     tcl_platform(pointerSize)   = 8
+    tcl_platform(stackFormat)   = 4
     tcl_platform(threaded)      = 0
     tcl_platform(wordSize)      = 8
-    tcl_platform(pathSeparator) = :
 ----
 
 +*argv0*+::
@@ -5763,6 +5958,10 @@ The following global variables are set by jimsh.
 
 +*jim::argv0*+::
     The value of argv[0] when jimsh was invoked.
+
++*jim::lineedit*+::
+    This variables is set to 1 if jimsh was configured with line editing support,
+    or 0 if not.
 
 The following variables have special meaning to Jim Tcl:
 

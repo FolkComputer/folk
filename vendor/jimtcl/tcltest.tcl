@@ -25,58 +25,151 @@ if {[lsearch $argv "-stoponerror"] >= 0 || [info exists env(stoponerror)]} {
 	incr testinfo(stoponerror)
 }
 
-proc needs {type what {packages {}}} {
+proc needscmdcheck {what {packages {}}} {
+	# Does it exist already?
+	if {[info commands $what] ne ""} {
+		return 1
+	}
+	if {$packages eq ""} {
+		# e.g. exec command is in exec package
+		set packages $what
+	}
+	foreach p $packages {
+		catch {package require $p}
+	}
+	if {[info commands $what] ne ""} {
+		return 1
+	}
+	return 0
+}
+
+# Verifies the constraint/need
+# Returns 1 if the check passes or 0 if not
+proc needcheck {type what args} {
+	# Returns 1 if the check passed or 0 if not
 	if {$type eq "constraint"} {
-		if {![info exists ::tcltest::testConstraints($what)]} {
-			set ::tcltest::testConstraints($what) 0
+		if {[info exists ::tcltest::testConstraints($what)] && $::tcltest::testConstraints($what)} {
+			return 1
 		}
-		if {![set ::tcltest::testConstraints($what)]} {
-			skiptest " (constraint $what)"
-		}
-		return
+		return 0
 	}
 	if {$type eq "cmd"} {
-		# Does it exist already?
-		if {[info commands $what] ne ""} {
-			return
+		lassign $what cmd subcmd
+		if {![needscmdcheck $cmd $args]} {
+			return 0
 		}
-		if {$packages eq ""} {
-			# e.g. exec command is in exec package
-			set packages $what
+		if {$subcmd ne ""} {
+			if {[testConstraint jim]} {
+				if {$subcmd ni [$cmd -commands]} {
+					return 0
+				}
+			} else {
+				if {[catch {$cmd $subcmd}]} {
+					return 0
+				}
+			}
 		}
-		foreach p $packages {
-			catch {package require $p}
-		}
-		if {[info commands $what] ne ""} {
-			return
-		}
-		skiptest " (command $what)"
+		return 1
 	}
 	if {$type eq "package"} {
 		if {[catch {package require $what}]} {
-			skiptest " (package $what)"
+			return 0
 		}
-		return
+		return 1
+	}
+	if {$type eq "expr"} {
+		return [uplevel #0 [list expr [lindex $args 0]]]
+	}
+	if {$type eq "eval"} {
+		try {
+			uplevel #0 [lindex $args 0]
+			return 1
+		} on error msg {
+			return 0
+		}
 	}
 	error "Unknown needs type: $type"
 }
 
-# Simplify setting constraints for whether commands exist
-proc testCmdConstraints {args} {
-	foreach cmd $args {
-		testConstraint $cmd [expr {[info commands $cmd] ne {}}]
+# needs skips all tests in the file if the requirement isn't met
+# constrains sets a constraint to 1 or 0 based on if the requirement is met.
+#
+# needs|constraint cmd {cmd ?subcmd?} ?packages?
+# 
+# Checks that the command 'cmd' (and possibly 'cmd subcmd') exists
+# If necessary, loads the given packages
+# If used as a constraint, the constraint name is $cmd or $cmd-$subcmd
+# 
+# needs constraint name
+# 
+# Checks that the given constraint is set and is met (true)
+# If the constraint hasn't been set, this check fails (returns false)
+# 
+# needs|constraint expr name <expression>
+#
+# Checks that the expression evaluates to true.
+# If used as a constraint, the constraint name is $name
+#
+# needs|constraint eval name <script>
+#
+# Checks that the script evaluated at global scope does not produce an error.
+# If used as a constraint, the constraint name is $name
+#
+# needs|constraint package name ?packages?
+#
+# Checks that the given package is/can be loaded.
+# If necessary, loads the given packages first
+# If used as a constraint, the constraint name is package-$name
+
+proc constraint {type what args} {
+	# XXX constraint constraint doesn't make any sense
+	set ok [needcheck $type $what {*}$args]
+	if {$type eq "package"} {
+		testConstraint package-$what $ok
+	} else {
+		testConstraint [join $what -] $ok
+	}
+}
+
+proc needs {type what args} {
+	if {![needcheck $type $what {*}$args]} {
+		skiptest "  ($type $what)"
 	}
 }
 
 proc skiptest {{msg {}}} {
+	#puts [errorInfo $msg [stacktrace]]
 	puts [format "%16s:   --- skipped$msg" $::testinfo(source)]
 	exit 0
 }
 
+# Takes a stacktrace and applies [file tail] to the filenames.
+# This allows stacktrace tests to be run from a directory other than the source directory.
+# Also convert proc name ::a into a for compatibility between Tcl and Jim
+proc basename-stacktrace {stacktrace} {
+	set result {}
+	foreach {p f l cmd} $stacktrace {
+		if {[string match *tcltest-* $f]} {
+			#break
+		}
+		if {$p eq "::tcltest::RunTest"} {
+			set p test
+		} elseif {[string match ::* $p]} {
+			set p [string range $p 2 end]
+		}
+		set cmd [string map [list \n \\n] $cmd]
+		if {[string length $cmd] > 20} {
+			set cmd [string range $cmd 0 20]...
+		}
+		lappend result $p [file tail $f] $l $cmd
+	}
+	return $result
+}
+
 # If tcl, just use tcltest
 if {[catch {info version}]} {
-	package require Tcl 8.5
-	package require tcltest 2.1
+	package require Tcl 8.5-
+	package require tcltest 2.1-
 	namespace import tcltest::*
 
 	if {$testinfo(verbose)} {
@@ -86,6 +179,23 @@ if {[catch {info version}]} {
 	testConstraint tcl 1
 	proc testreport {} {
 		::tcltest::cleanupTests
+	}
+	proc stacktrace {{skip 0} {last 0}} {
+		set frames {}
+		incr skip
+		for {set level $skip} {$level < [info frame] - $last} {incr level} {
+			set frame [info frame -$level]
+			if {[dict get $frame type] ne "source"} {
+				continue
+			}
+			if {[dict exists $frame proc]} {
+				set proc [dict get $frame proc]
+			} else {
+				set proc ""
+			}
+			lappend frames $proc [dict get $frame file] [dict get $frame line] [dict get $frame cmd]
+		}
+		return $frames
 	}
 	return
 }
@@ -193,16 +303,6 @@ testConstraint {tcl} 0
 
 proc bytestring {x} {
 	return $x
-}
-
-# Takes a stacktrace and applies [file tail] to the filenames.
-# This allows stacktrace tests to be run from a directory other than the source directory.
-proc basename-stacktrace {stacktrace} {
-	set result {}
-	foreach {p f l} $stacktrace {
-		lappend result $p [file tail $f] $l
-	}
-	return $result
 }
 
 # Takes a list of {filename line} and returns {basename line}

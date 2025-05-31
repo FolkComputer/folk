@@ -1,7 +1,7 @@
 # vim:se syn=tcl:
 #
 
-define JIM_VERSION 82
+define JIM_VERSION 84
 
 options-defaults {
     silent-rules 1
@@ -24,7 +24,7 @@ options {
     ipv6=1          => "Disable ipv6 support in the aio extension"
     maintainer      => {Enable the [debug] command and JimPanic}
     minimal         => "Disable some optional features: ipv6, ssl, math, utf8 and some extensions. Also see --without-ext=default"
-	# Note that full is now the default
+    # Note that full is now the default
     full
     allextmod       => "Enable all non-default extensions as modules if prerequisites are found"
     compat          => "Enable some backward compatibility behaviour"
@@ -33,8 +33,9 @@ options {
     jim-regexp=1    => "Prefer POSIX regex if over the the built-in (Tcl-compatible) regex"
     docs=1          => "Don't build or install the documentation"
     docdir:path     => "Path to install docs (if built)"
-    random-hash	    => "Randomise hash tables. more secure but hash table results are not predicable"
-    coverage	    => "Build with code coverage support"
+    random-hash     => "Randomise hash tables. more secure but hash table results are not predicable"
+    coverage        => "Build with code coverage support"
+    introspection=1 => "Disable introspection"
     with-jim-ext: {with-ext:"ext1,ext2,..."} => {
         Specify additional Jim extensions to include.
         Use --extinfo to show information about available extensions.
@@ -104,7 +105,7 @@ foreach {mod attrs help} {
 }
 
 if {[opt-bool full]} {
-	user-notice "Note that --full is now the default, and need not be specified (see --minimal)"
+    user-notice "Note that --full is now the default, and need not be specified (see --minimal)"
 }
 
 if {[opt-bool extinfo]} {
@@ -181,7 +182,7 @@ dict set extdb info {
     signal   { check {[have-feature sigaction]} }
     sqlite3  { pkg-config sqlite3 check {[cc-check-function-in-lib sqlite3_prepare_v2 sqlite3]} libdep lib_sqlite3_prepare_v2 }
     redis    { pkg-config hiredis check {[cc-check-function-in-lib redisConnect hiredis]} libdep lib_redisConnect }
-    zlib     { pkg-config zlib check {[cc-check-function-in-lib deflate z]} libdep lib_deflate }
+    zlib     { pkg-config zlib check {[cc-check-includes zlib.h] && [cc-check-function-in-lib deflate z]} libdep lib_deflate }
     syslog   { check {[have-feature syslog]} }
     tree     { dep oo }
     win32    { check {[have-feature windows]} }
@@ -208,11 +209,13 @@ cc-check-types "long long"
 cc-check-sizeof int
 
 # Default optimisation
-define-append AS_CPPFLAGS -O2
+define-append AS_CPPFLAGS -O2 -Wall -D_GNU_SOURCE
+define-append AS_CFLAGS -I.
+define-append AS_CXXFLAGS -I.
 
 # check, but don't add to -cflags
 cc-with {} {
-	cc-check-flags -fno-unwind-tables -fno-asynchronous-unwind-tables
+    cc-check-flags -fno-unwind-tables -fno-asynchronous-unwind-tables
 }
 if {[opt-bool coverage]} {
     if {[cctest -link 1 -cflags --coverage]} {
@@ -234,7 +237,7 @@ if {[opt-bool coverage]} {
     }
 }
 
-cc-check-includes time.h sys/time.h sys/socket.h netinet/in.h arpa/inet.h netdb.h
+cc-check-includes time.h sys/time.h sys/socket.h netinet/in.h arpa/inet.h netdb.h strings.h
 cc-check-includes util.h pty.h sys/un.h dlfcn.h unistd.h dirent.h crt_externs.h execinfo.h
 
 # Check sizeof time_t so we can warn on non-Y2038 compliance
@@ -255,32 +258,29 @@ if {[cc-check-function-in-lib socket socket]} {
     define-append LDLIBS [get-define lib_socket]
 }
 
-cc-check-functions ualarm lstat fork system select execvpe
+cc-check-functions ualarm fork system select execvpe
 cc-check-functions geteuid mkstemp isatty
 cc-check-functions regcomp waitpid sigaction sys_signame sys_siglist isascii
 cc-check-functions syslog opendir readlink sleep usleep pipe getaddrinfo utimes
 cc-check-functions shutdown socketpair link symlink fsync dup umask
 cc-check-functions localtime gmtime strptime
 if {![cc-check-functions realpath]} {
-	cc-check-functions _fullpath
+    cc-check-functions _fullpath
 }
 
 cc-with {-includes math.h} {
-	cc-check-decls isinf isnan
+    cc-check-decls isinf isnan
 }
 
 if {[have-feature fork]} {
-	# Only use vfork if not deprecated
-	cc-with {-nooutput 1} {
-		cc-check-functions vfork
-	}
+    # Only use vfork if not deprecated
+    cc-with {-nooutput 1} {
+        cc-check-functions vfork
+    }
 }
 
 if {[cc-check-function-in-lib backtrace execinfo]} {
     define-append LDLIBS [get-define lib_backtrace]
-}
-if {[cc-check-function-in-lib openpty util]} {
-    define-append LDLIBS [get-define lib_openpty]
 }
 
 if {[cc-check-functions sysinfo]} {
@@ -299,7 +299,14 @@ cc-with {-includes fcntl.h} {
 }
 
 cc-check-lfs
-cc-check-functions fseeko ftello
+
+if {[get-define _FILE_OFFSET_BITS] != 64 || ![cc-check-functions stat64]} {
+    # Modern systems and really old systems have plain stat, fstat, lstat
+    cc-check-functions fstat lstat
+} else {
+    # But perhaps some 32 bit systems still require explicit use of the 64 bit versions
+    cc-check-functions fstat64 lstat64 lseek64
+}
 
 define TCL_LIBRARY [get-define libdir]/jim
 
@@ -388,16 +395,16 @@ set jimregexp 0
 # In either case if explicitly enable or disabled, that takes precedence
 proc opt-bool-unless-minimal {opt} {
     if {[opt-bool minimal]} {
-		set default 0
-	} else {
-		set default 1
-	}
-	# If not explicitly enabled/disabled, use the default based on --minimal
-	set val [opt-bool -nodefault $opt]
-	if {$val < 0} {
-		set val $default
-	}
-	return $val
+        set default 0
+    } else {
+        set default 1
+    }
+    # If not explicitly enabled/disabled, use the default based on --minimal
+    set val [opt-bool -nodefault $opt]
+    if {$val < 0} {
+        set val $default
+    }
+    return $val
 }
 
 if {[opt-bool-unless-minimal utf8]} {
@@ -414,10 +421,13 @@ if {[opt-bool maintainer]} {
     define JIM_MAINTAINER
 }
 if {[opt-bool-unless-minimal math]} {
-    msg-result "Enabling math functions"
-    define JIM_MATH_FUNCTIONS
-    cc-check-function-in-lib sin m
-    define-append LDLIBS [get-define lib_sin]
+    if {[cc-check-function-in-lib sin m]} {
+        msg-result "Enabling math functions"
+        define JIM_MATH_FUNCTIONS
+        define-append LDLIBS [get-define lib_sin]
+    } elseif {[opt-bool -nodefault math] > 0} {
+        user-error "Math functions are not available"
+    }
 }
 if {[opt-bool-unless-minimal ipv6]} {
     msg-result "Enabling IPv6"
@@ -443,7 +453,7 @@ if {[opt-bool-unless-minimal ssl]} {
             msg-result "Enabling SSL"
             define JIM_SSL
             define-append LDLIBS [get-define lib_ERR_error_string] [get-define lib_TLSv1_2_method]
-        } elseif {[opt-bool ssl]} {
+        } elseif {[opt-bool -nodefault ssl] > 0} {
             user-error "SSL support requires OpenSSL"
         }
     }
@@ -452,8 +462,10 @@ if {[opt-bool-unless-minimal ssl]} {
         define-append AS_CFLAGS -DUSE_TLSv1_2_method
     }
 }
-if {[opt-bool-unless-minimal lineedit]} {
-    if {([cc-check-includes termios.h] && [have-feature isatty]) || [have-feature winconsole]} {
+
+# Still need to check termios.h and isatty even if lineedit is disabled
+if {([cc-check-includes termios.h] && [have-feature isatty]) || [have-feature winconsole]} {
+    if {[opt-bool-unless-minimal lineedit]} {
         msg-result "Enabling line editing"
         define USE_LINENOISE
         define-append PARSE_UNIDATA_FLAGS -width
@@ -470,6 +482,10 @@ if {[opt-bool references]} {
 if {[opt-bool compat]} {
     msg-result "Enabling compatibility mode"
     define JIM_COMPAT
+}
+if {![opt-bool introspection]} {
+    msg-result "Disabling introspection"
+    define JIM_NO_INTROSPECTION
 }
 if {[opt-bool shared with-jim-shared]} {
     msg-result "Building shared library"
@@ -524,7 +540,7 @@ set withinfo(mod) [join-ext-names [opt-val {with-mod with-jim-extmod}]]
 set withinfo(nodefault) 0
 set withinfo(optional) 1
 if {[opt-bool minimal]} {
-	set withinfo(optional) 0
+    set withinfo(optional) 0
 }
 if {$withinfo(without) eq "default"} {
     set withinfo(without) {}
@@ -534,7 +550,7 @@ if {$withinfo(without) eq "default"} {
 # Now go check everything - see autosetup/local.tcl
 array set extinfo [check-extensions [opt-bool allextmod]]
 
-set buildjimext 1
+define BUILD_JIM_EXT 1
 
 # Now special checks
 if {[have-feature windows]} {
@@ -545,7 +561,7 @@ if {[have-feature windows]} {
             user-error "cygwin/mingw require --shared for dynamic modules"
         } else {
             user-notice "Building static library, so build-jim-ext will not work on cygwin/mingw"
-            set buildjimext 0
+            define BUILD_JIM_EXT 0
         }
     }
 } else {
@@ -554,6 +570,12 @@ if {[have-feature windows]} {
 }
 if {[have-feature termios.h]} {
     lappend extra_objs jim-tty.o
+}
+if {[have-feature termios.h] && [cc-check-functions posix_openpt]} {
+    define-append AS_CFLAGS -DHAVE_OPENPTY
+    lappend extra_objs openpty.o
+} elseif {[have-feature util.h]} {
+    cc-check-function-in-lib openpty util
 }
 
 if {[ext-get-status regexp] in {y m}} {
@@ -596,9 +618,9 @@ if {[ext-get-status load] eq "n"} {
 
 # Are we cross compiling?
 if {[get-define host] ne [get-define build]} {
-	define cross_compiling 1
+    define cross_compiling 1
 } else {
-	define cross_compiling 0
+    define cross_compiling 0
 }
 
 msg-result "Jim static extensions: [lsort [concat $extinfo(static-tcl) $extinfo(static-c)]]"
@@ -647,7 +669,7 @@ make-config-header jimautoconf.h -auto {jim_ext_* TCL_PLATFORM_* TCL_LIBRARY USE
 make-template Makefile.in
 make-template tests/Makefile.in
 make-template examples.api/Makefile.in
-if {$buildjimext} {
+if {[get-define BUILD_JIM_EXT]} {
     make-template build-jim-ext.in
     catch {exec chmod +x build-jim-ext}
 }

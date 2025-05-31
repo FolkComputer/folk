@@ -186,7 +186,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Clause* clause = jimObjsToClauseWithCaching(argc - 1, argv + 1);
 
-    Jim_Obj* scriptObj = interp->currentScriptObj;
+    Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
     const char* sourceFileName;
     int sourceLineNumber;
     if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {

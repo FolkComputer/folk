@@ -67,14 +67,6 @@
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #endif
 
-# ifndef MAXPATHLEN
-# ifdef PATH_MAX
-# define MAXPATHLEN PATH_MAX
-# else
-# define MAXPATHLEN JIM_PATH_LEN
-# endif
-# endif
-
 #if defined(__MINGW32__) || defined(__MSYS__) || defined(_MSC_VER)
 #define ISWINDOWS 1
 /* Even if we have symlink it isn't compatible enought to use */
@@ -568,8 +560,8 @@ static int mkdir_all(char *path)
             /* Create the parent and try again */
             continue;
         }
-        /* Maybe it already exists as a directory */
-        if (errno == EEXIST) {
+        /* Maybe it already exists as a directory. MorphOS can return ENOTDIR instead of EEXIST */
+        if (errno == EEXIST || errno == ENOTDIR) {
             jim_stat_t sb;
 
             if (Jim_Stat(path, &sb) == 0 && S_ISDIR(sb.st_mode)) {
@@ -700,12 +692,12 @@ static int file_stat(Jim_Interp *interp, Jim_Obj *filename, jim_stat_t *sb)
     return JIM_OK;
 }
 
-#ifdef HAVE_LSTAT
+#ifdef Jim_LinkStat
 static int file_lstat(Jim_Interp *interp, Jim_Obj *filename, jim_stat_t *sb)
 {
     const char *path = Jim_String(filename);
 
-    if (lstat(path, sb) == -1) {
+    if (Jim_LinkStat(path, sb) == -1) {
         Jim_SetResultFormatted(interp, "could not read \"%#s\": %s", filename, strerror(errno));
         return JIM_ERR;
     }
@@ -870,7 +862,7 @@ static int file_cmd_type(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     return JIM_OK;
 }
 
-#ifdef HAVE_LSTAT
+#ifdef Jim_LinkStat
 static int file_cmd_lstat(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
     jim_stat_t sb;

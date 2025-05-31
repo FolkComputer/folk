@@ -58,12 +58,12 @@ When /keyboard/ is a keyboard device {
     # returned fileno is portable to other threads which can do the
     # keyboard grab/ungrab later.
     $cc proc getFileno {Jim_Interp* interp Jim_Obj* channel} int {
-        FILE* fp = Jim_AioFilehandle(interp, channel);
-        if (fp == NULL) {
+        int fd = Jim_AioFilehandle(interp, channel);
+        if (fd < 0) {
             printf("unable to open channel '%s' as file\n'", Jim_String(channel));
             return -1;
         }
-        return fileno(fp);
+        return fd;
     }
 
     $cc proc setGrabDevice {Jim_Interp* interp int fileno bool grab} void {

@@ -9,7 +9,7 @@
 set env [env]
 
 # Provide Tcl-compatible I/O commands
-if {[info commands stdout] ne ""} {
+if {[exists -command stdout]} {
 	# Tcl-compatible I/O commands
 	foreach p {gets flush close eof seek tell} {
 		proc $p {chan args} {p} {
@@ -48,7 +48,7 @@ if {[info commands stdout] ne ""} {
 					$f buffering $v
 				}
 				-tr* {
-					# Just ignore -translation
+					$f translation $v
 				}
 				default {
 					return -code error "fconfigure: unknown option $n"
@@ -136,9 +136,6 @@ proc popen {cmd {mode r}} {
 		lambda {cmd args} {f pids} {
 			if {$cmd eq "pid"} {
 				return $pids
-			}
-			if {$cmd eq "getfd"} {
-				$f getfd
 			}
 			if {$cmd eq "close"} {
 				$f close

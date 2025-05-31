@@ -707,8 +707,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - vendor wslay?
 - ports
   - points-up port
-  - calibration process
-    - fix close-tab
 - only intern long strings?
 - ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
@@ -755,3 +753,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     its refcount hit 0 and the statement itself was reaped?~~
 - **calibrate render loop blinks out regularly**
 - **calibrate auto refresh preview is broken(?)**
+- **calibrate is off (RMSE 22)**
+  - i tried using old estimatehomography just in the calibrate step
+    but that didn't work
+  - the PROJECTOR calibration specifically seems off, the camera
+    calibration seems ok

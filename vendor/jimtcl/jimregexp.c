@@ -774,7 +774,7 @@ static int regatom(regex_t *preg, int *flagp)
 							preg->err = REG_ERR_NULL_CHAR;
 							return 0;
 						}
-						if (start == '\\' && *pattern == 0) {
+						if (end == '\\' && *pattern == 0) {
 							preg->err = REG_ERR_INVALID_ESCAPE;
 							return 0;
 						}
@@ -792,6 +792,10 @@ static int regatom(regex_t *preg, int *flagp)
 					for (cc = 0; cc < CC_NUM; cc++) {
 						n = strlen(character_class[cc]);
 						if (strncmp(pattern, character_class[cc], n) == 0) {
+							if (pattern[n] != ']') {
+								preg->err = REG_ERR_UNMATCHED_BRACKET;
+								return 0;
+							}
 							/* Found a character class */
 							pattern += n + 1;
 							break;

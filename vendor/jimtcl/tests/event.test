@@ -12,22 +12,10 @@
 source [file dirname [info script]]/testing.tcl
 
 needs cmd after eventloop
-testConstraint socket [expr {[info commands socket] ne ""}]
-testConstraint exec [expr {[info commands exec] ne ""}]
-testConstraint signal [expr {[info commands signal] ne ""}]
-catch {[socket -ipv6 stream ::1:5000]} res
-set ipv6 1
-if {[string match "*not supported" $res]} {
-    set ipv6 0
-} else {
-    # Also, if we can't bind an IPv6 socket, don't run IPv6 tests
-    if {[catch {
-        [socket -ipv6 stream.server ::1:5000] close
-    } msg opts]} {
-        set ipv6 0
-    }
-}
-testConstraint ipv6 $ipv6
+constraint cmd socket
+constraint cmd exec
+constraint cmd signal
+constraint eval ipv6 {[socket -ipv6 stream.server ::1:5000] close}
 
 test event-5.1 {Tcl_BackgroundError, HandleBgErrors procedures} jim {
     catch {rename bgerror {}}
@@ -90,13 +78,23 @@ test event-7.4 {bgerror throws an error} -constraints jim -body {
         }
         after 0 {error err1}
         update
-    }
+    } 2>gorp.err
+    set f [open gorp.err]
+    set err [read $f]
+    close $f
+    set err
 } -result {stdin:3: Error: inside bgerror
-at file "stdin", line 3}
+Traceback (most recent call last):
+  File "stdin", line 6
+    bgerror err1
+  File "stdin", line 3, in bgerror
+    error {inside bgerror}
+} -cleanup {
+    file delete gorp.err
+}
 
 # end of bgerror tests
 catch {rename bgerror {}}
-
 
 test event-10.1 {Tcl_Exit procedure} exec {
     set cmd [list exec [info nameofexecutable] "<<exit 3"]
@@ -120,9 +118,9 @@ test event-11.4 {Tcl_VwaitCmd procedure} {
 	after cancel $i
     }
     after 10; update; # On Mac make sure update won't take long
-    after 100 {set x x-done}
-    after 200 {set y y-done}
-    after 300 {set z z-done}
+    after 200 {set x x-done}
+    after 400 {set y y-done}
+    after 600 {set z z-done}
     after idle {set q q-done}
     set x before
     set y before
@@ -178,9 +176,10 @@ test event-11.6 {Tcl_VwaitCmd procedure: round robin scheduling, same source} {s
     list $x $y $z
 } {3 3 done}
 
-test event-12.1 {Tcl_UpdateCmd procedure} {
-    list [catch {update a b} msg] $msg
-} {1 {wrong # args: should be "update ?idletasks?"}}
+test event-12.1 {Tcl_UpdateCmd procedure - usage} -body {
+    update a b
+} -returnCodes error -result {wrong # args: should be "update ?idletasks?"}
+
 test event-12.3 {Tcl_UpdateCmd procedure} {
     foreach i [after info] {
 	after cancel $i
@@ -219,8 +218,8 @@ test event-13.1 "vwait/signal" signal {
     signal handle ALRM
     list [catch -signal {
         alarm 0.1
-        # This is just to prevent the vwait from exiting immediately
-        stdin readable { format test }
+        # prevent the vwait from exiting immediately
+        after 1000 { }
         vwait forever
     } msg] $msg
 } {5 SIGALRM}
