@@ -1,60 +1,3 @@
-# helper functions
-proc applyTextViewport {originalText x y width height} {
-  set lines [split $originalText \n]
-  set lines [lrange $lines $y [expr {($height - 1) + $y}]]
-  set lines [lmap line $lines {
-    set line [string range $line $x [expr {($width - 1) + $x}]]
-  }]
-  return [join $lines \n]
-}
-
-proc cursorToXy {code cursor} {
-  set codeBeforeCursor [string range $code 0 [- $cursor 1]]
-  set linesBeforeCursor [split $codeBeforeCursor "\n"]
-  set lineCountBeforeCursor [llength $linesBeforeCursor]
-
-  set cursorX [string length [lindex $linesBeforeCursor end]]
-  set cursorY [expr {max($lineCountBeforeCursor - 1, 0)}]
-  
-  return [list $cursorX $cursorY]
-}
-
-proc xyToCursor {code cursorX cursorY} {
-  if { $cursorX < 0 } { set cursorX 0 }
-  if { $cursorY < 0 } { set cursorY 0 }
-
-  set lines [split $code "\n"]
-  set maxCursorY [max 0 [- [llength $lines] 1]]
-  set cursorY [min $cursorY $maxCursorY]
-
-  set relevantLines [lrange $lines 0 [- $cursorY 1]]
-  set relevantLineLen [string length [lindex $lines $cursorY]]
-  set joined [join $relevantLines "\n"]
-  # make sure cursorX < line length
-  set cursorX [min $cursorX $relevantLineLen]
-  set cursor [+ [string length $joined] $cursorX]
-  # don't forget to add the length of \n at the beginning
-  if {$cursorY > 0} { incr cursor }
-  
-  return $cursor
-}
-
-proc insertText {code cursor text} {
-  set before [string range $code 0 [- $cursor 1]]
-  set after [string range $code $cursor end]
-  set joined [join [list $before $text $after] ""]
-  
-  return $joined
-}
-
-proc deleteText {code cursor count} {
-  set before [string range $code 0 [- $cursor 1]]
-  set after [string range $code [+ $cursor $count] end]
-  set joined [join [list $before $after] ""]
-  
-  return $joined
-}
-
 # initial setup
 When /view/ is a code view {
   # select which program the view is viewing
@@ -111,55 +54,15 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
     Hold view-state-of:$view {
       if {[dict exists $options printable]} {
-        set code [insertText $code $cursor [dict get $options printable]]
+        set code [editor::insertText $code $cursor [dict get $options printable]]
 
         incr cursor
         incr maxCursorX
       } else {
+        lassign [editor::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+        lassign [editor::handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
+
         switch $key {
-          Left {
-            set cursor [- $cursor 1]
-            set cursor [max $cursor 0]
-            
-            lassign [cursorToXy $code $cursor] cursorX cursorY
-            set maxCursorX $cursorX
-          }
-          Right {
-            set cursor [+ $cursor 1]
-            set codeLength [string length $code]
-            set cursor [min $cursor $codeLength]
-            
-            lassign [cursorToXy $code $cursor] cursorX cursorY
-            set maxCursorX $cursorX
-          }
-          Up {
-            lassign [cursorToXy $code $cursor] cursorX cursorY
-            set cursorX $maxCursorX
-            set cursorY [- $cursorY 1]
-            set cursor [xyToCursor $code $cursorX $cursorY]
-          }
-          Down {
-            lassign [cursorToXy $code $cursor] cursorX cursorY
-            set cursorX $maxCursorX
-            set cursorY [+ $cursorY 1]
-            set cursor [xyToCursor $code $cursorX $cursorY]
-          }
-          Delete {
-            if { $cursor == 0 } { return }
-            
-            set cursor [- $cursor 1]
-            set code [deleteText $code $cursor 1]
-            set maxCursorX [lindex [cursorToXy $code $cursor] 0]
-          }
-          Remove {
-            set code [deleteText $code $cursor 1]
-          }
-          Return {
-            set code [insertText $code $cursor "\n"]
-            
-            set maxCursorX 0
-            incr cursor
-          }
           Control_r {
             set resetCode true
           }
@@ -187,7 +90,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 
             Wish to print $code with job-id $jobid
           }
-          Control_e {
+          Control_t {
+            # remove the edited code to restore the program to its original code
             Hold new-code-for:$program {}
             set resetCode true
             file delete "$::env(HOME)/folk-printed-programs/$program.folk.edited"
@@ -195,7 +99,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
         }
       }
 
-      lassign [cursorToXy $code $cursor] cursorX cursorY
+      lassign [editor::cursorToXy $code $cursor] cursorX cursorY
       if {$cursorX < $vpX} { set vpX $cursorX }
       if {$cursorX >= $vpX + $vpWidth} {
         set vpX [expr {$cursorX - $vpWidth}]
@@ -210,6 +114,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
       Claim $view has max cursor x $maxCursorX
 
       if {$resetCode} {
+        # the init code will rerun when nothing is held for the code
         Hold code-for:$program {}
       } else {
         Hold code-for:$program {
@@ -228,7 +133,7 @@ When /view/ is a code view &\
      /view/ has view dimensions /dims/ {
   lassign $dims vpX vpY vpWidth vpHeight
 
-  lassign [cursorToXy $code $cursor] cursorX cursorY
+  lassign [editor::cursorToXy $code $cursor] cursorX cursorY
 
   set scale 0.6
   set em [expr {$scale * 25}]
@@ -260,7 +165,7 @@ When /view/ is a code view &\
     set cursorPos [vec2 add $textOrigin $cursorPos]
     set cursorPos [vec2 add $cursorPos [list 0 [* $em $scale]]]
 
-    set text [applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+    set text [editor::applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
     Wish $view draws text $text with offset $textOrigin \
       scale $scale anchor topleft font NeomatrixCode
 
