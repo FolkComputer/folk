@@ -698,8 +698,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         exit(EXIT_FAILURE);
 
     } else if (error == JIM_SIGNAL) {
+        // FIXME: I think this is the only signal handler path that
+        // actually runs mostly.
         interp->sigmask = 0;
-        pthread_exit(NULL);
+        workerExit();
     }
 
     matchCompleted(self->currentMatch);
@@ -1033,7 +1035,9 @@ void workerLoop() {
     for (;;) {
         schedtick++;
         if (interp->sigmask & (1 << SIGUSR1)) {
-            pthread_exit(NULL);
+            // FIXME: I think this signal handler doesn't actually
+            // run.
+            workerExit();
         }
 
         WorkQueueItem item = { .op = NONE };
@@ -1058,7 +1062,7 @@ void workerLoop() {
  die:
     // Note that our workqueue should be empty at this point.
     fprintf(stderr, "%d: Die\n", self->index);
-    self->tid = 0;
+    workerExit();
 }
 void workerInit(int index) {
     seedp = time(NULL) + index;
@@ -1097,6 +1101,15 @@ void workerInit(int index) {
 #endif
 
     interpBoot();
+}
+void workerExit() {
+    // Need this so that this worker doesn't count as still being
+    // alive and count toward the worker cap.
+
+    // TODO: Clear everything else out?
+    self->tid = 0;
+
+    pthread_exit(NULL);
 }
 void* workerMain(void* arg) {
 #ifdef __APPLE__

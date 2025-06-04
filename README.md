@@ -745,7 +745,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~cannot use apriltag debugger on folk0 (which i need to fix
   calibration, which i need to do perf testing)~~
 
-- blinking during calibrate
 - fix uncalibrated Folk message
 - ~~calibrate autorefresh doesn't work?~~
   - ~~fix collection of negated calibration~~
@@ -758,3 +757,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     but that didn't work
   - the PROJECTOR calibration specifically seems off, the camera
     calibration seems ok
+  - increasing seen-poses count doesn't help
+  - using (serially) helps -> RMSE 12
+- ~~kill is buggy -- keyboard gets killed, causes threads to fill and
+  freezes system (can't spawn any more threads)~~
