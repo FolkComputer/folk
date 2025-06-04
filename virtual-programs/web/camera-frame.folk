@@ -10,6 +10,7 @@ When the image library is /imageLib/ {
             close $fd
             break
         }
+        if {![info exists body]} { error "camera-frame: No valid camera frame found" }
         dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
     }} $imageLib]
 }
