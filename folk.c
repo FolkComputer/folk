@@ -572,6 +572,8 @@ void eval(const char* code) {
 // Evaluator
 //////////////////////////////////////////////////////////
 
+void workerExit();
+
 static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
