@@ -131,10 +131,12 @@ foreach keyboard $keyboardDevices {
                 # Retract all key events that are more than 5 seconds old.
                 set events [Statements::findMatches \
                     [list keyboard $keyboard claims key /key/ is /keyState/ with /...options/]]
+                set newKeyState $keyState
+
                 foreach event $events {
                     dict with event {
                         set timestamp [dict get $options timestamp]
-                        if {$now - $timestamp > 5000} {
+                        if {$now - $timestamp > 5000 || $keyState != $newKeyState} {
                             Retract keyboard $keyboard claims key $key is $keyState with {*}$options
                         }
                     }

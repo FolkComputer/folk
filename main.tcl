@@ -310,6 +310,7 @@ source "lib/math.tcl"
 Assert when /this/ has program /__program/ {{this __program} {
     apply $__program $this
 }}
+
 # For backward compat(?):
 Assert when /__this/ has program code /__programCode/ {{__this __programCode} {
     Claim $__this has program [list {this} $__programCode]
