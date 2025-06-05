@@ -1,9 +1,44 @@
+namespace eval ::codeView {
+  # TODO: also don't hardcode this? Or make it in meters once that's simple
+  variable marginInPx 10
+
+  proc getEmAndAdvance {textScale} {
+    set em [expr {$textScale * 25}]
+    # From NeomatrixCode.csv
+    set advance [expr {0.5859375 * $em}]
+
+    return [list $em $advance]
+  }
+
+  # given a region and the code view options, figure out how many characters can
+  # fit in this code view
+  proc viewCharacterSize {r options} {
+    variable marginInPx
+
+    set textScale [dict get $options textScale]
+    lassign [getEmAndAdvance $textScale] em advance
+
+    set regionWidth [region width $r] 
+    set regionHeight [region height $r] 
+
+    set width [expr {($regionWidth * [dict get $options widthScale]) - $marginInPx * 2}]
+    # TODO: don't hardcode 0.7
+    set height [expr {($regionHeight * [dict get $options heightScale]) - $regionHeight * 0.7}]
+
+    set widthInCharacters [expr {int($width / $advance)}]
+    set heightInCharacters [expr {int($height / $em)}]
+
+    return [list $widthInCharacters $heightInCharacters]
+  }
+}
+
 # initial setup
-When /view/ is a code view {
+When /view/ is a code view with /...options/ {
+  set defaults { widthScale 1 heightScale 1 textScale 0.6 }
+  set options [dict merge $defaults $options]
+
   # select which program the view is viewing
-  # also, `has program code /anything/` is important so it
-  # will re-Hold when new code comes
-  When $view points up at /program/ & /program/ has program code /anything/ {
+  When $view points up at /program/ {
     Hold selected-program:$view {
       Claim $view has selected program $program
     }
@@ -16,10 +51,26 @@ When /view/ is a code view {
 
   # load in defaults for the view if it hasn't been initialized
   When /nobody/ claims $view has cursor /anything/ {
-    Hold view-state-of:$view {
-      Claim $view has view dimensions [list 0 0 68 17]
-      Claim $view has cursor 0
-      Claim $view has max cursor x 0
+    # We need the view's region in order to figure out its size.
+    # We then use its size to figure out how many characters we can fit in it,
+    # width-wise and height-wise
+    When $view has region /r/ {
+      Hold text-params-of:$view {
+        set textScale [dict get $options textScale]
+        lassign [codeView::getEmAndAdvance $textScale] em advance
+
+        Claim $view has text settings with em $em advance $advance scale $textScale
+        Claim $view has viewport scale with \
+              width [dict get $options widthScale] height [dict get $options heightScale]
+      }
+
+      Hold view-state-of:$view {
+        lassign [codeView::viewCharacterSize $r $options] widthInCharacters heightInCharacters
+
+        Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
+        Claim $view has cursor 0
+        Claim $view has max cursor x 0
+      }
     }
   }
 
@@ -39,13 +90,16 @@ When /view/ is a code view {
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /nobody/ claims /keyboard/ is an editor &\
      /keyboard/ points up at /view/ &\
-     /view/ is a code view {
+     /view/ is a code view with /...anything/ {
+  # TODO: is there a way to make this `Every time` less of a beast?
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
         /view/ has view dimensions /dims/ &\
         /view/ has selected program /program/ &\
         view code for /program/ is /code/ &\
         /view/ has max cursor x /maxCursorX/ &\
-        /view/ has cursor /cursor/ {
+        /view/ has cursor /cursor/ &\
+        /view/ has viewport scale with width /widthScale/ height /heightScale/ &\
+        $view has text settings with /...textOptions/ {
     lassign $dims vpX vpY vpWidth vpHeight
     
     if {$keyState == "up"} { return }
@@ -59,9 +113,11 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
         incr cursor
         incr maxCursorX
       } else {
+        # general editor functionality
         lassign [editor::handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
         lassign [editor::handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
 
+        # specific editor functionality
         switch $key {
           Control_r {
             set resetCode true
@@ -96,6 +152,43 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set resetCode true
             file delete "$::env(HOME)/folk-printed-programs/$program.folk.edited"
           }
+          Control_underscore {
+            # ctrl and - (zoom out)
+            set regionMatches [Statements::findMatches [list /someone/ claims $view has region /r/]]
+            set r [dict get [lindex $regionMatches 0] r]
+
+            set textScale [dict get $textOptions scale]
+            set textScale [/ $textScale 1.1]
+
+            Hold text-params-of:$view {
+              lassign [codeView::getEmAndAdvance $textScale] em advance
+              Claim $view has text settings with em $em advance $advance scale $textScale
+              Claim $view has viewport scale with width $widthScale height $heightScale
+            }
+
+            # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+            set codeViewOptions [dict create textScale $textScale widthScale $widthScale heightScale $heightScale]
+            lassign [codeView::viewCharacterSize $r $codeViewOptions] vpWidth vpHeight
+          }
+          equal {
+            # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
+            # ctrl and + (zoom in)
+            set regionMatches [Statements::findMatches [list /someone/ claims $view has region /r/]]
+            set r [dict get [lindex $regionMatches 0] r]
+
+            set textScale [dict get $textOptions scale]
+            set textScale [* $textScale 1.1]
+
+            Hold text-params-of:$view {
+              lassign [codeView::getEmAndAdvance $textScale] em advance
+              Claim $view has text settings with em $em advance $advance scale $textScale
+              Claim $view has viewport scale with width $widthScale height $heightScale
+            }
+
+            # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+            set codeViewOptions [dict create textScale $textScale widthScale $widthScale heightScale $heightScale]
+            lassign [codeView::viewCharacterSize $r $codeViewOptions] vpWidth vpHeight
+          }
         }
       }
 
@@ -126,20 +219,18 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 }
 
 # calculate cursor position
-When /view/ is a code view &\
+When /view/ is a code view with /...anything/ &\
      /view/ has cursor /cursor/ &\
      /view/ has selected program /program/ &\
      view code for /program/ is /code/ &\
-     /view/ has view dimensions /dims/ {
+     /view/ has view dimensions /dims/ &\
+     /view/ has text settings with /...textOptions/ {
   lassign $dims vpX vpY vpWidth vpHeight
 
   lassign [editor::cursorToXy $code $cursor] cursorX cursorY
 
-  set scale 0.6
-  set em [expr {$scale * 25}]
-  # From NeomatrixCode.csv
-  set advance [expr {0.5859375 * $em}]
-  set margin [expr {$advance * 3 + 10}]
+  set em [dict get $textOptions em]
+  set advance [dict get $textOptions advance]
 
   set offsetX [expr {($cursorX - $vpX) * $advance}]
   set offsetY [expr {($cursorY - $vpY) * $em}]
@@ -148,26 +239,30 @@ When /view/ is a code view &\
 }
 
 # Draw text and cursor
-When /view/ is a code view &\
+When /view/ is a code view with /...anything/ &\
      /view/ has view dimensions /dims/ &\
-     /view/ has region /r/ {
+     /view/ has region /r/ &\
+     /view/ has text settings with /...textOptions/ {
   # vp = viewport
   lassign $dims vpX vpY vpWidth vpHeight
-  set regionWidth [region width $r]; set regionHeight [region height $r]
+
+  set regionWidth [region width $r]
+  set regionHeight [region height $r]
+
+  set textScale [dict get $textOptions scale]
+  lassign [codeView::getEmAndAdvance $textScale] em advance
 
   When $view has selected program /program/ &\
        view code for /program/ is /code/ &\
        $view has cursor position /cursorPos/ {
-    set scale 0.6
-    set em [expr {$scale * 25}]
-    
-    set textOrigin [list [expr {-($regionWidth / 2) + 10}] [expr {-($regionHeight / 2) + 130}]]
+    # TODO: the height ($regionHeight * 0.2) assumes that programs are half-pages
+    set textOrigin [list [expr {-($regionWidth / 2) + $codeView::marginInPx}] [expr {$regionHeight * 0.2}]]
     set cursorPos [vec2 add $textOrigin $cursorPos]
-    set cursorPos [vec2 add $cursorPos [list 0 [* $em $scale]]]
+    set cursorPos [vec2 add $cursorPos [list 0 [* $em 0.5]]]
 
     set text [editor::applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
     Wish $view draws text $text with offset $textOrigin \
-      scale $scale anchor topleft font NeomatrixCode
+      scale $textScale anchor topleft font NeomatrixCode
 
     Wish $view draws a rect with width 0 height $em color green thickness 3 offset $cursorPos
   }
