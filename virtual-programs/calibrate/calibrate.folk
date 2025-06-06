@@ -819,7 +819,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set frameInfos [Query! camera $camera has frame /frame/ at timestamp /timestamp/]
             if {[llength $frameInfos] > 0} { break }
 
-            sleep 0.01
+            sleep 0.001
         }
         set frameInfo [lindex [lsort_key_asc timestamp $frameInfos] end]
         dict with frameInfo {}
@@ -837,10 +837,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
             if {[info exists detectionInfo]} { break }
 
-            sleep 0.01
+            sleep 0.001
             # HACK: We should find a cleaner way to avoid hanging
             # forever if a frame doesn't actually get a detect.
-            set waitedSeconds [+ $waitedSeconds 0.01]
+            set waitedSeconds [+ $waitedSeconds 0.001]
             if {$waitedSeconds > 0.05} { break }
         }
         if {![info exists detectionInfo]} { continue }
@@ -855,7 +855,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 set calibrationState [lindex [lsort_key_asc hTimestamp $calibrationStates] end]
                 break
             }
-            sleep 0.01
+            sleep 0.001
         }
         dict with calibrationState {}
 
