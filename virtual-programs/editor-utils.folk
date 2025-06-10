@@ -65,11 +65,15 @@ namespace eval ::editor {
     return [join $lines "\n"]
   }
 
-  proc getLineLength {code cursor} {
+  proc getLine {code cursor} {
     lassign [cursorToXy $code $cursor] x y
 
     set lines [split $code "\n"]
     set line [lindex $lines $y]
+  }
+
+  proc getLineLength {code cursor} {
+    set line [getLine $code $cursor]
     set ll [string length $line]
     return $ll
   }
@@ -140,10 +144,13 @@ namespace eval ::editor {
         set cursor [xyToCursor $code $newX $cursorY]
       }
       Return {
-        set code [insertText $code $cursor "\n"]
+        # figure out how many spaces there are before the current line
+        regexp {^(\s*)} [getLine $code $cursor] -> spacing
+        set spacingLen [string length $spacing]
+        set code [insertText $code $cursor "\n$spacing"]
         
-        set maxCursorX 0
-        incr cursor
+        set maxCursorX $spacingLen
+        set cursor [+ $cursor [+ 1 $spacingLen]]
       }
     }
 
