@@ -93,12 +93,12 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /view/ is a code view with /...anything/ {
   # TODO: is there a way to make this `Every time` less of a beast?
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
-        /view/ has view dimensions /dims/ &\
-        /view/ has selected program /program/ &\
+        $view has view dimensions /dims/ &\
+        $view has selected program /program/ &\
         view code for /program/ is /code/ &\
-        /view/ has max cursor x /maxCursorX/ &\
-        /view/ has cursor /cursor/ &\
-        /view/ has viewport scale with width /widthScale/ height /heightScale/ &\
+        $view has max cursor x /maxCursorX/ &\
+        $view has cursor /cursor/ &\
+        $view has viewport scale with width /widthScale/ height /heightScale/ &\
         $view has text settings with /...textOptions/ {
     lassign $dims vpX vpY vpWidth vpHeight
     
