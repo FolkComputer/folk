@@ -2,18 +2,19 @@ package require json
 package require json::write
 
 namespace eval ::githubGist {
-    variable nextId 0
-
     set tokenLocation "$::env(HOME)/folk-secrets/github-gist-token.txt"
-    set fd [open $tokenLocation r]
-    # [string trim] here is very important, because the token
-    # file may end in \n. That \n will be passed into curl,
-    # which happily sticks it into the HTTP headers and messes up
-    # the \r\n header standard. Github also seems to be non-conformant
-    # by parsing the \n as \r\n, and since there's now two \n's it thinks
-    # the rest of the headers are the HTTP body ;_;
-    variable token [string trim [read $fd]]
-    close $fd
+
+    if {[file exists $tokenLocation]} {
+        set fd [open $tokenLocation r]
+        # [string trim] here is very important, because the token
+        # file may end in \n. That \n will be passed into curl,
+        # which happily sticks it into the HTTP headers and messes up
+        # the \r\n header standard. Github also seems to be non-conformant
+        # by parsing the \n as \r\n, and since there's now two \n's it thinks
+        # the rest of the headers are the HTTP body ;_;
+        variable token [string trim [read $fd]]
+        close $fd
+    }
     
     # gist should be a dictionary with key=filename and value=contents
     proc postGist {gist description} {
@@ -33,21 +34,24 @@ namespace eval ::githubGist {
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $token" \
-            -H "Content-Type: application/json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -d @- \
             https://api.github.com/gists &
     }
 
     proc getGist {gistId} {
-        variable token
+        set headers [list \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28"]
+
+        if {[info exists ::githubGist::token]} {
+            variable token
+            lappend headers -H "Authorization: Bearer $token"
+        }
 
         set filesAsJson [exec \
             curl -LsS \
-                -H "Accept: application/vnd.github+json" \
-                -H "Authorization: Bearer $token" \
-                -H "Content-Type: application/json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
+                {*}$headers \
                 "https://api.github.com/gists/$gistId" | \
             jq -c "{files: .files | map_values({filename, content}), description}"]
         
