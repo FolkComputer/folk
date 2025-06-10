@@ -138,8 +138,8 @@ namespace eval ::editor {
       }
       Control_u {
         # delete from cursor back to 0 and move cursor to 0
-        set code [deleteToBeginning $code $cursor]
         lassign [cursorToXy $code $cursor] cursorX cursorY
+        set code [deleteToBeginning $code $cursor]
         set newX 0
         set cursor [xyToCursor $code $newX $cursorY]
       }
