@@ -512,13 +512,14 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         } {
             namespace import ::math::linearalgebra::$p
         }
+        set textScale [/ $printedSideLengthM 2.0]
         foreach side $sides {
             lassign $side start end anchor radians
             set modelPosition [scale 0.5 [add $start $end]]
 
             Wish to draw text onto $board with text $text radians $radians \
                 position $modelPosition \
-                anchor $anchor color black layer 100 scale 0.015
+                anchor $anchor color black layer 100 scale $textScale
         }
     }
 
