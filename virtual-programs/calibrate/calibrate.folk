@@ -571,6 +571,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         if {[lindex $detector 1] ne "entire-frame"} { return }
 
+        package require linalg
+
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
         # such that the projected tags should sit in the middle of the
