@@ -279,8 +279,8 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
             <p><strong>Is the projection too bright and washing out the camera?</strong>
             <br/>
             Adjust camera exposure:
-                <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
-                <input type="number" min="1000" max="320000" step="100" value="10000" id="camera-exposure-number">μs
+                <input type="range" min="10" max="32" value="15" class="slider" id="camera-exposure-slider">
+                <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
             </p>
 
             <script>
