@@ -441,14 +441,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub
 
+        set bgColor [list 1 1 1 1]
+
         # White backdrop on board:
         Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
-                                [list -1 -1] [list 1 -1] [list 1 1] [list 1 1 1 1]] \
+                                [list -1 -1] [list 1 -1] [list 1 1] $bgColor] \
             layer 99
         Wish the GPU draws pipeline "fillTriangle" onto image $boardWritableImage \
             with arguments [list {{1 0 0} {0 1 0} {0 0 1}} \
-                                [list -1 -1] [list 1 1] [list -1 1] [list 1 1 1 1]] \
+                                [list -1 -1] [list 1 1] [list -1 1] $bgColor] \
             layer 99
 
         # Draw AprilTags on board:
@@ -462,7 +464,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 innerToOuter $modelCenter $modelInnerCorner
             }]
             Wish to draw an AprilTag onto $board with \
-                id $id corners $modelOuterCorners layer 100
+                id $id corners $modelOuterCorners background $bgColor \
+                layer 100
         }
 
         # White backdrop across whole projector area to hopefully make
@@ -474,9 +477,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set p3 [list -1 1]
         set color {1 1 1 1}
         Wish the GPU draws pipeline "fillTriangle" with arguments \
-            [list $surfaceToClip $p1 $p2 $p3 $color] layer 99
+            [list $surfaceToClip $p1 $p2 $p3 $bgColor] layer 99
         Wish the GPU draws pipeline "fillTriangle" with arguments \
-            [list $surfaceToClip $p0 $p1 $p3 $color] layer 99
+            [list $surfaceToClip $p0 $p1 $p3 $bgColor] layer 99
 
         # Now draw the board image (which has the projected tags) onto
         # the display:

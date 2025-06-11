@@ -1,5 +1,5 @@
 Wish the GPU compiles pipeline "apriltag" {
-    {vec2 viewport mat3 surfaceToClip
+    {vec2 viewport mat3 surfaceToClip vec4 background
      uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
         vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
         vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
@@ -15,7 +15,7 @@ Wish the GPU compiles pipeline "apriltag" {
         int x = int(uv.x * 10); int y = int(uv.y * 10);
         int bitIdx = y * 10 + x;
         uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
-        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+        return bit == 1 ? background : vec4(0, 0, 0, 1);
     }
 }
 
@@ -27,6 +27,7 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
     set id [dict get $options id]
     set corners [dict get $options corners]
     set layer [dict getdef $options layer 0]
+    set background [dict getdef $options background [list 1 1 1 1]]
 
     set tagImage [$printLib tagImageForId $id]
     set tagBits [list]
@@ -45,6 +46,7 @@ When the image library is /imageLib/ & the print library is /printLib/ &\
                         0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
     Wish the GPU draws pipeline "apriltag" onto image $writableImage with \
-        arguments [list [list 1024 1024] $surfaceToClip $tagBitsVec {*}$corners] \
+        arguments [list [list 1024 1024] $surfaceToClip $background \
+                       $tagBitsVec {*}$corners] \
         layer $layer
 }
