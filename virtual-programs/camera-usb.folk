@@ -261,6 +261,24 @@ set makeCamera {
         folkHeapFree(image.data);
     }
 
+    camc proc setExposure {camera_t* camera int value} void {
+        struct v4l2_control c;
+
+        c.id = V4L2_CID_EXPOSURE_AUTO;
+        c.value = V4L2_EXPOSURE_MANUAL;
+        FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+
+        c.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        c.value = value;
+        FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+    }
+    camc proc setExposureAuto {camera_t* camera} void {
+        struct v4l2_control c;
+        c.id = V4L2_CID_EXPOSURE_AUTO;
+        c.value = V4L2_EXPOSURE_APERTURE_PRIORITY;
+        FOLK_ENSURE(xioctl(camera->fd, VIDIOC_S_CTRL, &c) == 0);
+    }
+
     if {$::tcl_platform(os) eq "Darwin"} {
         c loadlib "/opt/homebrew/lib/libjpeg.dylib"
     } else {
@@ -301,7 +319,7 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
     set width [dict get $options width]
     set height [dict get $options height]
-    set bufferCount [dict_getdef $options bufferCount 4]
+    set bufferCount [dict_getdef $options bufferCount 2]
 
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
@@ -324,6 +342,8 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
 
         Wish $::thisProcess shares statements like \
             [list /someone/ claims camera $cameraPath /...anything/]
+        Wish $::thisProcess receives statements like \
+            [list /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us]
 
         namespace eval Camera $makeCamera
         set camera [Camera::new $cameraPath $width $height $bufferCount]
@@ -332,6 +352,14 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         Claim camera $cameraPath has width $width height $height
 
         puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
+
+        When /someone/ wishes camera $cameraPath uses exposure time /exposureTimeUs/ us {
+            if {$exposureTimeUs eq "auto"} {
+                Camera::setExposureAuto $camera
+            } else {
+                Camera::setExposure $camera [expr {int($exposureTimeUs / 100)}]
+            }
+        }
 
         set ::oldFrames [list]
         When $::thisProcess has step count /c/ {

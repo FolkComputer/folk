@@ -1640,9 +1640,9 @@ Start-display-process {
     Wish $::thisProcess shares statements like \
         [list /someone/ has error /err/ with info /errorInfo/]
 
-    # for backwards compatibility
+    # If swapchain padding isn't indicated, default to this
     When /someone/ wishes $::thisNode uses display /displayIdx/ {
-        Wish $::thisNode uses display $displayIdx with swapchainPadding 1
+        Wish $::thisNode uses display $displayIdx with swapchainPadding 0
     }
 
     When /someone/ wishes $::thisNode uses display /displayIdx/ with /...options/ {
