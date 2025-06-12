@@ -48,6 +48,7 @@ When (non-capturing) /type/ /obj/ has a program {
 
         When /someone/ wishes program $obj is replaced with code /newCode/ {
             Claim $obj has program code $newCode
+            Wish $obj is titled "EDITED"
         }
 
         if {[file exists "$::env(HOME)/folk-printed-programs/$obj.meta.folk"]} {

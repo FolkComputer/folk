@@ -90,12 +90,12 @@ When /view/ is a code view with /...options/ {
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /nobody/ claims /keyboard/ is an editor &\
      /keyboard/ points up at /view/ &\
-     /view/ is a code view with /...anything/ {
+     /view/ is a code view with /...anything/ &\
+     /view/ has selected program /program/ {
   # TODO: is there a way to make this `Every time` less of a beast?
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
         $view has view dimensions /dims/ &\
-        $view has selected program /program/ &\
-        view code for /program/ is /code/ &\
+        view code for $program is /code/ &\
         $view has max cursor x /maxCursorX/ &\
         $view has cursor /cursor/ &\
         $view has viewport scale with width /widthScale/ height /heightScale/ &\
@@ -123,22 +123,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set resetCode true
           }
           Control_s {
-            Hold new-code-for:$program {
-              Wish program $program is replaced with code $code
-              Wish $program is titled "EDITED"
-            }
-
-            set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
-            puts -nonewline $fp $code
-            close $fp
-
-            # give the user some feedback
-            Hold saved-alert:$keyboard {
-              Wish $keyboard is labelled "Saved!"
-            }
-
-            After 250 milliseconds {
-              Hold saved-alert:$keyboard {}
+            Hold saving-code-for:$view {
+              Wish to save code on view $view
             }
           }
           Control_p {
@@ -214,6 +200,29 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
           Claim view code for $program is $code
         }
       }
+    }
+  }
+
+  # TODO: replace with event firing
+  When /someone/ wishes to save code on view $view &\
+       view code for $program is /programCode/ {
+    Hold new-code-for:$program {
+      Wish program $program is replaced with code $programCode
+    }
+
+    set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
+    puts -nonewline $fp $programCode
+    close $fp
+
+    Hold saving-code-for:$view {}
+
+    # give the user some feedback
+    Hold saved-alert:$keyboard {
+      Wish $keyboard is labelled "Saved!"
+    }
+
+    After 250 milliseconds {
+      Hold saved-alert:$keyboard {}
     }
   }
 }
