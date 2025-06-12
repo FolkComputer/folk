@@ -1,6 +1,3 @@
-package require json
-package require json::write
-
 When /page/ is a keyboard with path /kbPath/ /...anything/ &\
      /page/ is an editor {
     set previewProgramId "$page$kbPath"
@@ -8,16 +5,8 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ &\
     When $previewProgramId has editor code /editorCode/ &\
          $previewProgramId has program code /programCode/ &\
          the $kbPath cursor is /cursor/ {
-        json::write indented false
-
-        Claim $page has js coder info with type editor1 json [json::write object \
-            previewProgramId [json::write string $previewProgramId] \
-            kbPath           [json::write string $kbPath]]
-
-        Claim $page has js coder state with json [json::write object \
-            editorCode       [json::write string $editorCode] \
-            programCode      [json::write string $programCode] \
-            cursor           $cursor]
+        Claim $page has js coder info with type editor1 previewProgramId $previewProgramId kbPath $kbPath
+        Claim $page has js coder state with editorCode $editorCode programCode $programCode cursor $cursor
     }
 }
 
@@ -25,14 +14,8 @@ When /view/ is a code view with /...anything/ &\
      /view/ has selected program /selectedProgram/ &\
      view code for /selectedProgram/ is /programCode/ &\
      /view/ has cursor /cursor/ {
-    json::write indented false
-
-    Claim $view has js coder info with type codeView json [json::write object \
-        selectedProgram [json::write string $selectedProgram]]
-
-    Claim $view has js coder state with json [json::write object \
-        programCode [json::write string $programCode] \
-        cursor      $cursor]
+    Claim $view has js coder info with type codeView selectedProgram $selectedProgram
+    Claim $view has js coder state with programCode $programCode cursor $cursor
 }
 
 Wish the web server handles route "/editor-control" with handler {
@@ -55,7 +38,7 @@ const ws = new FolkWS(document.getElementById('status'));
 const coderSelectElem = document.querySelector("#coder-select");
 const textarea = document.querySelector("#code");
 
-var coderInfo = {};
+var coderConfigs = {};
 var currentCoder = null;
 
 // temporarily disable event processing after sending new code to prevent recursive event sends
@@ -88,13 +71,13 @@ function updateCursorAndCode(ev) {
     const newCode = textarea.value;
     const newCursor = textarea.selectionStart;
 
-    switch (currentCoder.type) {
+    switch (currentCoder.config.type) {
         case "codeView":
             ws.evaluate(tcl`
                 Hold (non-capturing) (on virtual-programs/code-view.folk) view-state-of:${currentCoder.id} {
-                    set newCode [binary decode base64 ${btoa(newCode)}]
+                    set newCode ${newCode}
                     set newCursor ${newCursor}
-                    set selectedProgram ${currentCoder.json.selectedProgram}
+                    set selectedProgram ${currentCoder.config.selectedProgram}
                     set view ${currentCoder.id}
 
                     When ${currentCoder.id} has view dimensions /dims/ {
@@ -111,11 +94,11 @@ function updateCursorAndCode(ev) {
             `);
             break;
         case "editor1":
-            const {kbPath, previewProgramId} = currentCoder.json;
+            const {kbPath, previewProgramId} = currentCoder.config;
             ws.evaluate(tcl`
                 Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
                     set kbPath ${kbPath}
-                    set newCode [binary decode base64 ${btoa(newCode)}]
+                    set newCode ${newCode}
 
                     Claim the $kbPath cursor is ${newCursor}
                     lassign [editor::cursorToXy $newCode ${newCursor}] cursorX cursorY
@@ -138,7 +121,7 @@ function updateProgramCode() {
 
     const currentCode = textarea.value;
 
-    switch (currentCoder.type) {
+    switch (currentCoder.config.type) {
         case "codeView":
             // TODO: replace this with an event firing when events are added
             ws.evaluate(tcl`
@@ -148,11 +131,11 @@ function updateProgramCode() {
             `);
             break;
         case "editor1":
-            const {kbPath, previewProgramId} = currentCoder.json;
+            const {kbPath, previewProgramId} = currentCoder.config;
 
             ws.evaluate(tcl`
                 Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
-                    set currentCode [binary decode base64 ${btoa(currentCode)}]
+                    set currentCode ${currentCode}
 
                     Claim ${previewProgramId} has program code $currentCode
                     Claim ${previewProgramId} has editor code $currentCode
@@ -177,33 +160,33 @@ async function selectCoder(coder) {
 
     currentCoder = coder;
 
-    switch (coder.type) {
+    switch (coder.config.type) {
         case "codeView":
-            lastCoder = await ws.watch(`${coder.id} has js coder state with json /json/`, {
-                add: ({json}) => {
+            lastCoder = await ws.watch(`${coder.id} has js coder state with /...params/`, {
+                add: ({params}) => {
                     if (!allowRemoteEventsToProcess) return;
                     disableLocalEventProcessing(500);
 
-                    json = JSON.parse(json);
+                    params = loadDict(params);
 
-                    textarea.value = json.programCode;
-                    textarea.selectionStart = json.cursor;
-                    textarea.selectionEnd = json.cursor;
+                    textarea.value = params.programCode;
+                    textarea.selectionStart = parseInt(params.cursor);
+                    textarea.selectionEnd = parseInt(params.cursor);
                     textarea.focus();
                 }
             });
             break;
         case "editor1":
-            lastCoder = await ws.watch(`${coder.id} has js coder state with json /json/`, {
-                add: ({json}) => {
+            lastCoder = await ws.watch(`${coder.id} has js coder state with /...params/`, {
+                add: ({params}) => {
                     if (!allowRemoteEventsToProcess) return;
                     disableLocalEventProcessing(500);
 
-                    json = JSON.parse(json);
+                    params = loadDict(params);
 
-                    textarea.value = json.editorCode;
-                    textarea.selectionStart = json.cursor;
-                    textarea.selectionEnd = json.cursor;
+                    textarea.value = params.editorCode;
+                    textarea.selectionStart = params.cursor;
+                    textarea.selectionEnd = params.cursor;
                     textarea.focus();
                 }
             });
@@ -212,38 +195,38 @@ async function selectCoder(coder) {
 }
 
 // update states as they change
-ws.watchCollected("/id/ has js coder info with type /type/ json /json/", infos => {
-    for (let info of infos) {
-        info.json = JSON.parse(info.json);
+ws.watchCollected("/id/ has js coder info with /...config/", coders => {
+    for (let coder of coders) {
+        coder.config = loadDict(coder.config);
     }
 
     coderSelectElem.innerHTML = "";
 
-    coderInfo = {};
-    for (let info of infos) {
-        coderInfo[info.id] = info;
+    coderConfigs = {};
+    for (let coder of coders) {
+        coderConfigs[coder.id] = coder;
 
-        if (info.type === "codeView") {
-            coderSelectElem.innerHTML += `<option value="${info.id}">Code view #${info.id}</option>`;
-        } else if (info.type === "editor1") {
-            coderSelectElem.innerHTML += `<option value="${info.id}">Editor #${info.id} (${info.json.kbPath})</option>`;
+        if (coder.config.type === "codeView") {
+            coderSelectElem.innerHTML += `<option value="${coder.id}">Code view #${coder.id}</option>`;
+        } else if (coder.config.type === "editor1") {
+            coderSelectElem.innerHTML += `<option value="${coder.id}">Editor #${coder.id} (${coder.config.kbPath})</option>`;
         }
     }
 
     // does the coder not exist anymore?
-    if (currentCoder && coderInfo[currentCoder.id] === undefined) {
+    if (currentCoder && coderConfigs[currentCoder.id] === undefined) {
         currentCoder = null;
     }
 
     // don't select the default coder if we already have one selected
-    if (currentCoder === null && infos.length >= 1) {
-        selectCoder(infos[0]);
+    if (currentCoder === null && coders.length >= 1) {
+        selectCoder(coders[0]);
     }
 });
 
 // fired when selected keyboard changes
 coderSelectElem.addEventListener("input", (ev) => {
-    selectCoder(coderInfo[ev.target.value]);
+    selectCoder(coderConfigs[ev.target.value]);
 });
         </script>
     </body>
