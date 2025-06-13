@@ -349,7 +349,11 @@ When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
         set camera [Camera::new $cameraPath $width $height $bufferCount]
 
         # TODO: report actual width and height from v4l2
-        Claim camera $cameraPath has width $width height $height
+        if {[info exists crop]} {
+            Claim camera $cameraPath has width [dict get $crop width] height [dict get $crop height]
+        } else {
+            Claim camera $cameraPath has width $width height $height
+        }
 
         puts "camera-usb: $cameraPath ($options) (tid [getTid]) booted at [clock milliseconds]"
 
