@@ -331,7 +331,32 @@ $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
-    if {![string match "/dev*" $camera]} { return }
+    if {[string match "/sys/bus/usb/devices/*" $camera]} {
+        set devicePath $camera
+
+        fn retryDevice {} {
+            set videoDevices [glob -nocomplain [file join $devicePath video4linux video*]]
+            if {[llength $videoDevices] > 0} {
+                set camera [file tail [lindex [lsort -dict $videoDevices] 0]]
+                set camera "/dev/$camera"
+            } else {
+                error "camera-usb: Unable to find video device for $devicePath"
+            }
+
+            HoldStatement! $devicePath \
+                [list $this wishes $::thisNode uses camera $camera with {*}$options]
+        }
+
+        When camera $camera failed with error /e/ {
+            puts stderr "camera-usb: Restarting after failure with $e"
+            retryDevice
+        }
+        retryDevice
+
+        return
+    }
+
+    if {![string match "/dev/*" $camera]} { return }
 
     set width [dict get $options width]
     set height [dict get $options height]
@@ -397,17 +422,21 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set bufferCount [dict getdef $options bufferCount 4]
     set camObj [Camera::new $camera $width $height $bufferCount]
 
-    Claim camera $camera has width $width height $height
-
-    When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-        if {$exposureTimeUs eq "auto"} {
-            $camLib setExposureAuto $camObj
-        } else {
-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
-        }
-    }
-
     try -signal {
+        if {[info exists crop]} {
+            Claim camera $camera has width [dict get $crop width] height [dict get $crop height]
+        } else {
+            Claim camera $camera has width $width height $height
+        }
+
+        When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+            if {$exposureTimeUs eq "auto"} {
+                $camLib setExposureAuto $camObj
+            } else {
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            }
+        }
+
         while true {
             tracy zoneBegin
 
@@ -438,6 +467,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
     } on error e {
         puts stderr "camera-usb: Error $e"
+        HoldStatement! cameraError \
+            [list $this claims camera $camera failed with error $e]
     } on signal sig {
         puts stderr "camera-usb: Signal $sig"
     } finally {
