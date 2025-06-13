@@ -475,7 +475,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set p1 [list 1 -1]
         set p2 [list 1 1]
         set p3 [list -1 1]
-        set color {1 1 1 1}
         Wish the GPU draws pipeline "fillTriangle" with arguments \
             [list $surfaceToClip $p1 $p2 $p3 $bgColor] layer 99
         Wish the GPU draws pipeline "fillTriangle" with arguments \
