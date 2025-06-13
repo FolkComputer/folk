@@ -487,22 +487,26 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
               });
 
               function advanceCamera() {
-                cameraFrame.src = cameraFrame.src + '0'
+                cameraFrame.src = '/camera-frame?' + Math.random()
               }
             </script>
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
-  <label for="auto-refresh-checkbox">Automatically refresh preview (May not work well during calibration)</label> </p><br> <img src="/camera-frame?0" id="cameraFrame" style="max-width: 100%"> 
+ <label for="auto-refresh-checkbox">Automatically refresh preview</label> </p><br> <img src="/camera-frame" id="cameraFrame" style="max-width: 100%"> 
 
             <script>
                 const refreshButton = document.getElementById('refreshButton');
                 const autoRefreshCheckbox = document.getElementById('auto-refresh-checkbox');
-                setInterval(() => {
-                     if (autoRefreshCheckbox.checked) {
-                        refreshButton.click()
-                     } 
-                     console.log("checked?", autoRefreshCheckbox.checked)
-                }, 100)
+                cameraFrame.addEventListener('load', () => {
+                  if (autoRefreshCheckbox.checked) {
+                    advanceCamera();
+                  } 
+                });
+                autoRefreshCheckbox.addEventListener('change', () => {
+                  if (autoRefreshCheckbox.checked) {
+                    advanceCamera();
+                  }
+                });
             </script>
 
 
