@@ -60,6 +60,9 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    If no `folk` user, then:
 
         sudo useradd -m folk; sudo passwd folk;
+
+   After creating `folk` user, then:
+    
         for group in adm dialout cdrom sudo audio video plugdev games users input tty render netdev lpadmin gpio i2c spi; do sudo usermod -a -G $group folk; done; groups folk
 
 1. `sudo apt update`
