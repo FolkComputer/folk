@@ -557,21 +557,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    # HACK: We match the camera frame image first so that we have a
-    # handle on it (it's retained for 400ms but deindexed immediately,
-    # so we can't query for it later) when the tag detection comes in
-    # some tens of ms later, so we can save the frame image for
-    # debugging.
-    When camera $camera has frame /frame/ at timestamp /timestamp/ &\
-         /detector/ detects tags /tags/ on camera $camera \
-             at timestamp /timestamp/ in time /something/ &\
-         the calibration model-to-display homography is /H_modelToDisplay/ with \
-             model /model/ version /version/ timestamp /hTimestamp/ {
-
-        if {[lindex $detector 1] ne "entire-frame"} { return }
-
-        package require linalg
-
+    fn RunCalibrationStep {frame timestamp tags
+                           H_modelToDisplay model version hTimestamp} {
         # This runs every frame, looks at the detected tags (both
         # projected and printed), and updates the H_modelToDisplay
         # such that the projected tags should sit in the middle of the
@@ -825,6 +812,58 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
             Retract! /someone/ wishes to calibrate
         }
+    }
+
+    while true {
+        while true {
+            set frameInfos [Query! camera $camera has frame /frame/ at timestamp /timestamp/]
+            if {[llength $frameInfos] > 0} { break }
+
+            sleep 0.01
+        }
+        set frameInfo [lindex [lsort_key_asc timestamp $frameInfos] end]
+        dict with frameInfo {}
+        set frameRef $__ref
+        StatementAcquire! $frameRef
+
+        set waitedSeconds 0
+        while true {
+            set detectionInfos [Query! /detector/ detects tags /tags/ on camera $camera \
+                                    at timestamp $timestamp in time /something/]
+            foreach di $detectionInfos {
+                if {[lindex [dict get $di detector] 1] eq "entire-frame"} {
+                    set detectionInfo $di
+                }
+            }
+            if {[info exists detectionInfo]} { break }
+
+            sleep 0.01
+            # HACK: We should find a cleaner way to avoid hanging
+            # forever if a frame doesn't actually get a detect.
+            set waitedSeconds [+ $waitedSeconds 0.01]
+            if {$waitedSeconds > 0.05} { break }
+        }
+        if {![info exists detectionInfo]} { continue }
+        dict with detectionInfo {}
+        unset detectionInfo
+
+        while true {
+            set calibrationStates \
+                [Query! the calibration model-to-display homography is /H_modelToDisplay/ with \
+                     model /model/ version /version/ timestamp /hTimestamp/]
+            if {[llength $calibrationStates] > 0} {
+                set calibrationState [lindex [lsort_key_asc hTimestamp $calibrationStates] end]
+                break
+            }
+            sleep 0.01
+        }
+        dict with calibrationState {}
+
+        RunCalibrationStep $frame $timestamp $tags \
+            $H_modelToDisplay $model $version $hTimestamp
+        
+        StatementRelease! $frameRef
+        unset frameRef
     }
 }
 
