@@ -20,7 +20,7 @@
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
-extern void HoldStatementGlobally(const char *key, int64_t version,
+extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();

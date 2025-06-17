@@ -282,6 +282,7 @@ proc HoldStatement! {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
 
     set key [list]
+    set version -1
     set clause [lindex $args end]
     set keepMs 0
     set destructorCode {}
@@ -304,6 +305,9 @@ proc HoldStatement! {args} {
         } elseif {$arg eq "-destructor"} {
             incr i
             set destructorCode [lindex $args $i]
+        } elseif {$arg eq "-version"} {
+            incr i
+            set version [lindex $args $i]
         } else {
             lappend key $arg
         }
@@ -317,7 +321,7 @@ proc HoldStatement! {args} {
     set key [list $this {*}$key]
 
     tailcall HoldStatementGlobally! \
-        $key $clause $keepMs $destructorCode \
+        $key $version $clause $keepMs $destructorCode \
         $filename $lineno
 }
 proc Hold! {args} {

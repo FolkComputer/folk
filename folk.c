@@ -222,7 +222,7 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static void reactToNewStatement(StatementRef ref);
 
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
-void HoldStatementGlobally(const char *key, int64_t version,
+void HoldStatementGlobally(const char *key, double version,
                            Clause *clause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
@@ -252,22 +252,22 @@ void HoldStatementGlobally(const char *key, int64_t version,
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 7);
+    assert(argc == 8);
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[5]);
+    sourceFileName = Jim_String(argv[6]);
     if (sourceFileName == NULL) { return JIM_ERR; }
-    if (Jim_GetLong(interp, argv[6], &sourceLineNumber) == JIM_ERR) {
+    if (Jim_GetLong(interp, argv[7], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
     }
 
     const char *key = Jim_GetString(argv[1], NULL);
-    int64_t version = ++latestVersion;
-    Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
-    long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
+    double version; Jim_GetDouble(interp, argv[2], &version);
+    Clause *clause = jimObjToClauseWithCaching(interp, argv[3]);
+    long keepMs; Jim_GetLong(interp, argv[4], &keepMs);
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }

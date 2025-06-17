@@ -125,7 +125,7 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // transfers to the DB, and it is responsible for freeing the clause
 // later.
 StatementRef dbHoldStatement(Db* db,
-                             const char* key, int64_t version,
+                             const char* key, double version,
                              Clause* clause, long keepMs,
                              Destructor destructor,
                              const char* sourceFileName, int sourceLineNumber,

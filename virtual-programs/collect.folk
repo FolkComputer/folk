@@ -11,7 +11,7 @@ $cc include <string.h>
 $cc include "trie.h"
 $cc code {
     extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
-    extern void HoldStatementGlobally(const char *key, int64_t version,
+    extern void HoldStatementGlobally(const char *key, double version,
                                       Clause *clause, long keepMs,
                                       const char *sourceFileName, int sourceLineNumber);
     extern Jim_Obj* QuerySimple(Clause* pattern);

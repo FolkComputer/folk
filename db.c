@@ -168,7 +168,7 @@ typedef struct Hold {
     // If key == NULL, then this Hold is an empty slot that can be
     // used for a new hold key.
     const char* key; // Owned by the DB.
-    int64_t version;
+    double version;
 
     StatementRef statement;
 } Hold;
@@ -998,7 +998,7 @@ void dbRetractStatements(Db* db, Clause* pattern) {
 
 // Takes ownership of clause.
 StatementRef dbHoldStatement(Db* db,
-                             const char* key, int64_t version,
+                             const char* key, double version,
                              Clause* clause, long keepMs,
                              Destructor destructor,
                              const char* sourceFileName, int sourceLineNumber,
