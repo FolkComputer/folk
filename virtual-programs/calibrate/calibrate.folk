@@ -344,9 +344,13 @@ set CALIBRATION_POSES_MAX 10
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
+     the AprilTag detector maker is /makeAprilTagDetector/ &\
      the image library is /imageLib/ &\
      the printed calibration tag size is /printedSideLengthMm/ mm &\
      /someone/ wishes to calibrate {
+
+    fn makeAprilTagDetector
+    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 3]
 
     set calibrationId [clock milliseconds]
 
@@ -557,18 +561,25 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    # HACK: We match the camera frame image first so that we have a
-    # handle on it (it's retained for 400ms but deindexed immediately,
-    # so we can't query for it later) when the tag detection comes in
-    # some tens of ms later, so we can save the frame image for
-    # debugging.
-    When camera $camera has frame /frame/ at timestamp /timestamp/ &\
-         /detector/ detects tags /tags/ on camera $camera \
-             at timestamp /timestamp/ in time /something/ &\
-         the calibration model-to-display homography is /H_modelToDisplay/ with \
-             model /model/ version /version/ timestamp /hTimestamp/ {
+    When (serially) camera $camera has frame /frame/ at timestamp /timestamp/ {
+        # HACK: so we just lookup whatever is latest _right now_,
+        # instead of subscribing.
+        set calibrationStates \
+            [Query! the calibration model-to-display homography is /H_modelToDisplay/ with \
+                 model /model/ version /version/ timestamp /hTimestamp/]
+        if {[llength $calibrationStates] == 0} {
+            return
+        }
+        set calibrationState [lindex [lsort_key_asc hTimestamp $calibrationStates] end]
+        dict with calibrationState {}
+        if {$hTimestamp >= $timestamp} {
+            # This is an old homography.
+            return
+        }
 
-        if {[lindex $detector 1] ne "entire-frame"} { return }
+        set aprilTime [time {
+            set tags [$calibrationTagDetector detect $frame]
+        }]
 
         package require linalg
 
@@ -705,7 +716,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the right
         # spots on the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        set nextHTimestamp [expr {[clock milliseconds] / 1000.0}]
+        set nextHTimestamp $timestamp
         set nextVersion [+ $version 1]
         set nextModel [versionizeTags $baseModel $nextVersion]
         HoldStatement! H_modelToDisplay \

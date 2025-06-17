@@ -1,4 +1,4 @@
-proc makeAprilTagDetector {TAG_FAMILY} {
+fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
     set cc [C]
     $cc cflags -I./vendor/apriltag
     $cc endcflags ./vendor/apriltag/libapriltag.so
@@ -25,7 +25,7 @@ proc makeAprilTagDetector {TAG_FAMILY} {
         td = apriltag_detector_create();
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 1);
-        td->nthreads = 1;
+        td->nthreads = ${NTHREADS};
         pthread_mutex_init(&tmutex, NULL);
     }
     $cc proc detect {Image gray} Jim_Obj* {
@@ -71,28 +71,32 @@ proc makeAprilTagDetector {TAG_FAMILY} {
     $detector detectInit
     return $detector
 }
+Claim the AprilTag detector maker is [fn makeAprilTagDetector]
 
 set tagFamily "tagStandard52h13"
-set entireFrameDetector [makeAprilTagDetector $tagFamily]
-set incrementalDetector [makeAprilTagDetector $tagFamily]
+set entireFrameDetector [makeAprilTagDetector $tagFamily 1]
+set incrementalDetector [makeAprilTagDetector $tagFamily 1]
 
 # Entire-frame tag detector:
-When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+When /nobody/ wishes to calibrate &\
+     (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "entireFrameDetect: $frameTs"
 
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    Claim (keep 100ms) [list $this entire-frame] detects tags $tags on camera $camera \
-        at timestamp $frameTs in time $aprilTime
+    HoldStatement! [list $this entire-frame] \
+        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
+             at timestamp $frameTs in time $aprilTime]
 
     tracy zoneEnd
 }
 
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
-When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
+When /nobody/ wishes to calibrate &\
+     (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "incrementalDetect: $frameTs"
 
