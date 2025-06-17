@@ -84,10 +84,8 @@ When (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-
-    HoldStatement! [list $this entire-frame] \
-        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Claim (keep 100ms) [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }

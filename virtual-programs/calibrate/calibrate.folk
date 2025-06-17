@@ -705,15 +705,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the right
         # spots on the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        set nextTimestamp [expr {[clock milliseconds] / 1000.0}]
+        set nextHTimestamp [expr {[clock milliseconds] / 1000.0}]
         set nextVersion [+ $version 1]
         set nextModel [versionizeTags $baseModel $nextVersion]
         HoldStatement! H_modelToDisplay \
+            -version $timestamp \
             [list $this claims the calibration model-to-display homography \
                  is $nextH_modelToDisplay with \
-                 model $nextModel version $nextVersion timestamp $nextTimestamp]
+                 model $nextModel version $nextVersion timestamp $nextHTimestamp]
         HoldStatement! cycleTime \
-            [list $this claims the calibration cycle time is $($nextTimestamp - $hTimestamp)]
+            [list $this claims the calibration cycle time is $($nextHTimestamp - $hTimestamp)]
 
         # Should we record the points we just saw as a calibration
         # pose?
@@ -763,7 +764,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        HoldStatement! (on calibration) seenPoses \
+        HoldStatement! -version $timestamp (on calibration) seenPoses \
             [list $this claims the calibration last-seen poses are $seenPoses]
 
         # Next, we check if projected tag corners have been pretty
@@ -806,7 +807,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        HoldStatement! (on calibration) poses \
+        HoldStatement! -version $timestamp (on calibration) poses \
             [list $this claims the calibration poses are $calibrationPoses]
 
         # If we have enough poses, then stop the calibration process
