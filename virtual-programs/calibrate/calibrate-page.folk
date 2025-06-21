@@ -283,8 +283,8 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
             <p><strong>Is the projection too bright and washing out the camera?</strong>
             <br/>
             Adjust camera exposure:
-                <input type="range" min="10" max="32" value="15" class="slider" id="camera-exposure-slider">
-                <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
+                <input type="range" min="10" max="50" value="15" class="slider" id="camera-exposure-slider">
+                <input type="number" min="1000" max="320000" step="100" value="5000" id="camera-exposure-number">μs
             </p>
 
             <script>
@@ -318,7 +318,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
                 updateExposure(exposureValue);
             });
             
-            updateExposure(10000);
+            updateExposure(5000);
             </script>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>

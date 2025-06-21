@@ -552,7 +552,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
     Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
-    HoldDefaultModel! 1.0
+    HoldDefaultModel! 0.3
 
     On unmatch {
         Hold! H_modelToDisplay {}

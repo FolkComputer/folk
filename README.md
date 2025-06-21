@@ -751,7 +751,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - ~~the Hold is still around, so it hasn't been stomped, but somehow
     its refcount hit 0 and the statement itself was reaped?~~
 - **calibrate render loop blinks out regularly**
-- **calibrate auto refresh preview is broken(?)**
+- ~~calibrate auto refresh preview is broken(?)~~
 - **calibrate is off (RMSE 22)**
   - i tried using old estimatehomography just in the calibrate step
     but that didn't work
@@ -759,5 +759,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     calibration seems ok
   - increasing seen-poses count doesn't help
   - using (serially) helps -> RMSE 12
+  - doing inline detect helps (don't have to worry about old tags
+    leaking in)
+  - forcing timestamp monotonicity helps
+  - are we using stale homography?
+  - no visible difference in posermsedisp
 - ~~kill is buggy -- keyboard gets killed, causes threads to fill and
   freezes system (can't spawn any more threads)~~
