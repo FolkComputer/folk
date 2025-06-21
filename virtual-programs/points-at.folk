@@ -26,7 +26,7 @@ When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has reg
         set whiskerRegion [region scale $region height 0.01px width $scale]
         set whiskerRegion [region move $whiskerRegion right \
                                [vec2 distance [region right $whiskerRegion] [region left $region]]px]
-        set color green
+        set color red
     } elseif {$direction eq "down"} {
         set whiskerRegion [region scale $region width 0.01px height $scale]
         set whiskerRegion [region move $whiskerRegion down \
@@ -35,13 +35,18 @@ When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has reg
     }
     set whisker [list $rect whisker $direction]
     Claim $whisker has region $whiskerRegion
-    Wish $whisker is outlined $color
 
     When /target/ has region /r2/ {
         if {$target != $rect && $target != $whisker && \
                 [region intersects $whiskerRegion $r2]} {
+            Wish $whisker is outlined green
+
             Claim $rect points $direction at $target
             Claim $rect points $direction with length $l at $target
         }
+    }
+
+    When /nobody/ claims $rect points /anything/ at /anything/ {
+        Wish $whisker is outlined $color
     }
 }
