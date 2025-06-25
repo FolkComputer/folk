@@ -202,20 +202,28 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
       }
     }
   }
+}
 
-  # TODO: replace with event firing
-  When /someone/ wishes to save code on view $view &\
-       view code for $program is /programCode/ {
-    Hold new-code-for:$program {
-      Wish program $program is replaced with code $programCode
-    }
+# TODO: replace with event firing
+When /someone/ wishes to save code on view /view/ &\
+     /view/ has selected program /program/ &\
+      view code for /program/ is /programCode/ {
+  Hold new-code-for:$program {
+    Wish program $program is replaced with code $programCode
+  }
 
-    set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
-    puts -nonewline $fp $programCode
-    close $fp
+  set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
+  puts -nonewline $fp $programCode
+  close $fp
 
-    Hold saving-code-for:$view {}
+  Hold saving-code-for:$view {}
 
+  # code may be saved even without an attached keyboard, hence
+  # feedback being optional
+  # TODO: maybe move feedback to code view instead?
+  When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+       /nobody/ claims /keyboard/ is an editor &\
+       /keyboard/ points up at $view {
     # give the user some feedback
     Hold saved-alert:$keyboard {
       Wish $keyboard is labelled "Saved!"
