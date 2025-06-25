@@ -1239,6 +1239,7 @@ void *webDebugAllocator(void *ptr, size_t size) {
         return NULL;
     }
 }
+#ifdef TRACY_ENABLE
 void *tracyDebugAllocator(void *ptr, size_t size) {
     if (size == 0) {
         TracyCFree(ptr);
@@ -1257,6 +1258,7 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
         return ptr;
     }
 }
+#endif
 
 int main(int argc, char** argv) {
     // Do all setup.
