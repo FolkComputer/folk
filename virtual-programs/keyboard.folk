@@ -78,7 +78,7 @@ When /keyboard/ is a keyboard device {
     fconfigure $keyboardChannel -translation binary
 
     set keyboardFileno [$grabber getFileno $keyboardChannel]
-    $grabber setGrabDevice $keyboardFileno 1
+    # $grabber setGrabDevice $keyboardFileno 1
 
     HoldStatement! local-keymaps \
         [list $this claims $keyboard has keymaps [dict create]]

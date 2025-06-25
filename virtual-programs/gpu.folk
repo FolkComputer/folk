@@ -15,7 +15,7 @@ if {[info exists ::argv0] && $::argv0 eq [info script]} {
 # HACK: We just query for this information outright, because we need
 # to know it at C compile time.
 set isGlfw false
-Query! /anyone/ wishes $::thisNode uses display glfw {
+ForEach! /anyone/ wishes $::thisNode uses display glfw {
     set isGlfw true
 }
 
