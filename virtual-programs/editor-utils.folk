@@ -111,11 +111,13 @@ namespace eval ::editor {
       Control_a {
         lassign [cursorToXy $code $cursor] cursorX cursorY
         set newX 0
+        set maxCursorX $newX
         set cursor [xyToCursor $code $newX $cursorY]
       }
       Control_e {
         lassign [cursorToXy $code $cursor] cursorX cursorY
         set newX [getLineLength $code $cursor]
+        set maxCursorX $newX
         set cursor [xyToCursor $code $newX $cursorY]
       }
     }
