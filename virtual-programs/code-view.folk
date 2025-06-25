@@ -267,3 +267,13 @@ When /view/ is a code view with /...anything/ &\
     Wish $view draws a rect with width 0 height $em color green thickness 3 offset $cursorPos
   }
 }
+
+Claim $this has demo {
+  set keyboardId 123
+  set codeViewId 456
+
+  Claim $keyboardId is not an editor
+  Wish tag $keyboardId is stabilized
+
+  Claim $codeViewId is a code view with widthScale 2 heightScale 2
+}
