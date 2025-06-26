@@ -196,30 +196,12 @@ class WsConnection {
     ctx {}
 
     wsLib {}
-}
-WsConnection method onChanReadable {} {
-    $wsLib wsReadable $ctx
-    $self updateChanReadableWritable
-}
-WsConnection method onChanWritable {} {
-    $wsLib wsWritable $ctx
-    $self updateChanReadableWritable
-}
-WsConnection method updateChanReadableWritable {} {
-    if {[$wsLib wsWantRead $ctx]} {
-        $chan readable [list $self onChanReadable]
-    } else {
-        $chan readable {}
-    }
-    if {[$wsLib wsWantWrite $ctx]} {
-        $chan writable [list $self onChanWritable]
-    } else {
-        $chan writable {}
-    }
+
+    destructor {}
 }
 
 WsConnection method onMsgRecv {msg} {
-    # puts stderr "onMsgRecv ($msg)"
+    puts stderr "onMsgRecv ($msg)"
     eval $msg
 }
 
@@ -228,7 +210,6 @@ $wsPipeRead readable [lambda {} {wsLib} {
         while true {
             set ctx [$wsLib wsPipeReadMsg]
             set conn [dict get $::wsConnections $ctx]
-            $conn updateChanReadableWritable
         }
     } on error e {}
 }]
@@ -237,7 +218,7 @@ set ::wsConnections [dict create]
 
 # This class method creates a new WsConnection from an active HTTP
 # channel and key from /ws upgrade request header.
-proc {WsConnection upgrade} {chan clientKey} {wsLib sha1Lib} {
+proc {WsConnection upgrade} {chan clientKey destructor} {wsLib sha1Lib} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     set acceptKey [binary encode base64 [$sha1Lib sha1 $acceptKeyRaw]]
 
@@ -251,13 +232,21 @@ Sec-WebSocket-Accept: $acceptKey\r
     $chan ndelay 1
 
     set conn [WsConnection new \
-                  [list chan $chan ctx {} wsLib $wsLib]]
+                  [list chan $chan ctx {} wsLib $wsLib \
+                      destructor $destructor]]
     set ctx [$wsLib wsNew $chan [lambda {msg} {conn} {
         $conn onMsgRecv $msg
     }]]
     $conn eval [list set ctx $ctx]
 
-    $conn updateChanReadableWritable
+    puts stderr "SETUP READABLE ($chan) ([$chan peername])"
+    $chan readable [list puts stderr "chan readable"]
+    # $chan readable [list apply {{wsLib ctx} {
+    #     puts stderr "chan readable"
+    #     $wsLib wsReadable $ctx
+    # }} $wsLib $ctx]
+    $chan writable [list $wsLib wsWritable $ctx]
+
     dict set ::wsConnections $ctx $conn
     return $conn
 }
