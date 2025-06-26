@@ -764,5 +764,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - forcing timestamp monotonicity helps
   - are we using stale homography?
   - no visible difference in posermsedisp
+  - debug the projector, that seems like the real issue
+  - reducing threshold to 1 doesn't help
+  - try homest?
 - ~~kill is buggy -- keyboard gets killed, causes threads to fill and
   freezes system (can't spawn any more threads)~~
