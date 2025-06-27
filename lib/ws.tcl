@@ -199,9 +199,29 @@ class WsConnection {
 
     destructor {}
 }
+WsConnection method onChanReadable {} {
+    $wsLib wsReadable $ctx
+    $self updateChanReadableWritable
+}
+WsConnection method onChanWritable {} {
+    $wsLib wsWritable $ctx
+    $self updateChanReadableWritable
+}
+WsConnection method updateChanReadableWritable {} {
+    if {[$wsLib wsWantRead $ctx]} {
+        $chan readable [list $self onChanReadable]
+    } else {
+        $chan readable {}
+    }
+    if {[$wsLib wsWantWrite $ctx]} {
+        $chan writable [list $self onChanWritable]
+    } else {
+        $chan writable {}
+    }
+}
 
 WsConnection method onMsgRecv {msg} {
-    puts stderr "onMsgRecv ($msg)"
+    # puts stderr "onMsgRecv ($msg)"
     eval $msg
 }
 
@@ -210,6 +230,7 @@ $wsPipeRead readable [lambda {} {wsLib} {
         while true {
             set ctx [$wsLib wsPipeReadMsg]
             set conn [dict get $::wsConnections $ctx]
+            $conn updateChanReadableWritable
         }
     } on error e {}
 }]
@@ -239,14 +260,7 @@ Sec-WebSocket-Accept: $acceptKey\r
     }]]
     $conn eval [list set ctx $ctx]
 
-    puts stderr "SETUP READABLE ($chan) ([$chan peername])"
-    $chan readable [list puts stderr "chan readable"]
-    # $chan readable [list apply {{wsLib ctx} {
-    #     puts stderr "chan readable"
-    #     $wsLib wsReadable $ctx
-    # }} $wsLib $ctx]
-    $chan writable [list $wsLib wsWritable $ctx]
-
+    $conn updateChanReadableWritable
     dict set ::wsConnections $ctx $conn
     return $conn
 }
