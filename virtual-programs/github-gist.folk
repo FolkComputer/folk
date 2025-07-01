@@ -15,11 +15,11 @@ namespace eval ::githubGist {
         variable token [string trim [read $fd]]
         close $fd
     }
-    
+
     # gist should be a dictionary with key=filename and value=contents
     proc postGist {gist description} {
         variable token
-        
+
         set files [json::write object {*}[dict map {filename contents} $gist {
             set contents [json::write object content [json::write string $contents]]
         }]]
@@ -39,7 +39,7 @@ namespace eval ::githubGist {
             https://api.github.com/gists &
     }
 
-    proc getGist {gistId} {
+    proc getGist {gistID} {
         set headers [list \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28"]
@@ -52,9 +52,50 @@ namespace eval ::githubGist {
         set filesAsJson [exec \
             curl -LsS \
                 {*}$headers \
-                "https://api.github.com/gists/$gistId" | \
+                "https://api.github.com/gists/$gistID" | \
             jq -c "{files: .files | map_values({filename, content}), description}"]
-        
+
+        return [json::json2dict $filesAsJson]
+    }
+
+    proc getContent {gistFileDictionary} {
+        return [dict get $gistFileDictionary content]
+    }
+
+    proc getPublicGistFiles {gistID} {
+        # https://api.github.com/gists/d08fc48ebbfd35d989bdf7ceb92210e3
+        # for the gist:
+        # https://gist.github.com/cwervo/d08fc48ebbfd35d989bdf7ceb92210e3
+
+        set headers [list \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28"]
+
+        set filesAsJson [exec \
+            curl -LsS \
+                {*}$headers \
+                "https://api.github.com/gists/$gistID" | \
+            jq -c "{files: .files | map_values({filename, content}), description}"]
+
         return [json::json2dict $filesAsJson]
     }
 }
+
+When /anyone/ wishes /page/ runs public gist /gistID/ & /page/ has region /r/ {
+  set gistAsDictionary [::githubGist::getPublicGistFiles $gistID]
+  set firstFileName [lindex [dict get $gistAsDictionary files] 0]
+  set content [dict get $gistAsDictionary files $firstFileName content]
+  Claim $page has program code $content
+  Wish $page is labelled $content
+
+  # TODO: Update this to draw below the program
+  Wish $this draws text $content
+}
+
+Claim $this has a demo {
+    # This should execute the code
+    Wish $this runs public gist d08fc48ebbfd35d989bdf7ceb92210e3
+    # This should label the program with a dictionary representing the gist
+    Wish $this is labelled [::githubGist::getPublicGistFiles d08fc48ebbfd35d989bdf7ceb92210e3]
+}
+
