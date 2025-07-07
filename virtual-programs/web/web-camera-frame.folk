@@ -9,4 +9,17 @@ When camera /any/ has frame /im/ at timestamp /any/ {
         close $fd
         dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
     }} $im]
+
+    When /someone/ claims /p/ has camera slice /slice/ {
+        Wish the web server handles route "/camera-slice/$p?$" with handler [list apply {{p im} {
+            set filename "/tmp/web-camera-slice-$p.jpg"
+            image saveAsJpeg $im $filename
+            set fsize [file size $filename]
+            set fd [open $filename r]
+            fconfigure $fd -encoding binary -translation binary
+            set body [read $fd $fsize]
+            close $fd
+            dict create statusAndHeaders "HTTP/1.1 200 OK\nConnection: close\nContent-Type: image/jpeg\nContent-Length: $fsize\n\n" body $body
+        }} $p $slice]
+    }
 }
