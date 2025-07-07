@@ -206,7 +206,8 @@ proc hslToRgb {h s l} {
 
 proc ::getColor {color} {
     if {[info exists Colors::$color]} { return [set Colors::$color] }
-    
+    if {[llength $color] == 4 && [string is double [lindex $color 0]]} { return $color }
+
     if {[regexp {hsl\((\d+),(\d+)%,(\d+)%\)} $color -> h s l]} {
         set output [hslToRgb $h $s $l]
         return [list {*}$output 1.0]

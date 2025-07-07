@@ -513,8 +513,11 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             <p><strong>Is the projection too bright and washing out the camera?</strong>
             <br/>
             Adjust camera exposure:
-                <input type="range" min="10" max="3200" value="100" class="slider" id="camera-exposure-slider">
+                <input type="range" min="10" max="70" value="15" class="slider" id="camera-exposure-slider">
                 <input type="number" min="1000" max="320000" step="100" value="10000" id="camera-exposure-number">μs
+            <br/>
+            Change projected brightness:
+                <input type="range" min="0" max="100" value="100" class="slider" id="projectedBrightnessSlider">
             </p>
 
             <script>
@@ -549,6 +552,17 @@ Wish the web server handles route "/calibrate$" with handler [list apply {{UNIT_
             });
             
             updateExposure(10000);
+
+            function updateBrightness(value) {
+                ws.hold('bgColor', tcl`
+                   Claim the calibration background color is [list \${value} \${value} \${value} 1]
+                `);
+            }
+            projectedBrightnessSlider.addEventListener('input', (e) => {
+                const brightnessValue = parseInt(e.target.value) / 100.0;
+                updateBrightness(brightnessValue);
+            });
+            updateBrightness(1);
             </script>
 
           <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
@@ -767,8 +781,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
-    When the calibration model-to-display homography is /H_modelToDisplay/ with \
-         model /model/ version /anything/ timestamp /anything/ {
+    When the calibration background color is /bgColor/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ with \
+           model /model/ version /anything/ timestamp /anything/ {
 
         fn innerToOuter {center corner} {
             set r [sub $corner $center]
@@ -785,14 +800,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                 applyHomography $H_modelToDisplay \
                     [innerToOuter $modelCenter $modelInnerCorner]
             }]
-            Wish to draw an AprilTag with id $id corners $projectorOuterCorners layer 100
+            Wish to draw an AprilTag with id $id corners $projectorOuterCorners \
+                background $bgColor \
+                layer 100
         }
 
         # White backdrop to hopefully make the projected tags pop out more:
         Wish to draw a quad with \
             p0 [list 0 0] p1 [list $displayWidth 0] \
             p2 [list $displayWidth $displayHeight] p3 [list 0 $displayHeight] \
-            color white layer 99
+            color $bgColor layer 99
 
         # Instructions for the user:
         set modelTopLeft [lindex [dict get $model [expr {48600 + 0*$COLS + 0}] p] 3]

@@ -1,5 +1,5 @@
 Wish the GPU compiles pipeline "apriltag" {
-    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d} {
+    {uvec4 tagBitsVec vec2 a vec2 b vec2 c vec2 d vec4 bgColor} {
         vec2 vertices[4] = vec2[4](a, b, d, c);
         return vertices[gl_VertexIndex];
     } {fn invBilinear} {
@@ -9,7 +9,7 @@ Wish the GPU compiles pipeline "apriltag" {
         int x = int(uv.x * 10); int y = int(uv.y * 10);
         int bitIdx = y * 10 + x;
         uint bit = (tagBitsVec[bitIdx / 32] >> (bitIdx % 32)) & 0x1;
-        return bit == 1 ? vec4(1, 1, 1, 1) : vec4(0, 0, 0, 1);
+        return bit == 1 ? bgColor : vec4(0, 0, 0, 1);
     }
 }
 
@@ -17,6 +17,7 @@ When /someone/ wishes to draw an AprilTag with /...options/ {
     set id [dict get $options id]
     set corners [dict get $options corners]
     set layer [dict_getdef $options layer 0]
+    set bgColor [dict_getdef $options background [list 1 1 1 1]]
 
     set tagImage [::tagImageForId $id]
     set tagBits [list]
@@ -35,5 +36,5 @@ When /someone/ wishes to draw an AprilTag with /...options/ {
                         0b[join [lreverse [lrange $tagBits 96 127]] ""]]
 
     Wish the GPU draws pipeline "apriltag" with \
-        arguments [list $tagBitsVec {*}$corners] layer $layer
+        arguments [list $tagBitsVec {*}$corners $bgColor] layer $layer
 }
