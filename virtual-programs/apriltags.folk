@@ -113,7 +113,7 @@ Start process {
         dict with im {
             set x [expr {int($x)}]
             set y [expr {int($y)}]
-            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            set subdata [expr {[lindex $data 1] + ($y*$bytesPerRow) + ($x*$components)}]
             dict create \
                 width [int $subwidth] \
                 height [int $subheight] \
