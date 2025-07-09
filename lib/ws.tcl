@@ -115,13 +115,13 @@ $cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
 $cc proc wsReadable {wslay_event_context_ptr ctx} void {
     int r = wslay_event_recv(ctx);
     if (r != 0) {
-        fprintf(stderr, "ws: wslay_event_recv: %d\n", r);
+        FOLK_ERROR("ws: wslay_event_recv: %d", r);
     }
 }
 $cc proc wsWritable {wslay_event_context_ptr ctx} void {
     int r = wslay_event_send(ctx);
     if (r != 0) {
-        fprintf(stderr, "ws: wslay_event_send: %d\n", r);
+        FOLK_ERROR("ws: wslay_event_send: %d", r);
     }
 }
 $cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
@@ -166,7 +166,7 @@ $cc proc wsPipeReadMsg {} wslay_event_context_ptr {
 }
 
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
-    // TODO: free the WsSession
+    // FIXME: free the WsSession
     wslay_event_context_free(ctx);
 }
 $cc endcflags -lwslay
@@ -200,29 +200,52 @@ class WsConnection {
     destructor {}
 }
 WsConnection method onChanReadable {} {
-    $wsLib wsReadable $ctx
-    $self updateChanReadableWritable
+    try {
+        $wsLib wsReadable $ctx
+        $self updateChanReadableWritable
+    } on error e {
+        $self destroy
+    }
 }
 WsConnection method onChanWritable {} {
-    $wsLib wsWritable $ctx
-    $self updateChanReadableWritable
+    try {
+        $wsLib wsWritable $ctx
+        $self updateChanReadableWritable
+    } on error e {
+        $self destroy
+    }
 }
 WsConnection method updateChanReadableWritable {} {
-    if {[$wsLib wsWantRead $ctx]} {
+    set wantRead [$wsLib wsWantRead $ctx]
+    if {$wantRead} {
         $chan readable [list $self onChanReadable]
     } else {
-        $chan readable [list $self get destructor]
+        $chan readable {}
     }
-    if {[$wsLib wsWantWrite $ctx]} {
+
+    set wantWrite [$wsLib wsWantWrite $ctx]
+    if {$wantWrite} {
         $chan writable [list $self onChanWritable]
     } else {
         $chan writable {}
+    }
+
+    if {!$wantRead && !$wantWrite} {
+        $self destroy
     }
 }
 
 WsConnection method onMsgRecv {msg} {
     # puts stderr "onMsgRecv ($msg)"
     eval $msg
+}
+
+WsConnection method destroy {} {
+    dict unset ::wsConnections $ctx
+    close $chan
+    $wsLib wsDestroy $ctx
+    {*}$destructor
+    rename $self ""
 }
 
 $wsPipeRead readable [lambda {} {wsLib} {

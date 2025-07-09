@@ -102,8 +102,8 @@ Wish the web server handles route "/new" with handler {
   const ws = new FolkWS(document.getElementById('status'));
   ws.send(`
     On unmatch {
-      Hold (on $this) region {}
-      Hold (on $this) code {}
+      Hold! (on $this) region {}
+      Hold! (on $this) code {}
     }
   `);
 
