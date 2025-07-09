@@ -211,7 +211,7 @@ WsConnection method updateChanReadableWritable {} {
     if {[$wsLib wsWantRead $ctx]} {
         $chan readable [list $self onChanReadable]
     } else {
-        $chan readable {}
+        $chan readable [list $self get destructor]
     }
     if {[$wsLib wsWantWrite $ctx]} {
         $chan writable [list $self onChanWritable]

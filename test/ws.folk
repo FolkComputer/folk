@@ -25,23 +25,24 @@ close $chWrite2
 fconfigure $chWrite -buffering none
 
 proc wsSend {code} {chRead chWrite} {
-    puts $chWrite "$code\0"
+    puts -nonewline $chWrite "$code\0"
     flush $chWrite
-
-    set cs [list]
-    while true {
-        set c [$chRead read 1]
-        if {$c == "\0"} { break }
-        lappend cs $c
-    }
-    return [join $cs ""]
 }
 
 wsSend {
     # Copied from folk.js.
     Assert! when websocket $chan is connected {
-        puts stderr hello
-        Claim whup
+        Claim there is a sent statement
+        puts stderr X
     } with environment [list [list this $chan __ctx $ctx __seq 0]]
 }
-puts stderr HELLO
+
+When there is a sent statement {
+    # Test to make sure this statement gets retracted on WS
+    # disconnect.
+    On unmatch {
+        __conclude 0
+    }
+
+    kill $websocat
+}
