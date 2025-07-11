@@ -118,7 +118,7 @@ When /nobody/ wishes to calibrate &\
         dict with im {
             set x [expr {int($x)}]
             set y [expr {int($y)}]
-            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            set subdata [expr {[lindex $data 1] + $y*$width + $x*$components}]
             dict create \
                 width [expr {int($subwidth)}] \
                 height [expr {int($subheight)}] \
