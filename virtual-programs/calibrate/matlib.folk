@@ -1,0 +1,208 @@
+# We try to use the AprilTag matrix library (instead of tcllib linalg)
+# to do matrix/homography operations in the live calibration inner
+# loop, to help with performance:
+set cc [C]
+$cc cflags -I./vendor/apriltag
+$cc include <math.h>
+$cc include <common/matd.h>
+$cc include <common/homography.h>
+
+$cc code {
+    extern Jim_ObjType matd_ObjType;
+    void matd_freeIntRepProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        matd_destroy((matd_t*) objPtr->internalRep.ptr);
+    }
+    void matd_dupIntRepProc(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr) {
+        dupPtr->internalRep.ptr = (void*) matd_copy((matd_t*) srcPtr->internalRep.ptr);
+    }
+    void matd_updateStringProc(Jim_Obj *objPtr) {
+        matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
+
+        objPtr->bytes = Jim_Alloc(mat->nrows * (1 + mat->ncols * 17 + 1));
+        char *s = objPtr->bytes;
+        int i = 0;
+        
+        for (unsigned int row = 0; row < mat->nrows; row++) {
+            s[i++] = '{';
+            for (unsigned int col = 0; col < mat->ncols; col++) {
+                int n = snprintf(&s[i], 17,
+                                 "%f ", MATD_EL(mat, row, col));
+                FOLK_ENSURE(n <= 17); i += n;
+            }
+            s[i++] = '}';
+        }
+        s[i] = 0;
+        objPtr->length = strlen(s);
+    }
+    int matd_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        // shimmer into a list, then iterate
+        int nrows; Jim_Obj *rowObj0;
+        nrows = Jim_ListLength(interp, objPtr);
+        __ENSURE(nrows > 0);
+        __ENSURE_OK(Jim_ListIndex(interp, objPtr, 0, &rowObj0, false));
+        int ncols = Jim_ListLength(interp, rowObj0);
+        __ENSURE(ncols > 0);
+
+        matd_t *mat = matd_create(nrows, ncols);
+        for (int row = 0; row < nrows; row++) {
+            Jim_Obj *rowObj;
+            __ENSURE_OK(Jim_ListIndex(interp, objPtr, row, &rowObj, false));
+            int rowCols = Jim_ListLength(interp, rowObj);
+            __ENSURE(rowCols == ncols);
+            for (int col = 0; col < ncols; col++) {
+                Jim_Obj *elObj;
+                __ENSURE_OK(Jim_ListIndex(interp, rowObj, col, &elObj, false));
+                __ENSURE_OK(Jim_GetDouble(interp, elObj, &MATD_EL(mat, row, col)));
+            }
+        }
+        objPtr->typePtr = &matd_ObjType;
+        objPtr->internalRep.ptr = mat;
+        return JIM_OK;
+    }
+    Jim_ObjType matd_ObjType = (Jim_ObjType) {
+        .name = "matd_t*",
+        .freeIntRepProc = matd_freeIntRepProc,
+        .dupIntRepProc = matd_dupIntRepProc,
+        .updateStringProc = matd_updateStringProc,
+        /* .setFromAnyProc = matd_setFromAnyProc, */
+    };
+}
+$cc argtype matd_t* {
+    __ENSURE_OK(matd_setFromAnyProc(interp, $obj));
+    matd_t* $argname;
+    $argname = (matd_t*) $obj->internalRep.ptr;
+}
+$cc rtype matd_t* {
+    $robj = Jim_NewObj(interp);
+    $robj->bytes = NULL;
+    $robj->typePtr = &matd_ObjType;
+    $robj->internalRep.ptr = $rvalue;
+}
+
+$cc proc computeNormalizer {int nPoints float points[][2]} matd_t* {
+    double cx = 0, cy = 0;
+    for (int i = 0; i < nPoints; i++) {
+        cx += points[i][0]; cy += points[i][1];
+    }
+    cx /= nPoints; cy /= nPoints;
+
+    double avgDist = 0;
+    for (int i = 0; i < nPoints; i++) {
+        double dx = points[i][0] - cx;
+        double dy = points[i][1] - cy;
+        avgDist += sqrt(dx*dx + dy*dy);
+    }
+    avgDist /= nPoints;
+
+    double scale = sqrt(2.0) / avgDist;
+
+    matd_t *normalizer = matd_create(3, 3);
+    MATD_EL(normalizer, 0, 0) = scale;
+    MATD_EL(normalizer, 1, 1) = scale;
+    MATD_EL(normalizer, 2, 2) = 1.0;
+    MATD_EL(normalizer, 0, 2) = -scale * cx;
+    MATD_EL(normalizer, 1, 2) = -scale * cy;
+
+    return normalizer;
+}
+
+$cc code {
+    static void homographyProject(const matd_t *H, double x, double y, double *ox, double *oy)
+    {
+        double xx = MATD_EL(H, 0, 0)*x + MATD_EL(H, 0, 1)*y + MATD_EL(H, 0, 2);
+        double yy = MATD_EL(H, 1, 0)*x + MATD_EL(H, 1, 1)*y + MATD_EL(H, 1, 2);
+        double zz = MATD_EL(H, 2, 0)*x + MATD_EL(H, 2, 1)*y + MATD_EL(H, 2, 2);
+
+        *ox = xx / zz;
+        *oy = yy / zz;
+    }
+}
+
+# Takes a list of at least 4 point pairs (model -> image) like
+#
+# [list \
+#   [list x0 y0 u0 v0]] \
+#   [list x1 y1 u1 v1] \
+#   [list x2 y2 u2 v2] \
+#   [list x3 y3 u3 v3]]
+#
+# Returns a 3x3 homography that maps model (x, y) to image (u, v)
+# (using homogeneous coordinates).
+$cc proc estimateHomographyImpl {int nPointPairs float[][4] pointPairs} matd_t* {
+    float xys[nPointPairs][2];
+    float uvs[nPointPairs][2];
+    for (int i = 0; i < nPointPairs; i++) {
+        xys[i][0] = pointPairs[i][0]; xys[i][1] = pointPairs[i][1];
+        uvs[i][0] = pointPairs[i][2]; uvs[i][1] = pointPairs[i][3];
+    }
+
+    // Compute a similarity transformation T that normalizes model
+    // points.
+    matd_t *T = computeNormalizer(nPointPairs, xys);
+
+    // Compute a similarity transformation T' that normalizes image
+    // points.
+    matd_t *T_ = computeNormalizer(nPointPairs, uvs);
+
+    // Apply DLT to obtain a homography H.
+
+    matd_t *A = matd_create(2*nPointPairs, 9);
+    for (int i = 0; i < nPointPairs; i++) {
+        double x, y;
+        homographyProject(T, xys[i][0], xys[i][1], &x, &y);
+        double u, v;
+        homographyProject(T_, uvs[i][0], uvs[i][1], &u, &v);
+
+        double row0[9] = {x, y, 1, 0, 0, 0, -u*x, -u*y, -u};
+        double row1[9] = {0, 0, 0, x, y, 1, -v*x, -v*y, -v};
+
+        for (int j = 0; j < 9; j++) {
+            MATD_EL(A, 2*i, j) = row0[j];
+            MATD_EL(A, 2*i+1, j) = row1[j];
+        }
+    }
+
+    matd_svd_t svd = matd_svd_flags(A, MATD_SVD_NO_WARNINGS);
+    matd_destroy(A);
+
+    // H' = V[-1].reshape(3, 3)
+    // H' /= H'[2, 2]
+    matd_t *H_ = matd_create(3, 3);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            MATD_EL(H_, i, j) = MATD_EL(svd.V, 3*i+j, svd.V->ncols-1);
+        }
+    }
+    matd_destroy(svd.U);
+    matd_destroy(svd.S);
+    matd_destroy(svd.V);
+
+    matd_scale_inplace(H_, 1.0 / MATD_EL(H_, 2, 2));
+
+    // Set H = inv(T_) * H' * T.
+    matd_t *H = matd_op("M^-1 * M * M", T_, H_, T);
+    matd_destroy(T);
+    matd_destroy(T_);
+    matd_destroy(H_);
+    return H;
+}
+$cc proc applyHomography {matd_t* H double[2] xy} Jim_Obj* {
+    double out[2];
+    homography_project(H, xy[0], xy[1], &out[0], &out[1]);
+
+    Jim_Obj* retObjs[2] = { Jim_NewDoubleObj(interp, out[0]), Jim_NewDoubleObj(interp, out[1]) };
+    return Jim_NewListObj(interp, retObjs, 2);
+}
+$cc proc matdMul {matd_t* a matd_t* b} matd_t* {
+    return matd_multiply(a, b);
+}
+$cc endcflags ./vendor/apriltag/libapriltag.so
+set matLib [$cc compile]
+Claim the calibration matLib is $matLib
+
+# HACK: wrapper because we have to give the array length as a separate
+# arg (at least for now).
+fn estimateHomography {pointPairs} {
+    $matLib estimateHomographyImpl [llength $pointPairs] $pointPairs
+}
+Claim the calibration estimateHomography is [fn estimateHomography]
