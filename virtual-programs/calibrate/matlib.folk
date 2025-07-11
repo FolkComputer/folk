@@ -18,16 +18,16 @@ $cc code {
     void matd_updateStringProc(Jim_Obj *objPtr) {
         matd_t *mat = (matd_t *)objPtr->internalRep.ptr;
 
-        objPtr->bytes = Jim_Alloc(mat->nrows * (1 + mat->ncols * 17 + 1));
+        objPtr->bytes = Jim_Alloc(mat->nrows * (1 + mat->ncols * 26 + 1));
         char *s = objPtr->bytes;
         int i = 0;
         
         for (unsigned int row = 0; row < mat->nrows; row++) {
             s[i++] = '{';
             for (unsigned int col = 0; col < mat->ncols; col++) {
-                int n = snprintf(&s[i], 17,
+                int n = snprintf(&s[i], 26,
                                  "%f ", MATD_EL(mat, row, col));
-                FOLK_ENSURE(n <= 17); i += n;
+                FOLK_ENSURE(n <= 26); i += n;
             }
             s[i++] = '}';
         }
