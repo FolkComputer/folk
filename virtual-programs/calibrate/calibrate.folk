@@ -814,6 +814,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
+        if {[llength $calibrationPoses] > $CALIBRATION_POSES_MAX} {
+            puts stderr "WARNING: Too many poses, skipping"
+            return
+        }
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
         HoldStatement! -version $timestamp (on calibration) poses \
             [list $this claims the calibration poses are $calibrationPoses]
