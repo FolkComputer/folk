@@ -424,10 +424,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set boardCorners [list $boardTopLeft $boardTopRight $boardBottomRight $boardBottomLeft]
     set boardToClipSpaceCorners \
-        [list [list {*}$boardTopLeft -1 -1] \
-             [list {*}$boardTopRight 1 -1] \
-             [list {*}$boardBottomRight 1 1] \
-             [list {*}$boardBottomLeft -1 1]]
+        [list [list 0 0 -1 -1] \
+             [list $displayWidth 0 1 -1] \
+             [list $displayWidth $displayHeight 1 1] \
+             [list 0 $displayHeight -1 1]]
     set boardWritableImageToClipSpace [estimateHomography $boardToClipSpaceCorners]
     Claim $board has writable image projection $boardWritableImageToClipSpace
 
@@ -464,11 +464,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             set modelInnerCorners [lreverse [dict get $modelTag p]]
             set modelCenter [dict get $modelTag c]
 
-            set modelOuterCorners [lmap modelInnerCorner $modelInnerCorners {
-                innerToOuter $modelCenter $modelInnerCorner
+            set displayOuterCorners [lmap modelInnerCorner $modelInnerCorners {
+                set modelOuterCorner [innerToOuter $modelCenter $modelInnerCorner]
+                $matLib applyHomography $H_modelToDisplay $modelOuterCorner
             }]
             Wish to draw an AprilTag onto $board with \
-                id $id corners $modelOuterCorners background $bgColor \
+                id $id corners $displayOuterCorners background $bgColor \
                 layer 100
         }
 
@@ -487,46 +488,41 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Now draw the board image (which has the projected tags) onto
         # the display:
 
-        # Transform corners from model-space into display-space:
-        lassign [lmap p $boardCorners {
-            $matLib applyHomography $H_modelToDisplay $p
-        }] a b c d
-
         set displayToClip \
-            [list [list [expr {2.0/$displayWidth}] 0 -1] \
-                 [list 0 [expr {2.0/$displayHeight}] -1] \
+           [list [list 1 0 0] \
+                 [list 0 1 0] \
                  [list 0 0 1]]
 
         set wim [$gpuWritableLib gpuImage $wi]
         Wish the GPU draws pipeline "image" with arguments \
             [list [list $displayWidth $displayHeight] \
                  $displayToClip \
-                 $wim $a $b $c $d] \
+                 $wim [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
             layer 100
 
-        set sides \
-            [list \
-                 [list $boardTopLeft $boardTopRight top 0] \
-                 [list $boardBottomRight $boardBottomLeft top 3.14159] \
-                 [list $boardBottomLeft $boardTopLeft top [/ 3.14159 2]] \
-                 [list $boardTopRight $boardBottomRight top [/ -3.14159 2]]]
+        # set sides \
+        #     [list \
+        #          [list $boardTopLeft $boardTopRight top 0] \
+        #          [list $boardBottomRight $boardBottomLeft top 3.14159] \
+        #          [list $boardBottomLeft $boardTopLeft top [/ 3.14159 2]] \
+        #          [list $boardTopRight $boardBottomRight top [/ -3.14159 2]]]
 
-        set text "[llength $calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($cycleTime*1000)}] ms)"
-        foreach p {add norm sub scale matmul
-            getelem transpose determineSVD shape mkIdentity show
-            solvePGauss crossproduct getcol setcol unitLengthVector det
-        } {
-            namespace import ::math::linearalgebra::$p
-        }
-        set textScale [/ $printedSideLengthM 2.0]
-        foreach side $sides {
-            lassign $side start end anchor radians
-            set modelPosition [scale 0.5 [add $start $end]]
+        # set text "[llength $calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($cycleTime*1000)}] ms)"
+        # foreach p {add norm sub scale matmul
+        #     getelem transpose determineSVD shape mkIdentity show
+        #     solvePGauss crossproduct getcol setcol unitLengthVector det
+        # } {
+        #     namespace import ::math::linearalgebra::$p
+        # }
+        # set textScale [/ $printedSideLengthM 2.0]
+        # foreach side $sides {
+        #     lassign $side start end anchor radians
+        #     set modelPosition [scale 0.5 [add $start $end]]
 
-            Wish to draw text onto $board with text $text radians $radians \
-                position $modelPosition \
-                anchor $anchor color black layer 100 scale $textScale
-        }
+        #     Wish to draw text onto $board with text $text radians $radians \
+        #         position $modelPosition \
+        #         anchor $anchor color black layer 100 scale $textScale
+        # }
     }
 
     # This is made a function so it can also be called by the Web page
@@ -573,7 +569,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set calibrationState [lindex [lsort_key_asc hTimestamp $calibrationStates] end]
         dict with calibrationState {}
         if {$hTimestamp >= $timestamp} {
-            # This is an old homography.
+            # This is an old homography. This seems to only happen on
+            # slider manual size adjust.
             return
         }
 
