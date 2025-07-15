@@ -715,6 +715,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - don't waste time on rerendering unchanged writable images
 - stack traces don't work inside web handlers
 - fix messy stack traces
+- accidentally matches prefixes even when not all teh way up to end of statement
 
 ### editor bugs
 
@@ -733,13 +734,13 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - on folk-live at home, folk2-shared-objects: TODO
 
 ### next
-- why is calibration board off on portable system
+- ~~why is calibration board off on portable system~~
 - ~~why does calibration glitch out~~
 - ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
 - ~~fix editor~~
 - minor memory leak
-- make calibrate retract properly when closed
+- ~~make calibrate retract properly when closed~~
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
 
@@ -753,12 +754,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
     its refcount hit 0 and the statement itself was reaped?~~
 - **calibrate render loop blinks out regularly**
 - ~~calibrate auto refresh preview is broken(?)~~
-- **calibrate is off (RMSE 22)**
-  - i tried using old estimatehomography just in the calibrate step
-    but that didn't work
-  - the PROJECTOR calibration specifically seems off, the camera
-    calibration seems ok
-  - increasing seen-poses count doesn't help
-  - using (serially) helps -> RMSE 12
+- ~~calibrate is off (RMSE 22)~~ (it was board thing)
 - ~~kill is buggy -- keyboard gets killed, causes threads to fill and
   freezes system (can't spawn any more threads)~~
+- calibrate doesn't click in afterward, have to restart system
+- better calibration timing
+
+virtual-programs/calibrate/calibrate.folk wishes to draw text onto {virtual-programs/calibrate/calibrate.folk board} with text {0/10 poses (0 ms)} radians -0.0 position {390.600002315 -63.0000006252} anchor top color black layer 100 scale 0.01225
+
+
