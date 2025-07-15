@@ -260,13 +260,13 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    When $p has writable image /id/ &\
+    When $p has writable image /id/ with /...wiOptions/ &\
          $p has writable image projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
-        set viewport [list 1024 1024]
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         set instances [$fontLib textShape \
-                           $viewport $surfaceToClip \
+                           $wiResolution $surfaceToClip \
                            $fontData \
                            $text $x0 $y0 $scale {*}$anchor $radians $color]
 

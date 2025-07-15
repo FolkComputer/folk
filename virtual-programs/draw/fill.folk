@@ -19,7 +19,7 @@ When /someone/ wishes to draw a triangle with /...options/ {
     }
 }
 When /someone/ wishes to draw a quad onto /p/ with /...options/ &\
-     /p/ has writable image /id/ &\
+     /p/ has writable image /id/ with /...wiOptions/ &\
      /p/ has writable image projection /surfaceToClip/ {
     dict with options {
         if {![info exists layer]} { set layer 0 }

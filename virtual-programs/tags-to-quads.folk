@@ -639,7 +639,7 @@ When /tag/ has resolved geometry /geom/ &\
 When the GPU writable image library is /gpuWritableLib/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
-     /tag/ has writable image /writableImageId/ &\
+     /tag/ has writable image /writableImageId/ with /...wiOptions/ &\
      the GPU creates writable image /writableImageId/ as /wi/ &\
      /tag/ has quad /quad/ {
 

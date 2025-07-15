@@ -194,7 +194,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     set board [list $this board]
     set boardWritableImage [list $board writable image]
     Wish the GPU creates writable image $boardWritableImage with width 1024 height 1024
-    Claim $board has writable image $boardWritableImage
+    Claim $board has writable image $boardWritableImage with width 1024 height 1024
 
     package require linalg
     namespace import ::math::linearalgebra::scale \

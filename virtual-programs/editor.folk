@@ -23,7 +23,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
   set writableImageId [list $id writable image]
   Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
-  Claim $id has writable image $writableImageId
+  Claim $id has writable image $writableImageId with width 1024 height 1024
   When $page has resolved geometry /geom/ {
       Claim $id has resolved geometry $geom
   }
@@ -170,7 +170,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
     # Construct the editor window $id':
     set writableImageId [list $id' writable image]
     Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
-    Claim $id' has writable image $writableImageId
+    Claim $id' has writable image $writableImageId with width 1024 height 1024
     When $page has resolved geometry /geom/ {
         Claim $id' has resolved geometry $geom
     }
