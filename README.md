@@ -757,7 +757,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~calibrate is off (RMSE 22)~~ (it was board thing)
 - ~~kill is buggy -- keyboard gets killed, causes threads to fill and
   freezes system (can't spawn any more threads)~~
-- calibrate doesn't click in afterward, have to restart system
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
 - better calibration timing
 
 virtual-programs/calibrate/calibrate.folk wishes to draw text onto {virtual-programs/calibrate/calibrate.folk board} with text {0/10 poses (0 ms)} radians -0.0 position {390.600002315 -63.0000006252} anchor top color black layer 100 scale 0.01225

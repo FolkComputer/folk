@@ -230,8 +230,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # around):
     When the GPU writable image library is /gpuWritableLib/ &\
          the GPU creates writable image $boardWritableImage as /wi/ &\
-         the calibration model-to-display homography is /H_modelToDisplay/ with \
-             model /model/ version /anything/ timestamp /anything/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ \
+             with /...modelToDisplayOpts/ &\
          the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ {
 
@@ -239,6 +239,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         namespace import ::math::linearalgebra::scale \
             ::math::linearalgebra::add ::math::linearalgebra::sub \
             ::math::linearalgebra::norm
+
+        set model [dict get $modelToDisplayOpts model]
 
         set bgColor [list 1 1 1 1]
 
@@ -347,7 +349,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         Hold! H_modelToDisplay {
             # Default model and version: nothing rotated.
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
-                model $baseModel version -1 timestamp [expr {[clock milliseconds] / 1000.0}]
+                model $baseModel version -1 \
+                frameTimestamp [expr {[clock milliseconds] / 1000.0}] \
+                modelTimestamp [expr {[clock milliseconds] / 1000.0}]
         }
     }
     Claim the calibration HoldDefaultModel! is [fn HoldDefaultModel!]
@@ -360,18 +364,27 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    When (serially) camera $camera has frame /frame/ at timestamp /timestamp/ {
+    When (serially) camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
             [Query! the calibration model-to-display homography is /H_modelToDisplay/ with \
-                 model /model/ version /version/ timestamp /hTimestamp/]
+                 /...modelToDisplayOpts/]
         if {[llength $calibrationStates] == 0} {
             return
         }
-        set calibrationState [lindex [lsort_key_asc hTimestamp $calibrationStates] end]
+        # Sort in ascending order to find the newest (highest frameTimestamp) model.
+        set calibrationState [lindex [lsort -command [list apply {{a b} {
+            expr {[dict get $a modelToDisplayOpts frameTimestamp] <
+                  [dict get $b modelToDisplayOpts frameTimestamp]}
+        }}] $calibrationStates] end]
         dict with calibrationState {}
-        if {$hTimestamp >= $timestamp} {
+
+        set model [dict get $modelToDisplayOpts model]
+        set version [dict get $modelToDisplayOpts version]
+        set modelFrameTimestamp [dict get $modelToDisplayOpts frameTimestamp]
+        set modelTimestamp [dict get $modelToDisplayOpts modelTimestamp]
+        if {$modelFrameTimestamp >= $frameTimestamp} {
             # This is an old homography. This seems to only happen on
             # slider manual size adjust.
             return
@@ -387,8 +400,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # projected and printed), and updates the H_modelToDisplay
         # such that the projected tags should sit in the middle of the
         # calibration board.
-
-        set startTime [clock microseconds]
 
         set printedTags [dict create] ;# dict keyed by tag id for easy lookup
         foreach tag $tags {
@@ -516,16 +527,20 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # Update H_modelToDisplay to project the tags into the right
         # spots on the board next frame.
         set nextH_modelToDisplay [$matLib matdMul $H_cameraToDisplay $H_modelToCameraViaPs]
-        set nextHTimestamp $timestamp
+        set nextModelFrameTimestamp $frameTimestamp
         set nextVersion [+ $version 1]
         set nextModel [versionizeTags $baseModel $nextVersion]
+        set nextModelTimestamp [expr {[clock milliseconds] / 1000.0}]
         HoldStatement! H_modelToDisplay \
-            -version $timestamp \
+            -version $nextModelFrameTimestamp \
             [list $this claims the calibration model-to-display homography \
                  is $nextH_modelToDisplay with \
-                 model $nextModel version $nextVersion timestamp $nextHTimestamp]
+                 model $nextModel version $nextVersion \
+                 frameTimestamp $nextModelFrameTimestamp \
+                 modelTimestamp $nextModelTimestamp]
         HoldStatement! cycleTime \
-            [list $this claims the calibration cycle time is $($nextHTimestamp - $hTimestamp)]
+            [list $this claims the calibration cycle time is \
+                 $($nextModelTimestamp - $modelTimestamp)]
 
         # Should we record the points we just saw as a calibration
         # pose?
@@ -575,7 +590,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        HoldStatement! -version $timestamp (on calibration) seenPoses \
+        HoldStatement! -version $nextModelFrameTimestamp (on calibration) seenPoses \
             [list $this claims the calibration last-seen poses are $seenPoses]
 
         # Next, we check if projected tag corners have been pretty
@@ -596,7 +611,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             }
         }
 
-        puts "WOULD APPEND CALIBRATION ([- [clock microseconds] $startTime] us)..."
+        puts "WOULD APPEND CALIBRATION..."
 
         # If the corners have _not_ moved a lot since last _saved_
         # calibration pose, this isn't different enough to be a good
@@ -618,7 +633,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        HoldStatement! -version $timestamp (on calibration) poses \
+        HoldStatement! -version $nextModelFrameTimestamp (on calibration) poses \
             [list $this claims the calibration poses are $calibrationPoses]
 
         # If we have enough poses, then stop the calibration process

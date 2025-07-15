@@ -244,12 +244,6 @@ namespace eval ::library {
     namespace ensemble create
 }
 
-proc lsort_key_asc {key l} {
-    return [lsort -command [list apply {{key a b} {
-        expr {[dict get $a $key] < [dict get $b $key]}
-    }} $key] $l]
-}
-
 namespace eval ::math {
     proc min {args} {
         if {[llength $args] == 0} { error "min: No args" }
