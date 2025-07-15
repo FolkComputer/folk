@@ -1,6 +1,3 @@
-# TODO: Fix this program.
-return
-
 # Example program, i.e the public API
 #
 # When $this has camera slice /slice/ {
@@ -8,18 +5,24 @@ return
 # }
 
 # Callback: extract out a camera slice
-When /someone/ wishes /p/ has camera slice & \
-     camera /cam/ has intrinsics /cameraIntrinsics/ & \
-     camera /cam/ has frame /f/ at timestamp /timestamp/ & \
+When the image library is /imageLib/ &\
+     the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     /someone/ wishes /p/ has camera slice &\
+     camera /cam/ has intrinsics /cameraIntrinsics/ &\
+     camera /cam/ has frame /f/ at timestamp /timestamp/ &\
      /p/ has quad /q/ {
 
+    set fWidth [$imageLib Image_width $f]
+    set fHeight [$imageLib Image_height $f]
+
     # Convert quad to camera coordinates
-    set q [quad change $q $cam]
+    set q [$quadLib change $q $cam]
     set minX 10000; set minY 10000
     set maxX -10000; set maxY -10000
-    foreach v [quad vertices $q] {
-        lassign [intrinsics project $cameraIntrinsics \
-                     [::image width $f] [::image height $f] \
+    foreach v [$quadLib vertices $q] {
+        lassign [$poseLib project $cameraIntrinsics \
+                     $fWidth $fHeight \
                      $v] cx cy
         if {$cx < $minX} { set minX $cx }
         if {$cx > $maxX} { set maxX $cx }
@@ -28,17 +31,21 @@ When /someone/ wishes /p/ has camera slice & \
     }
 
     # Clamp to image bounds
-    set minX [expr {max(0, min($minX, [image width $f]))}]
-    set maxX [expr {max(0, min($maxX, [image width $f]))}]
-    set minY [expr {max(0, min($minY, [image height $f]))}]
-    set maxY [expr {max(0, min($maxY, [image height $f]))}]
+    if {$minX < 0} { set minX 0 }
+    if {$maxX < 0} { set maxX 0 }
+    if {$minY < 0} { set minY 0 }
+    if {$maxY < 0} { set maxY 0 }
+    if {$minX >= $fWidth} { set minX [- $fWidth 1] }
+    if {$maxX >= $fWidth} { set maxX [- $fWidth 1] }
+    if {$minY >= $fHeight} { set minY [- $fHeight 1] }
+    if {$maxY >= $fHeight} { set maxY [- $fHeight 1] }
 
     set w [expr {$maxX - $minX}]
     set h [expr {$maxY - $minY}]
     if {$w <= 0 || $h <= 0} { return }
 
     # Extract and claim the image for the page
-    set subimage [image subimage $f [int $minX] [int $minY] [int $w] [int $h]]
+    set subimage [$imageLib subimage $f $minX $minY $w $h]
     Claim $p has camera slice $subimage
 }
 
@@ -48,12 +55,13 @@ When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
 }
 
 # Display a camera slice
-When /someone/ wishes /p/ displays camera slice /slice/ & /p/ has region /r/ {
-  set center [region centroid $r]
-  # set scale [expr {$Display::WIDTH / $Camera::WIDTH}]
-  # Use 1x scale instead of $scale so the projected tag doesn't redetect.
-  # TODO: Mask the tag out?
-    Wish to draw an image with center $center image $slice radians 0 scale 1
+When /someone/ wishes /p/ displays camera slice /slice/ &\
+     /p/ has resolved geometry /geom/ {
+         # TODO: Mask the tag out?
+    Wish to draw an image onto $p with image $slice \
+        position [list 0 0] \
+        anchor topleft \
+        width [/ [dict get $geom left] 1.5]
 }
 
 When /someone/ wishes /p/ displays image /im/ with /...options/ {

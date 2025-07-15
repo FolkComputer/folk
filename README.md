@@ -760,7 +760,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
 - better calibration timing
-
-virtual-programs/calibrate/calibrate.folk wishes to draw text onto {virtual-programs/calibrate/calibrate.folk board} with text {0/10 poses (0 ms)} radians -0.0 position {390.600002315 -63.0000006252} anchor top color black layer 100 scale 0.01225
-
-
+- statements lock in (collections lock in?) -- i've seen detector lock
+  in which freezes programs / makes even the incremental detector only
+  work nearby
+- rename images/writable-images to textures
+- rename resolved geometry to geometry

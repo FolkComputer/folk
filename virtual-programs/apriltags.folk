@@ -96,6 +96,7 @@ When /nobody/ wishes to calibrate &\
 # Incremental tag detector (looks at regions where there were tags
 # seen recently):
 When /nobody/ wishes to calibrate &\
+     the image library is /imageLib/ &\
      (serially) camera /camera/ has frame /frame/ at timestamp /frameTs/ {
     tracy zoneBegin
     tracy zoneName "incrementalDetect: $frameTs"
@@ -111,20 +112,6 @@ When /nobody/ wishes to calibrate &\
 
             dict set dets $id $det
             dict set dets $id timestamp $timestamp
-        }
-    }
-
-    proc subimage {im x y subwidth subheight} {
-        dict with im {
-            set x [expr {int($x)}]
-            set y [expr {int($y)}]
-            set subdata [expr {[lindex $data 1] + $y*$width + $x*$components}]
-            dict create \
-                width [expr {int($subwidth)}] \
-                height [expr {int($subheight)}] \
-                components $components \
-                bytesPerRow $bytesPerRow \
-                data [format "(uint8_t*) 0x%x" $subdata]
         }
     }
 
@@ -147,7 +134,7 @@ When /nobody/ wishes to calibrate &\
         set x1 [min [+ $x1 $width] $frameWidth]
         set y1 [min [+ $y1 $height] $frameHeight]
 
-        set subimage [subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
+        set subimage [$imageLib subimage $frame $x $y [- $x1 $x] [- $y1 $y]]
         set aprilTime [+ $aprilTime [baretime {
             foreach tag [$incrementalDetector detect $subimage] {
                 dict with tag {

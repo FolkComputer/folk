@@ -108,24 +108,55 @@ Wish the GPU compiles pipeline "image" {
         return vec4(0.0, 0.0, 0.0, 0.0);
 }}
 When the image library is /imageLib/ &\
-     /someone/ wishes to draw an image with /...options/ {
-    if {[dict exists $options center]} {
-        set center [dict get $options center]
-    } else {
-        set center [list [dict get $options x] [dict get $options y]]
-    }
+     /someone/ wishes to draw an image onto /p/ with /...options/ &\
+     /p/ has writable image /id/ with /...wiOptions/ &\
+     /p/ has writable image projection /surfaceToClip/ {
+
     set im [dict get $options image]
-    set radians [dict getdef $options radians 0]
-    set scale [dict getdef $options scale 1.0]
-    if {[llength $scale] == 1} {
-        set scale [list $scale $scale] 
+
+    if {[dict exists $options position]} {
+        lassign [dict get $options position] x0 y0
+    } else {
+        set x0 [dict get $options x]
+        set y0 [dict get $options y]
     }
+    set radians [dict getdef $options radians 0]
+    
+    if {[dict exists $options width] && [dict exists $options height]} {
+        set width [dict get $options width]
+        set height [dict get $options height]
+    } elseif {[dict exists $options width] && ![dict exists $options height]} {
+        set width [dict get $options width]
+        set height $([$imageLib Image_height $im] / [$imageLib Image_width $im] * $width)
+    } elseif {![dict exists $options width] && [dict exists $options height]} {
+        set height [dict get $options height]
+        set width $([$imageLib Image_width $im] / [$imageLib Image_height $im] * $height)
+    }
+
+    # TODO: implement anchor like in text
+    set anchor [dict getdef $options anchor "topleft"]
+    if {$anchor eq "center"} {
+        set a [list $($x0 - $width/2.0) $($y0 - $height/2.0)]
+        set b [list $($x0 + $width/2.0) $($y0 - $height/2.0)]
+        set c [list $($x0 + $width/2.0) $($y0 + $height/2.0)]
+        set d [list $($x0 - $width/2.0) $($y0 + $height/2.0)]
+    } elseif {$anchor eq "topleft"} {
+        set a [list $x0 $y0]
+        set b [list [+ $x0 $width] $y0]
+        set c [list [+ $x0 $width] [+ $y0 $height]]
+        set d [list $x0 [+ $y0 $height]]
+    } else {
+        error "Unsupported anchor: $anchor"
+    }
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
 
     Wish the GPU loads image $im
     When the GPU has loaded image $im as /gim/ {
-        Wish the GPU draws pipeline "image" with arguments \
-            [list $gim [list [$imageLib Image_width $im] [$imageLib Image_height $im]] \
-                 $center $radians $scale]
+        Wish the GPU draws pipeline "image" onto image $id with arguments \
+            [list $wiResolution $surfaceToClip \
+                 $gim \
+                 $a $b $c $d]
     }
 }
 
