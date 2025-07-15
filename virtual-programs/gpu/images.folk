@@ -77,9 +77,9 @@ $gpuc struct GpuImageBlock {
     char* description;
 }
 $gpuc code {
-    // Points to all GPU-side data structures associated with
-    // an image (that we will destroy when we evict that
-    // image).
+    // Array of GpuImageBlocks. Each element points to all GPU-side
+    // data structures associated with a particular image (that we
+    // will destroy when we evict that image).
     struct GpuImageBlock* gpuImages;
 }
 $gpuc proc imageManagerInit {} void {
@@ -620,7 +620,9 @@ Claim the GPU image library is $gpuImageLib
 When display /any/ has width /any/ height /any/ {
     When /someone/ wishes the GPU loads image /im/ {
         set gim [$gpuImageLib copyImageToGpu $im]
-        Claim the GPU has loaded image $im as $gim
+        # HACK: this still overflows with camera slice
+        Claim (keep 100ms) the GPU has loaded image $im as $gim \
+            -destructor [list $gpuImageLib freeGpuImage $gim]
     }
 }
 
