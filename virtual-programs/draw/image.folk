@@ -160,3 +160,31 @@ When the image library is /imageLib/ &\
     }
 }
 
+# FIXME:
+When /someone/ wishes /p/ displays image /im/ with /...options/ {
+    set im [image load $im]
+    When $p has region /r/ {
+        # Compute a scale for im that will fit in the region width/height
+        # Draw im with scale and rotation
+        if {![dict exists $options center]} {
+            dict set options center [region centroid $r]
+        }
+        # set width [region width $r]
+        # set height [region height $r]
+        # set scale [expr {min($width / [image width $im],
+        #                      $height / [image height $im])}]
+        # Wish $p is labelled $im
+        if {![dict exists $options radians]} {
+            dict set options radians [region angle $r]
+        }
+        Wish to draw an image with image $im {*}$options
+    }
+    # On unmatch {
+    #     # HACK: Leaves time for the display to finish trying to display this.
+    #     after 5000 [list image freeJpeg $im]
+    # }
+}
+
+When /someone/ wishes /p/ displays image /im/ {
+    Wish $p displays image $im with scale 1
+}
