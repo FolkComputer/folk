@@ -636,14 +636,14 @@ When /tag/ has resolved geometry /geom/ &\
     Claim $tag has quad $pageQuad
 }
 
-When the GPU writable image library is /gpuWritableLib/ &\
+When the GPU writable texture library is /gpuWritableLib/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
-     /tag/ has writable image /writableImageId/ with /...wiOptions/ &\
-     the GPU creates writable image /writableImageId/ as /wi/ &\
+     /tag/ has writable texture /writableTextureId/ with /...wiOptions/ &\
+     the GPU creates writable texture /writableTextureId/ as /wi/ &\
      /tag/ has quad /quad/ {
 
-    # Composite each quad's writable image onto the screen based on
+    # Composite each quad's writable texture onto the screen based on
     # its quad.
     set displayToClip [list \
         [list [expr {2.0/$displayWidth}] 0 -1] \
@@ -655,7 +655,7 @@ When the GPU writable image library is /gpuWritableLib/ &\
                      $displayWidth $displayHeight $v
     }] a b c d
 
-    set wim [$gpuWritableLib gpuImage $wi]
+    set wim [$gpuWritableLib gpuTexture $wi]
 
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \

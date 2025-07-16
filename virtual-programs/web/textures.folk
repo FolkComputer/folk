@@ -1,4 +1,4 @@
-When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
+When the GPU library is /gpuLib/ & the GPU texture library is /gpuTextureLib/ &\
      display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng
@@ -15,8 +15,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
     $cc typedef {struct PushConstantsEncoder} PushConstantsEncoder
     $cc typedef {struct Pipeline} Pipeline
     $cc extend $gpuLib
-    $cc extend $gpuImageLib
-    $cc proc imagesLibInit {} void {
+    $cc extend $gpuTextureLib
+    $cc proc texturesLibInit {} void {
         volkInitialize();
         volkLoadInstanceOnly(*instance_ptr());
 
@@ -24,8 +24,8 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
         volkLoadDevice(device);
     }
 
-    $cc proc copyImageFromGpu {GpuImageHandle han} Image {
-        GpuImageBlock* block = getGpuImage(han);
+    $cc proc copyTextureFromGpu {GpuTextureHandle han} Image {
+        GpuTextureBlock* block = getGpuTexture(han);
         if (!block->alive) {
             return (Image){0};
         }
@@ -190,11 +190,11 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
         return buffer;
     }
 
-    $cc proc copyAllImagesFromGpu {} Jim_Obj* {
+    $cc proc copyAllTexturesFromGpu {} Jim_Obj* {
         Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
-        for (int i = 0; i < getMaxImages(); i++) {
-            if (getGpuImage(i)->alive) {
-                Image im = copyImageFromGpu(i);
+        for (int i = 0; i < getMaxTextures(); i++) {
+            if (getGpuTexture(i)->alive) {
+                Image im = copyTextureFromGpu(i);
                 size_t pngSize;
                 uint8_t* pngData = imageToPngBuffer(im, &pngSize);
 
@@ -207,18 +207,18 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
         }
         return ret;
     }
-    set imagesLib [$cc compile]
-    $imagesLib imagesLibInit
+    set texturesLib [$cc compile]
+    $texturesLib texturesLibInit
 
-    Wish the web server handles route {/images$} with handler [list apply {{imagesLib} {
+    Wish the web server handles route {/textures$} with handler [list apply {{texturesLib} {
         package require base64
 
-        set images [$imagesLib copyAllImagesFromGpu]
-        
+        set images [$texturesLib copyAllTexturesFromGpu]
+
         html [subst {
             <html>
             <head>
-                <title>Images</title>
+                <title>Textures</title>
                 <style>
                     img { max-width: 100%; }
                 </style>
@@ -231,5 +231,5 @@ When the GPU library is /gpuLib/ & the GPU image library is /gpuImageLib/ &\
             </body>
             </html>
         }]
-    }} $imagesLib]
+    }} $texturesLib]
 }

@@ -19,14 +19,14 @@ When /someone/ wishes to draw a triangle with /...options/ {
     }
 }
 When /someone/ wishes to draw a quad onto /p/ with /...options/ &\
-     /p/ has writable image /id/ with /...wiOptions/ &\
-     /p/ has writable image projection /surfaceToClip/ {
+     /p/ has writable texture /id/ with /...wiOptions/ &\
+     /p/ has writable texture projection /surfaceToClip/ {
     dict with options {
         if {![info exists layer]} { set layer 0 }
         set color [dict getdef $colorMap $color $color]
-        Wish the GPU draws pipeline "fillTriangle" onto image $id with arguments \
+        Wish the GPU draws pipeline "fillTriangle" onto texture $id with arguments \
             [list $surfaceToClip $p1 $p2 $p3 $color] layer $layer
-        Wish the GPU draws pipeline "fillTriangle" onto image $id with arguments \
+        Wish the GPU draws pipeline "fillTriangle" onto texture $id with arguments \
             [list $surfaceToClip $p0 $p1 $p3 $color] layer $layer
     }
 }

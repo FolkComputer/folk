@@ -34,18 +34,18 @@ When the default program geometry is /defaultGeom/ &\
         # This (resolved geometry) feels like a hack.
         Claim $tag has resolved geometry $geom
 
-        # Use the geometry to create the writable image projection,
+        # Use the geometry to create the writable texture projection,
         # which maps from page-space (in meters from the top-left
         # corner) to normalized-space (x and y from -1 to 1)
         set proj [list [list $(2.0/$width) 0 -1] \
                        [list 0 $(2.0/$height) -1] \
                        [list 0 0 1]]
-        Claim $tag has writable image projection $proj
+        Claim $tag has writable texture projection $proj
 
-        set writableImageId [list $tag writable image]
-        # TODO: Set writable image resolution based on physical width
+        set writableTextureId [list $tag writable texture]
+        # TODO: Set writable texture resolution based on physical width
         # & height.
-        Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
-        Claim $tag has writable image $writableImageId with width 1024 height 1024
+        Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
+        Claim $tag has writable texture $writableTextureId with width 1024 height 1024
     }
 }

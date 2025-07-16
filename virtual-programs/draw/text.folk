@@ -163,7 +163,7 @@ When the image loader is /loadImage/ {
         set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
         Wish the GPU loads image $im
         When the GPU has loaded image $im as /gim/ {
-            puts "text: Loaded $name as GPU image $gim"
+            puts "text: Loaded $name as GPU texture $gim"
             Claim the GPU has font $name with data \
                 [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
         }
@@ -260,8 +260,8 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    When $p has writable image /id/ with /...wiOptions/ &\
-         $p has writable image projection /surfaceToClip/ &\
+    When $p has writable texture /id/ with /...wiOptions/ &\
+         $p has writable texture projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
@@ -272,7 +272,7 @@ When the color map is /colorMap/ &\
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
-        Wish the GPU draws pipeline "glyph" onto image $id \
+        Wish the GPU draws pipeline "glyph" onto texture $id \
             with instances $instances layer $layer
     }
 }

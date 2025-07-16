@@ -44,15 +44,6 @@ Try doing `sudo chmod 666 $renderFile`."
     }
 }
 
-$gpuc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
-
 $gpuc include <stdlib.h>
 $gpuc include <pthread.h>
 $gpuc code {
@@ -549,10 +540,10 @@ $gpuc proc getHeight {} uint32_t { return swapchainExtent.height; }
 $gpuc proc getDoesSupportShaderSampledImageArrayDynamicIndexing {} bool {
     return physicalDeviceFeatures.shaderSampledImageArrayDynamicIndexing;
 }
-$gpuc proc getMaxImages {} int {
-    int maxImages = physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
+$gpuc proc getMaxTextures {} int {
+    int maxTextures = physicalDeviceProperties.limits.maxPerStageDescriptorSamplers;
     // If it's actually a low cap (often 16), stick with that.
-    if (maxImages < 128) { return maxImages; }
+    if (maxTextures < 128) { return maxTextures; }
     // HACK: for now, I don't want to deal with all the other descriptor caps etc.
     return 128;
 }
@@ -616,9 +607,9 @@ $gpuc code {
     } PushConstantsEncoder;
 }
 $gpuc define {
-    VkDescriptorSetLayout imageDescriptorSetLayout;
-    VkDescriptorSet imageDescriptorSet;
-    pthread_rwlock_t imageDescriptorSetLock;
+    VkDescriptorSetLayout textureDescriptorSetLayout;
+    VkDescriptorSet textureDescriptorSet;
+    pthread_rwlock_t textureDescriptorSetLock;
 }
 $gpuc struct Pipeline {
     VkPipeline pipeline;
@@ -729,7 +720,7 @@ $gpuc proc createPipeline {VkShaderModule vertShaderModule
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = {0};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-        pipelineLayoutInfo.pSetLayouts = &imageDescriptorSetLayout;
+        pipelineLayoutInfo.pSetLayouts = &textureDescriptorSetLayout;
         pipelineLayoutInfo.setLayoutCount = 1;
 
         // We configure all pipelines with push constants size =
@@ -796,7 +787,7 @@ $gpuc proc drawStart {} void {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = NULL;
-    pthread_rwlock_rdlock(imageDescriptorSetLock_ptr());
+    pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
     $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
     {
@@ -818,9 +809,9 @@ $gpuc proc drawStart {} void {
     boundDescriptorSet = VK_NULL_HANDLE;
 }
 
-# Draw to the image `img` using pipeline `pipeline`. Each arg in
-# `args` should be a push-constant parameter of the pipeline. Can
-# only be called between `drawStart` and `drawEnd`.
+# Draw to the screen using pipeline `pipeline`. Each arg in `args`
+# should be a push-constant parameter of the pipeline. Can only be
+# called between `drawStart` and `drawEnd`.
 $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
@@ -842,10 +833,10 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     }
 
-    if (boundDescriptorSet != imageDescriptorSet) {
+    if (boundDescriptorSet != textureDescriptorSet) {
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline.pipelineLayout, 0, 1, &imageDescriptorSet, 0, NULL);
-        boundDescriptorSet = imageDescriptorSet;
+                                pipeline.pipelineLayout, 0, 1, &textureDescriptorSet, 0, NULL);
+        boundDescriptorSet = textureDescriptorSet;
     }
 
     {
@@ -910,7 +901,7 @@ $gpuc proc drawEnd {} void {
     }
 
     vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 }
 
 $gpuc proc poll {} void {
@@ -1174,15 +1165,16 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 gl_Position = vert();
             }
         }]]]
-        # We pass the descriptor set with all images (samplers) to all
+        # We pass the descriptor set with all textures (samplers) to all
         # fragment shaders, so we never need to rebind it (at draw
         # time, the shader may get an index into the array if it's
-        # meant to draw an image).
+        # meant to draw an texture).
         #
-        # Note that we use combined image + sampler, instead of 1
-        # global sampler and multiple textures/images, because that's
-        # the only way to allow each image to have its own dimensions
-        # (dimensions are a property bound to the sampler).
+        # Note that we have individual combined image+samplers,
+        # instead of 1 global sampler and multiple images/textures,
+        # because that's the only way to allow each texture to have
+        # its own dimensions (dimensions are a property bound to the
+        # sampler).
         #
         # We have a whole code path basically just to handle v3dv
         # (Raspberry Pi GPU), which doesn't support dynamic indexing
@@ -1194,7 +1186,7 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
         set fragShaderModule [$gpuLib createShaderModule [glslc -fshader-stage=frag [csubst {
             #version 450
 
-            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxImages]];
+            layout(set = 0, binding = 0) uniform sampler2D _samplers[$[$gpuLib getMaxTextures]];
 
             $pushConstantsCode
 
@@ -1244,9 +1236,9 @@ proc makeGpu {gpuLib} { return [library create gpu {gpuLib} {
                 } elseif {[llength $samplerIdxs] == 1} {
                     set samplerIdx [+ [lindex $samplerIdxs 0] 1]
                     set samplerName [lindex $pushConstants $samplerIdx]
-                    set maxImages [$gpuLib getMaxImages]
+                    set maxTextures [$gpuLib getMaxTextures]
                     set xs [list]
-                    for {set i 0} {$i < $maxImages} {incr i} {
+                    for {set i 0} {$i < $maxTextures} {incr i} {
                         set patchedPushConstants [lreplace $pushConstants $samplerIdx $samplerIdx \
                                                       _samplers\[$i\]]
                         lappend xs [subst {
@@ -1293,28 +1285,28 @@ set gpu [makeGpu $gpuLib]
 if {$macos} {
     # HACK: to guarantee that GPU init runs on main thread.
     local proc When' {args} {
-        while {![info exists gpuImageLib]} {
-            ForEach! the GPU image library is /gpuImageLib/ {}
+        while {![info exists gpuTextureLib]} {
+            ForEach! the GPU texture library is /gpuTextureLib/ {}
             sleep 0.1
         }
         set body [lindex $args end]
         uplevel {set __envStack [list]}
         uplevel {set displayIdx 0}
         uplevel {set this "virtual-programs/gpu.folk"}
-        uplevel [list set gpuImageLib $gpuImageLib]
+        uplevel [list set gpuTextureLib $gpuTextureLib]
         uplevel [list applyBlock $body [uplevel captureEnvStack]]
     }
 } else {
     local proc When' {args} { uplevel [list When {*}$args] }
 }
 When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
-      the GPU image library is /gpuImageLib/ {
+      the GPU texture library is /gpuTextureLib/ {
     if {$displayIdx eq "glfw"} { set displayIdx -1 }
 
     tracy setThreadName "gpu"
 
     $gpu init $displayIdx
-    $gpuImageLib imageManagerInit
+    $gpuTextureLib textureManagerInit
 
     Claim display $displayIdx has width [$gpu getWidth] height [$gpu getHeight]
 

@@ -22,6 +22,15 @@ $gpuc extend $gpuLib
 
 $gpuc include <pthread.h>
 
+$gpuc struct Image {
+    uint32_t width;
+    uint32_t height;
+    int components;
+    uint32_t bytesPerRow;
+
+    uint8_t* data;
+}
+
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
@@ -30,20 +39,20 @@ local proc vktry {call} { string map {\n " "} [csubst {{
     }
 }}] }
 
-# Image management:
+# Texture management:
 
-# The technique used to manage images here is to have a
+# The technique used to manage textures here is to have a
 # single giant descriptor set for a giant GPU-side array of
-# images, which all shaders can access. (That descriptor set
+# textures, which all shaders can access. (That descriptor set
 # _never_ has to be rebound; it stays bound through all draw
 # calls, forever.)
 # 
-# Each image has to be 'copied to the GPU' before you do any
-# draw calls that use it. Copying an image to the GPU gives
-# you a GPU-side image handle, which is just an integer index
-# into the GPU-side array. You can pass that image handle
+# Each texture has to be 'copied to the GPU' before you do any
+# draw calls that use it. Copying an texture to the GPU gives
+# you a GPU-side texture handle, which is just an integer index
+# into the GPU-side array. You can pass that texture handle
 # into draw calls as a parameter (push constant) when you
-# want to draw/use the image.
+# want to draw/use the texture.
 #
 # See:
 # - http://kylehalladay.com/blog/tutorial/vulkan/2018/01/28/Textue-Arrays-Vulkan.html
@@ -52,21 +61,21 @@ local proc vktry {call} { string map {\n " "} [csubst {{
 # - http://roar11.com/2019/06/vulkan-textures-unbound/
 $gpuc code {
     VkDevice device;
-    static void initPlaceholderImage();
+    static void initPlaceholderTexture();
 }
 
-$gpuc typedef int GpuImageHandle
+$gpuc typedef int GpuTextureHandle
 defineVulkanHandleType $gpuc VkImage
 defineVulkanHandleType $gpuc VkDeviceMemory
 defineVulkanHandleType $gpuc VkImageView
 defineVulkanHandleType $gpuc VkSampler
-$gpuc struct GpuImageBlock {
+$gpuc struct GpuTextureBlock {
     bool _Atomic alive;
 
     int width;
     int height;
 
-    GpuImageHandle handle;
+    GpuTextureHandle handle;
 
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
@@ -77,21 +86,21 @@ $gpuc struct GpuImageBlock {
     char* description;
 }
 $gpuc code {
-    // Array of GpuImageBlocks. Each element points to all GPU-side
-    // data structures associated with a particular image (that we
-    // will destroy when we evict that image).
-    struct GpuImageBlock* gpuImages;
+    // Array of GpuTextureBlocks. Each element points to all GPU-side
+    // data structures associated with a particular texture (that we
+    // will destroy when we evict that texture).
+    struct GpuTextureBlock* gpuTextures;
 }
-$gpuc proc imageManagerInit {} void {
+$gpuc proc textureManagerInit {} void {
     $[vktry volkInitialize()]
     volkLoadInstanceOnly(*instance_ptr());
 
     device = *device_ptr();
     volkLoadDevice(device);
 
-    gpuImages = calloc(sizeof(GpuImageBlock), getMaxImages());
+    gpuTextures = calloc(sizeof(GpuTextureBlock), getMaxTextures());
 
-    // Set up imageDescriptorSetLayout:
+    // Set up textureDescriptorSetLayout:
     {
         /* VkDescriptorBindingFlags flags[1]; */
         /* flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT; */
@@ -106,7 +115,7 @@ $gpuc proc imageManagerInit {} void {
         memset(bindings, 0, sizeof(bindings));
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[0].descriptorCount = getMaxImages();
+        bindings[0].descriptorCount = getMaxTextures();
         bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo createInfo = {0};
@@ -115,7 +124,7 @@ $gpuc proc imageManagerInit {} void {
         createInfo.pBindings = bindings;
         /* createInfo.pNext = &bindingFlags; */
 
-        vkCreateDescriptorSetLayout(device, &createInfo, NULL, imageDescriptorSetLayout_ptr());
+        vkCreateDescriptorSetLayout(device, &createInfo, NULL, textureDescriptorSetLayout_ptr());
     }
 
     VkDescriptorPool descriptorPool; {
@@ -131,19 +140,19 @@ $gpuc proc imageManagerInit {} void {
         $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
     }
 
-    // Set up imageDescriptorSet:
+    // Set up textureDescriptorSet:
     {
         VkDescriptorSetAllocateInfo allocInfo = {0};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = descriptorPool;
         allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = imageDescriptorSetLayout_ptr();
+        allocInfo.pSetLayouts = textureDescriptorSetLayout_ptr();
 
-        $[vktry {vkAllocateDescriptorSets(device, &allocInfo, imageDescriptorSet_ptr())}]
+        $[vktry {vkAllocateDescriptorSets(device, &allocInfo, textureDescriptorSet_ptr())}]
     }
-    pthread_rwlock_init(imageDescriptorSetLock_ptr(), NULL);
+    pthread_rwlock_init(textureDescriptorSetLock_ptr(), NULL);
 
-    initPlaceholderImage();
+    initPlaceholderTexture();
 }
 
 # Buffer allocation:
@@ -187,7 +196,7 @@ $gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryProp
     vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
 }
 
-# Image allocation:
+# Texture allocation:
 $gpuc code [csubst {
     void createImage(uint32_t width, uint32_t height,
                      VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
@@ -358,78 +367,78 @@ $gpuc proc copyImageToRgba {Image im} Image {
 }
 
 $gpuc code [csubst {
-    GpuImageHandle allocateGpuImageHandle() {
-        for (int i = 0; i < getMaxImages(); i++) {
+    GpuTextureHandle allocateGpuTextureHandle() {
+        for (int i = 0; i < getMaxTextures(); i++) {
             bool notAlive = false;
-            if (atomic_compare_exchange_weak(&gpuImages[i].alive, &notAlive, true)) {
-                gpuImages[i].handle = i;
+            if (atomic_compare_exchange_weak(&gpuTextures[i].alive, &notAlive, true)) {
+                gpuTextures[i].handle = i;
                 return i;
             }
         }
-        fprintf(stderr, "gpu/images: Exceeded GPU max images (%d):\n", getMaxImages());
-        for (int i = 0; i < getMaxImages(); i++) {
-            fprintf(stderr, "  %d: %s\n", i, gpuImages[i].alive ? gpuImages[i].description : "<not alive>");
+        fprintf(stderr, "gpu/textures: Exceeded GPU max textures (%d):\n", getMaxTextures());
+        for (int i = 0; i < getMaxTextures(); i++) {
+            fprintf(stderr, "  %d: %s\n", i, gpuTextures[i].alive ? gpuTextures[i].description : "<not alive>");
         }
         exit(1);
     }
 }]
 
-$gpuc proc addToImageDescriptorSet {GpuImageHandle imageId} void {
-    // Write this image+sampler to the imageDescriptorSet
+$gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
+    // Write this texture+sampler to the textureDescriptorSet
     {
         VkDescriptorImageInfo imageInfo = {0};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = gpuImages[imageId].textureImageView;
-        imageInfo.sampler = gpuImages[imageId].textureSampler;
+        imageInfo.imageView = gpuTextures[textureId].textureImageView;
+        imageInfo.sampler = gpuTextures[textureId].textureSampler;
 
         static bool _Atomic didInitializeDescriptors = false;
         if (!didInitializeDescriptors) {
             // Hack: if we're not using the descriptor
             // indexing extension, we can't have a partially
             // bound descriptor set, so we need to fill all
-            // the slots in the image array with
+            // the slots in the texture array with
             // _something_. We just fill all slots wtih the
-            // first image for now. See
+            // first texture for now. See
             // http://roar11.com/2019/06/vulkan-textures-unbound/
-            VkWriteDescriptorSet descriptorWrites[getMaxImages()];
-            for (int i = 0; i < getMaxImages(); i++) {
+            VkWriteDescriptorSet descriptorWrites[getMaxTextures()];
+            for (int i = 0; i < getMaxTextures(); i++) {
                 memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
                 descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                descriptorWrites[i].dstSet = *imageDescriptorSet_ptr();
+                descriptorWrites[i].dstSet = *textureDescriptorSet_ptr();
                 descriptorWrites[i].dstBinding = 0;
                 descriptorWrites[i].dstArrayElement = i;
                 descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 descriptorWrites[i].descriptorCount = 1;
                 descriptorWrites[i].pImageInfo = &imageInfo;
             }
-            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
-            vkUpdateDescriptorSets(device, getMaxImages(), descriptorWrites, 0, NULL);
-            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
+            vkUpdateDescriptorSets(device, getMaxTextures(), descriptorWrites, 0, NULL);
+            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
             didInitializeDescriptors = true;
         } else {
             VkWriteDescriptorSet descriptorWrite = {0};
             descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = *imageDescriptorSet_ptr();
+            descriptorWrite.dstSet = *textureDescriptorSet_ptr();
             descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = imageId;
+            descriptorWrite.dstArrayElement = textureId;
             descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             descriptorWrite.descriptorCount = 1;
             descriptorWrite.pImageInfo = &imageInfo;
 
-            pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
+            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
             vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
-            pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
         }
     }
 }
 
-$gpuc proc getGpuImage {GpuImageHandle handle} GpuImageBlock* {
-    return &gpuImages[handle];
+$gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
+    return &gpuTextures[handle];
 }
-$gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
-    GpuImageHandle imageId = allocateGpuImageHandle();
-    GpuImageBlock* block = &gpuImages[imageId];
+$gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
+    GpuTextureHandle textureId = allocateGpuTextureHandle();
+    GpuTextureBlock* block = &gpuTextures[textureId];
 
     block->width = width;
     block->height = height;
@@ -476,13 +485,13 @@ $gpuc proc createGpuImage {int width int height int format} GpuImageBlock* {
         $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
     }
 
-    addToImageDescriptorSet(imageId);
+    addToTextureDescriptorSet(textureId);
 
-    asprintf(&block->description, "%dx%d image", width, height);
+    asprintf(&block->description, "%dx%d texture", width, height);
     return block;
 }
 
-$gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
+$gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
     // Image must be RGBA.
     Image im;
     if (im0.components != 4) { im = copyImageToRgba(im0); }
@@ -507,8 +516,8 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
         vkUnmapMemory(device, stagingBufferMemory);
     }
 
-    // Allocate an image and image block:
-    GpuImageBlock* block = createGpuImage(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
+    // Allocate a texture and texture block:
+    GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
 
     // Copy stagingBuffer to block->textureImage:
     {
@@ -550,37 +559,37 @@ $gpuc proc copyImageToGpu {Image im0} GpuImageHandle {
     if (im0.components != 4) { free(im.data); }
     return block->handle;
 }
-$gpuc proc replaceInImageDescriptorSet {GpuImageHandle oldHandle GpuImageHandle newHandle} void {
+$gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
     // newHandle = 0 is used as a placeholder so it doesn't
-    // fault if it tries to access this freed image.
+    // fault if it tries to access this freed texture.
     {
         VkDescriptorImageInfo imageInfo = {0};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = gpuImages[newHandle].textureImageView;
-        imageInfo.sampler = gpuImages[newHandle].textureSampler;
+        imageInfo.imageView = gpuTextures[newHandle].textureImageView;
+        imageInfo.sampler = gpuTextures[newHandle].textureSampler;
 
         VkWriteDescriptorSet descriptorWrite = {0};
         descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrite.dstSet = *imageDescriptorSet_ptr();
+        descriptorWrite.dstSet = *textureDescriptorSet_ptr();
         descriptorWrite.dstBinding = 0;
         descriptorWrite.dstArrayElement = oldHandle;
         descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pImageInfo = &imageInfo;
 
-        pthread_rwlock_wrlock(imageDescriptorSetLock_ptr());
+        pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
         vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
-        pthread_rwlock_unlock(imageDescriptorSetLock_ptr());
+        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
     }
 }
-$gpuc proc freeGpuImage {GpuImageHandle gim} void {
-    GpuImageBlock* block = &gpuImages[gim];
+$gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
+    GpuTextureBlock* block = &gpuTextures[gim];
 
     pthread_mutex_lock(graphicsQueueMutex_ptr());
     vkDeviceWaitIdle(device); // FIXME: this is probably slow
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 
-    replaceInImageDescriptorSet(gim, 0);
+    replaceInTextureDescriptorSet(gim, 0);
 
     vkDestroyImage(device, block->textureImage, NULL);
     vkFreeMemory(device, block->textureImageMemory, NULL);
@@ -591,9 +600,9 @@ $gpuc proc freeGpuImage {GpuImageHandle gim} void {
     block->alive = false;
 }
 
-$gpuc proc initPlaceholderImage {} void {
-    // Set up a placeholder image in slot 0 that can always be drawn
-    // that we can swap in when images get invalidated.
+$gpuc proc initPlaceholderTexture {} void {
+    // Set up a placeholder texture in slot 0 that can always be drawn
+    // that we can swap in when textures get invalidated.
     Image magentaIm = {
         .width = 128, .height = 128,
         .components = 4,
@@ -609,20 +618,20 @@ $gpuc proc initPlaceholderImage {} void {
             magentaIm.data[i+3] = 255;
         }
     }
-    GpuImageHandle han = copyImageToGpu(magentaIm);
+    GpuTextureHandle han = copyImageToGpuTexture(magentaIm);
     FOLK_ENSURE(han == 0);
 }
 
-set gpuImageLib [$gpuc compile]
-Claim the GPU image library is $gpuImageLib
+set gpuTextureLib [$gpuc compile]
+Claim the GPU texture library is $gpuTextureLib
 
 # Wait until the library has been initialized by gpu.folk.
 When display /any/ has width /any/ height /any/ {
     When /someone/ wishes the GPU loads image /im/ {
-        set gim [$gpuImageLib copyImageToGpu $im]
+        set gtex [$gpuTextureLib copyImageToGpuTexture $im]
         # HACK: this still overflows with camera slice
-        Claim (keep 100ms) the GPU has loaded image $im as $gim \
-            -destructor [list $gpuImageLib freeGpuImage $gim]
+        Claim (keep 50ms) the GPU has loaded image $im as $gtex \
+            -destructor [list $gpuTextureLib freeGpuTexture $gtex]
     }
 }
 

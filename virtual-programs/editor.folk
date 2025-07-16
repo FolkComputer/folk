@@ -21,14 +21,14 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
   set id [list editing $page $kbPath]
 
-  set writableImageId [list $id writable image]
-  Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
-  Claim $id has writable image $writableImageId with width 1024 height 1024
+  set writableTextureId [list $id writable texture]
+  Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
+  Claim $id has writable texture $writableTextureId with width 1024 height 1024
   When $page has resolved geometry /geom/ {
       Claim $id has resolved geometry $geom
   }
-  When $page has writable image projection /proj/ {
-      Claim $id has writable image projection $proj
+  When $page has writable texture projection /proj/ {
+      Claim $id has writable texture projection $proj
   }
   When the quad library is /quadLib/ & $page has quad /q/ {
       Claim $id has quad [$quadLib move $q up 210%]
@@ -168,14 +168,14 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
     set id [list editing $page $kbPath]
 
     # Construct the editor window $id':
-    set writableImageId [list $id' writable image]
-    Wish (keep 100ms) the GPU creates writable image $writableImageId with width 1024 height 1024
-    Claim $id' has writable image $writableImageId with width 1024 height 1024
+    set writableTextureId [list $id' writable texture]
+    Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
+    Claim $id' has writable texture $writableTextureId with width 1024 height 1024
     When $page has resolved geometry /geom/ {
         Claim $id' has resolved geometry $geom
     }
-    When $page has writable image projection /proj/ {
-        Claim $id' has writable image projection $proj
+    When $page has writable texture projection /proj/ {
+        Claim $id' has writable texture projection $proj
     }
 
     When the quad library is /quadLib/ & $id has quad /q/ {

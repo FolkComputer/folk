@@ -32,8 +32,8 @@ Wish the GPU compiles pipeline "line" {
 }
 
 When the color map is /colorMap/ &\
-     /p/ has writable image /id/ with /...wiOptions/ &\
-     /p/ has writable image projection /surfaceToClip/ &\
+     /p/ has writable texture /id/ with /...wiOptions/ &\
+     /p/ has writable texture projection /surfaceToClip/ &\
      /someone/ wishes to draw a line onto /p/ with /...options/ {
 
     set points [dict get $options points]
@@ -49,6 +49,6 @@ When the color map is /colorMap/ &\
         lappend instances [list $wiResolution $surfaceToClip $from $to $width $color]
     }
 
-    Wish the GPU draws pipeline "line" onto image $id \
+    Wish the GPU draws pipeline "line" onto texture $id \
         with instances $instances
 }

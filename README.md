@@ -712,7 +712,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - delay sysmon for a few seconds to reduce extra threads
 - ~~why does collect take 100 microseconds?~~
 - why doesn't epoch stack trace show anything in Tracy?
-- don't waste time on rerendering unchanged writable images
+- don't waste time on rerendering unchanged writable textures
 - stack traces don't work inside web handlers
 - fix messy stack traces
 - accidentally matches prefixes even when not all teh way up to end of statement
