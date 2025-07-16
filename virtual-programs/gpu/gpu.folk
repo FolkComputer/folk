@@ -1292,7 +1292,7 @@ if {$macos} {
         set body [lindex $args end]
         uplevel {set __envStack [list]}
         uplevel {set displayIdx 0}
-        uplevel {set this "virtual-programs/gpu.folk"}
+        uplevel {set this "virtual-programs/gpu/gpu.folk"}
         uplevel [list set gpuTextureLib $gpuTextureLib]
         uplevel [list applyBlock $body [uplevel captureEnvStack]]
     }

@@ -53,5 +53,5 @@ foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
 }
 
 if {$::tcl_platform(os) eq "darwin"} {
-    apply {{} { source "virtual-programs/gpu.folk" }}
+    apply {{} { source "virtual-programs/gpu/gpu.folk" }}
 }
