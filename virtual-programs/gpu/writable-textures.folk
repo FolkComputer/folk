@@ -1,4 +1,5 @@
-When the GPU library is /gpuLib/ & the GPU texture library is /gpuTextureLib/ {
+When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
+     the GPU texture library is /gpuTextureLib/ {
     set gpuc [C]
     $gpuc include <pthread.h>
     $gpuc cflags -I./vendor
@@ -16,6 +17,7 @@ When the GPU library is /gpuLib/ & the GPU texture library is /gpuTextureLib/ {
     $gpuc import $gpuLib VkResultToString
     $gpuc import $gpuLib tryInitCommandPool
 
+    $gpuc extend $imageLib
     $gpuc extend $gpuTextureLib
 
     local proc vktry {call} { string map {\n " "} [csubst {{

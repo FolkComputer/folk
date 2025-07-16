@@ -1,67 +1,60 @@
-set cc [C]
-# TODO: Factor this out.
-$cc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
-
-$cc code {
-    #include <pthread.h>
-
-    typedef struct ImageCacheEntry {
-        char* name;
-        Image im;
-    } ImageCacheEntry;
-
-    ImageCacheEntry imageCache[1000];
-    pthread_rwlock_t imageCacheLock;
-}
-$cc proc cacheInit {} void {
-    pthread_rwlock_init(&imageCacheLock, NULL);
-}
-$cc proc cacheExists {char* name} bool {
-    pthread_rwlock_rdlock(&imageCacheLock);
-    for (int i = 0; i < 1000; i++) {
-        if (imageCache[i].name == NULL) break;
-        if (strcmp(imageCache[i].name, name) == 0) {
-            pthread_rwlock_unlock(&imageCacheLock);
-            return true;
-        }
-    }
-    pthread_rwlock_unlock(&imageCacheLock);
-    return false;
-}
-$cc proc cacheGet {char* name} Image {
-    pthread_rwlock_rdlock(&imageCacheLock);
-    for (int i = 0; i < 1000; i++) {
-        if (strcmp(imageCache[i].name, name) == 0) {
-            Image im = imageCache[i].im;
-            pthread_rwlock_unlock(&imageCacheLock);
-            return im;
-        }
-    }
-    fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
-}
-$cc proc cachePut {char* name Image im} void {
-    pthread_rwlock_wrlock(&imageCacheLock);
-    for (int i = 0; i < 1000; i++) {
-        if (imageCache[i].name == NULL) {
-            imageCache[i].name = strdup(name);
-            imageCache[i].im = im;
-            break;
-        }
-    }
-    pthread_rwlock_unlock(&imageCacheLock);
-}
-
-set cacheLib [$cc compile]
-$cacheLib cacheInit
-
 When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+
+    $cc code {
+        #include <pthread.h>
+
+        typedef struct ImageCacheEntry {
+            char* name;
+            Image im;
+        } ImageCacheEntry;
+
+        ImageCacheEntry imageCache[1000];
+        pthread_rwlock_t imageCacheLock;
+    }
+    $cc proc cacheInit {} void {
+        pthread_rwlock_init(&imageCacheLock, NULL);
+    }
+    $cc proc cacheExists {char* name} bool {
+        pthread_rwlock_rdlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (imageCache[i].name == NULL) break;
+            if (strcmp(imageCache[i].name, name) == 0) {
+                pthread_rwlock_unlock(&imageCacheLock);
+                return true;
+            }
+        }
+        pthread_rwlock_unlock(&imageCacheLock);
+        return false;
+    }
+    $cc proc cacheGet {char* name} Image {
+        pthread_rwlock_rdlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (strcmp(imageCache[i].name, name) == 0) {
+                Image im = imageCache[i].im;
+                pthread_rwlock_unlock(&imageCacheLock);
+                return im;
+            }
+        }
+        fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
+    }
+    $cc proc cachePut {char* name Image im} void {
+        pthread_rwlock_wrlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (imageCache[i].name == NULL) {
+                imageCache[i].name = strdup(name);
+                imageCache[i].im = im;
+                break;
+            }
+        }
+        pthread_rwlock_unlock(&imageCacheLock);
+    }
+
+    set cacheLib [$cc compile]
+    $cacheLib cacheInit
+
+
     set loadImage [list apply {{cacheLib imageLib im} {
         if {[$cacheLib cacheExists $im]} {
             return [$cacheLib cacheGet $im]
@@ -160,7 +153,16 @@ When the image library is /imageLib/ &\
     }
 }
 
-# FIXME:
+When /someone/ wishes /p/ displays image /im/ &\
+     /p/ has resolved geometry /geom/ {
+         # TODO: Mask the tag out?
+    Wish to draw an image onto $p with image $im \
+        position [list 0 0] \
+        anchor topleft \
+        width [/ [dict get $geom left] 1.5]
+}
+
+
 When /someone/ wishes /p/ displays image /im/ with /...options/ {
     set im [image load $im]
     When $p has region /r/ {

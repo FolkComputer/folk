@@ -55,11 +55,7 @@ When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
 }
 
 # Display a camera slice
-When /someone/ wishes /p/ displays camera slice /slice/ &\
-     /p/ has resolved geometry /geom/ {
-         # TODO: Mask the tag out?
-    Wish to draw an image onto $p with image $slice \
-        position [list 0 0] \
-        anchor topleft \
-        width [/ [dict get $geom left] 1.5]
+# FIXME: this is for backward compatibility; we probably don't need it
+When /someone/ wishes /p/ displays camera slice /slice/ {
+    Wish $p displays image $slice
 }

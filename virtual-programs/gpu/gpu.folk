@@ -1348,7 +1348,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
             set fns [QueryAllFns!]
             set pipeline [$gpu pipeline $fns {*}$source]
 
-            puts "Compiled $name"
+            puts "gpu: tryCompilePipeline: Compiled $name"
             Claim the GPU compiles pipeline $name to $pipeline
 
         } on 99 notFoundName {

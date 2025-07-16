@@ -1,5 +1,6 @@
 When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
-     the GPU library is /gpuLib/ {
+     the GPU library is /gpuLib/ &\
+     the image library is /imageLib/ {
 
 local proc defineVulkanHandleType {args} {defineVulkanHandleType} {
     tailcall {*}$defineVulkanHandleType {*}$args
@@ -19,17 +20,10 @@ $gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
 $gpuc typedef {struct Pipeline} Pipeline
 
 $gpuc extend $gpuLib
+$gpuc extend $imageLib
 
 $gpuc include <pthread.h>
 
-$gpuc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
 
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;

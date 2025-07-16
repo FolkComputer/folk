@@ -1,4 +1,5 @@
-When the GPU library is /gpuLib/ & the GPU texture library is /gpuTextureLib/ &\
+When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
+     the GPU texture library is /gpuTextureLib/ &\
      display /any/ has width /any/ height /any/ {
     set cc [C]
     $cc endcflags -lpng
@@ -15,6 +16,7 @@ When the GPU library is /gpuLib/ & the GPU texture library is /gpuTextureLib/ &\
     $cc typedef {struct PushConstantsEncoder} PushConstantsEncoder
     $cc typedef {struct Pipeline} Pipeline
     $cc extend $gpuLib
+    $cc extend $imageLib
     $cc extend $gpuTextureLib
     $cc proc texturesLibInit {} void {
         volkInitialize();

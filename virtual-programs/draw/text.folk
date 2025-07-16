@@ -1,15 +1,9 @@
+When the image library is /imageLib/ {
+
 set cc [C]
+$cc extend $imageLib
 $cc include <math.h>
 
-# TODO: Factor this out.
-$cc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
 $cc struct GlyphInfo {
     float advance;
     float planeBounds[4];
@@ -275,4 +269,6 @@ When the color map is /colorMap/ &\
         Wish the GPU draws pipeline "glyph" onto texture $id \
             with instances $instances layer $layer
     }
+}
+
 }

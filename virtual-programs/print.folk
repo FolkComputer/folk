@@ -17,19 +17,13 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
+When the image library is /imageLib/ {
+
 set cc [C]
+$cc extend $imageLib
 $cc cflags -I./vendor/apriltag -Wall -Werror
 $cc endcflags ./vendor/apriltag/libapriltag.so
 
-# TODO: Factor this out.
-$cc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
 $cc code {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -85,6 +79,8 @@ $cc proc tagPsForId {int id} char* {
 }
 set printLib [$cc compile]
 Claim the print library is $printLib
+
+}
 
 fn paginate {text maxlines linelen {linelenOverrides {}}} {
     set lines [split $text "\n"]

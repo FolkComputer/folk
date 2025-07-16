@@ -1,5 +1,9 @@
+When the image library is /imageLib/ {
+
 fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
     set cc [C]
+    $cc extend $imageLib
+
     $cc cflags -I./vendor/apriltag
     $cc endcflags ./vendor/apriltag/libapriltag.so
     $cc include <apriltag.h>
@@ -10,15 +14,6 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
         static apriltag_detector_t *td;
         static apriltag_family_t *tf;
         static pthread_mutex_t tmutex;
-    }
-    # TODO: Factor this out.
-    $cc struct Image {
-        uint32_t width;
-        uint32_t height;
-        int components;
-        uint32_t bytesPerRow;
-
-        uint8_t* data;
     }
 
     $cc proc detectInit {} void {
@@ -186,4 +181,6 @@ When the collected matches for \
     }
     set aprilTime [lmap m $matches {dict get $m aprilTime}]
     Claim the AprilTag time is $aprilTime
+}
+
 }

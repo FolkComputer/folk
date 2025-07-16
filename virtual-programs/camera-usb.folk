@@ -4,7 +4,10 @@
 
 if {$::tcl_platform(os) eq "darwin"} { return }
 
+When the image library is /imageLib/ {
+
 set camc [C]
+$camc extend $imageLib
 $camc include <string.h>
 $camc include <math.h>
 
@@ -49,15 +52,6 @@ $camc code {
         }
         return -1;
     }
-}
-# TODO: Factor this out.
-$camc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
 }
 
 $camc proc cameraOpen {char* device int width int height} Camera* {
@@ -475,4 +469,6 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         puts "camera-usb: Close $camObj"
         Camera::close $camObj
     }
+}
+
 }
