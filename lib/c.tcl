@@ -690,12 +690,9 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    try {
-        exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
-            {*}$cflags $cfile -c -o [file rootname $cfile].o
-    } on error e {
-        puts stderr $e
-    }
+    exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+        {*}$cflags $cfile -c -o [file rootname $cfile].o
+
     # HACK: Why do we need this / only when running in lldb?
     set n 0
     while {![file exists [file rootname $cfile].o]} {
@@ -704,11 +701,10 @@ extern "C" \{
         if {$n > 1000} { error "Failed on $cfile! Timed out" }
     }
 
-    try {
-        exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
-            -o /tmp/$cid.so [file rootname $cfile].o \
-            {*}$endcflags
-    } on error e {}
+    exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
+        -o /tmp/$cid.so [file rootname $cfile].o \
+        {*}$endcflags
+
     # HACK: Why do we need this / only when running in lldb?
     set n 0
     while {![file exists /tmp/$cid.so]} {
