@@ -32,11 +32,20 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 
 .PHONY: test clean deps
 test: folk
+	@count=1; \
+	total=$$(ls test/*.folk | wc -l | tr -d ' '); \
 	for test in test/*.folk; do \
-		echo "===================="; \
-		echo "Running test: $$test"; \
+		echo "Running test: $$test ($${count}/$$total)"; \
 		echo "--------------------"; \
-		./folk $$test ; \
+		./folk $$test; \
+		result=$$?; \
+		if [ $$result -eq 0 ]; then \
+			echo "Ran test: $$test ($${count}/$$total): ✅ passed"; \
+		else \
+			echo "Ran test: $$test ($${count}/$$total): ❌ failed"; \
+		fi; \
+		echo ""; \
+		count=$$((count + 1)); \
 	done
 test/%: test/%.folk folk
 	./folk $<
