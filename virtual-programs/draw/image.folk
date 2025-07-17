@@ -120,10 +120,10 @@ When the image library is /imageLib/ &\
         set height [dict get $options height]
     } elseif {[dict exists $options width] && ![dict exists $options height]} {
         set width [dict get $options width]
-        set height $([$imageLib Image_height $im] / [$imageLib Image_width $im] * $width)
+        set height $(double([$imageLib Image_height $im]) / [$imageLib Image_width $im] * $width)
     } elseif {![dict exists $options width] && [dict exists $options height]} {
         set height [dict get $options height]
-        set width $([$imageLib Image_width $im] / [$imageLib Image_height $im] * $height)
+        set width $(double([$imageLib Image_width $im]) / [$imageLib Image_height $im] * $height)
     }
 
     # TODO: implement anchor like in text
@@ -164,6 +164,8 @@ When /someone/ wishes /p/ displays image /im/ &\
 
 
 When /someone/ wishes /p/ displays image /im/ with /...options/ {
+    return
+
     set im [image load $im]
     When $p has region /r/ {
         # Compute a scale for im that will fit in the region width/height
@@ -187,6 +189,3 @@ When /someone/ wishes /p/ displays image /im/ with /...options/ {
     # }
 }
 
-When /someone/ wishes /p/ displays image /im/ {
-    Wish $p displays image $im with scale 1
-}
