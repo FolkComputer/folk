@@ -13,13 +13,14 @@ When the image library is /imageLib/ {
     }
     $cc proc mutateImage {} void {
         for (int i = 0; i < im.bytesPerRow * im.height; i++) {
-            if (i % 4 == 0) {
-                im.data[i] = 128;
-            } else if (i % 4 == 3) {
-                im.data[i] = 255;
-            }
-            // if (im.data[i] == 0) { im.data[i] = 255; break; }
+            /* if (i % 4 == 0) { */
+            /*     im.data[i] = 128; */
+            /* } else if (i % 4 == 3) { */
+            /*     im.data[i] = 255; */
+            /* } */
+            if (im.data[i] == 0) { im.data[i] = 255; break; }
         }
+        im.uniq++;
     }
     $cc proc getImage {} Image {
         return im;
