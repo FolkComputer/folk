@@ -105,6 +105,8 @@ class C {
 
     objtypes {}
 
+    extends {}
+
     ___argtypes_comment {
         # Tcl->C conversion logic, when a value is passed from Tcl
         # to a C function as an argument.
@@ -621,6 +623,10 @@ C method compile {{cid {}}} {
         int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
 
+            [join [lmap srcid $extends {
+                subst {Jim_${srcid}Init(interp);}
+            }] "\n"]
+
             Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
             Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
 
@@ -644,6 +650,12 @@ C method compile {{cid {}}} {
                     Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
+
+            {
+                char script\[1000\];
+                snprintf(script, 1000, "dict set {::<C:$cid> __addrs} Jim_${cid}Init %p", Jim_${cid}Init);
+                Jim_Eval(interp, script);
+            }
 
             [join [lmap type [dict keys $objtypes] { subst {
                 ${type}_init(interp, "$cid");
@@ -779,6 +791,13 @@ C method extend {args} {
         }
         $self code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
     }
+
+    regexp {<C:([^ ]+)>} $srclib -> srcid
+    set addr [dict get $srcaddrs Jim_${srcid}Init]
+    $self code "int (*Jim_${srcid}Init)(Jim_Interp* intp) =
+                     (int (*)(Jim_Interp* intp)) $addr;"
+
+    lappend extends $srcid
 }
 
 proc ::C++ {} {
