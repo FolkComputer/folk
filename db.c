@@ -140,9 +140,7 @@ void destructorSetInit(DestructorSet* set) {
     pthread_mutex_init(&set->destructorsMutex, NULL);
 }
 
-void destructorSetAdd(DestructorSet* set, Destructor* d) {
-    pthread_mutex_lock(&set->destructorsMutex);
-    
+static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
     if (set->destructorsCount == set->destructorsCapacity) {
         set->destructorsCapacity *= 2;
         set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(Destructor));
@@ -150,7 +148,10 @@ void destructorSetAdd(DestructorSet* set, Destructor* d) {
 
     destructorRetain(d);
     set->destructors[set->destructorsCount++] = d;
-    
+}
+void destructorSetAdd(DestructorSet* set, Destructor* d) {
+    pthread_mutex_lock(&set->destructorsMutex);
+    destructorSetAddImpl(set, d);
     pthread_mutex_unlock(&set->destructorsMutex);
 }
 
@@ -159,7 +160,7 @@ void destructorSetInherit(DestructorSet* to, DestructorSet* from) {
     pthread_mutex_lock(&to->destructorsMutex);
     
     for (int i = 0; i < from->destructorsCount; i++) {
-        destructorSetAdd(to, from->destructors[i]);
+        destructorSetAddImpl(to, from->destructors[i]);
     }
     
     pthread_mutex_unlock(&to->destructorsMutex);
@@ -940,7 +941,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                     statementRemoveSelf(db, newStmt, false);
                     statementRelease(db, newStmt);
 
-                    if (parentMatch != NULL) {
+                    if (parentMatch != NULL) { 
                         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
 
                         // TODO: Add the new destructor passed in?
@@ -982,6 +983,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     // OK, we've made a new statement. trieAdd added the statement to
     // the db and we committed the new db.
     if (parentMatch != NULL) {
+        matchAddChildStatement(db, parentMatch, ref);
         if (destructor != NULL) {
             destructorSetAdd(&newStmt->destructorSet,
                              destructor);

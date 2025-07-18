@@ -52,6 +52,9 @@ test/%: test/%.folk folk
 debug-test/%: test/%.folk folk
 	lldb -- ./folk $<
 
+debug: folk
+	lldb -o "process handle -p true -s false SIGUSR1" -- ./folk
+
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
 distclean: clean
