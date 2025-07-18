@@ -156,7 +156,7 @@ When the image loader is /loadImage/ {
 
         set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
         Wish the GPU loads image $im
-        When the GPU has loaded image $im as /gim/ {
+        When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
             Claim the GPU has font $name with data \
                 [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
