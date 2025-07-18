@@ -623,8 +623,7 @@ Claim the GPU texture library is $gpuTextureLib
 When display /any/ has width /any/ height /any/ {
     When /someone/ wishes the GPU loads image /im/ {
         set gtex [$gpuTextureLib copyImageToGpuTexture $im]
-        # HACK: this still overflows with camera slice
-        Claim (keep 50ms) the GPU has loaded image $im as texture $gtex \
+        Claim the GPU has loaded image $im as texture $gtex \
             -destructor [list $gpuTextureLib freeGpuTexture $gtex]
     }
 }

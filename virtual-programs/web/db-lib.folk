@@ -20,6 +20,8 @@ Claim the db library is [apply {{} {
         #include <pthread.h>
     }
     set dbCFd [open "db.c" r]; set dbC [read $dbCFd]; close $dbCFd
+    $cc code [lindex [regexp -inline {typedef struct Destructor \{.*\} Destructor;} $dbC] 0]
+    $cc code [lindex [regexp -inline {typedef struct DestructorSet \{.*\} DestructorSet;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]

@@ -232,10 +232,10 @@ void HoldStatementGlobally(const char *key, double version,
 
     StatementRef oldRef; StatementRef newRef;
 
-    Destructor destructor = {
-        .fn = destructorCode == NULL ? NULL : destructorHelper,
-        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
-    };
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    }
     newRef = dbHoldStatement(db, key, version,
                              clause, keepMs, destructor,
                              sourceFileName, sourceLineNumber,
@@ -293,10 +293,10 @@ static void Say(Clause* clause, long keepMs, const char *destructorCode,
     }
 
     StatementRef ref;
-    Destructor destructor = {
-        .fn = destructorCode == NULL ? NULL : destructorHelper,
-        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
-    };
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    }
     ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
                                    sourceFileName, sourceLineNumber,
                                    parent, NULL);
@@ -335,10 +335,8 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Destructor d = {
-        .fn = destructorHelper,
-        .arg = strdup(Jim_GetString(argv[1], NULL))
-    };
+    Destructor* d = destructorNew(destructorHelper,
+                                  strdup(Jim_GetString(argv[1], NULL)));
     matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
 }
@@ -923,7 +921,7 @@ void workerRun(WorkQueueItem item) {
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
-                                       (Destructor) { .fn = NULL },
+                                       NULL,
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL, NULL);
