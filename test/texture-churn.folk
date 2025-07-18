@@ -1,7 +1,9 @@
 When the image library is /imageLib/ {
     set cc [C]
     $cc extend $imageLib
+    $cc include <math.h>
     $cc code {
+        double lastMutatedT;
         Image im;
     }
     $cc proc init {} void {
@@ -11,16 +13,21 @@ When the image library is /imageLib/ {
         im.components = 4;
         im.data = calloc(im.bytesPerRow, im.height);
     }
-    $cc proc mutateImage {} void {
+    $cc proc mutateImage {double t} void {
+        if (t - lastMutatedT < 1) {
+            return;
+        }
+        lastMutatedT = t;
         for (int i = 0; i < im.bytesPerRow * im.height; i++) {
-            /* if (i % 4 == 0) { */
-            /*     im.data[i] = 128; */
-            /* } else if (i % 4 == 3) { */
-            /*     im.data[i] = 255; */
-            /* } */
-            if (im.data[i] == 0) { im.data[i] = 255; break; }
+            if (i % 4 != 3) {
+                im.data[i] = (((int)floor(t) % 10) / 10.0) * 255.0;
+            } else if (i % 4 == 3) {
+                im.data[i] = 255;
+            }
+            // if (im.data[i] == 0) { im.data[i] = 255; break; }
         }
         im.uniq++;
+        printf("Mut\n");
     }
     $cc proc getImage {} Image {
         return im;
@@ -43,7 +50,7 @@ When the texture-churn library is /lib/ &\
      the clock time is /t/ {
     # Draw an image in C.
     # Then push it to the screen.
-    $lib mutateImage
+    $lib mutateImage $t
 
     # Then copy it back and check that it's been filled?
     Wish $this displays image [$lib getImage]
