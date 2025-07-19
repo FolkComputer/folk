@@ -109,11 +109,10 @@ Destructor* destructorNew(void (*fn)(void*), void* arg) {
     return ret;
 }
 
-static void destructorTryRun(Destructor* d) {
-    if (d->fn != NULL) {
-        d->fn(d->arg);
-        d->fn = NULL;
-    }
+static void destructorRun(Destructor* d) {
+    assert(d->fn != NULL);
+    d->fn(d->arg);
+    d->fn = NULL;
 }
 
 static void destructorRetain(Destructor* d) {
@@ -121,7 +120,8 @@ static void destructorRetain(Destructor* d) {
 }
 static void destructorRelease(Destructor* d) {
     if (--d->rc == 0) {
-        destructorTryRun(d);
+        destructorRun(d);
+        free(d);
     }
 }
 
