@@ -977,12 +977,12 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 
     // OK, we've made a new statement. trieAdd added the statement to
     // the db and we committed the new db.
+    if (destructor != NULL) {
+        destructorSetAdd(&newStmt->destructorSet,
+                         destructor);
+    }
     if (parentMatch != NULL) {
         matchAddChildStatement(db, parentMatch, ref);
-        if (destructor != NULL) {
-            destructorSetAdd(&newStmt->destructorSet,
-                             destructor);
-        }
         destructorSetInherit(&newStmt->destructorSet,
                              &parentMatch->destructorSet);
 
