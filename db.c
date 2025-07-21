@@ -175,7 +175,10 @@ void destructorSetReleaseAll(DestructorSet* set) {
         }
         set->destructors[i] = NULL;
     }
+    free(set->destructors);
+    set->destructors = NULL;
     pthread_mutex_unlock(&set->destructorsMutex);
+    pthread_mutex_destroy(&set->destructorsMutex);
 }
 
 // Statement datatype:
@@ -593,14 +596,6 @@ void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex) {
     pthread_mutex_unlock(&stmt->childMatchesMutex);
 
     for (size_t i = 0; i < childMatches->nEdges; i++) {
-        // FIXME: Check that none of the matches is still alive.  A
-        // match would still be alive if one of its children was still
-        // alive.  Or, well, it'd be a zombie (unable to spawn new
-        // behavior, but keeping destructors from running because we
-        // can't guarantee lack of use).
-
-        // SHOULD DESTRUCTORS HAVE THEIR OWN REFCOUNT?
-
         MatchRef childRef = { .val = childMatches->edges[i] };
         Match* child = matchAcquire(db, childRef);
         if (child != NULL) {
