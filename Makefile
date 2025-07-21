@@ -53,7 +53,11 @@ debug-test/%: test/%.folk folk
 	lldb -- ./folk $<
 
 debug: folk
-	lldb -o "process handle -p true -s false SIGUSR1" -- ./folk
+	if [ "$$(uname)" = "Darwin" ]; then \
+		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk; \
+	else \
+		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
+	fi
 
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
