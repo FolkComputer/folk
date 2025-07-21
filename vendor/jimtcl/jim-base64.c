@@ -255,6 +255,12 @@ BinaryDecode64(
     datastart = data;
     dataend = data + count;
     size = ((count + 3) & ~3) * 3 / 4;
+    if (size == 0) {
+        Jim_FreeNewObj(interp, resultObj);
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
     resultObj->bytes = Jim_Alloc(size);
     resultObj->length = size;
     begin = cursor = (unsigned char *)resultObj->bytes;
