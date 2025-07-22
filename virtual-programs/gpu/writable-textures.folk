@@ -15,7 +15,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
     $gpuc extend -noprocs $gpuLib
     $gpuc import $gpuLib VkResultToString
-    $gpuc import $gpuLib tryInitCommandPool
+    $gpuc import $gpuLib getCommandBuffer
 
     $gpuc extend $imageLib
     $gpuc extend $gpuTextureLib
@@ -93,7 +93,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             int _Atomic textureIndex;
 
             VkFence inFlightFence;
-            VkCommandBuffer commandBuffer;
 
             pthread_mutex_t mutex;
         } GpuWritableTexture;
@@ -126,17 +125,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             framebufferInfo.height = height;
             framebufferInfo.layers = 1;
             $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffers[i])}]
-        }
-
-        {
-            VkCommandBufferAllocateInfo allocInfo = {0};
-            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            tryInitCommandPool();
-            allocInfo.commandPool = *commandPool_ptr();
-            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            allocInfo.commandBufferCount = 1;
-
-            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &wi->commandBuffer)}]
         }
 
         wi->textureIndex = 0;
@@ -177,7 +165,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
         vkResetFences(device, 1, &wi->inFlightFence);
 
-        vkResetCommandBuffer(wi->commandBuffer, 0);
+        VkCommandBuffer commandBuffer = getCommandBuffer();
+        vkResetCommandBuffer(commandBuffer, 0);
 
         // Update the descriptor set to redirect the texture we're
         // rendering to while we're rendering to the other texture.
@@ -189,7 +178,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         beginInfo.pInheritanceInfo = NULL;
 
         pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
-        $[vktry {vkBeginCommandBuffer(wi->commandBuffer, &beginInfo)}]
+        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
 
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
@@ -203,7 +192,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
-            vkCmdBeginRenderPass(wi->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
 
         boundWritableTexture = wi;
@@ -211,7 +200,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         boundDescriptorSet = VK_NULL_HANDLE;
     }
     $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
-        VkCommandBuffer commandBuffer = boundWritableTexture->commandBuffer;
+        VkCommandBuffer commandBuffer = getCommandBuffer();
 
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
@@ -258,7 +247,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
     $gpuc proc drawEnd {} void {
-        VkCommandBuffer commandBuffer = boundWritableTexture->commandBuffer;
+        VkCommandBuffer commandBuffer = getCommandBuffer();
 
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]

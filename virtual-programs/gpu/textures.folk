@@ -229,15 +229,7 @@ $gpuc code [csubst {
 
 defineVulkanHandleType $gpuc VkCommandBuffer
 $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
-    VkCommandBufferAllocateInfo allocInfo = {0};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    tryInitCommandPool();
-    allocInfo.commandPool = *commandPool_ptr();
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+    VkCommandBuffer commandBuffer = getCommandBuffer();
 
     VkCommandBufferBeginInfo beginInfo = {0};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -259,8 +251,6 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
     vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(*graphicsQueue_ptr());
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
-
-    vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
 }
 
 $gpuc typedef int VkFormat false

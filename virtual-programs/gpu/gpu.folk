@@ -95,6 +95,30 @@ $gpuc proc VkResultToString {VkResult res} char* {
     #undef CASE
 }
 
+fn defineVulkanHandleType {cc type} {
+    $cc argtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
+#else
+        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
+#endif
+    } $type $type $type $type]
+    # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
+    # so we do it by hand.
+    $cc rtype $type [format {
+#ifdef VK_USE_64_BIT_PTR_DEFINES
+        $robj = Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
+#else
+        {
+          char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
+          $robj = Jim_NewStringObj(buf, -1);
+        }
+#endif
+    } $type $type]
+}
+Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
+
+
 local proc vktry {call} { string map {\n " "} [csubst {{
     VkResult res = $call;
     if (res != VK_SUCCESS) {
@@ -125,25 +149,45 @@ $gpuc define {
     VkFramebuffer* swapchainFramebuffers;
     VkExtent2D swapchainExtent;
 
-    __thread VkCommandPool commandPool = 0;
-
-    VkCommandBuffer commandBuffer;
     uint32_t imageIndex;
 
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
 }
-$gpuc proc tryInitCommandPool {} void {
-    if (commandPool != 0) { return; }
 
-    VkCommandPoolCreateInfo poolInfo = {0};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
-
-    $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &commandPool)}]
+$gpuc code {
+    __thread VkCommandPool _commandPool;
+    __thread VkCommandBuffer _commandBuffer;
 }
+defineVulkanHandleType $gpuc VkCommandPool
+defineVulkanHandleType $gpuc VkCommandBuffer
+$gpuc proc getCommandPool {} VkCommandPool {
+    if (_commandPool == 0) {
+        VkCommandPoolCreateInfo poolInfo = {0};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = graphicsQueueFamilyIndex;
+
+        $[vktry {vkCreateCommandPool(device, &poolInfo, NULL, &_commandPool)}]
+    }
+    return _commandPool;
+}
+# Returns a thread-local command buffer. This assumes that you only
+# work on one command buffer at a time in a given thread.
+$gpuc proc getCommandBuffer {} VkCommandBuffer {
+    if (_commandBuffer == 0) {
+        VkCommandBufferAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = getCommandPool();
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &_commandBuffer)}]
+    }
+    return _commandBuffer;
+}
+
 $gpuc proc init {int displayIdx} void {
     $[vktry volkInitialize()]
     $[if {$isGlfw} { expr {"glfwInit();"} }]
@@ -510,18 +554,6 @@ $gpuc proc init {int displayIdx} void {
         $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &swapchainFramebuffers[i])}]
     }
 
-    // Set up VkCommandBuffer commandBuffer
-    {
-        VkCommandBufferAllocateInfo allocInfo = {0};
-        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        tryInitCommandPool();
-        allocInfo.commandPool = commandPool;
-        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-
-        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer)}]
-    }
-
     {
         VkSemaphoreCreateInfo semaphoreInfo = {0};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -547,29 +579,6 @@ $gpuc proc getMaxTextures {} int {
     // HACK: for now, I don't want to deal with all the other descriptor caps etc.
     return 128;
 }
-
-fn defineVulkanHandleType {cc type} {
-    $cc argtype $type [format {
-#ifdef VK_USE_64_BIT_PTR_DEFINES
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%p", &$argname);
-#else
-        %s $argname; sscanf(Jim_String($obj), "(%s) 0x%%llx", &$argname);
-#endif
-    } $type $type $type $type]
-    # Tcl_ObjPrintf doesn't work with %lld/%llx for some reason,
-    # so we do it by hand.
-    $cc rtype $type [format {
-#ifdef VK_USE_64_BIT_PTR_DEFINES
-        $robj = Jim_ObjPrintf("(%s) 0x%%" PRIxPTR, (uintptr_t) $rvalue);
-#else
-        {
-          char buf[100]; snprintf(buf, 100, "(%s) 0x%%llx", $rvalue);
-          $robj = Jim_NewStringObj(buf, -1);
-        }
-#endif
-    } $type $type]
-}
-Claim the GPU Vulkan handle type definer is [fn defineVulkanHandleType]
 
 # Shader compilation:
 defineVulkanHandleType $gpuc VkShaderModule
@@ -777,6 +786,8 @@ $gpuc code {
     static VkDescriptorSet boundDescriptorSet;
 }
 $gpuc proc drawStart {} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
     vkResetFences(device, 1, &inFlightFence);
 
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
@@ -813,6 +824,8 @@ $gpuc proc drawStart {} void {
 # should be a push-constant parameter of the pipeline. Can only be
 # called between `drawStart` and `drawEnd`.
 $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
     if (boundPipeline != pipeline.pipeline) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
         boundPipeline = pipeline.pipeline;
@@ -859,6 +872,8 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
 }
 
 $gpuc proc drawEnd {} void {
+    VkCommandBuffer commandBuffer = getCommandBuffer();
+
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
