@@ -298,7 +298,6 @@ C method define {newvars} {
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
     regsub -all {=[^;]*;} $newvars "" newvars
-    regsub -all {__thread \w+} $newvars {{\0}} newvars
     set newvars [string map {";" ""} $newvars]
 
     foreach {vartype varname} $newvars {
@@ -307,9 +306,6 @@ C method define {newvars} {
         }
         dict set vars $varname $vartype
 
-        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
-            set vartype [lindex $vartype 1]
-        }
         lappend code [subst {
             $vartype *${varname}_ptr() {
                 return &$varname;
@@ -702,8 +698,9 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
-        {*}$cflags $cfile -c -o [file rootname $cfile].o
+    set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+                 {*}$cflags $cfile -c -o [file rootname $cfile].o]
+    puts $out
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0
@@ -786,9 +783,6 @@ C method extend {args} {
 
     dict for {varname vartype} [dict get $srcinfo vars] {
         set addr [dict get $srcaddrs ${varname}_ptr]
-        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
-            set vartype [lindex $vartype 1]
-        }
         $self code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
     }
 
