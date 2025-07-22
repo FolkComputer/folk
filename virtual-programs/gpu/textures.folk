@@ -572,8 +572,6 @@ $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureH
 $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
     GpuTextureBlock* block = &gpuTextures[gim];
 
-    GpuTextureBlock* block = &gpuTextures[gim];
-
     replaceInTextureDescriptorSet(gim, 0);
 
     vkDestroyImage(device, block->textureImage, NULL);
