@@ -80,8 +80,6 @@ $cc proc tagPsForId {int id} char* {
 set printLib [$cc compile]
 Claim the print library is $printLib
 
-}
-
 fn paginate {text maxlines linelen {linelenOverrides {}}} {
     set lines [split $text "\n"]
 
@@ -354,6 +352,8 @@ When /someone/ wishes to print program /id/ with /...options/ {
 
     exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
     exec lpr {*}$args $::env(HOME)/folk-printed-programs/$id.pdf
+}
+
 }
 
 # legacy syntax
