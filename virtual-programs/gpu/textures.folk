@@ -572,9 +572,7 @@ $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureH
 $gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
     GpuTextureBlock* block = &gpuTextures[gim];
 
-    pthread_mutex_lock(graphicsQueueMutex_ptr());
-    vkDeviceWaitIdle(device); // FIXME: this is probably slow
-    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+    GpuTextureBlock* block = &gpuTextures[gim];
 
     replaceInTextureDescriptorSet(gim, 0);
 
