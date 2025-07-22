@@ -453,7 +453,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             # next frame, so you need to match this first before
             # matching the tag detection if you want to have a handle
             # on it later.
-            HoldStatement! (keep 400ms) camera \
+            HoldStatement! camera \
                 -destructor [list $camLib freeImage $frame] \
                 [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
 
