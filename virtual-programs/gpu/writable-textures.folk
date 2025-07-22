@@ -113,6 +113,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             transitionImageLayout(block->textureImage, VK_FORMAT_B8G8R8A8_SRGB,
                                   VK_IMAGE_LAYOUT_UNDEFINED,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            addToTextureDescriptorSet(block->handle);
 
             VkImageView attachments[] = { block->textureImageView };
 

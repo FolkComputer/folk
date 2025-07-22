@@ -430,6 +430,9 @@ $gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
 $gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
     return &gpuTextures[handle];
 }
+
+# NOTE: The caller must call addToTextureDescriptorSet at some point
+# after calling this to actually use the texture.
 $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     GpuTextureHandle textureId = allocateGpuTextureHandle();
     GpuTextureBlock* block = &gpuTextures[textureId];
@@ -478,8 +481,6 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
         samplerInfo.maxLod = 0.0f;
         $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
     }
-
-    addToTextureDescriptorSet(textureId);
 
     asprintf(&block->description, "%dx%d texture", width, height);
     return block;
@@ -546,6 +547,8 @@ $gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
+
+    addToTextureDescriptorSet(block->handle);
 
     vkDestroyBuffer(device, stagingBuffer, NULL);
     vkFreeMemory(device, stagingBufferMemory, NULL);
