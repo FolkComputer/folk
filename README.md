@@ -766,3 +766,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~rename images/writable-images to textures~~
 - rename resolved geometry to geometry
 - ~~segfault due to NULL destructors~~
+- ~~resolved geometry ref cycle -> memory leak of camera frame
+  images~~
+  - ~~subscribe to resolved geometry -> resolved geometry is emitted ->
+    camera slice is emitted using that resolved geometry -> display
+    camera slice -> subscribe to resolved geometry to know how to display~~

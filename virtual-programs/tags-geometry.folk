@@ -1,9 +1,3 @@
-When when /p/ has resolved geometry /geomVar/ /any/ with environment /any/ {
-    # Setting aside upper tag space (48600 to 48713) for calibration.
-    if {!($p >= 0 && $p < 48600)} { return }
-
-    Wish $p has resolved geometry
-}
 When the default program geometry is /defaultGeom/ &\
      /someone/ wishes /tag/ has resolved geometry {
 
