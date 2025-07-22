@@ -141,6 +141,8 @@ void destructorSetInit(DestructorSet* set) {
 }
 
 static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
+    assert(set->destructors != NULL);
+
     if (set->destructorsCount == set->destructorsCapacity) {
         set->destructorsCapacity *= 2;
         set->destructors = realloc(set->destructors, set->destructorsCapacity * sizeof(Destructor));
@@ -924,6 +926,12 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                 // TODO: Warn if keepMs differs between existing and
                 // newly-proposed statement?
                 if (tryReuseStatement(db, stmt, parentMatch)) {
+                    // TODO: Add the new destructor passed in?
+                    if (parentMatch != NULL) {
+                        destructorSetInherit(&stmt->destructorSet,
+                                             &parentMatch->destructorSet);
+                    }
+
                     statementRelease(db, stmt);
 
                     epochReset();
@@ -938,10 +946,6 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 
                     if (parentMatch != NULL) { 
                         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
-
-                        // TODO: Add the new destructor passed in?
-                        destructorSetInherit(&newStmt->destructorSet,
-                                             &parentMatch->destructorSet);
 
                         matchRelease(db, parentMatch);
                     }
