@@ -763,5 +763,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - statements lock in (collections lock in?) -- i've seen detector lock
   in which freezes programs / makes even the incremental detector only
   work nearby
-- rename images/writable-images to textures
+- ~~rename images/writable-images to textures~~
 - rename resolved geometry to geometry
+- validation error:
+
+      UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout(ERROR / SPEC): msgNum: 1303270965 - Validation Error: [ UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout ] Object 0: handle = 0x7fffbc8d4660, type = VK_OBJECT_TYPE_COMMAND_BUFFER; | MessageID = 0x4dae5635 | vkQueueSubmit(): pSubmits[0].pCommandBuffers[0] command buffer VkCommandBuffer 0x7fffbc8d4660[] expects VkImage 0x109c000000109c[] (subresource: aspectMask 0x1 array layer 0, mip level 0) to be in layout VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL.
+        Objects: 1
+            [0] 0x7fffbc8d4660, type: 6, name: NULL
+
+- segfault due to NULL destructors

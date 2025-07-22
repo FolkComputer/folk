@@ -624,9 +624,10 @@ Match* matchAcquire(Db* db, MatchRef ref) {
         return NULL;
     }
 }
+static void matchDestroy(Match* match);
 void matchRelease(Db* db, Match* match) {
     if (genRcRelease(&match->genRc)) {
-        assert(match->childStatements == NULL);
+        matchDestroy(match);
     }
 }
 
@@ -682,6 +683,12 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
 
     return ret;
 }
+static void matchDestroy(Match* match) {
+    assert(match->childStatements == NULL);
+
+    // Fire any destructors.
+    destructorSetReleaseAll(&match->destructorSet);
+}
 
 static bool statementChecker(void* db, uint64_t ref) {
     return statementCheck((Db*) db, (StatementRef) { .val = ref });
@@ -733,9 +740,6 @@ void matchRemoveSelf(Db* db, Match* match) {
         }
     }
     free(childStatements);
-
-    // Fire any destructors.
-    destructorSetReleaseAll(&match->destructorSet);
 
     if (!match->isCompleted) {
         // Signal the match worker thread to terminate the match
