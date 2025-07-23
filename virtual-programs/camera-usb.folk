@@ -303,14 +303,15 @@ $camc proc rgbToGray {Image rgb} Image {
     };
 }
 
-$camc proc newImage {Camera* camera int components} Image {
+$camc proc newImage {Camera* camera int components int uniq} Image {
     uint8_t* data = malloc(camera->width*components*camera->height);
     return (Image) {
         .width = camera->width,
         .height = camera->height,
         .components = components,
         .bytesPerRow = camera->width*components,
-        .data = data
+        .data = data,
+        .uniq = uniq
     };
 }
 $camc proc freeImage {Image image} void {
@@ -390,19 +391,19 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             }
             return $camera
         }
-        proc frame {camera} {
+        proc frame {camera {uniq 0}} {
             if {![cameraFrame $camera]} {
                 error "Failed to capture from camera"
             }
-            set image [newImage $camera 3]
+            set image [newImage $camera 3 $uniq]
             cameraDecompressRgb $camera $image
             return $image
         }
-        proc grayFrame {camera} {
+        proc grayFrame {camera {uniq 0}} {
             if {![cameraFrame $camera]} {
                 error "Failed to capture from camera"
             }
-            set image [newImage $camera 1]
+            set image [newImage $camera 1 $uniq]
             cameraDecompressGray $camera $image
             return $image
         }
@@ -434,7 +435,8 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         while true {
             tracy zoneBegin
 
-            set frame [Camera::grayFrame $camObj]
+            set ms [clock milliseconds]
+            set frame [Camera::grayFrame $camObj $ms]
 
             if {[info exists crop]} {
                 dict with crop {
@@ -443,7 +445,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             } else {
                 set cropped $frame
             }
-            set timestamp [expr {[clock milliseconds] / 1000.0}]
+            set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
             # HACK: We retain the statement for 400ms (which is
             # probably pretty memory-expensive...) so that it's still
