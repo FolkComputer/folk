@@ -1,6 +1,21 @@
-When /page/ has editor code /editorCode/ & /page/ has program code /programCode/ {
-    Claim $page has base64 editor code [binary encode base64 $editorCode] \
-                           program code [binary encode base64 $programCode]
+When /page/ is a keyboard with path /kbPath/ /...anything/ &\
+     /page/ is an editor {
+    set previewProgramId "$page$kbPath"
+
+    When $previewProgramId has editor code /editorCode/ &\
+         $previewProgramId has program code /programCode/ &\
+         the $kbPath cursor is /cursor/ {
+        Claim $page has js coder info with type editor1 previewProgramId $previewProgramId kbPath $kbPath
+        Claim $page has js coder state with editorCode $editorCode programCode $programCode cursor $cursor
+    }
+}
+
+When /view/ is a code view with /...anything/ &\
+     /view/ has selected program /selectedProgram/ &\
+     view code for /selectedProgram/ is /programCode/ &\
+     /view/ has cursor /cursor/ {
+    Claim $view has js coder info with type codeView selectedProgram $selectedProgram
+    Claim $view has js coder state with programCode $programCode cursor $cursor
 }
 
 Wish the web server handles route "/editor-control" with handler {
@@ -15,17 +30,16 @@ Wish the web server handles route "/editor-control" with handler {
     <body>
         <span id="status">Status</span>
         <p>
-            Select a keyboard: <select id="keyboard-select"></select>
+            Select a keyboard or code view: <select id="coder-select"></select>
         </p>
         <textarea id="code" cols="120" rows="40"></textarea>
         <script>
 const ws = new FolkWS(document.getElementById('status'));
-const keyboardSelect = document.querySelector("#keyboard-select");
+const coderSelectElem = document.querySelector("#coder-select");
 const textarea = document.querySelector("#code");
 
-var currentKeyboard = null;
-var programCode = ""; // not the same as editor code
-var cursorPosition = [0, 0];
+var coderConfigs = {};
+var currentCoder = null;
 
 // temporarily disable event processing after sending new code to prevent recursive event sends
 var allowLocalEventsToProcess = true;
@@ -50,52 +64,85 @@ function disableLocalEventProcessing(durationMs) {
     }, durationMs);
 }
 
-function updateProgramCode() {
-    disableRemoteEventProcessing(500);
-
-    const { page, kbPath } = currentKeyboard;
-
-    const currentCode = textarea.value;
-    programCode = currentCode;
-
-    const id = page + kbPath;
-    ws.evaluate(tcl`
-        Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
-            Claim the ${kbPath} cursor is [list ${cursorPosition[0]} ${cursorPosition[1]}]
-            Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
-                Claim ${id} has program code [binary decode base64 ${btoa(currentCode)}]
-                Claim ${id} has editor code [binary decode base64 ${btoa(currentCode)}]
-            }
-        }
-    `);
-}
-
 function updateCursorAndCode(ev) {
     if (!allowLocalEventsToProcess) return;
     disableRemoteEventProcessing(500);
 
-    const { page, kbPath } = currentKeyboard;
+    const newCode = textarea.value;
+    const newCursor = textarea.selectionStart;
 
-    const newCode = ev.target.value;
+    switch (currentCoder.config.type) {
+        case "codeView":
+            ws.evaluate(tcl`
+                Hold (non-capturing) (on virtual-programs/code-view.folk) view-state-of:${currentCoder.id} {
+                    set newCode ${newCode}
+                    set newCursor ${newCursor}
+                    set selectedProgram ${currentCoder.config.selectedProgram}
+                    set view ${currentCoder.id}
 
-    // figure out cursor position
-    const currentPosition = textarea.selectionStart;
-    const linesBefore = newCode.substring(0, currentPosition).split("\n");
-    const y = linesBefore.length - 1;
-    const x = linesBefore[linesBefore.length - 1].length;
+                    When ${currentCoder.id} has view dimensions /dims/ {
+                        Claim $view has view dimensions $dims
+                        Claim $view has cursor $newCursor
+                        lassign [editor::cursorToXy $newCode $newCursor] cursorX cursorY
+                        Claim $view has max cursor x $cursorX
+                    }
+                    
+                    Hold (on virtual-programs/code-view.folk) code-for:$selectedProgram {
+                        Claim view code for $selectedProgram is $newCode
+                    }
+                }
+            `);
+            break;
+        case "editor1":
+            const {kbPath, previewProgramId} = currentCoder.config;
+            ws.evaluate(tcl`
+                Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
+                    set kbPath ${kbPath}
+                    set newCode ${newCode}
 
-    cursorPosition = [x, y];
+                    Claim the $kbPath cursor is ${newCursor}
+                    lassign [editor::cursorToXy $newCode ${newCursor}] cursorX cursorY
+                    Claim the $kbPath max cursor x is $cursorX
 
-    const id = page + kbPath;
-    ws.evaluate(tcl`
-        Hold (non-capturing) (on virtual-programs/editor.folk) ${"cursor" + kbPath} {
-            Claim the ${kbPath} cursor is [list ${x} ${y}]
-            Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
-                Claim ${id} has program code [binary decode base64 ${btoa(programCode)}]
-                Claim ${id} has editor code [binary decode base64 ${btoa(newCode)}]
-            }
-        }
-    `);
+                    Every time ${previewProgramId} has program code /programCode/ {
+                        Hold (on virtual-programs/editor.folk) code$kbPath {
+                            Claim ${previewProgramId} has program code $programCode
+                            Claim ${previewProgramId} has editor code $newCode
+                        }
+                    }
+                }
+            `);
+            break;
+    }    
+}
+
+function updateProgramCode() {
+    disableRemoteEventProcessing(500);
+
+    const currentCode = textarea.value;
+
+    switch (currentCoder.config.type) {
+        case "codeView":
+            // TODO: replace this with an event firing when events are added
+            ws.evaluate(tcl`
+                Hold (on virtual-programs/code-view.folk) saving-code-for:${currentCoder.id} {
+                    Wish to save code on view ${currentCoder.id}
+                }
+            `);
+            break;
+        case "editor1":
+            const {kbPath, previewProgramId} = currentCoder.config;
+
+            ws.evaluate(tcl`
+                Hold (on virtual-programs/editor.folk) ${"code" + kbPath} {
+                    set currentCode ${currentCode}
+
+                    Claim ${previewProgramId} has program code $currentCode
+                    Claim ${previewProgramId} has editor code $currentCode
+                }
+            `);
+            break;
+    }
 }
 
 textarea.addEventListener("input", updateCursorAndCode);
@@ -107,61 +154,79 @@ textarea.addEventListener("keydown", ev => {
     }
 });
 
-var lastKeyboard; // to clean up the previous keyboard when another is picked
-async function selectKeyboard({ page, kbPath }) {
-    if (lastKeyboard) lastKeyboard.stop();
+var lastCoder; // to clean up the previous coder when another is picked
+async function selectCoder(coder) {
+    if (lastCoder) lastCoder.stop();
 
-    currentKeyboard = { page, kbPath };
+    currentCoder = coder;
 
-    const id = page + kbPath;
-    lastKeyboard = await ws.watch(`${id} has base64 editor code /editorCode/ program code /programCode/ & the ${kbPath} cursor is /cursor/`, {
-        add: ({ editorCode, programCode: _programCode, cursor }) => {
-            if (!allowRemoteEventsToProcess) return;
-            disableLocalEventProcessing(500);
+    switch (coder.config.type) {
+        case "codeView":
+            lastCoder = await ws.watch(`${coder.id} has js coder state with /...params/`, {
+                add: ({params}) => {
+                    if (!allowRemoteEventsToProcess) return;
+                    disableLocalEventProcessing(500);
 
-            programCode = atob(_programCode);
+                    params = loadDict(params);
 
-            editorCode = atob(editorCode);
-            textarea.value = editorCode;
+                    textarea.value = params.programCode;
+                    textarea.selectionStart = parseInt(params.cursor);
+                    textarea.selectionEnd = parseInt(params.cursor);
+                    textarea.focus();
+                }
+            });
+            break;
+        case "editor1":
+            lastCoder = await ws.watch(`${coder.id} has js coder state with /...params/`, {
+                add: ({params}) => {
+                    if (!allowRemoteEventsToProcess) return;
+                    disableLocalEventProcessing(500);
 
-            // figure out where the cursor is
-            let [x, y] = loadList(cursor);
-            x = parseInt(x); y = parseInt(y);
+                    params = loadDict(params);
 
-            cursorPosition = [x, y];
-
-            const lines = editorCode.split("\n");
-
-            let pos = 0;
-            for (let i = 0; i < y; i++) {
-                pos += lines[i].length + 1; // + 1 for newline
-            }
-            pos += x;
-
-            textarea.focus();
-            textarea.selectionStart = pos;
-            textarea.selectionEnd = pos;
-        }
-    });
+                    textarea.value = params.editorCode;
+                    textarea.selectionStart = params.cursor;
+                    textarea.selectionEnd = params.cursor;
+                    textarea.focus();
+                }
+            });
+            break;
+    }
 }
 
-// update keyboard list as it changes
-ws.watchCollected("/page/ is an editor & /page/ is a keyboard with path /kbPath/", keyboards => {
-    keyboardSelect.innerHTML = "";
-
-    for (let keyboard of keyboards) {
-        let {page, kbPath} = keyboard;
-        keyboardSelect.innerHTML += `<option value="${JSON.stringify(keyboard)}">${page} (${kbPath})</option>`;
+// update states as they change
+ws.watchCollected("/id/ has js coder info with /...config/", coders => {
+    for (let coder of coders) {
+        coder.config = loadDict(coder.config);
     }
 
-    if (keyboards.length === 1) {
-        selectKeyboard(keyboards[0]);
+    coderSelectElem.innerHTML = "";
+
+    coderConfigs = {};
+    for (let coder of coders) {
+        coderConfigs[coder.id] = coder;
+
+        if (coder.config.type === "codeView") {
+            coderSelectElem.innerHTML += `<option value="${coder.id}">Code view #${coder.id}</option>`;
+        } else if (coder.config.type === "editor1") {
+            coderSelectElem.innerHTML += `<option value="${coder.id}">Editor #${coder.id} (${coder.config.kbPath})</option>`;
+        }
+    }
+
+    // does the coder not exist anymore?
+    if (currentCoder && coderConfigs[currentCoder.id] === undefined) {
+        currentCoder = null;
+    }
+
+    // don't select the default coder if we already have one selected
+    if (currentCoder === null && coders.length >= 1) {
+        selectCoder(coders[0]);
     }
 });
 
 // fired when selected keyboard changes
-keyboardSelect.addEventListener("input", (ev) => {
-    selectKeyboard(JSON.parse(ev.target.value));
+coderSelectElem.addEventListener("input", (ev) => {
+    selectCoder(coderConfigs[ev.target.value]);
 });
         </script>
     </body>

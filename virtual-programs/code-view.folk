@@ -19,8 +19,8 @@ namespace eval ::codeView {
     set textScale [dict get $options textScale]
     lassign [getEmAndAdvance $textScale] em advance
 
-    set regionWidth [region width $r] 
-    set regionHeight [region height $r] 
+    set regionWidth [region width $r]
+    set regionHeight [region height $r]
 
     set width [expr {($regionWidth * [dict get $options widthScale]) - $marginInPx * 2}]
     # TODO: don't hardcode 0.7
@@ -34,7 +34,7 @@ namespace eval ::codeView {
 }
 
 When /someone/ claims /view/ is a code view {
-    Claim $view is a code view with {*}$codeView::defaults
+  Claim $view is a code view with {*}$codeView::defaults
 }
 
 # initial setup
@@ -65,7 +65,7 @@ When /view/ is a code view with /...options/ {
 
         Claim $view has text settings with em $em advance $advance scale $textScale
         Claim $view has viewport scale with \
-              width [dict get $options widthScale] height [dict get $options heightScale]
+          width [dict get $options widthScale] height [dict get $options heightScale]
       }
 
       Hold view-state-of:$view {
@@ -80,10 +80,10 @@ When /view/ is a code view with /...options/ {
 
   # load in initial program code
   When $view has selected program /program/ &\
-       /program/ has program code /programCode/ &\
-       /nobody/ claims view code for /program/ is /anything/ {
-    Hold code-for:$program {
-      Claim view code for $program is $programCode
+    /program/ has program code /programCode/ &\
+    /nobody/ claims view code for /program/ is /anything/ {
+      Hold code-for:$program {
+        Claim view code for $program is $programCode
     }
   }
 
@@ -92,20 +92,20 @@ When /view/ is a code view with /...options/ {
 
 # keyboard logic
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
-     /nobody/ claims /keyboard/ is an editor &\
-     /keyboard/ points up at /view/ &\
-     /view/ is a code view with /...anything/ {
-  # TODO: is there a way to make this `Every time` less of a beast?
-  Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
-        $view has view dimensions /dims/ &\
-        $view has selected program /program/ &\
-        view code for /program/ is /code/ &\
-        $view has max cursor x /maxCursorX/ &\
-        $view has cursor /cursor/ &\
-        $view has viewport scale with width /widthScale/ height /heightScale/ &\
-        $view has text settings with /...textOptions/ {
-    lassign $dims vpX vpY vpWidth vpHeight
-    
+  /nobody/ claims /keyboard/ is an editor &\
+  /keyboard/ points up at /view/ &\
+  /view/ is a code view with /...anything/ &\
+  /view/ has selected program /program/ {
+    # TODO: is there a way to make this `Every time` less of a beast?
+    Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
+    $view has view dimensions /dims/ &\
+    view code for $program is /code/ &\
+    $view has max cursor x /maxCursorX/ &\
+    $view has cursor /cursor/ &\
+    $view has viewport scale with width /widthScale/ height /heightScale/ &\
+    $view has text settings with /...textOptions/ {
+      lassign $dims vpX vpY vpWidth vpHeight
+
     if {$keyState == "up"} { return }
 
     set resetCode false
@@ -127,22 +127,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             set resetCode true
           }
           Control_s {
-            Hold new-code-for:$program {
-              Wish program $program is replaced with code $code
-              Wish $program is titled "EDITED"
-            }
-
-            set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
-            puts -nonewline $fp $code
-            close $fp
-
-            # give the user some feedback
-            Hold saved-alert:$keyboard {
-              Wish $keyboard is labelled "Saved!"
-            }
-
-            After 250 milliseconds {
-              Hold saved-alert:$keyboard {}
+            Hold saving-code-for:$view {
+              Wish to save code on view $view
             }
           }
           Control_p {
@@ -222,14 +208,45 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
   }
 }
 
+# TODO: replace with event firing
+When /someone/ wishes to save code on view /view/ &\
+  /view/ has selected program /program/ &\
+  view code for /program/ is /programCode/ {
+    Hold new-code-for:$program {
+      Wish program $program is replaced with code $programCode
+  }
+
+  set fp [open "$::env(HOME)/folk-printed-programs/$program.folk.edited" w]
+  puts -nonewline $fp $programCode
+  close $fp
+
+  Hold saving-code-for:$view {}
+
+  # code may be saved even without an attached keyboard, hence
+  # feedback being optional
+  # TODO: maybe move feedback to code view instead?
+  When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+    /nobody/ claims /keyboard/ is an editor &\
+    /keyboard/ points up at $view {
+      # give the user some feedback
+      Hold saved-alert:$keyboard {
+        Wish $keyboard is labelled "Saved!"
+    }
+
+    After 250 milliseconds {
+      Hold saved-alert:$keyboard {}
+    }
+  }
+}
+
 # calculate cursor position
 When /view/ is a code view with /...anything/ &\
-     /view/ has cursor /cursor/ &\
-     /view/ has selected program /program/ &\
-     view code for /program/ is /code/ &\
-     /view/ has view dimensions /dims/ &\
-     /view/ has text settings with /...textOptions/ {
-  lassign $dims vpX vpY vpWidth vpHeight
+  /view/ has cursor /cursor/ &\
+  /view/ has selected program /program/ &\
+  view code for /program/ is /code/ &\
+  /view/ has view dimensions /dims/ &\
+  /view/ has text settings with /...textOptions/ {
+    lassign $dims vpX vpY vpWidth vpHeight
 
   lassign [editor::cursorToXy $code $cursor] cursorX cursorY
 
@@ -244,11 +261,11 @@ When /view/ is a code view with /...anything/ &\
 
 # Draw text and cursor
 When /view/ is a code view with /...anything/ &\
-     /view/ has view dimensions /dims/ &\
-     /view/ has region /r/ &\
-     /view/ has text settings with /...textOptions/ {
-  # vp = viewport
-  lassign $dims vpX vpY vpWidth vpHeight
+  /view/ has view dimensions /dims/ &\
+  /view/ has region /r/ &\
+  /view/ has text settings with /...textOptions/ {
+    # vp = viewport
+    lassign $dims vpX vpY vpWidth vpHeight
 
   set regionWidth [region width $r]
   set regionHeight [region height $r]
@@ -257,10 +274,10 @@ When /view/ is a code view with /...anything/ &\
   lassign [codeView::getEmAndAdvance $textScale] em advance
 
   When $view has selected program /program/ &\
-       view code for /program/ is /code/ &\
-       $view has cursor position /cursorPos/ {
-    # TODO: the height ($regionHeight * 0.2) assumes that programs are half-pages
-    set textOrigin [list [expr {-($regionWidth / 2) + $codeView::marginInPx}] [expr {$regionHeight * 0.2}]]
+    view code for /program/ is /code/ &\
+    $view has cursor position /cursorPos/ {
+      # TODO: the height ($regionHeight * 0.2) assumes that programs are half-pages
+      set textOrigin [list [expr {-($regionWidth / 2) + $codeView::marginInPx}] [expr {$regionHeight * 0.2}]]
     set cursorPos [vec2 add $textOrigin $cursorPos]
     set cursorPos [vec2 add $cursorPos [list 0 [* $em 0.5]]]
 

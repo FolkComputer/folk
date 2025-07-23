@@ -45,11 +45,11 @@ namespace eval ::githubGist {
     #$gistID is $gistContent` and then we can treat that as the cache.
     proc _ensureCacheDir {} { variable _cacheDir if {![file isdirectory
         $_cacheDir]} { puts stderr "DEBUG: Cache directory not found. Creating
-            $_cacheDir" if {[catch {file mkdir $_cacheDir} errMsg]} { puts
-            stderr "Error creating gist cache directory $_cacheDir: $errMsg"
-            return false } } return true }
+        $_cacheDir" if {[catch {file mkdir $_cacheDir} errMsg]} { puts
+        stderr "Error creating gist cache directory $_cacheDir: $errMsg"
+        return false } } return true }
 
-    proc _fetchGistData {gistID {token ""}} {
+        proc _fetchGistData {gistID {token ""}} {
         variable _cacheDir
         variable _jqFilter
 
@@ -150,7 +150,7 @@ namespace eval ::githubGist {
         if {[string trim $filesAsJson] eq "" || [string trim $filesAsJson] eq "null" || [string trim $filesAsJson] eq "{}"} {
             return -code error "Gist ID \"$gistID\" resulted in empty or null data after jq processing. This might indicate an empty gist or an issue with the jq filter for unusual gist structures."
         }
-        
+
         set gistAsDictionary {}
         if {[catch {
             set gistAsDictionary [json::json2dict $filesAsJson]
@@ -189,98 +189,98 @@ namespace eval ::githubGist {
         if {$_token eq ""} {
             return -code error "GitHub token not available. Cannot post gist."
         }
-        
+
         puts stderr "DEBUG: Attempting to post gist with description: '$description'"
         set files_obj [json::write object {*}[dict map {filename contents} $gist {
             set contents_obj [json::write object content [json::write string $contents]]
-        }]]
-        set json_payload [json::write object \
-            description [json::write string $description] \
-            public true \
-            files $files_obj]
-        puts stderr "DEBUG: JSON payload for POST: $json_payload"
+            }]]
+            set json_payload [json::write object \
+                description [json::write string $description] \
+                public true \
+                files $files_obj]
+            puts stderr "DEBUG: JSON payload for POST: $json_payload"
 
-        set response_json ""
+            set response_json ""
 
-        if {[catch {
-            set headers [::githubGist::_commonApiHeaders]
-            lappend headers -H "Authorization: Bearer $_token"
+            if {[catch {
+                set headers [::githubGist::_commonApiHeaders]
+                lappend headers -H "Authorization: Bearer $_token"
 
-            set response_json [exec \
-                echo $json_payload | \
-                curl -LsS \
-                -X POST \
-                {*}$headers \
-                -d @- \
-                https://api.github.com/gists]
-            puts stderr "DEBUG: Raw response from POST: $response_json"
+                set response_json [exec \
+                    echo $json_payload | \
+                    curl -LsS \
+                    -X POST \
+                    {*}$headers \
+                    -d @- \
+                    https://api.github.com/gists]
+                puts stderr "DEBUG: Raw response from POST: $response_json"
 
-            set response_dict [json::json2dict $response_json]
+                set response_dict [json::json2dict $response_json]
 
-            if {[dict exists $response_dict message]} {
-                set msg [dict get $response_dict message]
-                if {[string match "*rate limit exceeded*" $msg]} {
-                    return -code error "GitHub API Error (Rate Limit): $msg"
-                } elseif {[string match "*Bad credentials*" $msg]} {
-                    return -code error "GitHub API Error (Bad Credentials): $msg"
-                } elseif {[string match "*Validation failed*" $msg]} {
-                    return -code error "GitHub API Error (Validation Failed): $msg. Errors: [dict get $response_dict errors {}]"
+                if {[dict exists $response_dict message]} {
+                    set msg [dict get $response_dict message]
+                    if {[string match "*rate limit exceeded*" $msg]} {
+                        return -code error "GitHub API Error (Rate Limit): $msg"
+                    } elseif {[string match "*Bad credentials*" $msg]} {
+                        return -code error "GitHub API Error (Bad Credentials): $msg"
+                    } elseif {[string match "*Validation failed*" $msg]} {
+                        return -code error "GitHub API Error (Validation Failed): $msg. Errors: [dict get $response_dict errors {}]"
+                    } else {
+                        return -code error "GitHub API Error when posting gist: $msg. Documentation: [dict get $response_dict documentation_url {}]"
+                    }
+                }
+
+                return $response_dict
+            } errMsg opts]} {
+                if {[string match "*curl:*" $errMsg] || [string match "*Couldn't resolve host*" $errMsg] || [string match "*transfer closed with*" $errMsg]} {
+                    return -code error "Network or curl error when posting gist: $errMsg"
+                } elseif {[string match "*command not found*" $errMsg]} {
+                    return -code error "External command (curl) not found. Error: $errMsg"
+                } elseif {[string match "*invalid JSON*" $errMsg] || [string match "*malformed JSON*" $errMsg]} {
+                    return -code error "JSON parsing error on GitHub response: $errMsg. Raw response: \"$response_json\""
                 } else {
-                    return -code error "GitHub API Error when posting gist: $msg. Documentation: [dict get $response_dict documentation_url {}]"
+                    return -code error "Failed to post gist: $errMsg"
                 }
             }
+        }
 
-            return $response_dict
-        } errMsg opts]} {
-            if {[string match "*curl:*" $errMsg] || [string match "*Couldn't resolve host*" $errMsg] || [string match "*transfer closed with*" $errMsg]} {
-                return -code error "Network or curl error when posting gist: $errMsg"
-            } elseif {[string match "*command not found*" $errMsg]} {
-                return -code error "External command (curl) not found. Error: $errMsg"
-            } elseif {[string match "*invalid JSON*" $errMsg] || [string match "*malformed JSON*" $errMsg]} {
-                return -code error "JSON parsing error on GitHub response: $errMsg. Raw response: \"$response_json\""
-            } else {
-                return -code error "Failed to post gist: $errMsg"
+        proc getGist {gistID} {
+            variable _token
+            ::githubGist::_loadToken
+            return [::githubGist::_fetchGistData $gistID $_token]
+        }
+    }
+
+    When /anyone/ wishes /page/ runs gist /gistID/ & /page/ has region /r/ {
+        puts "[clock seconds] ---- looking for $gistID"
+        if {[catch {
+            set gistAsDictionary [::githubGist::getGist $gistID]
+
+            if {[dict size [dict get $gistAsDictionary files]] == 0} {
+                error "Gist ID \"$gistID\" contains no files to display."
             }
+
+            set fileNames [dict keys [dict get $gistAsDictionary files]]
+
+            if {[llength $fileNames] == 0} {
+                error "Gist ID \"$gistID\" contains no readable files."
+            }
+
+            set firstFileName [lindex $fileNames 0]
+            set content [dict get $gistAsDictionary files $firstFileName content]
+
+
+            Claim $page has program code $content
+
+            set angle [region angle $r]
+            set pos [region bottom $r]
+            Wish $page draws text "Gist: $firstFileName\n-------------\n$content" with font NeomatrixCode scale 0.6 offset [list -100 300]
+        } errMsg]} {
+            puts stderr "Error processing gist $gistID: $errMsg"
+            Wish $page draws text "Failed to load gist: $errMsg" with anchor bottomleft font NeomatrixCode color red
         }
     }
 
-    proc getGist {gistID} {
-        variable _token
-        ::githubGist::_loadToken
-        return [::githubGist::_fetchGistData $gistID $_token]
+    Claim $this has a demo {
+        Wish $this runs gist d08fc48ebbfd35d989bdf7ceb92210e3
     }
-}
-
-When /anyone/ wishes /page/ runs gist /gistID/ & /page/ has region /r/ {
-    puts "[clock seconds] ---- looking for $gistID"
-    if {[catch {
-        set gistAsDictionary [::githubGist::getGist $gistID]
-
-        if {[dict size [dict get $gistAsDictionary files]] == 0} {
-            error "Gist ID \"$gistID\" contains no files to display."
-        }
-
-        set fileNames [dict keys [dict get $gistAsDictionary files]]
-
-        if {[llength $fileNames] == 0} {
-            error "Gist ID \"$gistID\" contains no readable files."
-        }
-
-        set firstFileName [lindex $fileNames 0]
-        set content [dict get $gistAsDictionary files $firstFileName content]
-
-
-        Claim $page has program code $content
-
-        set angle [region angle $r]
-        set pos [region bottom $r]
-        Wish $page draws text "Gist: $firstFileName\n-------------\n$content" with font NeomatrixCode scale 0.6 offset [list -100 300]
-    } errMsg]} {
-        puts stderr "Error processing gist $gistID: $errMsg"
-        Wish $page draws text "Failed to load gist: $errMsg" with anchor bottomleft font NeomatrixCode color red
-    }
-}
-
-Claim $this has a demo {
-    Wish $this runs gist d08fc48ebbfd35d989bdf7ceb92210e3
-}
