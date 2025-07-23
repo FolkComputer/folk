@@ -683,26 +683,26 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 ## todo
 
 - event statements?
-- statement (owning $p) so pointers can get freed on statement
-  deletion
-  - or statement destructors?
-  - for camera images, at least 
+- ~~statement (owning $p) so pointers can get freed on statement
+  deletion~~
+  - ~~or statement destructors?~~
+  - ~~for camera images, at least~~
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- Hold! with explicit version number?
-- report errors as statements
+- ~~Hold! with explicit version number?~~
+- ~~report errors as statements~~
 - remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - port angle & any other changes to new.folk
-- credits in README
+- ~~credits in README~~
 - rebuild live image
-- base64-encode edit program
-- fix camera slice
+- ~~base64-encode edit program~~
+- ~~fix camera slice~~
 - why is web endpoints so slow?
-- **fix outline doubling**
+- ~~fix outline doubling~~
 - drop support for multiarg Hold keys
-- **use quads instead of regions**
+- ~~use quads instead of regions~~
 - optimize jpeg decoding
 - vendor wslay?
 - ports
@@ -714,7 +714,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - why doesn't epoch stack trace show anything in Tracy?
 - don't waste time on rerendering unchanged writable textures
 - stack traces don't work inside web handlers
-- fix messy stack traces
+- ~~fix messy stack traces~~
 - accidentally matches prefixes even when not all teh way up to end of statement
 
 ### editor bugs
@@ -760,9 +760,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
 - better calibration timing
-- statements lock in (collections lock in?) -- i've seen detector lock
-  in which freezes programs / makes even the incremental detector only
-  work nearby
 - ~~rename images/writable-images to textures~~
 - rename resolved geometry to geometry
 - ~~segfault due to NULL destructors~~
@@ -771,3 +768,42 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - ~~subscribe to resolved geometry -> resolved geometry is emitted ->
     camera slice is emitted using that resolved geometry -> display
     camera slice -> subscribe to resolved geometry to know how to display~~
+
+### lock-in / clone bug
+
+
+
+statements lock in (collections lock in?) -- i've seen detector lock
+in which freezes programs / makes even the incremental detector only
+work nearby
+
+`tag 7 has detection` statement locked in -> `tag 7 has quad`
+statement locked in
+
+```
+**s1256:14** (1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {666.237374 361.324443} p {{647.17 ( [ m26806:10 (s4446:0) ] [ m26807:10 (s33839:0 s33840:0) ] [ m26809:10 (s1263:14) ] )
+s58291:23 (-1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {732.567293 342.322116} p {{712.13 ()
+s58334:23 (-1): virtual-programs/apriltags.folk claims tag 7 has
+detection {id 7 c {732.535781 342.338629} p {{712.14 ()
+```
+
+is it the `keep 8ms` in apriltags.folk?
+
+
+### blink bug
+
+programs are all _present_ (show up on /programs, tags detected) and
+probably running but the display isn't compositing the quad?
+
+7 has detection -- YES
+
+7 has quad -- NO
+
+gpu is drawing pipeline image for 7 -- NO
+
+TODO: look at the detects tags collection
+
+
+### remaining camera slice leak
+
+### global queue overrun with (Eval)
