@@ -12,12 +12,18 @@ When we should collect {
 
 #################
 
-Assert! we should collect
-Retract! we should collect
+for {set i 0} {$i < 5} {incr i} {
+    puts "$i ---------------"
 
-sleep 0.1
-set results [Query! the collected matches for [list an item is /item/] are /matches/]
-assert {[llength $results] == 0}
+    Assert! we should collect
+    sleep 0.2
 
-#################
+    set results [Query! the collected matches for [list an item is /item/] are /matches/]
+    assert {[llength [dict get [lindex $results 0] matches]] == 3}
 
+    Retract! we should collect
+    sleep 0.4
+
+    set results [Query! the collected matches for [list an item is /item/] are /matches/]
+    assert {[llength $results] == 0}
+}
