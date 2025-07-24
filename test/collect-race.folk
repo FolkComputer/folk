@@ -1,0 +1,19 @@
+When { source virtual-programs/collect.folk }
+
+Claim an item is A
+Claim an item is B
+Claim an item is C
+
+When we should collect {
+    When the collected matches for [list an item is /item/] are /matches/ {
+        puts $matches
+        On unmatch { puts stderr BYE }
+    }
+    On unmatch { puts stderr BYE2 }
+}
+
+Assert! we should collect
+Retract! we should collect
+
+sleep 0.5
+puts ([Query! the collected matches for [list an item is /item/] are /matches/])
