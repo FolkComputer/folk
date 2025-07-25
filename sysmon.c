@@ -166,7 +166,7 @@ void sysmon() {
              (double)timeNs / 1000000000.0);
 
     HoldStatementGlobally("clock-time", currentTick,
-                          clockTimeClause, 5, "",
+                          clockTimeClause, 5, NULL,
                           "sysmon.c", __LINE__);
 }
 

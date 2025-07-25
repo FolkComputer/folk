@@ -48,7 +48,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         Clause* emptyClause = malloc(SIZEOF_CLAUSE(0));
         emptyClause->nTerms = 0;
         HoldStatementGlobally(makeCollectKey(patternObj), version++,
-                              emptyClause, 0, "", 0);
+                              emptyClause, 0, NULL, 0);
     } else {
         Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
         Jim_Obj* matchesObj = QuerySimple(pattern);
@@ -77,7 +77,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         Jim_DecrRefCount(interp, matchesObj);
 
         HoldStatementGlobally(makeCollectKey(patternObj), version++,
-                              collectedClause, 0, "", 0);
+                              collectedClause, 0, NULL, 0);
     }
 
     clauseFree(collectorPattern);
