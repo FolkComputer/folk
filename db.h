@@ -11,6 +11,7 @@ typedef struct Db Db;
 
 typedef struct Destructor Destructor;
 Destructor* destructorNew(void (*fn)(void*), void* arg);
+void destructorRun(Destructor* d);
 
 // Refs are _weak_ references, meaning that the thing they are
 // pointing at may be invalid. A ref {0, 0} is always a null reference

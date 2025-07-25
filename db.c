@@ -109,7 +109,7 @@ Destructor* destructorNew(void (*fn)(void*), void* arg) {
     return ret;
 }
 
-static void destructorRun(Destructor* d) {
+void destructorRun(Destructor* d) {
     assert(d->fn != NULL);
     d->fn(d->arg);
     d->fn = NULL;

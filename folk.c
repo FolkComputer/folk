@@ -279,8 +279,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static void Say(Clause* clause, long keepMs, const char *destructorCode,
-                const char *sourceFileName, int sourceLineNumber) {
+static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
+                        const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
@@ -301,9 +301,15 @@ static void Say(Clause* clause, long keepMs, const char *destructorCode,
                                    sourceFileName, sourceLineNumber,
                                    parent, NULL);
 
-    if (!statementRefIsNull(ref)) {
+    if (statementRefIsNull(ref)) {
+        if (destructor != NULL) {
+            destructorRun(destructor);
+            free(destructor);
+        }
+    } else {
         reactToNewStatement(ref);
     }
+    return ref;
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {

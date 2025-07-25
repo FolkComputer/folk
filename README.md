@@ -751,6 +751,4 @@ detection {id 7 c {732.535781 342.338629} p {{712.14 ()
 
 is it the `keep 8ms` in apriltags.folk?
 
-### remaining camera slice leak
-
 ### global queue overrun with (Eval)
