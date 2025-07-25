@@ -155,7 +155,7 @@ When the image loader is /loadImage/ {
         }
 
         set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
-        Wish the GPU loads image $im
+        Wish the GPU loads image $im as texture
         When the GPU has loaded image $im as texture /gim/ {
             puts "text: Loaded $name as GPU texture $gim"
             Claim the GPU has font $name with data \

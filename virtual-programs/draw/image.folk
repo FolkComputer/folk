@@ -144,7 +144,7 @@ When the image library is /imageLib/ &\
 
     set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
 
-    Wish the GPU loads image $im
+    Wish the GPU loads image $im as texture
     When the GPU has loaded image $im as texture /gim/ {
         Wish the GPU draws pipeline "image" onto texture $id with arguments \
             [list $wiResolution $surfaceToClip \

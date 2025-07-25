@@ -610,7 +610,7 @@ Claim the GPU texture library is $gpuTextureLib
 
 # Wait until the library has been initialized by gpu.folk.
 When display /any/ has width /any/ height /any/ {
-    When /someone/ wishes the GPU loads image /im/ {
+    When /someone/ wishes the GPU loads image /im/ as texture {
         set gtex [$gpuTextureLib copyImageToGpuTexture $im]
         Claim the GPU has loaded image $im as texture $gtex \
             -destructor [list $gpuTextureLib freeGpuTexture $gtex]
