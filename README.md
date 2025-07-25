@@ -683,38 +683,24 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 ## todo
 
 - event statements?
-- ~~statement (owning $p) so pointers can get freed on statement
-  deletion~~
-  - ~~or statement destructors?~~
-  - ~~for camera images, at least~~
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- ~~Hold! with explicit version number?~~
-- ~~report errors as statements~~
 - remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - port angle & any other changes to new.folk
-- ~~credits in README~~
 - rebuild live image
-- ~~base64-encode edit program~~
-- ~~fix camera slice~~
 - why is web endpoints so slow?
-- ~~fix outline doubling~~
 - drop support for multiarg Hold keys
-- ~~use quads instead of regions~~
 - optimize jpeg decoding
 - vendor wslay?
 - ports
   - points-up port
 - only intern long strings?
-- ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
-- ~~why does collect take 100 microseconds?~~
 - why doesn't epoch stack trace show anything in Tracy?
 - don't waste time on rerendering unchanged writable textures
 - stack traces don't work inside web handlers
-- ~~fix messy stack traces~~
 - accidentally matches prefixes even when not all teh way up to end of statement
 
 ### editor bugs
@@ -734,40 +720,16 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - on folk-live at home, folk2-shared-objects: TODO
 
 ### next
-- ~~why is calibration board off on portable system~~
-- ~~why does calibration glitch out~~
-- ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
-- ~~fix editor~~
 - minor memory leak
-- ~~make calibrate retract properly when closed~~
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
-
-- ~~cannot use apriltag debugger on folk0 (which i need to fix
-  calibration, which i need to do perf testing)~~
-
 - fix uncalibrated Folk message
-- ~~calibrate autorefresh doesn't work?~~
-  - ~~fix collection of negated calibration~~
-  - ~~the Hold is still around, so it hasn't been stomped, but somehow
-    its refcount hit 0 and the statement itself was reaped?~~
 - **calibrate render loop blinks out regularly**
-- ~~calibrate auto refresh preview is broken(?)~~
-- ~~calibrate is off (RMSE 22)~~ (it was board thing)
-- ~~kill is buggy -- keyboard gets killed, causes threads to fill and
-  freezes system (can't spawn any more threads)~~
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
 - better calibration timing
-- ~~rename images/writable-images to textures~~
 - rename resolved geometry to geometry
-- ~~segfault due to NULL destructors~~
-- ~~resolved geometry ref cycle -> memory leak of camera frame
-  images~~
-  - ~~subscribe to resolved geometry -> resolved geometry is emitted ->
-    camera slice is emitted using that resolved geometry -> display
-    camera slice -> subscribe to resolved geometry to know how to display~~
 
 ### lock-in / clone bug
 
@@ -788,21 +750,6 @@ detection {id 7 c {732.535781 342.338629} p {{712.14 ()
 ```
 
 is it the `keep 8ms` in apriltags.folk?
-
-
-### blink bug
-
-programs are all _present_ (show up on /programs, tags detected) and
-probably running but the display isn't compositing the quad?
-
-7 has detection -- YES
-
-7 has quad -- NO
-
-gpu is drawing pipeline image for 7 -- NO
-
-TODO: look at the detects tags collection
-
 
 ### remaining camera slice leak
 
