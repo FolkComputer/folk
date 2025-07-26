@@ -351,10 +351,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
             # TODO: await vsync -- what does the other drawStart do?
             dict for {wi drawLists} $drawListsByTexture {
-                # if {[dict exists $mostRecentDrawListsByTexture $wi] &&
-                #     ($drawLists eq $mostRecentDrawListsByTexture($wi))} {
-                #     continue
-                # }
+                if {[dict exists $mostRecentDrawListsByTexture $wi] &&
+                    ($drawLists eq $mostRecentDrawListsByTexture($wi))} {
+                    continue
+                }
                 $gpuWritableLib drawStart $wi
 
                 foreach layer [lsort -real [dict keys $drawLists]] {
