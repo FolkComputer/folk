@@ -643,11 +643,10 @@ When /tag/ has resolved geometry /geom/ &\
     Claim $tag has quad $pageQuad
 }
 
-When the GPU writable texture library is /gpuWritableLib/ &\
-     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /tag/ has writable texture /writableTextureId/ with /...wiOptions/ &\
-     the GPU creates writable texture /writableTextureId/ as /wi/ &\
+     writable texture /writableTextureId/ has current texture /wim/ &\
      /tag/ has quad /quad/ {
 
     # Composite each quad's writable texture onto the screen based on
@@ -661,8 +660,6 @@ When the GPU writable texture library is /gpuWritableLib/ &\
         $poseLib project $displayIntrinsics \
                      $displayWidth $displayHeight $v
     }] a b c d
-
-    set wim [$gpuWritableLib gpuTexture $wi]
 
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \

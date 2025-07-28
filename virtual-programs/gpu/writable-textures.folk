@@ -330,7 +330,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                         continue
                     }
                     dict unset missingWritableTextures $id
-                    set wi [dict get $writableTextures $id]
 
                     set layer [dict getdef $options layer 0]
                     if {[dict exists $options instances]} {
@@ -339,7 +338,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                         set instances [list [dict get $options arguments]]
                     }
                     foreach instance $instances {
-                        dict lappend drawListsByTexture($wi) $layer \
+                        dict lappend drawListsByTexture($id) $layer \
                             [list $gpuWritableLib draw $pipeline $instance]
                     }
                 } on error e {
@@ -350,11 +349,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             }
 
             # TODO: await vsync -- what does the other drawStart do?
-            dict for {wi drawLists} $drawListsByTexture {
-                if {[dict exists $mostRecentDrawListsByTexture $wi] &&
-                    ($drawLists eq $mostRecentDrawListsByTexture($wi))} {
+            dict for {id drawLists} $drawListsByTexture {
+                if {[dict exists $mostRecentDrawListsByTexture $id] &&
+                    ($drawLists eq $mostRecentDrawListsByTexture($id))} {
                     continue
                 }
+                set wi [dict get $writableTextures $id]
                 $gpuWritableLib drawStart $wi
 
                 foreach layer [lsort -real [dict keys $drawLists]] {
@@ -367,7 +367,14 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
                 $gpuWritableLib drawEnd
 
-                dict set mostRecentDrawListsByTexture $wi $drawLists
+                # Now that the draw is complete, we should make the
+                # drawn-to texture the one that gets displayed by the
+                # image pipeline.
+                HoldStatement! [list $id texture] \
+                    [list $this claims writable texture $id has current texture \
+                         [$gpuWritableLib gpuTexture $wi]]
+
+                dict set mostRecentDrawListsByTexture $id $drawLists
             }
 
             sleep 0.01
