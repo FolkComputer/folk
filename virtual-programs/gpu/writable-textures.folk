@@ -309,6 +309,15 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             set writableTextures [dict create]
             foreach match $matches { dict with match { dict set writableTextures $id $wi } }
 
+            # Discard cached draw-lists for writable textures that
+            # have been destroyed, since we'll want to re-draw them
+            # if/when they get re-created.
+            foreach id [dict keys $mostRecentDrawListsByTexture] {
+                if {![dict exists $writableTextures $id]} {
+                    dict unset mostRecentDrawListsByTexture $id
+                }
+            }
+
             set drawListsByTexture [dict create]
             ForEach! /wisher/ wishes the GPU draws pipeline /name/ onto texture /id/ with /...options/ {
                 try {
