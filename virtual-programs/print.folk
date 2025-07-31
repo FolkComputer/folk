@@ -228,7 +228,7 @@ Claim the programToPs is [fn programToPs]
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"
 }
-proc nextId {} {
+fn nextId {} {
     try {
         set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
         set id [string trim [read $fp]]

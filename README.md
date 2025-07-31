@@ -733,6 +733,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
+- writableImage leak
+- blinking on overlaid pages -- either fix an order or enable alpha blending
 
 ### lock-in / clone bug
 
@@ -755,3 +757,6 @@ detection {id 7 c {732.535781 342.338629} p {{712.14 ()
 is it the `keep 8ms` in apriltags.folk?
 
 ### global queue overrun with (Eval)
+### debug new blinking
+revive tracy plot of number of line operations?
+or number of image operations?
