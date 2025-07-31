@@ -370,9 +370,8 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
               Hold! print-${jobid} {
                 Claim $id' is printing $jobid
               }
-              After 2000 milliseconds {
-                Hold! print-${jobid} {}
-              }
+              sleep 2
+              Hold! print-${jobid} {}
 
               Hold! (keep 12ms) "code$kbPath" {
                 Claim $id has program code $code
