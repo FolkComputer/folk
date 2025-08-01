@@ -372,7 +372,7 @@ typedef struct Jim_Obj {
     (atomic_load_explicit(&((objPtr)->refCount), memory_order_relaxed) > 1)
 
 #define Jim_SameInterp(interp, objPtr) \
-    ((interp) == (objPtr)->interp)
+    ((interp)->interpId == (objPtr)->interp->interpId)
 
 /* This macro is used when we allocate a new object using
  * Jim_New...Obj(), but for some error we need to destroy it.
@@ -615,6 +615,8 @@ typedef struct Jim_Interp {
     struct Jim_HashTable packages; /* Provided packages hash table */
     Jim_Stack *loadHandles; /* handles of loaded modules [load] */
     struct Jim_TempList *tempList; /* list of intermediate objects to free periodically */
+    unsigned long long interpId; /* Used to ensure that a value from another
+                interpreter is cloned if it makes its way here */
 } Jim_Interp;
 
 /* Currently provided as macro that performs the increment.

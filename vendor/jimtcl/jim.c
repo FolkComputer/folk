@@ -5511,6 +5511,7 @@ int Jim_IsBigEndian(void)
 /* -----------------------------------------------------------------------------
  * Interpreter related functions
  * ---------------------------------------------------------------------------*/
+unsigned long long _Atomic currentInterpId = 0;
 
 Jim_Interp *Jim_CreateInterp(void)
 {
@@ -5518,6 +5519,7 @@ Jim_Interp *Jim_CreateInterp(void)
 
     memset(i, 0, sizeof(*i));
 
+    i->interpId = currentInterpId++;
     i->maxCallFrameDepth = JIM_MAX_CALLFRAME_DEPTH;
     i->maxEvalDepth = JIM_MAX_EVAL_DEPTH;
     i->lastCollectTime = Jim_GetTimeUsec(CLOCK_MONOTONIC_RAW);
@@ -15583,15 +15585,16 @@ static int Jim_InfoCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *arg
     /* (ct - cmds) is the index into the table */
     int option = ct - cmds;
 
+    Jim_Obj *varNamePtr;
     switch (option) {
         case INFO_EXISTS:
-            Jim_Obj *varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
             Jim_SetResultBool(interp, Jim_GetVariable(interp, varNamePtr, 0) != NULL);
             return JIM_OK;
 
         case INFO_ALIAS:{
             Jim_Cmd *cmdPtr;
-            Jim_Obj *varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
+            varNamePtr = DupIfWrongInterp(interp, argv[2], JIM_TEMP_LIST);
             if ((cmdPtr = Jim_GetCommand(interp, varNamePtr, JIM_ERRMSG)) == NULL) {
                 return JIM_ERR;
             }
