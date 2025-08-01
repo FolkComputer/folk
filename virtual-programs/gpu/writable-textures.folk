@@ -379,7 +379,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 # Now that the draw is complete, we should make the
                 # drawn-to texture the one that gets displayed by the
                 # image pipeline.
-                HoldStatement! [list $id texture] \
+                HoldStatement! (keep 10ms) [list $id texture] \
                     [list $this claims writable texture $id has current texture \
                          [$gpuWritableLib gpuTexture $wi]]
 
