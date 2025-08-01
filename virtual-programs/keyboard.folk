@@ -84,8 +84,7 @@ When /keyboard/ is a keyboard device {
         [list $this claims $keyboard has keymaps [dict create]]
 
     When /page/ is a keyboard with path $keyboard locale /locale/ {
-        set localKeymaps [dict getdef [lindex [Query! /someone/ claims $keyboard has keymaps /localKeymaps/] \
-                                           0] localKeymaps {}]
+        set localKeymaps [dict getdef [lindex [Query! $keyboard has keymaps /localKeymaps/] 0] localKeymaps {}]
         if {[dict exists $localKeymaps $locale]} {
             return
         }
@@ -95,7 +94,7 @@ When /keyboard/ is a keyboard device {
         }
         set map [keymap load $locale]
         dict set localKeymaps $locale $map
-        HoldStatement! local-keymaps \
+        HoldStatement! [list local-keymaps $keyboard] \
             [list $this claims $keyboard has keymaps $localKeymaps]
 
         # TODO: do this removal (it's slow and happens even when we
