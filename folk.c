@@ -313,6 +313,7 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc >= 6);
     Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
 
     const char* sourceFileName;

@@ -697,9 +697,9 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ports
   - points-up port
 - only intern long strings?
-- delay sysmon for a few seconds to reduce extra threads
+- ~~delay sysmon for a few seconds to reduce extra threads~~
 - why doesn't epoch stack trace show anything in Tracy?
-- don't waste time on rerendering unchanged writable textures
+- ~~don't waste time on rerendering unchanged writable textures~~
 - stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
 
