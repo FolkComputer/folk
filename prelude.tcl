@@ -244,12 +244,6 @@ namespace eval ::library {
     namespace ensemble create
 }
 
-proc lsort_key_asc {key l} {
-    return [lsort -command [list apply {{key a b} {
-        expr {[dict get $a $key] < [dict get $b $key]}
-    }} $key] $l]
-}
-
 namespace eval ::math {
     proc min {args} {
         if {[llength $args] == 0} { error "min: No args" }
@@ -282,6 +276,7 @@ proc HoldStatement! {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
 
     set key [list]
+    set version -1
     set clause [lindex $args end]
     set keepMs 0
     set destructorCode {}
@@ -304,6 +299,9 @@ proc HoldStatement! {args} {
         } elseif {$arg eq "-destructor"} {
             incr i
             set destructorCode [lindex $args $i]
+        } elseif {$arg eq "-version"} {
+            incr i
+            set version [lindex $args $i]
         } else {
             lappend key $arg
         }
@@ -317,7 +315,7 @@ proc HoldStatement! {args} {
     set key [list $this {*}$key]
 
     tailcall HoldStatementGlobally! \
-        $key $clause $keepMs $destructorCode \
+        $key $version $clause $keepMs $destructorCode \
         $filename $lineno
 }
 proc Hold! {args} {
@@ -637,7 +635,7 @@ if {[__isTracyEnabled]} {
             __thread TracyCZoneCtx __zoneCtx;
         }
         $tracyCpp proc zoneBegin {} void {
-            Jim_Obj* scriptObj = interp->currentScriptObj;
+            Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
             const char* sourceFileName;
             int sourceLineNumber;
             if (Jim_ScriptGetSourceFileName(interp, scriptObj, &sourceFileName) != JIM_OK) {

@@ -1,0 +1,61 @@
+# Example program, i.e the public API
+#
+# When $this has camera slice /slice/ {
+#     Wish $this displays camera slice $slice
+# }
+
+# Callback: extract out a camera slice
+When the image library is /imageLib/ &\
+     the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     /someone/ wishes /p/ has camera slice &\
+     camera /cam/ has intrinsics /cameraIntrinsics/ &\
+     camera /cam/ has frame /f/ at timestamp /timestamp/ &\
+     /p/ has quad /q/ {
+
+    set fWidth [$imageLib Image_width $f]
+    set fHeight [$imageLib Image_height $f]
+
+    # Convert quad to camera coordinates
+    set q [$quadLib change $q $cam]
+    set minX 10000; set minY 10000
+    set maxX -10000; set maxY -10000
+    foreach v [$quadLib vertices $q] {
+        lassign [$poseLib project $cameraIntrinsics \
+                     $fWidth $fHeight \
+                     $v] cx cy
+        if {$cx < $minX} { set minX $cx }
+        if {$cx > $maxX} { set maxX $cx }
+        if {$cy < $minY} { set minY $cy }
+        if {$cy > $maxY} { set maxY $cy }
+    }
+
+    # Clamp to image bounds
+    if {$minX < 0} { set minX 0 }
+    if {$maxX < 0} { set maxX 0 }
+    if {$minY < 0} { set minY 0 }
+    if {$maxY < 0} { set maxY 0 }
+    if {$minX >= $fWidth} { set minX [- $fWidth 1] }
+    if {$maxX >= $fWidth} { set maxX [- $fWidth 1] }
+    if {$minY >= $fHeight} { set minY [- $fHeight 1] }
+    if {$maxY >= $fHeight} { set maxY [- $fHeight 1] }
+
+    set w [expr {$maxX - $minX}]
+    set h [expr {$maxY - $minY}]
+    if {$w <= 0 || $h <= 0} { return }
+
+    # Extract and claim the image for the page
+    set subimage [$imageLib subimage $f $minX $minY $w $h]
+    Claim $p has camera slice $subimage
+}
+
+# Auto-trigger callback for `when has camera slice` statements
+When when /p/ has camera slice /slice/ /lambda/ with environment /e/ {
+  Wish $p has camera slice
+}
+
+# Display a camera slice
+# FIXME: this is for backward compatibility; we probably don't need it
+When /someone/ wishes /p/ displays camera slice /slice/ {
+    Wish $p displays image $slice
+}

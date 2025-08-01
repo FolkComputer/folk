@@ -115,13 +115,13 @@ $cc proc wsNew {Jim_Obj* chan Jim_Obj* onMsgRecv} wslay_event_context_ptr {
 $cc proc wsReadable {wslay_event_context_ptr ctx} void {
     int r = wslay_event_recv(ctx);
     if (r != 0) {
-        fprintf(stderr, "ws: wslay_event_recv: %d\n", r);
+        FOLK_ERROR("ws: wslay_event_recv: %d", r);
     }
 }
 $cc proc wsWritable {wslay_event_context_ptr ctx} void {
     int r = wslay_event_send(ctx);
     if (r != 0) {
-        fprintf(stderr, "ws: wslay_event_send: %d\n", r);
+        FOLK_ERROR("ws: wslay_event_send: %d", r);
     }
 }
 $cc proc wsWantRead {wslay_event_context_ptr ctx} bool {
@@ -166,7 +166,7 @@ $cc proc wsPipeReadMsg {} wslay_event_context_ptr {
 }
 
 $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
-    // TODO: free the WsSession
+    // FIXME: free the WsSession
     wslay_event_context_free(ctx);
 }
 $cc endcflags -lwslay
@@ -196,31 +196,56 @@ class WsConnection {
     ctx {}
 
     wsLib {}
+
+    destructor {}
 }
 WsConnection method onChanReadable {} {
-    $wsLib wsReadable $ctx
-    $self updateChanReadableWritable
+    try {
+        $wsLib wsReadable $ctx
+        $self updateChanReadableWritable
+    } on error e {
+        $self destroy
+    }
 }
 WsConnection method onChanWritable {} {
-    $wsLib wsWritable $ctx
-    $self updateChanReadableWritable
+    try {
+        $wsLib wsWritable $ctx
+        $self updateChanReadableWritable
+    } on error e {
+        $self destroy
+    }
 }
 WsConnection method updateChanReadableWritable {} {
-    if {[$wsLib wsWantRead $ctx]} {
+    set wantRead [$wsLib wsWantRead $ctx]
+    if {$wantRead} {
         $chan readable [list $self onChanReadable]
     } else {
         $chan readable {}
     }
-    if {[$wsLib wsWantWrite $ctx]} {
+
+    set wantWrite [$wsLib wsWantWrite $ctx]
+    if {$wantWrite} {
         $chan writable [list $self onChanWritable]
     } else {
         $chan writable {}
+    }
+
+    if {!$wantRead && !$wantWrite} {
+        $self destroy
     }
 }
 
 WsConnection method onMsgRecv {msg} {
     # puts stderr "onMsgRecv ($msg)"
     eval $msg
+}
+
+WsConnection method destroy {} {
+    dict unset ::wsConnections $ctx
+    close $chan
+    $wsLib wsDestroy $ctx
+    {*}$destructor
+    rename $self ""
 }
 
 $wsPipeRead readable [lambda {} {wsLib} {
@@ -237,7 +262,7 @@ set ::wsConnections [dict create]
 
 # This class method creates a new WsConnection from an active HTTP
 # channel and key from /ws upgrade request header.
-proc {WsConnection upgrade} {chan clientKey} {wsLib sha1Lib} {
+proc {WsConnection upgrade} {chan clientKey destructor} {wsLib sha1Lib} {
     set acceptKeyRaw "${clientKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     set acceptKey [binary encode base64 [$sha1Lib sha1 $acceptKeyRaw]]
 
@@ -251,7 +276,8 @@ Sec-WebSocket-Accept: $acceptKey\r
     $chan ndelay 1
 
     set conn [WsConnection new \
-                  [list chan $chan ctx {} wsLib $wsLib]]
+                  [list chan $chan ctx {} wsLib $wsLib \
+                      destructor $destructor]]
     set ctx [$wsLib wsNew $chan [lambda {msg} {conn} {
         $conn onMsgRecv $msg
     }]]

@@ -1,15 +1,9 @@
+When the image library is /imageLib/ {
+
 set cc [C]
+$cc extend $imageLib
 $cc include <math.h>
 
-# TODO: Factor this out.
-$cc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
 $cc struct GlyphInfo {
     float advance;
     float planeBounds[4];
@@ -161,9 +155,9 @@ When the image loader is /loadImage/ {
         }
 
         set im [{*}$loadImage "[pwd]/vendor/fonts/$name.png"]
-        Wish the GPU loads image $im
-        When the GPU has loaded image $im as /gim/ {
-            puts "text: Loaded $name as GPU image $gim"
+        Wish the GPU loads image $im as texture
+        When the GPU has loaded image $im as texture /gim/ {
+            puts "text: Loaded $name as GPU texture $gim"
             Claim the GPU has font $name with data \
                 [dict create atlasImage $im gpuAtlasImage $gim glyphInfos $glyphInfos]
         }
@@ -260,19 +254,21 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    When $p has writable image /id/ &\
-         $p has writable image projection /surfaceToClip/ &\
+    When $p has writable texture /id/ with /...wiOptions/ &\
+         $p has writable texture projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
-        set viewport [list 1024 1024]
+        set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
         set instances [$fontLib textShape \
-                           $viewport $surfaceToClip \
+                           $wiResolution $surfaceToClip \
                            $fontData \
                            $text $x0 $y0 $scale {*}$anchor $radians $color]
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
-        Wish the GPU draws pipeline "glyph" onto image $id \
+        Wish the GPU draws pipeline "glyph" onto texture $id \
             with instances $instances layer $layer
     }
+}
+
 }

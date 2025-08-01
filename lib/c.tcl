@@ -105,6 +105,8 @@ class C {
 
     objtypes {}
 
+    extends {}
+
     ___argtypes_comment {
         # Tcl->C conversion logic, when a value is passed from Tcl
         # to a C function as an argument.
@@ -296,7 +298,6 @@ C method define {newvars} {
     regsub -all -line {/\*.*?\*/} $newvars "" newvars
     regsub -all -line {//.*$} $newvars "" newvars
     regsub -all {=[^;]*;} $newvars "" newvars
-    regsub -all {__thread \w+} $newvars {{\0}} newvars
     set newvars [string map {";" ""} $newvars]
 
     foreach {vartype varname} $newvars {
@@ -305,9 +306,6 @@ C method define {newvars} {
         }
         dict set vars $varname $vartype
 
-        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
-            set vartype [lindex $vartype 1]
-        }
         lappend code [subst {
             $vartype *${varname}_ptr() {
                 return &$varname;
@@ -621,6 +619,10 @@ C method compile {{cid {}}} {
         int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
 
+            [join [lmap srcid $extends {
+                subst {Jim_${srcid}Init(interp);}
+            }] "\n"]
+
             Jim_CreateCommand(interp, "<C:$cid> __setCInfo", __setCInfo_Cmd, NULL, NULL);
             Jim_CreateCommand(interp, "<C:$cid> __getCInfo", __getCInfo_Cmd, NULL, NULL);
 
@@ -644,6 +646,12 @@ C method compile {{cid {}}} {
                     Jim_CreateCommand(interp, "<C:$cid> $tclname", $[set cname]_Cmd, NULL, NULL);
                 }}
             }] "\n"]
+
+            {
+                char script\[1000\];
+                snprintf(script, 1000, "dict set {::<C:$cid> __addrs} Jim_${cid}Init %p", Jim_${cid}Init);
+                Jim_Eval(interp, script);
+            }
 
             [join [lmap type [dict keys $objtypes] { subst {
                 ${type}_init(interp, "$cid");
@@ -690,12 +698,9 @@ extern "C" \{
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
-    try {
-        exec $compiler {*}$asan_flags -g -fno-omit-frame-pointer -fPIC \
-            {*}$cflags $cfile -c -o [file rootname $cfile].o
-    } trap CHILDSTATUS {errOut opts} {
-        puts "\n\n=== Error compiling $cfile: ===\n$errOut\n\n"
-    }
+    set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
+                 {*}$cflags $cfile -c -o [file rootname $cfile].o]
+    puts $out
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0
@@ -705,11 +710,10 @@ extern "C" \{
         if {$n > 1000} { error "Failed on $cfile! Timed out" }
     }
 
-    try {
-        exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
-            -o /tmp/$cid.so [file rootname $cfile].o \
-            {*}$endcflags
-    } on error e {}
+    exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
+        -o /tmp/$cid.so [file rootname $cfile].o \
+        {*}$endcflags
+
     # HACK: Why do we need this / only when running in lldb?
     set n 0
     while {![file exists /tmp/$cid.so]} {
@@ -779,11 +783,15 @@ C method extend {args} {
 
     dict for {varname vartype} [dict get $srcinfo vars] {
         set addr [dict get $srcaddrs ${varname}_ptr]
-        if {[llength $vartype] == 2 && [lindex $vartype 0] eq "__thread"} {
-            set vartype [lindex $vartype 1]
-        }
         $self code "$vartype* (*${varname}_ptr)() = ($vartype* (*)()) $addr;"
     }
+
+    regexp {<C:([^ ]+)>} $srclib -> srcid
+    set addr [dict get $srcaddrs Jim_${srcid}Init]
+    $self code "int (*Jim_${srcid}Init)(Jim_Interp* intp) =
+                     (int (*)(Jim_Interp* intp)) $addr;"
+
+    lappend extends $srcid
 }
 
 proc ::C++ {} {

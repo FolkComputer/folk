@@ -4,7 +4,10 @@
 
 if {$::tcl_platform(os) eq "darwin"} { return }
 
+When the image library is /imageLib/ {
+
 set camc [C]
+$camc extend $imageLib
 $camc include <string.h>
 $camc include <math.h>
 
@@ -49,15 +52,6 @@ $camc code {
         }
         return -1;
     }
-}
-# TODO: Factor this out.
-$camc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
 }
 
 $camc proc cameraOpen {char* device int width int height} Camera* {
@@ -309,14 +303,15 @@ $camc proc rgbToGray {Image rgb} Image {
     };
 }
 
-$camc proc newImage {Camera* camera int components} Image {
+$camc proc newImage {Camera* camera int components int uniq} Image {
     uint8_t* data = malloc(camera->width*components*camera->height);
     return (Image) {
         .width = camera->width,
         .height = camera->height,
         .components = components,
         .bytesPerRow = camera->width*components,
-        .data = data
+        .data = data,
+        .uniq = uniq
     };
 }
 $camc proc freeImage {Image image} void {
@@ -331,7 +326,32 @@ $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
 When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
-    if {![string match "/dev*" $camera]} { return }
+    if {[string match "/sys/bus/usb/devices/*" $camera]} {
+        set devicePath $camera
+
+        fn retryDevice {} {
+            set videoDevices [glob -nocomplain [file join $devicePath video4linux video*]]
+            if {[llength $videoDevices] > 0} {
+                set camera [file tail [lindex [lsort -dict $videoDevices] 0]]
+                set camera "/dev/$camera"
+            } else {
+                error "camera-usb: Unable to find video device for $devicePath"
+            }
+
+            HoldStatement! $devicePath \
+                [list $this wishes $::thisNode uses camera $camera with {*}$options]
+        }
+
+        When camera $camera failed with error /e/ {
+            puts stderr "camera-usb: Restarting after failure with $e"
+            retryDevice
+        }
+        retryDevice
+
+        return
+    }
+
+    if {![string match "/dev/*" $camera]} { return }
 
     set width [dict get $options width]
     set height [dict get $options height]
@@ -345,7 +365,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         dict with im {
             set x [expr {int($x)}]
             set y [expr {int($y)}]
-            set subdata [expr {[lindex $data 1] + ($y*$width + $x) * $components}]
+            set subdata [expr {[lindex $data 1] + $y*$width + $x*$components}]
             dict create \
                 width $subwidth \
                 height $subheight \
@@ -371,19 +391,19 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             }
             return $camera
         }
-        proc frame {camera} {
+        proc frame {camera {uniq 0}} {
             if {![cameraFrame $camera]} {
                 error "Failed to capture from camera"
             }
-            set image [newImage $camera 3]
+            set image [newImage $camera 3 $uniq]
             cameraDecompressRgb $camera $image
             return $image
         }
-        proc grayFrame {camera} {
+        proc grayFrame {camera {uniq 0}} {
             if {![cameraFrame $camera]} {
                 error "Failed to capture from camera"
             }
-            set image [newImage $camera 1]
+            set image [newImage $camera 1 $uniq]
             cameraDecompressGray $camera $image
             return $image
         }
@@ -397,21 +417,26 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     set bufferCount [dict getdef $options bufferCount 4]
     set camObj [Camera::new $camera $width $height $bufferCount]
 
-    Claim camera $camera has width $width height $height
-
-    When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
-        if {$exposureTimeUs eq "auto"} {
-            $camLib setExposureAuto $camObj
-        } else {
-            $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
-        }
-    }
-
     try -signal {
+        if {[info exists crop]} {
+            Claim camera $camera has width [dict get $crop width] height [dict get $crop height]
+        } else {
+            Claim camera $camera has width $width height $height
+        }
+
+        When /someone/ wishes camera $camera uses exposure time /exposureTimeUs/ us {
+            if {$exposureTimeUs eq "auto"} {
+                $camLib setExposureAuto $camObj
+            } else {
+                $camLib setExposure $camObj [expr {int($exposureTimeUs / 100)}]
+            }
+        }
+
         while true {
             tracy zoneBegin
 
-            set frame [Camera::grayFrame $camObj]
+            set ms [clock milliseconds]
+            set frame [Camera::grayFrame $camObj $ms]
 
             if {[info exists crop]} {
                 dict with crop {
@@ -420,7 +445,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             } else {
                 set cropped $frame
             }
-            set timestamp [expr {[clock milliseconds] / 1000.0}]
+            set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
             # HACK: We retain the statement for 400ms (which is
             # probably pretty memory-expensive...) so that it's still
@@ -430,7 +455,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
             # next frame, so you need to match this first before
             # matching the tag detection if you want to have a handle
             # on it later.
-            HoldStatement! (keep 400ms) camera \
+            HoldStatement! camera \
                 -destructor [list $camLib freeImage $frame] \
                 [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
 
@@ -438,10 +463,14 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
         }
     } on error e {
         puts stderr "camera-usb: Error $e"
+        HoldStatement! cameraError \
+            [list $this claims camera $camera failed with error $e]
     } on signal sig {
         puts stderr "camera-usb: Signal $sig"
     } finally {
         puts "camera-usb: Close $camObj"
         Camera::close $camObj
     }
+}
+
 }

@@ -6,6 +6,7 @@ if {$::tcl_platform(os) eq "darwin"} { return }
 
 set makeCamera {
     set cpp [C++]
+    $cpp extend $imageLib
     $cpp include <iostream>
     $cpp include <iomanip>
     $cpp include <mutex>
@@ -18,15 +19,6 @@ set makeCamera {
     $cpp cflags -I/usr/local/include/libcamera -I/usr/include/libcamera
     $cpp endcflags -lcamera
 
-    # TODO: Factor this out.
-    $cpp struct Image {
-        uint32_t width;
-        uint32_t height;
-        int components;
-        uint32_t bytesPerRow;
-
-        uint8_t* data;
-    }
     $cpp code {
         using namespace libcamera;
 
@@ -219,7 +211,8 @@ set makeCamera {
     $cpp compile
 }
 
-When /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
+When the image library is /imageLib/ &\
+     /someone/ wishes $::thisNode uses camera /cameraPath/ with /...options/ {
     if {![string match "/base*" $cameraPath]} { return }
 
     puts "camera-rpi: Running."

@@ -683,37 +683,25 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 ## todo
 
 - event statements?
-- statement (owning $p) so pointers can get freed on statement
-  deletion
-  - or statement destructors?
-  - for camera images, at least 
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
-- Hold! with explicit version number?
-- report errors as statements
 - remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
 - port angle & any other changes to new.folk
-- credits in README
 - rebuild live image
-- base64-encode edit program
-- fix camera slice
 - why is web endpoints so slow?
-- **fix outline doubling**
 - drop support for multiarg Hold keys
-- **use quads instead of regions**
 - optimize jpeg decoding
 - vendor wslay?
 - ports
   - points-up port
 - only intern long strings?
-- ~~fix C stack traces~~
 - delay sysmon for a few seconds to reduce extra threads
-- ~~why does collect take 100 microseconds?~~
 - why doesn't epoch stack trace show anything in Tracy?
-- don't waste time on rerendering unchanged writable images
+- don't waste time on rerendering unchanged writable textures
 - stack traces don't work inside web handlers
+- accidentally matches prefixes even when not all teh way up to end of statement
 
 ### editor bugs
 
@@ -732,29 +720,43 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - on folk-live at home, folk2-shared-objects: TODO
 
 ### next
-- why is calibration board off on portable system
-- ~~why does calibration glitch out~~
-- ~~REMOVE IMAGE CAP~~
 - keep 8ms didn't retract detection once, outline stuck around
-- ~~fix editor~~
 - minor memory leak
-- make calibrate retract properly when closed
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
-
-- ~~cannot use apriltag debugger on folk0 (which i need to fix
-  calibration, which i need to do perf testing)~~
-
-- blinking during calibrate
 - fix uncalibrated Folk message
-- ~~calibrate autorefresh doesn't work?~~
-  - ~~fix collection of negated calibration~~
-  - ~~the Hold is still around, so it hasn't been stomped, but somehow
-    its refcount hit 0 and the statement itself was reaped?~~
 - **calibrate render loop blinks out regularly**
-- **calibrate auto refresh preview is broken(?)**
-- **calibrate is off (RMSE 22)**
-  - i tried using old estimatehomography just in the calibrate step
-    but that didn't work
-  - the PROJECTOR calibration specifically seems off, the camera
-    calibration seems ok
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
+- better calibration timing
+- rename resolved geometry to geometry
+- On unmatch doesn't work if run at start of When block instead of
+  end? -- **it's probably because it gets pinned through descendant
+  statements**
+- writableImage leak
+- blinking on overlaid pages -- either fix an order or enable alpha blending
+
+### lock-in / clone bug
+
+
+
+statements lock in (collections lock in?) -- i've seen detector lock
+in which freezes programs / makes even the incremental detector only
+work nearby
+
+`tag 7 has detection` statement locked in -> `tag 7 has quad`
+statement locked in
+
+```
+**s1256:14** (1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {666.237374 361.324443} p {{647.17 ( [ m26806:10 (s4446:0) ] [ m26807:10 (s33839:0 s33840:0) ] [ m26809:10 (s1263:14) ] )
+s58291:23 (-1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {732.567293 342.322116} p {{712.13 ()
+s58334:23 (-1): virtual-programs/apriltags.folk claims tag 7 has
+detection {id 7 c {732.535781 342.338629} p {{712.14 ()
+```
+
+is it the `keep 8ms` in apriltags.folk?
+
+### global queue overrun with (Eval)
+### debug new blinking
+revive tracy plot of number of line operations?
+or number of image operations?

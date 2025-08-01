@@ -49,6 +49,9 @@ proc stackdump {stacktrace} {
 			lappend lines $line
 			if {$cmd ne ""} {
 				set nl [string first \n $cmd 1]
+				if {[string length $cmd] > 80 && ($nl < 0 || $nl > 80)} {
+					set nl 80
+				}
 				if {$nl >= 0} {
 					set cmd [string range $cmd 0 $nl-1]...
 				}

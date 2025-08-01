@@ -17,19 +17,13 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
+When the image library is /imageLib/ {
+
 set cc [C]
+$cc extend $imageLib
 $cc cflags -I./vendor/apriltag -Wall -Werror
 $cc endcflags ./vendor/apriltag/libapriltag.so
 
-# TODO: Factor this out.
-$cc struct Image {
-    uint32_t width;
-    uint32_t height;
-    int components;
-    uint32_t bytesPerRow;
-
-    uint8_t* data;
-}
 $cc code {
     #include <apriltag.h>
     #include <tagStandard52h13.h>
@@ -234,7 +228,7 @@ Claim the programToPs is [fn programToPs]
 if {![file exists "$::env(HOME)/folk-printed-programs"]} {
     exec mkdir -p "$::env(HOME)/folk-printed-programs"
 }
-proc nextId {} {
+fn nextId {} {
     try {
         set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
         set id [string trim [read $fp]]
@@ -358,6 +352,8 @@ When /someone/ wishes to print program /id/ with /...options/ {
 
     exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
     exec lpr {*}$args $::env(HOME)/folk-printed-programs/$id.pdf
+}
+
 }
 
 # legacy syntax

@@ -1,23 +1,33 @@
 Wish the GPU compiles pipeline "dashed-line" {
-    {vec2 from vec2 to float thickness vec4 color
+    {vec2 viewport mat3 surfaceToClip
+     vec2 from vec2 to float thickness vec4 color
      float dashlength float dashoffset} {
-        vec2 vertices[4] = vec2[4](
-             min(from, to) - thickness,
-             vec2(max(from.x, to.x) + thickness, min(from.y, to.y) - thickness),
-             vec2(min(from.x, to.x) - thickness, max(from.y, to.y) + thickness),
-             max(from, to) + thickness
+        vec2 dir = normalize(to - from);
+        vec2 perp = vec2(-dir.y, dir.x) * thickness/2.0;
+
+        vec2 vertices[6] = vec2[6](
+            from + perp,
+            from - perp,
+            to - perp,
+
+            from + perp,
+            to - perp,
+            to + perp
         );
-        return vec4(vertices[gl_VertexIndex], 0.0, 1.0);
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
     } {
-        vec2 p = gl_FragCoord.xy;
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
 
         float l = length(to - from);
 
         // How far are we along the line? (in pixels)
-        float t = dot(p - from, to - from) / l + dashoffset;
+        float t = dot(surfaceXy.xy - from, to - from) / l + dashoffset;
 
         vec2 d = (to - from) / l;
-        vec2 q = (p - (from + to)*0.5);
+        vec2 q = (surfaceXy.xy - (from + to)*0.5);
         q = mat2(d.x, -d.y, d.y, d.x) * q;
         q = abs(q) - vec2(l, thickness)*0.5;
         float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -26,7 +36,8 @@ Wish the GPU compiles pipeline "dashed-line" {
     }
 }
 
-When the color map is /colorMap/ &\
+When display /disp/ has width /w/ height /h/ &\
+     the color map is /colorMap/ &\
      /someone/ wishes to draw a dashed line with /...options/ {
     set points [dict get $options points]
     set width [dict get $options width]
@@ -41,7 +52,9 @@ When the color map is /colorMap/ &\
     for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
         set from [lindex $points $i]
         set to [lindex $points [expr $i+1]]
-        lappend instances [list $from $to $width $color $dashlength $dashoffset]
+        lappend instances [list [list $w $h] {{1 0 0} {0 1 0} {0 0 1}} \
+                               $from $to $width $color $dashlength $dashoffset]
     }
-    Wish the GPU draws pipeline "dashed-line" with instances $instances layer $layer
+    Wish the GPU draws pipeline "dashed-line" with \
+        instances $instances layer $layer
 }

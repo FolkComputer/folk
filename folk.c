@@ -222,7 +222,7 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static void reactToNewStatement(StatementRef ref);
 
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
-void HoldStatementGlobally(const char *key, int64_t version,
+void HoldStatementGlobally(const char *key, double version,
                            Clause *clause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
@@ -232,10 +232,10 @@ void HoldStatementGlobally(const char *key, int64_t version,
 
     StatementRef oldRef; StatementRef newRef;
 
-    Destructor destructor = {
-        .fn = destructorCode == NULL ? NULL : destructorHelper,
-        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
-    };
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    }
     newRef = dbHoldStatement(db, key, version,
                              clause, keepMs, destructor,
                              sourceFileName, sourceLineNumber,
@@ -252,22 +252,22 @@ void HoldStatementGlobally(const char *key, int64_t version,
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 7);
+    assert(argc == 8);
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[5]);
+    sourceFileName = Jim_String(argv[6]);
     if (sourceFileName == NULL) { return JIM_ERR; }
-    if (Jim_GetLong(interp, argv[6], &sourceLineNumber) == JIM_ERR) {
+    if (Jim_GetLong(interp, argv[7], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
     }
 
     const char *key = Jim_GetString(argv[1], NULL);
-    int64_t version = ++latestVersion;
-    Clause *clause = jimObjToClauseWithCaching(interp, argv[2]);
-    long keepMs; Jim_GetLong(interp, argv[3], &keepMs);
+    double version; Jim_GetDouble(interp, argv[2], &version);
+    Clause *clause = jimObjToClauseWithCaching(interp, argv[3]);
+    long keepMs; Jim_GetLong(interp, argv[4], &keepMs);
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
@@ -279,8 +279,8 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static void Say(Clause* clause, long keepMs, const char *destructorCode,
-                const char *sourceFileName, int sourceLineNumber) {
+static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
+                        const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
@@ -293,17 +293,23 @@ static void Say(Clause* clause, long keepMs, const char *destructorCode,
     }
 
     StatementRef ref;
-    Destructor destructor = {
-        .fn = destructorCode == NULL ? NULL : destructorHelper,
-        .arg = destructorCode == NULL ? NULL : strdup(destructorCode)
-    };
+    Destructor* destructor = NULL;
+    if (destructorCode != NULL) {
+        destructor = destructorNew(destructorHelper, strdup(destructorCode));
+    }
     ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
                                    sourceFileName, sourceLineNumber,
                                    parent, NULL);
 
-    if (!statementRefIsNull(ref)) {
+    if (statementRefIsNull(ref)) {
+        if (destructor != NULL) {
+            destructorRun(destructor);
+            free(destructor);
+        }
+    } else {
         reactToNewStatement(ref);
     }
+    return ref;
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -335,10 +341,8 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Destructor d = {
-        .fn = destructorHelper,
-        .arg = strdup(Jim_GetString(argv[1], NULL))
-    };
+    Destructor* d = destructorNew(destructorHelper,
+                                  strdup(Jim_GetString(argv[1], NULL)));
     matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
 }
@@ -572,6 +576,8 @@ void eval(const char* code) {
 // Evaluator
 //////////////////////////////////////////////////////////
 
+void workerExit();
+
 static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
@@ -698,8 +704,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         exit(EXIT_FAILURE);
 
     } else if (error == JIM_SIGNAL) {
+        // FIXME: I think this is the only signal handler path that
+        // actually runs mostly.
         interp->sigmask = 0;
-        pthread_exit(NULL);
+        workerExit();
     }
 
     matchCompleted(self->currentMatch);
@@ -919,7 +927,7 @@ void workerRun(WorkQueueItem item) {
 
         StatementRef ref;
         ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
-                                       (Destructor) { .fn = NULL },
+                                       NULL,
                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                        MATCH_REF_NULL, NULL);
@@ -1033,7 +1041,9 @@ void workerLoop() {
     for (;;) {
         schedtick++;
         if (interp->sigmask & (1 << SIGUSR1)) {
-            pthread_exit(NULL);
+            // FIXME: I think this signal handler doesn't actually
+            // run.
+            workerExit();
         }
 
         WorkQueueItem item = { .op = NONE };
@@ -1058,7 +1068,7 @@ void workerLoop() {
  die:
     // Note that our workqueue should be empty at this point.
     fprintf(stderr, "%d: Die\n", self->index);
-    self->tid = 0;
+    workerExit();
 }
 void workerInit(int index) {
     seedp = time(NULL) + index;
@@ -1097,6 +1107,15 @@ void workerInit(int index) {
 #endif
 
     interpBoot();
+}
+void workerExit() {
+    // Need this so that this worker doesn't count as still being
+    // alive and count toward the worker cap.
+
+    // TODO: Clear everything else out?
+    self->tid = 0;
+
+    pthread_exit(NULL);
 }
 void* workerMain(void* arg) {
 #ifdef __APPLE__
@@ -1224,6 +1243,7 @@ void *webDebugAllocator(void *ptr, size_t size) {
         return NULL;
     }
 }
+#ifdef TRACY_ENABLE
 void *tracyDebugAllocator(void *ptr, size_t size) {
     if (size == 0) {
         TracyCFree(ptr);
@@ -1242,6 +1262,7 @@ void *tracyDebugAllocator(void *ptr, size_t size) {
         return ptr;
     }
 }
+#endif
 
 int main(int argc, char** argv) {
     // Do all setup.

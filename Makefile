@@ -32,16 +32,32 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 
 .PHONY: test clean deps
 test: folk
+	@count=1; \
+	total=$$(ls test/*.folk | wc -l | tr -d ' '); \
 	for test in test/*.folk; do \
-		echo "===================="; \
-		echo "Running test: $$test"; \
+		echo "Running test: $$test ($${count}/$$total)"; \
 		echo "--------------------"; \
-		./folk $$test ; \
+		./folk $$test; \
+		result=$$?; \
+		if [ $$result -eq 0 ]; then \
+			echo "Ran test: $$test ($${count}/$$total): ✅ passed"; \
+		else \
+			echo "Ran test: $$test ($${count}/$$total): ❌ failed"; \
+		fi; \
+		echo ""; \
+		count=$$((count + 1)); \
 	done
 test/%: test/%.folk folk
 	./folk $<
 debug-test/%: test/%.folk folk
 	lldb -- ./folk $<
+
+debug: folk
+	if [ "$$(uname)" = "Darwin" ]; then \
+		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk; \
+	else \
+		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk; \
+	fi
 
 clean:
 	rm -f folk *.o vendor/tracy/public/TracyClient.o vendor/c11-queues/*.o
@@ -75,21 +91,20 @@ FOLK_REMOTE_NODE := folk@folk-peridot.local
 sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
-		. $(FOLK_REMOTE_NODE):~/folk2 \
-		--delete-after
+		. $(FOLK_REMOTE_NODE):~/folk2
 setup-remote:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
-	ssh $(FOLK_REMOTE_NODE) -- 'sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk2/vendor/jimtcl && make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
+	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk2/vendor/jimtcl && make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE) && make start ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk'
 debug-sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb -ex "handle SIGUSR1 nostop" ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
