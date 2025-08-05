@@ -38,7 +38,7 @@ proc process_offset {offset region} {
     
     if {[string match *%* $amount]} {
       set pct [expr {[string map {% ""} $amount] / 100.0}]
-      
+
       switch $direction {
         "right" { return [list [expr {$w * $pct}] 0] }
         "left"  { return [list [expr {-$w * $pct}] 0] }
@@ -139,6 +139,33 @@ When /someone/ wishes /p/ draws a /shape/ {
 When /someone/ wishes /p/ draws an /shape/ {
   Wish $p draws a $shape
 }
+
+When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /r/ {
+   # As shapes.folk but for text.
+   lassign [region centroid $r] cx cy
+   set pageAngle [region angle $r]
+
+   # Use the page's angle unless explicitly overwritten
+   set defaults [dict create \
+       color white \
+       scale 1.0 \
+       layer 0 \
+       angle $pageAngle \
+   ]
+
+   set options [dict merge $defaults $options]
+
+   set color [dict get $options color]
+   set scale [dict get $options scale]
+   set layer [dict get $options layer]
+   set angle [dict get $options angle]
+
+   set offset [dict_getdef $options offset {0 0}]
+   set offset [::process_offset $offset $r]
+   set center [vec2 add [list $cx $cy] [vec2 rotate $offset $pageAngle]]
+
+   Wish to draw text with position $center scale $scale text $text color $color radians $angle
+} 
 
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] cx cy
@@ -258,6 +285,12 @@ Claim $this has demo {
   set baseX -850
   set baseY -200
   set gridSpacing 130
+
+  # Row 0: Title
+  Wish $this draws text "triangle" with color skyblue offset [list $baseX [expr {$baseY - ($gridSpacing / 2.0)}]] scale 0.9 
+  Wish $this draws text "square" with color green offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY - ($gridSpacing / 2.0)}]] scale 0.9 
+  Wish $this draws text "pentagon" with color gold offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY - ($gridSpacing / 2.0)}]] scale 0.9 
+  Wish $this draws text "hexagon" with color orange offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY - ($gridSpacing / 2.0)}]] scale 0.9 
   
   # Row 1: Regular polygons with different colors and thickness
   Wish $this draws a triangle with color skyblue thickness 2 offset [list $baseX [expr {$baseY}]]
@@ -270,12 +303,12 @@ Claim $this has demo {
   Wish $this draws a square with color green filled true offset [list [expr {$baseX + $gridSpacing}] [expr {$baseY + $gridSpacing}]]
   Wish $this draws a pentagon with color gold filled true offset [list [expr {$baseX + $gridSpacing*2}] [expr {$baseY + $gridSpacing}]]
   Wish $this draws a hexagon with color orange filled true offset [list [expr {$baseX + $gridSpacing*3}] [expr {$baseY + $gridSpacing}]]
-  
+
   # Row 3: Directional offset examples (replacing shift)
-  Wish $this draws a triangle with radius 40 offset "right 50%"
-  Wish $this draws a square with radius 40 offset  "left 50%"
-  Wish $this draws a pentagon with radius 40 offset "up 50%"
-  Wish $this draws a hexagon with radius 40 offset "down 50%"
+  Wish $this draws a triangle with radius 40 offset "right 50%" color skyblue
+  Wish $this draws a square with radius 40 offset  "left 50%" color green
+  Wish $this draws a pentagon with radius 40 offset "up 50%" color gold
+  Wish $this draws a hexagon with radius 40 offset "down 50%" color orange
   
   # Row 4: Rectangles with different properties
   Wish $this draws a rect with width 80 height 50 color cyan thickness 3 offset [list $baseX [expr {$baseY + $gridSpacing*3}]]
@@ -283,18 +316,32 @@ Claim $this has demo {
   Wish $this draws a rect with width 80 height 50 offset "right 50%"
   Wish $this draws a rect with width 80 height 50 offset  "left 50%"
   
-  # Animated elements
-  When the clock time is /t/ {
-    set offsetVector [list [sin $t] [cos $t]]
-    set offsetVector [::vec2::scale $offsetVector 105]
-    Wish $this draws a circle with color palegoldenrod offset $offsetVector
+# Animated elements
+  When $this has region /r/ & the clock time is /t/ {
+    lassign [region angle $r] angle
+      for {set i 0} {$i < 8} {incr i} {
+        set offsetVector [list [sin [+ [- $i $t] $angle]] [* 2 [cos [+ [- $i $t] $angle]]]]
+          set vector [::vec2::scale $offsetVector [+ [* $i $i] 15]]
+          Wish $this draws a circle with radius $i color palegoldenrod offset $vector
+      }
   }
   
   When $this has region /r/ & the clock time is /t/ {
     lassign [region centroid $r] x y
-    set fill [expr {round(sin($t) * 2) % 2 == 0}]
+    set fillVal [expr {round(sin($t) * 2)}]
+    set fill [expr {$fillVal % 2 == 0}]
     set y [- $y 150]
-    Wish to draw a shape with sides 4 center [list [- $x 100] $y] radius 60 color white filled $fill
+    Wish to draw a shape with sides 4 center [list [- $x 200] $y] radius 60 color white filled $fill
+    Wish to draw text with position [list [- $x 200] [+ $y 14]] scale 1.5 text "$fillVal" color red
+  }
+
+  When $this has region /r/ & the clock time is /t/ {
+    lassign [region centroid $r] x y
+    set fillVal [expr {round($t * 2)}]
+    set fill [expr {$fillVal % 2 == 0}]
+    set y [- $y 150]
+    Wish to draw a shape with sides 4 center [list [+ $x 200] $y] radius 60 color white filled $fill
+    Wish to draw text with position [list [+ $x 200] [+ $y 14]] scale 1.5 text "$fill" color red
   }
   
   Wish $this is outlined white
