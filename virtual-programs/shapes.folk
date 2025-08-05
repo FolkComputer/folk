@@ -172,6 +172,10 @@ When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /
         color $color radians $angle anchor $anchor font $font
 } 
 
+When /someone/ wishes /p/ draws text /text/ {
+    Wish $p draws text $text with color white
+}
+
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
   lassign [region centroid $r] cx cy
   set angle [region angle $r]
