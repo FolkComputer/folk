@@ -173,7 +173,7 @@ When /someone/ wishes /p/ draws text /text/ with /...options/ & /p/ has region /
 } 
 
 When /someone/ wishes /p/ draws text /text/ {
-    Wish $this draws text $text with color white
+    Wish $p draws text $text with color white
 }
 
 When /someone/ wishes /p/ draws a /shape/ with /...options/ & /p/ has region /r/ {
