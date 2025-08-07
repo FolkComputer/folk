@@ -37,7 +37,7 @@ When the image library is /imageLib/ {
                 return im;
             }
         }
-        fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
+        fprintf(stderr, "cacheGet(%s) failed\n", name); exit(1);
     }
     $cc proc cachePut {char* name Image im} void {
         pthread_rwlock_wrlock(&imageCacheLock);

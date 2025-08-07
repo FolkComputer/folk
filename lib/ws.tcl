@@ -60,7 +60,7 @@ $cc code {
                                      void* user_data) {
         WsSession* session = (WsSession*) user_data;
         if (!wslay_is_ctrl_frame(arg->opcode)) {
-            Jim_Obj* msgObj = Jim_NewStringObj(interp, arg->msg, arg->msg_length);
+            Jim_Obj* msgObj = Jim_NewStringObj(interp, (char *)arg->msg, arg->msg_length);
             if (Jim_EvalObjPrefix(interp, session->onMsgRecv,
                                   1, &msgObj) == JIM_ERR) {
                 Jim_MakeErrorMessage(interp);
@@ -154,7 +154,7 @@ $cc proc wsPipeReadMsg {} wslay_event_context_ptr {
 
         struct wslay_event_msg msg = {
             .opcode = WSLAY_TEXT_FRAME,
-            .msg = data,
+            .msg = (unsigned char *)data,
             .msg_length = strlen(data)
         };
         wslay_event_queue_msg(ctx, &msg);
@@ -185,8 +185,8 @@ $cc include <string.h>
 $cc include <openssl/sha.h>
 $cc proc sha1 {char* d} Jim_Obj* {
     unsigned char md[20];
-    SHA1(d, strlen(d), md);
-    return Jim_NewStringObj(interp, md, 20);
+    SHA1((unsigned char *)d, strlen(d), md);
+    return Jim_NewStringObj(interp, (char *)md, 20);
 }
 $cc endcflags -lssl
 set sha1Lib [$cc compile]
