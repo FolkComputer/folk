@@ -95,7 +95,7 @@ static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
 
-    char* str;
+    const char* str;
     char* newStr;
     int len;
     for (int i = 0; i < objc; i++) {
