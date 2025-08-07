@@ -613,7 +613,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
-    char *ptr;
+    const char *ptr;
     if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
         // HACK: We only set the source info if it's not already
         // there, because setting the source info destroys the
