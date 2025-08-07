@@ -325,7 +325,8 @@ $camc endcflags -ljpeg
 $camc cflags -Wall -Werror
 set camLib [$camc compile]
 
-When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
+When the image library is /imageLib/ &\
+     /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
     if {[string match "/sys/bus/usb/devices/*" $camera]} {
         set devicePath $camera
 
@@ -359,20 +360,6 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
     if {[dict exists $options crop]} {
         set crop [dict get $options crop]
-    }
-    # HACK: we should share this
-    local proc subimage {im x y subwidth subheight} {
-        dict with im {
-            set x [expr {int($x)}]
-            set y [expr {int($y)}]
-            set subdata [expr {[lindex $data 1] + $y*$width + $x*$components}]
-            dict create \
-                width $subwidth \
-                height $subheight \
-                components $components \
-                bytesPerRow $bytesPerRow \
-                data [format "(uint8_t*) 0x%x" $subdata]
-        }
     }
 
     namespace eval Camera {
@@ -440,7 +427,7 @@ When /someone/ wishes $::thisNode uses camera /camera/ with /...options/ {
 
             if {[info exists crop]} {
                 dict with crop {
-                    set cropped [subimage $frame $x $y $width $height]
+                    set cropped [$imageLib subimage $frame $x $y $width $height]
                 }
             } else {
                 set cropped $frame
