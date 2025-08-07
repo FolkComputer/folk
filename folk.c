@@ -8,6 +8,7 @@
 #include <stdatomic.h>
 #include <inttypes.h>
 #include <signal.h>
+#include <setjmp.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -81,7 +82,11 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
     globalWorkQueuePush(item);
 }
 
+// These are used by dynamically-loaded Tcl-C modules, especially for
+// error handling.
 __thread Jim_Interp* interp = NULL;
+__thread jmp_buf __onError;
+
 __thread Cache* cache = NULL;
 
 Db* db;
