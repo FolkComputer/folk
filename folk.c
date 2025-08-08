@@ -678,6 +678,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         // A parent is gone. Abort.
         Jim_DecrRefCount(interp, envStackObj);
         Jim_DecrRefCount(interp, bodyObj);
+
+        statementRelease(db, when);
+        if (stmt != NULL) {
+            statementRelease(db, stmt);
+        }
         return;
     }
 
