@@ -4,7 +4,7 @@ When the default program geometry is /defaultGeom/ &\
     # Setting aside this tag space (48600 to 48713) for calibration.
     if {!($tag >= 0 && $tag < 48600)} { return }
 
-    When the collected matches for [list /someone/ claims $tag has geometry /geom/] are /matches/ {
+    When the collected matches for [list /someone/ claims tag $tag has geometry /geom/] are /matches/ {
         # Choose a geometry.
         if {[llength $matches] == 1} {
             set geom [dict get [lindex $matches 0] geom]
