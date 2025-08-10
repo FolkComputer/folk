@@ -3,7 +3,7 @@
 # "Wish $tag is titled "This is a tag"" or "Wish $tag is footnoted "This is a footnote""
 
 When /thing/ has quad /quad/ {
-    Claim $thing has a quad
+    Claim (keep 50ms) $thing has a quad
 }
 
 When /thing/ has a quad {
