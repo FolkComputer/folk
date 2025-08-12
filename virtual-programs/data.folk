@@ -1,0 +1,26 @@
+proc sanitizeURL {url} {
+    set url [string map {http:// "" https:// ""} $url]
+    set url [string map {/ _ ? "" * "" < "" > "" : "" | "" " " ""} $url]
+    if {[string length $url] > 255} {
+        set url [string range $url 0 254]
+    }
+    return $url
+}
+
+When when /page/ has data /data/ from /address/ /lambda/ with environment /e/ {
+  set sanitized [sanitizeURL $address]
+  set path "~/page-data/$sanitized"
+  set path [file normalize $path]
+  if {[file exists $path]} {
+    set fileId [open $path "r"]
+    set data [read $fileId]
+    close $fileId
+    Claim $page has data $data from $address
+  } else {
+    set data [exec -ignorestderr curl $address]
+    set fileId [open $path "w"]
+    puts $fileId $data
+    close $fileId
+    Claim $page has data $data from $address
+  }
+}
