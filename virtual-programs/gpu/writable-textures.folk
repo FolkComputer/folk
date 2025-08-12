@@ -138,7 +138,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return wi;
     }
     $gpuc proc destroy {GpuWritableTexture* wi} void {
-        // FIXME: don't leak wi itself
         pthread_mutex_lock(&wi->mutex);
 
         freeGpuTexture(wi->gpuTextures[0]);
@@ -147,6 +146,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         wi->gpuTextures[1] = -1;
 
         pthread_mutex_unlock(&wi->mutex);
+
+        free(wi);
     }
     $gpuc code {
         GpuWritableTexture* boundWritableTexture;
