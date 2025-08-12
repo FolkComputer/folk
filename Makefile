@@ -14,18 +14,18 @@ endif
 
 folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/c11-queues/mpmc_queue.o vendor/c11-queues/memory.o \
-	vendor/jimtcl/libjim.a $(TRACY_TARGET)
+	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
 		$(CFLAGS) $(TRACY_CFLAGS) \
 		-L./vendor/jimtcl \
-		$^ \
+		$(filter %.o %.a,$^) \
 		-ljim -lm -lssl -lcrypto -lz
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
 
-%.o: %.c trie.h
+%.o: %.c trie.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
@@ -92,13 +92,13 @@ sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
 		. $(FOLK_REMOTE_NODE):~/folk2
-setup-remote:
+remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
 	ssh $(FOLK_REMOTE_NODE) -- 'sudo usermod -a -G tty folk && chmod +rwx ~/folk-calibration-poses; sudo apt update && sudo apt install libssl-dev gdb libwslay-dev google-perftools libgoogle-perftools-dev linux-perf && cd folk2/vendor/jimtcl && make distclean; ./configure CFLAGS="-g -fno-omit-frame-pointer"'
 
 remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE) && make start ASAN_ENABLE=$(ASAN_ENABLE)'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
 debug-remote: sync
@@ -132,3 +132,15 @@ start: folk
 
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
+
+
+# From https://stackoverflow.com/a/26147844 to force rebuild if CFLAGS
+# changes (in particular, so we rebuild if we want to use Tracy)
+define DEPENDABLE_VAR
+.PHONY: phony
+$1: phony
+	@if [ "`cat $1 2>&1`" != '$($1)' ]; then \
+		/bin/echo -n $($1) > $1 ; \
+	fi
+endef
+$(eval $(call DEPENDABLE_VAR,CFLAGS))

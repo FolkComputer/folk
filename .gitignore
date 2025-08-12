@@ -2,3 +2,4 @@ folk
 folk.pid
 *.o
 folk.dSYM
+CFLAGS
