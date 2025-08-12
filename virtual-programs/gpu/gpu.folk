@@ -1387,8 +1387,14 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
 
     set missingPipelines [dict create]
     while true {
-        # This blocks until the start of the next frame.
+        ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
+            {*}$hd
+        }
+
+        tracy zoneBegin
+        tracy zoneName "gpu-draw-start"
         $gpu drawStart
+        tracy zoneEnd
 
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
@@ -1430,8 +1436,6 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
             }
         }
 
-        tracy zoneBegin
-        tracy zoneName "gpu-draw"
         set drawCount 0
         foreach layer [lsort -real [dict keys $displayList]] {
             set layerDisplayList [dict get $displayList $layer]
@@ -1445,8 +1449,12 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         # tracy plot $kQuadCount [llength [Query! /someone/ claims /tag/ has quad /q/]]
         # tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
         # tracy plot $kDrawCount $drawCount
-        tracy zoneEnd
+
+        # This blocks until the frame is actually drawn:
+        tracy zoneBegin
+        tracy zoneName "gpu-draw-end"
         $gpu drawEnd
+        tracy zoneEnd
 
         tracy frameMarkNamed $kGpu
 
