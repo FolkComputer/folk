@@ -23,7 +23,9 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
   set writableTextureId [list $id writable texture]
   Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
-  Claim $id has writable texture $writableTextureId with width 1024 height 1024
+  When the GPU has created writable texture $writableTextureId with /...opts/ {
+      Claim $id has writable texture $writableTextureId with {*}$opts
+  }
   When $page has resolved geometry /geom/ {
       Claim $id has resolved geometry $geom
   }
@@ -170,7 +172,9 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
     # Construct the editor window $id':
     set writableTextureId [list $id' writable texture]
     Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
-    Claim $id' has writable texture $writableTextureId with width 1024 height 1024
+    When the GPU has created writable texture $writableTextureId with /...opts/ {
+        Claim $id' has writable texture $writableTextureId with {*}$opts
+    }
     When $page has resolved geometry /geom/ {
         Claim $id' has resolved geometry $geom
     }

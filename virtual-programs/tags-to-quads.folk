@@ -690,5 +690,5 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
     Wish the GPU draws pipeline "image" with arguments \
         [list [list $displayWidth $displayHeight] \
              $displayToClip \
-             0 $a $b $c $d]
+             [dict get $wiOptions texture] $a $b $c $d]
 }

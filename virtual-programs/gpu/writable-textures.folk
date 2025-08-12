@@ -151,6 +151,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         VkCommandBuffer commandBuffer = getCommandBuffer();
         vkResetCommandBuffer(commandBuffer, 0);
 
+        // We can't have this texture in the descriptor set while
+        // we're rendering to it.
+        replaceInTextureDescriptorSet(wi->gpuTexture, 0);
+
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -248,9 +252,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         }
 
         vkWaitForFences(device, 1, &boundWritableTexture->inFlightFence, VK_TRUE, UINT64_MAX);
-
         pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
+        replaceInTextureDescriptorSet(boundWritableTexture->gpuTexture,
+                                      boundWritableTexture->gpuTexture);
         boundWritableTexture = NULL;
     }
 
