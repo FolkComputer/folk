@@ -1,7 +1,7 @@
 puts "web: [__threadId] (PID [pid])"
 
-# HACK
-signal block SIGPIPE
+# TODO: do we still need this?
+# signal block SIGPIPE
 
 source "lib/ws.tcl"
 # We export wsLib so that other threads can emit messages onto

@@ -138,15 +138,17 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         return wi;
     }
     $gpuc proc destroy {GpuWritableTexture* wi} void {
-        // FIXME: don't leak wi itself
-        pthread_mutex_lock(&wi->mutex);
+        pthread_mutex_destroy(&wi->mutex);
 
         freeGpuTexture(wi->gpuTextures[0]);
         freeGpuTexture(wi->gpuTextures[1]);
         wi->gpuTextures[0] = -1;
         wi->gpuTextures[1] = -1;
+        vkDestroyFramebuffer(device, wi->framebuffers[0], NULL);
+        vkDestroyFramebuffer(device, wi->framebuffers[1], NULL);
+        vkDestroyFence(device, wi->inFlightFence, NULL);
 
-        pthread_mutex_unlock(&wi->mutex);
+        free(wi);
     }
     $gpuc code {
         GpuWritableTexture* boundWritableTexture;
