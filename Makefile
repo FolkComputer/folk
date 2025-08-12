@@ -132,7 +132,9 @@ start: folk
 
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
-
+tracy-remote:
+	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
+		make remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 
 # From https://stackoverflow.com/a/26147844 to force rebuild if CFLAGS
 # changes (in particular, so we rebuild if we want to use Tracy)
