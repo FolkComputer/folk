@@ -760,3 +760,8 @@ is it the `keep 8ms` in apriltags.folk?
 ### debug new blinking
 revive tracy plot of number of line operations?
 or number of image operations?
+
+### perf
+
+- errors.folk block is 70us
+- texture copy block is 6ms (!)
