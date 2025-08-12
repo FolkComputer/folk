@@ -43,11 +43,20 @@ namespace eval ::githubGist {
 
     #TODO: This should eventually all be replaced with Wishes to `Hold deeply
     #$gistID is $gistContent` and then we can treat that as the cache.
-    proc _ensureCacheDir {} { variable _cacheDir if {![file isdirectory
-        $_cacheDir]} { puts stderr "DEBUG: Cache directory not found. Creating
-            $_cacheDir" if {[catch {file mkdir $_cacheDir} errMsg]} { puts
-            stderr "Error creating gist cache directory $_cacheDir: $errMsg"
-            return false } } return true }
+    proc _ensureCacheDir {} {
+        variable _cacheDir
+        
+        if {![file isdirectory $_cacheDir]} {
+            puts stderr "DEBUG: Cache directory not found. Creating $_cacheDir"
+            
+            if {[catch {file mkdir $_cacheDir} errMsg]} {
+                puts stderr "Error creating gist cache directory $_cacheDir: $errMsg"
+                return false
+            } 
+        }
+        
+        return true
+    }
 
     proc _fetchGistData {gistID {token ""}} {
         variable _cacheDir
