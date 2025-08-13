@@ -405,7 +405,7 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
         GenRc newGenRc = oldGenRc;
         ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
 
-        if (oldGenRc.rc == 0 && stmt->clause == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && stmt->clause == NULL) {
             newGenRc.alive = true;
             if (atomic_compare_exchange_weak(&stmt->genRc, 
                                              &oldGenRc, newGenRc)) {
@@ -413,9 +413,9 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
             }
         }
     }
-    // We should have exclusive access to stmt right now, because its
-    // rc is 1 but it's not pointed to by any ref or pointer other
-    // than the one here.
+
+    // We should now have exclusive access to stmt, as its rc
+    // is 0 and we were the ones who made it alive
 
     stmt->clause = clause;
     stmt->keepMs = keepMs;
@@ -658,7 +658,7 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
         GenRc newGenRc = oldGenRc;
         ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
 
-        if (oldGenRc.rc == 0 && match->childStatements == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && match->childStatements == NULL) {
             newGenRc.alive = true;
             if (atomic_compare_exchange_weak(&match->genRc, 
                                              &oldGenRc, newGenRc)) {
