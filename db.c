@@ -395,27 +395,27 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
                                  int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
+
     // Look for a free statement slot to use:
     while (1) {
         int32_t idx = db->statementPoolNextIdx++;
-        if (idx == 0) { continue; }
+        if (idx == 0) { continue; } // skip null statement
         stmt = &db->statementPool[idx];
 
         GenRc oldGenRc = stmt->genRc;
-        GenRc newGenRc = oldGenRc;
-        ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
-
-        if (oldGenRc.rc == 0 && stmt->clause == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && stmt->clause == NULL) {
+            GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
-            if (atomic_compare_exchange_weak(&stmt->genRc, 
-                                             &oldGenRc, newGenRc)) {
+
+            if (atomic_compare_exchange_weak(&stmt->genRc, &oldGenRc, newGenRc)) {
+                ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
                 break;
             }
         }
     }
-    // We should have exclusive access to stmt right now, because its
-    // rc is 1 but it's not pointed to by any ref or pointer other
-    // than the one here.
+
+    // We should now have exclusive access to stmt, as its rc
+    // is 0 and we were the ones who made it alive
 
     stmt->clause = clause;
     stmt->keepMs = keepMs;
@@ -436,6 +436,7 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
 
     return ret;
 }
+
 static void statementDestroy(Statement* stmt) {
     stmt->parentCount = 0;
     // They should have removed the children first.
@@ -648,20 +649,20 @@ MatchRef matchRef(Db* db, Match* match) {
 static MatchRef matchNew(Db* db, int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
+
     // Look for a free match slot to use:
     while (1) {
         int32_t idx = db->matchPoolNextIdx++;
-        if (idx == 0) { continue; }
+        if (idx == 0) { continue; } // skip null match
         match = &db->matchPool[idx];
-        
-        GenRc oldGenRc = match->genRc;
-        GenRc newGenRc = oldGenRc;
-        ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
 
-        if (oldGenRc.rc == 0 && match->childStatements == NULL) {
+        GenRc oldGenRc = match->genRc;
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && match->childStatements == NULL) {
+            GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
-            if (atomic_compare_exchange_weak(&match->genRc, 
-                                             &oldGenRc, newGenRc)) {
+
+            if (atomic_compare_exchange_weak(&match->genRc, &oldGenRc, newGenRc)) {
+                ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
                 break;
             }
         }
@@ -683,6 +684,7 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
 
     return ret;
 }
+
 static void matchDestroy(Match* match) {
     assert(match->childStatements == NULL);
 
