@@ -193,7 +193,7 @@ typedef struct Statement {
 
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
-    _Atomic Clause* clause;
+    Clause* _Atomic clause;
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
@@ -417,7 +417,7 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
     // We should now have exclusive access to stmt, as its rc
     // is 0 and we were the ones who made it alive
 
-    stmt->clause = clause;
+    atomic_store(&stmt->clause, clause);
     stmt->keepMs = keepMs;
     destructorSetInit(&stmt->destructorSet);
 
