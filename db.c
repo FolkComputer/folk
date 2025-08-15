@@ -193,7 +193,7 @@ typedef struct Statement {
 
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
-    Clause* clause;
+    _Atomic Clause* clause;
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
@@ -442,6 +442,8 @@ static void statementDestroy(Statement* stmt) {
     // They should have removed the children first.
     assert(stmt->childMatches == NULL);
 
+    destructorSetReleaseAll(&stmt->destructorSet);
+
     Clause* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for
     // reuse.
@@ -449,8 +451,6 @@ static void statementDestroy(Statement* stmt) {
 
     /* TracyCFreeS(stmt, 4); */
     clauseFree(stmtClause);
-
-    destructorSetReleaseAll(&stmt->destructorSet);
 }
 
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
