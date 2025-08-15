@@ -276,11 +276,15 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 texture [$gpuWritableLib gpuTexture $wi] \
                 writableInfo $wi \
                 -destructor [list $gpuWritableLib destroy $wi]
+
+            Wish to collect matches for \
+                [list /wisher/ wishes the GPU draws pipeline /name/ \
+                     onto texture $id with /...options/] \
+                with settle 4ms
         }
 
         Wish the GPU runs frame prelude handler [list apply {{gpuWritableLib} {
             upvar missingPipelines missingPipelines
-            upvar missingWritableTextures missingWritableTextures
             upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
             if {![info exists missingWritableTextures]} {
                 set missingWritableTextures [dict create]
@@ -310,43 +314,48 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 }
             }
 
+            local proc renderPipeline {name id options} {
+                upvar gpuWritableLib gpuWritableLib
+                upvar pipelines pipelines
+                upvar missingPipelines missingPipelines
+                upvar drawListsByTexture drawListsByTexture
+
+                if {![dict exists $pipelines $name]} {
+                    if {![dict exists $missingPipelines $name]} {
+                        puts stderr "writable-textures: Missing pipeline $name"
+                        dict set missingPipelines $name true
+                    }
+                    continue
+                }
+                dict unset missingPipelines $name
+                set pipeline [dict get $pipelines $name]
+
+                set layer [dict getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
+                }
+                foreach instance $instances {
+                    dict lappend drawListsByTexture($id) $layer \
+                        [list $gpuWritableLib draw $pipeline $instance]
+                }
+            }
+
             set drawListsByTexture [dict create]
-            ForEach! /wisher/ wishes the GPU draws pipeline /name/ onto texture /id/ with /...options/ {
-                try {
-                    if {![dict exists $pipelines $name]} {
-                        if {![dict exists $missingPipelines $name]} {
-                            puts stderr "writable-textures: Missing pipeline $name"
-                            dict set missingPipelines $name true
+            dict for {id wi} $writableTextures {
+                ForEach! the collected matches for \
+                    [list /wisher/ wishes the GPU draws pipeline /name/ \
+                         onto texture $id with /...options/] are /matches/ {
+                    foreach match $matches { dict with match {
+                        try {
+                            renderPipeline $name $id $options
+                        } on error e {
+                            puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                            Assert! $this claims $wisher has error $e with info [errorInfo $e]
+                            # TODO: does this ever get disposed?
                         }
-                        continue
-                    }
-                    dict unset missingPipelines $name
-                    set pipeline [dict get $pipelines $name]
-
-                    if {![dict exists $writableTextures $id]} {
-                        if {![dict exists $missingWritableTextures $id]} {
-                            puts stderr "writable-textures: Missing writable texture $id"
-                            dict set missingWritableTextures $id true
-                        }
-                        continue
-                    }
-                    dict unset missingWritableTextures $id
-
-                    set layer [dict getdef $options layer 0]
-                    if {[dict exists $options instances]} {
-                        set instances [dict get $options instances]
-                    } else {
-                        set instances [list [dict get $options arguments]]
-                    }
-                    foreach instance $instances {
-                        dict lappend drawListsByTexture($id) $layer \
-                            [list $gpuWritableLib draw $pipeline $instance]
-                    }
-
-                } on error e {
-                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-                    Assert! $this claims $wisher has error $e with info [errorInfo $e]
-                    # TODO: does this ever get disposed?
+                    } }
                 }
             }
 

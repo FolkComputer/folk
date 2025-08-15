@@ -181,6 +181,6 @@ When /someone/ wishes to collect matches for /pattern/ with settle /settle/ {
     On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
 }
 
-# When the clock time is /t/ {
-#     $collectLib RunScheduledRecollects!
-# }
+When the clock time is /t/ {
+    $collectLib RunScheduledRecollects!
+}
