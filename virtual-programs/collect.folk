@@ -1,13 +1,16 @@
-When when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
-    Wish to collect matches for $clause
+When when the collected matches for /clause/ are /matchesVar/ \
+          /body/ with environment /e/ {
+    Wish to collect matches for $clause with settle 0ms
 }
-
-# TODO: Defer recollect for like 4ms right away? Sink other recollects
-# into it? Use sysmon to do that?
+When when the collected matches for /clause/ with settle /settle/ are /matchesVar/ \
+          /body/ with environment /e/ {
+    Wish to collect matches for $clause with settle $settle
+}
 
 set cc [C]
 $cc cflags -I.
 $cc include <string.h>
+$cc include <pthread.h>
 $cc include "trie.h"
 $cc code {
     extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
@@ -16,6 +19,24 @@ $cc code {
                                       const char *sourceFileName, int sourceLineNumber);
     extern Jim_Obj* QuerySimple(Clause* pattern);
     extern Clause* claimizeClause(Clause* clause);
+
+    typedef struct Collect {
+        const char* _Atomic patternStr;
+        uint64_t _Atomic collectAtTime;
+    } Collect;
+
+    #define COLLECTS_MAX 1000
+    Collect collects[COLLECTS_MAX];
+    pthread_mutex_t collectsMutex;
+
+    static int64_t timestamp_get(clockid_t clk_id) {
+        // Returns timestamp in nanoseconds.
+        struct timespec ts;
+        if (clock_gettime(clk_id, &ts)) {
+            perror("can't even get the time :'-(");
+        }
+        return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
+    }
 
     char* makeCollectKey(Jim_Obj* patternObj) {
         const char COLLECT[] = "collect ";
@@ -31,10 +52,13 @@ $cc code {
     int _Atomic version = 0;
 }
 
+$cc proc init {} void {
+    pthread_mutex_init(&collectsMutex, NULL);
+}
 $cc proc Recollect! {Jim_Obj* patternObj} void {
     // First, query for collect patterns.
-    Clause* collectorPattern = malloc(SIZEOF_CLAUSE(7));
-    collectorPattern->nTerms = 7;
+    Clause* collectorPattern = malloc(SIZEOF_CLAUSE(10));
+    collectorPattern->nTerms = 10;
     collectorPattern->terms[0] = strdup("/someone/");
     collectorPattern->terms[1] = strdup("wishes");
     collectorPattern->terms[2] = strdup("to");
@@ -42,6 +66,9 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     collectorPattern->terms[4] = strdup("matches");
     collectorPattern->terms[5] = strdup("for");
     collectorPattern->terms[6] = strdup(Jim_String(patternObj));
+    collectorPattern->terms[7] = strdup("with");
+    collectorPattern->terms[8] = strdup("settle");
+    collectorPattern->terms[9] = strdup("/settle/");
 
     Jim_Obj* collectorsObj = QuerySimple(collectorPattern);
     if (Jim_ListLength(interp, collectorsObj) == 0) {
@@ -83,13 +110,77 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     clauseFree(collectorPattern);
     Jim_DecrRefCount(interp, collectorsObj);
 }
-set collectLib [$cc compile]
-
-When /someone/ wishes to collect matches for /pattern/ {
-    When {*}$pattern {
-        $collectLib Recollect! $pattern
-        On unmatch [list $collectLib Recollect! $pattern]
+# If the recollect doesn't have a settle time, we should recollect
+# immediately. If the recollect has a settle time, then we should bump
+# its next occurrence forward by the settle time.
+$cc proc ScheduleRecollect! {Jim_Obj* patternObj uint64_t settle} void {
+    if (settle == 0) {
+        Recollect_(patternObj);
+        return;
     }
-    $collectLib Recollect! $pattern
-    On unmatch [list $collectLib Recollect! $pattern]
+
+    uint64_t now = timestamp_get(CLOCK_MONOTONIC);
+    const char* patternStr = strdup(Jim_String(patternObj));
+
+    pthread_mutex_lock(&collectsMutex);
+
+    int i;
+    for (i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr != NULL &&
+            strcmp(collects[i].patternStr, patternStr) == 0) {
+
+            collects[i].collectAtTime = now + settle;
+            free(patternStr);
+            break;
+        }
+    }
+    if (i < COLLECTS_MAX) { goto done; }
+
+    for (i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr == NULL) {
+            collects[i].patternStr = patternStr;
+            collects[i].collectAtTime = now + settle;
+            break;
+        }
+    }
+    FOLK_ENSURE(i < COLLECTS_MAX);
+
+ done:
+    pthread_mutex_unlock(&collectsMutex);
 }
+$cc proc RunScheduledRecollects! {} void {
+    uint64_t now = timestamp_get(CLOCK_MONOTONIC);
+
+    pthread_mutex_lock(&collectsMutex);
+    for (int i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr != NULL &&
+            collects[i].collectAtTime >= now) {
+
+            Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1));
+
+            free(collects[i].patternStr);
+            collects[i].patternStr = NULL;
+            collects[i].collectAtTime = 0;
+        }
+    }
+    pthread_mutex_unlock(&collectsMutex);
+}
+set collectLib [$cc compile]
+$collectLib init
+
+When /someone/ wishes to collect matches for /pattern/ with settle /settle/ {
+    if {[string match {*ms} $settle]} {
+        set settleMs [string range $settle 0 end-2]
+        set settleNs [* $settleMs 1000000]
+    }
+    When {*}$pattern {
+        $collectLib ScheduleRecollect! $pattern $settleNs
+        On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
+    }
+    $collectLib ScheduleRecollect! $pattern $settleNs
+    On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
+}
+
+# When the clock time is /t/ {
+#     $collectLib RunScheduledRecollects!
+# }
