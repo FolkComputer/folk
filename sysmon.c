@@ -27,7 +27,7 @@ extern void workerReactivateOrSpawn();
 
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
-#define SYSMON_TICK_MS 4
+#define SYSMON_TICK_MS 3
 
 typedef struct RemoveLater {
     StatementRef _Atomic stmt;
@@ -150,24 +150,45 @@ void sysmon() {
     }
 #endif
 
-    // Fifth: update the clock time statement in the database.
-    // sysmon.c claims the clock time is <TIME>
+    // Fifth: update the time statements in the database.
+
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
-    Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
-    clockTimeClause->nTerms = 7;
-    clockTimeClause->terms[0] = strdup("sysmon.c");
-    clockTimeClause->terms[1] = strdup("claims");
-    clockTimeClause->terms[2] = strdup("the");
-    clockTimeClause->terms[3] = strdup("clock");
-    clockTimeClause->terms[4] = strdup("time");
-    clockTimeClause->terms[5] = strdup("is");
-    clockTimeClause->terms[6] = malloc(100);
-    snprintf(clockTimeClause->terms[6], 100, "%f",
+
+    // sysmon.c claims the internal time is <TIME> (used internally)
+    Clause* internalTimeClause = malloc(SIZEOF_CLAUSE(7));
+    internalTimeClause->nTerms = 7;
+    internalTimeClause->terms[0] = strdup("sysmon.c");
+    internalTimeClause->terms[1] = strdup("claims");
+    internalTimeClause->terms[2] = strdup("the");
+    internalTimeClause->terms[3] = strdup("internal");
+    internalTimeClause->terms[4] = strdup("time");
+    internalTimeClause->terms[5] = strdup("is");
+    internalTimeClause->terms[6] = malloc(100);
+    snprintf(internalTimeClause->terms[6], 100, "%f",
              (double)timeNs / 1000000000.0);
 
-    HoldStatementGlobally("clock-time", currentTick,
-                          clockTimeClause, 5, NULL,
+    HoldStatementGlobally("internal-time", currentTick,
+                          internalTimeClause, 0, NULL,
                           "sysmon.c", __LINE__);
+
+    // sysmon.c claims the clock time is <TIME>
+    if (currentTick % 3 == 0) {
+        Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
+        clockTimeClause->nTerms = 7;
+        clockTimeClause->terms[0] = strdup("sysmon.c");
+        clockTimeClause->terms[1] = strdup("claims");
+        clockTimeClause->terms[2] = strdup("the");
+        clockTimeClause->terms[3] = strdup("clock");
+        clockTimeClause->terms[4] = strdup("time");
+        clockTimeClause->terms[5] = strdup("is");
+        clockTimeClause->terms[6] = malloc(100);
+        snprintf(clockTimeClause->terms[6], 100, "%f",
+                 (double)timeNs / 1000000000.0);
+
+        HoldStatementGlobally("clock-time", currentTick,
+                              clockTimeClause, 0, NULL,
+                              "sysmon.c", __LINE__);
+    }
 }
 
 void *sysmonMain(void *ptr) {

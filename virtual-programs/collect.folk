@@ -168,6 +168,12 @@ $cc proc RunScheduledRecollects! {} void {
 set collectLib [$cc compile]
 $collectLib init
 
+# FIXME: If there's not settlement for a while, we should just take
+# whatever we can get.
+
+# FIXME: If we're just booting now, we should sample whatever's in
+# place already.
+
 When /someone/ wishes to collect matches for /pattern/ with settle /settle/ {
     if {[string match {*ms} $settle]} {
         set settleMs [string range $settle 0 end-2]
@@ -181,6 +187,6 @@ When /someone/ wishes to collect matches for /pattern/ with settle /settle/ {
     On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
 }
 
-When the clock time is /t/ {
+When the internal time is /t/ {
     $collectLib RunScheduledRecollects!
 }

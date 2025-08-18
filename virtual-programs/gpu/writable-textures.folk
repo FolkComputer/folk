@@ -280,7 +280,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             Wish to collect matches for \
                 [list /wisher/ wishes the GPU draws pipeline /name/ \
                      onto texture $id with /...options/] \
-                with settle 4ms
+                with settle 3ms
         }
 
         Wish the GPU runs frame prelude handler [list apply {{gpuWritableLib} {
