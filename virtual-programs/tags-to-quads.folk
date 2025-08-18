@@ -687,8 +687,9 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
     # think we can due to layout transitions)? Do we _need_ a back
     # buffer? Do we linearize offscreen rendering with onscreen
     # rendering?
-    Wish the GPU draws pipeline "image" with arguments \
-        [list [list $displayWidth $displayHeight] \
-             $displayToClip \
-             [dict get $wiOptions texture] $a $b $c $d]
+    HoldStatement! [list $tag image] \
+        [list $this wishes the GPU draws pipeline "image" with arguments \
+             [list [list $displayWidth $displayHeight] \
+                  $displayToClip \
+                  [dict get $wiOptions texture] $a $b $c $d]]
 }
