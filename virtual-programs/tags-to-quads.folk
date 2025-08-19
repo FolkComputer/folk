@@ -646,7 +646,6 @@ When /tag/ has resolved geometry /geom/ &\
 When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /tag/ has writable texture /writableTextureId/ with /...wiOptions/ &\
-     writable texture /writableTextureId/ has current texture /wim/ &\
      /tag/ has quad /quad/ {
 
     # Composite each quad's writable texture onto the screen based on
@@ -661,8 +660,36 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
                      $displayWidth $displayHeight $v
     }] a b c d
 
-    Wish the GPU draws pipeline "image" with arguments \
-        [list [list $displayWidth $displayHeight] \
-             $displayToClip \
-             $wim $a $b $c $d]
+    # FIXME: We want to always draw a texture -- either the current
+    # texture or, if there happens to not be one, the previous valid
+    # texture, as long as it's still valid.
+    #
+    # Ideally, there'd never be a situation in which there's no valid
+    # texture to draw.
+    #
+    # Possible solution: have a writable-id that gets resolved at GPU
+    # draw time to the latest texture.
+    #
+    # Possible solution: have some 'default' that gets drawn even if
+    # wim is not on. But how can we guarantee that this always
+    # executes?
+    #
+    # Possible solution: some sort of priority or immediacy system
+    # where the critical draw path always resolves on the workqueue.
+    #
+    # Possible solution: speed everything up.
+    #
+    # Possible solution (will try): eliminate back buffers for
+    # writable textures. Just block or time it properly. But what
+    # about the problem where we are in the process of drawing onto
+    # the texture, but the GPU wants to redraw the old texture? Can we
+    # stall the whole frame? Can we draw an incomplete (I don't even
+    # think we can due to layout transitions)? Do we _need_ a back
+    # buffer? Do we linearize offscreen rendering with onscreen
+    # rendering?
+    HoldStatement! (keep 2ms) [list $tag image] \
+        [list $this wishes the GPU draws pipeline "image" with arguments \
+             [list [list $displayWidth $displayHeight] \
+                  $displayToClip \
+                  [dict get $wiOptions texture] $a $b $c $d]]
 }
