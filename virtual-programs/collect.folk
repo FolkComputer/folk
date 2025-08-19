@@ -154,7 +154,7 @@ $cc proc RunScheduledRecollects! {} void {
     pthread_mutex_lock(&collectsMutex);
     for (int i = 0; i < COLLECTS_MAX; i++) {
         if (collects[i].patternStr != NULL &&
-            collects[i].collectAtTime >= now) {
+            collects[i].collectAtTime <= now) {
 
             Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1));
 
