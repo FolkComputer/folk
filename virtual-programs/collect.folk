@@ -109,6 +109,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
                 rs->results[rs->nResults + i] = rs1->results[i];
             }
             rs->nResults += rs1->nResults;
+            free(rs1);
         }
 
         // Now acquire all the statements in rs, unify each statement's
