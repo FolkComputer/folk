@@ -351,9 +351,10 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
         if (destructor != NULL) {
             statementAddDestructor(stmt, destructor);
         }
-        statementRelease(db, stmt);
 
         StatementRef ref = statementRef(db, stmt);
+        statementRelease(db, stmt);
+
         reactToNewStatement(ref);
         return ref;
 
@@ -845,7 +846,9 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
+
     Clause* clause = statementClause(stmt);
+    assert(clause != NULL);
 
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
@@ -991,9 +994,9 @@ void workerRun(WorkQueueItem item) {
                                        item.assert.sourceLineNumber,
                                         MATCH_REF_NULL, NULL);
         if (stmt != NULL) {
+            StatementRef ref = statementRef(db, stmt);
             statementRelease(db, stmt);
 
-            StatementRef ref = statementRef(db, stmt);
             reactToNewStatement(ref);
         }
         free(item.assert.sourceFileName);
