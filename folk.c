@@ -249,19 +249,33 @@ void HoldStatementGlobally(const char *key, double version,
     TracyCMessageFmt("hold: %.200s", s); free(s);
 #endif
 
-    StatementRef oldRef; StatementRef newRef;
+    StatementRef oldRef; Statement* newStmt;
+
+    newStmt = dbHoldStatement(db, key, version,
+                              clause, keepMs,
+                              sourceFileName, sourceLineNumber,
+                              &oldRef);
 
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
     }
-    newRef = dbHoldStatement(db, key, version,
-                             clause, keepMs, destructor,
-                             sourceFileName, sourceLineNumber,
-                             &oldRef);
-    if (!statementRefIsNull(newRef)) {
+
+    if (newStmt != NULL) {
+        if (destructor != NULL) {
+            statementAddDestructor(newStmt, destructor);
+        }
+        statementRelease(db, newStmt);
+
+        StatementRef newRef = statementRef(db, newStmt);
         reactToNewStatement(newRef);
+    } else {
+        if (destructor != NULL) {
+            destructorRun(destructor);
+            free(destructor);
+        }
     }
+
     if (!statementRefIsNull(oldRef)) {
         Statement* stmt;
         if ((stmt = statementAcquire(db, oldRef))) {
@@ -311,24 +325,33 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
         free(s);
     }
 
-    StatementRef ref;
+    Statement* stmt;
+    stmt = dbInsertOrReuseStatement(db, clause, keepMs,
+                                    sourceFileName, sourceLineNumber,
+                                    parent, NULL);
+
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
     }
-    ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
-                                   sourceFileName, sourceLineNumber,
-                                   parent, NULL);
 
-    if (statementRefIsNull(ref)) {
+    if (stmt != NULL) {
+        if (destructor != NULL) {
+            statementAddDestructor(stmt, destructor);
+        }
+        statementRelease(db, stmt);
+
+        StatementRef ref = statementRef(db, stmt);
+        reactToNewStatement(ref);
+        return ref;
+
+    } else {
         if (destructor != NULL) {
             destructorRun(destructor);
             free(destructor);
         }
-    } else {
-        reactToNewStatement(ref);
+        return STATEMENT_REF_NULL;
     }
-    return ref;
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -950,13 +973,15 @@ void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
-        StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
-                                       NULL,
-                                       item.assert.sourceFileName,
+        Statement* stmt;
+        stmt = dbInsertOrReuseStatement(db, item.assert.clause, 0,
+                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
-                                       MATCH_REF_NULL, NULL);
-        if (!statementRefIsNull(ref)) {
+                                        MATCH_REF_NULL, NULL);
+        if (stmt != NULL) {
+            statementRelease(db, stmt);
+
+            StatementRef ref = statementRef(db, stmt);
             reactToNewStatement(ref);
         }
         free(item.assert.sourceFileName);
