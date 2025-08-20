@@ -98,11 +98,11 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
 
         ResultSet* rs = dbQuery(db, pattern);
+        size_t unclaimizedNResults = rs->nResults;
 
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern != NULL) {
             ResultSet* rs1 = dbQuery(db, claimizedPattern);
-            free(claimizedPattern);
 
             rs = realloc(rs, SIZEOF_RESULTSET(rs->nResults + rs1->nResults));
             for (size_t i = 0; i < rs1->nResults; i++) {
@@ -122,7 +122,9 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
             resultStmts[i] = result;
 
-            Environment* env = clauseUnify(interp, pattern, statementClause(result));
+            Environment* env = clauseUnify(interp,
+                                           i >= unclaimizedNResults ? claimizedPattern : pattern,
+                                           statementClause(result));
             Jim_Obj* envDict[env->nBindings * 2];
             for (int j = 0; j < env->nBindings; j++) {
                 envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
@@ -131,6 +133,9 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
             Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
             Jim_ListAppendElement(interp, resultsObj, resultObj);
+        }
+        if (claimizedPattern != NULL) {
+            free(claimizedPattern);
         }
         clauseFree(pattern);
 
