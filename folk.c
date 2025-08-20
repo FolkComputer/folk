@@ -245,10 +245,10 @@ int64_t _Atomic latestVersion = 0; // TODO: split by key?
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
                                           Clause *clause, long keepMs, const char *destructorCode,
                                           const char *sourceFileName, int sourceLineNumber) {
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(clause);
-    TracyCMessageFmt("hold: %.200s", s); free(s);
-#endif
+/* #ifdef TRACY_ENABLE */
+/*     char *s = clauseToString(clause); */
+/*     TracyCMessageFmt("hold: %.200s", s); free(s); */
+/* #endif */
 
     StatementRef oldRef; Statement* newStmt;
 
@@ -453,10 +453,10 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
     Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(pattern);
-    TracyCMessageFmt("query: %.200s", s); free(s);
-#endif
+/* #ifdef TRACY_ENABLE */
+/*     char *s = clauseToString(pattern); */
+/*     TracyCMessageFmt("query: %.200s", s); free(s); */
+/* #endif */
 
     Jim_Obj *retObj = QuerySimple(pattern);
     clauseFree(pattern);
