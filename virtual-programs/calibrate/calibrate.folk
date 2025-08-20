@@ -193,8 +193,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     set board [list $this board]
     set boardWritableImage [list $board writable texture]
-    Wish the GPU creates writable texture $boardWritableImage with width $displayWidth height $displayHeight
-    Claim $board has writable texture $boardWritableImage with width $displayWidth height $displayHeight
+    Wish the GPU creates writable texture $boardWritableImage \
+        with width $displayWidth height $displayHeight
+    When the GPU has created writable texture $boardWritableImage with /...opts/ {
+        Claim $board has writable texture $boardWritableImage with {*}$opts
+    }
 
     package require linalg
     namespace import ::math::linearalgebra::scale \
@@ -228,7 +231,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # Project calibration tags based on the current model-to-display
     # homography (which gets dynamically updated as you move the board
     # around):
-    When the calibration model-to-display homography is /H_modelToDisplay/ \
+    When $board has writable texture /any/ with /...wiOpts/ &\
+         the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ &\
          the calibration poses are /calibrationPoses/ &\
          the calibration cycle time is /cycleTime/ {
@@ -320,13 +324,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list 0 1 0] \
                  [list 0 0 1]]
 
-        When writable texture $boardWritableImage has current texture /wim/ {
-            Wish the GPU draws pipeline "image" with arguments \
-                [list [list $displayWidth $displayHeight] \
-                     $displayToClip \
-                     $wim [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
-                layer 100
-        }
+        Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] \
+                 $displayToClip \
+                 [dict get $wiOpts texture] \
+                 [list -1 -1] [list 1 -1] [list 1 1] [list -1 1]] \
+            layer 100
     }
 
     # This is made a function so it can also be called by the Web page

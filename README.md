@@ -703,24 +703,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
 
-### editor bugs
-
-- **editor render loop blinks out sometimes**
-  - use keep?
-  - editor code block not converging
-- editor doubles keys sometimes
-- editor turns all keys to whitespace sometimes
-- editor revert bug
-- **editor 'crash'/unresponsive bug**
-- running program bugs out
-  - recollect happening at weird time maybe?
-
 ### perf
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
 - on folk-live at home, folk2-shared-objects: TODO
 
 ### next
-- keep 8ms didn't retract detection once, outline stuck around
 - minor memory leak
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
@@ -736,27 +723,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - writableImage leak
 - blinking on overlaid pages -- either fix an order or enable alpha blending
 
-### lock-in / clone bug
+### camera slice slowness
+5ms-20ms runtime for texture copy
 
-
-
-statements lock in (collections lock in?) -- i've seen detector lock
-in which freezes programs / makes even the incremental detector only
-work nearby
-
-`tag 7 has detection` statement locked in -> `tag 7 has quad`
-statement locked in
-
-```
-**s1256:14** (1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {666.237374 361.324443} p {{647.17 ( [ m26806:10 (s4446:0) ] [ m26807:10 (s33839:0 s33840:0) ] [ m26809:10 (s1263:14) ] )
-s58291:23 (-1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {732.567293 342.322116} p {{712.13 ()
-s58334:23 (-1): virtual-programs/apriltags.folk claims tag 7 has
-detection {id 7 c {732.535781 342.338629} p {{712.14 ()
-```
-
-is it the `keep 8ms` in apriltags.folk?
-
-### global queue overrun with (Eval)
-### debug new blinking
-revive tracy plot of number of line operations?
-or number of image operations?
+ioctl yields?
