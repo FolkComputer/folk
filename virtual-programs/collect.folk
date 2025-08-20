@@ -115,12 +115,14 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         // clause with the pattern, and build up a results Jim object.
 
         Statement** resultStmts = malloc(sizeof(Statement*) * rs->nResults);
+        int resultStmtsCount = 0;
+
         Jim_Obj* resultsObj = Jim_NewListObj(interp, NULL, 0);
         for (size_t i = 0; i < rs->nResults; i++) {
             Statement* result = statementAcquire(db, rs->results[i]);
             if (result == NULL) { continue; }
 
-            resultStmts[i] = result;
+            resultStmts[resultStmtsCount++] = result;
 
             Environment* env = clauseUnify(interp,
                                            i >= unclaimizedNResults ? claimizedPattern : pattern,
@@ -138,6 +140,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
             free(claimizedPattern);
         }
         clauseFree(pattern);
+        free(rs);
 
         // Note that at this point, we've still acquired all the
         // statements in rs. We need to hang onto them to inherit
@@ -164,7 +167,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         // Now inherit the destructors of all the statements in rs
         // into the new collection statement, and release all the
         // statements in rs.
-        for (size_t i = 0; i < rs->nResults; i++) {
+        for (int i = 0; i < resultStmtsCount; i++) {
             if (stmt != NULL) {
                 statementInheritDestructors(stmt, resultStmts[i]);
             }
@@ -172,7 +175,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
             statementRelease(db, resultStmts[i]);
         }
-        free(rs);
+        free(resultStmts);
 
         if (stmt != NULL) {
             statementRelease(db, stmt);
