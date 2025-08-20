@@ -51,7 +51,6 @@ StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
 Clause* statementClause(Statement* stmt);
-Destructor** statementDestructors(Statement* stmt, int* outDestructorCount);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
@@ -59,7 +58,7 @@ bool statementHasOtherIncompleteChildMatch(Db* db, Statement* stmt,
                                            MatchRef otherThan);
 
 void statementAddDestructor(Statement* stmt, Destructor* d);
-void statementAddDestructors(Statement* stmt, int desc, Destructor** desv);
+void statementInheritDestructors(Statement* stmt, Statement* fromStmt);
 
 void statementIncrParentCount(Statement* stmt);
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt);

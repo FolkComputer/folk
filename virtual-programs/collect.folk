@@ -12,13 +12,29 @@ $cc cflags -I.
 $cc include <string.h>
 $cc include <pthread.h>
 $cc include "trie.h"
+$cc include "db.h"
 $cc code {
+    extern Db* db;
     extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
-    extern void HoldStatementGlobally(const char *key, double version,
-                                      Clause *clause, long keepMs,
-                                      const char *sourceFileName, int sourceLineNumber);
-    extern Jim_Obj* QuerySimple(Clause* pattern);
+    extern Statement* HoldStatementGlobally(const char *key, double version,
+                                            Clause *clause, long keepMs,
+                                            const char *destructorCode,
+                                            const char *sourceFileName, int sourceLineNumber);
+    extern Statement* HoldStatementGloballyAcquiring(const char *key, double version,
+                                                     Clause *clause, long keepMs,
+                                                     const char *destructorCode,
+                                                     const char *sourceFileName, int sourceLineNumber);
     extern Clause* claimizeClause(Clause* clause);
+
+    typedef struct EnvironmentBinding {
+        char name[100];
+        Jim_Obj* value;
+    } EnvironmentBinding;
+    typedef struct Environment {
+        int nBindings;
+        EnvironmentBinding bindings[];
+    } Environment;
+    extern Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b);
 
     typedef struct Collect {
         const char* _Atomic patternStr;
@@ -72,24 +88,55 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
     char* collectKey = makeCollectKey(patternObj);
 
-    Jim_Obj* collectorsObj = QuerySimple(collectorPattern);
-    if (Jim_ListLength(interp, collectorsObj) == 0) {
+    ResultSet* collectorsSet = dbQuery(db, collectorPattern);
+    if (collectorsSet->nResults == 0) {
         Clause* emptyClause = malloc(SIZEOF_CLAUSE(0));
         emptyClause->nTerms = 0;
         HoldStatementGlobally(collectKey, version++,
-                              emptyClause, 0, NULL, 0);
+                              emptyClause, 0, NULL, NULL, 0);
     } else {
         Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
-        Jim_Obj* matchesObj = QuerySimple(pattern);
+
+        ResultSet* rs = dbQuery(db, pattern);
 
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern != NULL) {
-            Jim_Obj* claimizedMatchesObj = QuerySimple(claimizedPattern);
-            Jim_ListAppendList(interp, matchesObj, claimizedMatchesObj);
-            Jim_DecrRefCount(interp, claimizedMatchesObj);
+            ResultSet* rs1 = dbQuery(db, claimizedPattern);
             free(claimizedPattern);
+
+            rs = realloc(rs, SIZEOF_RESULTSET(rs->nResults + rs1->nResults));
+            for (size_t i = 0; i < rs1->nResults; i++) {
+                rs->results[rs->nResults + i] = rs1->results[i];
+            }
+            rs->nResults += rs1->nResults;
+        }
+
+        // Now acquire all the statements in rs, unify each statement's
+        // clause with the pattern, and build up a results Jim object.
+
+        Statement** resultStmts = malloc(sizeof(Statement*) * rs->nResults);
+        Jim_Obj* resultsObj = Jim_NewListObj(interp, NULL, 0);
+        for (size_t i = 0; i < rs->nResults; i++) {
+            Statement* result = statementAcquire(db, rs->results[i]);
+            if (result == NULL) { continue; }
+
+            resultStmts[i] = result;
+
+            Environment* env = clauseUnify(interp, pattern, statementClause(result));
+            Jim_Obj* envDict[env->nBindings * 2];
+            for (int j = 0; j < env->nBindings; j++) {
+                envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+                envDict[j*2+1] = env->bindings[j].value;
+            }
+
+            Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
+            Jim_ListAppendElement(interp, resultsObj, resultObj);
         }
         clauseFree(pattern);
+
+        // Note that at this point, we've still acquired all the
+        // statements in rs. We need to hang onto them to inherit
+        // their destructors.
 
         Clause* collectedClause = malloc(SIZEOF_CLAUSE(9));
         collectedClause->nTerms = 9;
@@ -101,17 +148,35 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         collectedClause->terms[5] = strdup("for");
         collectedClause->terms[6] = strdup(Jim_String(patternObj));
         collectedClause->terms[7] = strdup("are");
-        collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+        collectedClause->terms[8] = strdup(Jim_String(resultsObj));
+        Jim_DecrRefCount(interp, resultsObj);
 
-        Jim_DecrRefCount(interp, matchesObj);
+        Statement* stmt =
+            HoldStatementGloballyAcquiring(collectKey, version++,
+                                           collectedClause, 0, NULL,
+                                           NULL, 0);
 
-        HoldStatementGlobally(collectKey, version++,
-                              collectedClause, 0, NULL, 0);
+        // Now inherit the destructors of all the statements in rs
+        // into the new collection statement, and release all the
+        // statements in rs.
+        for (size_t i = 0; i < rs->nResults; i++) {
+            if (stmt != NULL) {
+                statementInheritDestructors(stmt, resultStmts[i]);
+            }
+            // FIXME: what to do if stmt is NULL?
+
+            statementRelease(db, resultStmts[i]);
+        }
+        free(rs);
+
+        if (stmt != NULL) {
+            statementRelease(db, stmt);
+        }
     }
 
     free(collectKey);
     clauseFree(collectorPattern);
-    Jim_DecrRefCount(interp, collectorsObj);
+    free(collectorsSet);
 }
 # If the recollect doesn't have a settle time, we should recollect
 # immediately. If the recollect has a settle time, then we should bump

@@ -160,7 +160,7 @@ typedef struct Environment {
     EnvironmentBinding bindings[];
 } Environment;
 
-// This function lives in main.c and not trie.c (where most
+// This function lives in folk.c and not trie.c (where most
 // Clause/matching logic lives) because it operates at the Tcl level,
 // building up a mapping of strings to Tcl objects. Caller must free
 // the returned Environment*.
@@ -241,9 +241,10 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static void reactToNewStatement(StatementRef ref);
 
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
-void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
-                           const char *sourceFileName, int sourceLineNumber) {
+// Note: returns an acquired statement that the caller should release.
+Statement* HoldStatementGloballyAcquiring(const char *key, double version,
+                                          Clause *clause, long keepMs, const char *destructorCode,
+                                          const char *sourceFileName, int sourceLineNumber) {
 #ifdef TRACY_ENABLE
     char *s = clauseToString(clause);
     TracyCMessageFmt("hold: %.200s", s); free(s);
@@ -265,7 +266,6 @@ void HoldStatementGlobally(const char *key, double version,
         if (destructor != NULL) {
             statementAddDestructor(newStmt, destructor);
         }
-        statementRelease(db, newStmt);
 
         StatementRef newRef = statementRef(db, newStmt);
         reactToNewStatement(newRef);
@@ -282,6 +282,17 @@ void HoldStatementGlobally(const char *key, double version,
             statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
             statementRelease(db, stmt);
         }
+    }
+    return newStmt;
+}
+void HoldStatementGlobally(const char *key, double version,
+                           Clause *clause, long keepMs, const char *destructorCode,
+                           const char *sourceFileName, int sourceLineNumber) {
+    Statement* stmt = HoldStatementGloballyAcquiring(key, version,
+                                                     clause, keepMs, destructorCode,
+                                                     sourceFileName, sourceLineNumber);
+    if (stmt != NULL) {
+        statementRelease(db, stmt);
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -308,6 +319,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
     HoldStatementGlobally(key, version,
                           clause, keepMs, destructorCode,
                           sourceFileName, sourceLineNumber);
+
     return (JIM_OK);
 }
 

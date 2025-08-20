@@ -187,6 +187,9 @@ typedef struct Statement {
     // removing its child matches.
     _Atomic long keepMs;
 
+    // Note that statement destructors are not mutable after statement
+    // creation, so they can be safely looked up and inherited, unlike
+    // match destructors.
     DestructorSet destructorSet;
     pthread_mutex_t destructorSetMutex;
 
@@ -497,12 +500,13 @@ void statementAddDestructor(Statement* stmt, Destructor* d) {
     destructorSetAdd(&stmt->destructorSet, d);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 }
-void statementAddDestructors(Statement* stmt, int desc, Destructor** desv) {
+void statementInheritDestructors(Statement* stmt, Statement* fromStmt) {
+    pthread_mutex_lock(&fromStmt->destructorSetMutex);
     pthread_mutex_lock(&stmt->destructorSetMutex);
-    for (int i = 0; i < desc; i++) {
-        destructorSetAdd(&stmt->destructorSet, desv[i]);
-    }
+    destructorSetInherit(&stmt->destructorSet,
+                         &fromStmt->destructorSet);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
+    pthread_mutex_unlock(&fromStmt->destructorSetMutex);
 }
 
 // Fails to increment parentCount & returns false if parentCount is 0,
