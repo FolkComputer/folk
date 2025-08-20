@@ -497,9 +497,9 @@ proc On {event args} {
     }
 }
 
-# Query! is like QuerySimple! but with added support for
-# & joins, and it'll automatically also test the claimized pattern
-# (with `/someone/ claims` prepended).
+# Query! is like QuerySimple! but with added support for & joins, and
+# it'll automatically also query the claimized pattern (the pattern
+# with `/someone/ claims` prepended).
 proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.

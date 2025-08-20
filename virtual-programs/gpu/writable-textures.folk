@@ -343,20 +343,31 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             }
 
             set drawListsByTexture [dict create]
+            set acquiredRefs [list]
             dict for {id wi} $writableTextures {
-                ForEach! the collected matches for \
-                    [list /wisher/ wishes the GPU draws pipeline /name/ \
-                         onto texture $id with /...options/] are /matches/ {
-                    foreach match $matches { dict with match {
-                        try {
-                            renderPipeline $name $id $options
-                        } on error e {
-                            puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-                            Assert! $this claims $wisher has error $e with info [errorInfo $e]
-                            # TODO: does this ever get disposed?
-                        }
-                    } }
+                set matchesList [Query! the collected matches for \
+                                     [list /wisher/ wishes the GPU draws pipeline /name/ \
+                                          onto texture $id with /...options/] are /matches/]
+                if {[llength $matchesList] == 0} { continue }
+                set matchesStmt [lindex $matchesList 0]
+                set ref [dict get $matchesStmt __ref]
+                try {
+                    StatementAcquire! $ref
+                    lappend acquiredRefs $ref
+                } on error e {
+                    continue
                 }
+
+                set matches [dict get $matchesStmt matches]
+                foreach match $matches { dict with match {
+                    try {
+                        renderPipeline $name $id $options
+                    } on error e {
+                        puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                        Assert! $this claims $wisher has error $e with info [errorInfo $e]
+                        # TODO: does this ever get disposed?
+                    }
+                } }
             }
 
             dict for {id drawLists} $drawListsByTexture {
@@ -378,6 +389,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 $gpuWritableLib drawEnd
 
                 dict set mostRecentDrawListsByTexture $id $drawLists
+            }
+
+            foreach ref $acquiredRefs {
+                StatementRelease! $ref
             }
         }} $gpuWritableLib]
     }
