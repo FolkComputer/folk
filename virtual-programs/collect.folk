@@ -135,6 +135,8 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
             Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
             Jim_ListAppendElement(interp, resultsObj, resultObj);
+
+            free(env);
         }
         if (claimizedPattern != NULL) {
             free(claimizedPattern);
