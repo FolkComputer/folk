@@ -721,7 +721,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   end? -- **it's probably because it gets pinned through descendant
   statements**
 - writableImage leak
-- blinking on overlaid pages -- either fix an order or enable alpha blending
+- ~~blinking on overlaid pages -- either fix an order or enable alpha
+  blending~~
 
 ### camera slice slowness
 5ms-20ms runtime for texture copy

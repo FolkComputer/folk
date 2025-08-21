@@ -199,7 +199,7 @@ $cc proc ScheduleRecollect! {Jim_Obj* patternObj uint64_t settle} void {
     }
 
     uint64_t now = timestamp_get(CLOCK_MONOTONIC);
-    const char* patternStr = strdup(Jim_String(patternObj));
+    char* patternStr = strdup(Jim_String(patternObj));
 
     pthread_mutex_lock(&collectsMutex);
 
