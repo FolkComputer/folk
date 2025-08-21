@@ -1,9 +1,8 @@
-if {$::isLaptop} { return }
 if {[catch {exec which sclang}]} { return }
 
-namespace eval ::Music { variable musicDir $::env(HOME)/music }
-exec mkdir -p $::Music::musicDir
-set bootTidal [open $::Music::musicDir/BootTidal.hs w]
+set musicDir $::env(HOME)/music
+exec mkdir -p $musicDir
+set bootTidal [open $musicDir/BootTidal.hs w]
 # https://raw.githubusercontent.com/tidalcycles/Tidal/main/BootTidal.hs
 puts $bootTidal {
 :set -XOverloadedStrings
@@ -90,23 +89,20 @@ let getState = streamGet tidal
 default (Pattern String, Integer, Double)
 }
 close $bootTidal
-set scStartup [open $::Music::musicDir/startup.sc w]
+set scStartup [open $musicDir/startup.sc w]
 puts $scStartup "SuperDirt.start;"
 close $scStartup
 
 set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
 
-proc ::Music::exec {args} {
-  variable musicDir
+fn musicExec {args} {
   if {[lindex $args end] eq "&"} {
-    ::exec {*}[lreplace $args end end] >>$musicDir/music.log 2>>$musicDir/music.log &
+    exec {*}[lreplace $args end end] >>$musicDir/music.log 2>>$musicDir/music.log &
   } else {
-    ::exec {*}$args >>$musicDir/music.log 2>>$musicDir/music.log
+    exec {*}$args >>$musicDir/music.log 2>>$musicDir/music.log
   }
 }
-proc ::Music::finishSetup {} {
-  variable musicDir
-
+fn musicFinishSetup {} {
   if {$::thisNode ne "folk-beads"} {
     exec jack_control start
     exec jack_control ds alsa
@@ -118,27 +114,26 @@ proc ::Music::finishSetup {} {
 
   catch {exec pkill ghci}
   catch {exec pkill sclang}
-  after 500 {
-    set ::env(QT_QPA_PLATFORM) offscreen
-    ::Music::exec -ignorestderr sclang $::Music::musicDir/startup.sc &
 
-    set fifo $::Music::musicDir/tidal-input
-    exec rm -f $fifo
-    exec mkfifo $fifo
-    ::Music::exec -ignorestderr sh -c "ghci < $fifo" &
-    set fifoId [open $fifo w]
-    exec cat $::Music::musicDir/BootTidal.hs > $fifo
-  }
+  sleep 0.5
+
+  set ::env(QT_QPA_PLATFORM) offscreen
+  musicExec sclang $musicDir/startup.sc &
+
+  set fifo $musicDir/tidal-input
+  exec rm -f $fifo
+  exec mkfifo $fifo
+  musicExec sh -c "ghci < $fifo" &
+  set fifoId [open $fifo w]
+  exec cat $musicDir/BootTidal.hs > $fifo
 }
 
-proc ::Music::waitForDbus {} {
+while true {
     puts "Waiting for D-Bus."
+    sleep 0.2
     if {[file exists /run/user/1000/bus]} {
         puts "Found D-Bus."
-        ::Music::finishSetup
-    } else {
-        after 100 ::Music::waitForDbus
+        musicFinishSetup
+        break
     }
 }
-
-::Music::waitForDbus
