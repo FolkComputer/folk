@@ -472,7 +472,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
         $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
     }
 
-    asprintf(&block->description, "%dx%d texture", width, height);
+    block->description = malloc(32);
+    snprintf(block->description, 32, "%dx%d texture", width, height);
     return block;
 }
 

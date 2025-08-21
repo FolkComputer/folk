@@ -129,10 +129,10 @@ fn musicFinishSetup {} {
 }
 
 while true {
-    puts "Waiting for D-Bus."
+    puts "music: Waiting for D-Bus."
     sleep 0.2
     if {[file exists /run/user/1000/bus]} {
-        puts "Found D-Bus."
+        puts "music: Found D-Bus."
         musicFinishSetup
         break
     }

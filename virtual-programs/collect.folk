@@ -37,7 +37,7 @@ $cc code {
     extern Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b);
 
     typedef struct Collect {
-        const char* _Atomic patternStr;
+        char* _Atomic patternStr;
         uint64_t _Atomic collectAtTime;
     } Collect;
 
