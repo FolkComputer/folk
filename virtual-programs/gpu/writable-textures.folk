@@ -345,6 +345,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             set drawListsByTexture [dict create]
             set acquiredRefs [list]
             dict for {id wi} $writableTextures {
+                # In case no draw commands come in, we still want to
+                # mark that the draw list is clear.
+                dict set drawListsByTexture $id [list]
+
                 set matchesList [Query! the collected matches for \
                                      [list /wisher/ wishes the GPU draws pipeline /name/ \
                                           onto texture $id with /...options/] are /matches/]
