@@ -38,6 +38,11 @@ When the quad library is /quadLib/ &\
         error "points-at: Invalid direction $direction"
     }
 
+    # HACK: This implementation is sort of inelegant in that it
+    # happens entirely in screen-space, because we need to draw right
+    # to the screen right now, and we don't have a surface-to-clip for
+    # that.
+
     # Downproject the whisker to screen-space.
     lassign [lmap v [$quadLib vertices [$quadLib change $whiskerQuad "display $disp"]] {
         $poseLib project $displayIntrinsics \
@@ -59,13 +64,32 @@ When the quad library is /quadLib/ &\
                             $from $to $width $color]
     Wish the GPU draws pipeline "circle" \
         with arguments [list $dispResolution $surfaceToClip \
-                            $to 10 5 {1.0 0 0 1.0} 0]
+                            $to 10 5 $color 0]
 
-    # When /target/ has quad /r2/ {
-    #     if {$target != $rect && $target != $whisker && \
-    #             [$quadLib intersects $whiskerQuad $r2]} {
-    #         Claim $rect points $direction at $target
-    #         Claim $rect points $direction with length $l at $target
-    #     }
-    # }
+    fn contains {vertices p} {
+        lassign $vertices d c b a
+
+        set ab [vec2 sub $b $a]
+        set ap [vec2 sub $p $a]
+        set bc [vec2 sub $c $b]
+        set bp [vec2 sub $p $b]
+        set dot_abap [vec2 dot $ab $ap]
+        set dot_bcbp [vec2 dot $bc $bp]
+
+        expr {0 <= $dot_abap && $dot_abap <= [vec2 dot $ab $ab] && \
+                  0 <= $dot_bcbp && $dot_bcbp <= [vec2 dot $bc $bc]}
+    }
+    When /target/ has quad /r2/ {
+        if {$target eq $rect} { return }
+
+        set displayVertices [lmap v [$quadLib vertices [$quadLib change $whiskerQuad "display $disp"]] {
+            $poseLib project $displayIntrinsics \
+                $displayWidth $displayHeight $v
+        }]
+
+        if {[contains $displayVertices $to]} {
+            Claim $rect points $direction at $target
+            Claim $rect points $direction with length $l at $target
+        }
+    }
 }
