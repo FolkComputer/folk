@@ -58,3 +58,27 @@ namespace eval ::vec2 {
     namespace ensemble create
 }
 
+# From tcllib ::math::geometry
+# Original code found at: https://www.ecse.rpi.edu/~wrf/Research/Short_Notes/pnpoly.html
+# Thanks to Christian Gollwitzer, Peter Lewerin and Eduard Zozuly
+proc ::math::geometry::pointInsidePolygon {point polygon} {
+    lassign $point testx testy
+    foreach p $polygon {
+        lassign $p x y
+        lappend vertx $x
+        lappend verty $y
+    }
+    set c 0
+    set nvert [llength $vertx]
+    for {set i 0 ; set j [expr {$nvert-1}]} {$i < $nvert} {set j $i ; incr i} {
+        if {
+            (([lindex $verty $i]>$testy) != ([lindex $verty $j]>$testy)) &&
+            ($testx < ([lindex $vertx $j] - [lindex $vertx $i]) *
+            ($testy - [lindex $verty $i]) /
+            ([lindex $verty $j] - [lindex $verty $i]) + [lindex $vertx $i])
+        } {
+            set c [expr {!$c}]
+        }
+    }
+    return $c
+}
