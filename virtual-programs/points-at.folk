@@ -39,7 +39,7 @@ When the quad library is /quadLib/ &\
     }
 
     # Downproject the whisker to screen-space.
-    lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
+    lassign [lmap v [$quadLib vertices [$quadLib change $whiskerQuad "display $disp"]] {
         $poseLib project $displayIntrinsics \
             $displayWidth $displayHeight $v
     }] a b c d
@@ -47,19 +47,19 @@ When the quad library is /quadLib/ &\
     set dispResolution [list $displayWidth $displayHeight]
     set surfaceToClip \
         [list \
-             [list [expr {2.0 / $displayWidth}] 0 [expr {-1.0}]] \
-             [list 0 [expr {-2.0 / $displayHeight}] [expr {1.0}]] \
+             [list [expr {2.0 / $displayWidth}] 0 -1.0] \
+             [list 0 [expr {2.0 / $displayHeight}] -1.0] \
              [list 0 0 1]]
-    set from $a
+    set from $c
     set to $b
     set width 4
     set color [dict get $colorMap $color]
-    puts [list Wish the GPU draws pipeline line with arguments \
-              [list $dispResolution $surfaceToClip \
-                   $from $to $width $color]]
     Wish the GPU draws pipeline "line" \
         with arguments [list $dispResolution $surfaceToClip \
                             $from $to $width $color]
+    Wish the GPU draws pipeline "circle" \
+        with arguments [list $dispResolution $surfaceToClip \
+                            $to 10 5 {1.0 0 0 1.0} 0]
 
     # When /target/ has quad /r2/ {
     #     if {$target != $rect && $target != $whisker && \
