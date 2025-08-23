@@ -403,11 +403,58 @@ set quadLib [library create quadLib {spaceLib} {
             $spaceLib change $sourceSpace $targetSpace $v
         }]
     }
-    proc scale {q s} {
-        # TODO: this should probably be with respect to the centroid
-        # of the quad?
+    # Scales about the centroid of the quad, along the x and y axes of
+    # the quad. You can scale by a percentage or set a specific length
+    # in meters/centimeters/millimeters (which just sets the quad size
+    # along that axis).
+    proc scale {q args} {
+        if {[llength $args] == 1} {
+            set value [lindex $args 0]
+            set args [list width $value height $value]
+        }
+
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set width [::math::max [norm [sub $topRight $topLeft]] \
+                       [norm [sub $bottomRight $bottomLeft]]]
+        set height [::math::max [norm [sub $bottomRight $topRight]] \
+                        [norm [sub $bottomLeft $topLeft]]]
+
+        set sxp 1; set syp 1
+        foreach {dim value} $args {
+            if {![regexp {([\0-9\.]+)(cm|mm|m|%)?} $value -> value unit]} {
+                error "quad scale: Invalid scale value $value"
+            }
+
+            if {$dim eq "width"} {
+                if {$unit eq "px"} {
+                    set sxp [* $sxp [/ $value $width]]
+                } elseif {$unit eq "%"} {
+                    set sxp [* $sxp $value 0.01]
+                } elseif {$unit eq ""} {
+                    set sxp [* $sxp $value]
+                }
+            } elseif {$dim eq "height"} {
+                if {$unit eq "px"} {
+                    set syp [* $syp [/ $value $height]]
+                } elseif {$unit eq "%"} {
+                    set syp [* $syp [* $value 0.01]]
+                } elseif {$unit eq ""} {
+                    set syp [* $syp $value]
+                }
+            } else {
+                error "quad scale: Invalid dimension $dim"
+            }
+        }
+
+        set c [::math::linearalgebra::scale 0.25 \
+                   [add [add $topLeft $bottomRight] \
+                        [add $topRight $bottomLeft]]]
         create [space $q] [lmap v [vertices $q] {
-            lmap x $v {* $x $s}
+            set v [sub $v $c]
+            lassign $v x y z
+            set v [list [* $x $sxp] [* $y $syp] $z]
+            set v [add $v $c]
+            set v
         }]
     }
     proc buffer {q args} {

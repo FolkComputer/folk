@@ -8,40 +8,64 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
   Wish $rect points $direction with length 1
 }
 
-When /someone/ wishes /rect/ points /direction/ with length /l/ & /rect/ has region /region/ {
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     the color map is /colorMap/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /display/ has intrinsics /displayIntrinsics/ &\
+     /someone/ wishes /rect/ points /direction/ with length /l/ &\
+     /rect/ has quad /quad/ {
 
     set scale $l
 
     if {$direction eq "up"} {
-        set whiskerRegion [region scale $region width 0.01px height $scale]
-        set whiskerRegion [region move $whiskerRegion up \
-                               [vec2 distance [region bottom $whiskerRegion] [region top $region]]px]
+        set whiskerQuad [$quadLib scale $quad width 0.01px height $scale]
+        set whiskerQuad [$quadLib move $whiskerQuad up 100%]
         set color blue
     } elseif {$direction eq "left"} {
-        set whiskerRegion [region scale $region height 0.01px width $scale]
-        set whiskerRegion [region move $whiskerRegion left \
-                               [vec2 distance [region right $whiskerRegion] [region left $region]]px]
+        set whiskerQuad [$quadLib scale $quad height 0.01px width $scale]
+        set whiskerQuad [$quadLib move $whiskerQuad left 100%]
         set color gold
     } elseif {$direction eq "right"} {
-        set whiskerRegion [region scale $region height 0.01px width $scale]
-        set whiskerRegion [region move $whiskerRegion right \
-                               [vec2 distance [region right $whiskerRegion] [region left $region]]px]
+        set whiskerQuad [$quadLib scale $quad height 0.01px width $scale]
+        set whiskerQuad [$quadLib move $whiskerQuad right 100%]
         set color green
     } elseif {$direction eq "down"} {
-        set whiskerRegion [region scale $region width 0.01px height $scale]
-        set whiskerRegion [region move $whiskerRegion down \
-                               [vec2 distance [region bottom $whiskerRegion] [region top $region]]px]
+        set whiskerQuad [$quadLib scale $quad width 0.01px height $scale]
+        set whiskerQuad [$quadLib move $whiskerQuad down 100%]
         set color white
+    } else {
+        error "points-at: Invalid direction $direction"
     }
-    set whisker [list $rect whisker $direction]
-    Claim $whisker has region $whiskerRegion
-    Wish $whisker is outlined $color
 
-    When /target/ has region /r2/ {
-        if {$target != $rect && $target != $whisker && \
-                [region intersects $whiskerRegion $r2]} {
-            Claim $rect points $direction at $target
-            Claim $rect points $direction with length $l at $target
-        }
-    }
+    # Downproject the whisker to screen-space.
+    lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
+        $poseLib project $displayIntrinsics \
+            $displayWidth $displayHeight $v
+    }] a b c d
+
+    set dispResolution [list $displayWidth $displayHeight]
+    set surfaceToClip \
+        [list \
+             [list [expr {2.0 / $displayWidth}] 0 [expr {-1.0}]] \
+             [list 0 [expr {-2.0 / $displayHeight}] [expr {1.0}]] \
+             [list 0 0 1]]
+    set from $a
+    set to $b
+    set width 4
+    set color [dict get $colorMap $color]
+    puts [list Wish the GPU draws pipeline line with arguments \
+              [list $dispResolution $surfaceToClip \
+                   $from $to $width $color]]
+    Wish the GPU draws pipeline "line" \
+        with arguments [list $dispResolution $surfaceToClip \
+                            $from $to $width $color]
+
+    # When /target/ has quad /r2/ {
+    #     if {$target != $rect && $target != $whisker && \
+    #             [$quadLib intersects $whiskerQuad $r2]} {
+    #         Claim $rect points $direction at $target
+    #         Claim $rect points $direction with length $l at $target
+    #     }
+    # }
 }
