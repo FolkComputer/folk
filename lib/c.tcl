@@ -592,7 +592,7 @@ C method compile {{cid {}}} {
         #ifdef __cplusplus
         \}
         #include <atomic>
-        static std::atomic<const char*> __cInfo = NULL;
+        static std::atomic<const char*> __cInfo(nullptr);
         extern "C" \{
         #else
         static const char* _Atomic __cInfo = NULL;

@@ -68,10 +68,10 @@ When {
 
 ##############
 
-# When {
-#     sleep 5
-#     __conclude 0
-# }
+When {
+    sleep 5
+    __conclude 0
+}
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} \
@@ -86,7 +86,7 @@ local proc LoadProgram! {programFilename} {
 
 apply {{} {
     LoadProgram! virtual-programs/gpu/textures.folk
-    LoadProgram! virtual-programs/gpu/writable-textures.folk
+    LoadProgram! virtual-programs/gpu/canvases.folk
     LoadProgram! virtual-programs/draw/color-map.folk
     LoadProgram! virtual-programs/draw/dashed-line.folk
     LoadProgram! virtual-programs/draw/fill.folk

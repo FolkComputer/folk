@@ -15,7 +15,7 @@ When we are \
         } on error e {
             set st [info stacktrace]
             assert {[lindex $st 2] == 3}
-            assert {[lindex $st 5] == 7}
+            assert {[lindex $st 6] == 7}
             __conclude 0
         }
     }
