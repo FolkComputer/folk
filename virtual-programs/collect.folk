@@ -1,10 +1,10 @@
-When when the collected matches for /clause/ are /matchesVar/ \
+When when the collected results for /clause/ are /resultsVar/ \
           /body/ with environment /e/ {
-    Wish to collect matches for $clause with settle 0ms
+    Wish to collect results for $clause with settle 0ms
 }
-When when the collected matches for /clause/ with settle /settle/ are /matchesVar/ \
+When when the collected results for /clause/ with settle /settle/ are /resultsVar/ \
           /body/ with environment /e/ {
-    Wish to collect matches for $clause with settle $settle
+    Wish to collect results for $clause with settle $settle
 }
 
 set cc [C]
@@ -79,7 +79,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     collectorPattern->terms[1] = strdup("wishes");
     collectorPattern->terms[2] = strdup("to");
     collectorPattern->terms[3] = strdup("collect");
-    collectorPattern->terms[4] = strdup("matches");
+    collectorPattern->terms[4] = strdup("results");
     collectorPattern->terms[5] = strdup("for");
     collectorPattern->terms[6] = strdup(Jim_String(patternObj));
     collectorPattern->terms[7] = strdup("with");
@@ -155,7 +155,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         collectedClause->terms[1] = strdup("claims");
         collectedClause->terms[2] = strdup("the");
         collectedClause->terms[3] = strdup("collected");
-        collectedClause->terms[4] = strdup("matches");
+        collectedClause->terms[4] = strdup("results");
         collectedClause->terms[5] = strdup("for");
         collectedClause->terms[6] = strdup(Jim_String(patternObj));
         collectedClause->terms[7] = strdup("are");
@@ -253,7 +253,7 @@ $collectLib init
 # FIXME: If we're just booting now, we should sample whatever's in
 # place already.
 
-When /someone/ wishes to collect matches for /pattern/ with settle /settle/ {
+When /someone/ wishes to collect results for /pattern/ with settle /settle/ {
     if {[string match {*ms} $settle]} {
         set settleMs [string range $settle 0 end-2]
         set settleNs [* $settleMs 1000000]

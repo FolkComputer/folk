@@ -398,15 +398,15 @@ When /x/ is cool & \
 }
 ```
 
-### Collecting matches
+### Collecting results
 
 ```
-When the collected matches for [list /actor/ is cool] are /matches/ {
-   Wish $this is labelled [join $matches "\n"]
+When the collected results for [list /actor/ is cool] are /results/ {
+   Wish $this is labelled [join $results "\n"]
 }
 ```
 
-This gets you an array of all matches for the pattern `/actor/ is
+This gets you an array of all results for the pattern `/actor/ is
 cool`.
 
 (We use the Tcl `list` function to construct a pattern as a

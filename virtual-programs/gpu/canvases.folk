@@ -277,7 +277,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 writableInfo $wi \
                 -destructor [list $gpuCanvasLib destroy $wi]
 
-            Wish to collect matches for \
+            Wish to collect results for \
                 [list /wisher/ wishes the GPU draws pipeline /name/ \
                      onto canvas $id with /...options/] \
                 with settle 3ms
@@ -293,16 +293,16 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 set mostRecentDrawListsByTexture [dict create]
             }
 
-            set matches [Query! the GPU compiles pipeline /name/ to /pipeline/]
+            set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
-            foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
+            foreach result $results { dict with result { dict set pipelines $name $pipeline } }
 
             set acquiredRefs [list]
 
-            set matches [Query! the GPU has created canvas /id/ with /...options/]
+            set results [Query! the GPU has created canvas /id/ with /...options/]
             set canvases [dict create]
-            foreach match $matches { dict with match {
-                set ref [dict get $match __ref]
+            foreach result $results { dict with result {
+                set ref [dict get $result __ref]
                 try {
                     StatementAcquire! $ref
                     lappend acquiredRefs $ref
@@ -358,12 +358,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 # mark that the draw list is clear.
                 dict set drawListsByTexture $id [list]
 
-                set matchesList [Query! the collected matches for \
+                set resultsList [Query! the collected results for \
                                      [list /wisher/ wishes the GPU draws pipeline /name/ \
-                                          onto canvas $id with /...options/] are /matches/]
-                if {[llength $matchesList] == 0} { continue }
-                set matchesStmt [lindex $matchesList 0]
-                set ref [dict get $matchesStmt __ref]
+                                          onto canvas $id with /...options/] are /results/]
+                if {[llength $resultsList] == 0} { continue }
+                set resultsStmt [lindex $resultsList 0]
+                set ref [dict get $resultsStmt __ref]
                 try {
                     StatementAcquire! $ref
                     lappend acquiredRefs $ref
@@ -371,8 +371,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                     continue
                 }
 
-                set matches [dict get $matchesStmt matches]
-                foreach match $matches { dict with match {
+                set results [dict get $resultsStmt results]
+                foreach result $results { dict with result {
                     try {
                         renderPipeline $name $id $options
                     } on error e {

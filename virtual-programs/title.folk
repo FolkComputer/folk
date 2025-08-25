@@ -7,49 +7,49 @@ When /thing/ has quad /quad/ {
 }
 
 When /thing/ has a quad {
-    When the collected matches for [list /someone/ wishes $thing is titled /text/] are /matches/ {
-        set text [join [lmap match $matches {dict get $match text}] "\n"]
+    When the collected results for [list /someone/ wishes $thing is titled /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
     
         set radians [region angle $region]
         When $thing has region /region/ {
-            set scale [dict getdef $match scale 1.0]
+            set scale [dict getdef $result scale 1.0]
             set pos [region top [region move $region up 10px]]
             Wish to draw text with position $pos scale $scale text $text radians $radians anchor bottom
         }
     }
 
-    When the collected matches for [list /someone/ wishes $thing is footnoted /text/] are /matches/ {
-        set text [join [lmap match $matches {dict get $match text}] "\n"]
+    When the collected results for [list /someone/ wishes $thing is footnoted /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
         set radians [region angle $region]
         When $thing has region /region/ {
-            set scale [dict getdef $match scale 0.75]
+            set scale [dict getdef $result scale 0.75]
             set pos [region bottomleft [region move $region down 20px]]
             Wish to draw text with position $pos scale $scale text $text radians $radians anchor topleft
         }
     }
     
-    When the collected matches for [list /someone/ wishes $thing is right-margined /text/] are /matches/ {
-        set text [join [lmap match $matches {dict get $match text}] "\n"]
+    When the collected results for [list /someone/ wishes $thing is right-margined /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
         set radians [region angle $region]
         When $thing has region /region/ {
-            set scale [dict getdef $match scale 0.75]
+            set scale [dict getdef $result scale 0.75]
             set pos [region right [region move $region right 10px]]
             Wish to draw text with position $pos scale $scale text $text radians $radians anchor left
         }
     }
 
-    When the collected matches for [list /someone/ wishes $thing is left-margined /text/] are /matches/ {
-        set text [join [lmap match $matches {dict get $match text}] "\n"]
+    When the collected results for [list /someone/ wishes $thing is left-margined /text/] are /results/ {
+        set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
 
         set radians [region angle $region]
         When $thing has region /region/ {
-            set scale [dict getdef $match scale 0.75]
+            set scale [dict getdef $result scale 0.75]
             set pos [region left [region move $region left 10px]]
             Wish to draw text with position $pos scale $scale text $text radians $radians anchor right
         }

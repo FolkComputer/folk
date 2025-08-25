@@ -1399,14 +1399,14 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
 
-        set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        set results [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
         set pipelines [dict create]
-        foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
+        foreach result $results { dict with result { dict set pipelines $name $pipeline } }
 
         set displayList [dict create]
-        foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
+        foreach result [Query! /wisher/ wishes the GPU draws pipeline /name/ with /...options/] {
             try {
-                set name [dict get $match name]
+                set name [dict get $result name]
                 if {![dict exists $pipelines $name]} {
                     if {![dict exists $missingPipelines $name]} {
                         puts stderr "gpu: Missing pipeline $name"
@@ -1416,9 +1416,9 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
                 }
                 dict unset missingPipelines $name
 
-                set pipeline [dict get $pipelines [dict get $match name]]
+                set pipeline [dict get $pipelines [dict get $result name]]
 
-                set options [dict get $match options]
+                set options [dict get $result options]
                 set layer [dict getdef $options layer 0]
                 if {[dict exists $options instances]} {
                     set instances [dict get $options instances]
@@ -1431,7 +1431,7 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
                 }
             } on error e {
                 puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-                Assert! $this claims [dict get $match wisher] has error $e with info [errorInfo $e]
+                Assert! $this claims [dict get $result wisher] has error $e with info [errorInfo $e]
                 # TODO: does this ever get disposed?
             }
         }

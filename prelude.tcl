@@ -448,9 +448,9 @@ proc When {args} {
     }
 
     if {$isNegated} {
-        set negateBody [list if {[llength $__matches] == 0} $body]
+        set negateBody [list if {[llength $__results] == 0} $body]
         tailcall SayWithSource {*}$sourceInfo 0 {} \
-            when the collected matches for $pattern are /__matches/ \
+            when the collected results for $pattern are /__results/ \
             $negateBody with environment $envStack
     } else {
         tailcall SayWithSource {*}$sourceInfo 0 {} \
