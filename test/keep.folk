@@ -1,0 +1,21 @@
+When the parent statement exists {
+    Claim (keep 1000ms) the child statement exists
+}
+Assert! the parent statement exists
+
+When the child statement exists {
+    set startTime [clock milliseconds]
+    puts "hi($startTime ms)"
+    On unmatch {
+        set endTime [clock milliseconds]
+        set diff $($endTime - $startTime)
+        assert {$diff > 1000}
+        __conclude 0
+    }
+
+    Claim the grandchild statement exists
+}
+
+When the grandchild statement exists {
+    Retract! the parent statement exists
+}

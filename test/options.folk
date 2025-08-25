@@ -1,0 +1,7 @@
+When stuff is cool with /...opts/ {
+    if {![info exists opts]} { __conclude 1 }
+    assert {[dict get $opts number] == 2}
+}
+
+Claim stuff is cool
+Claim stuff is cool with number 2

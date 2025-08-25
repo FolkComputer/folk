@@ -1,0 +1,34 @@
+Assert! cool
+When cool {
+    puts stderr ON
+    On unmatch {
+        Assert! test 1 passed
+    }
+
+    Retract! cool
+}
+
+
+When { source "virtual-programs/collect.folk" }
+
+When cool2 {
+    On unmatch {
+        puts BYE!
+        Assert! test 2 passed
+    }
+    When the collected results for [list /x/ is a collectible item] are /results/ {
+        puts $results
+    }
+}
+Assert! cool2
+Claim 1 is a collectible item
+Claim 2 is a collectible item
+sleep 1
+Claim 3 is a collectible item
+sleep 1
+Retract! cool2
+
+
+When test 1 passed & test 2 passed {
+    __conclude 0
+}
