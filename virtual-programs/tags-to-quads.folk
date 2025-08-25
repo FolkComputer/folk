@@ -692,9 +692,9 @@ When /tag/ has resolved geometry /geom/ &\
 
 When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
-     /tag/ has writable texture /writableTextureId/ with /...wiOptions/ {
+     /tag/ has canvas /writableTextureId/ with /...wiOptions/ {
 
-    # Composite each quad's writable texture onto the screen based on
+    # Composite each quad's canvas onto the screen based on
     # its quad.
     set displayToClip [list \
         [list [expr {2.0/$displayWidth}] 0 -1] \
