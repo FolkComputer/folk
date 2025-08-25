@@ -15,4 +15,4 @@ $dd proc super_addify {int a int b} int {
 set dlib [$dd compile]
 
 assert {[$dlib super_addify 10 1] == 1100}
-__conclude 0
+Exit! 0

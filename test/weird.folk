@@ -41,4 +41,4 @@ $obj proc addify {int a int b} int {
 puts "classvars ([$obj classvars])"
 puts "vars ([$obj vars])"
 
-__conclude 0
+Exit! 0

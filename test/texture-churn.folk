@@ -1,5 +1,5 @@
 # FIXME: disable for now
-__conclude 0
+Exit! 0
 
 When the image library is /imageLib/ {
     set cc [C]

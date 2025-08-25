@@ -555,7 +555,7 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_SetResultInt(interp, self->index);
     return JIM_OK;
 }
-static int __concludeFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
@@ -609,7 +609,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__conclude", __concludeFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));

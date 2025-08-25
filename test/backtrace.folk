@@ -18,7 +18,7 @@ When we are on {
         assert {$filename eq "test/backtrace.folk"}
         assert {$lineno == 4}
         puts "SUCCESS!"
-        __conclude 0
+        Exit! 0
     }
 
     set t 0

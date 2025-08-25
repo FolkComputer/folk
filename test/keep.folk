@@ -10,7 +10,7 @@ When the child statement exists {
         set endTime [clock milliseconds]
         set diff $($endTime - $startTime)
         assert {$diff > 1000}
-        __conclude 0
+        Exit! 0
     }
 
     Claim the grandchild statement exists

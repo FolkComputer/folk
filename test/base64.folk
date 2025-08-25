@@ -1,2 +1,2 @@
 assert {[binary decode base64 [binary encode base64 "hello"]] eq "hello"}
-__conclude 0
+Exit! 0

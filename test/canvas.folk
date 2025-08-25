@@ -70,7 +70,7 @@ When {
 
 When {
     sleep 5
-    __conclude 0
+    Exit! 0
 }
 
 Assert! when /__this/ has program code /__programCode/ {

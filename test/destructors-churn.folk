@@ -7,7 +7,7 @@ When {
                 Retract! the $n is present
                 if {$n > 200} {
                     puts [Query! the /n/ is present]
-                    __conclude 0
+                    Exit! 0
                 }
             }} $n] \
             [list $this claims the n is [incr n]]

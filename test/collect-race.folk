@@ -28,4 +28,4 @@ for {set i 0} {$i < 5} {incr i} {
     assert {[llength $results] == 0}
 }
 
-__conclude 0
+Exit! 0

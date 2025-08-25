@@ -16,7 +16,7 @@ When we are \
             set st [info stacktrace]
             assert {[lindex $st 2] == 3}
             assert {[lindex $st 6] == 7}
-            __conclude 0
+            Exit! 0
         }
     }
 Claim we are awake

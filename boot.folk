@@ -8,7 +8,7 @@ apply {{} {
                 error "Zombie Folk process exists (PID $oldPid)"
             }
             puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
-            __conclude 1
+            Exit! 1
         } on error e {
             puts stderr "boot: $e; this is OK; continuing."
         }

@@ -30,5 +30,5 @@ Retract! cool2
 
 
 When test 1 passed & test 2 passed {
-    __conclude 0
+    Exit! 0
 }
