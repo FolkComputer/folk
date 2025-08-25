@@ -728,3 +728,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 5ms-20ms runtime for texture copy
 
 ioctl yields?
+
+### next next
+- camera stops working when calibration terminates
+- develop new animation program
+- camera slices blinking
+- keyboard boot bug
+

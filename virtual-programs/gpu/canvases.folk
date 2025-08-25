@@ -297,9 +297,19 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             set pipelines [dict create]
             foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
 
+            set acquiredRefs [list]
+
             set matches [Query! the GPU has created canvas /id/ with /...options/]
             set canvases [dict create]
             foreach match $matches { dict with match {
+                set ref [dict get $match __ref]
+                try {
+                    StatementAcquire! $ref
+                    lappend acquiredRefs $ref
+                } on error e {
+                    continue
+                }
+
                 dict with options {
                     dict set canvases $id $writableInfo
                 }
@@ -343,7 +353,6 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             }
 
             set drawListsByTexture [dict create]
-            set acquiredRefs [list]
             dict for {id wi} $canvases {
                 # In case no draw commands come in, we still want to
                 # mark that the draw list is clear.
