@@ -41,7 +41,7 @@ When there is a sent statement {
     # Test to make sure this statement gets retracted on WS
     # disconnect.
     On unmatch {
-        __conclude 0
+        Exit! 0
     }
 
     kill $websocat

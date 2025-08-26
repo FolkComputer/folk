@@ -448,9 +448,9 @@ proc When {args} {
     }
 
     if {$isNegated} {
-        set negateBody [list if {[llength $__matches] == 0} $body]
+        set negateBody [list if {[llength $__results] == 0} $body]
         tailcall SayWithSource {*}$sourceInfo 0 {} \
-            when the collected matches for $pattern are /__matches/ \
+            when the collected results for $pattern are /__results/ \
             $negateBody with environment $envStack
     } else {
         tailcall SayWithSource {*}$sourceInfo 0 {} \
@@ -497,9 +497,9 @@ proc On {event args} {
     }
 }
 
-# Query! is like QuerySimple! but with added support for
-# & joins, and it'll automatically also test the claimized pattern
-# (with `/someone/ claims` prepended).
+# Query! is like QuerySimple! but with added support for & joins, and
+# it'll automatically also query the claimized pattern (the pattern
+# with `/someone/ claims` prepended).
 proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.

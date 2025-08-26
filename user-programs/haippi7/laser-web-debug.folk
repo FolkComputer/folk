@@ -1,11 +1,11 @@
-When the collected matches for [list laser blob /t/ has center /c/ size /s/] are /matches/ {
-  Wish the web server handles route "/laser-web-debug" with handler [list apply {{matches} {
+When the collected results for [list laser blob /t/ has center /c/ size /s/] are /results/ {
+  Wish the web server handles route "/laser-web-debug" with handler [list apply {{results} {
     upvar ^html ^html
     set blobsHtml "<ol>"
     set blobsJson ""
-    foreach match $matches {
-      append blobsHtml "<li><strong>[dict get $match t]</strong>: [dict get $match c]</li>"
-      append blobsJson "{\"id\": [dict get $match t], \"x\": [lindex [dict get $match c] 0], \"y\": [lindex [dict get $match c] 1]},"
+    foreach result $results {
+      append blobsHtml "<li><strong>[dict get $result t]</strong>: [dict get $result c]</li>"
+      append blobsJson "{\"id\": [dict get $result t], \"x\": [lindex [dict get $result c] 0], \"y\": [lindex [dict get $result c] 1]},
     }
     append blobsHtml "</ol>"
     append blobsJson ""
@@ -74,5 +74,5 @@ Test1();
         </html>
 
     }]
-  }} $matches]
+  }} $results]
 }

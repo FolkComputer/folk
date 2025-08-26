@@ -108,9 +108,9 @@ debug-sudo-remote: sync
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 ./folk'
 debug-heapprofile-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 gdb -ex "handle SIGUSR1 nostop" ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && env LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so HEAPPROFILE=/tmp/folk.hprof PERFTOOLS_VERBOSE=-1 gdb -ex "handle SIGUSR1 nostop" ./folk'
 heapprofile-remote-show:
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; google-pprof --text folk $(HEAPPROFILE)'
 heapprofile-remote-svg:
@@ -135,6 +135,9 @@ run-tracy:
 tracy-remote:
 	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
 		make remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
+sudo-tracy-remote:
+	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
+		make sudo-remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 
 # From https://stackoverflow.com/a/26147844 to force rebuild if CFLAGS
 # changes (in particular, so we rebuild if we want to use Tracy)

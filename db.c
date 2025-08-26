@@ -137,7 +137,6 @@ void destructorSetInit(DestructorSet* set) {
     set->destructors = malloc(8 * sizeof(Destructor*));
     set->destructorsCapacity = 8;
     set->destructorsCount = 0;
-    pthread_mutex_init(&set->destructorsMutex, NULL);
 }
 
 static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
@@ -152,25 +151,16 @@ static void destructorSetAddImpl(DestructorSet* set, Destructor* d) {
     set->destructors[set->destructorsCount++] = d;
 }
 void destructorSetAdd(DestructorSet* set, Destructor* d) {
-    pthread_mutex_lock(&set->destructorsMutex);
     destructorSetAddImpl(set, d);
-    pthread_mutex_unlock(&set->destructorsMutex);
 }
 
 void destructorSetInherit(DestructorSet* to, DestructorSet* from) {
-    pthread_mutex_lock(&from->destructorsMutex);
-    pthread_mutex_lock(&to->destructorsMutex);
-    
     for (int i = 0; i < from->destructorsCount; i++) {
         destructorSetAddImpl(to, from->destructors[i]);
     }
-    
-    pthread_mutex_unlock(&to->destructorsMutex);
-    pthread_mutex_unlock(&from->destructorsMutex);
 }
 
 void destructorSetReleaseAll(DestructorSet* set) {
-    pthread_mutex_lock(&set->destructorsMutex);
     for (int i = 0; i < set->destructorsCount; i++) {
         if (set->destructors[i] != NULL) {
             destructorRelease(set->destructors[i]);
@@ -179,8 +169,6 @@ void destructorSetReleaseAll(DestructorSet* set) {
     }
     free(set->destructors);
     set->destructors = NULL;
-    pthread_mutex_unlock(&set->destructorsMutex);
-    pthread_mutex_destroy(&set->destructorsMutex);
 }
 
 // Statement datatype:
@@ -193,13 +181,17 @@ typedef struct Statement {
 
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
-    Clause* clause;
+    Clause* _Atomic clause;
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
     _Atomic long keepMs;
 
+    // Note that statement destructors are not mutable after statement
+    // creation, so they can be safely looked up and inherited, unlike
+    // match destructors.
     DestructorSet destructorSet;
+    pthread_mutex_t destructorSetMutex;
 
     // Used for debugging (and stack traces for When bodies).
     char sourceFileName[100];
@@ -239,6 +231,7 @@ typedef struct Match {
     _Atomic bool isCompleted;
 
     DestructorSet destructorSet;
+    pthread_mutex_t destructorSetMutex;
 
     // ListOfEdgeTo StatementRef. Used for removal.
     ListOfEdgeTo* childStatements;
@@ -395,31 +388,33 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
                                  int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
+
     // Look for a free statement slot to use:
     while (1) {
         int32_t idx = db->statementPoolNextIdx++;
-        if (idx == 0) { continue; }
+        if (idx == 0) { continue; } // skip null statement
         stmt = &db->statementPool[idx];
 
         GenRc oldGenRc = stmt->genRc;
-        GenRc newGenRc = oldGenRc;
-        ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
-
-        if (oldGenRc.rc == 0 && stmt->clause == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && stmt->clause == NULL) {
+            GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
-            if (atomic_compare_exchange_weak(&stmt->genRc, 
-                                             &oldGenRc, newGenRc)) {
+
+            if (atomic_compare_exchange_weak(&stmt->genRc, &oldGenRc, newGenRc)) {
+                ret = (StatementRef) { .gen = newGenRc.gen, .idx = idx };
                 break;
             }
         }
     }
-    // We should have exclusive access to stmt right now, because its
-    // rc is 1 but it's not pointed to by any ref or pointer other
-    // than the one here.
 
-    stmt->clause = clause;
+    // We should now have exclusive access to stmt, as its rc
+    // is 0 and we were the ones who made it alive
+
+    atomic_store(&stmt->clause, clause);
     stmt->keepMs = keepMs;
+
     destructorSetInit(&stmt->destructorSet);
+    pthread_mutex_init(&stmt->destructorSetMutex, NULL);
 
     stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
@@ -436,10 +431,15 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
 
     return ret;
 }
+
 static void statementDestroy(Statement* stmt) {
     stmt->parentCount = 0;
     // They should have removed the children first.
     assert(stmt->childMatches == NULL);
+
+    pthread_mutex_lock(&stmt->destructorSetMutex);
+    destructorSetReleaseAll(&stmt->destructorSet);
+    pthread_mutex_unlock(&stmt->destructorSetMutex);
 
     Clause* stmtClause = statementClause(stmt);
     // Marks this statement slot as being fully free and ready for
@@ -448,8 +448,6 @@ static void statementDestroy(Statement* stmt) {
 
     /* TracyCFreeS(stmt, 4); */
     clauseFree(stmtClause);
-
-    destructorSetReleaseAll(&stmt->destructorSet);
 }
 
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
@@ -495,6 +493,20 @@ static bool matchChecker(void* db, uint64_t ref) {
 static void statementAddChildMatch(Db* db, Statement* stmt, MatchRef child) {
     listOfEdgeToAdd(&matchChecker, db,
                     &stmt->childMatches, child.val);
+}
+
+void statementAddDestructor(Statement* stmt, Destructor* d) {
+    pthread_mutex_lock(&stmt->destructorSetMutex);
+    destructorSetAdd(&stmt->destructorSet, d);
+    pthread_mutex_unlock(&stmt->destructorSetMutex);
+}
+void statementInheritDestructors(Statement* stmt, Statement* fromStmt) {
+    pthread_mutex_lock(&fromStmt->destructorSetMutex);
+    pthread_mutex_lock(&stmt->destructorSetMutex);
+    destructorSetInherit(&stmt->destructorSet,
+                         &fromStmt->destructorSet);
+    pthread_mutex_unlock(&stmt->destructorSetMutex);
+    pthread_mutex_unlock(&fromStmt->destructorSetMutex);
 }
 
 // Fails to increment parentCount & returns false if parentCount is 0,
@@ -648,20 +660,20 @@ MatchRef matchRef(Db* db, Match* match) {
 static MatchRef matchNew(Db* db, int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
+
     // Look for a free match slot to use:
     while (1) {
         int32_t idx = db->matchPoolNextIdx++;
-        if (idx == 0) { continue; }
+        if (idx == 0) { continue; } // skip null match
         match = &db->matchPool[idx];
-        
-        GenRc oldGenRc = match->genRc;
-        GenRc newGenRc = oldGenRc;
-        ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
 
-        if (oldGenRc.rc == 0 && match->childStatements == NULL) {
+        GenRc oldGenRc = match->genRc;
+        if (oldGenRc.rc == 0 && !oldGenRc.alive && match->childStatements == NULL) {
+            GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
-            if (atomic_compare_exchange_weak(&match->genRc, 
-                                             &oldGenRc, newGenRc)) {
+
+            if (atomic_compare_exchange_weak(&match->genRc, &oldGenRc, newGenRc)) {
+                ret = (MatchRef) { .gen = newGenRc.gen, .idx = idx };
                 break;
             }
         }
@@ -679,15 +691,20 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
 
     match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
+
     destructorSetInit(&match->destructorSet);
+    pthread_mutex_init(&match->destructorSetMutex, NULL);
 
     return ret;
 }
+
 static void matchDestroy(Match* match) {
     assert(match->childStatements == NULL);
 
     // Fire any destructors.
+    pthread_mutex_lock(&match->destructorSetMutex);
     destructorSetReleaseAll(&match->destructorSet);
+    pthread_mutex_unlock(&match->destructorSetMutex);
 }
 
 static bool statementChecker(void* db, uint64_t ref) {
@@ -699,7 +716,9 @@ static void matchAddChildStatement(Db* db, Match* match, StatementRef child) {
                     &match->childStatements, child.val);
 }
 void matchAddDestructor(Match* m, Destructor* d) {
+    pthread_mutex_lock(&m->destructorSetMutex);
     destructorSetAdd(&m->destructorSet, d);
+    pthread_mutex_unlock(&m->destructorSetMutex);
 }
 
 void matchCompleted(Match* match) {
@@ -857,13 +876,12 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // (both of these mean that the caller shouldn't trigger a reaction,
 // since no new statement is being created).
 //
-// Takes ownership of clause (i.e., you can't touch clause at the
+// Takes ownership of `clause` (i.e., you can't touch clause at the
 // caller after calling this!).
-StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
-                                      Destructor* destructor,
-                                      const char* sourceFileName, int sourceLineNumber,
-                                      MatchRef parentMatchRef,
-                                      StatementRef* outReusedStatementRef) {
+Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+                                    const char* sourceFileName, int sourceLineNumber,
+                                    MatchRef parentMatchRef,
+                                    StatementRef* outReusedStatementRef) {
 #define setReusedStatementRef(_ref) \
     if (outReusedStatementRef != NULL) { \
         *outReusedStatementRef = (_ref); \
@@ -875,7 +893,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
-            return STATEMENT_REF_NULL; // Abort!
+            return NULL; // Abort!
         }
 
         pthread_mutex_lock(&parentMatch->childStatementsMutex);
@@ -884,7 +902,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
-            return STATEMENT_REF_NULL; // Abort!
+            return NULL; // Abort!
         }
 
         // Given that we have a parent match, if we've reached this
@@ -893,15 +911,14 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         // to its childStatements list.
     }
 
-    // Now try to add: the trieAdd operation will atomically detect if
-    // the clause is already present.
-    //
     // We'll provisionally create a new statement to add.
     // 
-    // Also transfers ownership of clause to the DB.
+    // Also transfers ownership of `clause` to the DB.
     StatementRef ref = statementNew(db, clause, keepMs,
                                     sourceFileName, sourceLineNumber);
 
+    // Now try to add to the trie: the trieAdd operation will
+    // atomically detect if the clause is already present.
     epochBegin();
     const Trie* oldClauseToStatementRef;
     const Trie* newClauseToStatementRef;
@@ -932,8 +949,12 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                 if (tryReuseStatement(db, stmt, parentMatch)) {
                     // TODO: Add the new destructor passed in?
                     if (parentMatch != NULL) {
+                        pthread_mutex_lock(&parentMatch->destructorSetMutex);
+                        pthread_mutex_lock(&stmt->destructorSetMutex);
                         destructorSetInherit(&stmt->destructorSet,
                                              &parentMatch->destructorSet);
+                        pthread_mutex_unlock(&stmt->destructorSetMutex);
+                        pthread_mutex_unlock(&parentMatch->destructorSetMutex);
                     }
 
                     statementRelease(db, stmt);
@@ -955,7 +976,7 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
-                    return STATEMENT_REF_NULL;
+                    return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
                     // reasons -- we just need to actually make the
@@ -982,25 +1003,26 @@ StatementRef dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     epochEnd();
 
     Statement* newStmt = statementAcquire(db, ref);
+    assert(newStmt != NULL);
 
     // OK, we've made a new statement. trieAdd added the statement to
     // the db and we committed the new db.
-    if (destructor != NULL) {
-        destructorSetAdd(&newStmt->destructorSet,
-                         destructor);
-    }
     if (parentMatch != NULL) {
         matchAddChildStatement(db, parentMatch, ref);
+
+        pthread_mutex_lock(&parentMatch->destructorSetMutex);
+        pthread_mutex_lock(&newStmt->destructorSetMutex);
         destructorSetInherit(&newStmt->destructorSet,
                              &parentMatch->destructorSet);
+        pthread_mutex_unlock(&newStmt->destructorSetMutex);
+        pthread_mutex_unlock(&parentMatch->destructorSetMutex);
 
         pthread_mutex_unlock(&parentMatch->childStatementsMutex);
         matchRelease(db, parentMatch);
     }
-    statementRelease(db, newStmt);
 
     setReusedStatementRef(STATEMENT_REF_NULL);
-    return ref;
+    return newStmt;
 
 #undef setReusedStatementRef
 }
@@ -1009,7 +1031,7 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
                      int workerThreadIndex) {
     MatchRef ref = matchNew(db, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
-    assert(match);
+    assert(match != NULL);
 
     // All parents need to be valid and need to have locked
     // childMatches before we insert the match. Otherwise, abort.
@@ -1038,8 +1060,12 @@ Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
 
         // We should also inherit all destructors from each parent
         // statement.
+        pthread_mutex_lock(&parentStatements[i]->destructorSetMutex);
+        pthread_mutex_lock(&match->destructorSetMutex);
         destructorSetInherit(&match->destructorSet,
                              &parentStatements[i]->destructorSet);
+        pthread_mutex_unlock(&match->destructorSetMutex);
+        pthread_mutex_unlock(&parentStatements[i]->destructorSetMutex);
     }
 
 done:
@@ -1084,13 +1110,12 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     }
 }
 
-// Takes ownership of clause.
-StatementRef dbHoldStatement(Db* db,
-                             const char* key, double version,
-                             Clause* clause, long keepMs,
-                             Destructor* destructor,
-                             const char* sourceFileName, int sourceLineNumber,
-                             StatementRef* outOldStatement) {
+// Takes ownership of `clause` and `destructorSet`.
+Statement* dbHoldStatement(Db* db,
+                           const char* key, double version,
+                           Clause* clause, long keepMs,
+                           const char* sourceFileName, int sourceLineNumber,
+                           StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
     mutexLock(&db->holdsMutex);
@@ -1133,22 +1158,20 @@ StatementRef dbHoldStatement(Db* db,
             statementRelease(db, oldStmtPtr);
             mutexUnlock(&db->holdsMutex);
             clauseFree(clause);
-            return STATEMENT_REF_NULL;
+            return NULL;
         }
 
-        StatementRef newStmt = STATEMENT_REF_NULL;
+        Statement* newStmt = NULL;
         if (clause->nTerms > 0) {
             hold->version = version;
 
             StatementRef reusedStatementRef;
             newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
-                                               destructor,
-                                               sourceFileName,
-                                               sourceLineNumber,
+                                               sourceFileName, sourceLineNumber,
                                                MATCH_REF_NULL,
                                                &reusedStatementRef);
-            if (!statementRefIsNull(newStmt)) {
-                hold->statement = newStmt;
+            if (newStmt != NULL) {
+                hold->statement = statementRef(db, newStmt);
             } else if (!statementRefIsNull(reusedStatementRef)) {
                 hold->statement = reusedStatementRef;
             } else {
@@ -1209,7 +1232,7 @@ StatementRef dbHoldStatement(Db* db,
         // install the new statement.
         mutexUnlock(&db->holdsMutex);
         clauseFree(clause);
-        return STATEMENT_REF_NULL;
+        return NULL;
     }
 }
 

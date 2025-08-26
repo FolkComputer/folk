@@ -102,8 +102,8 @@ Wish the GPU compiles pipeline "image" {
 }}
 When the image library is /imageLib/ &\
      /someone/ wishes to draw an image onto /p/ with /...options/ &\
-     /p/ has writable texture /id/ with /...wiOptions/ &\
-     /p/ has writable texture projection /surfaceToClip/ {
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ {
 
     set im [dict get $options image]
 
@@ -146,7 +146,7 @@ When the image library is /imageLib/ &\
 
     Wish the GPU loads image $im as texture
     When the GPU has loaded image $im as texture /gim/ {
-        Wish the GPU draws pipeline "image" onto texture $id with arguments \
+        Wish the GPU draws pipeline "image" onto canvas $id with arguments \
             [list $wiResolution $surfaceToClip \
                  $gim \
                  $a $b $c $d]

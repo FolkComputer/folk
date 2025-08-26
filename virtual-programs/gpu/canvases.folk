@@ -31,7 +31,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     $gpuc code {
         VkDevice device;
 
-        // This render pass is used to draw on all writable textures.
+        // This render pass is used to draw on all canvases.
         VkRenderPass renderPass;
     }
     $gpuc proc init {} void {
@@ -85,49 +85,43 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     }
 
     $gpuc code {
-        typedef struct GpuWritableTexture {
+        typedef struct GpuCanvas {
             VkExtent2D extent;
 
-            GpuTextureHandle gpuTextures[2];
-            VkFramebuffer framebuffers[2];
-            int _Atomic textureIndex;
+            GpuTextureHandle gpuTexture;
+            VkFramebuffer framebuffer;
 
             VkFence inFlightFence;
+        } GpuCanvas;
+    }
+    $gpuc proc gpuTexture {GpuCanvas* wi} GpuTextureHandle {
+        return wi->gpuTexture;
+    }
 
-            pthread_mutex_t mutex;
-        } GpuWritableTexture;
-    }
-    $gpuc proc gpuTexture {GpuWritableTexture* wi} GpuTextureHandle {
-        return wi->gpuTextures[wi->textureIndex % 2];
-    }
-    $gpuc proc create {int width int height} GpuWritableTexture* {
-        GpuWritableTexture* wi = malloc(sizeof(GpuWritableTexture));
+    $gpuc proc create {int width int height} GpuCanvas* {
+        GpuCanvas* wi = malloc(sizeof(GpuCanvas));
         wi->extent.width = width; wi->extent.height = height;
-        pthread_mutex_init(&wi->mutex, NULL);
 
-        for (int i = 0; i < 2; i++) {
-            GpuTextureBlock* block = createGpuTexture(width, height, VK_FORMAT_B8G8R8A8_SRGB);
-            wi->gpuTextures[i] = block->handle;
-            // make it immediately renderable
-            transitionImageLayout(block->textureImage, VK_FORMAT_B8G8R8A8_SRGB,
-                                  VK_IMAGE_LAYOUT_UNDEFINED,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            addToTextureDescriptorSet(block->handle);
+        GpuTextureBlock* block = createGpuTexture(width, height, VK_FORMAT_B8G8R8A8_SRGB);
+        wi->gpuTexture = block->handle;
+        // make it immediately renderable
+        transitionImageLayout(block->textureImage, VK_FORMAT_B8G8R8A8_SRGB,
+                              VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        addToTextureDescriptorSet(block->handle);
 
-            VkImageView attachments[] = { block->textureImageView };
+        VkImageView attachments[] = { block->textureImageView };
 
-            VkFramebufferCreateInfo framebufferInfo = {0};
-            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-            framebufferInfo.renderPass = renderPass;
-            framebufferInfo.attachmentCount = 1;
-            framebufferInfo.pAttachments = attachments;
-            framebufferInfo.width = width;
-            framebufferInfo.height = height;
-            framebufferInfo.layers = 1;
-            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffers[i])}]
-        }
+        VkFramebufferCreateInfo framebufferInfo = {0};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = width;
+        framebufferInfo.height = height;
+        framebufferInfo.layers = 1;
+        $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffer)}]
 
-        wi->textureIndex = 0;
         {
             VkFenceCreateInfo fenceInfo = {0};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -137,42 +131,29 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
         return wi;
     }
-    $gpuc proc destroy {GpuWritableTexture* wi} void {
-        pthread_mutex_destroy(&wi->mutex);
-
-        freeGpuTexture(wi->gpuTextures[0]);
-        freeGpuTexture(wi->gpuTextures[1]);
-        wi->gpuTextures[0] = -1;
-        wi->gpuTextures[1] = -1;
-        vkDestroyFramebuffer(device, wi->framebuffers[0], NULL);
-        vkDestroyFramebuffer(device, wi->framebuffers[1], NULL);
+    $gpuc proc destroy {GpuCanvas* wi} void {
+        freeGpuTexture(wi->gpuTexture);
+        vkDestroyFramebuffer(device, wi->framebuffer, NULL);
         vkDestroyFence(device, wi->inFlightFence, NULL);
-
         free(wi);
     }
     $gpuc code {
-        GpuWritableTexture* boundWritableTexture;
+        GpuCanvas* boundCanvas;
         VkPipeline boundPipeline;
         VkDescriptorSet boundDescriptorSet;
     }
-    $gpuc proc drawStart {GpuWritableTexture* wi} void {
-        FOLK_ENSURE(boundWritableTexture == NULL);
-        pthread_mutex_lock(&wi->mutex);
-        if (wi->gpuTextures[0] == -1 || wi->gpuTextures[1] == -1) {
-            pthread_mutex_unlock(&wi->mutex);
-            return;
-        }
-        boundWritableTexture = wi;
-        int idx = (wi->textureIndex + 1) % 2;
+    $gpuc proc drawStart {GpuCanvas* wi} void {
+        FOLK_ENSURE(boundCanvas == NULL);
+        boundCanvas = wi;
 
         vkResetFences(device, 1, &wi->inFlightFence);
 
         VkCommandBuffer commandBuffer = getCommandBuffer();
         vkResetCommandBuffer(commandBuffer, 0);
 
-        // Update the descriptor set to redirect the texture we're
-        // rendering to while we're rendering to the other texture.
-        replaceInTextureDescriptorSet(wi->gpuTextures[idx], wi->gpuTextures[(idx + 1) % 2]);
+        // We can't have this texture in the descriptor set while
+        // we're rendering to it.
+        replaceInTextureDescriptorSet(wi->gpuTexture, 0);
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -186,18 +167,18 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             VkRenderPassBeginInfo renderPassInfo = {0};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             renderPassInfo.renderPass = renderPass;
-            renderPassInfo.framebuffer = wi->framebuffers[idx];
+            renderPassInfo.framebuffer = wi->framebuffer;
             renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
             renderPassInfo.renderArea.extent = wi->extent;
 
-            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 0.0f}}};
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
             vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        boundWritableTexture = wi;
+        boundCanvas = wi;
         boundPipeline = VK_NULL_HANDLE;
         boundDescriptorSet = VK_NULL_HANDLE;
     }
@@ -211,15 +192,15 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             VkViewport viewport = {0}; {
                 viewport.x = 0.0f;
                 viewport.y = 0.0f;
-                viewport.width = (float) boundWritableTexture->extent.width;
-                viewport.height = (float) boundWritableTexture->extent.height;
+                viewport.width = (float) boundCanvas->extent.width;
+                viewport.height = (float) boundCanvas->extent.height;
                 viewport.minDepth = 0.0f;
                 viewport.maxDepth = 1.0f;
             }
             vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
             VkRect2D scissor = {0}; {
                 scissor.offset = (VkOffset2D) {0, 0};
-                scissor.extent = boundWritableTexture->extent;
+                scissor.extent = boundCanvas->extent;
             }
             vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         }
@@ -266,107 +247,149 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
             pthread_mutex_lock(graphicsQueueMutex_ptr());
             $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo,
-                                   boundWritableTexture->inFlightFence)}]
+                                   boundCanvas->inFlightFence)}]
             pthread_mutex_unlock(graphicsQueueMutex_ptr());
         }
 
-        vkWaitForFences(device, 1, &boundWritableTexture->inFlightFence, VK_TRUE, UINT64_MAX);
-        boundWritableTexture->textureIndex++;
-
+        vkWaitForFences(device, 1, &boundCanvas->inFlightFence, VK_TRUE, UINT64_MAX);
         pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
-        int idx = boundWritableTexture->textureIndex % 2;
-        replaceInTextureDescriptorSet(boundWritableTexture->gpuTextures[idx],
-                                    boundWritableTexture->gpuTextures[idx]);
-
-        pthread_mutex_unlock(&boundWritableTexture->mutex);
-        boundWritableTexture = NULL;
+        replaceInTextureDescriptorSet(boundCanvas->gpuTexture,
+                                      boundCanvas->gpuTexture);
+        boundCanvas = NULL;
     }
 
-    set gpuWritableLib [$gpuc compile]
-    Claim the GPU writable texture library is $gpuWritableLib
+    set gpuCanvasLib [$gpuc compile]
+    Claim the GPU canvas library is $gpuCanvasLib
 
     When display /any/ has width /any/ height /any/ {
-        $gpuWritableLib init
+        $gpuCanvasLib init
 
         # `id` is arbitrarily chosen by the caller:
-        When /someone/ wishes the GPU creates writable texture /id/ with /...options/ {
+        When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
-            set wi [$gpuWritableLib create $width $height]
+            set wi [$gpuCanvasLib create $width $height]
 
-            Claim the GPU creates writable texture $id as $wi \
-                -destructor [list $gpuWritableLib destroy $wi]
+            Claim the GPU has created canvas $id with \
+                width $width height $height \
+                texture [$gpuCanvasLib gpuTexture $wi] \
+                writableInfo $wi \
+                -destructor [list $gpuCanvasLib destroy $wi]
+
+            Wish to collect results for \
+                [list /wisher/ wishes the GPU draws pipeline /name/ \
+                     onto canvas $id with /...options/] \
+                with settle 3ms
         }
 
-        set missingPipelines [dict create]
-        set missingWritableTextures [dict create]
-        set mostRecentDrawListsByTexture [dict create]
-        while true {
-            set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+        Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib} {
+            upvar missingPipelines missingPipelines
+            upvar mostRecentDrawListsByTexture mostRecentDrawListsByTexture
+            if {![info exists missingCanvases]} {
+                set missingCanvases [dict create]
+            }
+            if {![info exists mostRecentDrawListsByTexture]} {
+                set mostRecentDrawListsByTexture [dict create]
+            }
+
+            set results [Query! the GPU compiles pipeline /name/ to /pipeline/]
             set pipelines [dict create]
-            foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
+            foreach result $results { dict with result { dict set pipelines $name $pipeline } }
 
-            set matches [Query! /someone/ claims the GPU creates writable texture /id/ as /wi/]
-            set writableTextures [dict create]
-            foreach match $matches { dict with match { dict set writableTextures $id $wi } }
+            set acquiredRefs [list]
 
-            # Discard cached draw-lists for writable textures that
+            set results [Query! the GPU has created canvas /id/ with /...options/]
+            set canvases [dict create]
+            foreach result $results { dict with result {
+                set ref [dict get $result __ref]
+                try {
+                    StatementAcquire! $ref
+                    lappend acquiredRefs $ref
+                } on error e {
+                    continue
+                }
+
+                dict with options {
+                    dict set canvases $id $writableInfo
+                }
+            } }
+
+            # Discard cached draw-lists for canvases that
             # have been destroyed, since we'll want to re-draw them
             # if/when they get re-created.
             foreach id [dict keys $mostRecentDrawListsByTexture] {
-                if {![dict exists $writableTextures $id]} {
+                if {![dict exists $canvases $id]} {
                     dict unset mostRecentDrawListsByTexture $id
                 }
             }
 
-            set drawListsByTexture [dict create]
-            ForEach! /wisher/ wishes the GPU draws pipeline /name/ onto texture /id/ with /...options/ {
-                try {
-                    if {![dict exists $pipelines $name]} {
-                        if {![dict exists $missingPipelines $name]} {
-                            puts stderr "writable-textures: Missing pipeline $name"
-                            dict set missingPipelines $name true
-                        }
-                        continue
-                    }
-                    dict unset missingPipelines $name
-                    set pipeline [dict get $pipelines $name]
+            local proc renderPipeline {name id options} {
+                upvar gpuCanvasLib gpuCanvasLib
+                upvar pipelines pipelines
+                upvar missingPipelines missingPipelines
+                upvar drawListsByTexture drawListsByTexture
 
-                    if {![dict exists $writableTextures $id]} {
-                        if {![dict exists $missingWritableTextures $id]} {
-                            puts stderr "writable-textures: Missing writable texture $id"
-                            dict set missingWritableTextures $id true
-                        }
-                        continue
+                if {![dict exists $pipelines $name]} {
+                    if {![dict exists $missingPipelines $name]} {
+                        puts stderr "canvases: Missing pipeline $name"
+                        dict set missingPipelines $name true
                     }
-                    dict unset missingWritableTextures $id
+                    continue
+                }
+                dict unset missingPipelines $name
+                set pipeline [dict get $pipelines $name]
 
-                    set layer [dict getdef $options layer 0]
-                    if {[dict exists $options instances]} {
-                        set instances [dict get $options instances]
-                    } else {
-                        set instances [list [dict get $options arguments]]
-                    }
-                    foreach instance $instances {
-                        dict lappend drawListsByTexture($id) $layer \
-                            [list $gpuWritableLib draw $pipeline $instance]
-                    }
-                } on error e {
-                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
-                    Assert! $this claims $wisher has error $e with info [errorInfo $e]
-                    # TODO: does this ever get disposed?
+                set layer [dict getdef $options layer 0]
+                if {[dict exists $options instances]} {
+                    set instances [dict get $options instances]
+                } else {
+                    set instances [list [dict get $options arguments]]
+                }
+                foreach instance $instances {
+                    dict lappend drawListsByTexture($id) $layer \
+                        [list $gpuCanvasLib draw $pipeline $instance]
                 }
             }
 
-            # TODO: await vsync -- what does the other drawStart do?
+            set drawListsByTexture [dict create]
+            dict for {id wi} $canvases {
+                # In case no draw commands come in, we still want to
+                # mark that the draw list is clear.
+                dict set drawListsByTexture $id [list]
+
+                set resultsList [Query! the collected results for \
+                                     [list /wisher/ wishes the GPU draws pipeline /name/ \
+                                          onto canvas $id with /...options/] are /results/]
+                if {[llength $resultsList] == 0} { continue }
+                set resultsStmt [lindex $resultsList 0]
+                set ref [dict get $resultsStmt __ref]
+                try {
+                    StatementAcquire! $ref
+                    lappend acquiredRefs $ref
+                } on error e {
+                    continue
+                }
+
+                set results [dict get $resultsStmt results]
+                foreach result $results { dict with result {
+                    try {
+                        renderPipeline $name $id $options
+                    } on error e {
+                        puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                        Assert! $this claims $wisher has error $e with info [errorInfo $e]
+                        # TODO: does this ever get disposed?
+                    }
+                } }
+            }
+
             dict for {id drawLists} $drawListsByTexture {
                 if {[dict exists $mostRecentDrawListsByTexture $id] &&
                     ($drawLists eq $mostRecentDrawListsByTexture($id))} {
                     continue
                 }
-                set wi [dict get $writableTextures $id]
-                $gpuWritableLib drawStart $wi
+                set wi [dict get $canvases $id]
+                $gpuCanvasLib drawStart $wi
 
                 foreach layer [lsort -real [dict keys $drawLists]] {
                     set layerDrawList [dict get $drawLists $layer]
@@ -376,19 +399,14 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                     }
                 }
 
-                $gpuWritableLib drawEnd
-
-                # Now that the draw is complete, we should make the
-                # drawn-to texture the one that gets displayed by the
-                # image pipeline.
-                HoldStatement! (keep 10ms) [list $id texture] \
-                    [list $this claims writable texture $id has current texture \
-                         [$gpuWritableLib gpuTexture $wi]]
+                $gpuCanvasLib drawEnd
 
                 dict set mostRecentDrawListsByTexture $id $drawLists
             }
 
-            sleep 0.01
-        }
+            foreach ref $acquiredRefs {
+                StatementRelease! $ref
+            }
+        }} $gpuCanvasLib]
     }
 }

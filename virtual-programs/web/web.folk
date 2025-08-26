@@ -1,7 +1,9 @@
 puts "web: [__threadId] (PID [pid])"
 
-# TODO: do we still need this?
-# signal block SIGPIPE
+# We need to handle SIGPIPE so closing a tab doesn't crash Folk, but
+# we don't want to block/ignore, because that will cause child
+# processes to also block/ignore and behave weirdly.
+signal handle SIGPIPE
 
 source "lib/ws.tcl"
 # We export wsLib so that other threads can emit messages onto
@@ -10,7 +12,13 @@ Claim the websocket library is $wsLib
 
 proc handleConnect {chan addr} {
     $chan timeout 2000
-    fileevent $chan readable [list handleRead $chan $addr]
+    fileevent $chan readable [list apply {{chan addr} {
+        try -signal {
+            handleRead $chan $addr
+        } on signal {sig} {
+            puts stderr "web: $sig on $chan $addr"
+        }
+    }} $chan $addr]
 }
 
 proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s }

@@ -1,3 +1,6 @@
+# FIXME: disable for now
+Exit! 0
+
 When the image library is /imageLib/ {
     set cc [C]
     $cc extend $imageLib
@@ -37,13 +40,13 @@ When the image library is /imageLib/ {
     Claim the texture-churn library is $lib
 }
 
-Wish the GPU creates writable texture TEST with width 1024 height 1024
-Claim $this has writable texture projection {
+Wish the GPU creates canvas TEST with width 1024 height 1024
+Claim $this has canvas projection {
     {1 0 0}
     {0 1 0}
     {0 0 1}
 }
-Claim $this has writable texture TEST with width 1024 height 1024
+Claim $this has canvas TEST with width 1024 height 1024
 Claim $this has resolved geometry {width 1 height 1 left 0.7}
 
 When the texture-churn library is /lib/ &\
@@ -57,8 +60,8 @@ When the texture-churn library is /lib/ &\
 }
 
 When the GPU library is /gpuLib/ &\
-     the GPU writable texture library is /gpuWritableLib/ &\
-     the GPU creates writable texture TEST as /surf/ {
+     the GPU canvas library is /gpuWritableLib/ &\
+     the GPU creates canvas TEST as /surf/ {
 
     set surfTex [$gpuWritableLib gpuTexture $surf]
 

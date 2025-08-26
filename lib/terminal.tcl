@@ -78,7 +78,7 @@ namespace eval Terminal {
   }
 }
 
-set cc [c create]
+set cc [C]
 $cc cflags -I./vendor/libtmt ./vendor/libtmt/tmt.c
 
 if {$::tcl_platform(os) ne "Darwin"} {

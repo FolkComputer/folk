@@ -6,14 +6,14 @@ When display /disp/ has width /w/ height /h/ {
 
 When page /p/ is out {
     Wish the GPU creates writable texture [list im $p] with width 1024 height 1024
-    Wish the GPU draws pipeline "fillTriangle" onto texture [list im $p] \
+    Wish the GPU draws pipeline "fillTriangle" onto canvas [list im $p] \
         with arguments [list {
             {1 0 0}
             {0 1 0}
             {0 0 1}
         } {-1 -1} {1 -1} {-1 1} {0.5 0 0.5 0.5}]
 
-    Wish the GPU draws pipeline "fillTriangle" onto texture [list im $p] \
+    Wish the GPU draws pipeline "fillTriangle" onto canvas [list im $p] \
         with arguments [list {
             {1 0 0}
             {0 1 0}
@@ -68,10 +68,10 @@ When {
 
 ##############
 
-# When {
-#     sleep 5
-#     __conclude 0
-# }
+When {
+    sleep 5
+    Exit! 0
+}
 
 Assert! when /__this/ has program code /__programCode/ {
     SayWithSource $__this 1 0 {} \
@@ -86,7 +86,7 @@ local proc LoadProgram! {programFilename} {
 
 apply {{} {
     LoadProgram! virtual-programs/gpu/textures.folk
-    LoadProgram! virtual-programs/gpu/writable-textures.folk
+    LoadProgram! virtual-programs/gpu/canvases.folk
     LoadProgram! virtual-programs/draw/color-map.folk
     LoadProgram! virtual-programs/draw/dashed-line.folk
     LoadProgram! virtual-programs/draw/fill.folk
