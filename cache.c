@@ -134,7 +134,9 @@ static void cacheMoveToHeadHelper(Cache* cache, CacheNode* node) {
 
 void cacheInsert(Cache* cache, Jim_Interp* interp,
                  Jim_Obj* obj) {
-    const char* term = Jim_GetString(obj, NULL);
+    int len;
+    const char* term = Jim_GetString(obj, &len);
+    if (len < 15) { return; }
 
     Jim_HashEntry* ent = Jim_FindHashEntry(&cache->table, term);
     if (ent != NULL) { return; }
@@ -144,6 +146,9 @@ void cacheInsert(Cache* cache, Jim_Interp* interp,
 
 Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
                           const char* term) {
+    int len = strlen(term);
+    if (len < 15) { return Jim_NewStringObj(interp, term, len); }
+
     Jim_HashEntry* ent = Jim_FindHashEntry(&cache->table, term);
     CacheNode* node;
     if (ent != NULL) {
@@ -151,7 +156,7 @@ Jim_Obj* cacheGetOrInsert(Cache* cache, Jim_Interp* interp,
         cacheMoveToHeadHelper(cache, node);
     } else {
         // Not in cache yet. Insert into cache.
-        Jim_Obj* obj = Jim_NewStringObj(interp, term, -1);
+        Jim_Obj* obj = Jim_NewStringObj(interp, term, len);
         node = cacheInsertHelper(cache, interp, obj);
     }
 

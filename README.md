@@ -738,5 +738,6 @@ ioctl yields?
 
 ### perf
 
-- errors.folk block is 70us
-- texture copy block is 6ms (!)
+- folk0: errors.folk block is 70us
+- folk0: texture copy block is 6ms (!)
+- folk-live: camera-slice:14 is 300us both on uncached and cached

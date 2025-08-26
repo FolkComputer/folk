@@ -664,7 +664,14 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // when the time is /t/ /body/ with environment /capturedEnvStack/
     const char* body = whenClause->terms[whenClause->nTerms - 4];
     const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+    Jim_Obj *passedEnvStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+    Jim_Obj *envStackObj = Jim_NewListObj(interp, NULL, 0);
+    int envStackLength = Jim_ListLength(interp, passedEnvStackObj);
+    for (int i = 0; i < envStackLength; i++) {
+        Jim_Obj *levelEnv = Jim_ListGetIndex(interp, passedEnvStackObj, i);
+        Jim_ListAppendElement(interp, envStackObj,
+                              cacheGetOrInsert(cache, interp, Jim_String(levelEnv)));
+    }
 
     Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
