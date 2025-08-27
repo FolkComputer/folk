@@ -153,13 +153,21 @@ When the image library is /imageLib/ &\
     }
 }
 
-When /someone/ wishes /p/ displays image /im/ &\
+When the image library is /imageLib/ &\
+     /someone/ wishes /p/ displays image /im/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
-    Wish to draw an image onto $p with image $im \
+
+    set width [/ [dict get $geom left] 1.5]
+    set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $width)
+    set geomHeight [dict get $geom height]
+    if {$derivedHeight > $geomHeight} {
+        set width $($geomHeight / $derivedHeight * $width)
+    }
+    Wish to draw an image onto $p with \
+        image $im \
         position [list 0 0] \
-        anchor topleft \
-        width [/ [dict get $geom left] 1.5]
+        anchor topleft width $width
 }
 
 
