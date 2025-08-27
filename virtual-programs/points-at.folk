@@ -10,9 +10,8 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
 
 When the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
-     the color map is /colorMap/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
-     display /display/ has intrinsics /displayIntrinsics/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
      /someone/ wishes /rect/ points /direction/ with length /l/ &\
      /rect/ has quad /quad/ {
 
@@ -49,22 +48,14 @@ When the quad library is /quadLib/ &\
             $displayWidth $displayHeight $v
     }] a b c d
 
-    set dispResolution [list $displayWidth $displayHeight]
-    set surfaceToClip \
-        [list \
-             [list [expr {2.0 / $displayWidth}] 0 -1.0] \
-             [list 0 [expr {2.0 / $displayHeight}] -1.0] \
-             [list 0 0 1]]
     set from $c
     set to $b
-    set width 4
-    set color [dict get $colorMap $color]
-    Wish the GPU draws pipeline "line" \
-        with arguments [list $dispResolution $surfaceToClip \
-                            $from $to $width $color]
-    Wish the GPU draws pipeline "circle" \
-        with arguments [list $dispResolution $surfaceToClip \
-                            $to 10 5 $color 0]
+    Wish to draw a line onto $disp with \
+        points [list $from $to] width 4 \
+        color $color
+    Wish to draw a circle onto $disp with \
+        center $to radius 10 thickness 5 \
+        color $color filled false
 
     When /target/ has quad /q2/ {
         if {$target eq $rect} { return }

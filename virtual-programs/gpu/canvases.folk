@@ -262,6 +262,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     set gpuCanvasLib [$gpuc compile]
     Claim the GPU canvas library is $gpuCanvasLib
 
+    # We need to wait until the GPU is online and registered the
+    # display before we set up the canvas subsystem.
     When display /any/ has width /any/ height /any/ {
         $gpuCanvasLib init
 
@@ -408,5 +410,43 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
                 StatementRelease! $ref
             }
         }} $gpuCanvasLib]
+    }
+
+    When display /disp/ has width /dispWidth/ height /dispHeight/ {
+        # Create a canvas wrapper around the bare display so that you
+        # can draw onto it using the canvas-oriented interface, and so
+        # that it can use canvas settlement semantics to prevent
+        # blinking.
+        set dispCanvas [list $disp canvas]
+        Wish the GPU creates canvas $dispCanvas with \
+            width $dispWidth height $dispHeight
+
+        When the GPU has created canvas $dispCanvas with /...canvOpts/ {
+            Claim $disp has canvas $dispCanvas with {*}$canvOpts
+
+            # HACK: for now, we just impose a surfaceToClip that means
+            # you draw onto the display canvas in screen-space pixels
+            # (not meters, yet -- what would that mean without
+            # awareness of a specific table/plane?).
+            set surfaceToClip \
+                [list \
+                     [list [expr {2.0 / $dispWidth}] 0 -1.0] \
+                     [list 0 [expr {2.0 / $dispHeight}] -1.0] \
+                     [list 0 0 1]]
+            Claim $disp has canvas projection $surfaceToClip
+
+            # Actually draw the canvas onto the bare display.
+
+            # Vertex order needs to be clockwise to align with
+            # Vulkan. Top-left to bottom-left.
+            set a [list 0 0]
+            set b [list $dispWidth 0]
+            set c [list $dispWidth $dispHeight]
+            set d [list 0 $dispHeight]
+            Wish the GPU draws pipeline "image" with arguments \
+                [list [list $dispWidth $dispHeight] \
+                     $surfaceToClip \
+                     [dict get $canvOpts texture] $a $b $c $d]
+        }
     }
 }
