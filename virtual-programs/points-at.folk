@@ -66,8 +66,8 @@ When the quad library is /quadLib/ &\
         }]
 
         if {[::math::geometry::pointInsidePolygon $to $displayVertices]} {
-            Claim $rect points $direction at $target
-            Claim $rect points $direction with length $l at $target
+            Claim (keep 20ms) $rect points $direction at $target
+            Claim (keep 20ms) $rect points $direction with length $l at $target
         }
     }
 }
