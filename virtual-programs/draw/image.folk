@@ -55,7 +55,7 @@ When the image library is /imageLib/ {
     $cacheLib cacheInit
 
 
-    set loadImage [list apply {{cacheLib imageLib im} {
+    fn loadImage {im} {
         if {[$cacheLib cacheExists $im]} {
             return [$cacheLib cacheGet $im]
         }
@@ -78,8 +78,8 @@ When the image library is /imageLib/ {
             $cacheLib cachePut $impath $im
         }
         return $im
-    }} $cacheLib $imageLib]
-    Claim the image loader is $loadImage
+    }
+    Claim the image loader is [fn loadImage]
 }
 
 Wish the GPU compiles pipeline "image" {

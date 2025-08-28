@@ -732,6 +732,10 @@ ioctl yields?
 ### next next
 - camera stops working when calibration terminates
 - develop new animation program
-- camera slices blinking
+- *camera slices blinking*
+- camera slices cause hop/distortion when pulled off
+- camera slice -- some leak that makes the system way slower after
+  flipping camera slice a bunch
 - keyboard boot bug
+- keyboard lag on folk0x
 
