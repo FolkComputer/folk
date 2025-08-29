@@ -92,7 +92,38 @@ int Jim_execInit(Jim_Interp *interp)
 #include "jimiocompat.h"
 #include <sys/stat.h>
 
-struct WaitInfoTable;
+/*
+ * Data structures of the following type are used by exec and
+ * wait to keep track of child processes.
+ */
+
+struct WaitInfo
+{
+    phandle_t phandle;          /* Process handle (pid on Unix) of child. */
+    int status;                 /* Status returned when child exited or suspended. */
+    int flags;                  /* Various flag bits;  see below for definitions. */
+};
+
+/* This table is shared by exec and wait */
+struct WaitInfoTable {
+    struct WaitInfo *info;      /* Table of outstanding processes */
+    int size;                   /* Size of the allocated table */
+    int used;                   /* Number of entries in use */
+    int refcount;               /* Free the table once the refcount drops to 0 */
+};
+
+/*
+ * Flag bits in WaitInfo structures:
+ *
+ * WI_DETACHED -        Non-zero means no-one cares about the
+ *                      process anymore.  Ignore it until it
+ *                      exits, then forget about it.
+ * WI_STATUS_CONSUMED - Status has been consumed by waitpid, stored in status field.
+ */
+
+#define WI_DETACHED 2
+#define WI_STATUS_CONSUMED 4
+
 
 static char **JimOriginalEnviron(void);
 static int JimCreatePipeline(Jim_Interp *interp, int argc, Jim_Obj *const *argv,
@@ -124,12 +155,57 @@ static void Jim_RemoveTrailingNewline(Jim_Obj *objPtr)
  * Read from 'fd', append the data to strObj and close 'fd'.
  * Returns 1 if data was added, 0 if not, or -1 on error.
  */
-static int JimAppendStreamToString(Jim_Interp *interp, int fd, Jim_Obj *strObj)
+static int JimAppendStreamToString(Jim_Interp *interp, int fd, Jim_Obj *strObj, int numPids, phandle_t *pidPtr, struct WaitInfoTable *table)
 {
     char buf[256];
     int ret = 0;
+    fd_set readfds;
+    struct timeval timeout;
 
     while (1) {
+        FD_ZERO(&readfds);
+        FD_SET(fd, &readfds);
+        
+        /* 200ms timeout, because subprocesses may not give us EOF for
+           whatever reason, which would cause `read` to hang
+           indefinitely */
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 200000;
+        
+        int select_ret = select(fd + 1, &readfds, NULL, NULL, &timeout);
+        if (select_ret == -1) {
+            /* select error */
+            break;
+        } else if (select_ret == 0) {
+            /* timeout - check if any processes are still running (not zombies) */
+            int any_running = 0;
+            for (int i = 0; i < numPids; i++) {
+                int status;
+                pid_t result = waitpid(pidPtr[i], &status, WNOHANG);
+                if (result == 0) {
+                    /* Process is still running */
+                    any_running = 1;
+                    break;
+                } else if (result > 0) {
+                    /* Process finished - store status in wait table */
+                    for (int j = 0; j < table->used; j++) {
+                        if (table->info[j].phandle == pidPtr[i]) {
+                            table->info[j].status = status;
+                            table->info[j].flags |= WI_STATUS_CONSUMED;
+                            break;
+                        }
+                    }
+                }
+                /* result == -1 means error (probably ECHILD - already waited) */
+            }
+            if (!any_running) {
+                /* All processes are finished, stop waiting */
+                break;
+            }
+            /* Some processes still running, continue waiting */
+            continue;
+        }
+        
         int retval = read(fd, buf, sizeof(buf));
         if (retval > 0) {
             ret = 1;
@@ -284,36 +360,6 @@ static int JimCheckWaitStatus(Jim_Interp *interp, long pid, int waitStatus, Jim_
     return JIM_ERR;
 }
 
-/*
- * Data structures of the following type are used by exec and
- * wait to keep track of child processes.
- */
-
-struct WaitInfo
-{
-    phandle_t phandle;          /* Process handle (pid on Unix) of child. */
-    int status;                 /* Status returned when child exited or suspended. */
-    int flags;                  /* Various flag bits;  see below for definitions. */
-};
-
-/* This table is shared by exec and wait */
-struct WaitInfoTable {
-    struct WaitInfo *info;      /* Table of outstanding processes */
-    int size;                   /* Size of the allocated table */
-    int used;                   /* Number of entries in use */
-    int refcount;               /* Free the table once the refcount drops to 0 */
-};
-
-/*
- * Flag bits in WaitInfo structures:
- *
- * WI_DETACHED -        Non-zero means no-one cares about the
- *                      process anymore.  Ignore it until it
- *                      exits, then forget about it.
- */
-
-#define WI_DETACHED 2
-
 #define WAIT_TABLE_GROW_BY 4
 
 static void JimFreeWaitInfoTable(struct Jim_Interp *interp, void *privData)
@@ -412,7 +458,7 @@ static int Jim_ExecCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     /* Read from the output pipe until EOF */
     if (outputId != -1) {
-        if (JimAppendStreamToString(interp, outputId, errStrObj) < 0) {
+        if (JimAppendStreamToString(interp, outputId, errStrObj, numPids, pidPtr, table) < 0) {
             result = JIM_ERR;
             Jim_SetResultErrno(interp, "error reading from output pipe");
         }
@@ -435,7 +481,7 @@ static int Jim_ExecCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     if (errorId != -1) {
         int ret;
         Jim_Lseek(errorId, 0, SEEK_SET);
-        ret = JimAppendStreamToString(interp, errorId, errStrObj);
+        ret = JimAppendStreamToString(interp, errorId, errStrObj, numPids, pidPtr, table);
         if (ret < 0) {
             Jim_SetResultErrno(interp, "error reading from error pipe");
             result = JIM_ERR;
@@ -470,6 +516,21 @@ static int Jim_ExecCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
  */
 static long JimWaitForProcess(struct WaitInfoTable *table, phandle_t phandle, int *statusPtr)
 {
+    int i;
+    
+    /* Find it in the table first to check if status was consumed */
+    for (i = 0; i < table->used; i++) {
+        if (phandle == table->info[i].phandle) {
+            if (table->info[i].flags & WI_STATUS_CONSUMED) {
+                /* Status was already consumed, use stored value */
+                *statusPtr = table->info[i].status;
+                JimWaitRemove(table, phandle);
+                return phandle;
+            }
+            break;
+        }
+    }
+    
     if (JimWaitRemove(table, phandle) == 0) {
          /* wait for it */
          return waitpid(phandle, statusPtr, 0);

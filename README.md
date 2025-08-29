@@ -706,7 +706,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - some kind of new scheduler? priorities? convergence zones?
   - allocate a fixed texture slot for the camera slice?
 - camera slices cause hop/distortion when pulled off
-- keyboard boot bug
+- ~~keyboard boot bug~~
 - Assert wrapper with deprecation complaint
 - ForEach! stack fix
 - make new.folk generate a quad
