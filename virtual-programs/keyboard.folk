@@ -94,7 +94,7 @@ When /keyboard/ is a keyboard device {
         }
         set map [keymap load $locale]
         dict set localKeymaps $locale $map
-        Hold -key [list local-keymaps $keyboard] \
+        Hold! -key [list local-keymaps $keyboard] \
             Claim $keyboard has keymaps $localKeymaps
 
         # TODO: do this removal (it's slow and happens even when we
