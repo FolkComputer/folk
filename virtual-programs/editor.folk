@@ -259,8 +259,8 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
         return
     }
 
-    HoldStatement! [list $id most-recent-time] \
-        [list $this claims $id has most recent time $timestamp]
+    Hold! -key [list $id most-recent-time] \
+        Claim $id has most recent time $timestamp
 
     if {$timestamp > $startTime && ($keyState == "down" || $keyState == "repeat")} {
       if {[dict exists $options printable]} {

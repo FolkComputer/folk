@@ -81,9 +81,9 @@ When /nobody/ wishes to calibrate &\
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    HoldStatement! [list $this entire-frame] \
-        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this entire-frame] \
+        Claim [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }
@@ -141,9 +141,9 @@ When /nobody/ wishes to calibrate &\
         }]]
     }
 
-    HoldStatement! [list $this incremental] \
-        [list $this claims [list $this incremental] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this incremental] \
+        Claim [list $this incremental] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }
