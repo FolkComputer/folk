@@ -6,16 +6,34 @@ When /thing/ has quad /quad/ {
     Claim (keep 50ms) $thing has a quad
 }
 
-When /thing/ has a quad {
+When the quad library is /quadLib/ &\
+     the pose library is /poseLib/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /thing/ has a quad {
+
     When the collected results for [list /someone/ wishes $thing is titled /text/] are /results/ {
         set text [join [lmap result $results {dict get $result text}] "\n"]
         if {$text eq ""} { return }
     
-        set radians [region angle $region]
-        When $thing has region /region/ {
-            set scale [dict getdef $result scale 1.0]
-            set pos [region top [region move $region up 10px]]
-            Wish to draw text with position $pos scale $scale text $text radians $radians anchor bottom
+        When $thing has quad /q/ {
+            # HACK: This is just direct working with pixels, like
+            # points-at, and it's ugly.
+
+            lassign [$quadLib vertices [$quadLib change $q "display $disp"]] \
+                topLeft topRight
+
+            set dispTopLeft [$poseLib project $displayIntrinsics \
+                                 $displayWidth $displayHeight $topLeft]
+            set dispTopRight [$poseLib project $displayIntrinsics \
+                                 $displayWidth $displayHeight $topRight]
+            set dispTopCenter [vec2 midpoint $dispTopLeft $dispTopRight]
+            set dispTop [vec2 sub $dispTopRight $dispTopLeft]
+            set dispRadians [expr {-atan2([lindex $dispTop 1], [lindex $dispTop 0])}]
+            Wish to draw text onto $disp with \
+                position $dispTopCenter \
+                scale 36.0 radians $dispRadians anchor bottom \
+                text $text
         }
     }
 

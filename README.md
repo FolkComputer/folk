@@ -723,10 +723,13 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **calibrate render loop blinks out regularly**
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
-- better calibration timing
 - rename resolved geometry to geometry
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
 - ~~blinking on overlaid pages -- either fix an order or enable alpha
   blending~~
+- fix sprite blinking
+- test calibration
+- ~~fix error reporting on table~~ clean up title, clean up points-at
+
