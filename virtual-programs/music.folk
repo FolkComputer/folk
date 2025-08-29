@@ -1,10 +1,12 @@
-if {[catch {exec which sclang}]} { return }
+if {[catch {exec which sclang}]} {
+    puts stderr "music: sclang doesn't exist; not running."
+    return
+}
 
 set musicDir $::env(HOME)/music
 exec mkdir -p $musicDir
-set bootTidal [open $musicDir/BootTidal.hs w]
 # https://raw.githubusercontent.com/tidalcycles/Tidal/main/BootTidal.hs
-puts $bootTidal {
+set bootTidal {
 :set -XOverloadedStrings
 :set prompt ""
 
@@ -88,13 +90,56 @@ let getState = streamGet tidal
 
 default (Pattern String, Integer, Double)
 }
-close $bootTidal
+
 set scStartup [open $musicDir/startup.sc w]
-puts $scStartup "SuperDirt.start;"
+# via https://club.tidalcycles.org/t/tidal-synth-doesnt-work/800 -- it
+# doesn't work if you just do SuperDirt.start; for some reason
+puts $scStartup {(
+s.reboot { // server options are only updated on reboot
+	// configure the sound server: here you could add hardware specific options
+	// see http://doc.sccode.org/Classes/ServerOptions.html
+	s.options.numBuffers = 1024 * 256; // increase this if you need to load more samples
+	s.options.memSize = 8192 * 32; // increase this if you get "alloc failed" messages
+	s.options.numWireBufs = 2048; // increase this if you get "exceeded number of interconnect buffers" messages
+	s.options.maxNodes = 1024 * 32; // increase this if you are getting drop outs and the message "too many nodes"
+	s.options.numOutputBusChannels = 2; // set this to your hardware output channel size, if necessary
+	s.options.numInputBusChannels = 2; // set this to your hardware output channel size, if necessary
+	// boot the server and start SuperDirt
+	s.waitForBoot {
+		~dirt.stop; // stop any old ones, avoid duplicate dirt (if it is nil, this won't do anything)
+		~dirt = SuperDirt(2, s); // two output channels, increase if you want to pan across more channels
+		~dirt.loadSoundFiles;   // load samples (path containing a wildcard can be passed in)
+		// for example: ~dirt.loadSoundFiles("/Users/myUserName/Dirt/samples/*");
+		// s.sync; // optionally: wait for samples to be read
+		~dirt.start(57120, 0 ! 12);   // start listening on port 57120, create two busses each sending audio to channel 0
+		SuperDirt.default = ~dirt; // make this instance available in sclang (optional)
+
+		// optional, needed for convenient access from sclang:
+		(
+			~d1 = ~dirt.orbits[0]; ~d2 = ~dirt.orbits[1]; ~d3 = ~dirt.orbits[2];
+			~d4 = ~dirt.orbits[3]; ~d5 = ~dirt.orbits[4]; ~d6 = ~dirt.orbits[5];
+			~d7 = ~dirt.orbits[6]; ~d8 = ~dirt.orbits[7]; ~d9 = ~dirt.orbits[8];
+			~d10 = ~dirt.orbits[9]; ~d11 = ~dirt.orbits[10]; ~d12 = ~dirt.orbits[11];
+		);
+
+		// directly below here, in your own copy of this file, you could add further code that you want to call on startup
+		// this makes sure the server and ~dirt are running
+		// you can keep this separate and make it easier to switch between setups
+		// by using "path/to/my/file.scd".load and if necessary commenting out different load statements
+		// ...
+
+	};
+
+	s.latency = 0.3; // increase this if you get "late" messages
+
+
+};
+);}
 close $scStartup
 
 set ::env(DBUS_SESSION_BUS_ADDRESS) "unix:path=/run/user/1000/bus"
 
+exec rm -f $musicDir/music.log
 fn musicExec {args} {
   if {[lindex $args end] eq "&"} {
     exec {*}[lreplace $args end end] >>$musicDir/music.log 2>>$musicDir/music.log &
@@ -113,9 +158,11 @@ fn musicFinishSetup {} {
   }
 
   catch {exec pkill ghci}
+  catch {exec pkill ghc}
   catch {exec pkill sclang}
+  catch {exec pkill scsynth}
 
-  sleep 0.5
+  sleep 0.4
 
   set ::env(QT_QPA_PLATFORM) offscreen
   musicExec sclang $musicDir/startup.sc &
@@ -123,9 +170,13 @@ fn musicFinishSetup {} {
   set fifo $musicDir/tidal-input
   exec rm -f $fifo
   exec mkfifo $fifo
+
+  sleep 0.2
   musicExec sh -c "ghci < $fifo" &
+
   set fifoId [open $fifo w]
-  exec cat $musicDir/BootTidal.hs > $fifo
+  puts $fifoId $bootTidal; flush $fifoId
+  # We keep $fifoId open so that ghci doesn't get an EOF.
 }
 
 while true {
