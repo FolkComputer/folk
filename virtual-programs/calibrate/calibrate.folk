@@ -179,17 +179,17 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagsSize`.
-    Hold! (non-capturing) (on calibration) seenPoses \
-        { Claim the calibration last-seen poses are [list] }
+    Hold! -on calibration -key last-seen-poses \
+        Claim the calibration last-seen poses are [list]
     set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
     # at least 10 poses to do ultimate calibration+refinement.
-    Hold! (non-capturing) (on calibration) poses \
-        { Claim the calibration poses are [list] }
+    Hold! -on calibration -key poses \
+        Claim the calibration poses are [list]
 
-
-    HoldStatement! cycleTime [list $this claims the calibration cycle time is 0]
+    Hold! -key cycle-time \
+        Claim the calibration cycle time is 0
 
     set board [list $this board]
     set boardCanvas [list $board canvas]
@@ -533,16 +533,16 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         set nextVersion [+ $version 1]
         set nextModel [versionizeTags $baseModel $nextVersion]
         set nextModelTimestamp [expr {[clock milliseconds] / 1000.0}]
-        HoldStatement! H_modelToDisplay \
+        Hold! -key H_modelToDisplay \
             -version $nextModelFrameTimestamp \
-            [list $this claims the calibration model-to-display homography \
-                 is $nextH_modelToDisplay with \
-                 model $nextModel version $nextVersion \
-                 frameTimestamp $nextModelFrameTimestamp \
-                 modelTimestamp $nextModelTimestamp]
-        HoldStatement! cycleTime \
-            [list $this claims the calibration cycle time is \
-                 $($nextModelTimestamp - $modelTimestamp)]
+            Claim the calibration model-to-display homography \
+            is $nextH_modelToDisplay with \
+            model $nextModel version $nextVersion \
+            frameTimestamp $nextModelFrameTimestamp \
+            modelTimestamp $nextModelTimestamp
+        Hold! -key cycle-time \
+            Claim the calibration cycle time is \
+            $($nextModelTimestamp - $modelTimestamp)
 
         # Should we record the points we just saw as a calibration
         # pose?
@@ -592,8 +592,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        HoldStatement! -version $nextModelFrameTimestamp (on calibration) seenPoses \
-            [list $this claims the calibration last-seen poses are $seenPoses]
+        Hold! -on calibration -key last-seen-poses \
+            -version $nextModelFrameTimestamp \
+            Claim the calibration last-seen poses are $seenPoses
 
         # Next, we check if projected tag corners have been pretty
         # stable in the last few frames.
@@ -635,8 +636,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
         puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
-        HoldStatement! -version $nextModelFrameTimestamp (on calibration) poses \
-            [list $this claims the calibration poses are $calibrationPoses]
+        Hold! -on calibration -key poses \
+            -version $nextModelFrameTimestamp \
+            Claim the calibration poses are $calibrationPoses
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
@@ -650,7 +652,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             puts $fd $calibrationPoses; close $fd
 
             # Destroy the old calibration and trigger a new one.
-            HoldStatement! (on calibration) calibration {}
+            Hold! -on calibration -key calibration {}
 
             Retract! /someone/ wishes to calibrate
         }
@@ -1026,8 +1028,8 @@ When the calibration matLib is /matLib/ &\
         }
     }
 
-    HoldStatement! (on calibration) calibration \
-        [list $this claims the calibration is $calibration]
+    Hold! -on calibration -key calibration \
+        Claim the calibration is $calibration
 
     set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
     puts $fd $calibration; close $fd

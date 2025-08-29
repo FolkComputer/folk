@@ -102,8 +102,8 @@ When /keyboard/ is a keyboard device {
 
         # On unmatch {
         #     dict unset localKeymaps $map
-        #     HoldStatement! local-keymaps \
-        #         [list $this claims $keyboard has keymaps $localKeymaps]
+        #     Hold! [list local-keymaps $keyboard] \
+        #         Claim $keyboard has keymaps $localKeymaps
 
         #     # keymap destroy $map
         #     $grabber setGrabDevice $keyboardFileno [dict size $localKeymaps]

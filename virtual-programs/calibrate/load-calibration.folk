@@ -4,14 +4,14 @@ apply {{this} {
     try {
         set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
         set calibrationPoses [read $fd]; close $fd
-        HoldStatement! (on calibration) poses \
-            [list $this claims the calibration poses are $calibrationPoses]
+        Hold! -on calibration -key poses \
+            Claim the calibration poses are $calibrationPoses
 
         if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
             set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
             set calibration [read $fd]; close $fd
-            HoldStatement! (on calibration) calibration \
-                [list $this claims the calibration is $calibration]
+            Hold! -on calibration -key calibration \
+                Claim the calibration is $calibration
         }
     } on error e {
         puts stderr "Failed to load calibration: $e"
@@ -58,6 +58,6 @@ apply {{this} {
         puts $fd $defaultGeom; close $fd
     }
 
-    HoldStatement! (on calibration) {default program geometry} \
-        [list $this claims the default program geometry is $defaultGeom]
+    Hold! -on calibration -key {default program geometry} \
+        Claim the default program geometry is $defaultGeom
 }} $this

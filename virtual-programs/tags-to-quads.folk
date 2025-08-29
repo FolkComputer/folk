@@ -647,15 +647,15 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                                unfreezeTime $timestamp]
             }
 
-            HoldStatement! [list tag $tag stabilization] \
-                [list $this claims tag $tag is stabilized with state $state]
+            Hold! -key [list tag $tag stabilization] \
+                Claim tag $tag is stabilized with state $state
         }
 
         # Note that (for now) this pose statement is only imperatively
         # queried (by future invocations of this same code), not
         # reacted to. No need to give it a keep time.
-        HoldStatement! [list tag pose $tag] \
-            [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
+        Hold! -key [list tag pose $tag] \
+            Claim tag $tag has pose $tagPose at timestamp $timestamp
 
         # this creates a partially evaluated function that converts tag space (in meters) to its position
         # and rotation in camera space (also in meters) using the pose info we previously calculated
@@ -707,15 +707,15 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
                 $displayWidth $displayHeight $v
         }] a b c d
 
-        HoldStatement! (keep 2ms) [list $tag image] \
-            [list $this wishes the GPU draws pipeline "image" with arguments \
-                 [list [list $displayWidth $displayHeight] \
-                      $displayToClip \
-                      [dict get $wiOptions texture] $a $b $c $d]]
+        Hold! -keep 2ms -key [list $tag image] \
+            Wish the GPU draws pipeline "image" with arguments \
+            [list [list $displayWidth $displayHeight] \
+                 $displayToClip \
+                 [dict get $wiOptions texture] $a $b $c $d]
     }
 
     On unmatch {
-        HoldStatement! [list $tag image] {}
+        Hold! -key [list $tag image] {}
     }
     # TODO: How to prevent a race if the tag returns?
 }
