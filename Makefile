@@ -87,7 +87,8 @@ kill-folk:
 		while sudo kill -0 $$OLD_PID; do sleep 0.2; done; \
 	fi
 
-FOLK_REMOTE_NODE := folk-live
+FOLK_REMOTE_NODE ?= folk-live
+
 sync:
 	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
 		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
