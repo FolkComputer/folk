@@ -690,16 +690,16 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - fix remaining display/ primitives
 - rebuild live image
 - why is web endpoints so slow?
-- drop support for multiarg Hold keys
+- ~~drop support for multiarg Hold keys~~
 - optimize jpeg decoding
 - vendor wslay?
-- ports
-  - points-up port
+- ~~ports~~
+  - ~~points-up port~~
 - only intern long strings?
 - stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
-- develop new animation program
+- ~~develop new animation program~~
   - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
     for a program
 - *camera slices blinking*
@@ -709,7 +709,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~keyboard boot bug~~
 - Assert wrapper with deprecation complaint
 - ForEach! stack fix
-- make new.folk generate a quad
+- ~~make new.folk generate a quad~~
 
 ### perf
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
@@ -732,4 +732,5 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - fix sprite blinking
 - test calibration
 - ~~fix error reporting on table~~ clean up title, clean up points-at
-
+- "Added tag 1313" pileup (and removal pileup when flipped over)
+- weird extra space in editor on boot
