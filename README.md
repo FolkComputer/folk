@@ -707,7 +707,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - allocate a fixed texture slot for the camera slice?
 - camera slices cause hop/distortion when pulled off
 - ~~keyboard boot bug~~
-- Assert wrapper with deprecation complaint
+- ~~Assert wrapper with deprecation complaint~~
 - ForEach! stack fix
 - ~~make new.folk generate a quad~~
 
@@ -715,7 +715,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
 - on folk-live at home, folk2-shared-objects: TODO
 
-### next
+### nextp
 - minor memory leak
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
