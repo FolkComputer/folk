@@ -724,7 +724,7 @@ extern "C" \{
     }
 
     exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
-        -o /tmp/$cid.so [file rootname $cfile].o \
+        -O2 -o /tmp/$cid.so [file rootname $cfile].o \
         {*}$endcflags
 
     # HACK: Why do we need this / only when running in lldb?
