@@ -36,9 +36,11 @@ Wish the GPU compiles pipeline "dashed-line" {
     }
 }
 
-When display /disp/ has width /w/ height /h/ &\
-     the color map is /colorMap/ &\
-     /someone/ wishes to draw a dashed line with /...options/ {
+When the color map is /colorMap/ &\
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ &\
+     /someone/ wishes to draw a dashed line onto /p/ with /...options/ {
+
     set points [dict get $options points]
     set width [dict get $options width]
     set color [dict get $options color]
@@ -46,15 +48,16 @@ When display /disp/ has width /w/ height /h/ &\
     set dashlength [dict getdef $options dashlength 4]
     set dashoffset [dict getdef $options dashoffset 0]
 
-    set layer [dict getdef $options layer 0]
-
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
     set instances [list]
-    for {set i 0} {$i < [expr {[llength $points] - 1}]} {incr i} {
+    for {set i 0} {$i < [llength $points] - 1} {incr i} {
         set from [lindex $points $i]
-        set to [lindex $points [expr $i+1]]
-        lappend instances [list [list $w $h] {{1 0 0} {0 1 0} {0 0 1}} \
+        set to [lindex $points [expr {$i+1}]]
+        lappend instances [list $wiResolution $surfaceToClip \
                                $from $to $width $color $dashlength $dashoffset]
     }
-    Wish the GPU draws pipeline "dashed-line" with \
-        instances $instances layer $layer
+
+    set layer [dict getdef $options layer 0]
+    Wish the GPU draws pipeline "dashed-line" onto canvas $id \
+        with instances $instances layer $layer
 }
