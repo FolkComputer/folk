@@ -1,5 +1,6 @@
 set ::unixjobs [dict create]
 set ::nextunixjobid 0
+
 proc ::readline {jobid channel} {
 	if {[gets $channel line] >= 0} {
 		dict with ::unixjobs $jobid {
@@ -17,7 +18,7 @@ When /someone/ wishes /p/ runs Unix command /c/ {
 	set jobid [incr ::nextunixjobid]
 	dict set ::unixjobs $jobid [dict create object $p command $c log [list]]
 
-	lassign [chan pipe] reader writer
+	lassign [socket pipe] reader writer
 	set pid [exec {*}$c >@$writer 2>@1 &]
 	close $writer
 
