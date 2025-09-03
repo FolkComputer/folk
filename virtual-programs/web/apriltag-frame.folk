@@ -1,0 +1,47 @@
+When the image library is /imageLib/ {
+    Wish the web server handles route {/apriltag-frame(?:\?.*)?} with handler [list apply {{imageLib} {
+        set frames [Query! camera /cam/ has frame /im/ at timestamp /ts/]
+        set frame [lindex $frames end]
+        dict with frame {
+            StatementAcquire! $__ref
+
+            set filename "/tmp/web-image-frame.jpg"
+            $imageLib saveAsJpeg $im $filename
+            set fsize [file size $filename]
+            set fd [open $filename r]
+            fconfigure $fd -translation binary
+            set imageData [read $fd $fsize]
+            close $fd
+
+            set tags [Query! tag /id/ has detection /det/ on camera $cam \
+                          at timestamp $ts]
+            puts "Tags: $tags"
+
+            StatementRelease! $__ref
+        }
+
+        package require base64
+        html [subst {
+            <html>
+            <body>
+            <img src="data:image/png;base64,[binary encode base64 $imageData]"
+                 style="position:absolute;top:0;left:0">
+            <svg width="100%" height="100%" style="position:absolute;top:0;left:0;pointer-events:none;">
+                [join [lmap tag $tags {
+                    set points [dict get $tag det p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $tag det id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                }] "\n"]
+            </svg>
+            </body>
+            </html>
+        }]
+    }} $imageLib]
+}

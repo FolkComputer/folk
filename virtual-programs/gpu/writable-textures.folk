@@ -1,0 +1,383 @@
+When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
+     the GPU texture library is /gpuTextureLib/ {
+    set gpuc [C]
+    $gpuc include <pthread.h>
+    $gpuc cflags -I./vendor
+    $gpuc code {
+        #define VOLK_IMPLEMENTATION
+        #include "volk/volk.h"
+
+        typedef struct PushConstantsEncoder {
+            int (*encode)(Jim_Interp* interp, Jim_Obj* obj, uint8_t out[128]);
+        } PushConstantsEncoder;
+    }
+    $gpuc typedef {struct Pipeline} Pipeline
+
+    $gpuc extend -noprocs $gpuLib
+    $gpuc import $gpuLib VkResultToString
+    $gpuc import $gpuLib tryInitCommandPool
+
+    $gpuc extend $imageLib
+    $gpuc extend $gpuTextureLib
+
+    local proc vktry {call} { string map {\n " "} [csubst {{
+        VkResult res = $call;
+        if (res != VK_SUCCESS) {
+            fprintf(stderr, "Failed $call: %s (%d)\n",
+                    VkResultToString(res), res); exit(1);
+        }
+    }}] }
+
+    $gpuc code {
+        VkDevice device;
+
+        // This render pass is used to draw on all writable textures.
+        VkRenderPass renderPass;
+    }
+    $gpuc proc init {} void {
+        $[vktry volkInitialize()]
+        volkLoadInstanceOnly(*instance_ptr());
+
+        device = *device_ptr();
+        volkLoadDevice(device);
+
+        // Set up VkRenderPass renderPass:
+        {
+            VkAttachmentDescription colorAttachment = {0};
+            colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkAttachmentReference colorAttachmentRef = {0};
+            colorAttachmentRef.attachment = 0;
+            colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            VkSubpassDescription subpass = {0};
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &colorAttachmentRef;
+
+            VkRenderPassCreateInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = &colorAttachment;
+            renderPassInfo.subpassCount = 1;
+            renderPassInfo.pSubpasses = &subpass;
+
+            VkSubpassDependency dependency = {0};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+
+            $[vktry {vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass)}]
+        }
+    }
+
+    $gpuc code {
+        typedef struct GpuWritableTexture {
+            VkExtent2D extent;
+
+            GpuTextureHandle gpuTextures[2];
+            VkFramebuffer framebuffers[2];
+            int _Atomic textureIndex;
+
+            VkFence inFlightFence;
+            VkCommandBuffer commandBuffer;
+
+            pthread_mutex_t mutex;
+        } GpuWritableTexture;
+    }
+    $gpuc proc gpuTexture {GpuWritableTexture* wi} GpuTextureHandle {
+        return wi->gpuTextures[wi->textureIndex % 2];
+    }
+    $gpuc proc create {int width int height} GpuWritableTexture* {
+        GpuWritableTexture* wi = malloc(sizeof(GpuWritableTexture));
+        wi->extent.width = width; wi->extent.height = height;
+        pthread_mutex_init(&wi->mutex, NULL);
+
+        for (int i = 0; i < 2; i++) {
+            GpuTextureBlock* block = createGpuTexture(width, height, VK_FORMAT_B8G8R8A8_SRGB);
+            wi->gpuTextures[i] = block->handle;
+            // make it immediately renderable
+            transitionImageLayout(block->textureImage, VK_FORMAT_B8G8R8A8_SRGB,
+                                  VK_IMAGE_LAYOUT_UNDEFINED,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            VkImageView attachments[] = { block->textureImageView };
+
+            VkFramebufferCreateInfo framebufferInfo = {0};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = width;
+            framebufferInfo.height = height;
+            framebufferInfo.layers = 1;
+            $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffers[i])}]
+        }
+
+        {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            tryInitCommandPool();
+            allocInfo.commandPool = *commandPool_ptr();
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &wi->commandBuffer)}]
+        }
+
+        wi->textureIndex = 0;
+        {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &wi->inFlightFence)}]
+        }
+
+        return wi;
+    }
+    $gpuc proc destroy {GpuWritableTexture* wi} void {
+        // FIXME: don't leak wi itself
+        pthread_mutex_lock(&wi->mutex);
+
+        freeGpuTexture(wi->gpuTextures[0]);
+        freeGpuTexture(wi->gpuTextures[1]);
+        wi->gpuTextures[0] = -1;
+        wi->gpuTextures[1] = -1;
+
+        pthread_mutex_unlock(&wi->mutex);
+    }
+    $gpuc code {
+        GpuWritableTexture* boundWritableTexture;
+        VkPipeline boundPipeline;
+        VkDescriptorSet boundDescriptorSet;
+    }
+    $gpuc proc drawStart {GpuWritableTexture* wi} void {
+        FOLK_ENSURE(boundWritableTexture == NULL);
+        pthread_mutex_lock(&wi->mutex);
+        if (wi->gpuTextures[0] == -1 || wi->gpuTextures[1] == -1) {
+            pthread_mutex_unlock(&wi->mutex);
+            return;
+        }
+        boundWritableTexture = wi;
+        int idx = (wi->textureIndex + 1) % 2;
+
+        vkResetFences(device, 1, &wi->inFlightFence);
+
+        vkResetCommandBuffer(wi->commandBuffer, 0);
+
+        // Update the descriptor set to redirect the texture we're
+        // rendering to while we're rendering to the other texture.
+        replaceInTextureDescriptorSet(wi->gpuTextures[idx], wi->gpuTextures[(idx + 1) % 2]);
+
+        VkCommandBufferBeginInfo beginInfo = {0};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        beginInfo.pInheritanceInfo = NULL;
+
+        pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
+        $[vktry {vkBeginCommandBuffer(wi->commandBuffer, &beginInfo)}]
+
+        {
+            VkRenderPassBeginInfo renderPassInfo = {0};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = wi->framebuffers[idx];
+            renderPassInfo.renderArea.offset = (VkOffset2D) {0, 0};
+            renderPassInfo.renderArea.extent = wi->extent;
+
+            VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+
+            vkCmdBeginRenderPass(wi->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        }
+
+        boundWritableTexture = wi;
+        boundPipeline = VK_NULL_HANDLE;
+        boundDescriptorSet = VK_NULL_HANDLE;
+    }
+    $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
+        VkCommandBuffer commandBuffer = boundWritableTexture->commandBuffer;
+
+        if (boundPipeline != pipeline.pipeline) {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+            boundPipeline = pipeline.pipeline;
+
+            VkViewport viewport = {0}; {
+                viewport.x = 0.0f;
+                viewport.y = 0.0f;
+                viewport.width = (float) boundWritableTexture->extent.width;
+                viewport.height = (float) boundWritableTexture->extent.height;
+                viewport.minDepth = 0.0f;
+                viewport.maxDepth = 1.0f;
+            }
+            vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+            VkRect2D scissor = {0}; {
+                scissor.offset = (VkOffset2D) {0, 0};
+                scissor.extent = boundWritableTexture->extent;
+            }
+            vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        }
+
+        if (boundDescriptorSet != *textureDescriptorSet_ptr()) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline.pipelineLayout, 0, 1, textureDescriptorSet_ptr(), 0, NULL);
+            boundDescriptorSet = *textureDescriptorSet_ptr();
+        }
+
+        {
+            uint8_t pushConstantsData[128];
+            int pushConstantsDataSize = pipeline.encodePushConstants->encode(interp, argsObj, pushConstantsData);
+            if (pushConstantsDataSize == -1) {
+                FOLK_ABORT();
+            }
+            if (pushConstantsDataSize != pipeline.pushConstantsSize) {
+                FOLK_ERROR("drawImpl: Expected push constants size %zu; push constants data size was %d\n",
+                           pipeline.pushConstantsSize, pushConstantsDataSize);
+            }
+            vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               pipeline.pushConstantsSize, pushConstantsData);
+        }
+
+        // 1 quad -> 2 triangles -> 6 vertices
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    }
+    $gpuc proc drawEnd {} void {
+        VkCommandBuffer commandBuffer = boundWritableTexture->commandBuffer;
+
+        vkCmdEndRenderPass(commandBuffer);
+        $[vktry {vkEndCommandBuffer(commandBuffer)}]
+
+        {
+            VkSubmitInfo submitInfo = {0};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+            VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            submitInfo.pWaitDstStageMask = waitStages;
+
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+
+            pthread_mutex_lock(graphicsQueueMutex_ptr());
+            $[vktry {vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo,
+                                   boundWritableTexture->inFlightFence)}]
+            pthread_mutex_unlock(graphicsQueueMutex_ptr());
+        }
+
+        vkWaitForFences(device, 1, &boundWritableTexture->inFlightFence, VK_TRUE, UINT64_MAX);
+        boundWritableTexture->textureIndex++;
+
+        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+
+        int idx = boundWritableTexture->textureIndex % 2;
+        replaceInTextureDescriptorSet(boundWritableTexture->gpuTextures[idx],
+                                    boundWritableTexture->gpuTextures[idx]);
+
+        pthread_mutex_unlock(&boundWritableTexture->mutex);
+        boundWritableTexture = NULL;
+    }
+
+    set gpuWritableLib [$gpuc compile]
+    Claim the GPU writable texture library is $gpuWritableLib
+
+    When display /any/ has width /any/ height /any/ {
+        $gpuWritableLib init
+
+        # `id` is arbitrarily chosen by the caller:
+        When /someone/ wishes the GPU creates writable texture /id/ with /...options/ {
+            set width [dict get $options width]
+            set height [dict get $options height]
+            set wi [$gpuWritableLib create $width $height]
+
+            Claim the GPU creates writable texture $id as $wi \
+                -destructor [list $gpuWritableLib destroy $wi]
+        }
+
+        set missingPipelines [dict create]
+        set missingWritableTextures [dict create]
+        while true {
+            set matches [Query! /someone/ claims the GPU compiles pipeline /name/ to /pipeline/]
+            set pipelines [dict create]
+            foreach match $matches { dict with match { dict set pipelines $name $pipeline } }
+
+            set matches [Query! /someone/ claims the GPU creates writable texture /id/ as /wi/]
+            set writableTextures [dict create]
+            foreach match $matches { dict with match { dict set writableTextures $id $wi } }
+
+            set displayListsByTexture [dict create]
+            foreach match [Query! /wisher/ wishes the GPU draws pipeline /name/ onto texture /id/ with /...options/] {
+                try {
+                    set name [dict get $match name]
+                    if {![dict exists $pipelines $name]} {
+                        if {![dict exists $missingPipelines $name]} {
+                            puts stderr "writable-textures: Missing pipeline $name"
+                            dict set missingPipelines $name true
+                        }
+                        continue
+                    }
+                    dict unset missingPipelines $name
+                    set pipeline [dict get $pipelines [dict get $match name]]
+
+                    set id [dict get $match id]
+                    if {![dict exists $writableTextures $id]} {
+                        if {![dict exists $missingWritableTextures $id]} {
+                            puts stderr "writable-textures: Missing writable texture $id"
+                            dict set missingWritableTextures $id true
+                        }
+                        continue
+                    }
+                    dict unset missingWritableTextures $id
+                    set wi [dict get $writableTextures $id]
+
+                    set options [dict get $match options]
+                    set layer [dict getdef $options layer 0]
+                    if {[dict exists $options instances]} {
+                        set instances [dict get $options instances]
+                    } else {
+                        set instances [list [dict get $options arguments]]
+                    }
+                    foreach instance $instances {
+                        dict lappend displayListsByTexture($wi) $layer \
+                            [list $gpuWritableLib draw $pipeline $instance]
+                    }
+                } on error e {
+                    puts stderr "Error: GPU draws pipeline $name: [errorInfo $e]"
+                    Assert! $this claims [dict get $match wisher] has error $e with info [errorInfo $e]
+                    # TODO: does this ever get disposed?
+                }
+            }
+
+            # TODO: await vsync -- what does the other drawStart do?
+            # TODO: await any change in the projected display list for any texture
+            dict for {wi displayList} $displayListsByTexture {
+                $gpuWritableLib drawStart $wi
+
+                foreach layer [lsort -real [dict keys $displayList]] {
+                    set layerDisplayList [dict get $displayList $layer]
+                    foreach displayCommand $layerDisplayList {
+                        try { {*}$displayCommand } \
+                            on error e { puts stderr [errorInfo $e] }
+                    }
+                }
+
+                $gpuWritableLib drawEnd
+            }
+
+            sleep 0.01
+        }
+    }
+}

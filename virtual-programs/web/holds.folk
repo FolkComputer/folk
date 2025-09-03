@@ -1,0 +1,28 @@
+When the db library is /dbLib/ {
+  Wish the web server handles route "/holds" with handler [list apply {{db dbLib} {
+    set holds [$dbLib holds $db]
+
+    html [subst {
+      <html>
+      <head>
+        <link rel="stylesheet" href="/style.css">
+        <title>Statement Holds</title>
+      </head>
+      <nav>
+        <a href="/"><button>Statements</button></a>
+        <a href="/new"><button>New program</button></a>
+        <a href="/programs">Running programs</a>
+        <a href="/threads">Threads</a>
+        <a href="/trace">Trace</a>
+      </nav>
+      <h1>Statement Holds</h1>
+      <ol>
+        [join [lmap holdObj $holds {
+            lassign $holdObj key version ref clause
+            subst {<li>$key ($version): ($ref) <pre>[htmlEscape [string range $clause 0 300]]</pre></li>}
+        }] "\n"]
+      </ol>
+      </html>
+    }]
+  }} [__db] $dbLib]
+}

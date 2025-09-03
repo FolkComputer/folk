@@ -9,21 +9,22 @@
 #  Alt + F1: Stop Folk completely (note: need to ssh to restart Folk)
 Claim keyboard debugger is off
 
-When keyboard debugger is on & keyboard /keyboard/ claims key /key/ is down with timestamp /timestamp/ {
-  puts "\[keyboard debugger:\] $key @ $timestamp"
+When keyboard debugger is on & keyboard /keyboard/ claims key /key/ is down with /...options/ {
+  puts "\[keyboard debugger:\] $key @ $options"
 }
 
 # Alt-Esc on most keyboards
-When keyboard /k/ claims key Meta_Escape is down with timestamp /any/ {
+When keyboard /k/ claims key Meta_Escape is down with /...options/ {
 	puts "==== Folk restarting ... ===="
-	exec sudo systemctl restart folk
+        exec sudo systemctl restart folk
 }
 
 # Console_1 corresponds to Alt-F1 on most keyboards
-When keyboard /k/ claims key Console_1 is down with timestamp /any/ {
-	puts "==== Stoping Folk. ===="
+When keyboard /k/ claims key Console_1 is down with /...options/ {
+	puts "==== Stopping Folk. ===="
 	puts "===="
 	puts "     Run `make sync-restart` on your laptop or SSH into [info hostname] to restart Folk ===="
 	puts "===="
 	exec sudo systemctl stop folk
+        __conclude 0
 }

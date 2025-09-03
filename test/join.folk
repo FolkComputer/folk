@@ -1,0 +1,13 @@
+Assert! Omar is a person
+Assert! Omar is a name
+
+sleep 0.5
+
+assert {[llength [QuerySimple! Omar is a /x/]] == 2}
+assert {[QuerySimple! Omar is a /x/] eq [Query! Omar is a /x/]}
+
+set joinedResults [Query! /x/ is a person & /x/ is a name]
+assert {[llength $joinedResults] == 1}
+assert {[dict get [lindex $joinedResults 0] x] eq "Omar"}
+
+__conclude 0

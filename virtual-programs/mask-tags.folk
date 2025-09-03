@@ -1,3 +1,6 @@
+# TODO: Fix this
+return
+
 When display /proj/ has width /projWidth/ height /projHeight/ &\
      display /proj/ has intrinsics /projectorIntrinsics/ {
         

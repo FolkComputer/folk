@@ -3,49 +3,159 @@ set baseCode "Wish \$this is outlined green"
 # This makes all keyboards into editors automatically, so a keyboard
 # doesn't need an extra printed claim to be an editor. May choose to
 # change later, or exclude keyboards that opt out.
-When /page/ is a keyboard with path /...anything/ &\
-     /nobody/ claims /page/ is not an editor {
-    Claim $page is an editor
+When /page/ is a keyboard with /...opts/ {
+    dict set opts locale [dict getdef $opts locale us]
+    if {[dict exists $opts path]} {
+        Wish (keep 100ms) $page is an editor with {*}$opts
+    }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ &\
-  /page/ is an editor &\
-  /page/ has region /r/ &\
-  the clock time is /t/ {
+# HACK: This is so that the wish can cycle in and out but the identity
+# of the inner claim is retained, so the editor doesn't reboot.
+When /someone/ wishes /page/ is an editor with /...opts/ {
+    Claim $page is an editor with {*}$opts
+}
+
+When /page/ is an editor with path /kbPath/ /...anything/ {
   Wish tag $page is stabilized
-  set id "$page$kbPath"
-  Claim $id has region [region move $r up 210%]
-  When /nobody/ claims $id has program code /c/ {
-    Hold "code$kbPath" {
-      Claim $id has program code $baseCode
-      Claim $id has editor code $baseCode
-    }
+
+  set id [list editing $page $kbPath]
+
+  set writableTextureId [list $id writable texture]
+  Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
+  Claim $id has writable texture $writableTextureId with width 1024 height 1024
+  When $page has resolved geometry /geom/ {
+      Claim $id has resolved geometry $geom
+  }
+  When $page has writable texture projection /proj/ {
+      Claim $id has writable texture projection $proj
+  }
+  When the quad library is /quadLib/ & $page has quad /q/ {
+      Claim $id has quad [$quadLib move $q up 210%]
   }
 
-  When /nobody/ claims $id has start time /startTime/ {
-    Hold "time$kbPath" {
-      Claim $id has start time $t
-    }
+  if {[llength [Query! /someone/ claims $id has program code /c/]] == 0} {
+      Hold! "code$kbPath" {
+          Claim $id has program code $baseCode
+          Claim $id has editor code $baseCode
+      }
+  }
+
+  if {[llength [Query! /someone/ claims $id has start time /startTime/]] == 0} {
+      set t [expr {[clock milliseconds] / 1000.0}]
+      Hold! [list $id start-time] {
+          Claim $id has start time $t
+      }
+      Hold! [list $id most-recent-time] {
+          Claim $id has most recent time $t
+      }
   }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ {
+When /page/ is an editor with path /kbPath/ /...anything/ {
+  set id [list editing $page $kbPath]
   On unmatch {
-    Hold "time$kbPath" {}
+      Hold! [list $id start-time] {}
   }
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
-  When /nobody/ claims $id has program code /c/ {
-    Hold "cursor$kbPath" {
-      Claim the $kbPath cursor is 0
-      Claim the $kbPath max cursor x is 0
+fn x {vector} { lindex $vector 0 }
+fn y {vector} { lindex $vector 1 }
+
+fn updateCursor {oldCursor updates} {
+  set newCursor $oldCursor
+  if {[dict exists $updates x]} {
+      lset newCursor 0 [::math::max 0 $([dict get $updates x] + [x $oldCursor])]
+  }
+  if {[dict exists $updates y]} {
+      lset newCursor 1 [::math::max 0 $([dict get $updates y] + [y $oldCursor])]
+  }
+  return $newCursor
+}
+
+When /page/ is an editor with path /kbPath/ /...anything/ {
+  set id [list editing $page $kbPath]
+  if {[llength [Query! /someone/ claims the $kbPath cursor is /anything/]] == 0} {
+    Hold! "cursor$kbPath" {
+      Claim the $kbPath cursor is [list 0 0]
     }
   }
 }
 
-proc lineNumberView {ystart linecount} {
+fn insertCharacter {code newCharacter cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set x [- $x 1]
+  set line [lindex $lines $y]
+
+  if {$x < 0} {
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+    lset lines $y [string cat $newCharacter $line]
+    return [join $lines "\n"]
+  } else {
+    set character [string cat [string index $line $x] $newCharacter]
+    set line [string replace $line $x $x $character]
+    lset lines $y $line
+    return [join $lines "\n"]
+  }
+}
+
+fn deleteCharacter {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  if {$x == 0 && $y > 0} {
+    set previousLine [lindex $lines [expr {$y - 1}]]
+    set thisLine [lindex $lines $y]
+    set mergedLine [string cat $previousLine $thisLine]
+    lset lines [expr {$y - 1}] $mergedLine
+    lset lines $y ""
+    set newLines {}
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+      if {$i != $y} {
+        lappend newLines [lindex $lines $i]
+      }
+    }
+    set lines $newLines
+  } else {
+    set line [lindex $lines $y]
+    set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+    lset lines $y $line
+  }
+  return [join $lines "\n"]
+}
+
+fn deleteToBeginning {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set newLine [string range $line $x end]
+  lset lines $y $newLine
+  return [join $lines "\n"]
+}
+
+fn insertNewline {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set beforeCursor [string range $line 0 [expr {$x - 1}]]
+  set afterCursor [string range $line $x end]
+  set newLines [list $beforeCursor $afterCursor]
+
+  if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+  lset lines $y [join $newLines "\n"]
+  return [join $lines "\n"]
+}
+
+fn getLineLength {code cursor} {
+  set lines [split $code "\n"]
+  set line [lindex $lines [lindex $cursor 1]]
+  set ll [string length $line]
+  return $ll
+}
+
+fn lineNumberView {ystart linecount} {
   set yend [expr {$ystart + $linecount}]
   set numbers [list]
   for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
@@ -54,55 +164,70 @@ proc lineNumberView {ystart linecount} {
   join $numbers "\n"
 }
 
-proc debug {position color} {
-  Display::circle {*}$position 5 2 $color true
-}
+When /page/ is an editor with path /kbPath/ /...anything/ {
+    set id [list editing $page $kbPath]
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
-  When $id has program code /code/ & $id has editor code /editorCode/ & the clock time is /t/ & the $kbPath cursor is /cursor/ & $id has region /r/ {
-    set intTime [expr {int($t * 10)}]
-    set scale 0.60
+    # Construct the editor window $id':
+    set writableTextureId [list $id' writable texture]
+    Wish (keep 100ms) the GPU creates writable texture $writableTextureId with width 1024 height 1024
+    Claim $id' has writable texture $writableTextureId with width 1024 height 1024
+    When $page has resolved geometry /geom/ {
+        Claim $id' has resolved geometry $geom
+    }
+    When $page has writable texture projection /proj/ {
+        Claim $id' has writable texture projection $proj
+    }
 
-    set relativeRegion [region move $r down 105%]
-    Claim $id' has region $relativeRegion
+    When the quad library is /quadLib/ & $id has quad /q/ {
+        Claim $id' has quad [$quadLib move $q down 105%]
+    }
+
+    set scale 0.01
     Wish $id' is outlined white
-    lassign [region topleft $r] xstart ystart
-    set em [expr {$scale * 25}]
-    # From NeomatrixCode.csv
-    set advance [expr {0.5859375 * $em}]
-    set margin [expr {$advance * 3 + 10}]
 
-    set p [region topleft [region move $relativeRegion right ${margin}px down 10px]]
-    set lp [region topleft [region move $relativeRegion right 5px down 10px]]
-    set height [expr {[region height $relativeRegion] - 25}]
-    set width [expr {[region width $relativeRegion] - ($margin + 20)}]
-    set radians [region angle $relativeRegion]
+    When $id has program code /code/ & $id has editor code /editorCode/ {
+        set p [list 0.02 0.01]
+        Wish to draw text onto $id' with \
+            position $p text $editorCode \
+            scale $scale anchor topleft font NeomatrixCode
 
-    set cursorVec [editor::cursorToXy $editorCode $cursor]
-    set curs [vec2 scale $cursorVec $advance $em]
+        # Draw line numbers
+        set lp [list 0.005 0.01]
+        set linecount [llength [split $editorCode "\n"]]
+        set linenumbers [lineNumberView 0 $linecount]
+        Wish to draw text onto $id' with \
+            position $lp text $linenumbers \
+            scale $scale anchor topleft font NeomatrixCode
 
-    set x1 [vec2 sub $p $curs]
-    set x2 [vec2 sub $x1 [list 0 [expr {$em + 4}]]]
+        When the $kbPath cursor is /cursor/ {
+            set em [expr {$scale * 1}]
+            # From NeomatrixCode.csv
+            set advance [expr {0.5859375 * $scale}]
 
-    set theta [expr {$radians + 3.14159}]
-    set x1 [vec2 add [vec2 rotate [vec2 sub $x1 $p] $theta] $p]
-    set x2 [vec2 add [vec2 rotate [vec2 sub $x2 $p] $theta] $p]
-    set s [expr {$scale * 4}]
+            # Draw cursor
+            set curs [vec2 scale $cursor $advance $em]
 
-    # Draw text
-    Wish to draw text with position $p text $editorCode scale $scale anchor topleft radians [region angle $relativeRegion] font NeomatrixCode
+            set x1 [vec2 add $p $curs]
+            set x2 [vec2 add $x1 [list 0 [expr {$em + 0.004}]]]
 
-    # Draw line numbers
-    set linecount [llength [split $editorCode "\n"]]
-    set linenumbers [lineNumberView 0 $linecount]
-    Wish to draw text with position $lp text $linenumbers scale $scale anchor topleft radians $radians font NeomatrixCode
-
-    # Draw cursor
-    Wish to draw a circle with center $x1 radius $s thickness 0 color green filled true
-    Wish to draw a stroke with points [list $x1 $x2] width $s color green
-  }
+            set s [expr {$scale / 6}]
+            Wish to draw a circle onto $id' with center $x1 radius $s thickness 0 color green filled true
+            Wish to draw a line onto $id' with points [list $x1 $x2] width $s color green
+        }
+    }
 }
+
+fn getCurrentLineLength {lines cursor} {
+  set splitLines [split $lines "\n"]
+  set currentLine [lindex $splitLines [y $cursor]]
+  string length $currentLine
+}
+
+# OK, what's next?
+
+# - figure out how to speed up Hold serialization when you edit the code (cache the outgoing env? share env values instead of whole env?)
+# - figure out how to KEEP PRESENTATION VISUALS so the page doesn't vanish but NOT MATCH ON DATA QUERY so you don't get weird behavior when editing the code
+#   - maybe you can set a query policy?
 
 When /page/ is printing /jobid/ & /page/ has region /r/ {
   set r [region move $r left 50px]
@@ -111,29 +236,119 @@ When /page/ is printing /jobid/ & /page/ has region /r/ {
   Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
 }
 
-When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor {
-  set id "$page$kbPath"
+When /page/ is an editor with path /kbPath/ /...anything/ {
+    set id [list editing $page $kbPath]
 
+  # Desired behavior: query all the other stuff every time you hit a
+  # key, then destroy the when (don't want _any_ reaction after the
+  # original firing, and don't want to keep the match around).
   Every time keyboard $kbPath claims key /key/ is /keyState/ with /...options/ &\
              the $kbPath cursor is /cursor/ &\
              the $kbPath max cursor x is /maxCursorX/ &\
              $id has program code /programCode/ &\
              $id has editor code /editorCode/ &\
-             $id has start time /startTime/ {
+             $id has start time /startTime/ &\
+             $id has most recent time /mostRecentTime/ {
+
     set timestamp [dict get $options timestamp]
+    if {$timestamp < $mostRecentTime} {
+        puts stderr "editor: Warning: Dropping '$key' ($keyState)"
+        return
+    }
 
-    if {$timestamp > ($startTime * 1000) && ($keyState == "down" || $keyState == "repeat")} {
-      Hold "cursor$kbPath" {
-        if {[dict exists $options printable]} {
-          set editorCode [editor::insertText $editorCode $cursor [dict get $options printable]]
+    HoldStatement! [list $id most-recent-time] \
+        [list $this claims $id has most recent time $timestamp]
 
-          incr cursor
-          incr maxCursorX
-        } else {
-          lassign [editor::handleNavigation $key $editorCode $cursor $maxCursorX] cursor maxCursorX
-          lassign [editor::handleRemovalAndReturn $key $editorCode $cursor $maxCursorX] editorCode cursor maxCursorX
-
+    if {$timestamp > $startTime && ($keyState == "down" || $keyState == "repeat")} {
+      if {[dict exists $options printable]} {
+        Hold! "cursor$kbPath" {
+          Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+          Hold! (keep 12ms) "code$kbPath" {
+            Claim $id has program code $code
+            Claim $id has editor code [insertCharacter $editorCode [dict get $options printable] $cursor]
+          }
+        }
+      } else {
+        Hold! "cursor$kbPath" {
           switch $key {
+            Up {
+              set updatedCursor [updateCursor $cursor {y -1}]
+              set currentLineLength  [getCurrentLineLength $editorCode $updatedCursor]
+              if {[x $updatedCursor] > $currentLineLength} {
+                Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+              } else {
+                Claim the $kbPath cursor is $updatedCursor
+              }
+            }
+            Down {
+              set linecount [llength [split $editorCode "\n"]]
+              set updatedCursor [updateCursor $cursor {y 1}]
+              set currentLineLength [getCurrentLineLength $editorCode $updatedCursor]
+
+              if {[y $updatedCursor] == $linecount} {
+                Claim the $kbPath cursor is $cursor
+                return
+              } elseif {[x $updatedCursor] > $currentLineLength} {
+                Claim the $kbPath cursor is [list $currentLineLength  [y $updatedCursor]]
+              } else {
+                Claim the $kbPath cursor is $updatedCursor
+              }
+            }
+            Right {
+              set currentLineLength [getCurrentLineLength $editorCode $cursor]
+              if {[x $cursor] == $currentLineLength} {
+                if {[y $cursor] == [expr {[llength [split $editorCode "\n"]] - 1}]} {
+                  Claim the $kbPath cursor is $cursor
+                } else {
+                  set newCursor [updateCursor $cursor {y 1}]
+                  Claim the $kbPath cursor is [list 0 [y $newCursor]]
+                }
+              } else {
+                Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
+              }
+            }
+            Left {
+              if {[x $cursor] == 0 && [y $cursor] == 0} {
+                Claim the $kbPath cursor is $cursor
+              } elseif {[x $cursor] == 0} {
+                set newCursor [updateCursor $cursor {y -1}]
+                set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
+                set newCursor [list $previousLineLength [y $newCursor]]
+                Claim the $kbPath cursor is $newCursor
+              } else {
+                Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+              }
+            }
+            Delete {
+              # if cursor is at the beginning of the line, delete the newline
+              if {[x $cursor] == 0 && [y $cursor] > 0} {
+                set newCursor [updateCursor $cursor {y -1}]
+                set previousLineLength  [getCurrentLineLength $editorCode $newCursor]
+                set newCursor [list $previousLineLength [y $newCursor]]
+                Claim the $kbPath cursor is $newCursor
+              } else {
+                Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
+              }
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code [deleteCharacter $editorCode $cursor]
+              }
+            }
+            Remove {
+              Claim the $kbPath cursor is $cursor
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code [deleteCharacter $editorCode [updateCursor $cursor {x 1}]]
+              }
+            }
+            Return {
+              set updatedCursor [updateCursor $cursor {y 1}]
+              Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code [insertNewline $editorCode $cursor]
+              }
+            }
             Control_p {
               # TODO: MUTE VOLUMEUP VOLUMEDOWN
               #       implement sound.folk that allows a system-wide
@@ -141,31 +356,71 @@ When /page/ is a keyboard with path /kbPath/ /...anything/ & /page/ is an editor
               #       Perhaps `Wish $system volume is 0.5` or something
               When $id has printed /lastPrintedCode/ at /previousTime/ {
                 if {($timestamp - $previousTime) < 1000} {
-                  return;
+                  Hold! (keep 12ms) "code$kbPath" {
+                    Claim $id has program code $code
+                    Claim $id has editor code $editorCode
+                  }
+                  Claim the $kbPath cursor is $cursor
                 }
               }
 
-              Hold print-time {
-                Claim $id has printed $programCode at $timestamp
-              }
-
+              Hold! print { Claim $id has printed $code at $timestamp}
               set jobid [expr {rand()}]
-              Wish to print $programCode with job-id $jobid
-              Hold print-${jobid} {
+              Wish to print $code with job-id $jobid
+              Hold! print-${jobid} {
                 Claim $id' is printing $jobid
               }
               After 2000 milliseconds {
-                Hold print-${jobid} {}
+                Hold! print-${jobid} {}
               }
+
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              Claim the $kbPath cursor is $cursor
             }
             Control_r {
-              set editorCode $baseCode
-              set programCode $editorCode
-
-              set cursor 0
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $baseCode
+                Claim $id has editor code $baseCode
+              }
+              Claim the $kbPath cursor is [list 0 0]
             }
             Control_s {
-              set programCode $editorCode
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $editorCode
+                Claim $id has editor code $editorCode
+              }
+              Claim the $kbPath cursor is $cursor
+            }
+            Control_a {
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list 0 $y]
+            }
+            Control_e {
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code $editorCode
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list [getLineLength $editorCode $cursor] $y]
+            }
+            Control_u {
+              # delete from cursor back to 0 and move cursor to 0
+              Hold! (keep 12ms) "code$kbPath" {
+                Claim $id has program code $code
+                Claim $id has editor code [deleteToBeginning $editorCode $cursor]
+              }
+              lassign $cursor x y
+              Claim the $kbPath cursor is [list 0 $y]
+            }
+            default {
+              Claim the $kbPath cursor is $cursor
             }
           }
         }

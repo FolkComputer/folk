@@ -1,0 +1,79 @@
+When when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
+    Wish to collect matches for $clause
+}
+
+# TODO: Defer recollect for like 4ms right away? Sink other recollects
+# into it? Use sysmon to do that?
+
+set cc [C]
+$cc cflags -I.
+$cc include <string.h>
+$cc include "trie.h"
+$cc code {
+    extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
+    extern void HoldStatementGlobally(const char *key, double version,
+                                      Clause *clause, long keepMs,
+                                      const char *sourceFileName, int sourceLineNumber);
+    extern Jim_Obj* QuerySimple(Clause* pattern);
+    extern Clause* claimizeClause(Clause* clause);
+
+    char* makeCollectKey(Jim_Obj* patternObj) {
+        const char COLLECT[] = "collect ";
+        int collectLen = sizeof(COLLECT) - 1;
+
+        int keyLen = Jim_Length(patternObj);
+        char *collectKey = malloc(collectLen + keyLen + 1);
+        memcpy(collectKey, COLLECT, collectLen);
+        memcpy(collectKey + collectLen, Jim_String(patternObj), keyLen + 1);
+        return collectKey;
+    }
+
+    int _Atomic version = 0;
+}
+$cc proc Recollect! {Jim_Obj* patternObj} void {
+    Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
+    Jim_Obj* matchesObj = QuerySimple(pattern);
+
+    Clause* claimizedPattern = claimizeClause(pattern);
+    if (claimizedPattern != NULL) {
+        Jim_Obj* claimizedMatchesObj = QuerySimple(claimizedPattern);
+        Jim_ListAppendList(interp, matchesObj, claimizedMatchesObj);
+        Jim_DecrRefCount(interp, claimizedMatchesObj);
+        free(claimizedPattern);
+    }
+    clauseFree(pattern);
+
+    Clause* collectedClause = malloc(SIZEOF_CLAUSE(9));
+    collectedClause->nTerms = 9;
+    collectedClause->terms[0] = strdup("virtual-programs/collect.folk");
+    collectedClause->terms[1] = strdup("claims");
+    collectedClause->terms[2] = strdup("the");
+    collectedClause->terms[3] = strdup("collected");
+    collectedClause->terms[4] = strdup("matches");
+    collectedClause->terms[5] = strdup("for");
+    collectedClause->terms[6] = strdup(Jim_String(patternObj));
+    collectedClause->terms[7] = strdup("are");
+    collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+
+    Jim_DecrRefCount(interp, matchesObj);
+
+    HoldStatementGlobally(makeCollectKey(patternObj), version++,
+                          collectedClause, 0, "", 0);
+}
+$cc proc Uncollect! {Jim_Obj* patternObj} void {
+    Clause* emptyClause = malloc(SIZEOF_CLAUSE(0));
+    emptyClause->nTerms = 0;
+    HoldStatementGlobally(makeCollectKey(patternObj), version++,
+                          emptyClause, 0, "", 0);
+}
+set collectLib [$cc compile]
+
+When /someone/ wishes to collect matches for /pattern/ {
+    When {*}$pattern {
+        $collectLib Recollect! $pattern
+        On unmatch [list $collectLib Recollect! $pattern]
+    }
+    $collectLib Recollect! $pattern
+
+    On unmatch [list $collectLib Uncollect! $pattern]
+}

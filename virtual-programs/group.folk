@@ -1,3 +1,6 @@
+return
+# FIXME: re-enable group.folk
+
 # load all programs
 When group /group/ contains /...programs/ {
     Wish tag $group is stabilized

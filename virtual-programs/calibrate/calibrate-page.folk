@@ -1,0 +1,570 @@
+When the print library is /printLib/ &\
+     the programToPs is /programToPs/ &\
+     the calibration matLib is /matLib/ &\
+     the calibration isProjectedTag is /isProjectedTag/ &\
+     the calibration isPrintedTag is /isPrintedTag/ &\
+     the calibration unit model is /UNIT_MODEL/ &\
+     the calibration estimateHomography is /estimateHomography/ {
+
+fn programToPs
+fn estimateHomography
+fn isProjectedTag
+fn isPrintedTag
+
+fn makeCalibrationBoardPdf {model tagSideLengthPs} {
+    package require linalg
+    namespace import ::math::linearalgebra::add
+
+    set marginTop 72; set marginLeft 36
+    set PageWidth 612; set PageHeight 792
+
+    set innerToOuter 0.333333
+
+    set tagOuterLengthPs [expr {$tagSideLengthPs * 10/6}]
+
+    set H_modelToPs [estimateHomography [subst {
+        {1 1 $tagSideLengthPs $tagSideLengthPs}
+        {1 0 $tagSideLengthPs 0}
+        {0 1 0 $tagSideLengthPs}
+        {0 0 0 0}
+    }]]
+
+    set ps [subst {
+        %!PS
+        << /PageSize \[$PageWidth $PageHeight\] >> setpagedevice
+
+        % (0, 0) is bottom-left of portrait page right now.
+        90 rotate 1 -1 scale
+        % Now (0, 0) is top-left of landscape page.
+
+        gsave
+        $marginLeft [- $marginTop 18] translate
+        1 -1 scale
+        0 setgray /Helvetica findfont 14 scalefont setfont
+        newpath 0 0 moveto (Folk calibration board) show
+        grestore
+
+        $marginLeft $marginTop translate
+
+        [set tagIdx -1]
+        [join [lmap {id modelTag} $model {
+            if {![isPrintedTag $id]} { continue }
+            incr tagIdx
+
+            set modelInnerTopLeft [lindex [dict get $modelTag p] 3]
+            set modelOuterTopLeft [add $modelInnerTopLeft [list -$innerToOuter -$innerToOuter]]
+            lassign [$matLib applyHomography $H_modelToPs $modelOuterTopLeft] psX psY
+            subst {
+                gsave
+                $psX [+ $psY $tagOuterLengthPs] translate
+                $tagOuterLengthPs -$tagOuterLengthPs scale
+                [$printLib tagPsForId $id]
+                grestore
+
+                % Label the inner side length:
+                [if {$tagIdx == 1} { subst {
+                    gsave
+                    [expr {$psX + ($tagOuterLengthPs - $tagSideLengthPs)/2}]
+                    [expr {$psY - 15}] translate
+                    1 -1 scale
+                    0.1 0.67 0.1 setrgbcolor
+                    newpath 0 0 moveto $tagSideLengthPs 0 lineto stroke
+                    newpath 0 0 moveto 0 -5 lineto stroke
+                    newpath $tagSideLengthPs 0 moveto $tagSideLengthPs -5 lineto stroke
+                    /Helvetica findfont 7 scalefont setfont
+                    newpath 0 5 moveto (inner side length) show
+                    grestore
+                } }]
+            }
+        }] "\n"]
+    }]
+
+    set fp [open [list |ps2pdf - - <<$ps] rb]
+    set pdf [read $fp]; close $fp
+    return $pdf
+}
+
+fn makeExampleProgramPng {} {
+    # HACK: we hard-code letter, since this is just for documentation
+    # purposes, and we want to cut the bottom half off so we need
+    # known dimensions.
+    set format letter
+    set ps [{*}$programToPs 0 {# This image is for illustration purposes; don't
+# print it. You should print a program normally
+# through the Folk editor and measure that.} $format {{
+
+        [set left [expr {$PageWidth-$tagwidth-$margin}]]
+        [set bottom [expr {$PageHeight-$tagheight-$margin}]]
+        [set outerToInner [expr {($tagwidth / 10.0) * 2}]]
+
+        % These take in x1 y1 x2 y2 on stack.
+        /markXDistance {
+            newpath moveto
+            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
+            lineto
+            0 -15 rlineto 0 30 rmoveto 0 -15 rlineto
+            6 setlinewidth stroke
+        } def
+        /markYDistance {
+            newpath moveto
+            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
+            lineto
+            -15 0 rlineto 30 0 rmoveto -15 0 rlineto
+            6 setlinewidth stroke
+        } def
+
+        % Left
+        [+ $left $outerToInner] [expr {$bottom + $tagheight/2.0}]
+        0                       [expr {$bottom + $tagheight/2.0}]
+        1 0 0 setrgbcolor markXDistance
+
+        % Right
+        [expr {$left + $tagwidth - $outerToInner}] [expr {$bottom + $tagheight/2.0}]
+        $PageWidth                                 [expr {$bottom + $tagheight/2.0}]
+        1 0 0 setrgbcolor markXDistance
+
+        % Top
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $tagheight - $outerToInner}]
+        [expr {$left + $tagwidth/2.0}] $PageHeight
+        0 0.5 1 setrgbcolor markYDistance
+
+        % Bottom
+        [expr {$left + $tagwidth/2.0}] [expr {$bottom + $outerToInner}]
+        [expr {$left + $tagwidth/2.0}] [expr {$PageHeight/2.0}]
+        0 0.5 1 setrgbcolor markYDistance
+
+        % Tag inner
+        [+ $left $outerToInner]                    [+ $bottom $outerToInner 5]
+        [expr {$left + $tagwidth - $outerToInner}] [+ $bottom $outerToInner 5]
+        0 1 0 setrgbcolor markXDistance
+    }}]
+
+    set fp [open [list |gs -sDEVICE=png16m -q -dBATCH -r300 -sOutputFile=- - <<$ps] rb]
+    set png [read $fp]; close $fp
+    return $png
+}
+
+Wish the web server handles route "/calibrate$" with handler [list applyBlock {
+    package require base64
+
+    set calibrationBoardPdf [makeCalibrationBoardPdf $UNIT_MODEL 70]
+
+    set exampleProgramPng [makeExampleProgramPng]
+
+    set defaultGeom [dict get [lindex [Query! /someone/ claims the default program geometry is /defaultGeom/] 0] defaultGeom]
+    fn defaultGeomGet {key} { return [string map {mm ""} [dict get $defaultGeom $key]] }
+
+    set camera [dict get [lindex [Query! camera /camera/ has width /cameraWidth/ height /cameraHeight/] 0] camera]
+
+    upvar ^html ^html
+    html [csubst {
+      <html>
+        <head>
+          <title>Folk: Calibrate</title>
+          <style>body { max-width: 600px; }</style>
+        </head>
+      <body>
+        <span id="status">Status</span>
+        <script src="/lib/folk.js"></script>
+        <script>
+         function uuidv4() {
+           return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+             (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+           );
+         }
+         const self = uuidv4();
+
+         const ws = new FolkWS(document.getElementById('status'));
+        </script>
+
+        <ol>
+          <li>
+            <h3>Print the calibration board.</h3>
+
+            <p>Print this calibration board and glue/tape it to
+            something solid and flat (hardcover book, solid cardboard,
+            etc):</p>
+            <iframe id="board-iframe" width="500px" height="300px" src="data:application/pdf;base64,$[binary encode base64 $calibrationBoardPdf]">
+            </iframe>
+            <p>You can download the PDF and print it yourself, or print through Folk if your printer is set up: <button id="board-print-through-folk">Print Calibration Board through Folk</button></p>
+            <script>
+              document.getElementById('board-print-through-folk').addEventListener('click', (e) => {
+                const boardSrc = document.getElementById('board-iframe').src.replace(/^data:application.pdf;base64,/, "");
+
+                ws.evaluate(`
+                  set boardPdf [binary decode base64 {\${boardSrc}}]
+                  set fd [open /tmp/folk-calibration-board.pdf w]
+                  fconfigure \$fd -encoding binary -translation binary
+                  puts \$fd \$boardPdf; close \$fd
+                  exec lpr /tmp/folk-calibration-board.pdf
+                `);
+              });
+            </script>
+            <p>Try to keep the board from bending or warping. Printing on cardstock can help.</p>
+            <p>(During calibration, Folk will want to project AprilTags in the gaps on the grid of tags on the board. Instead of printing, you can
+            try just maximizing the board on your computer/tablet
+            screen, but you'll need to cover each gap with sticky note or something else that Folk can project
+            tags on.)</p>
+          </li>
+
+          <li>
+            <h3>Measure your calibration board.</h3>
+
+            <p>On your calibration board, measure the <span style="color: rgb(10% 67% 10%)">inner side length</span> (indicated on calibration PDF) of a tag in millimeters and enter it here: <input id="tag-side-length-mm" type="text">mm</p>
+
+            <p>Try to be as accurate as possible, like to within half a millimeter or better -- the more accurate, the better your calibration will be.</p>
+          </li>
+
+          <li>
+            <h3>Run the calibration process.</h3>
+
+            <p>Start calibration: <button id="tag-side-length-submit">Start Calibration</button></p>
+            <script>
+              document.getElementById('tag-side-length-submit').addEventListener('click', (e) => {
+                const mm = document.getElementById("tag-side-length-mm").value;
+                if (mm === "" || isNaN(mm)) {
+                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Calibration.");
+                  return;
+                }
+
+                // TODO: using Assert is a little ugly (it's so it can be
+                // retracted when calibration is done)
+                ws.send(tcl`
+                  Claim the printed calibration tag size is \${mm} mm
+                  Assert! \${self} wishes to calibrate
+                `);
+              });
+            </script>
+
+            <p>Once you start calibration, you'll see some AprilTags get automatically projected on your table. Move your board to the projected tags <em>so that at least one projected tag sits inside the gap between printed AprilTags</em>, wait a second for the projected tags to refit into the grid,
+          then <strong>hold the board still for a few seconds until
+              the pose is recorded.</strong></p>
+
+            <iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/l1liP4_yiVM?si=DqgfNKq05EPBT3hT" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+            <p style="font-style: italic; width: 100%; text-align: center;">Example video of Andr&eacute;s calibrating the folk0 system (2x speed)</p>
+
+            <p><strong>Are the projected tags too big to fit in the gaps between printed tags?</strong> Adjust this slider to reset & adjust the default projected tag size:
+              <input type="range" min="10" max="100" value="100" class="slider" id="projected-tag-slider">
+            </p>
+            <script>
+              document.getElementById('projected-tag-slider').addEventListener('input', (e) => {
+                const scale = e.target.value / 100.0;
+                ws.evaluate(tcl`
+                  set HoldDefaultModel! [dict get [lindex [Query! /someone/ claims the calibration HoldDefaultModel! is /hdm/] 0] hdm]
+                  {*}[set HoldDefaultModel!] \${scale}
+                `);
+              });
+
+              function advanceCamera() {
+                cameraFrame.src = '/camera-frame?' + Math.random()
+              }
+            </script>
+
+            <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
+  <label for="auto-refresh-checkbox">Automatically refresh preview</label> </p><br> <img src="/camera-frame" id="cameraFrame" style="max-width: 100%"> 
+
+            <script>
+                const refreshButton = document.getElementById('refreshButton');
+                const autoRefreshCheckbox = document.getElementById('auto-refresh-checkbox');
+                cameraFrame.addEventListener('load', () => {
+                  if (autoRefreshCheckbox.checked) {
+                    advanceCamera();
+                  } 
+                });
+                autoRefreshCheckbox.addEventListener('change', () => {
+                  if (autoRefreshCheckbox.checked) {
+                    advanceCamera();
+                  }
+                });
+            </script>
+
+
+            <p><strong>Is the projection too bright and washing out the camera?</strong>
+            <br/>
+            Adjust camera exposure:
+                <input type="range" min="10" max="32" value="15" class="slider" id="camera-exposure-slider">
+                <input type="number" min="1000" max="320000" step="100" value="1500" id="camera-exposure-number">μs
+            </p>
+
+            <script>
+            const slider = document.getElementById('camera-exposure-slider');
+            const numberInput = document.getElementById('camera-exposure-number');
+            let lastRefreshTimeout = null;
+            
+            function updateExposure(valueInMicroseconds) {
+                const sliderValue = valueInMicroseconds / 100;
+                
+                slider.value = sliderValue;
+                numberInput.value = valueInMicroseconds;
+                
+                ws.hold('exposure', tcl`
+                    Wish camera $camera uses exposure time \${valueInMicroseconds} us
+                `, 'virtual-programs/calibrate/calibrate.folk');
+                
+                if (lastRefreshTimeout != null) {
+                    window.clearTimeout(lastRefreshTimeout);
+                }
+                lastRefreshTimeout = setTimeout(() => { advanceCamera() }, 500);
+            }
+            
+            slider.addEventListener('input', (e) => {
+                const exposureValue = Math.round(e.target.value * 100);
+                updateExposure(exposureValue);
+            });
+            
+            numberInput.addEventListener('input', (e) => {
+                const exposureValue = parseInt(e.target.value);
+                updateExposure(exposureValue);
+            });
+            
+            updateExposure(10000);
+            </script>
+
+          <p>Once you've recorded the first pose, <em>slowly drag the board around your space</em>, going slow enough for the projected AprilTags to catch up with the printed AprilTags and fit into the gaps on your board. When you've moved the board at least a full board-length away from the first pose, try to slant it 45 degrees or so off the table and hold it still again to capture another pose.</p>
+
+          <p>Repeat this process of dragging the board around and
+          capturing a new pose. You'll need to record 10 different
+          poses; try to slant the board and move it up and around to
+          cover the projector/camera area as much as possible. Once 10
+          poses are recorded, you'll see the results below.</p>
+        <p>(If calibration gets into a bad/stuck state, feel free to click Start Calibration again.)</p>
+
+            <details>
+              <summary>Troubleshooting</summary>
+              <p>Look at ~/folk-calibration-poses to see images of the captured poses (maybe tags are distorted or washed out?).</p>
+              <p>You can try manually adjusting webcam settings if your poses are bad. (They should be immediately reflected in the camera preview once you refresh.) Folk tries to turn off autofocus by default, and you might also want to check that your camera actually has an exposure setting and focus setting. For example:</p>
+              <pre>
+\$ v4l2-ctl --device=/dev/video0 --list-ctrls
+
+User Controls
+
+                     brightness 0x00980900 (int)    : min=0 max=255 step=1 default=128 value=128
+                       contrast 0x00980901 (int)    : min=0 max=255 step=1 default=128 value=128
+                     saturation 0x00980902 (int)    : min=0 max=255 step=1 default=128 value=128
+        white_balance_automatic 0x0098090c (bool)   : default=1 value=1
+                           gain 0x00980913 (int)    : min=0 max=255 step=1 default=0 value=109
+           power_line_frequency 0x00980918 (menu)   : min=0 max=2 default=2 value=2 (60 Hz)
+      white_balance_temperature 0x0098091a (int)    : min=2000 max=6500 step=1 default=4000 value=3453 flags=inactive
+                      sharpness 0x0098091b (int)    : min=0 max=255 step=1 default=128 value=128
+         backlight_compensation 0x0098091c (int)    : min=0 max=1 step=1 default=0 value=0
+
+Camera Controls
+
+                  auto_exposure 0x009a0901 (menu)   : min=0 max=3 default=3 value=3 (Aperture Priority Mode)
+         exposure_time_absolute 0x009a0902 (int)    : min=3 max=2047 step=1 default=250 value=83 flags=inactive
+     exposure_dynamic_framerate 0x009a0903 (bool)   : default=0 value=1
+                   pan_absolute 0x009a0908 (int)    : min=-36000 max=36000 step=3600 default=0 value=0
+                  tilt_absolute 0x009a0909 (int)    : min=-36000 max=36000 step=3600 default=0 value=0
+                 focus_absolute 0x009a090a (int)    : min=0 max=250 step=5 default=0 value=30
+     focus_automatic_continuous 0x009a090c (bool)   : default=1 value=0
+                  zoom_absolute 0x009a090d (int)    : min=100 max=500 step=1 default=100 value=100
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=auto_exposure=1 # to set them manually from terminal
+\$ v4l2-ctl --device=/dev/video0 --set-ctrl=exposure_time_absolute=25
+              </pre>
+              <p>Camera needs to have auto_exposure and exposure_time_absolute settings listed for Folk to be able to set them.</p>
+            </details>
+          </li>
+
+          <li>
+            <h3>Calibration results:</h3> <div id="calibration-report"></div>
+            <script>
+              const calibrationReportEl = document.getElementById('calibration-report');
+              ws.watchCollected(`/someone/ claims the calibration report is /calibrationReport/`, reports => {
+                if (reports.length === 0) {
+                  calibrationReportEl.innerHTML = "<pre>Not calibrating yet.</pre>";
+                  return;
+                }
+                calibrationReportEl.innerHTML = reports[0].calibrationReport;
+              });
+            </script>
+
+            <p>(For a good calibration, camera RMSE and projector RMSE should ideally be less than 1 [1 to 2 is OK]. Stereo RMSE should ideally be less than 5 [less than 10 is OK].)</p>
+
+            <p>Calibration should be in place once you have 10 poses!</p>
+
+            <p>If you have a bad calibration, you can try just
+            calibrating again.</p>
+          </li>
+
+          <li id="refineCalibrationLi" style="display: $[expr {$::thisNode in {"folk-convivial" "gadget-pink"} ? "''" : "none"}]">
+            <h3>Refine calibration on the table.</h3>
+
+            <p>Start table refinement: <button id="table-refinement-submit">Start Table Refinement</button></p>
+            <script>
+              document.getElementById('table-refinement-submit').addEventListener('click', (e) => {
+                // HACK: duplicated code from above
+                const mm = document.getElementById("tag-side-length-mm").value;
+                if (mm === "" || isNaN(mm)) {
+                  alert("Error: You need to type in a valid inner side length (mm) of your board tags before clicking Start Calibration.");
+                  return;
+                }
+                // TODO: using Assert is a little ugly (it's so it can be
+                // retracted when calibration is done)
+                ws.send(tcl`
+                  Claim the printed calibration tag size is \${mm} mm
+                  Assert! \${self} wishes to do table refinement
+                `);
+              });
+            </script>
+          </li>
+
+          <li>
+            <h3>Measure program geometry.</h3>
+
+            <p>Now we need to tell Folk the exact geometry of an
+              average program page: what is the physical size of the
+              AprilTag on the page? how far is the tag from the edges
+              of the page?</p>
+
+            <p><a href="/new">Print a program that outlines itself</a>,
+              if you don't have one already.</p>
+
+            <p>Fold the program in half if you want half-height programs. Measure the tag inner side length in millimeters, along with the distances in millimeters from the tag inner perimeter to each edge of the paper. Enter them below.</p>
+            <img width="306" src="data:image/png;base64,$[binary encode base64 $exampleProgramPng]"
+              style="border: 2px solid black; height: 198px; object-fit: cover; object-position: 0 0;">
+
+            <ul>
+              <li style="color: green">Tag inner side length (try to be accurate to half a millimeter or better):
+                <input id="geomTagSizeMm" type="text" placeholder="$[defaultGeomGet tagSize]">mm</li>
+
+              <li style="color: red">Left: <input id="geomLeftMm" type="text" placeholder="$[defaultGeomGet left]">mm</li>
+              <li style="color: red">Right: <input id="geomRightMm" type="text" placeholder="$[defaultGeomGet right]">mm</li>
+              <li style="color: blue">Top: <input id="geomTopMm" type="text" placeholder="$[defaultGeomGet top]">mm</li>
+              <li style="color: blue">Bottom: <input id="geomBottomMm" type="text" placeholder="$[defaultGeomGet bottom]">mm</li>
+            </ul>
+
+            <p><button id="geomSave">Save Program Geometry</button></p>
+            <script>
+             geomSave.addEventListener('click', () => {
+               if (!([geomTagSizeMm.value, geomLeftMm.value, geomRightMm.value,
+                      geomTopMm.value, geomBottomMm.value].every(x => x != "" && !isNaN(x)))) {
+                 alert("Error: You haven't filled in all the geometry values.");
+                 return;
+               }
+               const geom = {
+                 tagSize: geomTagSizeMm.value + 'mm',
+                 left: geomLeftMm.value + 'mm',
+                 right: geomRightMm.value + 'mm',
+                 top: geomTopMm.value + 'mm',
+                 bottom: geomBottomMm.value + 'mm'
+               };
+               ws.hold('default program geometry',
+                       tcl`
+set fd [open "\$::env(HOME)/folk-printed-programs/default.folkgeom" w]
+set geom \${geom}; puts \$fd \$geom; close \$fd
+Claim the default program geometry is \$geom
+`,
+                       '<global>');
+             });
+            </script>
+
+            <details>
+              <summary>How to manually override the geometry of a specific program</summary>
+
+              <p>If you've, for example, printed out program 30 at a
+              different size, or you manually cut and pasted the tag
+              30 somewhere and want to create a specially sized region
+              around that, you can set tag 30's geometry manually by making a
+              30.meta.folk text file in ~/folk-printed-programs, with content like this:</p>
+
+              <pre>Claim tag \$this has geometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}</pre>
+            </details>
+          </li>
+
+          <li>
+            <h3>Test calibration.</h3>
+
+            <p>The best way to test calibration is to look at your
+              printed program and see how well the projected outline
+              lines up with the physical edge of your program.</p>
+
+            <p>Again, if you have a bad calibration, you can try just
+            calibrating again. (Just scroll back up and click Start
+            Calibration. You don't need to redo any of the steps
+            before or after.)</p>
+          </li>
+        </ol>
+      </body>
+    </html>
+  }]
+} [captureEnvStack]]
+
+When the calibration poses are /calibrationPoses/ {
+    # Hold reporting info for the Web page.
+    set posesReport [subst {
+      <p>Poses:</p><ol>
+      [join [lmap pose $calibrationPoses {
+        set width [dict get $pose cameraWidth]
+        set height [dict get $pose cameraHeight]
+        subst {
+          <li>
+          <div style="position: relative; width: 300px; height: [expr {(300.0 / $width) * $height}]px">
+            <img style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px"
+                 src="/calibration-poses/[dict get $pose imageName]">
+            <svg style="position: absolute; top: 0; left: 0; width: 300px; height: [expr {(300.0 / $width) * $height}]px; pointer-events: none"
+                 viewBox="0 0 [dict get $pose cameraWidth] [dict get $pose cameraHeight]">
+               [join [lmap det [dict values [dict get $pose tags]] {
+                    set points [dict get $det p]
+                    set coords [lmap point $points {
+                        format "%g,%g" [lindex $point 0] [lindex $point 1]
+                    }]
+                    lappend coords [lindex $coords 0]
+                    set id [dict get $det id]
+                    subst {
+                        <polyline points="$coords" fill="none" stroke="green" stroke-width="3" />
+                        <text x="[lindex $points 0 0]" y="[lindex $points 0 1]" fill="green" font-size="12">${id}</text>
+                    }
+                }] "\n"]
+            </svg>
+          </div>
+          RMSE [dict getdef $pose rmse (unavailable)]
+          </li>
+        }
+      }] \n]
+      [string repeat {<li>Not detected yet</li>} [- 10 [llength $calibrationPoses]]]
+      </ol>
+    }]
+
+    When /nobody/ claims the calibration is /anything/ {
+        Claim the calibration report is $posesReport
+    }
+    When the calibration is /calibration/ {
+        set calibrationReport "$posesReport
+        <p>Calibration:</p><pre>
+Camera intrinsics --------
+[join [lmap {k v} [dict get $calibration camera intrinsics] {list $k $v}] \n]
+
+Camera RMSE [dict getdef $calibration camera rmse (unavailable)]
+
+Projector intrinsics -----
+[join [lmap {k v} [dict get $calibration projector intrinsics] {list $k $v}] \n]
+
+Projector RMSE [dict getdef $calibration projector rmse (unavailable)]
+
+----
+Stereo RMSE [dict getdef $calibration rmse (unavailable)]
+</pre>"
+        Claim the calibration report is $calibrationReport
+    }
+}
+
+Wish the web server handles route {/calibration-poses/([^/]+)$} with handler {
+    regexp {/calibration-poses/([^/]+)$} $path -> filename
+    set filename "$::env(HOME)/folk-calibration-poses/$filename"
+
+    set fsize [file size $filename]
+    set fd [open $filename r]
+    fconfigure $fd -translation binary
+    set body [read $fd $fsize]
+    close $fd
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: image/jpeg
+Content-Length: $fsize
+
+" \
+        body $body
+}
+
+}

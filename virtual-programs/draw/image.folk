@@ -1,0 +1,191 @@
+When the image library is /imageLib/ {
+    set cc [C]
+    $cc extend $imageLib
+
+    $cc code {
+        #include <pthread.h>
+
+        typedef struct ImageCacheEntry {
+            char* name;
+            Image im;
+        } ImageCacheEntry;
+
+        ImageCacheEntry imageCache[1000];
+        pthread_rwlock_t imageCacheLock;
+    }
+    $cc proc cacheInit {} void {
+        pthread_rwlock_init(&imageCacheLock, NULL);
+    }
+    $cc proc cacheExists {char* name} bool {
+        pthread_rwlock_rdlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (imageCache[i].name == NULL) break;
+            if (strcmp(imageCache[i].name, name) == 0) {
+                pthread_rwlock_unlock(&imageCacheLock);
+                return true;
+            }
+        }
+        pthread_rwlock_unlock(&imageCacheLock);
+        return false;
+    }
+    $cc proc cacheGet {char* name} Image {
+        pthread_rwlock_rdlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (strcmp(imageCache[i].name, name) == 0) {
+                Image im = imageCache[i].im;
+                pthread_rwlock_unlock(&imageCacheLock);
+                return im;
+            }
+        }
+        fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
+    }
+    $cc proc cachePut {char* name Image im} void {
+        pthread_rwlock_wrlock(&imageCacheLock);
+        for (int i = 0; i < 1000; i++) {
+            if (imageCache[i].name == NULL) {
+                imageCache[i].name = strdup(name);
+                imageCache[i].im = im;
+                break;
+            }
+        }
+        pthread_rwlock_unlock(&imageCacheLock);
+    }
+
+    set cacheLib [$cc compile]
+    $cacheLib cacheInit
+
+
+    set loadImage [list apply {{cacheLib imageLib im} {
+        if {[$cacheLib cacheExists $im]} {
+            return [$cacheLib cacheGet $im]
+        }
+
+        set impath $im
+        if {[string match "http*://*" $impath]} {
+            set im /tmp/[regsub -all {\W+} $impath "_"]
+            exec -ignorestderr curl -o$im $impath
+        }
+        if {[string match "*jpg" $im] ||
+            [string match "*jpeg" $im] ||
+            [string match "*png" $im]} {
+            set path [expr {[string index $im 0] eq "/" ?
+                            $im : "$::env(HOME)/folk-images/$im"}]
+            if {[string match "*jpg" $im] || [string match "*jpeg" $im]} {
+                set im [$imageLib loadJpeg $path]
+            } else {
+                set im [$imageLib loadPng $path]
+            }
+            $cacheLib cachePut $impath $im
+        }
+        return $im
+    }} $cacheLib $imageLib]
+    Claim the image loader is $loadImage
+}
+
+Wish the GPU compiles pipeline "image" {
+    {vec2 viewport mat3 surfaceToClip
+     sampler2D image vec2 a vec2 b vec2 c vec2 d} {
+        vec2 vertices[6] = vec2[6](a, b, c, a, c, d);
+        vec3 v = surfaceToClip * vec3(vertices[gl_VertexIndex], 1.0);
+        return vec4(v.xy/v.z, 0.0, 1.0);
+
+} {fn invBilinear} {
+        vec2 clipXy = (gl_FragCoord.xy / viewport) * 2.0 - 1.0;
+        vec3 surfaceXy = inverse(surfaceToClip) * vec3(clipXy, 1.0);
+        surfaceXy /= surfaceXy.z;
+
+        vec2 uv = invBilinear(surfaceXy.xy, a, b, c, d);
+        if( max( abs(uv.x-0.5), abs(uv.y-0.5))<0.5 ) {
+            return texture(image, uv);
+        }
+        return vec4(0.0, 0.0, 0.0, 0.0);
+}}
+When the image library is /imageLib/ &\
+     /someone/ wishes to draw an image onto /p/ with /...options/ &\
+     /p/ has writable texture /id/ with /...wiOptions/ &\
+     /p/ has writable texture projection /surfaceToClip/ {
+
+    set im [dict get $options image]
+
+    if {[dict exists $options position]} {
+        lassign [dict get $options position] x0 y0
+    } else {
+        set x0 [dict get $options x]
+        set y0 [dict get $options y]
+    }
+    set radians [dict getdef $options radians 0]
+    
+    if {[dict exists $options width] && [dict exists $options height]} {
+        set width [dict get $options width]
+        set height [dict get $options height]
+    } elseif {[dict exists $options width] && ![dict exists $options height]} {
+        set width [dict get $options width]
+        set height $(double([$imageLib Image_height $im]) / [$imageLib Image_width $im] * $width)
+    } elseif {![dict exists $options width] && [dict exists $options height]} {
+        set height [dict get $options height]
+        set width $(double([$imageLib Image_width $im]) / [$imageLib Image_height $im] * $height)
+    }
+
+    # TODO: implement anchor like in text
+    set anchor [dict getdef $options anchor "topleft"]
+    if {$anchor eq "center"} {
+        set a [list $($x0 - $width/2.0) $($y0 - $height/2.0)]
+        set b [list $($x0 + $width/2.0) $($y0 - $height/2.0)]
+        set c [list $($x0 + $width/2.0) $($y0 + $height/2.0)]
+        set d [list $($x0 - $width/2.0) $($y0 + $height/2.0)]
+    } elseif {$anchor eq "topleft"} {
+        set a [list $x0 $y0]
+        set b [list [+ $x0 $width] $y0]
+        set c [list [+ $x0 $width] [+ $y0 $height]]
+        set d [list $x0 [+ $y0 $height]]
+    } else {
+        error "Unsupported anchor: $anchor"
+    }
+
+    set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
+
+    Wish the GPU loads image $im
+    When the GPU has loaded image $im as texture /gim/ {
+        Wish the GPU draws pipeline "image" onto texture $id with arguments \
+            [list $wiResolution $surfaceToClip \
+                 $gim \
+                 $a $b $c $d]
+    }
+}
+
+When /someone/ wishes /p/ displays image /im/ &\
+     /p/ has resolved geometry /geom/ {
+         # TODO: Mask the tag out?
+    Wish to draw an image onto $p with image $im \
+        position [list 0 0] \
+        anchor topleft \
+        width [/ [dict get $geom left] 1.5]
+}
+
+
+When /someone/ wishes /p/ displays image /im/ with /...options/ {
+    return
+
+    set im [image load $im]
+    When $p has region /r/ {
+        # Compute a scale for im that will fit in the region width/height
+        # Draw im with scale and rotation
+        if {![dict exists $options center]} {
+            dict set options center [region centroid $r]
+        }
+        # set width [region width $r]
+        # set height [region height $r]
+        # set scale [expr {min($width / [image width $im],
+        #                      $height / [image height $im])}]
+        # Wish $p is labelled $im
+        if {![dict exists $options radians]} {
+            dict set options radians [region angle $r]
+        }
+        Wish to draw an image with image $im {*}$options
+    }
+    # On unmatch {
+    #     # HACK: Leaves time for the display to finish trying to display this.
+    #     after 5000 [list image freeJpeg $im]
+    # }
+}
+

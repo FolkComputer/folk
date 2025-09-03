@@ -1,0 +1,18 @@
+
+set cc [C]
+$cc proc addify {int a int b} int {
+    return a + b;
+}
+set clib [$cc compile]
+
+puts ================
+
+set dd [C]
+$dd import $clib addify
+$dd proc super_addify {int a int b} int {
+    return addify(a, b) * 100;
+}
+set dlib [$dd compile]
+
+assert {[$dlib super_addify 10 1] == 1100}
+__conclude 0

@@ -1,3 +1,4 @@
+puts "Loading Code View"
 namespace eval ::codeView {
   # TODO: also don't hardcode this? Or make it in meters once that's simple
   variable marginInPx 10
@@ -35,10 +36,12 @@ namespace eval ::codeView {
 
 When /someone/ claims /view/ is a code view {
   Claim $view is a code view with {*}$codeView::defaults
+  puts "CODE VIEW: loading code view $view"
 }
 
 # initial setup
 When /view/ is a code view with /...options/ {
+    puts "CODE VIEW: loading code view $view with options $options"
   set options [dict merge $codeView::defaults $options]
 
   # select which program the view is viewing
@@ -104,6 +107,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
         $view has cursor /cursor/ &\
         $view has viewport scale with width /widthScale/ height /heightScale/ &\
         $view has text settings with /...textOptions/ {
+    puts "CODE VIEW: Responding to code view kb path $kbPath / $view"
     lassign $dims vpX vpY vpWidth vpHeight
 
     if {$keyState == "up"} { return }

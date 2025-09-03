@@ -1,0 +1,57 @@
+puts "boot: Boot (PID [pid])"
+apply {{} {
+    catch {
+        set fp [open "folk.pid" r]
+        set oldPid [read $fp]; close $fp
+        try {
+            if {[string trim [exec ps -o state= -p $oldPid]] eq "Z"} {
+                error "Zombie Folk process exists (PID $oldPid)"
+            }
+            puts stderr "boot: ($::errorCode) ERROR: Another Folk (PID $oldPid) already running."
+            __conclude 1
+        } on error e {
+            puts stderr "boot: $e; this is OK; continuing."
+        }
+    }
+
+    set fp [open "folk.pid" w]
+    puts -nonewline $fp [pid]; close $fp
+    # in case we're running as root:
+    catch { exec chown folk folk.pid }
+}}
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    HoldStatement! (keep 100ms) (on boot.folk) [list $programFilename code] \
+        [list boot.folk claims $programFilename has program code [read $fp]]
+    close $fp
+}
+
+# Load the setup program -- setup.folk.default gets overridden
+# if the user made their own setup.folk.
+set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                         "$::env(HOME)/folk-live/setup.folk" :
+                         "setup.folk.default"}]
+puts "boot: Using config at $setupFilename"
+LoadProgram! $setupFilename
+
+foreach programFilename [list {*}[glob -nocomplain virtual-programs/*.folk] \
+                             {*}[glob -nocomplain virtual-programs/*/*.folk] \
+                             {*}[glob -nocomplain "user-programs/[info hostname]/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*.folk"] \
+                             {*}[glob -nocomplain "$::env(HOME)/folk-live/*/*.folk"]] {
+    if {[string match "*/_archive/*" $programFilename] ||
+        [string match "*/folk-printed-programs/*" $programFilename] ||
+        [string match "*/setup.folk" $programFilename]} { continue }
+
+    LoadProgram! $programFilename
+}
+
+if {$::tcl_platform(os) eq "darwin"} {
+    apply {{} { source "virtual-programs/gpu/gpu.folk" }}
+}

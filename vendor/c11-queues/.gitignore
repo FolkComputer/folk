@@ -1,0 +1,11 @@
+*.o
+*.d
+*.so
+*~
+
+spsc_ub_test_fib
+spsc_ub_test_default
+spsc_test_fib
+mpmc_test
+mpmc_test_fib
+gmon.out

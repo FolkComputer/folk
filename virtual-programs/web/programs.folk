@@ -1,18 +1,18 @@
-proc emitHTMLForProgramList {programList label} {
-    set prettyLabel [string map {- " "} $label]
-    set prettyLabel [string totitle $prettyLabel]:
-    set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
-    lappend returnList "<ul>"
-    foreach item $programList {
-        lappend returnList "<li><details><summary>[dict get $item programName]</summary><pre><code>[htmlEscape [lindex [dict get $item program] 1]]</code></pre></details></li>"
-    }
-    lappend returnList "</ul>"
-    lappend returnList "</details>"
-    join $returnList
-}
-
 Wish the web server handles route "/programs" with handler {
-    set programs [Statements::findMatches [list /someone/ claims /programName/ has program /program/]]
+    proc emitHTMLForProgramList {programList label} {
+        set prettyLabel [string map {- " "} $label]
+        set prettyLabel [string totitle $prettyLabel]:
+        set returnList [list "<details data-label='$label' data-count='[llength $programList]'><summary>$prettyLabel ([llength $programList])</summary>"]
+        lappend returnList "<ul>"
+        foreach item $programList {
+            lappend returnList "<li><details><summary>[dict get $item programName]</summary><pre><code>[htmlEscape [dict get $item programCode]]</code></pre></details></li>"
+        }
+        lappend returnList "</ul>"
+        lappend returnList "</details>"
+        join $returnList
+    }
+
+    set programs [Query! /someone/ claims /programName/ has program code /programCode/]
     set vp [list]; # virtual programs
     set cp [list]; # core programs
     set wp [list]; # web programs

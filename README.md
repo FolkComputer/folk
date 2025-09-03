@@ -120,7 +120,8 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
        Restart=always
        RestartSec=1
        User=folk
-       ExecStart=make -C /home/folk/folk
+       WorkingDirectory=/home/folk/folk
+       ExecStart=make && ./folk
 
        [Install]
        WantedBy=multi-user.target
@@ -133,34 +134,60 @@ the bottom of `/etc/sudoers` on the tabletop. (This lets the `make`
 scripts from your laptop manage the Folk service by running
 `systemctl` without needing a password.)
 
-Then, _on your laptop_, clone this repository:
+To compile and run Folk:
 
 ```
-$ git clone https://github.com/FolkComputer/folk.git
+$ make deps
+$ make && ./folk
 ```
 
-And run `make sync-restart FOLK_SHARE_NODE=folk-WHATEVER.local`. This
-will rsync folk to the tabletop and run it there as well as running it
-on your laptop.
+or (if remote machine):
 
-(or clone it onto the machine and run `sudo systemctl start folk` there)
+```
+$ make remote FOLK_REMOTE_NODE=<your-remote-hostname-here>
+```
+
+### Address Sanitizer
+
+Address Sanitizer (ASan) support can be enabled by setting the `ASAN_ENABLE` environment variable:
+
+```
+make ASAN_ENABLE=1
+```
+
+Then when running:
+
+```
+ASAN_ENABLE=1 make start
+```
+
+### Tracy profiling
+
+To use Tracy, first do `git submodule update --init` here.
+
+Pass `CFLAGS=-DTRACY_ENABLE` to `make` when compiling Folk (you might
+need to clean first if you already built Folk).
+
+Ideally, run Folk as root with `sudo ./folk` or `make sudo-remote`.
+
+Build the profiler client on your laptop/other PC:
+
+```
+$ cmake -B vendor/tracy/profiler/build -S vendor/tracy/profiler -DCMAKE_BUILD_TYPE=Release
+$ make -C vendor/tracy/profiler/build
+```
+
+Run the profiler client on your laptop/other PC and connect to a running Folk:
+
+```
+$ make run-tracy
+```
 
 ### How to control tabletop Folk from your laptop
 
 On your laptop Web browser, go to http://folk-WHATEVER.local:4273 --
 click New Program, hit Save, drag it around. You should see the
 program move on your table as you drag it around on your laptop.
-
-Does it work? Add your tabletop to hosts.tcl! Send in a patch!
-Celebrate!
-
-### General debugging
-
-You can run `make journal` to see stdout/stderr output from the
-tabletop machine. If you need to pass in a specific hostname, `make
-journal FOLK_SHARE_NODE=folk-whatever.local`.
-
-`make repl` will give you a dialed-in Tcl REPL.
 
 ### Printer support
 
@@ -200,8 +227,8 @@ not the PS for it to work, probably)
 
 ### Projector-camera calibration
 
-1. Position the camera. Make sure Folk is running (ssh in, `cd
-   ~/folk`, `./folk.tcl start`). Go to your Folk server's Web page
+1. Position the camera. Make sure Folk is running (ssh in, `make &&
+   ./folk`). Go to your Folk server's Web page
    http://whatever.local:4273/camera-frame to see a preview of what
    the camera sees. Reposition your camera to cover your table.
 
@@ -290,7 +317,7 @@ created. Therefore, it will eventually be useful for you to know
 syntax](https://www.ee.columbia.edu/~shane/projects/sensornet/part1.pdf).
 
 These are all implemented in `main.tcl`. For most things, you'll
-probably only need `Wish`, `Claim`, `When`, and maybe `Hold`.
+probably only need `Wish`, `Claim`, `When`, and maybe `Hold!`.
 
 ### Wish and Claim
 
@@ -389,25 +416,25 @@ cool`.
 first-class object. You can use `&` joins in that pattern as
 well.)
 
-### Hold
+### Hold!
 
-Experimental: `Hold` is used to register claims that will stick
-around until you do another `Hold`. You can use this to create the
+Experimental: `Hold!` is used to register claims that will stick
+around until you do another `Hold!`. You can use this to create the
 equivalent of 'variables', stateful statements.
 
 ```
-Hold { Claim $this has a ball at x 100 y 100 }
+Hold! { Claim $this has a ball at x 100 y 100 }
 
 When $this has a ball at x /x/ y /y/ {
     puts "ball at $x $y"
     After 10 milliseconds {
-        Hold { Claim $this has a ball at x $x y [expr {$y+1}] }
+        Hold! { Claim $this has a ball at x $x y [expr {$y+1}] }
         if {$y > 115} { set ::done true }
     }
 }
 ```
 
-`Hold` will overwrite all statements made by the previous `Hold`
+`Hold!` will overwrite all statements made by the previous `Hold!`
 (scoped to the current `$this`).
 
 **Notice that you should scope your claim: it's `$this has a ball`, not `there
@@ -420,7 +447,7 @@ If you want multiple state atoms, you can also provide a key -- you
 can be like
 
 ```
-Hold ball position {
+Hold! ball position {
   Claim $this has a ball at blahblah
 }
 ```
@@ -429,9 +456,9 @@ and then future holds with that key, `ball position`, will
 overwrite this statement but not override different holds with
 different keys
 
-You can overwrite another program's Hold with the `on` parameter, like
-`Hold (on 852) { ... }` (if the Hold is from page 852) or `Hold (on
-virtual-programs/example.folk) { ... }` (if the Hold is from the
+You can overwrite another program's Hold! with the `on` parameter, like
+`Hold! (on 852) { ... }` (if the Hold! is from page 852) or `Hold! (on
+virtual-programs/example.folk) { ... }` (if the Hold! is from the
 example.folk virtual program)
 
 ### Every time
@@ -440,15 +467,15 @@ Experimental: `Every time` works almost like `When`, but it's used to
 hold when an 'event' happens without causing a reaction cascade.
 
 **You can't make Claims, Whens, or Wishes inside an `Every time`
-block. You can only Hold.**
+block. You can only Hold!.**
 
 Example:
 
 ```
-Hold { Claim $this has seen 0 boops }
+Hold! { Claim $this has seen 0 boops }
 
 Every time there is a boop & $this has seen /n/ boops {
-  Hold { Claim $this has seen [expr {$n + 1}] boops }
+  Hold! { Claim $this has seen [expr {$n + 1}] boops }
 }
 ```
 
@@ -497,21 +524,11 @@ When when /personVar/ is cool /lambda/ with environment /e/ {
 }
 ```
 
-#### On and Start
+#### On
 
-FIXME: General note: the `On` and `Start` blocks are used for weird
+FIXME: General note: the `On` block is used for weird
 non-reactive behavior. Need to fill this out more.
 
-##### Start process
-
-```
-Start process A {
-  while true {
-    puts "Hello! Another second has passed"
-    exec sleep 1
-  }
-}
-```
 
 ##### On unmatch
 
@@ -543,12 +560,12 @@ When (non-capturing) /p/ is cool {
 }
 ```
 
-#### Assert and Retract
+#### Assert! and Retract!
 
-General note: `Assert` and `Retract` are used for weird non-reactive
+General note: `Assert!` and `Retract!` are used for weird non-reactive
 behavior.
 
-You should generally _not_ use `Assert` and `Retract` inside a `When`
+You should generally _not_ use `Assert!` and `Retract!` inside a `When`
 block. Use `Claim`, `Wish`, and `When` instead.
 
 ## Tcl for JavaScripters
@@ -642,3 +659,112 @@ create`.
 #### Singletons
 
 Capitalized namespace, like `Statements`.
+
+-----
+
+# folk2 notes
+
+## thanks
+
+- Omar Rizwan: evaluator; display, AprilTag, camera subsystems
+- Andrés Cuervo: keyboard library and code editor, sprites
+- Naveen Michaud-Agrawal: connections, points-at, 
+- Jacob Haip: web endpoints, tag masking, blob detection
+- Arcade Wise: fonts
+- s-ol bekic: WebSocket library, keyboard locale support
+- terminal subsystem
+- Mason Jones: tag stabilization
+
+## requirements
+
+on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
+`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`, `libwslay-dev`, `console-data`
+
+for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
+`libgoogle-perftools-dev`
+
+## todo
+
+- event statements?
+- statement (owning $p) so pointers can get freed on statement
+  deletion
+  - or statement destructors?
+  - for camera images, at least 
+- clean up shader reference errors (use trick from main?)
+- **fix camera-rpi corruption**
+- Hold! with explicit version number?
+- report errors as statements
+- remove live queries from region generation?
+- restore smj cam/display parameters
+- fix remaining display/ primitives
+- port angle & any other changes to new.folk
+- credits in README
+- rebuild live image
+- base64-encode edit program
+- fix camera slice
+- why is web endpoints so slow?
+- **fix outline doubling**
+- drop support for multiarg Hold keys
+- **use quads instead of regions**
+- optimize jpeg decoding
+- vendor wslay?
+- ports
+  - points-up port
+- only intern long strings?
+- ~~fix C stack traces~~
+- delay sysmon for a few seconds to reduce extra threads
+- ~~why does collect take 100 microseconds?~~
+- why doesn't epoch stack trace show anything in Tracy?
+- don't waste time on rerendering unchanged writable textures
+- stack traces don't work inside web handlers
+- fix messy stack traces
+- accidentally matches prefixes even when not all teh way up to end of statement
+
+### editor bugs
+
+- **editor render loop blinks out sometimes**
+  - use keep?
+  - editor code block not converging
+- editor doubles keys sometimes
+- editor turns all keys to whitespace sometimes
+- editor revert bug
+- **editor 'crash'/unresponsive bug**
+- running program bugs out
+  - recollect happening at weird time maybe?
+
+### perf
+- on folk-live at home, folk2-leakfix: 160ms calibration cycle
+- on folk-live at home, folk2-shared-objects: TODO
+
+### next
+- ~~why is calibration board off on portable system~~
+- ~~why does calibration glitch out~~
+- ~~REMOVE IMAGE CAP~~
+- keep 8ms didn't retract detection once, outline stuck around
+- ~~fix editor~~
+- minor memory leak
+- ~~make calibrate retract properly when closed~~
+- on old folk2 with term copying:, in tracy 245 microseconds --
+  apriltags.folk:170 (collection)
+
+- ~~cannot use apriltag debugger on folk0 (which i need to fix
+  calibration, which i need to do perf testing)~~
+
+- fix uncalibrated Folk message
+- ~~calibrate autorefresh doesn't work?~~
+  - ~~fix collection of negated calibration~~
+  - ~~the Hold is still around, so it hasn't been stomped, but somehow
+    its refcount hit 0 and the statement itself was reaped?~~
+- **calibrate render loop blinks out regularly**
+- ~~calibrate auto refresh preview is broken(?)~~
+- ~~calibrate is off (RMSE 22)~~ (it was board thing)
+- ~~kill is buggy -- keyboard gets killed, causes threads to fill and
+  freezes system (can't spawn any more threads)~~
+- calibrate doesn't click in afterward, have to restart system (is it
+  because of kill refiner?)
+- better calibration timing
+- statements lock in (collections lock in?) -- i've seen detector lock
+  in which freezes programs / makes even the incremental detector only
+  work nearby
+- rename images/writable-images to textures
+- rename resolved geometry to geometry

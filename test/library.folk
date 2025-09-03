@@ -1,0 +1,10 @@
+
+set coolLib [library create coolLib {
+    proc cool {a b} {
+        return [* $a $b]
+    }
+}]
+
+assert {[$coolLib cool 20 10] == 200}
+
+__conclude 0

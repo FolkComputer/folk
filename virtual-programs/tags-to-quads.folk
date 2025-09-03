@@ -1,4 +1,4 @@
-set cc [c create]
+set cc [C]
 
 # Represents camera or projector intrinsics, including the classic
 # intrinsic matrix but also dimensions at which the matrix was created
@@ -22,38 +22,36 @@ $cc struct Intrinsics {
     double k2;
 }
 
-namespace eval intrinsics {
-    set cc [uplevel {set cc}]
-    $cc proc distort {double fx double fy double cx double cy
-                      double k1 double k2
-                      double xy[2] double out[2]} void {
-        double x = (xy[0] - cx)/fx;
-        double y = (xy[1] - cy)/fy;
-        double r2 = x*x + y*y;
-        double D = k1 * r2 + k2 * r2*r2;
-        out[0] = (x * (1.0 + D))*fx + cx;
-        out[1] = (y * (1.0 + D))*fy + cy;
-    }
-    $cc proc project {Intrinsics intr double width double height
-                      double[3] v} Tcl_Obj* {
-        double out[3] = {
-            v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
-                       0 + v[1]*intr.fy + v[2]*intr.cy,
-                       0 +            0 + v[2]
-        };
-        out[0] /= out[2]; out[1] /= out[2];
-        distort(intr.fx, intr.fy, intr.cx, intr.cy,
-                intr.k1, intr.k2,
-                out, out);
-        out[0] *= width / intr.width;
-        out[1] *= height / intr.height;
-        Tcl_Obj* retObjs[2] = { Tcl_NewDoubleObj(out[0]), Tcl_NewDoubleObj(out[1]) };
-        return Tcl_NewListObj(2, retObjs);
-    }
-    namespace export *
-    namespace ensemble create
+# Intrinsics helpers:
+$cc proc distort {double fx double fy double cx double cy
+                  double k1 double k2
+                  double xy[2] double out[2]} void {
+    double x = (xy[0] - cx)/fx;
+    double y = (xy[1] - cy)/fy;
+    double r2 = x*x + y*y;
+    double D = k1 * r2 + k2 * r2*r2;
+    out[0] = (x * (1.0 + D))*fx + cx;
+    out[1] = (y * (1.0 + D))*fy + cy;
 }
-
+$cc proc project {Intrinsics intr double width double height
+                  double[3] v} Jim_Obj* {
+    double out[3] = {
+        v[0]*intr.fx +  v[1]*intr.s + v[2]*intr.cx,
+                   0 + v[1]*intr.fy + v[2]*intr.cy,
+                   0 +            0 + v[2]
+    };
+    out[0] /= out[2]; out[1] /= out[2];
+    distort(intr.fx, intr.fy, intr.cx, intr.cy,
+            intr.k1, intr.k2,
+            out, out);
+    out[0] *= width / intr.width;
+    out[1] *= height / intr.height;
+    Jim_Obj* retObjs[2] = {
+        Jim_NewDoubleObj(interp, out[0]),
+        Jim_NewDoubleObj(interp, out[1])
+    };
+    return Jim_NewListObj(interp, retObjs, 2);
+}
 $cc proc rescaleAndUndistort {Intrinsics intr
                               double cameraWidth double cameraHeight
                               double* in
@@ -71,7 +69,9 @@ $cc proc rescaleAndUndistort {Intrinsics intr
     out[0] = x*intr.fx + intr.cx;
     out[1] = y*intr.fy + intr.cy;
 }
-$cc cflags -I$::env(HOME)/apriltag $::env(HOME)/apriltag/libapriltag.a
+$cc cflags -I./vendor/apriltag
+$cc endcflags ./vendor/apriltag/libapriltag.so
+
 $cc include <apriltag_pose.h>
 $cc include <math.h>
 $cc include <common/matd.h>
@@ -231,9 +231,10 @@ $cc proc poseGaussNewton {double[][3] wX double[][2] x int npoints
         matd_destroy(Jp);
         matd_destroy(dq);
 
-        // Otherwise, you end up with tens of thousands of iters and
-        // memory issues start to appear.
-        if (iters++ > 100) { return;  }
+        if (iters++ > 50) {
+            fprintf(stderr, "tags-to-quads: TOO MANY ITERS\n");
+            break;
+        }
     } while (fabs(residual - residual_prev) > MATD_EPS);
 
     /* exit(1); */
@@ -339,18 +340,23 @@ $cc proc poseDistSq { TagPose p1 TagPose p2 } double {
     return delta_x * delta_x + delta_y * delta_y + delta_z * delta_z;
 }
 
+set poseLib [$cc compile]
+Claim the pose library is $poseLib
+
 # All spaces are in meters. To transform a point from one space to another, it will execute
 # a partially evaluated function located in `changers` (all implementations currently just
 # translate and rotate)
-namespace eval ::space {
-    set changers [dict create]
+set spaceLib [library create {
+    package require linalg
+    namespace import \
+        ::math::linearalgebra::add \
+        ::math::linearalgebra::matmul
 
     proc changeableTo {targetSpace changer} {
         list changeableTo $targetSpace $changer
     }
     proc change {sourceSpace targetSpace v} {
-        # puts "change $sourceSpace -> $targetSpace ($v)"
-        variable changers
+        # puts "change ($sourceSpace) -> ($targetSpace) ($v)"
         if {$sourceSpace eq $targetSpace} {
             return $v
         }
@@ -360,85 +366,54 @@ namespace eval ::space {
             set v [{*}$changer $v]
             return [change $changedSpace $targetSpace $v]
         }
-        if {[dict exists $changers $sourceSpace $targetSpace]} {
-            set changer [dict get $changers $sourceSpace $targetSpace]
-            return [{*}$changer $v]
+
+        ForEach! /someone/ claims the changer from space $sourceSpace to space $targetSpace is /changer/ {
+            set ret [{*}$changer $v]
         }
-        error "space change: Don't know how to change $sourceSpace to $targetSpace"
+        if {![info exists ret]} {
+            error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
+        }
+        return $ret
     }
-    namespace export *
-    namespace ensemble create
-}
+}]
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
-    # HACK: doesn't use db
-    dict set space::changers $camera "display $display" [list apply {{R t v} {
-        add [matmul $R $v] $t
-    }} [dict get $extrinsics R] [dict get $extrinsics t]]
+    Claim the changer from space $camera to space "display $display" is \
+        [list apply [list {R t v} {
+            add [matmul $R $v] $t
+        } $spaceLib] \
+             [dict get $extrinsics R] \
+             [dict get $extrinsics t]]
 }
-namespace eval ::quad {
-    package require math::linearalgebra
-    namespace import ::math::linearalgebra::sub \
+set quadLib [library create quadLib {spaceLib} {
+    package require linalg
+    namespace import \
         ::math::linearalgebra::add \
-        ::math::linearalgebra::unitLengthVector
+        ::math::linearalgebra::matmul \
+        ::math::linearalgebra::sub \
+        ::math::linearalgebra::norm
 
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
 
-    # These return vectors along these directions for a quad.
-    # top - bottom:
-    proc up {q}    { sub [lindex $q 1 3] [lindex $q 1 0] }
-    # bottom - top:
-    proc down {q}  { sub [lindex $q 1 0] [lindex $q 1 3] }
-    proc left {q}  { sub [lindex $q 1 0] [lindex $q 1 1] }
-    proc right {q} { sub [lindex $q 1 1] [lindex $q 1 0] }
-
-
-    # TODO: we need to either return 'space-tagged points' for these
-    # or just change them into some default space like camera space.
-    proc leftCenter {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
-        return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
-    }
-    proc rightCenter {q} {
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
-        return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
-    }
-    proc centroid {q} {
-        lassign [vertices $q] a b c d
-        set vecsum [add [add [add $a $b] $c] $d]
-        return [::math::linearalgebra::scale 0.25 $vecsum]
-    }
-
     proc change {q targetSpace} {
+        variable spaceLib
         set sourceSpace [space $q]
         create $targetSpace [lmap v [vertices $q] {
-            ::space change $sourceSpace $targetSpace $v
+            $spaceLib change $sourceSpace $targetSpace $v
         }]
     }
     proc scale {q s} {
-        set c [centroid $q]
-        if {![regexp {([0-9\.]+)(px|%)?} $s -> value unit]} {
-            error "quad scale: Invalid scale value $value"
-        }
-        if {$unit eq "%"} {
-            set value [* $value 0.01]
-            set unit ""
-        } elseif {$unit eq "px"} {
-            error "quad scale: px scaling of quads not supported yet"
-        }
-
+        # TODO: this should probably be with respect to the centroid
+        # of the quad?
         create [space $q] [lmap v [vertices $q] {
-            set v [sub $v $c]
-            set v [::math::linearalgebra::scale $value $v]
-            set v [add $v $c]
-            set v
+            lmap x $v {* $x $s}
         }]
     }
     proc buffer {q args} {
         # TODO: this should probably be with respect to the centroid
         # of the quad?
-        lassign [vertices $q] bottomLeft bottomRight topRight topLeft
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         foreach {direction distance} $args {
             if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
                 error "quad buffer: Invalid distance $distance"
@@ -454,7 +429,9 @@ namespace eval ::quad {
                 set distance [* $distance 0.01]
                 set unit "m"
             }
-            if {$unit ne "m"} { error "quad buffer: Invalid unit $unit" }
+            if {$unit ne "" && $unit ne "m"} {
+                error "quad buffer: Invalid unit $unit"
+            }
 
             if {$direction eq "top"} {
                 set disp [list 0 [- $distance] 0]
@@ -476,128 +453,124 @@ namespace eval ::quad {
                 error "quad buffer: Invalid direction $direction"
             }
         }
-        return [create [space $q] [list $bottomLeft $bottomRight $topRight $topLeft]]
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
-    # Moves the region left/right/up/down along the x and y axes of
-    # the space of the quad (not the global x and y).
+
+    # Moves the quad left/right/up/down along the x and y axes of
+    # the plane of the quad (not the global x and y).
     proc move {q args} {
-        # puts "move: $args"
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        set width [::math::max [norm [sub $topRight $topLeft]] \
+                       [norm [sub $bottomRight $bottomLeft]]]
+        set height [::math::max [norm [sub $bottomRight $topRight]] \
+                        [norm [sub $bottomLeft $topLeft]]]
         foreach {direction distance} $args {
-            if {![regexp {([\-0-9\.]+)(cm|mm|m|%)?} $distance -> distance unit]} {
+            if {![regexp {^([\-0-9\.]+)(cm|mm|m|%)?$} $distance -> distance unit]} {
                 error "quad move: Invalid distance $distance"
             }
-            if {$direction ne "left" && $direction ne "right" &&
-                $direction ne "up" && $direction ne "down"} {
+
+            if {$distance == 0} { continue }
+
+            if {$unit eq "%"} {
+                if {$direction eq "up" || $direction eq "down"} {
+                    set distance [* $height $distance 0.01]
+                } else {
+                    set distance [* $width $distance 0.01]
+                }
+                set unit "m"
+            }
+            if {$unit eq "mm"} {
+                set distance [* $distance 0.001]
+                set unit "m"
+            }
+            if {$unit eq "cm"} {
+                set distance [* $distance 0.01]
+                set unit "m"
+            }
+            if {$unit ne "" && $unit ne "m"} {
+                error "quad move: Invalid unit $unit"
+            }
+
+            if {$direction eq "up"} {
+                set disp [list 0 [- $distance] 0]
+            } elseif {$direction eq "down"} {
+                set disp [list 0 $distance 0]
+            } elseif {$direction eq "left"} {
+                set disp [list [- $distance] 0 0]
+            } elseif {$direction eq "right"} {
+                set disp [list $distance 0 0]
+            } else {
                 error "quad move: Invalid direction $direction"
             }
 
-            if {$unit eq "%"} {
-                set distance [* $distance 0.01]
-                set unit ""
-            }
-            if {$unit eq ""} {
-                # Empty unit is a scale factor of self; convert to meters
-                # puts "Scaling (distance $distance) (direction $direction)"
-                set dv [::math::linearalgebra::scale $distance [quad $direction $q]]
-            } else {
-                if {$unit eq "mm"} {
-                    set distance [* $distance 0.001]
-                    set unit "m"
-                } elseif {$unit eq "cm"} {
-                    set distance [* $distance 0.01]
-                    set unit "m"
-                }
-                if {$unit ne "m"} { error "quad move: Invalid unit $unit" }
-
-                set dv [::math::linearalgebra::scale $distance \
-                            [unitLengthVector [quad $direction $q]]]
-            }
-            set q [create [space $q] [lmap v [vertices $q] {add $v $dv}]]
+            set topLeft [add $topLeft $disp]
+            set topRight [add $topRight $disp]
+            set bottomRight [add $bottomRight $disp]
+            set bottomLeft [add $bottomLeft $disp]
         }
-        return $q
+        return [create [space $q] [list $topLeft $topRight $bottomRight $bottomLeft]]
     }
 
-    namespace export *
-    namespace ensemble create
-}
-
-Claim the tags-to-quads C library is $cc
-$cc compile
-
-# This (resolved geometry) feels like a hack.
-
-When when tag /tag/ has resolved geometry /geomVar/ /any/ with environment /any/ {
-    # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
-
-    Wish tag $tag has resolved geometry
-}
-When the default program geometry is /defaultGeom/ &\
-     /someone/ wishes tag /tag/ has resolved geometry {
-
-    # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
-
-    When the collected matches for [list /someone/ claims tag $tag has geometry /geom/] are /matches/ {
-        if {[llength $matches] == 1} {
-            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
-
-        } elseif {[llength $matches] == 0} {
-            Claim tag $tag has resolved geometry $defaultGeom
-
-        } else {
-            puts stderr "tags-to-quads: WARNING: Multiple geometries for $tag"
-            Claim tag $tag has resolved geometry [dict get [lindex $matches 0] geom]
-        }
+    # TODO: we need to either return 'space-tagged points' for these
+    # or just change them into some default space like camera space.
+    proc left {q} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomLeft $topLeft]]
     }
-}
+    proc right {q} {
+        lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+        return [::math::linearalgebra::scale 0.5 [add $bottomRight $topRight]]
+    }
+}]
+Claim the quad library is $quadLib
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      camera /camera/ has intrinsics /cameraIntrinsics/ {
 
-    set ::prevTagPoses [dict create]
-
     # for position stabilization
-    set ::tagHistory [dict create]
     set unfreezeThreshold 0.01
     set unfreezeThresholdSq [expr {$unfreezeThreshold * $unfreezeThreshold}]
     set unfreezeLength 0.3 ;# in seconds
 
-    When tag /tag/ has detection /det/ on $camera at /timestamp/ &\
-         tag /tag/ has resolved geometry /geom/ {
+    When tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ &\
+         /tag/ has resolved geometry /geom/ {
 
-        set tagSize [expr {[string map {mm ""} [dict get $geom tagSize]] / 1000.0}]
+        set tagSize [dict get $geom tagSize]
 
-        if {[dict exists $::prevTagPoses $tag]} {
-            set prevTimestamp [dict get $::prevTagPoses $tag timestamp]
+        set prevResults [Query! tag $tag has pose /tagPose/ at timestamp /timestamp/]
+        if {[llength $prevResults] > 0} {
+            set latestResult [lindex [lsort -command {apply {{a b} {
+                expr { [dict get $b timestamp] < [dict get $a timestamp] }
+            }}} $prevResults] 0]
+
+            set prevTimestamp [dict get $latestResult timestamp]
             # Consider previous tag pose if it's less than 200ms old:
             if {$timestamp - $prevTimestamp < 0.2} {
-                set prevTagPose [dict get $::prevTagPoses $tag pose]
+                set prevTagPose [dict get $latestResult tagPose]
             }
         }
         if {![info exists prevTagPose]} {
-            set prevTagPose [baseEstimateTagPose $cameraIntrinsics \
+            set prevTagPose [$poseLib baseEstimateTagPose $cameraIntrinsics \
                                  $cameraWidth $cameraHeight \
                                  $tagSize [dict get $det p]]
         }
 
-        set tagPose [servoingEstimateTagPose $cameraIntrinsics \
+        set tagPose [$poseLib servoingEstimateTagPose $cameraIntrinsics \
                          $cameraWidth $cameraHeight \
                          $tagSize $prevTagPose \
                          [dict get $det p]]
 
-        dict set ::prevTagPoses $tag timestamp $timestamp
-        dict set ::prevTagPoses $tag pose $tagPose
-
         ## tag stabilization ##
         # (can't use When here as it can't exfiltrate info). Is there a better way to do this?
-        set stabilizedMatches [Statements::findMatches [list /someone/ wishes tag $tag is stabilized]]
+        set stabilizedMatches [Query! /someone/ wishes tag $tag is stabilized]
         set isTagStabilized [expr {[llength $stabilizedMatches] > 0}]
 
         if {$isTagStabilized} {
-            if {[dict exists $::tagHistory $tag state]} {
-                dict with ::tagHistory $tag state {
-                    set distSq [poseDistSq $frozenPose $tagPose]
+            set stateResults [Query! tag $tag is stabilized with state /state/]
+            if {[llength $stateResults] > 0} {
+                set state [dict get [lindex $stateResults 0] state]
+                dict with state {
+                    set distSq [$poseLib poseDistSq $frozenPose $tagPose]
 
                     if {$distSq > $unfreezeThresholdSq} {
                         set frozenPose $tagPose
@@ -616,75 +589,76 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             } else {
                 # first time, so we'll init some stuff
                 # (starts unfrozen)
-                dict set ::tagHistory $tag state [dict create \
-                    frozen 0 \
-                    frozenPose $tagPose \
-                    unfreezeTime $timestamp]
+                set state [dict create frozen 0 frozenPose $tagPose \
+                               unfreezeTime $timestamp]
             }
+
+            HoldStatement! [list tag $tag stabilization] \
+                [list $this claims tag $tag is stabilized with state $state]
         }
+
+        # Note that (for now) this pose statement is only imperatively
+        # queried (by future invocations of this same code), not
+        # reacted to. No need to give it a keep time.
+        HoldStatement! [list tag pose $tag] \
+            [list $this claims tag $tag has pose $tagPose at timestamp $timestamp]
 
         # this creates a partially evaluated function that converts tag space (in meters) to its position
         # and rotation in camera space (also in meters) using the pose info we previously calculated
-        set tagToCameraSpaceChanger [list apply {{tagPose v} {
+        set tagToCameraSpaceChanger [list apply [list {tagPose v} {
             set R [dict get $tagPose R]; set t [dict get $tagPose t]
             add [matmul $R $v] $t
-        }} $tagPose]
-        set tagSpace [space changeableTo $camera $tagToCameraSpaceChanger]
+        } $spaceLib] $tagPose]
+        set tagSpace [$spaceLib changeableTo $camera $tagToCameraSpaceChanger]
 
         set r [expr {$tagSize / 2}]
-        # Vertex order is bottom-left, bottom-right, top-right,
-        # top-left.
+        # Vertex order needs to be clockwise to align with
+        # Vulkan. Top-left to bottom-left.
         set vertices \
-            [list [list [- $r]    $r  0] \
-                 [list     $r     $r  0] \
+            [list [list [- $r] [- $r] 0] \
                  [list     $r  [- $r] 0] \
-                 [list  [- $r] [- $r] 0]]
-
-        set quad [quad create $tagSpace $vertices]
+                 [list     $r     $r  0] \
+                 [list  [- $r]    $r  0]]
+        set quad [$quadLib create $tagSpace $vertices]
         Claim tag $tag has quad $quad
     }
 }
 
-When tag /tag/ has quad /q/ &\
-     tag /tag/ has resolved geometry /geom/ {
 
-    set pageQuad [quad buffer $q \
-                      top [dict_getdef $geom top 0] \
-                      right [dict_getdef $geom right 0] \
-                      left [dict_getdef $geom left 0] \
-                      bottom [dict_getdef $geom bottom 0]]
+When /tag/ has resolved geometry /geom/ &\
+     tag /tag/ has quad /q/ {
+
+    set pageQuad [$quadLib buffer $q \
+                      top [dict getdef $geom top 0] \
+                      right [dict getdef $geom right 0] \
+                      left [dict getdef $geom left 0] \
+                      bottom [dict getdef $geom bottom 0]]
     Claim $tag has quad $pageQuad
-
-    Claim tag $tag is a tag
-    # TODO: this is probably not the same as geometry?
-    Claim tag $tag has a program
-
-    # HACK:
-
-    # Claim $tag has quad $q
-    # Just uses the outer edge of the tag:
-    # Claim $tag has quad [quad scale $q [expr {10.0 / 6.0}]]
 }
 
-# TODO: Remove this backward compatibility with 2D programs:
-# HACK: For backward compatibility:
-When display /proj/ has width /projWidth/ height /projHeight/ &\
-     display /proj/ has intrinsics /projectorIntrinsics/ &\
-     /tag/ has quad /q/ {
-    # convert tag space -> camera space -> projector space -> projector coords
-    set vertices [lmap v [quad vertices [quad change $q "display $proj"]] {
-        intrinsics project $projectorIntrinsics \
-            $projWidth $projHeight $v
-    }]
+When the GPU writable texture library is /gpuWritableLib/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
+     display /disp/ has intrinsics /displayIntrinsics/ &\
+     /tag/ has writable texture /writableTextureId/ with /...wiOptions/ &\
+     the GPU creates writable texture /writableTextureId/ as /wi/ &\
+     /tag/ has quad /quad/ {
 
-    set edges [list]
-    for {set i 0} {$i < [llength $vertices]} {incr i} {
-        if {$i > 0} { lappend edges [list [expr {$i - 1}] $i] }
-    }
-    lappend edges [list [expr {[llength $vertices] - 1}] 0]
+    # Composite each quad's writable texture onto the screen based on
+    # its quad.
+    set displayToClip [list \
+        [list [expr {2.0/$displayWidth}] 0 -1] \
+        [list 0 [expr {2.0/$displayHeight}] -1] \
+        [list 0 0 1]]
 
-    set vecBottom [sub [lindex $vertices 1] [lindex $vertices 0]]
-    set angle [expr {atan2(-[lindex $vecBottom 1], [lindex $vecBottom 0])}]
+    lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
+        $poseLib project $displayIntrinsics \
+                     $displayWidth $displayHeight $v
+    }] a b c d
 
-    Claim $tag has region [region create $vertices $edges $angle]
+    set wim [$gpuWritableLib gpuTexture $wi]
+
+    Wish the GPU draws pipeline "image" with arguments \
+        [list [list $displayWidth $displayHeight] \
+             $displayToClip \
+             $wim $a $b $c $d]
 }

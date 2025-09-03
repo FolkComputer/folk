@@ -1,0 +1,33 @@
+# Watch for virtual-programs/ changes.
+try {
+    set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
+                             "$::env(HOME)/folk-live/setup.folk" :
+                             "setup.folk.default"}]
+    set fd [open "|fswatch --event Updated --event Created virtual-programs $setupFilename" r]
+    fconfigure $fd -buffering line
+    while true {
+        if {[gets $fd line] < 0} {
+            error "fswatch: fswatch failed."
+        }
+        if {![regexp {virtual-programs\/.*$} $line changedPath]} {
+            set changedPath $line
+        }
+
+        set changedFilename [file tail $changedPath]
+        if {[string index $changedFilename 0] eq "." ||
+            [string index $changedFilename 0] eq "#" ||
+            [file extension $changedFilename] ne ".folk"} {
+            # puts "fswatch: $changedPath updated, ignoring."
+            continue
+        }
+
+        puts "fswatch: $changedPath updated, reloading."
+        set fp [open $changedPath r]; set programCode [read $fp]; close $fp
+
+        HoldStatement! (keep 100ms) (on boot.folk) [list $changedPath code] \
+            [list $this claims $changedPath has program code $programCode]
+    }
+} on error err {
+    puts stderr "fswatch: Warning: could not invoke `fswatch` ($err)."
+    puts stderr "fswatch: Will not watch virtual-programs for changes."
+}

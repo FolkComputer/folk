@@ -1,0 +1,632 @@
+When the GPU Vulkan handle type definer is /defineVulkanHandleType/ &\
+     the GPU library is /gpuLib/ &\
+     the image library is /imageLib/ {
+
+local proc defineVulkanHandleType {args} {defineVulkanHandleType} {
+    tailcall {*}$defineVulkanHandleType {*}$args
+}
+
+puts "GPU: $gpuLib"
+
+set gpuc [C]
+$gpuc cflags -I./vendor
+$gpuc code {
+    #define VOLK_IMPLEMENTATION
+    #include "volk/volk.h"
+}
+$gpuc include <pthread.h>
+$gpuc include <stdatomic.h>
+$gpuc typedef {struct PushConstantsEncoder} PushConstantsEncoder
+$gpuc typedef {struct Pipeline} Pipeline
+
+$gpuc extend $gpuLib
+$gpuc extend $imageLib
+
+$gpuc include <pthread.h>
+
+
+local proc vktry {call} { string map {\n " "} [csubst {{
+    VkResult res = $call;
+    if (res != VK_SUCCESS) {
+        fprintf(stderr, "Failed $call: %s (%d)\n",
+                VkResultToString(res), res); exit(1);
+    }
+}}] }
+
+# Texture management:
+
+# The technique used to manage textures here is to have a
+# single giant descriptor set for a giant GPU-side array of
+# textures, which all shaders can access. (That descriptor set
+# _never_ has to be rebound; it stays bound through all draw
+# calls, forever.)
+# 
+# Each texture has to be 'copied to the GPU' before you do any
+# draw calls that use it. Copying an texture to the GPU gives
+# you a GPU-side texture handle, which is just an integer index
+# into the GPU-side array. You can pass that texture handle
+# into draw calls as a parameter (push constant) when you
+# want to draw/use the texture.
+#
+# See:
+# - http://kylehalladay.com/blog/tutorial/vulkan/2018/01/28/Textue-Arrays-Vulkan.html
+# - https://chunkstories.xyz/blog/a-note-on-descriptor-indexing/
+# - https://gist.github.com/DethRaid/0171f3cfcce51950ee4ef96c64f59617
+# - http://roar11.com/2019/06/vulkan-textures-unbound/
+$gpuc code {
+    VkDevice device;
+    static void initPlaceholderTexture();
+}
+
+$gpuc typedef int GpuTextureHandle
+defineVulkanHandleType $gpuc VkImage
+defineVulkanHandleType $gpuc VkDeviceMemory
+defineVulkanHandleType $gpuc VkImageView
+defineVulkanHandleType $gpuc VkSampler
+$gpuc struct GpuTextureBlock {
+    bool _Atomic alive;
+
+    int width;
+    int height;
+
+    GpuTextureHandle handle;
+
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
+    VkImageView textureImageView;
+    VkSampler textureSampler;
+
+    // mostly for debugging:
+    char* description;
+}
+$gpuc code {
+    // Array of GpuTextureBlocks. Each element points to all GPU-side
+    // data structures associated with a particular texture (that we
+    // will destroy when we evict that texture).
+    struct GpuTextureBlock* gpuTextures;
+}
+$gpuc proc textureManagerInit {} void {
+    $[vktry volkInitialize()]
+    volkLoadInstanceOnly(*instance_ptr());
+
+    device = *device_ptr();
+    volkLoadDevice(device);
+
+    gpuTextures = calloc(sizeof(GpuTextureBlock), getMaxTextures());
+
+    // Set up textureDescriptorSetLayout:
+    {
+        /* VkDescriptorBindingFlags flags[1]; */
+        /* flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT; */
+        /* flags[0] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; */
+
+        /* VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {0}; */
+        /* bindingFlags.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO; */
+        /* bindingFlags.bindingCount = 1; */
+        /* bindingFlags.pBindingFlags = flags; */
+
+        VkDescriptorSetLayoutBinding bindings[1];
+        memset(bindings, 0, sizeof(bindings));
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = getMaxTextures();
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo createInfo = {0};
+        createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        createInfo.bindingCount = 1;
+        createInfo.pBindings = bindings;
+        /* createInfo.pNext = &bindingFlags; */
+
+        vkCreateDescriptorSetLayout(device, &createInfo, NULL, textureDescriptorSetLayout_ptr());
+    }
+
+    VkDescriptorPool descriptorPool; {
+        VkDescriptorPoolSize poolSize = {0};
+        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = 512;
+
+        VkDescriptorPoolCreateInfo poolInfo = {0};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.maxSets = 100;
+        $[vktry {vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool)}]
+    }
+
+    // Set up textureDescriptorSet:
+    {
+        VkDescriptorSetAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = descriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = textureDescriptorSetLayout_ptr();
+
+        $[vktry {vkAllocateDescriptorSets(device, &allocInfo, textureDescriptorSet_ptr())}]
+    }
+    pthread_rwlock_init(textureDescriptorSetLock_ptr(), NULL);
+
+    initPlaceholderTexture();
+}
+
+# Buffer allocation:
+$gpuc code [csubst {
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(*physicalDevice_ptr(), &memProperties);
+
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        exit(1);
+    }
+}]
+
+$gpuc typedef size_t VkDeviceSize false
+$gpuc typedef uint32_t VkBufferUsageFlags false
+$gpuc typedef uint32_t VkMemoryPropertyFlags false
+$gpuc proc createBuffer {VkDeviceSize size VkBufferUsageFlags usage VkMemoryPropertyFlags properties
+                         VkBuffer* buffer VkDeviceMemory* bufferMemory} void {
+    VkBufferCreateInfo bufferInfo = {0};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    $[vktry {vkCreateBuffer(device, &bufferInfo, NULL, buffer)}]
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+    $[vktry {vkAllocateMemory(device, &allocInfo, NULL, bufferMemory)}]
+    vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+}
+
+# Texture allocation:
+$gpuc code [csubst {
+    void createImage(uint32_t width, uint32_t height,
+                     VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties,
+                     VkImage* image, VkDeviceMemory* imageMemory) {
+        VkImageCreateInfo imageInfo = {0};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = width;
+        imageInfo.extent.height = height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.format = format;
+        imageInfo.tiling = tiling;
+        // TODO: this means it can't be drawn right away (validation error).
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = usage;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        $[vktry {vkCreateImage(device, &imageInfo, NULL, image)}]
+
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(device, *image, &memRequirements);
+
+        VkMemoryAllocateInfo allocInfo = {0};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+        $[vktry {vkAllocateMemory(device, &allocInfo, NULL, imageMemory)}]
+
+        vkBindImageMemory(device, *image, *imageMemory, 0);
+    }
+}]
+
+defineVulkanHandleType $gpuc VkCommandBuffer
+$gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
+    VkCommandBufferAllocateInfo allocInfo = {0};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    tryInitCommandPool();
+    allocInfo.commandPool = *commandPool_ptr();
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {0};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+}
+$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo = {0};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(*graphicsQueue_ptr());
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+
+    vkFreeCommandBuffers(device, *commandPool_ptr(), 1, &commandBuffer);
+}
+
+$gpuc typedef int VkFormat false
+$gpuc typedef int VkImageLayout false
+$gpuc proc transitionImageLayout {VkImage image VkFormat format
+                                  VkImageLayout oldLayout VkImageLayout newLayout} void {
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+    VkImageMemoryBarrier barrier = {0};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    VkPipelineStageFlags sourceStage;
+    VkPipelineStageFlags destinationStage;
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else {
+        exit(91);
+    }
+    vkCmdPipelineBarrier(commandBuffer,
+                         sourceStage, destinationStage,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    endSingleTimeCommands(commandBuffer);
+}
+
+# Allocates(!) a copy of `im` with 4 channels, on the Tcl
+# local heap. Up to the caller to free it.
+$gpuc proc copyImageToRgba {Image im} Image {
+    if (im.components == 4) return im;
+    if (im.components != 1 && im.components != 3) exit(2);
+
+    Image ret = im;
+    ret.components = 4;
+    ret.bytesPerRow = ret.width * ret.components;
+    ret.data = malloc(ret.bytesPerRow * ret.height);
+
+    if (im.components == 3) {
+        for (int y = 0; y < im.height; y++) {
+            for (int x = 0; x < im.width; x++) {
+                int imidx = y*im.bytesPerRow + x*im.components;
+                int r = im.data[imidx+0],
+                    g = im.data[imidx+1], 
+                    b = im.data[imidx+2];
+
+                int ridx = y*ret.bytesPerRow + x*ret.components;
+                ret.data[ridx+0] = r;
+                ret.data[ridx+1] = g;
+                ret.data[ridx+2] = b;
+                ret.data[ridx+3] = 255;
+            }
+        }
+    } else {
+        for (int y = 0; y < im.height; y++) {
+            for (int x = 0; x < im.width; x++) {
+                int imidx = y*im.bytesPerRow + x*im.components;
+                int r = im.data[imidx],
+                    g = im.data[imidx], 
+                    b = im.data[imidx];
+
+                int ridx = y*ret.bytesPerRow + x*ret.components;
+                ret.data[ridx+0] = r;
+                ret.data[ridx+1] = g;
+                ret.data[ridx+2] = b;
+                ret.data[ridx+3] = 255;
+            }
+        }
+    }
+    return ret;
+}
+
+$gpuc code [csubst {
+    GpuTextureHandle allocateGpuTextureHandle() {
+        for (int i = 0; i < getMaxTextures(); i++) {
+            bool notAlive = false;
+            if (atomic_compare_exchange_weak(&gpuTextures[i].alive, &notAlive, true)) {
+                gpuTextures[i].handle = i;
+                return i;
+            }
+        }
+        fprintf(stderr, "gpu/textures: Exceeded GPU max textures (%d):\n", getMaxTextures());
+        for (int i = 0; i < getMaxTextures(); i++) {
+            fprintf(stderr, "  %d: %s\n", i, gpuTextures[i].alive ? gpuTextures[i].description : "<not alive>");
+        }
+        exit(1);
+    }
+}]
+
+$gpuc proc addToTextureDescriptorSet {GpuTextureHandle textureId} void {
+    // Write this texture+sampler to the textureDescriptorSet
+    {
+        VkDescriptorImageInfo imageInfo = {0};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = gpuTextures[textureId].textureImageView;
+        imageInfo.sampler = gpuTextures[textureId].textureSampler;
+
+        static bool _Atomic didInitializeDescriptors = false;
+        if (!didInitializeDescriptors) {
+            // Hack: if we're not using the descriptor
+            // indexing extension, we can't have a partially
+            // bound descriptor set, so we need to fill all
+            // the slots in the texture array with
+            // _something_. We just fill all slots wtih the
+            // first texture for now. See
+            // http://roar11.com/2019/06/vulkan-textures-unbound/
+            VkWriteDescriptorSet descriptorWrites[getMaxTextures()];
+            for (int i = 0; i < getMaxTextures(); i++) {
+                memset(&descriptorWrites[i], 0, sizeof(VkWriteDescriptorSet));
+                descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                descriptorWrites[i].dstSet = *textureDescriptorSet_ptr();
+                descriptorWrites[i].dstBinding = 0;
+                descriptorWrites[i].dstArrayElement = i;
+                descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                descriptorWrites[i].descriptorCount = 1;
+                descriptorWrites[i].pImageInfo = &imageInfo;
+            }
+            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
+            vkUpdateDescriptorSets(device, getMaxTextures(), descriptorWrites, 0, NULL);
+            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+
+            didInitializeDescriptors = true;
+        } else {
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = *textureDescriptorSet_ptr();
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = textureId;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+
+            pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+            pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+        }
+    }
+}
+
+$gpuc proc getGpuTexture {GpuTextureHandle handle} GpuTextureBlock* {
+    return &gpuTextures[handle];
+}
+$gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
+    GpuTextureHandle textureId = allocateGpuTextureHandle();
+    GpuTextureBlock* block = &gpuTextures[textureId];
+
+    block->width = width;
+    block->height = height;
+
+    createImage(width, height,
+                (VkFormat) format, VK_IMAGE_TILING_OPTIMAL,
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                &block->textureImage, &block->textureImageMemory);
+
+    // Set up block->textureImageView:
+    {
+        VkImageViewCreateInfo viewInfo = {0};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = block->textureImage;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+        $[vktry {vkCreateImageView(device, &viewInfo, NULL, &block->textureImageView)}]
+    }
+    // Set up block->textureSampler:
+    {
+        VkSamplerCreateInfo samplerInfo = {0};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.anisotropyEnable = VK_FALSE; // TODO: do we want this?
+        samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        samplerInfo.unnormalizedCoordinates = VK_FALSE;
+        samplerInfo.compareEnable = VK_FALSE;
+        samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.mipLodBias = 0.0f;
+        samplerInfo.minLod = 0.0f;
+        samplerInfo.maxLod = 0.0f;
+        $[vktry {vkCreateSampler(device, &samplerInfo, NULL, &block->textureSampler)}]
+    }
+
+    addToTextureDescriptorSet(textureId);
+
+    asprintf(&block->description, "%dx%d texture", width, height);
+    return block;
+}
+
+$gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
+    // Image must be RGBA.
+    Image im;
+    if (im0.components != 4) { im = copyImageToRgba(im0); }
+    else { im = im0; }
+
+    size_t size = im.width * im.height * 4;
+
+    VkBuffer stagingBuffer;
+    VkDeviceMemory stagingBufferMemory;
+    createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &stagingBuffer, &stagingBufferMemory);
+
+    // Copy im to stagingBuffer:
+    {
+        void* data; vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
+        for (int y = 0; y < im.height; y++) {
+            memcpy(data + y*im.width*4,
+                   im.data + y*im.bytesPerRow,
+                   im.width*4);
+        }
+        vkUnmapMemory(device, stagingBufferMemory);
+    }
+
+    // Allocate a texture and texture block:
+    GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
+
+    // Copy stagingBuffer to block->textureImage:
+    {
+        transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                              VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+
+        VkBufferImageCopy region = {0};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+
+        region.imageOffset = (VkOffset3D) {0, 0, 0};
+        region.imageExtent = (VkExtent3D) {im.width, im.height, 1};
+        vkCmdCopyBufferToImage(commandBuffer,
+                               stagingBuffer,
+                               block->textureImage,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1,
+                               &region);
+
+        endSingleTimeCommands(commandBuffer);
+
+        transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+
+    vkDestroyBuffer(device, stagingBuffer, NULL);
+    vkFreeMemory(device, stagingBufferMemory, NULL);
+
+    if (im0.components != 4) { free(im.data); }
+    return block->handle;
+}
+$gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {
+    // newHandle = 0 is used as a placeholder so it doesn't
+    // fault if it tries to access this freed texture.
+    {
+        VkDescriptorImageInfo imageInfo = {0};
+        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo.imageView = gpuTextures[newHandle].textureImageView;
+        imageInfo.sampler = gpuTextures[newHandle].textureSampler;
+
+        VkWriteDescriptorSet descriptorWrite = {0};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = *textureDescriptorSet_ptr();
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = oldHandle;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pImageInfo = &imageInfo;
+
+        pthread_rwlock_wrlock(textureDescriptorSetLock_ptr());
+        vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+    }
+}
+$gpuc proc freeGpuTexture {GpuTextureHandle gim} void {
+    GpuTextureBlock* block = &gpuTextures[gim];
+
+    pthread_mutex_lock(graphicsQueueMutex_ptr());
+    vkDeviceWaitIdle(device); // FIXME: this is probably slow
+    pthread_mutex_unlock(graphicsQueueMutex_ptr());
+
+    replaceInTextureDescriptorSet(gim, 0);
+
+    vkDestroyImage(device, block->textureImage, NULL);
+    vkFreeMemory(device, block->textureImageMemory, NULL);
+    vkDestroySampler(device, block->textureSampler, NULL);
+    vkDestroyImageView(device, block->textureImageView, NULL);
+
+    free(block->description);
+    block->alive = false;
+}
+
+$gpuc proc initPlaceholderTexture {} void {
+    // Set up a placeholder texture in slot 0 that can always be drawn
+    // that we can swap in when textures get invalidated.
+    Image magentaIm = {
+        .width = 128, .height = 128,
+        .components = 4,
+        .bytesPerRow = 128 * 4,
+        .data = malloc(128 * 128 * 4)
+    };
+    for (int y = 0; y < magentaIm.height; y++) {
+        for (int x = 0; x < magentaIm.width; x++) {
+            int i = y * magentaIm.bytesPerRow + x * magentaIm.components;
+            magentaIm.data[i+0] = 255;
+            magentaIm.data[i+1] = 0;
+            magentaIm.data[i+2] = 255;
+            magentaIm.data[i+3] = 255;
+        }
+    }
+    GpuTextureHandle han = copyImageToGpuTexture(magentaIm);
+    FOLK_ENSURE(han == 0);
+}
+
+set gpuTextureLib [$gpuc compile]
+Claim the GPU texture library is $gpuTextureLib
+
+# Wait until the library has been initialized by gpu.folk.
+When display /any/ has width /any/ height /any/ {
+    When /someone/ wishes the GPU loads image /im/ {
+        set gtex [$gpuTextureLib copyImageToGpuTexture $im]
+        # HACK: this still overflows with camera slice
+        Claim (keep 50ms) the GPU has loaded image $im as texture $gtex \
+            -destructor [list $gpuTextureLib freeGpuTexture $gtex]
+    }
+}
+
+}

@@ -1,0 +1,97 @@
+When display /disp/ has width /w/ height /h/ {
+    When the clock time is /t/ {
+        Wish to draw a dashed line with points [list [list 0 0] [list $w 0] [list $w $h] [list 0 $h] [list 0 0]] color white width 10 dashlength 40 dashoffset [expr {fmod($t, 10)*-120}]
+    }
+}
+
+When page /p/ is out {
+    Wish the GPU creates writable texture [list im $p] with width 1024 height 1024
+    Wish the GPU draws pipeline "fillTriangle" onto texture [list im $p] \
+        with arguments [list {
+            {1 0 0}
+            {0 1 0}
+            {0 0 1}
+        } {-1 -1} {1 -1} {-1 1} {0.5 0 0.5 0.5}]
+
+    Wish the GPU draws pipeline "fillTriangle" onto texture [list im $p] \
+        with arguments [list {
+            {1 0 0}
+            {0 1 0}
+            {0 0 1}
+        } {1 -1} {1 1} {-1 1} {1 0 1 0.5}]
+}
+
+When the GPU library is /gpuLib/ &\
+     the GPU writable texture library is /gpuDrawableLib/ &\
+     the GPU creates writable texture /imId/ as /surf/ {
+
+    puts ON---------------
+    set testim [$gpuDrawableLib gpuTexture $surf]
+
+    set xSize 2.0
+    set ySize 2.0
+    set xStep [expr {$xSize / 4.0}]
+    set yStep [expr {$ySize / 4.0}]
+
+    set idx [lindex $imId 1]
+    set row [expr {$idx / 4}]
+    set col [expr {$idx % 4}]
+
+    set a [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + $row * $yStep}]]
+    set b [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + $row * $yStep}]]
+    set c [list [expr {-1.0 + ($col + 1) * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+    set d [list [expr {-1.0 + $col * $xStep}] [expr {-1.0 + ($row + 1) * $yStep}]]
+
+    Wish the GPU draws pipeline "image" with arguments \
+        [list [list [$gpuLib getWidth] [$gpuLib getHeight]] \
+             {
+                 {1 0 0}
+                 {0 1 0}
+                 {0 0 1}
+             } \
+             $testim $a $b $c $d]
+}
+
+##############
+
+Assert! page 3 is out
+When {
+    sleep 5
+    Retract! page 3 is out
+}
+
+##############
+
+# for {set i 0} {$i < 10} {incr i} {
+#     Assert! page $i is out
+# }
+
+##############
+
+# When {
+#     sleep 5
+#     __conclude 0
+# }
+
+Assert! when /__this/ has program code /__programCode/ {
+    SayWithSource $__this 1 0 {} \
+        when $__programCode with environment [list [list this $__this]]
+} with environment {}
+local proc LoadProgram! {programFilename} {
+    set fp [open $programFilename r]
+    HoldStatement! (keep 100ms) (on boot.folk) [list $programFilename code] \
+        [list boot.folk claims $programFilename has program code [read $fp]]
+    close $fp
+}
+
+apply {{} {
+    LoadProgram! virtual-programs/gpu/textures.folk
+    LoadProgram! virtual-programs/gpu/writable-textures.folk
+    LoadProgram! virtual-programs/draw/color-map.folk
+    LoadProgram! virtual-programs/draw/dashed-line.folk
+    LoadProgram! virtual-programs/draw/fill.folk
+    LoadProgram! virtual-programs/draw/image.folk
+    LoadProgram! virtual-programs/gpu/gpu-fns.folk
+    source virtual-programs/gpu/gpu.folk
+}}
+

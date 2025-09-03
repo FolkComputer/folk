@@ -1,6 +1,4 @@
-.DS_Store
-statements.pdf
-statements.dot
-trie.pdf
-trie.dot
-.vscode
+folk
+folk.pid
+*.o
+folk.dSYM

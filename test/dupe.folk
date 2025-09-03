@@ -1,0 +1,22 @@
+Assert! when {
+    Wish to blah blah
+
+    When {
+        Wish to blah blah
+    }
+
+    When {
+        source "virtual-programs/web/web.folk"
+    }
+    When {
+        source "virtual-programs/web/db-lib.folk"
+        source "virtual-programs/web/index.folk"
+        # source "virtual-programs/web/threads.folk"
+    }
+
+
+    When /someone/ wishes to blah blah {
+        puts stderr "OKAY"
+        __conclude 0
+    }
+} with environment {}

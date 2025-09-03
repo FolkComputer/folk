@@ -1,0 +1,181 @@
+set trieLib [apply {{} {
+    set cc [C]
+    $cc cflags -I. -I./vendor/tracy/public trie.o
+    $cc include <stdlib.h>
+    $cc include <string.h>
+    $cc include "trie.h"
+    $cc code {
+        typedef struct Db Db;
+        extern Db* db;
+
+        extern void dbLockClauseToStatementRef(Db* db);
+        extern void dbUnlockClauseToStatementRef(Db* db);
+        extern Trie* dbGetClauseToStatementRef(Db* db);
+
+#if __has_include ("tracy/TracyC.h")
+#include "tracy/TracyC.h"
+#endif
+
+#ifdef TRACY_ENABLE
+
+#include <string.h>
+void *tmalloc(size_t sz) {
+    void *ptr = malloc(sz);
+    TracyCAllocS(ptr, sz, 4);
+    return ptr;
+}
+void *tcalloc(size_t s1, size_t s2) {
+    void *ptr = calloc(s1, s2);
+    TracyCAllocS(ptr, s1 * s2, 4);
+    return ptr;
+}
+char *tstrdup(const char *s0) {
+    int sz = strlen(s0) + 1;
+    char *s = tmalloc(sz);
+    memcpy(s, s0, sz);
+    return s;
+}
+void tfree(void *ptr) {
+    TracyCFreeS(ptr, 4);
+    free(ptr);
+}
+
+#else
+
+#define tmalloc malloc
+#define tcalloc calloc
+#define tstrdup strdup
+#define tfree free
+
+#endif
+    }
+    $cc proc tclify {Trie* trie} Jim_Obj* {
+        int objc = 3 + trie->branchesCount;
+        Jim_Obj* objv[objc];
+        objv[0] = Jim_ObjPrintf("x%" PRIxPTR, (uintptr_t) trie);
+        objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
+        objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
+        for (int i = 0; i < trie->branchesCount; i++) {
+            objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
+        }
+        return Jim_NewListObj(interp, objv, objc);
+    }
+    $cc proc dbTrieTclify {} Jim_Obj* {
+        dbLockClauseToStatementRef(db);
+        Trie* trie = dbGetClauseToStatementRef(db);
+        Jim_Obj* ret = tclify(trie);
+        dbUnlockClauseToStatementRef(db);
+        return ret;
+    }
+    $cc proc jimObjToClause {Jim_Obj* clauseObj} Clause* {
+        int nTerms = Jim_ListLength(interp, clauseObj);
+        Clause* clause = malloc(SIZEOF_CLAUSE(nTerms));
+        clause->nTerms = nTerms;
+        for (int i = 0; i < nTerms; i++) {
+            Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
+            clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
+        }
+        return clause;
+    }
+    $cc proc clauseToJimObj {Clause* clause} Jim_Obj* {
+        Jim_Obj* termObjs[clause->nTerms];
+        for (int i = 0; i < clause->nTerms; i++) {
+            termObjs[i] = Jim_NewStringObj(interp, clause->terms[i], -1);
+        }
+        return Jim_NewListObj(interp, termObjs, clause->nTerms);
+    }
+    $cc proc new {} Trie* {
+        return trieNew();
+    }
+    $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
+        Clause* pattern = jimObjToClause(patternObj);
+        return trieAdd(trie, tmalloc, tfree, pattern, value);
+    }
+    $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
+        uint64_t results[50];
+        Clause* pattern = jimObjToClause(patternObj);
+        int resultCount = trieLookup(trie, pattern, results, 50);
+        free(pattern);
+
+        Jim_Obj* resultObjs[resultCount];
+        for (int i = 0; i < resultCount; i++) {
+            resultObjs[i] = Jim_NewIntObj(interp, results[i]);
+        }
+
+        return Jim_NewListObj(interp, resultObjs, resultCount);
+    }
+    $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
+        uint64_t results[50];
+        Clause* pattern = jimObjToClause(patternObj);
+        int resultCount; trie = trieRemove(trie, tmalloc, tfree,
+                                           pattern, results, 50, &resultCount);
+        free(pattern);
+        return trie;
+    }
+    $cc code {
+        Clause* clause(char* first, ...) {
+            Clause* c = calloc(sizeof(Clause) + sizeof(char*)*100, 1);
+            va_list argp;
+            va_start(argp, first);
+            c->terms[0] = first;
+            int i = 1;
+            for (;;) {
+                if (i >= 100) abort();
+                c->terms[i] = va_arg(argp, char*);
+                if (c->terms[i] == 0) break;
+                i++;
+            }
+            va_end(argp);
+            c->nTerms = i;
+            return c;
+        }
+    }
+
+    return [$cc compile]
+}}]
+
+set trieDotify {{trieLib tclifiedTrie} {
+    local proc idify {word} {
+        # generate id-able word by eliminating all non-alphanumeric
+        regsub -all {\W+} $word "_"
+    }
+    local proc labelify {word} {
+        # shorten the longest lines
+        set word [join [lmap line [split $word "\n"] {
+            expr { [string length $line] > 80 ? "[string range $line 0 80]..." : $line }
+        }] "\n"]
+        string map {"\"" "\\\""} [string map {"\\" "\\\\"} $word]
+    }
+    local proc subdot {subtrie} {
+        set branches [lassign $subtrie ptr key id]
+
+        set dot [list]
+        lappend dot "$ptr \[label=\"[labelify $key]\"\];"
+        foreach branch $branches {
+            if {$branch eq {}} continue
+            set branchptr [lindex $branch 0]
+            lappend dot "$ptr -> $branchptr;"
+            lappend dot [subdot $branch]
+        }
+        return [join $dot "\n"]
+    }
+    return "digraph { rankdir=LR; [subdot $tclifiedTrie] }"
+}}
+
+set getDotAsPdf {{dot} {
+    set fd [open |[list dot -Tpdf <<$dot] r]
+    fconfigure $fd -translation binary
+    set response [read $fd]; close $fd; return $response
+}}
+
+Wish the web server handles route "/trie-graph.pdf" with handler [list apply {{trieLib trieDotify getDotAsPdf} {
+    set trie []
+    set dot [apply $trieDotify $trieLib [$trieLib dbTrieTclify]]
+
+    dict create statusAndHeaders "HTTP/1.1 200 OK
+Connection: close
+Content-Type: application/pdf
+
+" \
+        body [apply $getDotAsPdf $dot]
+}} $trieLib $trieDotify $getDotAsPdf]

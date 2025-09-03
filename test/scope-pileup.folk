@@ -1,0 +1,98 @@
+fn x {vector} { lindex $vector 0 }
+fn y {vector} { lindex $vector 1 }
+
+fn updateCursor {oldCursor updates} {
+  set newCursor $oldCursor
+  if {[dict exists $updates x]} {
+      lset newCursor 0 [::math::max 0 $([dict get $updates x] + [x $oldCursor])]
+  }
+  if {[dict exists $updates y]} {
+      lset newCursor 1 [::math::max 0 $([dict get $updates y] + [y $oldCursor])]
+  }
+  return $newCursor
+}
+
+fn insertCharacter {code newCharacter cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set x [- $x 1]
+  set line [lindex $lines $y]
+
+  if {$x < 0} {
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+    lset lines $y [string cat $newCharacter $line]
+    return [join $lines "\n"]
+  } else {
+    set character [string cat [string index $line $x] $newCharacter]
+    set line [string replace $line $x $x $character]
+    lset lines $y $line
+    return [join $lines "\n"]
+  }
+}
+
+fn deleteCharacter {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  if {$x == 0 && $y > 0} {
+    set previousLine [lindex $lines [expr {$y - 1}]]
+    set thisLine [lindex $lines $y]
+    set mergedLine [string cat $previousLine $thisLine]
+    lset lines [expr {$y - 1}] $mergedLine
+    lset lines $y ""
+    set newLines {}
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+      if {$i != $y} {
+        lappend newLines [lindex $lines $i]
+      }
+    }
+    set lines $newLines
+  } else {
+    set line [lindex $lines $y]
+    set line [string replace $line [expr {$x - 1}] [expr {$x - 1}] ""]
+
+    if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+    lset lines $y $line
+  }
+  return [join $lines "\n"]
+}
+
+fn deleteToBeginning {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set newLine [string range $line $x end]
+  lset lines $y $newLine
+  return [join $lines "\n"]
+}
+
+fn insertNewline {code cursor} {
+  set lines [split $code "\n"]
+  lassign $cursor x y
+  set line [lindex $lines $y]
+  set beforeCursor [string range $line 0 [expr {$x - 1}]]
+  set afterCursor [string range $line $x end]
+  set newLines [list $beforeCursor $afterCursor]
+
+  if {[llength $lines] == 0 && $y == 0} { set lines [list {}] }
+  lset lines $y [join $newLines "\n"]
+  return [join $lines "\n"]
+}
+
+fn getLineLength {code cursor} {
+  set lines [split $code "\n"]
+  set line [lindex $lines [lindex $cursor 1]]
+  set ll [string length $line]
+  return $ll
+}
+
+fn lineNumberView {ystart linecount} {
+  set yend [expr {$ystart + $linecount}]
+  set numbers [list]
+  for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
+    lappend numbers $i
+  }
+  join $numbers "\n"
+}
+
+puts ${^lineNumberView}
+__conclude 0
