@@ -24,6 +24,10 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
+	# Hack for the gadget trigger button.
+	if [ "$$(uname)" = "Linux" ]; then \
+		sudo -n true 2>/dev/null || true && sudo setcap cap_sys_rawio+ep $@ || true; \
+	fi
 
 %.o: %.c trie.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
@@ -129,7 +133,15 @@ remote-flamegraph:
 	scp $(FOLK_REMOTE_NODE):~/folk/out.perf .
 
 start: folk
-	$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk
+	@if [ -n "$$(systemctl list-unit-files | grep folk.service)" ] && \
+	   [ -n "$$(systemctl cat folk.service | grep "ExecStart.*$$(pwd)")" ] && \
+	   [ -z "$(ENABLE_ASAN)" ] && \
+	   [ -z "$$INVOCATION_ID" ] ; then \
+		sudo systemctl start folk.service; \
+		journalctl -f -u folk.service; \
+	else \
+		$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
+	fi
 
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
