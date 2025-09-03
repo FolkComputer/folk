@@ -1,3 +1,5 @@
+// !!! NOT AUDITED !!!
+
 #include <string.h>
 #include <ctype.h>
 #include <new>

@@ -2276,6 +2276,22 @@ void Jim_InvalidateStringRep(Jim_Obj *objPtr)
 
 static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
+/* Make an object immutable. */
+void Jim_MakeImmutable(Jim_Interp *interp, Jim_Obj *objPtr)
+{
+    /* Ensure the immutable object has a string representation. */
+    Jim_String(interp, objPtr);
+
+    if (objPtr->typePtr->makeImmutableProc != NULL) {
+        objPtr->typePtr->makeImmutableProc(interp, objPtr);
+    }
+
+    if (objPtr->typePtr->flags & JIM_TYPE_THREAD_UNSAFE) {
+        Jim_FreeIntRep(objPtr);
+        objPtr->typePtr = NULL;
+    }
+}
+
 /* Duplicate an object. The returned object has refcount = 0. */
 Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 {
@@ -2483,6 +2499,7 @@ static const Jim_ObjType dictSubstObjType = {
     FreeDictSubstInternalRep,
     DupDictSubstInternalRep,
     NULL,
+    NULL,
     JIM_TYPE_THREAD_UNSAFE,
 };
 
@@ -2493,6 +2510,7 @@ static const Jim_ObjType interpolatedObjType = {
     "interpolated",
     FreeInterpolatedInternalRep,
     DupInterpolatedInternalRep,
+    NULL,
     NULL,
     JIM_TYPE_THREAD_UNSAFE,
 };
@@ -2519,6 +2537,7 @@ static const Jim_ObjType stringObjType = {
     "string",
     NULL,
     DupStringInternalRep,
+    NULL,
     NULL,
     JIM_TYPE_REFERENCES,
 };
@@ -3226,6 +3245,7 @@ static const Jim_ObjType comparedStringObjType = {
     NULL,
     NULL,
     NULL,
+    NULL,
     JIM_TYPE_REFERENCES | JIM_TYPE_THREAD_UNSAFE,
 };
 
@@ -3294,6 +3314,7 @@ static const Jim_ObjType sourceObjType = {
     FreeSourceInternalRep,
     DupSourceInternalRep,
     UpdateStringOfSource,
+    NULL,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3323,6 +3344,7 @@ void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr)
  */
 static const Jim_ObjType scriptLineObjType = {
     "scriptline",
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -3360,6 +3382,7 @@ static const Jim_ObjType scriptObjType = {
     "script",
     FreeScriptInternalRep,
     DupScriptInternalRep,
+    NULL,
     NULL,
     JIM_TYPE_THREAD_UNSAFE,
 };
@@ -4620,6 +4643,7 @@ static const Jim_ObjType commandObjType = {
     FreeCommandInternalRep,
     DupCommandInternalRep,
     UpdateStringOfCommand,
+    NULL,
     JIM_TYPE_REFERENCES | JIM_TYPE_THREAD_UNSAFE,
 };
 
@@ -4702,6 +4726,7 @@ Jim_Cmd *Jim_GetCommand(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
 
 static const Jim_ObjType variableObjType = {
     "variable",
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -5907,6 +5932,7 @@ static const Jim_ObjType intObjType = {
     NULL,
     NULL,
     UpdateStringOfInt,
+    NULL,
     JIM_TYPE_NONE,
 };
 
@@ -5920,6 +5946,7 @@ static const Jim_ObjType coercedDoubleObjType = {
     NULL,
     NULL,
     UpdateStringOfInt,
+    NULL,
     JIM_TYPE_NONE,
 };
 
@@ -6096,6 +6123,7 @@ static const Jim_ObjType doubleObjType = {
     NULL,
     NULL,
     UpdateStringOfDouble,
+    NULL,
     JIM_TYPE_NONE,
 };
 
@@ -6294,6 +6322,7 @@ static void ListAppendElement(Jim_Obj *listPtr, Jim_Obj *objPtr);
 static void FreeListInternalRep(Jim_Obj *objPtr);
 static void DupListInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfList(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static void MakeListImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Note that while the elements of the list may contain references,
@@ -6305,6 +6334,7 @@ static const Jim_ObjType listObjType = {
     FreeListInternalRep,
     DupListInternalRep,
     UpdateStringOfList,
+    MakeListImmutable,
     JIM_TYPE_NONE,
 };
 
@@ -6592,6 +6622,19 @@ static void JimMakeListStringRep(Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
 static void UpdateStringOfList(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimMakeListStringRep(interp, objPtr, objPtr->internalRep.listValue.ele, objPtr->internalRep.listValue.len);
+}
+
+static void MakeListImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
+{
+    for (int i = 0; i < objPtr->internalRep.listValue.len; i++) {
+        Jim_Obj *elemPtr = objPtr->internalRep.listValue.ele[i];
+
+        /* No need to make an object immutable if it's already immutable 
+         * (its children are guaranteed to also be immutable) */
+        if (!Jim_IsImmutable(elemPtr)) {
+            Jim_MakeImmutable(interp, elemPtr);
+        }
+    }
 }
 
 static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
@@ -7330,6 +7373,7 @@ Jim_Obj *Jim_ListRange(Jim_Interp *interp, Jim_Obj *listObjPtr, Jim_Obj *firstOb
 static void FreeDictInternalRep(Jim_Obj *objPtr);
 static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
 static void UpdateStringOfDict(Jim_Interp *interp, struct Jim_Obj *objPtr);
+static void MakeDictImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 /* Dict Type.
@@ -7347,6 +7391,7 @@ static const Jim_ObjType dictObjType = {
     FreeDictInternalRep,
     DupDictInternalRep,
     UpdateStringOfDict,
+    MakeDictImmutable,
     JIM_TYPE_NONE,
 };
 
@@ -7575,6 +7620,19 @@ static void DupDictInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dup
 static void UpdateStringOfDict(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JimMakeListStringRep(interp, objPtr, objPtr->internalRep.dictValue->table, objPtr->internalRep.dictValue->len);
+}
+
+static void MakeDictImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
+{
+    for (int i = 0; i < objPtr->internalRep.dictValue->len; i++) {
+        Jim_Obj *elemPtr = objPtr->internalRep.dictValue->table[i];
+
+        /* No need to make an object immutable if it's already immutable 
+         * (its children are guaranteed to also be immutable) */
+        if (!Jim_IsImmutable(elemPtr)) {
+            Jim_MakeImmutable(interp, elemPtr);
+        }
+    }
 }
 
 static int SetDictFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr)
@@ -7937,6 +7995,7 @@ static const Jim_ObjType indexObjType = {
     NULL,
     NULL,
     UpdateStringOfIndex,
+    NULL,
     JIM_TYPE_NONE,
 };
 
@@ -8076,6 +8135,7 @@ static const char * const jimReturnCodes[] = {
 
 static const Jim_ObjType returnCodeObjType = {
     "return-code",
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -9250,6 +9310,7 @@ static const Jim_ObjType exprObjType = {
     FreeExprInternalRep,
     DupExprInternalRep,
     NULL,
+    NULL,
     JIM_TYPE_THREAD_UNSAFE,
 };
 
@@ -10060,6 +10121,7 @@ static const Jim_ObjType scanFmtStringObjType = {
     FreeScanFmtInternalRep,
     DupScanFmtInternalRep,
     UpdateStringOfScanFmt,
+    NULL,
     JIM_TYPE_THREAD_UNSAFE,
 };
 
@@ -16527,6 +16589,7 @@ int Jim_CheckShowCommands(Jim_Interp *interp, Jim_Obj *objPtr, const char *const
  */
 static const Jim_ObjType getEnumObjType = {
     "get-enum",
+    NULL,
     NULL,
     NULL,
     NULL,

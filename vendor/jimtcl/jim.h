@@ -410,11 +410,15 @@ typedef void (Jim_DupInternalRepProc)(struct Jim_Interp *interp,
 typedef void (Jim_UpdateStringProc)(struct Jim_Interp *interp,
         struct Jim_Obj *objPtr);
 
+typedef void (Jim_MakeImmutableProc)(struct Jim_Interp *interp,
+        struct Jim_Obj *objPtr);
+
 typedef struct Jim_ObjType {
     const char *name; /* The name of the type. */
     Jim_FreeInternalRepProc *freeIntRepProc;
     Jim_DupInternalRepProc *dupIntRepProc;
     Jim_UpdateStringProc *updateStringProc;
+    Jim_MakeImmutableProc *makeImmutableProc;
     int flags;
 } Jim_ObjType;
 
@@ -748,6 +752,7 @@ JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
 JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
 JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr, int latestRefCount);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
+JIM_EXPORT void Jim_MakeImmutable (Jim_Interp *interp, Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
         Jim_Obj *objPtr, int flags);
 JIM_EXPORT Jim_Obj * Jim_DupIfImmutable (Jim_Interp *interp, Jim_Obj *objPtr, int flags);

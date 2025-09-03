@@ -76,7 +76,8 @@ static const Jim_ObjType regexpObjType = {
     FreeRegexpInternalRep,
     NULL,
     NULL,
-    JIM_TYPE_NONE
+    NULL,
+    JIM_TYPE_THREAD_UNSAFE
 };
 
 static regex_t *SetRegexpFromAnyUnshared(Jim_Interp *interp, Jim_Obj *objPtr, unsigned flags)

@@ -98,7 +98,8 @@ static const Jim_ObjType subcmdLookupObjType = {
     NULL,
     NULL,
     NULL,
-    JIM_TYPE_REFERENCES
+    NULL,
+    JIM_TYPE_REFERENCES | JIM_TYPE_THREAD_UNSAFE
 };
 
 const jim_subcmd_type *Jim_ParseSubCmd(Jim_Interp *interp, const jim_subcmd_type * command_table,
