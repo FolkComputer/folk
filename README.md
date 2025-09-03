@@ -398,15 +398,15 @@ When /x/ is cool & \
 }
 ```
 
-### Collecting matches
+### Collecting results
 
 ```
-When the collected matches for [list /actor/ is cool] are /matches/ {
-   Wish $this is labelled [join $matches "\n"]
+When the collected results for [list /actor/ is cool] are /results/ {
+   Wish $this is labelled [join $results "\n"]
 }
 ```
 
-This gets you an array of all matches for the pattern `/actor/ is
+This gets you an array of all results for the pattern `/actor/ is
 cool`.
 
 (We use the Tcl `list` function to construct a pattern as a
@@ -688,7 +688,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - remove live queries from region generation?
 - restore smj cam/display parameters
 - fix remaining display/ primitives
-- port angle & any other changes to new.folk
 - rebuild live image
 - why is web endpoints so slow?
 - drop support for multiarg Hold keys
@@ -697,30 +696,26 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ports
   - points-up port
 - only intern long strings?
-- delay sysmon for a few seconds to reduce extra threads
-- why doesn't epoch stack trace show anything in Tracy?
-- don't waste time on rerendering unchanged writable textures
 - stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
-
-### editor bugs
-
-- **editor render loop blinks out sometimes**
-  - use keep?
-  - editor code block not converging
-- editor doubles keys sometimes
-- editor turns all keys to whitespace sometimes
-- editor revert bug
-- **editor 'crash'/unresponsive bug**
-- running program bugs out
-  - recollect happening at weird time maybe?
+- camera stops working when calibration terminates
+- develop new animation program
+  - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
+    for a program
+- *camera slices blinking*
+  - some kind of new scheduler? priorities? convergence zones?
+  - allocate a fixed texture slot for the camera slice?
+- camera slices cause hop/distortion when pulled off
+- ~~keyboard boot bug~~
+- Assert wrapper with deprecation complaint
+- ForEach! stack fix
+- make new.folk generate a quad
 
 ### perf
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
 - on folk-live at home, folk2-shared-objects: TODO
 
 ### next
-- keep 8ms didn't retract detection once, outline stuck around
 - minor memory leak
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
@@ -728,35 +723,13 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - **calibrate render loop blinks out regularly**
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
-- better calibration timing
 - rename resolved geometry to geometry
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
-- writableImage leak
-- blinking on overlaid pages -- either fix an order or enable alpha blending
+- ~~blinking on overlaid pages -- either fix an order or enable alpha
+  blending~~
+- fix sprite blinking
+- test calibration
+- ~~fix error reporting on table~~ clean up title, clean up points-at
 
-### lock-in / clone bug
-
-
-
-statements lock in (collections lock in?) -- i've seen detector lock
-in which freezes programs / makes even the incremental detector only
-work nearby
-
-`tag 7 has detection` statement locked in -> `tag 7 has quad`
-statement locked in
-
-```
-**s1256:14** (1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {666.237374 361.324443} p {{647.17 ( [ m26806:10 (s4446:0) ] [ m26807:10 (s33839:0 s33840:0) ] [ m26809:10 (s1263:14) ] )
-s58291:23 (-1): virtual-programs/apriltags.folk claims tag 7 has detection {id 7 c {732.567293 342.322116} p {{712.13 ()
-s58334:23 (-1): virtual-programs/apriltags.folk claims tag 7 has
-detection {id 7 c {732.535781 342.338629} p {{712.14 ()
-```
-
-is it the `keep 8ms` in apriltags.folk?
-
-### global queue overrun with (Eval)
-### debug new blinking
-revive tracy plot of number of line operations?
-or number of image operations?

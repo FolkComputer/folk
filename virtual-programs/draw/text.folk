@@ -125,6 +125,7 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
 set fontLib [$cc compile]
 
 When the image loader is /loadImage/ {
+    fn loadImage
     fn loadFont {name} {
         set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
         set fields [list ]
@@ -254,8 +255,8 @@ When the color map is /colorMap/ &\
         set anchor [list 1 1]
     }
 
-    When $p has writable texture /id/ with /...wiOptions/ &\
-         $p has writable texture projection /surfaceToClip/ &\
+    When $p has canvas /id/ with /...wiOptions/ &\
+         $p has canvas projection /surfaceToClip/ &\
          the GPU has font $font with data /fontData/ {
 
         set wiResolution [list [dict get $wiOptions width] [dict get $wiOptions height]]
@@ -266,7 +267,7 @@ When the color map is /colorMap/ &\
 
         # We need to batch into one wish so we don't deal with n^2
         # checks for existing statements for n glyphs.
-        Wish the GPU draws pipeline "glyph" onto texture $id \
+        Wish the GPU draws pipeline "glyph" onto canvas $id \
             with instances $instances layer $layer
     }
 }

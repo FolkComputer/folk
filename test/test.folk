@@ -31,7 +31,7 @@ Assert! when we are on {
         }
 
         if {[dict get [lindex $results end] t] == 89} {
-            __conclude 0
+            Exit! 0
         }
     }
 } with environment {}

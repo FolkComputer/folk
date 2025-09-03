@@ -49,7 +49,7 @@ namespace eval escpos {
         if {![dict exists $matchDict geometry]} { return }
         set geometry [dict get $matchDict geometry]
         set metaFile [open "$::env(HOME)/folk-printed-programs/$id.meta.folk" w]
-        puts $metaFile [subst -novariables {Claim tag $this has geometry {[read $fd]}}]
+        puts $metaFile [subst {Claim tag \$this has geometry {$geometry}}]
         close $metaFile
     }
 

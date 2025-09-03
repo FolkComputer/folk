@@ -8,6 +8,7 @@
 #include <stdatomic.h>
 #include <inttypes.h>
 #include <signal.h>
+#include <setjmp.h>
 
 #if __has_include ("tracy/TracyC.h")
 #include "tracy/TracyC.h"
@@ -81,7 +82,11 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
     globalWorkQueuePush(item);
 }
 
+// These are used by dynamically-loaded Tcl-C modules, especially for
+// error handling.
 __thread Jim_Interp* interp = NULL;
+__thread jmp_buf __onError;
+
 __thread Cache* cache = NULL;
 
 Db* db;
@@ -89,8 +94,22 @@ Db* db;
 static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
+
+    const char* str;
+    char* newStr;
+    int len;
     for (int i = 0; i < objc; i++) {
-        clause->terms[i] = strdup(Jim_GetString(objv[i], NULL));
+        // Jim "strings" are not guaranteed to be null terminated,
+        // as they're effectively byte arrays. We'll go ahead and
+        // terminate it ourselves in the case that this object is
+        // not terminated.
+        
+        str = Jim_GetString(objv[i], &len);
+        newStr = malloc(len + 1); // +1 for null cap
+        memcpy(newStr, str, len);
+        newStr[len] = 0x00;
+        
+        clause->terms[i] = newStr;
     }
     return clause;
 }
@@ -141,7 +160,7 @@ typedef struct Environment {
     EnvironmentBinding bindings[];
 } Environment;
 
-// This function lives in main.c and not trie.c (where most
+// This function lives in folk.c and not trie.c (where most
 // Clause/matching logic lives) because it operates at the Tcl level,
 // building up a mapping of strings to Tcl objects. Caller must free
 // the returned Environment*.
@@ -222,33 +241,58 @@ static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 static void reactToNewStatement(StatementRef ref);
 
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
-void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
-                           const char *sourceFileName, int sourceLineNumber) {
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(clause);
-    TracyCMessageFmt("hold: %.200s", s); free(s);
-#endif
+// Note: returns an acquired statement that the caller should release.
+Statement* HoldStatementGloballyAcquiring(const char *key, double version,
+                                          Clause *clause, long keepMs, const char *destructorCode,
+                                          const char *sourceFileName, int sourceLineNumber) {
+/* #ifdef TRACY_ENABLE */
+/*     char *s = clauseToString(clause); */
+/*     TracyCMessageFmt("hold: %.200s", s); free(s); */
+/* #endif */
 
-    StatementRef oldRef; StatementRef newRef;
+    StatementRef oldRef; Statement* newStmt;
+
+    newStmt = dbHoldStatement(db, key, version,
+                              clause, keepMs,
+                              sourceFileName, sourceLineNumber,
+                              &oldRef);
 
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
     }
-    newRef = dbHoldStatement(db, key, version,
-                             clause, keepMs, destructor,
-                             sourceFileName, sourceLineNumber,
-                             &oldRef);
-    if (!statementRefIsNull(newRef)) {
+
+    if (newStmt != NULL) {
+        if (destructor != NULL) {
+            statementAddDestructor(newStmt, destructor);
+        }
+
+        StatementRef newRef = statementRef(db, newStmt);
         reactToNewStatement(newRef);
+    } else {
+        if (destructor != NULL) {
+            destructorRun(destructor);
+            free(destructor);
+        }
     }
+
     if (!statementRefIsNull(oldRef)) {
         Statement* stmt;
         if ((stmt = statementAcquire(db, oldRef))) {
             statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
             statementRelease(db, stmt);
         }
+    }
+    return newStmt;
+}
+void HoldStatementGlobally(const char *key, double version,
+                           Clause *clause, long keepMs, const char *destructorCode,
+                           const char *sourceFileName, int sourceLineNumber) {
+    Statement* stmt = HoldStatementGloballyAcquiring(key, version,
+                                                     clause, keepMs, destructorCode,
+                                                     sourceFileName, sourceLineNumber);
+    if (stmt != NULL) {
+        statementRelease(db, stmt);
     }
 }
 static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -275,6 +319,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
     HoldStatementGlobally(key, version,
                           clause, keepMs, destructorCode,
                           sourceFileName, sourceLineNumber);
+
     return (JIM_OK);
 }
 
@@ -292,27 +337,38 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
         free(s);
     }
 
-    StatementRef ref;
+    Statement* stmt;
+    stmt = dbInsertOrReuseStatement(db, clause, keepMs,
+                                    sourceFileName, sourceLineNumber,
+                                    parent, NULL);
+
     Destructor* destructor = NULL;
     if (destructorCode != NULL) {
         destructor = destructorNew(destructorHelper, strdup(destructorCode));
     }
-    ref = dbInsertOrReuseStatement(db, clause, keepMs, destructor,
-                                   sourceFileName, sourceLineNumber,
-                                   parent, NULL);
 
-    if (statementRefIsNull(ref)) {
+    if (stmt != NULL) {
+        if (destructor != NULL) {
+            statementAddDestructor(stmt, destructor);
+        }
+
+        StatementRef ref = statementRef(db, stmt);
+        statementRelease(db, stmt);
+
+        reactToNewStatement(ref);
+        return ref;
+
+    } else {
         if (destructor != NULL) {
             destructorRun(destructor);
             free(destructor);
         }
-    } else {
-        reactToNewStatement(ref);
+        return STATEMENT_REF_NULL;
     }
-    return ref;
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc >= 6);
     Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
 
     const char* sourceFileName;
@@ -397,10 +453,10 @@ static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
     Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-#ifdef TRACY_ENABLE
-    char *s = clauseToString(pattern);
-    TracyCMessageFmt("query: %.200s", s); free(s);
-#endif
+/* #ifdef TRACY_ENABLE */
+/*     char *s = clauseToString(pattern); */
+/*     TracyCMessageFmt("query: %.200s", s); free(s); */
+/* #endif */
 
     Jim_Obj *retObj = QuerySimple(pattern);
     clauseFree(pattern);
@@ -499,7 +555,7 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_SetResultInt(interp, self->index);
     return JIM_OK;
 }
-static int __concludeFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
 
@@ -553,7 +609,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "__conclude", __concludeFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
@@ -658,6 +714,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         // A parent is gone. Abort.
         Jim_DecrRefCount(interp, envStackObj);
         Jim_DecrRefCount(interp, bodyObj);
+
+        statementRelease(db, when);
+        if (stmt != NULL) {
+            statementRelease(db, stmt);
+        }
         return;
     }
 
@@ -785,7 +846,9 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
+
     Clause* clause = statementClause(stmt);
+    assert(clause != NULL);
 
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
@@ -925,13 +988,15 @@ void workerRun(WorkQueueItem item) {
     if (item.op == ASSERT) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
-        StatementRef ref;
-        ref = dbInsertOrReuseStatement(db, item.assert.clause, 0,
-                                       NULL,
-                                       item.assert.sourceFileName,
+        Statement* stmt;
+        stmt = dbInsertOrReuseStatement(db, item.assert.clause, 0,
+                                        item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
-                                       MATCH_REF_NULL, NULL);
-        if (!statementRefIsNull(ref)) {
+                                        MATCH_REF_NULL, NULL);
+        if (stmt != NULL) {
+            StatementRef ref = statementRef(db, stmt);
+            statementRelease(db, stmt);
+
             reactToNewStatement(ref);
         }
         free(item.assert.sourceFileName);

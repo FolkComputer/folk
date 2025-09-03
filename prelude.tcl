@@ -272,74 +272,75 @@ namespace import ::math::*
 
 proc baretime body { string map {" microseconds per iteration" ""} [uplevel [list time $body]] }
 
-proc HoldStatement! {args} {
+proc Hold! {args} {
     set this [uplevel {expr {[info exists this] ? $this : "<unknown>"}}]
 
+    set on $this
     set key [list]
     set version -1
-    set clause [lindex $args end]
+    set clause [list]
     set keepMs 0
     set destructorCode {}
-    for {set i 0} {$i < [llength $args] - 1} {incr i} {
+    set isNonCapturing false
+    for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
-        if {$arg eq "(on"} {
-            incr i
-            set this [string range [lindex $args $i] 0 end-1]
-        } elseif {$arg eq "(keep"} { # e.g., (keep 3ms)
-            incr i
-            set keep [lindex $args $i]
-            if {[string match {*ms)} $keep]} {
-                set keepMs [string range $keep 0 end-3]
+        if {$arg eq "-on"} {
+            incr i; set on [lindex $args $i]
+        } elseif {$arg eq "-key"} {
+            incr i; set key [lindex $args $i]
+        } elseif {$arg eq "-keep"} { # e.g., -keep 3ms
+            incr i; set keep [lindex $args $i]
+            if {[string match {*ms} $keep]} {
+                set keepMs [string range $keep 0 end-2]
             } else {
-                error "HoldStatement!: invalid keep value [string range $keep 0 end-1]"
+                error "Hold!: invalid keep value: $keep"
             }
         } elseif {$arg eq "-source"} { # e.g., -source {virtual-programs/cool.folk 3}
-            incr i
-            lassign [lindex $args $i] filename lineno
+            incr i; lassign [lindex $args $i] filename lineno
         } elseif {$arg eq "-destructor"} {
-            incr i
-            set destructorCode [lindex $args $i]
+            incr i; set destructorCode [lindex $args $i]
         } elseif {$arg eq "-version"} {
-            incr i
-            set version [lindex $args $i]
+            incr i; set version [lindex $args $i]
+        } elseif {$arg eq "-non-capturing"} {
+            set isNonCapturing true
         } else {
-            lappend key $arg
+            lappend clause $arg
         }
     }
+    if {[llength $clause] == 1} {
+        # Hold! { ... body ... }
+        set body [lindex $clause 0]
+
+        if {$isNonCapturing} {
+            set envStack {}
+        } else {
+            set envStack [uplevel captureEnvStack]
+        }
+        lassign [info source $body] filename lineno
+        set clause [list when $body with environment $envStack]
+    } elseif {[llength $clause] > 1} {
+        if {[lindex $clause 0] eq "Claim"} {
+            set clause [list $this claims {*}[lrange $clause 1 end]]
+        } elseif {[lindex $clause 0] eq "Wish"} {
+            set clause [list $this wishes {*}[lrange $clause 1 end]]
+        }
+    } else {
+        error "Hold!: empty clause"
+    }
+
     if {![info exists filename] || ![info exists lineno]} {
         set frame [info frame -1]
         set filename [dict get $frame file]
         set lineno [dict get $frame line]
     }
 
-    set key [list $this {*}$key]
+    set key [list $on {*}$key]
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
         $filename $lineno
 }
-proc Hold! {args} {
-    set body [lindex $args end]
-    if {$body eq ""} {
-        tailcall HoldStatement! {*}$args
-    }
 
-    set isNonCapturing false
-    set args [lmap arg [lreplace $args end end] {
-        if {$arg eq "(non-capturing)"} {
-            set isNonCapturing true; continue
-        } else { set arg }
-    }]
-
-    if {$isNonCapturing} {
-        set envStack {}
-    } else {
-        set envStack [uplevel captureEnvStack]
-    }
-    tailcall HoldStatement! -source [info source $body] \
-        {*}$args \
-        [list when $body with environment $envStack]
-}
 proc Say {args} {
     set callerInfo [info frame -1]
     set sourceFileName [dict get $callerInfo file]
@@ -448,9 +449,9 @@ proc When {args} {
     }
 
     if {$isNegated} {
-        set negateBody [list if {[llength $__matches] == 0} $body]
+        set negateBody [list if {[llength $__results] == 0} $body]
         tailcall SayWithSource {*}$sourceInfo 0 {} \
-            when the collected matches for $pattern are /__matches/ \
+            when the collected results for $pattern are /__results/ \
             $negateBody with environment $envStack
     } else {
         tailcall SayWithSource {*}$sourceInfo 0 {} \
@@ -497,9 +498,9 @@ proc On {event args} {
     }
 }
 
-# Query! is like QuerySimple! but with added support for
-# & joins, and it'll automatically also test the claimized pattern
-# (with `/someone/ claims` prepended).
+# Query! is like QuerySimple! but with added support for & joins, and
+# it'll automatically also query the claimized pattern (the pattern
+# with `/someone/ claims` prepended).
 proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.

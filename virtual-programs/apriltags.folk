@@ -81,9 +81,9 @@ When /nobody/ wishes to calibrate &\
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    HoldStatement! [list $this entire-frame] \
-        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this entire-frame] \
+        Claim [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }
@@ -102,6 +102,13 @@ When /nobody/ wishes to calibrate &\
     # camera frame.
     set dets [dict create]
     ForEach! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
+        # HACK: Setting aside this tag space (48600 to 48713) for
+        # calibration. We exclude them from incremental detection so
+        # it doesn't get hugely slow if you happen to leave a
+        # calibration board out. (but this carve-out feels like it
+        # weirdly cuts across an abstraction level)
+        if {$id >= 48600} { continue }
+
         if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
             ![dict exists $dets $id]} {
 
@@ -141,25 +148,25 @@ When /nobody/ wishes to calibrate &\
         }]]
     }
 
-    HoldStatement! [list $this incremental] \
-        [list $this claims [list $this incremental] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this incremental] \
+        Claim [list $this incremental] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }
 
 # Integrate all the tag detections.
-When the collected matches for \
+When the collected results for \
     [list /someone/ detects tags /tags/ on camera /camera/ \
-         at timestamp /timestamp/ in time /aprilTime/] are /matches/ {
+         at timestamp /timestamp/ in time /aprilTime/] are /results/ {
 
     set now [expr {[clock milliseconds] / 1000.0}]
 
     set latestTagDets [dict create]
-    foreach match $matches {
-        set timestamp [dict get $match timestamp]
-        set camera [dict get $match camera]
-        foreach tag [dict get $match tags] {
+    foreach result $results {
+        set timestamp [dict get $result timestamp]
+        set camera [dict get $result camera]
+        foreach tag [dict get $result tags] {
             dict set tag timestamp $timestamp
             dict set tag camera $camera
             dict with tag {
@@ -179,7 +186,7 @@ When the collected matches for \
         Claim (keep 8ms) tag $id has detection $det on camera [dict get $det camera] \
             at timestamp [dict get $det timestamp]
     }
-    set aprilTime [lmap m $matches {dict get $m aprilTime}]
+    set aprilTime [lmap r $results {dict get $r aprilTime}]
     Claim the AprilTag time is $aprilTime
 }
 

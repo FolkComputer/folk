@@ -1,21 +1,58 @@
-When when the collected matches for /clause/ are /matchesVar/ /body/ with environment /e/ {
-    Wish to collect matches for $clause
+When when the collected results for /clause/ are /resultsVar/ \
+          /body/ with environment /e/ {
+    Wish to collect results for $clause with settle 0ms
 }
-
-# TODO: Defer recollect for like 4ms right away? Sink other recollects
-# into it? Use sysmon to do that?
+When when the collected results for /clause/ with settle /settle/ are /resultsVar/ \
+          /body/ with environment /e/ {
+    Wish to collect results for $clause with settle $settle
+}
 
 set cc [C]
 $cc cflags -I.
 $cc include <string.h>
+$cc include <pthread.h>
 $cc include "trie.h"
+$cc include "db.h"
 $cc code {
+    extern Db* db;
     extern Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj);
-    extern void HoldStatementGlobally(const char *key, double version,
-                                      Clause *clause, long keepMs,
-                                      const char *sourceFileName, int sourceLineNumber);
-    extern Jim_Obj* QuerySimple(Clause* pattern);
+    extern Statement* HoldStatementGlobally(const char *key, double version,
+                                            Clause *clause, long keepMs,
+                                            const char *destructorCode,
+                                            const char *sourceFileName, int sourceLineNumber);
+    extern Statement* HoldStatementGloballyAcquiring(const char *key, double version,
+                                                     Clause *clause, long keepMs,
+                                                     const char *destructorCode,
+                                                     const char *sourceFileName, int sourceLineNumber);
     extern Clause* claimizeClause(Clause* clause);
+
+    typedef struct EnvironmentBinding {
+        char name[100];
+        Jim_Obj* value;
+    } EnvironmentBinding;
+    typedef struct Environment {
+        int nBindings;
+        EnvironmentBinding bindings[];
+    } Environment;
+    extern Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b);
+
+    typedef struct Collect {
+        char* _Atomic patternStr;
+        uint64_t _Atomic collectAtTime;
+    } Collect;
+
+    #define COLLECTS_MAX 1000
+    Collect collects[COLLECTS_MAX];
+    pthread_mutex_t collectsMutex;
+
+    static int64_t timestamp_get(clockid_t clk_id) {
+        // Returns timestamp in nanoseconds.
+        struct timespec ts;
+        if (clock_gettime(clk_id, &ts)) {
+            perror("can't even get the time :'-(");
+        }
+        return (int64_t)ts.tv_sec * 1000000000 + (int64_t)ts.tv_nsec;
+    }
 
     char* makeCollectKey(Jim_Obj* patternObj) {
         const char COLLECT[] = "collect ";
@@ -31,36 +68,86 @@ $cc code {
     int _Atomic version = 0;
 }
 
+$cc proc init {} void {
+    pthread_mutex_init(&collectsMutex, NULL);
+}
 $cc proc Recollect! {Jim_Obj* patternObj} void {
     // First, query for collect patterns.
-    Clause* collectorPattern = malloc(SIZEOF_CLAUSE(7));
-    collectorPattern->nTerms = 7;
+    Clause* collectorPattern = malloc(SIZEOF_CLAUSE(10));
+    collectorPattern->nTerms = 10;
     collectorPattern->terms[0] = strdup("/someone/");
     collectorPattern->terms[1] = strdup("wishes");
     collectorPattern->terms[2] = strdup("to");
     collectorPattern->terms[3] = strdup("collect");
-    collectorPattern->terms[4] = strdup("matches");
+    collectorPattern->terms[4] = strdup("results");
     collectorPattern->terms[5] = strdup("for");
     collectorPattern->terms[6] = strdup(Jim_String(patternObj));
+    collectorPattern->terms[7] = strdup("with");
+    collectorPattern->terms[8] = strdup("settle");
+    collectorPattern->terms[9] = strdup("/settle/");
 
-    Jim_Obj* collectorsObj = QuerySimple(collectorPattern);
-    if (Jim_ListLength(interp, collectorsObj) == 0) {
+    char* collectKey = makeCollectKey(patternObj);
+
+    ResultSet* collectorsSet = dbQuery(db, collectorPattern);
+    if (collectorsSet->nResults == 0) {
         Clause* emptyClause = malloc(SIZEOF_CLAUSE(0));
         emptyClause->nTerms = 0;
-        HoldStatementGlobally(makeCollectKey(patternObj), version++,
-                              emptyClause, 0, NULL, 0);
+        HoldStatementGlobally(collectKey, version++,
+                              emptyClause, 0, NULL, NULL, 0);
     } else {
         Clause* pattern = jimObjToClauseWithCaching(interp, patternObj);
-        Jim_Obj* matchesObj = QuerySimple(pattern);
+
+        ResultSet* rs = dbQuery(db, pattern);
+        size_t unclaimizedNResults = rs->nResults;
 
         Clause* claimizedPattern = claimizeClause(pattern);
         if (claimizedPattern != NULL) {
-            Jim_Obj* claimizedMatchesObj = QuerySimple(claimizedPattern);
-            Jim_ListAppendList(interp, matchesObj, claimizedMatchesObj);
-            Jim_DecrRefCount(interp, claimizedMatchesObj);
+            ResultSet* rs1 = dbQuery(db, claimizedPattern);
+
+            rs = realloc(rs, SIZEOF_RESULTSET(rs->nResults + rs1->nResults));
+            for (size_t i = 0; i < rs1->nResults; i++) {
+                rs->results[rs->nResults + i] = rs1->results[i];
+            }
+            rs->nResults += rs1->nResults;
+            free(rs1);
+        }
+
+        // Now acquire all the statements in rs, unify each statement's
+        // clause with the pattern, and build up a results Jim object.
+
+        Statement** resultStmts = malloc(sizeof(Statement*) * rs->nResults);
+        int resultStmtsCount = 0;
+
+        Jim_Obj* resultsObj = Jim_NewListObj(interp, NULL, 0);
+        for (size_t i = 0; i < rs->nResults; i++) {
+            Statement* result = statementAcquire(db, rs->results[i]);
+            if (result == NULL) { continue; }
+
+            resultStmts[resultStmtsCount++] = result;
+
+            Environment* env = clauseUnify(interp,
+                                           i >= unclaimizedNResults ? claimizedPattern : pattern,
+                                           statementClause(result));
+            Jim_Obj* envDict[env->nBindings * 2];
+            for (int j = 0; j < env->nBindings; j++) {
+                envDict[j*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+                envDict[j*2+1] = env->bindings[j].value;
+            }
+
+            Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, env->nBindings * 2);
+            Jim_ListAppendElement(interp, resultsObj, resultObj);
+
+            free(env);
+        }
+        if (claimizedPattern != NULL) {
             free(claimizedPattern);
         }
         clauseFree(pattern);
+        free(rs);
+
+        // Note that at this point, we've still acquired all the
+        // statements in rs. We need to hang onto them to inherit
+        // their destructors.
 
         Clause* collectedClause = malloc(SIZEOF_CLAUSE(9));
         collectedClause->nTerms = 9;
@@ -68,28 +155,117 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         collectedClause->terms[1] = strdup("claims");
         collectedClause->terms[2] = strdup("the");
         collectedClause->terms[3] = strdup("collected");
-        collectedClause->terms[4] = strdup("matches");
+        collectedClause->terms[4] = strdup("results");
         collectedClause->terms[5] = strdup("for");
         collectedClause->terms[6] = strdup(Jim_String(patternObj));
         collectedClause->terms[7] = strdup("are");
-        collectedClause->terms[8] = strdup(Jim_String(matchesObj));
+        collectedClause->terms[8] = strdup(Jim_String(resultsObj));
+        Jim_DecrRefCount(interp, resultsObj);
 
-        Jim_DecrRefCount(interp, matchesObj);
+        Statement* stmt =
+            HoldStatementGloballyAcquiring(collectKey, version++,
+                                           collectedClause, 0, NULL,
+                                           NULL, 0);
 
-        HoldStatementGlobally(makeCollectKey(patternObj), version++,
-                              collectedClause, 0, NULL, 0);
+        // Now inherit the destructors of all the statements in rs
+        // into the new collection statement, and release all the
+        // statements in rs.
+        for (int i = 0; i < resultStmtsCount; i++) {
+            if (stmt != NULL) {
+                statementInheritDestructors(stmt, resultStmts[i]);
+            }
+            // FIXME: what to do if stmt is NULL?
+
+            statementRelease(db, resultStmts[i]);
+        }
+        free(resultStmts);
+
+        if (stmt != NULL) {
+            statementRelease(db, stmt);
+        }
     }
 
+    free(collectKey);
     clauseFree(collectorPattern);
-    Jim_DecrRefCount(interp, collectorsObj);
+    free(collectorsSet);
+}
+# If the recollect doesn't have a settle time, we should recollect
+# immediately. If the recollect has a settle time, then we should bump
+# its next occurrence forward by the settle time.
+$cc proc ScheduleRecollect! {Jim_Obj* patternObj uint64_t settle} void {
+    if (settle == 0) {
+        Recollect_(patternObj);
+        return;
+    }
+
+    uint64_t now = timestamp_get(CLOCK_MONOTONIC);
+    char* patternStr = strdup(Jim_String(patternObj));
+
+    pthread_mutex_lock(&collectsMutex);
+
+    int i;
+    for (i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr != NULL &&
+            strcmp(collects[i].patternStr, patternStr) == 0) {
+
+            collects[i].collectAtTime = now + settle;
+            free(patternStr);
+            break;
+        }
+    }
+    if (i < COLLECTS_MAX) { goto done; }
+
+    for (i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr == NULL) {
+            collects[i].patternStr = patternStr;
+            collects[i].collectAtTime = now + settle;
+            break;
+        }
+    }
+    FOLK_ENSURE(i < COLLECTS_MAX);
+
+ done:
+    pthread_mutex_unlock(&collectsMutex);
+}
+$cc proc RunScheduledRecollects! {} void {
+    uint64_t now = timestamp_get(CLOCK_MONOTONIC);
+
+    pthread_mutex_lock(&collectsMutex);
+    for (int i = 0; i < COLLECTS_MAX; i++) {
+        if (collects[i].patternStr != NULL &&
+            collects[i].collectAtTime <= now) {
+
+            Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1));
+
+            free(collects[i].patternStr);
+            collects[i].patternStr = NULL;
+            collects[i].collectAtTime = 0;
+        }
+    }
+    pthread_mutex_unlock(&collectsMutex);
 }
 set collectLib [$cc compile]
+$collectLib init
 
-When /someone/ wishes to collect matches for /pattern/ {
-    When {*}$pattern {
-        $collectLib Recollect! $pattern
-        On unmatch [list $collectLib Recollect! $pattern]
+# FIXME: If there's not settlement for a while, we should just take
+# whatever we can get.
+
+# FIXME: If we're just booting now, we should sample whatever's in
+# place already.
+
+When /someone/ wishes to collect results for /pattern/ with settle /settle/ {
+    if {[string match {*ms} $settle]} {
+        set settleMs [string range $settle 0 end-2]
+        set settleNs [* $settleMs 1000000]
     }
-    $collectLib Recollect! $pattern
-    On unmatch [list $collectLib Recollect! $pattern]
+    When {*}$pattern {
+        $collectLib ScheduleRecollect! $pattern $settleNs
+        On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
+    }
+    $collectLib ScheduleRecollect! $pattern $settleNs
+    On unmatch [list $collectLib ScheduleRecollect! $pattern $settleNs]
+}
+
+When the internal time is /t/ {
+    $collectLib RunScheduledRecollects!
 }

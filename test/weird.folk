@@ -1,0 +1,44 @@
+# set classvars [dict create inner {}]
+
+# proc okay {} {classvars} {
+#     proc blah {} {classvars} {
+#         set instvars $classvars
+
+#         proc method {} {instvars} {
+#             puts "METHOD"
+#             upvar 1 instvars(inner) inner
+#             dict set inner stuff STUFF
+#         }
+#         method
+
+#         puts "classvars: $classvars"
+#         puts "instvars: $instvars"
+#     }
+
+#     blah
+# }
+# okay
+package require oo
+
+class C {
+    procs {}
+}
+C method proc {name arguments rtype body} {
+    # WHY IS PROCS SHARED HERE AND NOT SHARED THERE?
+    if {[dict exists $procs $name]} { error "C proc: Name collision: $name" }
+    dict set procs $name rtype int
+}
+set obj [C]
+puts "obj is $obj"
+
+$obj method insts {} {
+    uplevel set instvars
+}
+$obj proc addify {int a int b} int {
+    return a + b;
+}
+
+puts "classvars ([$obj classvars])"
+puts "vars ([$obj vars])"
+
+Exit! 0

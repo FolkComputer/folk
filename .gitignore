@@ -4,3 +4,4 @@ folk.pid
 .vscode
 fuzzing-output
 folk.dSYM
+CFLAGS

@@ -12,14 +12,14 @@ When group /group/ contains /...programs/ {
 
 # figure out the text to display below
 When group /group/ contains /...programs/ &\
-     the collected matches for [list /someone/ wishes /program/ is titled /title/] are /matches/ {
+     the collected results for [list /someone/ wishes /program/ is titled /title/] are /results/ {
     set programTitles [dict create]
 
-    foreach match $matches {
-        set programId [dict get $match program]
+    foreach result $results {
+        set programId [dict get $result program]
 
         if {[lsearch $programs $programId] != -1} {
-            dict set programTitles $programId [dict get $match title]
+            dict set programTitles $programId [dict get $result title]
         }
     }
 

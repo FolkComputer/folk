@@ -56,7 +56,8 @@ void tfree(void *ptr) {
         objv[1] = trie->key ? Jim_ObjPrintf("%s", trie->key) : Jim_ObjPrintf("ROOT");
         objv[2] = trie->value ? Jim_ObjPrintf("%"PRIu64, trie->value) : Jim_ObjPrintf("NULL");
         for (int i = 0; i < trie->branchesCount; i++) {
-            objv[3+i] = trie->branches[i] ? tclify(trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
+            // HACK: const isn't supported yet, so have to cast.
+            objv[3+i] = trie->branches[i] ? tclify((Trie *)trie->branches[i]) : Jim_NewStringObj(interp, "", 0);
         }
         return Jim_NewListObj(interp, objv, objc);
     }
@@ -85,11 +86,11 @@ void tfree(void *ptr) {
         return Jim_NewListObj(interp, termObjs, clause->nTerms);
     }
     $cc proc new {} Trie* {
-        return trieNew();
+        return (Trie *)trieNew();
     }
     $cc proc add {Trie* trie Jim_Obj* patternObj uint64_t value} Trie* {
         Clause* pattern = jimObjToClause(patternObj);
-        return trieAdd(trie, tmalloc, tfree, pattern, value);
+        return (Trie *)trieAdd(trie, tmalloc, tfree, pattern, value);
     }
     $cc proc lookup {Trie* trie Jim_Obj* patternObj} Jim_Obj* {
         uint64_t results[50];
@@ -107,8 +108,9 @@ void tfree(void *ptr) {
     $cc proc remove_ {Trie* trie Jim_Obj* patternObj} Trie* {
         uint64_t results[50];
         Clause* pattern = jimObjToClause(patternObj);
-        int resultCount; trie = trieRemove(trie, tmalloc, tfree,
-                                           pattern, results, 50, &resultCount);
+        int resultCount;
+        trie = (Trie *)trieRemove(trie, tmalloc, tfree,
+                                  pattern, results, 50, &resultCount);
         free(pattern);
         return trie;
     }

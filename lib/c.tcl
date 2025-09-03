@@ -75,8 +75,8 @@ class C {
         #include <stdio.h>
         #include <setjmp.h>
 
-        static __thread jmp_buf __onError;
-        static __thread Jim_Interp* interp;
+        extern __thread jmp_buf __onError;
+        extern __thread Jim_Interp* interp;
 
         #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
@@ -592,7 +592,7 @@ C method compile {{cid {}}} {
         #ifdef __cplusplus
         \}
         #include <atomic>
-        static std::atomic<const char*> __cInfo = NULL;
+        static std::atomic<const char*> __cInfo(nullptr);
         extern "C" \{
         #else
         static const char* _Atomic __cInfo = NULL;

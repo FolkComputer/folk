@@ -5,8 +5,8 @@ Claim an item is B
 Claim an item is C
 
 When we should collect {
-    When the collected matches for [list an item is /item/] are /matches/ {
-        puts $matches
+    When the collected results for [list an item is /item/] are /results/ {
+        puts $results
     }
 }
 
@@ -18,12 +18,14 @@ for {set i 0} {$i < 5} {incr i} {
     Assert! we should collect
     sleep 0.2
 
-    set results [Query! the collected matches for [list an item is /item/] are /matches/]
-    assert {[llength [dict get [lindex $results 0] matches]] == 3}
+    set results [Query! the collected results for [list an item is /item/] are /results/]
+    assert {[llength [dict get [lindex $results 0] results]] == 3}
 
     Retract! we should collect
     sleep 0.4
 
-    set results [Query! the collected matches for [list an item is /item/] are /matches/]
+    set results [Query! the collected results for [list an item is /item/] are /results/]
     assert {[llength $results] == 0}
 }
+
+Exit! 0

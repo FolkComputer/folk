@@ -37,7 +37,7 @@ When the image library is /imageLib/ {
                 return im;
             }
         }
-        fprintf(stderr, "cacheGet(%s) failed\n"); exit(1);
+        fprintf(stderr, "cacheGet(%s) failed\n", name); exit(1);
     }
     $cc proc cachePut {char* name Image im} void {
         pthread_rwlock_wrlock(&imageCacheLock);
@@ -55,7 +55,7 @@ When the image library is /imageLib/ {
     $cacheLib cacheInit
 
 
-    set loadImage [list apply {{cacheLib imageLib im} {
+    fn loadImage {im} {
         if {[$cacheLib cacheExists $im]} {
             return [$cacheLib cacheGet $im]
         }
@@ -78,8 +78,8 @@ When the image library is /imageLib/ {
             $cacheLib cachePut $impath $im
         }
         return $im
-    }} $cacheLib $imageLib]
-    Claim the image loader is $loadImage
+    }
+    Claim the image loader is [fn loadImage]
 }
 
 Wish the GPU compiles pipeline "image" {
@@ -102,8 +102,8 @@ Wish the GPU compiles pipeline "image" {
 }}
 When the image library is /imageLib/ &\
      /someone/ wishes to draw an image onto /p/ with /...options/ &\
-     /p/ has writable texture /id/ with /...wiOptions/ &\
-     /p/ has writable texture projection /surfaceToClip/ {
+     /p/ has canvas /id/ with /...wiOptions/ &\
+     /p/ has canvas projection /surfaceToClip/ {
 
     set im [dict get $options image]
 
@@ -146,20 +146,28 @@ When the image library is /imageLib/ &\
 
     Wish the GPU loads image $im as texture
     When the GPU has loaded image $im as texture /gim/ {
-        Wish the GPU draws pipeline "image" onto texture $id with arguments \
+        Wish the GPU draws pipeline "image" onto canvas $id with arguments \
             [list $wiResolution $surfaceToClip \
                  $gim \
                  $a $b $c $d]
     }
 }
 
-When /someone/ wishes /p/ displays image /im/ &\
+When the image library is /imageLib/ &\
+     /someone/ wishes /p/ displays image /im/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
-    Wish to draw an image onto $p with image $im \
+
+    set width [/ [dict get $geom left] 1.5]
+    set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $width)
+    set geomHeight [dict get $geom height]
+    if {$derivedHeight > $geomHeight} {
+        set width $($geomHeight / $derivedHeight * $width)
+    }
+    Wish to draw an image onto $p with \
+        image $im \
         position [list 0 0] \
-        anchor topleft \
-        width [/ [dict get $geom left] 1.5]
+        anchor topleft width $width
 }
 
 

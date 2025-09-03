@@ -6,11 +6,11 @@ Wish the web server handles route "/score/$" with handler {
   json "{\"score\": 5}"
 }
 
-When the collected matches for [list /regionName/ has region /region/] are /regionMatches/ {
+When the collected results for [list /regionName/ has region /region/] are /regionResults/ {
   Wish the web server handles route "/regions/$" with handler [list Evaluator::tryRunInSerializedEnvironment {
     set body "<ol>"
-    foreach match $regionMatches {
-      append body "<li><strong>[dict get $match regionName]</strong>: [dict get $match region]</li>"
+    foreach result $regionResults {
+      append body "<li><strong>[dict get $result regionName]</strong>: [dict get $result region]</li>"
     }
     append body "</ol>"
     html $body

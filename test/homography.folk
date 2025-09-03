@@ -35,4 +35,4 @@ foreach pair $projectedPointPairs {
 # }
 # puts [estimateHomography $pp2]
 
-__conclude 0
+Exit! 0
