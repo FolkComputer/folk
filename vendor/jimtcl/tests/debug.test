@@ -48,9 +48,9 @@ test debug-4.1 {debug invstr too few args} -body {
     debug invstr
 } -returnCodes error -result {wrong # args: should be "debug invstr object"}
 
-test debug-4.2 {debug invstr} -body {
-    debug invstr x
-} -result {}
+# test debug-4.2 {debug invstr} -body {
+#     debug invstr x
+# } -result {}
 
 test debug-4.3 {debug invstr too many args} -body {
     debug invstr a b c

@@ -203,7 +203,7 @@ static int stdio_writer(Jim_Interp *interp, struct AioFile *af, const char *buf,
     if (ret < 0 && errno == EPIPE) {
         /* Also discard the write buffer since otherwise when
          * we try to flush on shutdown we may get SIGPIPE */
-        aio_consume(af->writebuf, Jim_LengthUnshared(interp, af->writebuf));
+        aio_consume(af->writebuf, Jim_Length(interp, af->writebuf));
     }
     return ret;
 }
@@ -732,7 +732,7 @@ static int aio_autoflush(Jim_Interp *interp, void *clientData, int mask)
     AioFile *af = clientData;
 
     aio_flush(interp, af);
-    if (Jim_LengthUnshared(interp, af->writebuf) == 0) {
+    if (Jim_Length(interp, af->writebuf) == 0) {
         /* Done, so remove the handler */
         return -1;
     }
@@ -754,7 +754,7 @@ static int aio_autoflush(Jim_Interp *interp, void *clientData, int mask)
 static int aio_flush(Jim_Interp *interp, AioFile *af)
 {
     int len;
-    const char *pt = Jim_GetStringUnshared(interp, af->writebuf, &len);
+    const char *pt = Jim_GetString(interp, af->writebuf, &len);
     if (len) {
         int ret = af->fops->writer(interp, af, pt, len);
         if (ret > 0) {
@@ -767,7 +767,7 @@ static int aio_flush(Jim_Interp *interp, AioFile *af)
         /* If not all data could be written, but with no error, and there is no writable
          * handler, we can try to auto-flush
          */
-        if (Jim_LengthUnshared(interp, af->writebuf)) {
+        if (Jim_Length(interp, af->writebuf)) {
 #ifdef jim_ext_eventloop
             void *handler = Jim_FindFileHandler(interp, af->fd, JIM_EVENT_WRITABLE);
             if (handler == NULL) {
@@ -806,7 +806,7 @@ static int aio_read_len(Jim_Interp *interp, AioFile *af, unsigned flags, int nee
     }
 
     if (neededLen >= 0) {
-        neededLen -= Jim_LengthUnshared(interp, af->readbuf);
+        neededLen -= Jim_Length(interp, af->readbuf);
         if (neededLen <= 0) {
             return JIM_OK;
         }
@@ -860,7 +860,7 @@ static Jim_Obj *aio_read_consume(Jim_Interp *interp, AioFile *af, int neededLen)
 {
     Jim_Obj *objPtr = NULL;
 
-    if (neededLen < 0 || af->readbuf == NULL || Jim_LengthUnshared(interp, af->readbuf) <= neededLen) {
+    if (neededLen < 0 || af->readbuf == NULL || Jim_Length(interp, af->readbuf) <= neededLen) {
         objPtr = af->readbuf;
         af->readbuf = NULL;
     }
@@ -1060,7 +1060,7 @@ static int aio_cmd_copy(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
             break;
         }
         objv[3] = aio_read_consume(interp, af, len);
-        count += Jim_LengthUnshared(interp, objv[3]);
+        count += Jim_Length(interp, objv[3]);
         if (Jim_EvalObjVector(interp, 4, objv) != JIM_OK) {
             ok = 0;
             break;
@@ -1107,7 +1107,7 @@ static int aio_cmd_gets(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
     while (!aio_eof(af)) {
         if (af->readbuf) {
-            const char *pt = Jim_GetStringUnshared(interp, af->readbuf, &len);
+            const char *pt = Jim_GetString(interp, af->readbuf, &len);
             nl = memchr(pt + offset, '\n', len - offset);
             if (nl) {
                 /* got a line */
@@ -1194,7 +1194,7 @@ static int aio_cmd_puts(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     /* Now do we need to flush? */
-    wdata = Jim_GetStringUnshared(interp, af->writebuf, &wlen);
+    wdata = Jim_GetString(interp, af->writebuf, &wlen);
     switch (af->wbuft) {
         case WBUF_OPT_NONE:
             /* Just write immediately */

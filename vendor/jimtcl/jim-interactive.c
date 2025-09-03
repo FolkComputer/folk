@@ -367,7 +367,7 @@ int Jim_InteractivePrompt(Jim_Interp *interp)
             putchar('\n');
         }
 
-        Jim_ClearTempList(interp);
+        Jim_RewindTempList(interp);
     }
   out:
     Jim_Free(history_file);

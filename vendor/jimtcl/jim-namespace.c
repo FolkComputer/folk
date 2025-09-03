@@ -73,8 +73,8 @@ Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *name
 {
     Jim_Obj *objPtr;
     const char *name = Jim_String(interp, nameObj);
-    assert(nameObj->refCount != 0);
-    assert(nsObj->refCount != 0);
+    assert(Jim_RelaxedRefCount(nameObj) != 0);
+    assert(Jim_RelaxedRefCount(nsObj) != 0);
     if (name[0] == ':' && name[1] == ':') {
         /* Absolute namespace */
         while (*++name == ':') {
@@ -94,7 +94,7 @@ Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *name
 
 int Jim_CreateNamespaceVariable(Jim_Interp *interp, Jim_Obj *varNameObj, Jim_Obj *targetNameObj)
 {
-    varNameObj = DupIfWrongInterp(interp, varNameObj, JIM_LIVE_LIST);
+    varNameObj = Jim_DupIfImmutable(interp, varNameObj, JIM_LIVE_LIST);
 
     int rc;
     Jim_IncrRefCount(varNameObj);
@@ -169,7 +169,7 @@ static int JimVariableCmd(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         targetNameObj = JimCanonicalNamespace(interp, interp->framePtr->nsObj, argv[1]);
 
         localNameObj = Jim_NamespaceTail(interp, argv[1]);
-        localNameObj = DupIfWrongInterp(interp, localNameObj, JIM_LIVE_LIST);
+        localNameObj = Jim_DupIfImmutable(interp, localNameObj, JIM_LIVE_LIST);
         Jim_IncrRefCount(localNameObj);
         if (interp->framePtr->level != 0 || Jim_Length(interp, interp->framePtr->nsObj) != 0) {
             retcode = Jim_CreateNamespaceVariable(interp, localNameObj, targetNameObj);

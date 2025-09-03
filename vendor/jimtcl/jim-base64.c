@@ -256,7 +256,7 @@ BinaryDecode64(
     dataend = data + count;
     size = ((count + 3) & ~3) * 3 / 4;
     if (size == 0) {
-        Jim_FreeNewObj(interp, resultObj);
+        Jim_FreeNewObj(resultObj);
         Jim_SetEmptyResult(interp);
         return JIM_OK;
     }

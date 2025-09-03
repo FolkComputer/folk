@@ -176,8 +176,10 @@ extern "C" {
 /* Duplication flags */
 #define JIM_LIVE_LIST        0
 #define JIM_TEMP_LIST        1
-#define JIM_FORCE_STRING     2
-#define JIM_NO_REF_INCR      4
+#define JIM_FORCE_SAFE       2
+
+/* Jim_Obj flags */
+#define JIM_IMMUTABLE    0
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -291,9 +293,12 @@ struct Jim_Interp;
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
-    atomic_int refCount; /* reference count */
+    union {
+        int local;
+        _Atomic int atomic;
+    } refCount;
     int length; /* number of bytes in 'bytes', not including the null term. */
-    struct Jim_Interp *interp; /* parent interpreter */
+    int flags; /* currently the only flag is whether it's immutable */
     /* Internal representation union */
     union {
         /* integer number type */
@@ -362,26 +367,15 @@ typedef struct Jim_Obj {
     } internalRep;
 } Jim_Obj;
 
-/* Jim_Obj related macros */
-#define Jim_IncrRefCount(objPtr) \
-    atomic_fetch_add_explicit(&((objPtr)->refCount), 1, memory_order_relaxed)
-#define Jim_DecrRefCount(objPtr) \
-    do { int res = atomic_fetch_sub_explicit(&((objPtr)->refCount), 1, memory_order_release); \
-         if (res <= 0) { Jim_FreeObj(objPtr); } } while(0)
-#define Jim_IsShared(objPtr) \
-    (atomic_load_explicit(&((objPtr)->refCount), memory_order_relaxed) > 1)
-
-#define Jim_SameInterp(interp, objPtr) \
-    ((interp)->interpId == (objPtr)->interp->interpId)
-
-/* This macro is used when we allocate a new object using
- * Jim_New...Obj(), but for some error we need to destroy it.
- * Instead to use Jim_IncrRefCount() + Jim_DecrRefCount() we
- * can just call Jim_FreeNewObj. To call Jim_Free directly
- * seems too raw, the object handling may change and we want
- * that Jim_FreeNewObj() can be called only against objects
- * that are believed to have refcount == 0. */
-#define Jim_FreeNewObj Jim_FreeObj
+/* these used to be macros, but it's annoying to import
+   stdatomic.h every time you want to call one of these */
+void Jim_IncrRefCount(Jim_Obj *objPtr);
+void Jim_DecrRefCount(Jim_Obj *objPtr);
+void Jim_FreeIfZeroRef(Jim_Obj *objPtr);
+void Jim_FreeNewObj(Jim_Obj *objPtr);
+int Jim_RelaxedRefCount(Jim_Obj *objPtr);
+int Jim_IsShared(Jim_Obj *objPtr);
+int Jim_IsImmutable(Jim_Obj *objPtr);
 
 /* Free the internal representation of the object. */
 #define Jim_FreeIntRep(o) \
@@ -425,8 +419,9 @@ typedef struct Jim_ObjType {
 } Jim_ObjType;
 
 /* Jim_ObjType flags */
-#define JIM_TYPE_NONE 0        /* No flags */
-#define JIM_TYPE_REFERENCES 1    /* The object may contain references. */
+#define JIM_TYPE_NONE            0     /* No flags */
+#define JIM_TYPE_REFERENCES      1     /* The object may contain references. */
+#define JIM_TYPE_THREAD_UNSAFE   2     /* This type cannot safely go between interpreters */
 
 /* -----------------------------------------------------------------------------
  * Call frame, vars, commands structures
@@ -751,19 +746,17 @@ JIM_EXPORT Jim_HashEntry * Jim_NextHashEntry
 
 /* objects */
 JIM_EXPORT Jim_Obj * Jim_NewObj (Jim_Interp *interp, int onTempList);
-JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr);
+JIM_EXPORT void Jim_FreeObj (Jim_Obj *objPtr, int latestRefCount);
 JIM_EXPORT void Jim_InvalidateStringRep (Jim_Obj *objPtr);
 JIM_EXPORT Jim_Obj * Jim_DuplicateObj (Jim_Interp *interp,
         Jim_Obj *objPtr, int flags);
-JIM_EXPORT Jim_Obj * DupIfWrongInterp(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
-JIM_EXPORT Jim_Obj * DupIfShared(Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * Jim_DupIfImmutable (Jim_Interp *interp, Jim_Obj *objPtr, int flags);
+JIM_EXPORT Jim_Obj * Jim_DupIfImmutAndWrongRep (Jim_Interp *interp, Jim_Obj *objPtr,
+        const Jim_ObjType *typePtr, int flags);
 JIM_EXPORT const char * Jim_GetString(Jim_Interp *interp, Jim_Obj *objPtr,
-        int *lenPtr);
-JIM_EXPORT const char * Jim_GetStringUnshared(Jim_Interp *interp, Jim_Obj *objPtr,
         int *lenPtr);
 JIM_EXPORT const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr);
 JIM_EXPORT int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr);
-JIM_EXPORT int Jim_LengthUnshared(Jim_Interp *interp, Jim_Obj *objPtr);
 
 /* string object */
 JIM_EXPORT Jim_Obj * Jim_NewStringObj (Jim_Interp *interp,
@@ -805,7 +798,7 @@ JIM_EXPORT int Jim_GetFinalizer (Jim_Interp *interp, Jim_Obj *objPtr, Jim_Obj **
 /* interpreter */
 JIM_EXPORT Jim_Interp * Jim_CreateInterp (void);
 JIM_EXPORT void Jim_FreeInterp (Jim_Interp *i);
-JIM_EXPORT void Jim_ClearTempList(Jim_Interp *interp);
+JIM_EXPORT void Jim_RewindTempList (Jim_Interp *interp);
 JIM_EXPORT int Jim_GetExitCode (Jim_Interp *interp);
 JIM_EXPORT const char *Jim_ReturnCode(int code);
 JIM_EXPORT void Jim_SetResultFormatted(Jim_Interp *interp, const char *format, ...);
