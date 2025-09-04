@@ -3,6 +3,7 @@
 # loop, to help with performance:
 set cc [C]
 $cc cflags -I./vendor/apriltag
+$cc include <assert.h>
 $cc include <math.h>
 $cc include <common/matd.h>
 $cc include <common/homography.h>
@@ -35,6 +36,9 @@ $cc code {
         objPtr->length = strlen(s);
     }
     int matd_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
+        if (objPtr->typePtr == &matd_ObjType) { return JIM_OK; }
+        assert(!Jim_IsImmutable(objPtr));
+
         // shimmer into a list, then iterate
         int nrows; Jim_Obj *rowObj0;
         nrows = Jim_ListLength(interp, objPtr);

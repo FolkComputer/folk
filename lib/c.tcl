@@ -74,6 +74,7 @@ class C {
         #include <stdbool.h>
         #include <stdio.h>
         #include <setjmp.h>
+        #include <assert.h>
 
         extern __thread Jim_Interp* interp;
         extern __thread jmp_buf __onError;
@@ -144,8 +145,9 @@ class C {
                         if (sscanf(Jim_String(interp, $obj), "($argtype) 0x%p", &$argname) != 1) {
                             // No? Then try to coerce to a Tcl object.
 #if $[dict exists $objtypes $basetype]
-                                __ENSURE_OK($[set basetype]_setFromAnyProc(interp, $obj));
-                                $argname = $obj->internalRep.ptrIntValue.ptr;
+                                __tmpObj = Jim_DupIfImmutAndWrongRep(interp, $obj, $[set basetype]_ObjType, JIM_TEMP_LIST);
+                                __ENSURE_OK($[set basetype]_setFromAnyProc(interp, __tmpObj));
+                                $argname = __tmpObj->internalRep.ptrIntValue.ptr;
 #else
                                 FOLK_ERROR("Unable to convert $[set basetype]");
 #endif
@@ -285,7 +287,6 @@ C method code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
-            #line $line "$filename"
             $newcode
         }]
     }
@@ -370,6 +371,7 @@ C method struct {type fields} {
     }
 
     $self include <string.h>
+    $self include <stdatomic.h>
     # ptrAndLongRep.value = 1 means the data is owned by
     # the Jim_ObjType and should be freed by this
     # code. value = 0 means the data is owned externally
@@ -378,7 +380,7 @@ C method struct {type fields} {
         $[join [lmap fieldname $fieldnames { subst {
             __thread Jim_Obj* k__${type}__${fieldname} = NULL;
         } }] "\n"]
-        Jim_ObjType* $[set type]_ObjType;
+        Jim_ObjType* _Atomic $[set type]_ObjType = NULL;
 
         void $[set type]_freeIntRepProc(Jim_Obj *objPtr) {
             if (objPtr->internalRep.ptrIntValue.int1 == 1) {
@@ -413,6 +415,9 @@ C method struct {type fields} {
         }
         int $[set type]_setFromAnyProc(Jim_Interp *interp, Jim_Obj *objPtr) {
             if (objPtr->typePtr == $[set type]_ObjType) { return JIM_OK; }
+            assert(!Jim_IsImmutable(objPtr));
+
+            Jim_Obj* __tmpObj; ((void) __tmpObj);
 
             $[set type] *robj = ($[set type] *)malloc(sizeof($[set type]));
             $[join [lmap {fieldtype fieldname} $fields {
@@ -437,15 +442,19 @@ C method struct {type fields} {
         }
 
         void $[set type]_init(Jim_Interp* interp, const char* cid) {
-            $[set type]_ObjType = malloc(sizeof(Jim_ObjType));
-            *$[set type]_ObjType = (Jim_ObjType) {
+            Jim_ObjType* $[set type]_ObjTypeAttempt = malloc(sizeof(Jim_ObjType));
+            *$[set type]_ObjTypeAttempt = (Jim_ObjType) {
                 .name = "$type",
                 .freeIntRepProc = $[set type]_freeIntRepProc,
                 .dupIntRepProc = $[set type]_dupIntRepProc,
-                .updateStringProc = $[set type]_updateStringProc,
-                .makeImmutableProc = NULL,
+                .updateStringProc = $[set type]_updateStringProc
                 // .setFromAnyProc = $[set type]_setFromAnyProc
             };
+
+            Jim_ObjType* expected = NULL;
+            if (!atomic_compare_exchange_strong(&$[set type]_ObjType, &expected, $[set type]_ObjTypeAttempt)) {
+                free($[set type]_ObjTypeAttempt);
+            }
 
             char script[1000];
             snprintf(script, 1000,
@@ -458,9 +467,10 @@ C method struct {type fields} {
     }]
 
     $self argtype $type [csubst {
-        __ENSURE_OK($[set type]_setFromAnyProc(interp, \$obj));
+        __tmpObj = Jim_DupIfImmutAndWrongRep(interp, \$obj, $[set type]_ObjType, JIM_TEMP_LIST);
+        __ENSURE_OK($[set type]_setFromAnyProc(interp, __tmpObj));
         \$argtype \$argname;
-        \$argname = *(($type *)\$obj->internalRep.ptrIntValue.ptr);
+        \$argname = *(($type *)__tmpObj->internalRep.ptrIntValue.ptr);
     }]
 
     $self rtype $type {
@@ -481,12 +491,14 @@ C method struct {type fields} {
                 [regexp {(^[^\[]+)(?:\[(\d*)\]|\*)(?:\[(\d+)\])?$} $fieldtype -> basefieldtype arraylen arraylen2]} {
                 if {$basefieldtype eq "char"} {
                     $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} char* {
+                        obj = Jim_DupIfImmutAndWrongRep(interp, obj, $[set type]_ObjType, JIM_TEMP_LIST);
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                     }
                 } else {
                     if {$arraylen2 eq ""} {
                         $self proc ${type}_${fieldname}_ptr {Jim_Interp* interp Jim_Obj* obj} $basefieldtype* {
+                            obj = Jim_DupIfImmutAndWrongRep(interp, obj, $[set type]_ObjType, JIM_TEMP_LIST);
                             __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                             return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                         }
@@ -497,12 +509,14 @@ C method struct {type fields} {
                     # If fieldtype is a pointer or an array,
                     # then make a getter that takes an index.
                     $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj int idx} $elementtype {
+                        obj = Jim_DupIfImmutAndWrongRep(interp, obj, $[set type]_ObjType, JIM_TEMP_LIST);
                         __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                         return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname[idx];
                     }
                 }
             } else {
                 $self proc ${type}_$fieldname {Jim_Interp* interp Jim_Obj* obj} $fieldtype {
+                    obj = Jim_DupIfImmutAndWrongRep(interp, obj, $[set type]_ObjType, JIM_TEMP_LIST);
                     __ENSURE_OK($[set type]_setFromAnyProc(interp, obj));
                     return (($type *)obj->internalRep.ptrIntValue.ptr)->$fieldname;
                 }
@@ -555,7 +569,7 @@ C method proc {name arguments rtype body} {
     dict set procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
-                subst {#line $line "$filename"}
+                subst {}
             } else {list}]
             $body
         }
@@ -576,6 +590,7 @@ C method proc {name arguments rtype body} {
                     return JIM_ERR;
                 }
             }
+            Jim_Obj *__tmpObj; ((void) __tmpObj);
 
             [join $loadargs "\n"]
             $saverv
