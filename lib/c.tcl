@@ -75,6 +75,10 @@ class C {
         #include <stdio.h>
         #include <setjmp.h>
 
+        #if __has_include ("tracy/TracyC.h")
+        #include "tracy/TracyC.h"
+        #endif
+
         extern __thread Jim_Interp* interp;
         extern __thread jmp_buf __onError;
         extern __thread bool __onErrorIsSet;
@@ -705,7 +709,7 @@ extern "C" \{
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
     if {[__isTracyEnabled]} {
-        lappend cflags -DTRACY_ENABLE=1
+        lappend cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
