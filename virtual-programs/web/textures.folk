@@ -113,7 +113,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             1, &barrier
         );
 
-        endSingleTimeCommands(commandBuffer);
+        endSingleTimeCommands(commandBuffer, VK_NULL_HANDLE);
 
         // Copy staging buffer back to CPU
         void* data;

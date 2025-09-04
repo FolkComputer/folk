@@ -228,6 +228,7 @@ $gpuc code [csubst {
 }]
 
 defineVulkanHandleType $gpuc VkCommandBuffer
+defineVulkanHandleType $gpuc VkFence
 $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
@@ -239,7 +240,7 @@ $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
 
     return commandBuffer;
 }
-$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
+$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} void {
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo = {0};
@@ -248,8 +249,7 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
     submitInfo.pCommandBuffers = &commandBuffer;
 
     pthread_mutex_lock(graphicsQueueMutex_ptr());
-    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(*graphicsQueue_ptr());
+    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, fence);
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
 
@@ -302,7 +302,7 @@ $gpuc proc transitionImageLayout {VkImage image VkFormat format
                          0, NULL,
                          1, &barrier);
 
-    endSingleTimeCommands(commandBuffer);
+    endSingleTimeCommands(commandBuffer, VK_NULL_HANDLE);
 }
 
 # Allocates(!) a copy of `im` with 4 channels, on the Tcl
@@ -477,11 +477,22 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
+$gpuc code {
+    static __thread VkFence copyFence = VK_NULL_HANDLE;
+}
 $gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
     // Image must be RGBA.
     Image im;
     if (im0.components != 4) { im = copyImageToRgba(im0); }
     else { im = im0; }
+
+    if (copyFence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fenceInfo = {0};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &copyFence)}]
+    } else {
+        vkResetFences(device, 1, &copyFence);
+    }
 
     size_t size = im.width * im.height * 4;
 
@@ -565,11 +576,20 @@ $gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
-        endSingleTimeCommands(commandBuffer);
+        endSingleTimeCommands(commandBuffer, copyFence);
+
+#ifdef TRACY_ENABLE
+        TracyCZoneN(ctx, "vkWaitForFences", 1);
+#endif
+        vkWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(ctx);
+#endif
     }
 
     addToTextureDescriptorSet(block->handle);
 
+    // TODO: Can we get rid of the staging buffer?
     vkDestroyBuffer(device, stagingBuffer, NULL);
     vkFreeMemory(device, stagingBufferMemory, NULL);
 
