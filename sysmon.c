@@ -80,6 +80,9 @@ void sysmon() {
             fprintf(stderr, "--------------------\n"
                     "OUT OF RAM, EXITING.\n"
                     "--------------------\n");
+#ifdef __SANITIZE_ADDRESS__
+            __lsan_do_leak_check();
+#endif
             exit(1);
         }
     }
