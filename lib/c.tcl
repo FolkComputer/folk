@@ -713,7 +713,9 @@ extern "C" \{
     }
     set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
-    puts $out
+    if {[string trim $out] ne ""} {
+        puts $out
+    }
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0
