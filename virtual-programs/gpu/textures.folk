@@ -253,10 +253,26 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
 
+$gpuc code [csubst {
+    static __thread VkFence _fence = VK_NULL_HANDLE;
+    static VkFence getFence() {
+        if (_fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+        } else {
+            vkResetFences(device, 1, &_fence);
+        }
+        return _fence;
+    }
+}]
+
 $gpuc typedef int VkFormat false
 $gpuc typedef int VkImageLayout false
 $gpuc proc transitionImageLayout {VkImage image VkFormat format
                                   VkImageLayout oldLayout VkImageLayout newLayout} void {
+    VkFence fence = getFence();
+
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
     VkImageMemoryBarrier barrier = {0};
@@ -302,7 +318,9 @@ $gpuc proc transitionImageLayout {VkImage image VkFormat format
                          0, NULL,
                          1, &barrier);
 
-    endSingleTimeCommands(commandBuffer, VK_NULL_HANDLE);
+    endSingleTimeCommands(commandBuffer, fence);
+    // HACK: this wait is so that the commandBuffer is usable afterward.
+    vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 }
 
 # Copy 1-channel, 3-channel, or 4-channel im to 4-channel ret.
@@ -485,17 +503,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
-$gpuc code {
-    static __thread VkFence copyFence = VK_NULL_HANDLE;
-}
 $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
-    if (copyFence == VK_NULL_HANDLE) {
-        VkFenceCreateInfo fenceInfo = {0};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &copyFence)}]
-    } else {
-        vkResetFences(device, 1, &copyFence);
-    }
+    VkFence fence = getFence();
 
     size_t size = im.width * im.height * 4;
 
@@ -575,12 +584,12 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
                              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                              0, 0, NULL, 0, NULL, 1, &barrier);
 
-        endSingleTimeCommands(commandBuffer, copyFence);
+        endSingleTimeCommands(commandBuffer, fence);
 
 #ifdef TRACY_ENABLE
         TracyCZoneN(ctx, "vkWaitForFences", 1);
 #endif
-        vkWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 #ifdef TRACY_ENABLE
         TracyCZoneEnd(ctx);
 #endif
