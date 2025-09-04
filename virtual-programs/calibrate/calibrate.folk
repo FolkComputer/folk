@@ -348,7 +348,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
             {0 $printedSideLengthM 0 $tagSideLengthPixels}
             {0 0 0 0}
         }]]
-        Hold! H_modelToDisplay {
+        Hold! -key H_modelToDisplay {
             # Default model and version: nothing rotated.
             Claim the calibration model-to-display homography is $H_modelToDisplay with \
                 model $baseModel version -1 \
@@ -360,8 +360,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     HoldDefaultModel! 1.0
 
     On unmatch {
-        Hold! H_modelToDisplay {}
-        Hold! exposure {
+        Hold! -key H_modelToDisplay {}
+        Hold! -key exposure {
             Wish camera $camera uses exposure time auto us
         }
     }

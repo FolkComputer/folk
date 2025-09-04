@@ -15,7 +15,7 @@ When (non-capturing) /type/ /obj/ has a program {
             set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
         } else {
             if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
-                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial")} {
+                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum")} {
                 # HACK: 'Page fault' to folk0, try getting page from
                 # there. Ideally we would have some general (Avahi?)
                 # way of finding the 'authoritative' node on the local

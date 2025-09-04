@@ -75,8 +75,9 @@ class C {
         #include <stdio.h>
         #include <setjmp.h>
 
-        extern __thread jmp_buf __onError;
         extern __thread Jim_Interp* interp;
+        extern __thread jmp_buf __onError;
+        extern __thread bool __onErrorIsSet;
 
         #define __ENSURE(EXPR) if (!(EXPR)) { Jim_SetResultFormatted(interp, "failed to convert argument from Tcl to C in: " #EXPR); longjmp(__onError, 0); }
         #define __ENSURE_OK(EXPR) if ((EXPR) != JIM_OK) { longjmp(__onError, 0); }
@@ -538,7 +539,6 @@ C method proc {name arguments rtype body} {
     if {$rtype == "void"} {
         set saverv [subst {
             $cname ([join $argnames ", "]);
-            return JIM_OK;
         }]
     } else {
         set saverv [subst {
@@ -546,7 +546,6 @@ C method proc {name arguments rtype body} {
             Jim_Obj* robj;
             [$self ret $rtype robj rvalue]
             Jim_SetResult(interp, robj);
-            return JIM_OK;
         }]
     }
 
@@ -566,11 +565,25 @@ C method proc {name arguments rtype body} {
                 Jim_SetResultFormatted(interp, "Wrong number of arguments to $name");
                 return JIM_ERR;
             }
-            int __r = setjmp(__onError);
-            if (__r != 0) { return JIM_ERR; }
+            bool didSetOnError = false;
+            if (!__onErrorIsSet) {
+                int __r = setjmp(__onError);
+                __onErrorIsSet = true;
+                didSetOnError = true;
+
+                if (__r != 0) {
+                    __onErrorIsSet = false;
+                    return JIM_ERR;
+                }
+            }
 
             [join $loadargs "\n"]
             $saverv
+
+            if (didSetOnError) {
+                __onErrorIsSet = false;
+            }
+            return JIM_OK;
         }
     }]
 }
@@ -712,7 +725,7 @@ extern "C" \{
     }
 
     exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
-        -o /tmp/$cid.so [file rootname $cfile].o \
+        -O2 -o /tmp/$cid.so [file rootname $cfile].o \
         {*}$endcflags
 
     # HACK: Why do we need this / only when running in lldb?

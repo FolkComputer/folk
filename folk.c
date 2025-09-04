@@ -86,6 +86,10 @@ void appropriateWorkQueuePush(WorkQueueItem item) {
 // error handling.
 __thread Jim_Interp* interp = NULL;
 __thread jmp_buf __onError;
+// __onError can only be set once for one call into C; if it's already
+// set and you try to set it again (maybe because you called a _Cmd
+// wrapper directly), you shouldn't.
+__thread bool __onErrorIsSet;
 
 __thread Cache* cache = NULL;
 

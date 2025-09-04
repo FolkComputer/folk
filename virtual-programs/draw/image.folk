@@ -154,11 +154,15 @@ When the image library is /imageLib/ &\
 }
 
 When the image library is /imageLib/ &\
-     /someone/ wishes /p/ displays image /im/ &\
+     the image loader is /loadImage/ &\
+     /someone/ wishes /p/ displays image /im/ with /...options/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
 
-    set width [/ [dict get $geom left] 1.5]
+    fn loadImage
+    set im [loadImage $im]
+
+    set width [/ [dict getdef $geom left [dict get $geom width]] 1.5]
     set derivedHeight $(double([$imageLib Image_height $im])/[$imageLib Image_width $im] * $width)
     set geomHeight [dict get $geom height]
     if {$derivedHeight > $geomHeight} {
@@ -168,32 +172,10 @@ When the image library is /imageLib/ &\
         image $im \
         position [list 0 0] \
         anchor topleft width $width
+
 }
 
-
-When /someone/ wishes /p/ displays image /im/ with /...options/ {
-    return
-
-    set im [image load $im]
-    When $p has region /r/ {
-        # Compute a scale for im that will fit in the region width/height
-        # Draw im with scale and rotation
-        if {![dict exists $options center]} {
-            dict set options center [region centroid $r]
-        }
-        # set width [region width $r]
-        # set height [region height $r]
-        # set scale [expr {min($width / [image width $im],
-        #                      $height / [image height $im])}]
-        # Wish $p is labelled $im
-        if {![dict exists $options radians]} {
-            dict set options radians [region angle $r]
-        }
-        Wish to draw an image with image $im {*}$options
-    }
-    # On unmatch {
-    #     # HACK: Leaves time for the display to finish trying to display this.
-    #     after 5000 [list image freeJpeg $im]
-    # }
+When /someone/ wishes /p/ displays image /im/ {
+    Wish $p displays image $im with scale 1.0
 }
 

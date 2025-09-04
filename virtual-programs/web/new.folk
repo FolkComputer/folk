@@ -100,11 +100,8 @@ Wish the web server handles route "/new" with handler {
 
   let regionAngle = 0;
   const ws = new FolkWS(document.getElementById('status'));
-  ws.send(`
-    On unmatch {
-      Hold! (on $this) region {}
-      Hold! (on $this) code {}
-    }
+  ws.hold('canv', tcl`
+    Wish ${program} has a canvas
   `);
 
   ws.watchCollected(tcl`${program} has error /something/ with info /errorInfo/`, errors => {
@@ -114,22 +111,52 @@ Wish the web server handles route "/new" with handler {
 
   function handleDrag() {
     let [top, left, w, h] = [ele.offsetTop, ele.offsetLeft, ele.offsetWidth, ele.offsetHeight];
-    ws.hold('region', tcl`
+    ws.hold('geom', tcl`
+      Claim ${program} has resolved geometry {width ${w / 2000} height ${h / 2000}}
+   `);
+    ws.hold('quad', tcl`
+      set quadLib [dict get [lindex [Query! the quad library is /quadLib/] 0] quadLib]
+
       set dims [lindex [Query! display /disp/ has width /displayWidth/ height /displayHeight/] 0]
+      set disp [dict get $dims disp]
       set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
-      set top [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
-      set left [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
-      proc handleConfigure {program x y w h} {
-        set vertices [list [list [expr {$x+$w}] $y] \
-            [list $x $y] \
-            [list $x [expr {$y+$h}]] \
-            [list [expr {$x+$w}] [expr {$y+$h}]]]
-        set edges [list [list 0 1] [list 1 2] [list 2 3] [list 3 0]]
-        set basicRegion [region create $vertices $edges]
-        set rotatedRegion [region rotate $basicRegion ${regionAngle * (3.1415 / 180)}]
-        Claim $program has region $rotatedRegion
-      }
-      handleConfigure ${program} $left $top ${w} ${h}
+
+      set x [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
+      set y [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
+      set w ${w}; set h ${h}
+
+      # Create 3D vertices in meters that will project to the desired pixel coordinates
+      # Using a depth of 1.5 meters from the projector center
+      set depth 1.5
+      set displayIntrinsics [dict get [lindex [Query! display $disp has intrinsics /displayIntrinsics/] 0] displayIntrinsics]
+      
+      # Convert pixel coordinates to 3D coordinates in projector space
+      set fx [dict get $displayIntrinsics fx]
+      set fy [dict get $displayIntrinsics fy] 
+      set cx [dict get $displayIntrinsics cx]
+      set cy [dict get $displayIntrinsics cy]
+      
+      # Scale pixel coordinates to intrinsic matrix dimensions
+      set scale_x [expr {[dict get $displayIntrinsics width] / double($displayWidth)}]
+      set scale_y [expr {[dict get $displayIntrinsics height] / double($displayHeight)}]
+      
+      set x_scaled [expr {$x * $scale_x}]
+      set y_scaled [expr {$y * $scale_y}]
+      set w_scaled [expr {$w * $scale_x}]
+      set h_scaled [expr {$h * $scale_y}]
+      
+      # Convert to normalized coordinates then to 3D
+      set x1_3d [expr {($x_scaled - $cx) * $depth / $fx}]
+      set y1_3d [expr {($y_scaled - $cy) * $depth / $fy}]
+      set x2_3d [expr {($x_scaled + $w_scaled - $cx) * $depth / $fx}]
+      set y2_3d [expr {($y_scaled + $h_scaled - $cy) * $depth / $fy}]
+      
+      set vertices [list [list $x1_3d $y1_3d $depth] \
+            [list $x2_3d $y1_3d $depth] \
+            [list $x2_3d $y2_3d $depth] \
+            [list $x1_3d $y2_3d $depth]]
+      Claim ${program} has quad \
+          [$quadLib create "display $disp" $vertices]
   `);
   }
   function handleSave() {

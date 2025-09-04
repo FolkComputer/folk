@@ -412,6 +412,24 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         }} $gpuCanvasLib]
     }
 
+    When /someone/ wishes /p/ has a canvas {
+        set pCanvas [list $p canvas]
+        Wish the GPU creates canvas $pCanvas with \
+            width 1024 height 1024
+        When the GPU has created canvas $pCanvas with /...canvOpts/ {
+            Claim $p has canvas $pCanvas with {*}$canvOpts
+
+            When $p has resolved geometry /geom/ {
+                set width [dict get $geom width]
+                set height [dict get $geom height]
+                set proj [list [list $(2.0/$width) 0 -1] \
+                              [list 0 $(2.0/$height) -1] \
+                              [list 0 0 1]]
+                Claim $p has canvas projection $proj
+            }
+        }
+    }
+
     When display /disp/ has width /dispWidth/ height /dispHeight/ {
         # Create a canvas wrapper around the bare display so that you
         # can draw onto it using the canvas-oriented interface, and so
