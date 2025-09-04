@@ -55,7 +55,7 @@ Claim the db library is [apply {{} {
     $cc proc clause {Db* db StatementRef stmtRef} Jim_Obj* {
         Statement* stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) { return Jim_NewStringObj(interp, "(null)", -1); }
-        Jim_Obj* ret = clauseToJimObj(statementClause(stmt));
+        Jim_Obj* ret = Jim_DuplicateObj(interp, statementJimClause(stmt), JIM_LIVE_LIST);
         statementRelease(db, stmt);
         return ret;
     }
@@ -151,15 +151,13 @@ Claim the db library is [apply {{} {
                 continue;
             }
 
-            char* clauseStr = clauseToString(statementClause(stmt));
             Jim_Obj* holdObjv[] = {
                 Jim_NewStringObj(interp, hold->key, -1),
                 Jim_NewIntObj(interp, hold->version),
                 Jim_ObjPrintf("s%d:%d", hold->statement.idx, hold->statement.gen),
-                Jim_NewStringObj(interp, clauseStr, -1)
+                statementJimClause(stmt)
             };
             statementRelease(db, stmt);
-            free(clauseStr);
 
             Jim_Obj* holdObj = Jim_NewListObj(interp, holdObjv,
                                               sizeof(holdObjv)/sizeof(holdObjv[0]));
