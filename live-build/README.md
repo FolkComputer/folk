@@ -26,7 +26,7 @@ Folk.**
 ## How to build folk-amd64.img from scratch
 
 You need to build on a computer running amd64 Debian Bookworm (as of September
-        2025 [this is available as a live-build itself here](https://www.debian.org/CD/live/)). (Use [a
+        2025 [this is available as a live-build itself here (`DietPi_Container-ARMv8-Bookworm.img.xz`)](https://dietpi.com/downloads/images/) from the [DietPi project](https://dietpi.com)). (Use [a
 virtual machine](https://mac.getutm.app) if you need to. A Folk system built by folk-live-build
 itself should work, though, whether on a virtual or physical machine.)
 
