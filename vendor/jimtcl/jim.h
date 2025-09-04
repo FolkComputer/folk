@@ -180,7 +180,8 @@ extern "C" {
 #define JIM_STRING_ONLY      4
 
 /* Jim_Obj flags */
-#define JIM_IMMUTABLE    1
+/* #define JIM_TEMP_LIST  1 */
+#define JIM_IMMUTABLE     2
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -299,7 +300,7 @@ typedef struct Jim_Obj {
         _Atomic int atomic;
     } refCount;
     int length; /* number of bytes in 'bytes', not including the null term. */
-    int flags; /* currently the only flag is whether it's immutable */
+    int flags; /* current flags are JIM_IMMUTABLE and JIM_TEMP_LIST */
     /* Internal representation union */
     union {
         /* integer number type */

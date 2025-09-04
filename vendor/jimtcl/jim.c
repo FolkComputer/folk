@@ -2228,12 +2228,14 @@ Jim_Obj *Jim_NewObj(Jim_Interp *interp, int flags)
 
         interp->tempList->length++;
         objPtr = &interp->tempList->objects[index];
+
+        objPtr->flags = JIM_TEMP_LIST;
     } else {
         objPtr = Jim_Alloc(sizeof(*objPtr));
+        objPtr->flags = 0;
     }
 
     objPtr->refCount.local = (flags & JIM_TEMP_LIST) ? 1 : 0;
-    objPtr->flags = 0;
 
     /* All the other fields are left uninitialized to save time.
      * The caller will probably want to set them to the right
@@ -7138,6 +7140,7 @@ void Jim_ListAppendList(Jim_Interp *interp, Jim_Obj *listPtr, Jim_Obj *appendLis
 
 int Jim_ListLength(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    objPtr = Jim_DupIfImmutable(interp, objPtr, JIM_TEMP_LIST);
     SetListFromAny(interp, objPtr);
     return objPtr->internalRep.listValue.len;
 }
@@ -15365,10 +15368,14 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
         return JIM_ERR;
     }
     for (i = 0; i < len; i += 2) {
-        Jim_Obj *varNameObjPtr = Jim_DupIfImmutable(interp, dictValues[i], JIM_TEMP_LIST);
+        /* May become owned */
+        Jim_Obj *varNameObjPtr = Jim_DupIfImmutable(interp, dictValues[i], JIM_LIVE_LIST);
+        Jim_IncrRefCount(varNameObjPtr);
         if (Jim_SetVariable(interp, varNameObjPtr, dictValues[i + 1]) == JIM_ERR) {
+            Jim_DecrRefCount(varNameObjPtr);
             return JIM_ERR;
         }
+        Jim_DecrRefCount(varNameObjPtr);
     }
 
     /* As an optimisation, if the script is empty, no need to evaluate it or update the dict */

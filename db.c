@@ -1245,7 +1245,6 @@ Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
                 exit(1);
             }
         } else {
-            Jim_DecrRefCount(jimClause);
             hold->statement = STATEMENT_REF_NULL;
             hold->key = NULL;
         }

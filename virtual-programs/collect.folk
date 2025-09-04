@@ -70,6 +70,10 @@ $cc proc init {} void {
     pthread_mutex_init(&collectsMutex, NULL);
 }
 $cc proc Recollect! {Jim_Obj* patternObj} void {
+    patternObj = Jim_DupIfImmutAndWrongRep(interp, patternObj, Jim_ListType(), JIM_LIVE_LIST);
+    Jim_IncrRefCount(patternObj);
+    Jim_ListLength(interp, patternObj); // shimmer to list of not already
+
     // First, query for collect patterns.
     Clause* collectorPattern = malloc(SIZEOF_CLAUSE(10));
     collectorPattern->nTerms = 10;
@@ -89,7 +93,6 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     ResultSet* collectorsSet = dbQuery(db, collectorPattern);
     if (collectorsSet->nResults == 0) {
         HoldStatementGlobally(collectKey, version++, Jim_NewEmptyStringObj(interp), 0, NULL, NULL, 0);
-        Jim_FreeIfZeroRef(patternObj);
     } else {
         Clause* pattern = jimClauseToTrieClause(interp, patternObj);
 
@@ -187,6 +190,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
     free(collectKey);
     clauseFree(collectorPattern);
     free(collectorsSet);
+    Jim_DecrRefCount(patternObj);
 }
 # If the recollect doesn't have a settle time, we should recollect
 # immediately. If the recollect has a settle time, then we should bump
