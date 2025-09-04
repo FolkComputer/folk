@@ -10,7 +10,7 @@
 
 typedef struct Cache Cache;
 
-Cache* cacheNew(Jim_Interp* interp);
+Cache* cacheNew();
 
 void cacheInsert(Cache* cache, Jim_Interp* interp,
                  Jim_Obj* obj);

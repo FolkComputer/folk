@@ -177,9 +177,10 @@ extern "C" {
 #define JIM_LIVE_LIST        0
 #define JIM_TEMP_LIST        1
 #define JIM_FORCE_SAFE       2
+#define JIM_STRING_ONLY      4
 
 /* Jim_Obj flags */
-#define JIM_IMMUTABLE    0
+#define JIM_IMMUTABLE    1
 
 #define JIM_LIBPATH "auto_path"
 #define JIM_INTERACTIVE "tcl_interactive"
@@ -856,6 +857,7 @@ JIM_EXPORT int Jim_GetIndex (Jim_Interp *interp, Jim_Obj *objPtr,
         int *indexPtr);
 
 /* list object */
+JIM_EXPORT const Jim_ObjType * Jim_ListType ();
 JIM_EXPORT Jim_Obj * Jim_NewListObj (Jim_Interp *interp,
         Jim_Obj *const *elements, int len);
 JIM_EXPORT void Jim_ListInsertElements (Jim_Interp *interp,

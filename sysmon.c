@@ -15,15 +15,19 @@
 
 #include "common.h"
 #include "epoch.h"
+#include "jim.h"
 
 // TODO: declare these in folk.h or something.
 extern ThreadControlBlock threads[];
 extern Db* db;
 extern void trace(const char* format, ...);
-extern void HoldStatementGlobally(const char *key, double version,
-                                  Clause *clause, long keepMs, const char *destructorCode,
+extern void HoldStatementGlobally(const char *key, double version, Jim_Obj *jimClause,
+                                  long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn();
+extern void initSysmonInterp();
+extern void rewindSysmonInterp();
+extern __thread Jim_Interp* interp;
 
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
@@ -154,18 +158,20 @@ void sysmon() {
 
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
-    // sysmon.c claims the internal time is <TIME> (used internally)
-    Clause* internalTimeClause = malloc(SIZEOF_CLAUSE(7));
-    internalTimeClause->nTerms = 7;
-    internalTimeClause->terms[0] = strdup("sysmon.c");
-    internalTimeClause->terms[1] = strdup("claims");
-    internalTimeClause->terms[2] = strdup("the");
-    internalTimeClause->terms[3] = strdup("internal");
-    internalTimeClause->terms[4] = strdup("time");
-    internalTimeClause->terms[5] = strdup("is");
-    internalTimeClause->terms[6] = malloc(100);
-    snprintf(internalTimeClause->terms[6], 100, "%f",
-             (double)timeNs / 1000000000.0);
+    char *timeStr = calloc(100, 1);
+    snprintf(timeStr, 100, "%f", (double)timeNs / 1000000000.0);
+
+    Jim_Obj* internalTimeTerms[] = {
+        Jim_NewStringObj(interp, "sysmon.c", -1),
+        Jim_NewStringObj(interp, "claims", -1),
+        Jim_NewStringObj(interp, "the", -1),
+        Jim_NewStringObj(interp, "internal", -1),
+        Jim_NewStringObj(interp, "time", -1),
+        Jim_NewStringObj(interp, "is", -1),
+        Jim_NewStringObj(interp, timeStr, -1),
+    };
+    Jim_Obj* internalTimeClause = Jim_NewListObj(
+        interp, internalTimeTerms, sizeof(internalTimeTerms)/sizeof(internalTimeTerms[0]));
 
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
@@ -173,17 +179,20 @@ void sysmon() {
 
     // sysmon.c claims the clock time is <TIME>
     if (currentTick % 3 == 0) {
-        Clause* clockTimeClause = malloc(SIZEOF_CLAUSE(7));
-        clockTimeClause->nTerms = 7;
-        clockTimeClause->terms[0] = strdup("sysmon.c");
-        clockTimeClause->terms[1] = strdup("claims");
-        clockTimeClause->terms[2] = strdup("the");
-        clockTimeClause->terms[3] = strdup("clock");
-        clockTimeClause->terms[4] = strdup("time");
-        clockTimeClause->terms[5] = strdup("is");
-        clockTimeClause->terms[6] = malloc(100);
-        snprintf(clockTimeClause->terms[6], 100, "%f",
-                 (double)timeNs / 1000000000.0);
+        char *timeStr = calloc(100, 1);
+        snprintf(timeStr, 100, "%f", (double)timeNs / 1000000000.0);
+
+        Jim_Obj* clockTimeTerms[] = {
+            Jim_NewStringObj(interp, "sysmon.c", -1),
+            Jim_NewStringObj(interp, "claims", -1),
+            Jim_NewStringObj(interp, "the", -1),
+            Jim_NewStringObj(interp, "clock", -1),
+            Jim_NewStringObj(interp, "time", -1),
+            Jim_NewStringObj(interp, "is", -1),
+            Jim_NewStringObj(interp, timeStr, -1),
+        };
+        Jim_Obj* clockTimeClause = Jim_NewListObj(
+            interp, clockTimeTerms, sizeof(clockTimeTerms)/sizeof(clockTimeTerms[0]));
 
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,
@@ -192,6 +201,8 @@ void sysmon() {
 }
 
 void *sysmonMain(void *ptr) {
+    initSysmonInterp();
+
 #ifdef TRACY_ENABLE
     TracyCSetThreadName("sysmon");
 #endif
@@ -206,6 +217,7 @@ void *sysmonMain(void *ptr) {
 
         tick++;
         sysmon();
+        rewindSysmonInterp();
     }
     return NULL;
 }
@@ -230,7 +242,7 @@ void sysmonScheduleRemoveAfter(StatementRef stmtRef, int afterMs) {
         fprintf(stderr, "sysmon: Ran out of remove-later slots!");
         for (int i = 0; i < REMOVE_LATER_MAX; i++) {
             fprintf(stderr, "  %d: (%.200s)\n", i,
-                    clauseToString(statementClause(statementAcquire(db, removeLater[i].stmt))));
+                    Jim_String(interp, statementJimClause(statementAcquire(db, removeLater[i].stmt))));
         }
         exit(1);
     }

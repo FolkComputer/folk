@@ -2279,8 +2279,15 @@ static int SetStringFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 /* Make an object immutable. */
 void Jim_MakeImmutable(Jim_Interp *interp, Jim_Obj *objPtr)
 {
+    if (Jim_IsImmutable(objPtr)) return;
+
+    objPtr->flags |= JIM_IMMUTABLE;
+
     /* Ensure the immutable object has a string representation. */
     Jim_String(interp, objPtr);
+
+    /* This next part only applies if the object has a type pointer. */
+    if (objPtr->typePtr == NULL) return;
 
     if (objPtr->typePtr->makeImmutableProc != NULL) {
         objPtr->typePtr->makeImmutableProc(interp, objPtr);
@@ -2318,18 +2325,26 @@ Jim_Obj *Jim_DuplicateObj(Jim_Interp *interp, Jim_Obj *objPtr, int flags)
         memcpy(dupPtr->bytes, objPtr->bytes, objPtr->length + 1);
     }
 
-    /* By default, the new object has the same type as the old object */
-    dupPtr->typePtr = objPtr->typePtr;
-    if ((flags & JIM_FORCE_SAFE) && (objPtr->typePtr->flags & JIM_TYPE_THREAD_UNSAFE)) {
-        // cannot duplicate the these types across interpreters
+    if (flags & JIM_STRING_ONLY) {
         assert(dupPtr->bytes != NULL);
         dupPtr->typePtr = NULL;
-    } else if (objPtr->typePtr != NULL) {
-        if (objPtr->typePtr->dupIntRepProc == NULL) {
-            dupPtr->internalRep = objPtr->internalRep;
+        return dupPtr;
+    }
+
+    /* By default, the new object has the same type as the old object */
+    dupPtr->typePtr = objPtr->typePtr;
+    if (objPtr->typePtr != NULL) {
+        if ((flags & JIM_FORCE_SAFE) && (objPtr->typePtr->flags & JIM_TYPE_THREAD_UNSAFE)) {
+            // cannot duplicate the these types across interpreters
+            assert(dupPtr->bytes != NULL);
+            dupPtr->typePtr = NULL;
         } else {
-            /* The dup proc may set a different type, e.g. NULL */
-            objPtr->typePtr->dupIntRepProc(interp, objPtr, dupPtr);
+            if (objPtr->typePtr->dupIntRepProc == NULL) {
+                dupPtr->internalRep = objPtr->internalRep;
+            } else {
+                /* The dup proc may set a different type, e.g. NULL */
+                objPtr->typePtr->dupIntRepProc(interp, objPtr, dupPtr);
+            }
         }
     }
 
@@ -2396,6 +2411,9 @@ int Jim_Length(Jim_Interp *interp, Jim_Obj *objPtr)
 const char *Jim_String(Jim_Interp *interp, Jim_Obj *objPtr)
 {
     if (objPtr->bytes == NULL) {
+        /* immutable objects should never hit this condition,
+         * as their string rep should already have been generated */
+
         return Jim_GetString(interp, objPtr, NULL);
     } else {
         return objPtr->bytes;
@@ -2412,7 +2430,7 @@ static void JimSetStringBytes(Jim_Obj *objPtr, const char *str)
 /* these used to be macros, but it's annoying to import
    stdatomic.h every time you want to call one of these */
 inline int Jim_IsImmutable(Jim_Obj *objPtr) {
-    return (objPtr->flags | JIM_IMMUTABLE) != 0;
+    return (objPtr->flags & JIM_IMMUTABLE) != 0;
 }
 
 void Jim_IncrRefCount(Jim_Obj *objPtr) {
@@ -3307,6 +3325,7 @@ static int qsortCompareStringPointers(const void *a, const void *b)
 
 static void FreeSourceInternalRep(Jim_Obj *objPtr);
 static void DupSourceInternalRep(Jim_Interp *interp, Jim_Obj *srcPtr, Jim_Obj *dupPtr);
+static void MakeSourceImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr);
 
 static const Jim_ObjType sourceObjType = {
@@ -3314,7 +3333,7 @@ static const Jim_ObjType sourceObjType = {
     FreeSourceInternalRep,
     DupSourceInternalRep,
     UpdateStringOfSource,
-    NULL,
+    MakeSourceImmutable,
     JIM_TYPE_REFERENCES,
 };
 
@@ -3333,6 +3352,11 @@ void UpdateStringOfSource(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     JIM_NOTUSED(interp);
     JIM_NOTUSED(objPtr);
+}
+
+static void MakeSourceImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
+{
+    Jim_MakeImmutable(interp, objPtr->internalRep.sourceValue.fileNameObj);
 }
 
 /* -----------------------------------------------------------------------------
@@ -4332,6 +4356,7 @@ static int JimCreateProcedureStatics(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Ob
         Jim_Obj *nameObjPtr;
         Jim_VarVal *vv = NULL;
         Jim_Obj *objPtr = Jim_ListGetIndex(interp, staticsListObjPtr, i);
+        objPtr = Jim_DupIfImmutAndWrongRep(interp, objPtr, &listObjType, JIM_TEMP_LIST);
         int subLen = Jim_ListLength(interp, objPtr);
         int byref = 0;
 
@@ -4459,12 +4484,34 @@ static void JimUpdateProcNamespace(Jim_Interp *interp, Jim_Cmd *cmdPtr, Jim_Obj 
 #endif
 }
 
+#include <signal.h>
+static const Jim_ObjType dictObjType;
+static int SetListFromAny(Jim_Interp *interp, struct Jim_Obj *objPtr);
 static Jim_Cmd *JimCreateProcedureCmd(Jim_Interp *interp, Jim_Obj *argListObjPtr,
     Jim_Obj *staticsListObjPtr, Jim_Obj *bodyObjPtr, Jim_Obj *nsObj)
 {
     Jim_Cmd *cmdPtr;
     int argListLen;
     int i;
+
+    /* I've had enough problems with args becoming immutable under me, hence
+     * duplicating everything (the hope is that this won't be too expensive
+     * in practice, as this only happens when creating a procedure) */
+    Jim_Obj *newArgListObjPtr = Jim_DuplicateObj(interp, argListObjPtr, JIM_LIVE_LIST);
+    Jim_FreeIfZeroRef(argListObjPtr);
+    argListObjPtr = newArgListObjPtr;
+
+    /* TODO: this is a bit of a sledgehammer approach. Essentially, if it has child
+     * objects, it could contain references to immutable objects. We can't have that,
+     * so we'll force it to be a string. */
+    if (argListObjPtr->typePtr == &dictObjType || argListObjPtr->typePtr == &listObjType) {
+        SetStringFromAny(interp, argListObjPtr);
+        SetListFromAny(interp, argListObjPtr);
+    }
+
+    Jim_Obj *newBodyObjPtr = Jim_DuplicateObj(interp, bodyObjPtr, JIM_LIVE_LIST);
+    Jim_FreeIfZeroRef(bodyObjPtr);
+    bodyObjPtr = newBodyObjPtr;
 
     argListLen = Jim_ListLength(interp, argListObjPtr);
 
@@ -5052,11 +5099,13 @@ int Jim_SetVariableLink(Jim_Interp *interp, Jim_Obj *nameObjPtr,
  * in a dictionary which is shared, the array variable value is duplicated first.
  * This allows the array element to be updated (e.g. append, lappend) without
  * affecting other references to the dictionary.
- * 
- * Panics if used with an object from another interpreter.
  */
 Jim_Obj *Jim_GetVariable(Jim_Interp *interp, Jim_Obj *nameObjPtr, int flags)
 {
+    /* It's impossible for immutable objects to have a variable link, 
+     * so it should be safe to put it on the temp list */
+    nameObjPtr = Jim_DupIfImmutable(interp, nameObjPtr, JIM_TEMP_LIST);
+
     if (interp->safeexpr) {
         return nameObjPtr;
     }
@@ -6338,6 +6387,11 @@ static const Jim_ObjType listObjType = {
     JIM_TYPE_NONE,
 };
 
+const Jim_ObjType *Jim_ListType()
+{
+    return &listObjType;
+}
+
 void FreeListInternalRep(Jim_Obj *objPtr)
 {
     if (objPtr->internalRep.listValue.ele == NULL) return;
@@ -6628,12 +6682,7 @@ static void MakeListImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     for (int i = 0; i < objPtr->internalRep.listValue.len; i++) {
         Jim_Obj *elemPtr = objPtr->internalRep.listValue.ele[i];
-
-        /* No need to make an object immutable if it's already immutable 
-         * (its children are guaranteed to also be immutable) */
-        if (!Jim_IsImmutable(elemPtr)) {
-            Jim_MakeImmutable(interp, elemPtr);
-        }
+        Jim_MakeImmutable(interp, elemPtr);
     }
 }
 
@@ -7626,12 +7675,7 @@ static void MakeDictImmutable(Jim_Interp *interp, struct Jim_Obj *objPtr)
 {
     for (int i = 0; i < objPtr->internalRep.dictValue->len; i++) {
         Jim_Obj *elemPtr = objPtr->internalRep.dictValue->table[i];
-
-        /* No need to make an object immutable if it's already immutable 
-         * (its children are guaranteed to also be immutable) */
-        if (!Jim_IsImmutable(elemPtr)) {
-            Jim_MakeImmutable(interp, elemPtr);
-        }
+        Jim_MakeImmutable(interp, elemPtr);
     }
 }
 
@@ -10847,7 +10891,8 @@ static int JimInvokeCommand(Jim_Interp *interp, int objc, Jim_Obj *const *objv)
     printf("\n");
 #endif
 
-    cmdPtr = Jim_GetCommand(interp, objv[0], JIM_ERRMSG);
+    Jim_Obj *cmdNamePtr = Jim_DupIfImmutable(interp, objv[0], JIM_TEMP_LIST);
+    cmdPtr = Jim_GetCommand(interp, cmdNamePtr, JIM_ERRMSG);
     if (cmdPtr == NULL) {
         return JimUnknown(interp, objc, objv);
     }
@@ -12041,7 +12086,7 @@ static void JimVariablesMatch(Jim_Interp *interp, Jim_Obj *listObjPtr,
 
     if ((type & JIM_VARLIST_MASK) != JIM_VARLIST_LOCALS || vv->linkFramePtr == NULL) {
         if (patternObj == NULL || Jim_StringMatchObj(interp, patternObj, keyObj, 0)) {
-            Jim_ListAppendElement(interp, listObjPtr, keyObj);
+            Jim_ListAppendElement(interp, listObjPtr, Jim_DuplicateObj(interp, keyObj, JIM_LIVE_LIST));
             if (type & JIM_VARLIST_VALUES) {
                 Jim_ListAppendElement(interp, listObjPtr, vv->objPtr);
             }
@@ -14243,7 +14288,7 @@ static int Jim_ApplyCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
         Jim_Obj *lambdaListPtr = Jim_DupIfImmutAndWrongRep(interp, argv[1], &listObjType, JIM_TEMP_LIST);
         int len = Jim_ListLength(interp, lambdaListPtr);
         if (len != 2 && len != 3) {
-            Jim_SetResultFormatted(interp, "can't interpret \"%#s\" as a lambda expression", argv[1]);
+            Jim_SetResultFormatted(interp, "can't interpret \"%#s\" as a lambda expression", lambdaListPtr);
             return JIM_ERR;
         }
 
@@ -15359,8 +15404,8 @@ static int JimDictWith(Jim_Interp *interp, Jim_Obj *dictVarName, Jim_Obj *const 
 /* [dict] */
 static int Jim_DictCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 {
-    Jim_Obj *objPtr;
-    Jim_Obj *varNamePtr;
+    Jim_Obj *objPtr = NULL;
+    Jim_Obj *varNamePtr = NULL;
     int types = JIM_DICTMATCH_KEYS;
     /* Must be kept in order with the array below */
     enum {
@@ -16593,7 +16638,7 @@ static const Jim_ObjType getEnumObjType = {
     NULL,
     NULL,
     NULL,
-    JIM_TYPE_REFERENCES
+    JIM_TYPE_REFERENCES | JIM_TYPE_THREAD_UNSAFE
 };
 
 int Jim_GetEnum(Jim_Interp *interp, Jim_Obj *objPtr,

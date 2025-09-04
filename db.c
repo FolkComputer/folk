@@ -181,7 +181,8 @@ typedef struct Statement {
 
     // Owned by the DB. clause cannot be mutated or invalidated while
     // rc > 0.
-    Clause* _Atomic clause;
+    Jim_Obj* _Atomic jimClause;
+    Clause* derivedTrieClause;
 
     // If the statement is removed, we wait keepMs milliseconds before
     // removing its child matches.
@@ -383,11 +384,20 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
-static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
+// 
+// This will increase jimClause's refCount by 1, and will
+// decrement refCount by 1 when it's done with jimClause.
+// jimClause and trieClause should be identical (with jimClause considered
+// authoritative)
+static StatementRef statementNew(Db* db, Jim_Obj* jimClause, 
+                                 Clause* derivedTrieClause, long keepMs,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
     Statement* stmt = NULL;
+
+    assert(Jim_IsImmutable(jimClause));
+    assert(Jim_IsList(jimClause));
 
     // Look for a free statement slot to use:
     while (1) {
@@ -396,7 +406,8 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
         stmt = &db->statementPool[idx];
 
         GenRc oldGenRc = stmt->genRc;
-        if (oldGenRc.rc == 0 && !oldGenRc.alive && stmt->clause == NULL) {
+        if (oldGenRc.rc == 0 && !oldGenRc.alive &&
+                atomic_load_explicit(&(stmt->jimClause), memory_order_relaxed) == NULL) {
             GenRc newGenRc = oldGenRc;
             newGenRc.alive = true;
 
@@ -409,8 +420,10 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
 
     // We should now have exclusive access to stmt, as its rc
     // is 0 and we were the ones who made it alive
+    Jim_IncrRefCount(jimClause);
 
-    atomic_store(&stmt->clause, clause);
+    stmt->jimClause = jimClause;
+    stmt->derivedTrieClause = derivedTrieClause;
     stmt->keepMs = keepMs;
 
     destructorSetInit(&stmt->destructorSet);
@@ -441,16 +454,46 @@ static void statementDestroy(Statement* stmt) {
     destructorSetReleaseAll(&stmt->destructorSet);
     pthread_mutex_unlock(&stmt->destructorSetMutex);
 
-    Clause* stmtClause = statementClause(stmt);
-    // Marks this statement slot as being fully free and ready for
-    // reuse.
-    stmt->clause = NULL;
+    clauseFree(stmt->derivedTrieClause);
+    stmt->derivedTrieClause = NULL;
 
-    /* TracyCFreeS(stmt, 4); */
-    clauseFree(stmtClause);
+    Jim_Obj* stmtJimClause = statementJimClause(stmt);
+    // Marks this statement slot as being fully free and ready for reuse.
+    atomic_store(&(stmt->jimClause), NULL);
+    Jim_DecrRefCount(stmtJimClause);
 }
 
-Clause* statementClause(Statement* stmt) { return stmt->clause; }
+Jim_Obj* statementJimClause(Statement* stmt) {
+    return atomic_load_explicit(&(stmt->jimClause), memory_order_relaxed);
+}
+
+Clause* statementTrieClause(Statement* stmt) { return stmt->derivedTrieClause; }
+
+Clause* jimClauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj) {
+    int objc = Jim_ListLength(interp, obj);
+    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
+    clause->nTerms = objc;
+
+    for (int i = 0; i < objc; i++) {
+        Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
+
+        // Jim "strings" are not guaranteed to be null terminated,
+        // as they're effectively byte arrays. We'll go ahead and
+        // terminate it ourselves in the case that this object is
+        // not terminated.
+
+        int len = 0;
+        const char* str = Jim_GetString(interp, termObj, &len);
+
+        char* newStr = malloc(len + 1); // +1 for null cap
+        memcpy(newStr, str, len);
+        newStr[len] = 0x00;
+
+        clause->terms[i] = newStr;
+    }
+
+    return clause;
+}
 
 char* statementSourceFileName(Statement* stmt) {
     return stmt->sourceFileName;
@@ -586,7 +629,7 @@ void statementRemoveSelf(Db* db, Statement* stmt, bool doDeindex) {
             newClauseToStatementRef =
                 trieRemove(db->clauseToStatementRef,
                            epochAlloc, epochFree,
-                           stmt->clause,
+                           stmt->derivedTrieClause,
                            (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                            &resultsCount);
             if (newClauseToStatementRef == oldClauseToStatementRef) {
@@ -875,10 +918,10 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // 
 // (both of these mean that the caller shouldn't trigger a reaction,
 // since no new statement is being created).
-//
-// Takes ownership of `clause` (i.e., you can't touch clause at the
-// caller after calling this!).
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+// 
+// jimClause must already be immutable.
+Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
+                                    Jim_Obj* jimClause, long keepMs,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parentMatchRef,
                                     StatementRef* outReusedStatementRef) {
@@ -887,12 +930,29 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         *outReusedStatementRef = (_ref); \
     }
 
+    Jim_MakeImmutable(interp, jimClause);
+    Jim_IncrRefCount(jimClause);
+
+    // db statements are guaranteed to be lists internally
+    if (!Jim_IsList(jimClause)) {
+        // need to duplicate, as this object is immutable
+        Jim_Obj* jimClauseAsList = Jim_DuplicateObj(interp, jimClause, JIM_LIVE_LIST);
+        Jim_ListLength(interp, jimClauseAsList); // shimmer to list
+        Jim_MakeImmutable(interp, jimClauseAsList);
+
+        // get rid of old object
+        Jim_DecrRefCount(jimClause);
+        jimClause = jimClauseAsList;
+        Jim_IncrRefCount(jimClause);
+    }
+
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
         // Need to set up parent match.
         parentMatch = matchAcquire(db, parentMatchRef);
         if (parentMatch == NULL) {
             setReusedStatementRef(STATEMENT_REF_NULL);
+            Jim_DecrRefCount(jimClause);
             return NULL; // Abort!
         }
 
@@ -902,6 +962,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
             matchRelease(db, parentMatch);
 
             setReusedStatementRef(STATEMENT_REF_NULL);
+            Jim_DecrRefCount(jimClause);
             return NULL; // Abort!
         }
 
@@ -914,7 +975,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of `clause` to the DB.
-    StatementRef ref = statementNew(db, clause, keepMs,
+    Clause* derivedTrieClause = jimClauseToTrieClause(interp, jimClause);
+    StatementRef ref = statementNew(db, jimClause, derivedTrieClause, keepMs,
                                     sourceFileName, sourceLineNumber);
 
     // Now try to add to the trie: the trieAdd operation will
@@ -927,7 +989,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
         oldClauseToStatementRef = db->clauseToStatementRef;
         newClauseToStatementRef = trieAdd(oldClauseToStatementRef,
                                           epochAlloc, epochFree,
-                                          clause, ref.val);
+                                          derivedTrieClause, ref.val);
 
         if (newClauseToStatementRef == oldClauseToStatementRef) {
             // The statement is possibly already present in the db --
@@ -935,7 +997,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
             // should try to reuse the existing statement.
             StatementRef existingRefs[10];
             int existingRefsCount = 
-                trieLookupLiteral(oldClauseToStatementRef, clause,
+                trieLookupLiteral(oldClauseToStatementRef, derivedTrieClause,
                                   (uint64_t*)existingRefs,
                                   sizeof(existingRefs)/sizeof(existingRefs[0]));
             Statement* stmt;
@@ -976,6 +1038,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
                     }
 
                     setReusedStatementRef(existingRefs[0]);
+                    Jim_DecrRefCount(jimClause);
                     return NULL;
                 } else {
                     // Reuse failed, but not for operation-aborting
@@ -1022,6 +1085,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     }
 
     setReusedStatementRef(STATEMENT_REF_NULL);
+    Jim_DecrRefCount(jimClause);
+
     return newStmt;
 
 #undef setReusedStatementRef
@@ -1110,15 +1175,16 @@ void dbRetractStatements(Db* db, Clause* pattern) {
     }
 }
 
-// Takes ownership of `clause` and `destructorSet`.
-Statement* dbHoldStatement(Db* db,
+// Takes ownership of `destructorSet`.
+Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
                            const char* key, double version,
-                           Clause* clause, long keepMs,
+                           Jim_Obj* jimClause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement) {
     if (outOldStatement) { *outOldStatement = STATEMENT_REF_NULL; }
 
     mutexLock(&db->holdsMutex);
+    Jim_IncrRefCount(jimClause);
 
     Hold* hold = NULL;
     for (int i = 0; i < sizeof(db->holds)/sizeof(db->holds[0]); i++) {
@@ -1154,19 +1220,19 @@ Statement* dbHoldStatement(Db* db,
         // TODO: Should we accept a StatementRef and enforce that
         // is what gets removed?
         Statement* oldStmtPtr = statementAcquire(db, oldStmt);
-        if (oldStmtPtr && clauseIsEqual(clause, statementClause(oldStmtPtr))) {
+        if (oldStmtPtr && Jim_StringEqObj(interp, jimClause, statementJimClause(oldStmtPtr))) {
             statementRelease(db, oldStmtPtr);
             mutexUnlock(&db->holdsMutex);
-            clauseFree(clause);
+            Jim_DecrRefCount(jimClause);
             return NULL;
         }
 
         Statement* newStmt = NULL;
-        if (clause->nTerms > 0) {
+        if (Jim_ListLength(interp, jimClause) > 0) {
             hold->version = version;
 
             StatementRef reusedStatementRef;
-            newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
+            newStmt = dbInsertOrReuseStatement(db, interp, jimClause, keepMs,
                                                sourceFileName, sourceLineNumber,
                                                MATCH_REF_NULL,
                                                &reusedStatementRef);
@@ -1179,7 +1245,7 @@ Statement* dbHoldStatement(Db* db,
                 exit(1);
             }
         } else {
-            clauseFree(clause);
+            Jim_DecrRefCount(jimClause);
             hold->statement = STATEMENT_REF_NULL;
             hold->key = NULL;
         }
@@ -1202,7 +1268,7 @@ Statement* dbHoldStatement(Db* db,
                 newClauseToStatementRef =
                     trieRemove(db->clauseToStatementRef,
                                epochAlloc, epochFree,
-                               statementClause(oldStmtPtr),
+                               statementTrieClause(oldStmtPtr),
                                (uint64_t*) results, sizeof(results)/sizeof(results[0]),
                                &resultsCount);
                 if (newClauseToStatementRef == oldClauseToStatementRef) {
@@ -1225,13 +1291,14 @@ Statement* dbHoldStatement(Db* db,
         if (outOldStatement) { *outOldStatement = oldStmt; }
 
         mutexUnlock(&db->holdsMutex);
+        Jim_DecrRefCount(jimClause);
         return newStmt;
     } else {
         // The new version is older than the version already in the
         // hold, so we just shouldn't do anything / we shouldn't
         // install the new statement.
         mutexUnlock(&db->holdsMutex);
-        clauseFree(clause);
+        Jim_DecrRefCount(jimClause);
         return NULL;
     }
 }

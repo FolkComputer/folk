@@ -648,7 +648,7 @@ if {[__isTracyEnabled]} {
             Jim_CallFrame *frame = interp->framePtr->parent->parent;
             const char *fnName = NULL;
             if (frame != NULL && frame->argv != NULL) {
-                fnName = Jim_String(frame->argv[0]);
+                fnName = Jim_String(interp, frame->argv[0]);
             }
             uint64_t loc = ___tracy_alloc_srcloc((uint32_t) sourceLineNumber,
                                                  sourceFileName, strlen(sourceFileName),

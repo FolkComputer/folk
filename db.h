@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 
+#include "jim.h"
 #include "trie.h"
 
 typedef struct Statement Statement;
@@ -50,7 +51,9 @@ bool statementCheck(Db* db, StatementRef ref);
 StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
-Clause* statementClause(Statement* stmt);
+Clause* jimClauseToTrieClause(Jim_Interp* interp, Jim_Obj* obj);
+Jim_Obj* statementJimClause(Statement* stmt);
+Clause* statementTrieClause(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
@@ -112,7 +115,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
+                                    Jim_Obj* jimClause, long keepMs,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
@@ -140,9 +144,9 @@ void dbRetractStatements(Db* db, Clause* pattern);
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbHoldStatement(Db* db,
+Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
                            const char* key, double version,
-                           Clause* clause, long keepMs,
+                           Jim_Obj* jimClause, long keepMs,
                            const char* sourceFileName, int sourceLineNumber,
                            StatementRef* outOldStatement);
 

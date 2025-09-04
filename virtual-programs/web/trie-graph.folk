@@ -74,7 +74,7 @@ void tfree(void *ptr) {
         clause->nTerms = nTerms;
         for (int i = 0; i < nTerms; i++) {
             Jim_Obj* termObj = Jim_ListGetIndex(interp, clauseObj, i);
-            clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
+            clause->terms[i] = strdup(Jim_String(interp, termObj));
         }
         return clause;
     }

@@ -91,7 +91,12 @@ __thread Cache* cache = NULL;
 
 Db* db;
 
-static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
+// Appends a string to a list. List be non-shared
+static void jimAppendString(Jim_Interp* interp, Jim_Obj* listPtr, const char* str) {
+    Jim_ListAppendElement(interp, listPtr, Jim_NewStringObj(interp, str, -1));
+}
+
+static Clause* jimObjsToTrieClause(int objc, Jim_Obj *const *objv) {
     Clause* clause = malloc(SIZEOF_CLAUSE(objc));
     clause->nTerms = objc;
 
@@ -103,39 +108,15 @@ static Clause* jimObjsToClause(int objc, Jim_Obj *const *objv) {
         // as they're effectively byte arrays. We'll go ahead and
         // terminate it ourselves in the case that this object is
         // not terminated.
-        
-        str = Jim_GetString(objv[i], &len);
+
+        str = Jim_GetString(interp, objv[i], &len);
         newStr = malloc(len + 1); // +1 for null cap
         memcpy(newStr, str, len);
         newStr[len] = 0x00;
-        
+
         clause->terms[i] = newStr;
     }
     return clause;
-}
-static Clause* jimObjsToClauseWithCaching(int objc, Jim_Obj *const *objv) {
-    for (int i = 0; i < objc; i++) {
-        cacheInsert(cache, interp, objv[i]);
-    }
-    return jimObjsToClause(objc, objv);
-}
-Clause* jimObjToClauseWithCaching(Jim_Interp* interp, Jim_Obj* obj) {
-    int objc = Jim_ListLength(interp, obj);
-    Clause* clause = malloc(SIZEOF_CLAUSE(objc));
-    clause->nTerms = objc;
-    for (int i = 0; i < objc; i++) {
-        Jim_Obj* termObj = Jim_ListGetIndex(interp, obj, i);
-        cacheInsert(cache, interp, termObj);
-        clause->terms[i] = strdup(Jim_GetString(termObj, NULL));
-    }
-    return clause;
-}
-static Jim_Obj* termsToJimObj(Jim_Interp* interp, int nTerms, char* terms[]) {
-    Jim_Obj* termObjs[nTerms];
-    for (int i = 0; i < nTerms; i++) {
-        termObjs[i] = cacheGetOrInsert(cache, interp, terms[i]);
-    }
-    return Jim_NewListObj(interp, termObjs, nTerms);
 }
 
 static void destructorHelper(void* arg) {
@@ -164,37 +145,51 @@ typedef struct Environment {
 // Clause/matching logic lives) because it operates at the Tcl level,
 // building up a mapping of strings to Tcl objects. Caller must free
 // the returned Environment*.
-Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
-    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*a->nTerms);
+// This function lives in folk.c and not trie.c (where most
+// Clause/matching logic lives) because it operates at the Tcl level,
+// building up a mapping of strings to Tcl objects. Caller must free
+// the returned Environment*.
+// "a" and "b" must have a list internal representation.
+Environment* clauseUnify(Jim_Obj* a, Jim_Obj* b) {
+    assert(Jim_IsList(a));
+    assert(Jim_IsList(b));
+
+    int aLen = a->internalRep.listValue.len;
+    int bLen = b->internalRep.listValue.len;
+
+    Jim_Obj** aTerms = a->internalRep.listValue.ele;
+    Jim_Obj** bTerms = b->internalRep.listValue.ele;
+
+    Environment* env = malloc(sizeof(Environment) + sizeof(EnvironmentBinding)*aLen);
     env->nBindings = 0;
 
-    for (int i = 0; i < a->nTerms && i < b->nTerms; i++) {
+    for (int i = 0; i < aLen && i < bLen; i++) {
         char aVarName[100] = {0}; char bVarName[100] = {0};
-        if (trieScanVariable(a->terms[i], aVarName, sizeof(aVarName))) {
+        if (trieScanVariable(Jim_GetString(interp, aTerms[i], NULL), aVarName, sizeof(aVarName))) {
             if (aVarName[0] == '.' && aVarName[1] == '.' && aVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName + 3, sizeof(binding->name) - 3);
-                binding->value = termsToJimObj(interp, b->nTerms - i, &b->terms[i]);
+                binding->value = Jim_NewListObj(interp, bTerms + i, bLen - i);
             } else if (!trieVariableNameIsNonCapturing(aVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, aVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, b->terms[i]);
+                binding->value = bTerms[i];
             }
-        } else if (trieScanVariable(b->terms[i], bVarName, sizeof(bVarName))) {
+        } else if (trieScanVariable(Jim_GetString(interp, bTerms[i], NULL), bVarName, sizeof(bVarName))) {
             if (bVarName[0] == '.' && bVarName[1] == '.' && bVarName[2] == '.') {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName + 3, sizeof(binding->name) - 3);
-                binding->value = termsToJimObj(interp, a->nTerms - i, &a->terms[i]);
+                binding->value = Jim_NewListObj(interp, aTerms + i, aLen - i);
             } else if (!trieVariableNameIsNonCapturing(bVarName)) {
                 EnvironmentBinding* binding = &env->bindings[env->nBindings++];
                 memcpy(binding->name, bVarName, sizeof(binding->name));
-                binding->value = cacheGetOrInsert(cache, interp, a->terms[i]);
+                binding->value = aTerms[i];
             }
-        } else if (!(a->terms[i] == b->terms[i] ||
-                     strcmp(a->terms[i], b->terms[i]) == 0)) {
+        } else if (!Jim_StringEqObj(interp, aTerms[i], bTerms[i])) {
             free(env);
             fprintf(stderr, "clauseUnify: Unification of (%s) (%s) failed\n",
-                    clauseToString(a), clauseToString(b));
+                    clauseToString(jimClauseToTrieClause(interp, a)),
+                    clauseToString(jimClauseToTrieClause(interp, b)));
             return NULL;
         }
     }
@@ -203,7 +198,7 @@ Environment* clauseUnify(Jim_Interp* interp, Clause* a, Clause* b) {
 
 // Assert! the time is 3
 static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* clause = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 1, argc - 1);
 
     Jim_Obj* scriptObj = interp->evalFrame->scriptObj;
     const char* sourceFileName;
@@ -215,10 +210,13 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
         sourceLineNumber = -1;
     }
 
+    Jim_MakeImmutable(interp, jimClause);
+    Jim_IncrRefCount(jimClause);
+
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = ASSERT,
        .assert = {
-           .clause = clause,
+           .clause = jimClause,
            .sourceFileName = strdup(sourceFileName),
            .sourceLineNumber = sourceLineNumber,
        }
@@ -228,7 +226,10 @@ static int AssertFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 }
 // Retract! the time is /t/
 static int RetractFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    Clause* pattern = jimObjsToClause(argc - 1, argv + 1);
+    Jim_Obj* pattern = Jim_NewListObj(interp, argv + 1, argc - 1);
+
+    Jim_MakeImmutable(interp, pattern);
+    Jim_IncrRefCount(pattern);
 
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RETRACT,
@@ -243,7 +244,7 @@ static void reactToNewStatement(StatementRef ref);
 int64_t _Atomic latestVersion = 0; // TODO: split by key?
 // Note: returns an acquired statement that the caller should release.
 Statement* HoldStatementGloballyAcquiring(const char *key, double version,
-                                          Clause *clause, long keepMs, const char *destructorCode,
+                                          Jim_Obj *jimClause, long keepMs, const char *destructorCode,
                                           const char *sourceFileName, int sourceLineNumber) {
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(clause); */
@@ -252,8 +253,8 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
 
     StatementRef oldRef; Statement* newStmt;
 
-    newStmt = dbHoldStatement(db, key, version,
-                              clause, keepMs,
+    newStmt = dbHoldStatement(db, interp, key, version,
+                              jimClause, keepMs,
                               sourceFileName, sourceLineNumber,
                               &oldRef);
 
@@ -286,10 +287,10 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
-                           Clause *clause, long keepMs, const char *destructorCode,
+                           Jim_Obj *jimClause, long keepMs, const char *destructorCode,
                            const char *sourceFileName, int sourceLineNumber) {
     Statement* stmt = HoldStatementGloballyAcquiring(key, version,
-                                                     clause, keepMs, destructorCode,
+                                                     jimClause, keepMs, destructorCode,
                                                      sourceFileName, sourceLineNumber);
     if (stmt != NULL) {
         statementRelease(db, stmt);
@@ -300,45 +301,43 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[6]);
+    sourceFileName = Jim_String(interp, argv[6]);
     if (sourceFileName == NULL) { return JIM_ERR; }
     if (Jim_GetLong(interp, argv[7], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
     }
 
-    const char *key = Jim_GetString(argv[1], NULL);
+    const char *key = Jim_String(interp, argv[1]);
     double version; Jim_GetDouble(interp, argv[2], &version);
-    Clause *clause = jimObjToClauseWithCaching(interp, argv[3]);
+    Jim_Obj *jimClause = argv[3];
     long keepMs; Jim_GetLong(interp, argv[4], &keepMs);
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(interp, argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
     HoldStatementGlobally(key, version,
-                          clause, keepMs, destructorCode,
+                          jimClause, keepMs, destructorCode,
                           sourceFileName, sourceLineNumber);
 
     return (JIM_OK);
 }
 
 
-static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
+static StatementRef Say(Jim_Obj* jimClause, long keepMs, const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
     } else {
         parent = MATCH_REF_NULL;
-        char *s = clauseToString(clause);
-        fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
-                s);
-        free(s);
+        const char *s = Jim_String(interp, jimClause);
+        fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n", s);
     }
 
     Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, clause, keepMs,
+    stmt = dbInsertOrReuseStatement(db, interp, jimClause, keepMs,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -369,11 +368,11 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 6);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
+    Jim_Obj* jimClause = Jim_NewListObj(interp, argv + 5, argc - 5);
 
     const char* sourceFileName;
     long sourceLineNumber;
-    sourceFileName = Jim_String(argv[1]);
+    sourceFileName = Jim_String(interp, argv[1]);
     if (sourceFileName == NULL) { return JIM_ERR; }
     if (Jim_GetLong(interp, argv[2], &sourceLineNumber) == JIM_ERR) {
         return JIM_ERR;
@@ -385,12 +384,12 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
     }
 
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(interp, argv[4], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
-    Say(clause, keepMs, destructorCode,
+    Say(jimClause, keepMs, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
@@ -398,14 +397,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     Destructor* d = destructorNew(destructorHelper,
-                                  strdup(Jim_GetString(argv[1], NULL)));
+                                  strdup(Jim_String(interp, argv[1])));
     matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
 }
 static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
 
-    const char *unmatchRefStr = Jim_GetString(argv[1], NULL);
+    const char *unmatchRefStr = Jim_String(interp, argv[1]);
     MatchRef unmatchRef;
     if (sscanf(unmatchRefStr, "m%u:%u", &unmatchRef.idx, &unmatchRef.gen) != 2) {
         return JIM_ERR;
@@ -419,15 +418,23 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-Jim_Obj* QuerySimple(Clause* pattern) {
-    ResultSet* rs = dbQuery(db, pattern);
+Jim_Obj* QuerySimple(Jim_Obj* pattern) {
+    // pattern can be on the temp list, as its child elements
+    // can outlast the temp list being cleared
+    pattern = Jim_DupIfImmutAndWrongRep(interp, pattern, Jim_ListType(), JIM_TEMP_LIST);
+    // make sure it has a list rep
+    Jim_ListLength(interp, pattern);
+
+    Clause* tempClause = jimClauseToTrieClause(interp, pattern);
+    ResultSet* rs = dbQuery(db, tempClause);
+    clauseFree(tempClause);
 
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
 
-        Environment* env = clauseUnify(interp, pattern, statementClause(result));
+        Environment* env = clauseUnify(pattern, statementJimClause(result));
         assert(env != NULL);
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
@@ -437,11 +444,11 @@ Jim_Obj* QuerySimple(Clause* pattern) {
             envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
             envDict[(j+1)*2+1] = env->bindings[j].value;
         }
-        statementRelease(db, result);
 
         Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         Jim_ListAppendElement(interp, ret, resultObj);
 
+        statementRelease(db, result);
         free(env);
     }
 
@@ -452,15 +459,14 @@ Jim_Obj* QuerySimple(Clause* pattern) {
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
-    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-/* #ifdef TRACY_ENABLE */
-/*     char *s = clauseToString(pattern); */
-/*     TracyCMessageFmt("query: %.200s", s); free(s); */
-/* #endif */
+    Jim_Obj* pattern = Jim_NewListObj(interp, argv + 1, argc - 1);
+#ifdef TRACY_ENABLE
+    TracyCMessageFmt("query: %.200s", Jim_String(interp, pattern));
+#endif
 
     Jim_Obj *retObj = QuerySimple(pattern);
-    clauseFree(pattern);
-    
+    Jim_FreeNewObj(pattern);
+
     Jim_SetResult(interp, retObj);
     return JIM_OK;
 }
@@ -469,7 +475,7 @@ static int StatementAcquireFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     if (statementAcquire(db, ref) == NULL) {
         Jim_SetResultString(interp, "Unable to acquire statement.", -1);
@@ -481,7 +487,7 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     assert(argc == 2);
 
     StatementRef ref;
-    assert(sscanf(Jim_String(argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
+    assert(sscanf(Jim_String(interp, argv[1]), "s%d:%d", &ref.idx, &ref.gen) == 2);
 
     statementRelease(db, statementUnsafeGet(db, ref));
     return JIM_OK;
@@ -490,7 +496,7 @@ static int StatementReleaseFunc(Jim_Interp *interp, int argc, Jim_Obj *const *ar
 static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     char varName[100];
-    if (trieScanVariable(Jim_String(argv[1]), varName, 100)) {
+    if (trieScanVariable(Jim_String(interp, argv[1]), varName, 100)) {
         Jim_SetResultString(interp, varName, strlen(varName));
     } else {
         Jim_SetResultBool(interp, false);
@@ -499,12 +505,12 @@ static int __scanVariableFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv
 }
 static int __variableNameIsNonCapturingFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(argv[1])));
+    Jim_SetResultBool(interp, trieVariableNameIsNonCapturing(Jim_String(interp, argv[1])));
     return JIM_OK;
 }
 static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
-    Jim_SetResultBool(interp, Jim_String(argv[1])[0] == '$');
+    Jim_SetResultBool(interp, Jim_String(interp, argv[1])[0] == '$');
     return JIM_OK;
 }
 static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -582,9 +588,17 @@ static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+void initSysmonInterp() {
+    interp = Jim_CreateInterp();
+}
+
+void rewindSysmonInterp() {
+    Jim_RewindTempList(interp);
+}
+
 static void interpBoot() {
     interp = Jim_CreateInterp();
-    cache = cacheNew(interp);
+    cache = cacheNew();
     Jim_RegisterCoreCommands(interp);
     Jim_InitStaticExtensions(interp);
 
@@ -612,7 +626,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "prelude: %s\n", Jim_String(interp, Jim_GetResult(interp)));
         exit(1);
     }
 }
@@ -622,7 +636,7 @@ void eval(const char* code) {
     int error = Jim_Eval(interp, code);
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_GetString(Jim_GetResult(interp), NULL));
+        fprintf(stderr, "eval: (%s) -> (%s)\n", code, Jim_String(interp, Jim_GetResult(interp)));
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
     }
@@ -634,7 +648,7 @@ void eval(const char* code) {
 
 void workerExit();
 
-static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
     // is {}.
@@ -656,20 +670,29 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     // Now when is definitely non-null and stmt is non-null if
     // applicable.
 
-    Clause* whenClause = statementClause(when);
-    Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
+    Jim_Obj* whenClause = statementJimClause(when);
+    Jim_Obj* stmtClause = stmt == NULL ? whenPattern : statementJimClause(stmt);
 
-    assert(whenClause->nTerms >= 5);
+    assert(Jim_IsList(whenClause));
+    assert(Jim_ListLength(interp, whenClause) >= 5);
+
+    Jim_Obj** whenClauseTerms = whenClause->internalRep.listValue.ele;
+    size_t whenClauseLen = whenClause->internalRep.listValue.len;
 
     // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const char* body = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+    Jim_Obj* bodyObj = Jim_DuplicateObj(interp, whenClauseTerms[whenClauseLen - 4], JIM_LIVE_LIST);
+    Jim_Obj* capturedEnvStack = whenClauseTerms[whenClauseLen - 1];
+    Jim_Obj* newEnvStack = Jim_NewListObj(interp, NULL, 0);
 
-    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
     const char *ptr;
     if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
+        // apparently Jim_SetSourceInfo is happy to not check whether the object 
+        // has a usable string before setting it to a source value
+        Jim_String(interp, bodyObj);
+
+        assert(!Jim_IsShared(bodyObj));
+
         // HACK: We only set the source info if it's not already
         // there, because setting the source info destroys the
         // internal script representation and forces the code to be
@@ -679,26 +702,34 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                           statementSourceLineNumber(when));
     }
 
+    Jim_IncrRefCount(stmtClause);
+    Jim_IncrRefCount(bodyObj);
+    Jim_IncrRefCount(capturedEnvStack);
+    Jim_IncrRefCount(newEnvStack);
+    // whenPattern was already incremented when pushing it
+
     {
         // Figure out all the bound match variables by unifying when &
         // stmt:
-        Environment* env = clauseUnify(interp, whenPattern, stmtClause);
+        Environment* env = clauseUnify(whenPattern, stmtClause);
         assert(env != NULL);
 
         if (env->nBindings > 50) {
             fprintf(stderr, "runWhenBlock: Too many bindings in env: %d\n",
                     env->nBindings);
-            return;
+            goto jimObjDecr;
         }
-        
-        Jim_Obj *objs[env->nBindings*2];
+
+        Jim_Obj* objs[env->nBindings*2];
         for (int i = 0; i < env->nBindings; i++) {
             objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
             objs[i*2 + 1] = env->bindings[i].value;
         }
 
-        Jim_Obj *boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
-        Jim_ListAppendElement(interp, envStackObj, boundEnvObj);
+        Jim_Obj* boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
+
+        Jim_ListAppendList(interp, newEnvStack, capturedEnvStack);
+        Jim_ListAppendElement(interp, newEnvStack, boundEnvObj);
 
         free(env);
     }
@@ -712,14 +743,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
-        Jim_DecrRefCount(interp, envStackObj);
-        Jim_DecrRefCount(interp, bodyObj);
-
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
         }
-        return;
+        goto jimObjDecr;
     }
 
     // Rule: you should never be holding a lock while doing a Tcl
@@ -743,7 +771,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
             // TODO: pool this string?
             Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
             bodyObj,
-            envStackObj
+            newEnvStack
         };
         error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
 
@@ -758,9 +786,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        const char *errorMessage = Jim_GetString(interp, Jim_GetResult(interp), NULL);
         fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                body, errorMessage);
+                Jim_String(interp, bodyObj), errorMessage);
         Jim_FreeInterp(interp);
         exit(EXIT_FAILURE);
 
@@ -774,68 +802,103 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     matchCompleted(self->currentMatch);
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
+
+jimObjDecr:
+    Jim_DecrRefCount(whenPattern);
+    Jim_DecrRefCount(stmtClause);
+    Jim_DecrRefCount(bodyObj);
+    Jim_DecrRefCount(capturedEnvStack);
+    Jim_DecrRefCount(newEnvStack);
 }
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
-static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
+static void pushRunWhenBlock(StatementRef when, Jim_Obj* whenPattern, StatementRef stmt) {
+    // make sure whenPattern is immutable, as it's about to become shared
+    Jim_MakeImmutable(interp, whenPattern);
+    Jim_IncrRefCount(whenPattern);
+
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN,
-       .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
+       .run = { .when = when, .whenPattern = whenPattern, .stmt = stmt }
     });
 }
 
 // Prepends `/someone/ claims` to `clause`. Returns NULL if `clause`
-// shouldn't be claimized. Returns a new heap-allocated Clause* that
-// must be freed by the caller.
-Clause* claimizeClause(Clause* clause) {
-    if (clause->nTerms >= 2 &&
-        (strcmp(clause->terms[1], "claims") == 0 ||
-         strcmp(clause->terms[1], "wishes") == 0)) {
+// shouldn't be claimized. Returns new Jim_Obj with refCount = 0
+Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(jimClause));
+    int nTerms = Jim_ListLength(interp, jimClause);
+
+    const char* firstTerm = Jim_String(interp, Jim_ListGetIndex(interp, jimClause, 1));
+    if (nTerms >= 2 &&
+        (strcmp(firstTerm, "claims") == 0 ||
+         strcmp(firstTerm, "wishes") == 0)) {
         return NULL;
     }
 
     // the time is /t/ -> /someone/ claims the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(2 + clause->nTerms));
-    ret->nTerms = 2 + clause->nTerms;
-    ret->terms[0] = "/someone/"; ret->terms[1] = "claims";
-    for (int i = 0; i < clause->nTerms; i++) {
-        ret->terms[2 + i] = clause->terms[i];
+    jimAppendString(interp, ret, "/someone/");
+    jimAppendString(interp, ret, "claims");
+
+    for (int i = 0; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
     }
+
     return ret;
 }
-static Clause* unclaimizeClause(Clause* clause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* unclaimizeClause(Jim_Obj* jimClause) {
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(jimClause));
+    size_t nTerms = Jim_ListLength(interp, jimClause);
+
     // Omar claims the time is 3
     //   -> the time is 3
-    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms - 2));
-    ret->nTerms = 0;
-    for (int i = 2; i < clause->nTerms; i++) {
-        ret->terms[ret->nTerms++] = clause->terms[i];
+    for (size_t i = 2; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
     }
+
     return ret;
 }
-static Clause* whenizeClause(Clause* clause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* whenizeClause(Jim_Obj* jimClause) {
     // the time is /t/
     //   -> when the time is /t/ /__lambda/ with environment /__env/
-    Clause* ret = malloc(SIZEOF_CLAUSE(clause->nTerms + 5));
-    ret->nTerms = clause->nTerms + 5;
-    ret->terms[0] = "when";
-    for (int i = 0; i < clause->nTerms; i++) {
-        ret->terms[1 + i] = clause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(jimClause));
+    size_t nTerms = Jim_ListLength(interp, jimClause);
+
+    jimAppendString(interp, ret, "when");
+    for (int i = 0; i < nTerms; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
     }
-    ret->terms[1 + clause->nTerms] = "/__lambda/";
-    ret->terms[2 + clause->nTerms] = "with";
-    ret->terms[3 + clause->nTerms] = "environment";
-    ret->terms[4 + clause->nTerms] = "/__env/";
+    jimAppendString(interp, ret, "/__lambda/");
+    jimAppendString(interp, ret, "with");
+    jimAppendString(interp, ret, "environment");
+    jimAppendString(interp, ret, "/__env/");
+
     return ret;
 }
-static Clause* unwhenizeClause(Clause* whenClause) {
+
+// Returns new Jim_Obj with refCount = 0
+static Jim_Obj* unwhenizeClause(Jim_Obj* jimClause) {
     // when the time is /t/ /lambda/ with environment /env/
     //   -> the time is /t/
-    Clause* ret = malloc(SIZEOF_CLAUSE(whenClause->nTerms - 5));
-    ret->nTerms = 0;
-    for (int i = 1; i < whenClause->nTerms - 4; i++) {
-        ret->terms[ret->nTerms++] = whenClause->terms[i];
+    Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
+
+    assert(Jim_IsList(jimClause));
+    size_t nTerms = Jim_ListLength(interp, jimClause);
+
+    for (int i = 1; i < nTerms - 4; i++) {
+        Jim_ListAppendElement(interp, ret, Jim_ListGetIndex(interp, jimClause, i));
     }
+
     return ret;
 }
 
@@ -846,43 +909,57 @@ static void reactToNewStatement(StatementRef ref) {
     // This is just to ensure clause validity.
     Statement* stmt = statementAcquire(db, ref);
     if (stmt == NULL) { return; }
+    Jim_Obj* jimClause = statementJimClause(stmt);
+    assert(jimClause != NULL);
 
-    Clause* clause = statementClause(stmt);
-    assert(clause != NULL);
-
-    if (strcmp(clause->terms[0], "when") == 0) {
+    Jim_Obj* firstTerm = Jim_ListGetIndex(interp, jimClause, 0);
+    if (firstTerm != NULL && strcmp(Jim_String(interp, firstTerm), "when") == 0) {
         // Find the query pattern of the when:
-        Clause* pattern = unwhenizeClause(clause);
-        if (pattern->nTerms == 0) {
-            // Empty pattern: When { ... }
-            pushRunWhenBlock(ref, pattern, STATEMENT_REF_NULL);
-            free(pattern);
+        Jim_Obj* pattern = unwhenizeClause(jimClause);
+        Jim_IncrRefCount(pattern);
 
+        if (Jim_ListLength(interp, pattern) == 0) {
+            // Empty pattern: When { ... }
+            pushRunWhenBlock(
+                ref,
+                pattern,
+                STATEMENT_REF_NULL
+            );
         } else {
             // Scan the existing statement set for any
             // already-existing matching statements.
-            ResultSet* existingMatchingStatements = dbQuery(db, pattern);
+            Clause* triePattern = jimClauseToTrieClause(interp, pattern);
+            ResultSet* existingMatchingStatements = dbQuery(db, triePattern);
             for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                pushRunWhenBlock(ref, pattern,
-                                 existingMatchingStatements->results[i]);
+                pushRunWhenBlock(
+                    ref,
+                    pattern,
+                    existingMatchingStatements->results[i]
+                );
             }
             free(existingMatchingStatements);
+            clauseFree(triePattern);
 
-            Clause* claimizedPattern = claimizeClause(pattern);
+            Jim_Obj* claimizedPattern = claimizeClause(pattern);
             if (claimizedPattern) {
-                existingMatchingStatements = dbQuery(db, claimizedPattern);
+                Jim_IncrRefCount(claimizedPattern);
+
+                Clause* claimizedTriePattern = jimClauseToTrieClause(interp, claimizedPattern);
+                existingMatchingStatements = dbQuery(db, claimizedTriePattern);
                 for (int i = 0; i < existingMatchingStatements->nResults; i++) {
-                    pushRunWhenBlock(ref, claimizedPattern,
-                                     existingMatchingStatements->results[i]);
+                    pushRunWhenBlock(
+                        ref,
+                        claimizedPattern,
+                        existingMatchingStatements->results[i]
+                    );
                 }
                 free(existingMatchingStatements);
+                clauseFree(claimizedTriePattern);
+                Jim_DecrRefCount(claimizedPattern);
             }
-
-            // pattern and claimizedPattern don't allocate any new terms,
-            // so just free the clause structs themselves.
-            free(pattern);
-            free(claimizedPattern);
         }
+
+        Jim_DecrRefCount(pattern);
     }
 
     // Add to DB <Claim Omar is a person>
@@ -902,15 +979,15 @@ static void reactToNewStatement(StatementRef ref) {
     // Solution? Some kind of lookaside buffer with a list of patterns
     // that are being contended over? Some kind of locks? Reversible
     // transactions? Like is this whole thing a transaction.
-    
+
     // Trigger any already-existing reactions to the addition of this
     // statement (look for Whens that are already in the database).
     {
         // the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Clause* whenizedClause = whenizeClause(clause);
-
-        ResultSet* existingReactingWhens = dbQuery(db, whenizedClause);
+        Jim_Obj* whenizedJimClause = whenizeClause(jimClause);
+        Clause* whenizedTrieClause = jimClauseToTrieClause(interp, whenizedJimClause);
+        ResultSet* existingReactingWhens = dbQuery(db, whenizedTrieClause);
         /* trace("Adding stmt: existing reacting whens (%d)", */
         /*       existingReactingWhens->nResults); */
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
@@ -919,28 +996,37 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Clause* whenPattern = unwhenizeClause(statementClause(when));
+                Jim_Obj* whenPattern = unwhenizeClause(statementJimClause(when));
                 statementRelease(db, when);
 
-                pushRunWhenBlock(whenRef, whenPattern, ref);
-                free(whenPattern); // doesn't own any terms.
+                pushRunWhenBlock(
+                    whenRef,
+                    whenPattern,
+                    ref
+                );
             }
         }
         free(existingReactingWhens);
 
-        free(whenizedClause); // doesn't own any terms.
+        Jim_FreeNewObj(whenizedJimClause);
+        clauseFree(whenizedTrieClause);
     }
-    if (clause->nTerms >= 2 && strcmp(clause->terms[1], "claims") == 0) {
+
+    Jim_Obj* secondTerm = Jim_ListGetIndex(interp, jimClause, 1);
+    if (secondTerm != NULL && strcmp(Jim_String(interp, secondTerm), "claims") == 0) {
         // Cut off `/x/ claims` from start of clause:
         //
         // /x/ claims the time is 3
         //   -> when the time is 3 /__lambda/ with environment /__env/
-        Clause* unclaimizedClause = unclaimizeClause(clause);
-        Clause* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
+        Jim_Obj* unclaimizedClause = unclaimizeClause(jimClause);
+        Jim_Obj* whenizedUnclaimizedClause = whenizeClause(unclaimizedClause);
+        Clause* whenizedUnclaimizedTrieClause =
+            jimClauseToTrieClause(interp, whenizedUnclaimizedClause);
 
-        ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedClause);
-        free(unclaimizedClause);
-        free(whenizedUnclaimizedClause);
+        ResultSet* existingReactingWhens = dbQuery(db, whenizedUnclaimizedTrieClause);
+        Jim_FreeNewObj(unclaimizedClause);
+        Jim_FreeNewObj(whenizedUnclaimizedClause);
+        clauseFree(whenizedUnclaimizedTrieClause);
 
         for (int i = 0; i < existingReactingWhens->nResults; i++) {
             StatementRef whenRef = existingReactingWhens->results[i];
@@ -948,17 +1034,23 @@ static void reactToNewStatement(StatementRef ref) {
             //   -> /someone/ claims the time is /t/
             Statement* when = statementAcquire(db, whenRef);
             if (when) {
-                Clause* unwhenizedWhenPattern = unwhenizeClause(statementClause(when));
-                Clause* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
+                Jim_Obj* unwhenizedWhenPattern = unwhenizeClause(statementJimClause(when));
+                Jim_Obj* claimizedUnwhenizedWhenPattern = claimizeClause(unwhenizedWhenPattern);
                 statementRelease(db, when);
 
-                pushRunWhenBlock(whenRef, claimizedUnwhenizedWhenPattern, ref);
-                free(unwhenizedWhenPattern);
-                free(claimizedUnwhenizedWhenPattern);
+                pushRunWhenBlock(
+                    whenRef,
+                    // takes ownership
+                    claimizedUnwhenizedWhenPattern,
+                    ref
+                );
+
+                Jim_FreeNewObj(unwhenizedWhenPattern);
             }
         }
         free(existingReactingWhens);
     }
+
     statementRelease(db, stmt);
 }
 
@@ -989,7 +1081,7 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         Statement* stmt;
-        stmt = dbInsertOrReuseStatement(db, item.assert.clause, 0,
+        stmt = dbInsertOrReuseStatement(db, interp, item.assert.clause, 0,
                                         item.assert.sourceFileName,
                                        item.assert.sourceLineNumber,
                                         MATCH_REF_NULL, NULL);
@@ -999,20 +1091,24 @@ void workerRun(WorkQueueItem item) {
 
             reactToNewStatement(ref);
         }
+
+        // incremented when pushed to the queue
+        Jim_DecrRefCount(item.assert.clause);
         free(item.assert.sourceFileName);
 
     } else if (item.op == RETRACT) {
         /* printf("Retract (%s)\n", clauseToString(item.retract.pattern)); */
+        Clause *triePattern = jimClauseToTrieClause(interp, item.retract.pattern);
+        dbRetractStatements(db, triePattern);
 
-        dbRetractStatements(db, item.retract.pattern);
-        clauseFree(item.retract.pattern);
+        // incremented when pushed to the queue
+        Jim_DecrRefCount(item.retract.pattern);
+        clauseFree(triePattern);
 
     } else if (item.op == RUN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
         runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
-        clauseFree(item.run.whenPattern);
-
     } else if (item.op == EVAL) {
         // Used for destructors.
         char* code = item.eval.code;
@@ -1020,7 +1116,7 @@ void workerRun(WorkQueueItem item) {
         if (error == JIM_ERR) {
             Jim_MakeErrorMessage(interp);
             fprintf(stderr, "destructorHelper: (%s) -> (%s)\n",
-                    code, Jim_String(Jim_GetResult(interp)));
+                    code, Jim_String(interp, Jim_GetResult(interp)));
         }
         free(code);
 
@@ -1061,20 +1157,23 @@ void workerRun(WorkQueueItem item) {
 
 extern Statement* statementUnsafeGet(Db* db, StatementRef ref);
 void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
-    int threadIndex = self->index;
     if (item.op == ASSERT) {
-        snprintf(buf, bufsz, "Assert (%.100s)",
-                 clauseToString(item.assert.clause));
+        Clause* trieClause = jimClauseToTrieClause(interp, item.assert.clause);
+        snprintf(buf, bufsz, "Assert (%.100s)", clauseToString(trieClause));
+        clauseFree(trieClause);
     } else if (item.op == RETRACT) {
-        snprintf(buf, bufsz, "Retract (%.100s)",
-                 clauseToString(item.retract.pattern));
+        Clause* triePattern = jimClauseToTrieClause(interp, item.retract.pattern);
+        snprintf(buf, bufsz, "Retract (%.100s)", clauseToString(triePattern));
+        clauseFree(triePattern);
     } else if (item.op == RUN) {
         Statement* when = statementUnsafeGet(db, item.run.when);
         Statement* stmt = statementUnsafeGet(db, item.run.stmt);
+        Clause* trieWhenPattern = jimClauseToTrieClause(interp, item.run.whenPattern);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
-                 when != NULL ? clauseToString(statementClause(when)) : "NULL",
-                 clauseToString(item.run.whenPattern),
-                 stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+                 when != NULL ? Jim_String(interp, statementJimClause(when)) : "NULL",
+                 clauseToString(trieWhenPattern),
+                 stmt != NULL ? Jim_String(interp, statementJimClause(stmt)) : "NULL");
+        clauseFree(trieWhenPattern);
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
@@ -1110,6 +1209,10 @@ void workerLoop() {
             // run.
             workerExit();
         }
+
+        // no one is using the interp at this moment, so we can
+        // rewind the temp list
+        Jim_RewindTempList(interp);
 
         WorkQueueItem item = { .op = NONE };
         if (schedtick % 61 == 0) {

@@ -60,7 +60,7 @@ When /keyboard/ is a keyboard device {
     $cc proc getFileno {Jim_Interp* interp Jim_Obj* channel} int {
         int fd = Jim_AioFilehandle(interp, channel);
         if (fd < 0) {
-            printf("unable to open channel '%s' as file\n'", Jim_String(channel));
+            printf("unable to open channel '%s' as file\n'", Jim_String(interp, channel));
             return -1;
         }
         return fd;

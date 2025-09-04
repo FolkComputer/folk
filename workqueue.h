@@ -14,19 +14,19 @@ typedef struct WorkQueueItem {
     // the Clause* you give it.
     union {
         struct {
-            Clause* clause;
+            Jim_Obj* clause;
             // Caller is also responsible for freeing sourceFileName
             // on dequeue.
             char* sourceFileName;
             int sourceLineNumber;
         } assert;
-        struct { Clause* pattern; } retract;
+        struct { Jim_Obj* pattern; } retract;
         struct {
             // The StatementRefs may be invalidated while this Run is
             // still in the workqueue -- if either is invalidated,
             // then the Run is invalidated.
             StatementRef when;
-            Clause* whenPattern;
+            Jim_Obj* whenPattern;
             StatementRef stmt;
         } run;
         struct {

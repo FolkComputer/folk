@@ -16,7 +16,7 @@ static unsigned int cacheGenHashFunction(const unsigned char *string, int length
     }
     return result;
 }
-static unsigned int cacheHTHashFunction(const void *key) {
+static unsigned int cacheHTHashFunction(void *privdata, const void *key) {
     return cacheGenHashFunction(key, strlen(key));
 }
 static void *cacheHTKeyDup(void *privdata, const void *key) {
@@ -33,7 +33,7 @@ static void cacheHTKeyDestructor(void *privdata, void *key) {
     free(key);
 }
 static void cacheHTValDestructor(void *privdata, void *val) {
-    Jim_DecrRefCount((Jim_Interp *)privdata, (Jim_Obj *)val);
+    Jim_DecrRefCount((Jim_Obj *)val);
 }
 
 static const Jim_HashTableType cacheHashTableType = {
@@ -51,20 +51,20 @@ typedef struct Cache {
     int size;
 } Cache;
 
-Cache* cacheNew(Jim_Interp* interp) {
+Cache* cacheNew() {
     Cache* cache = malloc(sizeof(Cache));
-    Jim_InitHashTable(&cache->oldTable, &cacheHashTableType, interp);
-    Jim_InitHashTable(&cache->newTable, &cacheHashTableType, interp);
+    Jim_InitHashTable(&cache->oldTable, &cacheHashTableType);
+    Jim_InitHashTable(&cache->newTable, &cacheHashTableType);
     return cache;
 }
 
 #define CACHE_MAX 2048
 static void cacheTryEvict(Cache* cache, Jim_Interp* interp) {
     if (cache->size > CACHE_MAX) {
-        Jim_FreeHashTable(&cache->oldTable);
+        Jim_FreeHashTable(&cache->oldTable, interp);
         memcpy(&cache->oldTable, &cache->newTable, sizeof(Jim_HashTable));
         cache->size = 0;
-        Jim_InitHashTable(&cache->newTable, &cacheHashTableType, interp);
+        Jim_InitHashTable(&cache->newTable, &cacheHashTableType);
     }
 }
 

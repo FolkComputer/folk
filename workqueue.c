@@ -3,6 +3,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+#ifdef __SANITIZE_THREAD__
+#include <sanitizer/tsan_interface.h>
+#endif
+
 #include "workqueue.h"
 
 // https://fzn.fr/readings/ppopp13.pdf
@@ -36,6 +40,9 @@ WorkQueue* workQueueNew() {
     atomic_store_explicit(&q->top, 0, memory_order_relaxed);
     atomic_store_explicit(&q->bottom, 0, memory_order_relaxed);
     atomic_store_explicit(&a->size, 2, memory_order_relaxed);
+#ifdef __SANITIZE_THREAD__
+    __tsan_release(q);
+#endif
     return q;
 }
 
@@ -44,6 +51,9 @@ WorkQueueItem workQueueTake(WorkQueue* q) {
     WorkQueueArray* a = (WorkQueueArray*) atomic_load_explicit(&q->array, memory_order_relaxed);
     atomic_store_explicit(&q->bottom, b - 1, memory_order_relaxed);
     atomic_thread_fence(memory_order_seq_cst);
+#ifdef __SANITIZE_THREAD__
+    __tsan_acquire(q);
+#endif
     size_t t = atomic_load_explicit(&q->top, memory_order_relaxed);
     WorkQueueItem* x;
     ssize_t size = b - t;
@@ -90,6 +100,10 @@ static void workQueueResize(WorkQueue* q) {
                               memory_order_relaxed);
     }
     atomic_store_explicit(&q->array, new_a, memory_order_release);
+#ifdef __SANITIZE_THREAD__
+    __tsan_release(q);
+#endif
+    free(a);
     /* printf("resize\n"); */
 }
 
@@ -110,12 +124,18 @@ void workQueuePush(WorkQueue* q, WorkQueueItem item) {
     atomic_store_explicit(&a->buffer[b % atomic_load_explicit(&a->size, memory_order_relaxed)],
                           x, memory_order_relaxed);
     atomic_thread_fence(memory_order_release);
+#ifdef __SANITIZE_THREAD__
+    __tsan_release(q);
+#endif
     atomic_store_explicit(&q->bottom, b + 1, memory_order_relaxed);
 }
 
 WorkQueueItem workQueueSteal(WorkQueue* q) {
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
     atomic_thread_fence(memory_order_seq_cst);
+#ifdef __SANITIZE_THREAD__
+    __tsan_acquire(q);
+#endif
     size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
     ssize_t size = b - t;
     WorkQueueItem* x = NULL;
@@ -157,6 +177,9 @@ int unsafe_workQueueCopy(WorkQueueItem* into, int maxn,
 ssize_t unsafe_workQueueSize(WorkQueue* q) {
     size_t t = atomic_load_explicit(&q->top, memory_order_acquire);
     atomic_thread_fence(memory_order_seq_cst);
+#ifdef __SANITIZE_THREAD__
+    __tsan_acquire(q);
+#endif
     size_t b = atomic_load_explicit(&q->bottom, memory_order_acquire);
     ssize_t size = b - t;
     return size;

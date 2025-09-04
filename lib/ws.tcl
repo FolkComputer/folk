@@ -65,7 +65,7 @@ $cc code {
                                   1, &msgObj) == JIM_ERR) {
                 Jim_MakeErrorMessage(interp);
                 fprintf(stderr, "ws.tcl: on_msg_recv_callback: Error: (%s)\n",
-                        Jim_GetString(Jim_GetResult(interp), NULL));
+                        Jim_GetString(interp, Jim_GetResult(interp), NULL));
             }
         }
     }
