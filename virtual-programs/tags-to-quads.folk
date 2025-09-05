@@ -355,7 +355,14 @@ When the quad library is /quadLib/ &\
     } }
 
     fn quadChange {q targetSpace} {
+        package require linalg
+        namespace import \
+            ::math::linearalgebra::add \
+            ::math::linearalgebra::matmul
+
         set sourceSpace [$quadLib space $q]
+        if {$sourceSpace eq $targetSpace} { return $q }
+
         set changer [dict get $changers $sourceSpace $targetSpace]
         $quadLib create $targetSpace [lmap v [$quadLib vertices $q] {
             {*}$changer $v
@@ -368,9 +375,7 @@ When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
     Claim the changer from space $camera to space "display $display" is \
         [list apply [list {R t v} {
             add [matmul $R $v] $t
-        } $spaceLib] \
-             [dict get $extrinsics R] \
-             [dict get $extrinsics t]]
+        }] [dict get $extrinsics R] [dict get $extrinsics t]]
 }
 set quadLib [library create quadLib {} {
     package require linalg
@@ -568,6 +573,11 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
     When tag /tag/ has detection /det/ on camera $camera at timestamp /timestamp/ &\
          /tag/ has resolved geometry /geom/ {
+
+        package require linalg
+        namespace import \
+            ::math::linearalgebra::add \
+            ::math::linearalgebra::matmul
 
         set tagSize [dict get $geom tagSize]
 
