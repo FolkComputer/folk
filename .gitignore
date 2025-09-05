@@ -3,3 +3,5 @@ folk.pid
 *.o
 folk.dSYM
 CFLAGS
+.DS_Store
+play

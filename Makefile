@@ -94,9 +94,12 @@ kill-folk:
 FOLK_REMOTE_NODE ?= folk-live
 
 sync:
-	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
-		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
-		. $(FOLK_REMOTE_NODE):~/folk2
+	git ls-files --exclude-standard -oi --directory >.git/ignores.tmp
+	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
+		--archive --delete \
+		--exclude='/.git' \
+		--exclude-from='.git/ignores.tmp' \
+		./ $(FOLK_REMOTE_NODE):~/folk2/
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
