@@ -10,11 +10,13 @@ When when /rect/ points /direction/ at /someone/ /lambda/ with environment /e/ {
 
 When the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /someone/ wishes /rect/ points /direction/ with length /l/ &\
      /rect/ has quad /quad/ {
 
+    fn quadChange
     set scale $l
 
     if {$direction eq "up"} {
@@ -43,7 +45,7 @@ When the quad library is /quadLib/ &\
     # that.
 
     # Downproject the whisker to screen-space.
-    lassign [lmap v [$quadLib vertices [$quadLib change $whiskerQuad "display $disp"]] {
+    lassign [lmap v [$quadLib vertices [quadChange $whiskerQuad "display $disp"]] {
         $poseLib project $displayIntrinsics \
             $displayWidth $displayHeight $v
     }] a b c d
@@ -60,7 +62,7 @@ When the quad library is /quadLib/ &\
     When /target/ has quad /q2/ {
         if {$target eq $rect} { return }
 
-        set displayVertices [lmap v [$quadLib vertices [$quadLib change $q2 "display $disp"]] {
+        set displayVertices [lmap v [$quadLib vertices [quadChange $q2 "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v
         }]

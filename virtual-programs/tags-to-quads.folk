@@ -346,36 +346,24 @@ Claim the pose library is $poseLib
 # All spaces are in meters. To transform a point from one space to another, it will execute
 # a partially evaluated function located in `changers` (all implementations currently just
 # translate and rotate)
-set spaceLib [library create {
-    package require linalg
-    namespace import \
-        ::math::linearalgebra::add \
-        ::math::linearalgebra::matmul
+When the quad library is /quadLib/ &\
+     the collected results for [list the changer from space /sourceSpace/ to space /targetSpace/ is /changer/] are /results/ {
 
-    proc changeableTo {targetSpace changer} {
-        list changeableTo $targetSpace $changer
-    }
-    proc change {sourceSpace targetSpace v} {
-        # puts "change ($sourceSpace) -> ($targetSpace) ($v)"
-        if {$sourceSpace eq $targetSpace} {
-            return $v
-        }
-        if {[lindex $sourceSpace 0] eq "changeableTo"} {
-            set changedSpace [lindex $sourceSpace 1]
-            set changer [lindex $sourceSpace 2]
-            set v [{*}$changer $v]
-            return [change $changedSpace $targetSpace $v]
-        }
+    set changers [dict create]
+    foreach result $results { dict with result {
+        dict set changers $sourceSpace $targetSpace $changer
+    } }
 
-        ForEach! /someone/ claims the changer from space $sourceSpace to space $targetSpace is /changer/ {
-            set ret [{*}$changer $v]
-        }
-        if {![info exists ret]} {
-            error "spaceLib change: Don't know how to change $sourceSpace to $targetSpace"
-        }
-        return $ret
+    fn quadChange {q targetSpace} {
+        set sourceSpace [$quadLib space $q]
+        set changer [dict get $changers $sourceSpace $targetSpace]
+        $quadLib create $targetSpace [lmap v [$quadLib vertices $q] {
+            {*}$changer $v
+        }]
     }
-}]
+    Claim the quad changer is [fn quadChange]
+}
+
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
     Claim the changer from space $camera to space "display $display" is \
         [list apply [list {R t v} {
@@ -384,7 +372,7 @@ When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
              [dict get $extrinsics R] \
              [dict get $extrinsics t]]
 }
-set quadLib [library create quadLib {spaceLib} {
+set quadLib [library create quadLib {} {
     package require linalg
     namespace import \
         ::math::linearalgebra::add \
@@ -396,13 +384,6 @@ set quadLib [library create quadLib {spaceLib} {
     proc space {q} { lindex $q 0 }
     proc vertices {q} { lindex $q 1 }
 
-    proc change {q targetSpace} {
-        variable spaceLib
-        set sourceSpace [space $q]
-        create $targetSpace [lmap v [vertices $q] {
-            $spaceLib change $sourceSpace $targetSpace $v
-        }]
-    }
     # Scales about the centroid of the quad, along the x and y axes of
     # the quad. You can scale by a percentage or set a specific length
     # in meters/centimeters/millimeters (which just sets the quad size
@@ -458,8 +439,7 @@ set quadLib [library create quadLib {spaceLib} {
         }]
     }
     proc buffer {q args} {
-        # TODO: this should probably be with respect to the centroid
-        # of the quad?
+        # TODO: derive vectors for the top and left sides, use those.
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
         foreach {direction distance} $args {
             if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
@@ -657,14 +637,6 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         Hold! -key [list tag pose $tag] \
             Claim tag $tag has pose $tagPose at timestamp $timestamp
 
-        # this creates a partially evaluated function that converts tag space (in meters) to its position
-        # and rotation in camera space (also in meters) using the pose info we previously calculated
-        set tagToCameraSpaceChanger [list apply [list {tagPose v} {
-            set R [dict get $tagPose R]; set t [dict get $tagPose t]
-            add [matmul $R $v] $t
-        } $spaceLib] $tagPose]
-        set tagSpace [$spaceLib changeableTo $camera $tagToCameraSpaceChanger]
-
         set r [expr {$tagSize / 2}]
         # Vertex order needs to be clockwise to align with
         # Vulkan. Top-left to bottom-left.
@@ -673,7 +645,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list     $r  [- $r] 0] \
                  [list     $r     $r  0] \
                  [list  [- $r]    $r  0]]
-        set quad [$quadLib create $tagSpace $vertices]
+
+        set R [dict get $tagPose R]; set t [dict get $tagPose t]
+        set vertices [lmap v $vertices {
+            add [matmul $R $v] $t
+        }]
+        set quad [$quadLib create $camera $vertices]
         Claim tag $tag has quad $quad
     }
 }
@@ -690,9 +667,12 @@ When /tag/ has resolved geometry /geom/ &\
     Claim $tag has quad $pageQuad
 }
 
-When display /disp/ has width /displayWidth/ height /displayHeight/ &\
+When the quad changer is /quadChange/ &\
+     display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /tag/ has canvas /writableTextureId/ with /...wiOptions/ {
+
+    fn quadChange
 
     # Composite each quad's canvas onto the screen based on
     # its quad.
@@ -702,7 +682,7 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
         [list 0 0 1]]
 
     When $tag has quad /quad/ {
-        lassign [lmap v [$quadLib vertices [$quadLib change $quad "display $disp"]] {
+        lassign [lmap v [$quadLib vertices [quadChange $quad "display $disp"]] {
             $poseLib project $displayIntrinsics \
                 $displayWidth $displayHeight $v
         }] a b c d

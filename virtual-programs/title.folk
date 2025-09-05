@@ -8,9 +8,12 @@ When /thing/ has quad /quad/ {
 
 When the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
      display /disp/ has width /displayWidth/ height /displayHeight/ &\
      display /disp/ has intrinsics /displayIntrinsics/ &\
      /thing/ has a quad {
+
+    fn quadChange
 
     When the collected results for [list /someone/ wishes $thing is titled /text/] are /results/ {
         set text [join [lmap result $results {dict get $result text}] "\n"]
@@ -20,7 +23,7 @@ When the quad library is /quadLib/ &\
             # HACK: This is just direct working with pixels, like
             # points-at, and it's ugly.
 
-            lassign [$quadLib vertices [$quadLib change $q "display $disp"]] \
+            lassign [$quadLib vertices [quadChange $q "display $disp"]] \
                 topLeft topRight
 
             set dispTopLeft [$poseLib project $displayIntrinsics \
