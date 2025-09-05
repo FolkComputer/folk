@@ -213,7 +213,7 @@ Claim the image library is [apply {{} {
     }
 
     $cc proc subimage {Image im double x double y double subwidth double subheight} Image {
-        uint8_t *subdata = im.data + (int)y*im.width + (int)x*im.components;
+        uint8_t *subdata = im.data + (int)y*im.bytesPerRow + (int)x*im.components;
         return (Image) {
             .width = (uint32_t)subwidth,
             .height = (uint32_t)subheight,

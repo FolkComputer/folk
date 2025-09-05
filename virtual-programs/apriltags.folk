@@ -81,9 +81,9 @@ When /nobody/ wishes to calibrate &\
     set aprilTime [time {
         set tags [$entireFrameDetector detect $frame]
     }]
-    HoldStatement! [list $this entire-frame] \
-        [list $this claims [list $this entire-frame] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this entire-frame] \
+        Claim [list $this entire-frame] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }
@@ -102,6 +102,13 @@ When /nobody/ wishes to calibrate &\
     # camera frame.
     set dets [dict create]
     ForEach! tag /id/ has detection /det/ on camera $camera at timestamp /timestamp/ {
+        # HACK: Setting aside this tag space (48600 to 48713) for
+        # calibration. We exclude them from incremental detection so
+        # it doesn't get hugely slow if you happen to leave a
+        # calibration board out. (but this carve-out feels like it
+        # weirdly cuts across an abstraction level)
+        if {$id >= 48600} { continue }
+
         if {([dict exists $dets $id] && [dict get $dets $id timestamp] < $timestamp) ||
             ![dict exists $dets $id]} {
 
@@ -141,9 +148,9 @@ When /nobody/ wishes to calibrate &\
         }]]
     }
 
-    HoldStatement! [list $this incremental] \
-        [list $this claims [list $this incremental] detects tags $tags on camera $camera \
-             at timestamp $frameTs in time $aprilTime]
+    Hold! -key [list $this incremental] \
+        Claim [list $this incremental] detects tags $tags on camera $camera \
+        at timestamp $frameTs in time $aprilTime
 
     tracy zoneEnd
 }

@@ -228,6 +228,7 @@ $gpuc code [csubst {
 }]
 
 defineVulkanHandleType $gpuc VkCommandBuffer
+defineVulkanHandleType $gpuc VkFence
 $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
@@ -239,7 +240,7 @@ $gpuc proc beginSingleTimeCommands {} VkCommandBuffer {
 
     return commandBuffer;
 }
-$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
+$gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} void {
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo = {0};
@@ -248,15 +249,30 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer} void {
     submitInfo.pCommandBuffers = &commandBuffer;
 
     pthread_mutex_lock(graphicsQueueMutex_ptr());
-    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(*graphicsQueue_ptr());
+    vkQueueSubmit(*graphicsQueue_ptr(), 1, &submitInfo, fence);
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
+
+$gpuc code [csubst {
+    static __thread VkFence _fence = VK_NULL_HANDLE;
+    static VkFence getFence() {
+        if (_fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo = {0};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+        } else {
+            vkResetFences(device, 1, &_fence);
+        }
+        return _fence;
+    }
+}]
 
 $gpuc typedef int VkFormat false
 $gpuc typedef int VkImageLayout false
 $gpuc proc transitionImageLayout {VkImage image VkFormat format
                                   VkImageLayout oldLayout VkImageLayout newLayout} void {
+    VkFence fence = getFence();
+
     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
     VkImageMemoryBarrier barrier = {0};
@@ -302,20 +318,31 @@ $gpuc proc transitionImageLayout {VkImage image VkFormat format
                          0, NULL,
                          1, &barrier);
 
-    endSingleTimeCommands(commandBuffer);
+    endSingleTimeCommands(commandBuffer, fence);
+    // HACK: this wait is so that the commandBuffer is usable afterward.
+    vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 }
 
-# Allocates(!) a copy of `im` with 4 channels, on the Tcl
-# local heap. Up to the caller to free it.
-$gpuc proc copyImageToRgba {Image im} Image {
-    if (im.components == 4) return im;
-    if (im.components != 1 && im.components != 3) exit(2);
+# Copy 1-channel, 3-channel, or 4-channel im to 4-channel ret.
+$gpuc proc copyImageToRgba {Image im Image ret} void {
+    FOLK_ENSURE(im.width == ret.width && im.height == ret.height);
 
-    Image ret = im;
-    ret.components = 4;
-    ret.bytesPerRow = ret.width * ret.components;
-    ret.data = malloc(ret.bytesPerRow * ret.height);
+    if (im.components == 4) {
+        if (ret.bytesPerRow == im.bytesPerRow) {
+            // Optimized bulk copy when row stride matches
+            memcpy(ret.data, im.data, ret.bytesPerRow * ret.height);
+        } else {
+            // Row-by-row copy when stride differs
+            for (int y = 0; y < im.height; y++) {
+                memcpy(ret.data + y*ret.bytesPerRow,
+                       im.data + y*im.bytesPerRow,
+                       im.width*4);
+            }
+        }
+        return;
+    }
 
+    FOLK_ENSURE(im.components == 1 || im.components == 3);
     if (im.components == 3) {
         for (int y = 0; y < im.height; y++) {
             for (int x = 0; x < im.width; x++) {
@@ -347,7 +374,6 @@ $gpuc proc copyImageToRgba {Image im} Image {
             }
         }
     }
-    return ret;
 }
 
 $gpuc code [csubst {
@@ -477,11 +503,8 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
     return block;
 }
 
-$gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
-    // Image must be RGBA.
-    Image im;
-    if (im0.components != 4) { im = copyImageToRgba(im0); }
-    else { im = im0; }
+$gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
+    VkFence fence = getFence();
 
     size_t size = im.width * im.height * 4;
 
@@ -494,25 +517,44 @@ $gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
     // Copy im to stagingBuffer:
     {
         void* data; vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
-        for (int y = 0; y < im.height; y++) {
-            memcpy(data + y*im.width*4,
-                   im.data + y*im.bytesPerRow,
-                   im.width*4);
-        }
+        Image stagingIm = (Image) {
+            .width = im.width, .height = im.height,
+            .components = 4,
+            .bytesPerRow = im.width * 4,
+            .data = data
+        };
+        copyImageToRgba(im, stagingIm);
         vkUnmapMemory(device, stagingBufferMemory);
     }
 
     // Allocate a texture and texture block:
     GpuTextureBlock* block = createGpuTexture(im.width, im.height, VK_FORMAT_R8G8B8A8_SRGB);
 
-    // Copy stagingBuffer to block->textureImage:
+    // Copy stagingBuffer to block->textureImage with single command buffer:
     {
-        transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                              VK_IMAGE_LAYOUT_UNDEFINED,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
+        // Transition to transfer destination
+        VkImageMemoryBarrier barrier = {0};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = block->textureImage;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        // Copy buffer to image
         VkBufferImageCopy region = {0};
         region.bufferOffset = 0;
         region.bufferRowLength = 0;
@@ -532,19 +574,33 @@ $gpuc proc copyImageToGpuTexture {Image im0} GpuTextureHandle {
                                1,
                                &region);
 
-        endSingleTimeCommands(commandBuffer);
+        // Transition to shader read-only
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-        transitionImageLayout(block->textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        vkCmdPipelineBarrier(commandBuffer,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, NULL, 0, NULL, 1, &barrier);
+
+        endSingleTimeCommands(commandBuffer, fence);
+
+#ifdef TRACY_ENABLE
+        TracyCZoneN(ctx, "vkWaitForFences", 1);
+#endif
+        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+#ifdef TRACY_ENABLE
+        TracyCZoneEnd(ctx);
+#endif
     }
 
     addToTextureDescriptorSet(block->handle);
 
+    // TODO: Can we get rid of the staging buffer?
     vkDestroyBuffer(device, stagingBuffer, NULL);
     vkFreeMemory(device, stagingBufferMemory, NULL);
 
-    if (im0.components != 4) { free(im.data); }
     return block->handle;
 }
 $gpuc proc replaceInTextureDescriptorSet {GpuTextureHandle oldHandle GpuTextureHandle newHandle} void {

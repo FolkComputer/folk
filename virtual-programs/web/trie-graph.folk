@@ -1,6 +1,6 @@
 set trieLib [apply {{} {
     set cc [C]
-    $cc cflags -I. -I./vendor/tracy/public trie.o
+    $cc cflags -I. trie.o
     $cc include <stdlib.h>
     $cc include <string.h>
     $cc include "trie.h"
@@ -11,10 +11,6 @@ set trieLib [apply {{} {
         extern void dbLockClauseToStatementRef(Db* db);
         extern void dbUnlockClauseToStatementRef(Db* db);
         extern Trie* dbGetClauseToStatementRef(Db* db);
-
-#if __has_include ("tracy/TracyC.h")
-#include "tracy/TracyC.h"
-#endif
 
 #ifdef TRACY_ENABLE
 

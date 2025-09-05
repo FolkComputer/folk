@@ -79,8 +79,8 @@ Assert! when /__this/ has program code /__programCode/ {
 } with environment {}
 local proc LoadProgram! {programFilename} {
     set fp [open $programFilename r]
-    HoldStatement! (keep 100ms) (on boot.folk) [list $programFilename code] \
-        [list boot.folk claims $programFilename has program code [read $fp]]
+    Hold! -keep 100ms -on boot.folk -key [list $programFilename code] \
+        Claim $programFilename has program code [read $fp]
     close $fp
 }
 

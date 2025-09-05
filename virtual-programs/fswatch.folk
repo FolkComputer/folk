@@ -24,8 +24,8 @@ try {
         puts "fswatch: $changedPath updated, reloading."
         set fp [open $changedPath r]; set programCode [read $fp]; close $fp
 
-        HoldStatement! (keep 100ms) (on boot.folk) [list $changedPath code] \
-            [list $this claims $changedPath has program code $programCode]
+        Hold! -keep 100ms -on boot.folk -key [list $changedPath code] \
+            Claim $changedPath has program code $programCode
     }
 } on error err {
     puts stderr "fswatch: Warning: could not invoke `fswatch` ($err)."

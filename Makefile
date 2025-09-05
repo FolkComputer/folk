@@ -1,5 +1,5 @@
 ifeq ($(shell uname -s),Linux)
-	override CFLAGS += -Wl,--export-dynamic
+	override BUILTIN_CFLAGS += -Wl,--export-dynamic
 endif
 
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
@@ -8,7 +8,6 @@ ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
 	override CPPFLAGS += -std=c++20 -DTRACY_ENABLE
 	LINKER := c++
 else
-	TRACY_CFLAGS :=
 	LINKER := cc
 endif
 
@@ -17,17 +16,21 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
-		$(CFLAGS) $(TRACY_CFLAGS) \
+		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
 		$(filter %.o %.a,$^) \
 		-ljim -lm -lssl -lcrypto -lz
 	if [ "$$(uname)" = "Darwin" ]; then \
 		dsymutil $@; \
 	fi
+	# Hack for the gadget trigger button.
+	if [ "$$(uname)" = "Linux" ]; then \
+		sudo -n true 2>/dev/null || true && sudo setcap cap_sys_rawio+ep $@ || true; \
+	fi
 
 %.o: %.c trie.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
-		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
+		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
 .PHONY: test clean deps
@@ -87,11 +90,15 @@ kill-folk:
 		while sudo kill -0 $$OLD_PID; do sleep 0.2; done; \
 	fi
 
-FOLK_REMOTE_NODE := folk-live
+FOLK_REMOTE_NODE ?= folk-live
+
 sync:
-	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
-		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
-		. $(FOLK_REMOTE_NODE):~/folk2
+	git ls-files --exclude-standard -oi --directory >.git/ignores.tmp
+	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
+		--archive --delete --itemize-changes \
+		--exclude='/.git' \
+		--exclude-from='.git/ignores.tmp' \
+		./ $(FOLK_REMOTE_NODE):~/folk2/
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
@@ -100,11 +107,11 @@ remote-setup:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk'
 debug-sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=10000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
@@ -128,7 +135,16 @@ remote-flamegraph:
 	scp $(FOLK_REMOTE_NODE):~/folk/out.perf .
 
 start: folk
-	$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk
+	@if [ -n "$$(systemctl list-unit-files | grep folk.service)" ] && \
+	   [ -n "$$(systemctl cat folk.service | grep "ExecStart.*$$(pwd)")" ] && \
+	   [ -z "$(ENABLE_ASAN)" ] && \
+	   [ -z "$$INVOCATION_ID" ] && \
+	   [ -z "$(CFLAGS)" ] ; then \
+		sudo systemctl start folk.service; \
+		journalctl -f -u folk.service; \
+	else \
+		$(if $(ENABLE_ASAN),ASAN_OPTIONS=detect_leaks=1:halt_on_error=0,) ./folk; \
+	fi
 
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler

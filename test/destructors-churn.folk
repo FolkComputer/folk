@@ -2,7 +2,7 @@ When {
     set n 0
     while true {
         sleep 0.01
-        HoldStatement! boop \
+        Hold! -key boop \
             -destructor [list apply {{n} {
                 Retract! the $n is present
                 if {$n > 200} {
@@ -10,7 +10,7 @@ When {
                     Exit! 0
                 }
             }} $n] \
-            [list $this claims the n is [incr n]]
+            Claim the n is [incr n]
         Assert! the $n is present
     }
 }

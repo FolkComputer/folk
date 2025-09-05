@@ -339,8 +339,8 @@ When the image library is /imageLib/ &\
                 error "camera-usb: Unable to find video device for $devicePath"
             }
 
-            HoldStatement! $devicePath \
-                [list $this wishes $::thisNode uses camera $camera with {*}$options]
+            Hold! -key [list retry $devicePath] \
+                Wish $::thisNode uses camera $camera with {*}$options
         }
 
         When camera $camera failed with error /e/ {
@@ -434,24 +434,16 @@ When the image library is /imageLib/ &\
             }
             set timestamp [expr {$ms / 1000.0}]
             tracy zoneName "camera-usb: $timestamp"
-            # HACK: We retain the statement for 400ms (which is
-            # probably pretty memory-expensive...) so that it's still
-            # around when its AprilTags are fully detected, so we can
-            # store the image for debugging during calibration. Note
-            # that HoldStatement! will deindex this immediately on the
-            # next frame, so you need to match this first before
-            # matching the tag detection if you want to have a handle
-            # on it later.
-            HoldStatement! camera \
-                -destructor [list $camLib freeImage $frame] \
-                [list $this claims camera $camera has frame $cropped at timestamp $timestamp]
+            Hold! -key camera \
+                Claim camera $camera has frame $cropped at timestamp $timestamp \
+                -destructor [list $camLib freeImage $frame]
 
             tracy zoneEnd
         }
     } on error e {
         puts stderr "camera-usb: Error $e"
-        HoldStatement! cameraError \
-            [list $this claims camera $camera failed with error $e]
+        Hold! -key [list camera-error $camera] \
+            Claim camera $camera failed with error $e
     } on signal sig {
         puts stderr "camera-usb: Signal $sig"
     } finally {

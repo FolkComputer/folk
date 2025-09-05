@@ -125,6 +125,7 @@ $cc proc textShape {Jim_Obj* viewport Jim_Obj* surfaceToClip
 set fontLib [$cc compile]
 
 When the image loader is /loadImage/ {
+    fn loadImage
     fn loadFont {name} {
         set csvFd [open "vendor/fonts/$name.csv" r]; set csv [read $csvFd]; close $csvFd
         set fields [list ]
