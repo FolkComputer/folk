@@ -154,7 +154,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
             Jim_NewStringObj(interp, "claims", -1),
             Jim_NewStringObj(interp, "the", -1),
             Jim_NewStringObj(interp, "collected", -1),
-            Jim_NewStringObj(interp, "matches", -1),
+            Jim_NewStringObj(interp, "results", -1),
             Jim_NewStringObj(interp, "for", -1),
             patternObj,
             Jim_NewStringObj(interp, "are", -1),
