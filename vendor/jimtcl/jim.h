@@ -66,6 +66,8 @@
 #define __JIM__H
 
 #ifdef __cplusplus
+#include <atomic>
+
 extern "C" {
 #endif
 
@@ -292,13 +294,25 @@ typedef struct Jim_HashTableIterator {
  * ---------------------------------------------------------------------------*/
 struct Jim_Interp;
 
+
+#ifdef __cplusplus
+}
+#endif
+
 typedef struct Jim_Obj {
     char *bytes; /* string representation buffer. NULL = no string repr. */
     const struct Jim_ObjType *typePtr; /* object type. */
+#ifdef __cplusplus
+    union {
+        int local;
+        std::atomic<int> atomic;
+    } refCount;
+#else
     union {
         int local;
         _Atomic int atomic;
     } refCount;
+#endif
     int length; /* number of bytes in 'bytes', not including the null term. */
     int flags; /* current flags are JIM_IMMUTABLE and JIM_TEMP_LIST */
     /* Internal representation union */
@@ -368,6 +382,10 @@ typedef struct Jim_Obj {
         } scriptLineValue;
     } internalRep;
 } Jim_Obj;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* these used to be macros, but it's annoying to import
    stdatomic.h every time you want to call one of these */
@@ -475,7 +493,7 @@ typedef struct Jim_EvalFrame {
 typedef struct Jim_VarVal {
     Jim_Obj *objPtr;
     struct Jim_CallFrame *linkFramePtr;
-    atomic_int refCount;
+    int refCount;
 } Jim_VarVal;
 
 /* The cmd structure. */

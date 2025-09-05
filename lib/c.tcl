@@ -287,6 +287,7 @@ C method code {newcode} {
     lassign [info source $newcode] filename line
     if {$filename ne ""} { 
         set newcode [subst {
+            #line $line "$filename"
             $newcode
         }]
     }
@@ -569,7 +570,7 @@ C method proc {name arguments rtype body} {
     dict set procs $name code [subst {
         static $decayedRtype $cname ([join $arglist ", "]) {
             [if {$filename ne ""} {
-                subst {}
+                subst {#line $line "$filename"}
             } else {list}]
             $body
         }
@@ -619,12 +620,12 @@ C method compile {{cid {}}} {
         #include <string.h>
 
         #ifdef __cplusplus
-        \}
         #include <atomic>
         static std::atomic<const char*> __cInfo(nullptr);
-        extern "C" \{
+        #define EXPORT extern "C"
         #else
         static const char* _Atomic __cInfo = NULL;
+        #define EXPORT
         #endif
 
         static int __setCInfo_Cmd(Jim_Interp* interp, int objc, Jim_Obj* const objv\[\]) {
@@ -645,7 +646,7 @@ C method compile {{cid {}}} {
             return JIM_OK;
         }
 
-        int Jim_${cid}Init(Jim_Interp* intp) {
+        EXPORT int Jim_${cid}Init(Jim_Interp* intp) {
             interp = intp;
 
             [join [lmap srcid $extends {
@@ -688,28 +689,14 @@ C method compile {{cid {}}} {
             return JIM_OK;
         }
     }]
-    set externC [subst {
-#ifdef __cplusplus
-extern "C" \{
-#endif
-}]
-    set unexternC [subst {
-#ifdef __cplusplus
-\}
-#endif
-}]
     set sourcecode [join [list \
-                              $externC \
                               $prelude \
-                              $unexternC \
                               \
                               {*}[lmap {snippet extend} $code {set snippet}] \
                               \
-                              $externC \
                               {*}[dict values $objtypes] \
                               {*}[lmap p [dict values $procs] {dict get $p code}] \
                               $init \
-                              $unexternC \
                              ] "\n"]
 
     # puts "=====================\n$sourcecode\n====================="
