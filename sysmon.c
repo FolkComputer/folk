@@ -175,6 +175,7 @@ void sysmon() {
     };
     Jim_Obj* internalTimeClause = Jim_NewListObj(
         interp, internalTimeTerms, sizeof(internalTimeTerms)/sizeof(internalTimeTerms[0]));
+    free(timeStr);
 
     HoldStatementGlobally("internal-time", currentTick,
                           internalTimeClause, 0, NULL,
@@ -196,6 +197,7 @@ void sysmon() {
         };
         Jim_Obj* clockTimeClause = Jim_NewListObj(
             interp, clockTimeTerms, sizeof(clockTimeTerms)/sizeof(clockTimeTerms[0]));
+        free(timeStr);
 
         HoldStatementGlobally("clock-time", currentTick,
                               clockTimeClause, 0, NULL,

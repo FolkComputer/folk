@@ -659,12 +659,16 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
     Statement* when = NULL;
     Statement* stmt = NULL;
     when = statementAcquire(db, whenRef);
-    if (when == NULL) { return; }
+    if (when == NULL) {
+        Jim_DecrRefCount(whenPattern);
+        return;
+    }
 
     if (!statementRefIsNull(stmtRef)) {
         stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) {
             statementRelease(db, when);
+            Jim_DecrRefCount(whenPattern);
             return;
         }
     }
@@ -839,6 +843,7 @@ Jim_Obj* claimizeClause(Jim_Obj* jimClause) {
     if (nTerms >= 2 &&
         (strcmp(firstTerm, "claims") == 0 ||
          strcmp(firstTerm, "wishes") == 0)) {
+        Jim_FreeNewObj(ret);
         return NULL;
     }
 

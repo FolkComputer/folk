@@ -7193,8 +7193,11 @@ int Jim_ListIndex(Jim_Interp *interp, Jim_Obj *listPtr, int idx, Jim_Obj **objPt
 static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
     Jim_Obj *const *indexv, int indexc, Jim_Obj **resultObj, int flags)
 {
-    /* to prevent lots of duplications when using Jim_GetIndex (see note at bottom of
-     * this function as to why it needs to be on the live list) */
+    /* This prevents lots of duplications when using Jim_GetIndex.
+     *
+     * Through several calls, listPtr may end up being passed into SetListFromAny
+     * which tracks listPtr as a source (Jim_SetSourceInfo), so we can't put it on the
+     * temp list */
     listPtr = Jim_DupIfImmutAndWrongRep(interp, listPtr, &listObjType, JIM_LIVE_LIST);
 
     int i;
@@ -7212,11 +7215,13 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
     for (i = 0; i < indexc; i++) {
         ret = Jim_GetIndex(interp, indexv[i], &idxes[i]);
         if (ret != JIM_OK) {
+            Jim_FreeIfZeroRef(listPtr);
             goto err;
         }
     }
 
     for (i = 0; i < indexc; i++) {
+        Jim_IncrRefCount(listPtr);
         Jim_Obj *objPtr = Jim_ListGetIndex(interp, listPtr, idxes[i]);
         if (!objPtr) {
             if (flags & JIM_ERRMSG) {
@@ -7228,19 +7233,20 @@ static int Jim_ListIndices(Jim_Interp *interp, Jim_Obj *listPtr,
                 }
             }
             ret = -1;
+            Jim_DecrRefCount(listPtr);
             goto err;
         }
+
+        /* Prevents objPtr from being freed as it may be a child of listPtr. */
+        Jim_IncrRefCount(objPtr);
+        Jim_DecrRefCount(listPtr);
+        Jim_DecrRefCountNoFree(objPtr);
         listPtr = objPtr;
     }
     *resultObj = listPtr;
 err:
     if (idxes != static_idxes)
         Jim_Free(idxes);
-
-    /* through several calls, listPtr may end up being passed into SetListFromAny
-     * which tracks listPtr as a source (Jim_SetSourceInfo), so we can't put it on the
-     * temp list */
-    Jim_FreeIfZeroRef(listPtr);
 
     return ret;
 }

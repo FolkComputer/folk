@@ -1246,6 +1246,7 @@ Statement* dbHoldStatement(Db* db, Jim_Interp* interp,
             }
         } else {
             hold->statement = STATEMENT_REF_NULL;
+            if (hold->key) free(hold->key);
             hold->key = NULL;
         }
 
