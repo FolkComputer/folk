@@ -5,3 +5,5 @@ folk.pid
 fuzzing-output
 folk.dSYM
 CFLAGS
+.DS_Store
+play

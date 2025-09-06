@@ -715,7 +715,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
 - on folk-live at home, folk2-shared-objects: TODO
 
-### nextp
+### next
 - minor memory leak
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
@@ -734,3 +734,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
 - weird extra space in editor on boot
+
+### ideas
+- aborted executions shouldn't be too high a percentage of total # of
+executions of the block? if they are, then we warn on the page that it
+isn't meeting timing
+- delay the removal of the old hold until downstream statements of the
+old hold have fully converged? but WARN if this happens

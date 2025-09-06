@@ -76,6 +76,10 @@ class C {
         #include <setjmp.h>
         #include <assert.h>
 
+        #if __has_include ("tracy/TracyC.h")
+        #include "tracy/TracyC.h"
+        #endif
+
         extern __thread Jim_Interp* interp;
         extern __thread jmp_buf __onError;
         extern __thread bool __onErrorIsSet;
@@ -708,7 +712,7 @@ C method compile {{cid {}}} {
         set ignoreUnresolved -Wl,-undefined,dynamic_lookup
     }
     if {[__isTracyEnabled]} {
-        lappend cflags -DTRACY_ENABLE=1
+        lappend cflags -DTRACY_ENABLE=1 -I./vendor/tracy/public
     }
     set asan_flags {}
     if {[info exists ::env(ASAN_ENABLE)] && $::env(ASAN_ENABLE) != ""} {
@@ -716,7 +720,9 @@ C method compile {{cid {}}} {
     }
     set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
                  {*}$cflags $cfile -c -o [file rootname $cfile].o]
-    puts $out
+    if {[string trim $out] ne ""} {
+        puts $out
+    }
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0

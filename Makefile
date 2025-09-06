@@ -1,5 +1,5 @@
 ifeq ($(shell uname -s),Linux)
-	override CFLAGS += -Wl,--export-dynamic
+	override BUILTIN_CFLAGS += -Wl,--export-dynamic
 endif
 
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
@@ -8,7 +8,6 @@ ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
 	override CPPFLAGS += -std=c++20 -DTRACY_ENABLE
 	LINKER := c++
 else
-	TRACY_CFLAGS :=
 	LINKER := cc
 endif
 
@@ -17,7 +16,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	vendor/jimtcl/libjim.a $(TRACY_TARGET) CFLAGS
 
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
-		$(CFLAGS) $(TRACY_CFLAGS) \
+		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
 		$(filter %.o %.a,$^) \
 		-lm -lssl -lcrypto -lz
@@ -31,7 +30,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 
 %.o: %.c trie.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
-		-D_GNU_SOURCE $(CFLAGS) $(TRACY_CFLAGS) \
+		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
 
 .PHONY: test clean deps
@@ -94,9 +93,12 @@ kill-folk:
 FOLK_REMOTE_NODE ?= folk-live
 
 sync:
-	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" --archive \
-		--include='**.gitignore' --exclude='/.git' --filter=':- .gitignore' \
-		. $(FOLK_REMOTE_NODE):~/folk2
+	git ls-files --exclude-standard -oi --directory >.git/ignores.tmp
+	rsync --timeout=15 -e "ssh -o StrictHostKeyChecking=no" \
+		--archive --delete --itemize-changes \
+		--exclude='/.git' \
+		--exclude-from='.git/ignores.tmp' \
+		./ $(FOLK_REMOTE_NODE):~/folk2/
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
 	make sync
@@ -136,7 +138,8 @@ start: folk
 	@if [ -n "$$(systemctl list-unit-files | grep folk.service)" ] && \
 	   [ -n "$$(systemctl cat folk.service | grep "ExecStart.*$$(pwd)")" ] && \
 	   [ -z "$(ENABLE_ASAN)" ] && \
-	   [ -z "$$INVOCATION_ID" ] ; then \
+	   [ -z "$$INVOCATION_ID" ] && \
+	   [ -z "$(CFLAGS)" ] ; then \
 		sudo systemctl start folk.service; \
 		journalctl -f -u folk.service; \
 	else \
