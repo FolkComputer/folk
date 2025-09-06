@@ -918,8 +918,6 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 // 
 // (both of these mean that the caller shouldn't trigger a reaction,
 // since no new statement is being created).
-// 
-// jimClause must already be immutable.
 Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
                                     Jim_Obj* jimClause, long keepMs,
                                     const char* sourceFileName, int sourceLineNumber,
@@ -930,21 +928,22 @@ Statement* dbInsertOrReuseStatement(Db* db, Jim_Interp* interp,
         *outReusedStatementRef = (_ref); \
     }
 
-    Jim_MakeImmutable(interp, jimClause);
     Jim_IncrRefCount(jimClause);
 
-    // db statements are guaranteed to be lists internally
-    if (!Jim_IsList(jimClause)) {
+    // db statements are guaranteed to be lists internally, so we need to
+    // ensure it's a list
+    if (!Jim_IsList(jimClause) && Jim_IsImmutable(jimClause)) {
         // need to duplicate, as this object is immutable
         Jim_Obj* jimClauseAsList = Jim_DuplicateObj(interp, jimClause, JIM_LIVE_LIST);
-        Jim_ListLength(interp, jimClauseAsList); // shimmer to list
-        Jim_MakeImmutable(interp, jimClauseAsList);
 
         // get rid of old object
         Jim_DecrRefCount(jimClause);
         jimClause = jimClauseAsList;
         Jim_IncrRefCount(jimClause);
     }
+
+    Jim_ListLength(interp, jimClause); // shimmer to list
+    Jim_MakeImmutable(interp, jimClause);
 
     Match* parentMatch = NULL;
     if (!matchRefIsNull(parentMatchRef)) {
