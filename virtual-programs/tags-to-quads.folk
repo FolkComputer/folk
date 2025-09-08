@@ -383,7 +383,10 @@ set quadLib [library create quadLib {} {
         ::math::linearalgebra::add \
         ::math::linearalgebra::matmul \
         ::math::linearalgebra::sub \
-        ::math::linearalgebra::norm
+        ::math::linearalgebra::norm \
+        ::math::linearalgebra::unitLengthVector \
+        ::math::linearalgebra::scale
+    rename scale scaleVector
 
     proc create {space vertices} { list $space $vertices }
     proc space {q} { lindex $q 0 }
@@ -444,8 +447,8 @@ set quadLib [library create quadLib {} {
         }]
     }
     proc buffer {q args} {
-        # TODO: derive vectors for the top and left sides, use those.
         lassign [vertices $q] topLeft topRight bottomRight bottomLeft
+
         foreach {direction distance} $args {
             if {![regexp {([\-0-9\.]+)(cm|mm|m)?} $distance -> distance unit]} {
                 error "quad buffer: Invalid distance $distance"
@@ -466,21 +469,29 @@ set quadLib [library create quadLib {} {
             }
 
             if {$direction eq "top"} {
-                set disp [list 0 [- $distance] 0]
-                set topLeft [add $topLeft $disp]
-                set topRight [add $topRight $disp]
+                set leftVector [sub $topLeft $bottomLeft]
+                set rightVector [sub $topRight $bottomRight]
+
+                set topLeft [add $topLeft [scaleVector $distance [unitLengthVector $leftVector]]]
+                set topRight [add $topRight [scaleVector $distance [unitLengthVector $rightVector]]]
             } elseif {$direction eq "bottom"} {
-                set disp [list 0 $distance 0]
-                set bottomLeft [add $bottomLeft $disp]
-                set bottomRight [add $bottomRight $disp]
+                set leftVector [sub $bottomLeft $topLeft]
+                set rightVector [sub $bottomRight $topRight]
+
+                set bottomLeft [add $bottomLeft [scaleVector $distance [unitLengthVector $leftVector]]]
+                set bottomRight [add $bottomRight [scaleVector $distance [unitLengthVector $rightVector]]]
             } elseif {$direction eq "left"} {
-                set disp [list [- $distance] 0 0]
-                set bottomLeft [add $bottomLeft $disp]
-                set topLeft [add $topLeft $disp]
+                set topVector [sub $topLeft $topRight]
+                set bottomVector [sub $bottomLeft $bottomRight]
+
+                set bottomLeft [add $bottomLeft [scaleVector $distance [unitLengthVector $bottomVector]]]
+                set topLeft [add $topLeft [scaleVector $distance [unitLengthVector $topVector]]]
             } elseif {$direction eq "right"} {
-                set disp [list $distance 0 0]
-                set bottomRight [add $bottomRight $disp]
-                set topRight [add $topRight $disp]
+                set topVector [sub $topRight $topLeft]
+                set bottomVector [sub $bottomRight $bottomLeft]
+
+                set bottomRight [add $bottomRight [scaleVector $distance [unitLengthVector $bottomVector]]]
+                set topRight [add $topRight [scaleVector $distance [unitLengthVector $bottomVector]]]
             } else {
                 error "quad buffer: Invalid direction $direction"
             }
