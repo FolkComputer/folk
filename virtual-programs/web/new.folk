@@ -121,8 +121,8 @@ Wish the web server handles route "/new" with handler {
       set disp [dict get $dims disp]
       set displayWidth [dict get $dims displayWidth]; set displayHeight [dict get $dims displayHeight]
 
-      set x [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
-      set y [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
+      set x [expr {int(double(${(left + (left/window.innerWidth) * w)}) * (double($displayWidth) / ${window.innerWidth}))}]
+      set y [expr {int(double(${(top + (top/window.innerHeight) * h)}) * (double($displayHeight) / ${window.innerHeight}))}]
       set w ${w}; set h ${h}
 
       # Create 3D vertices in meters that will project to the desired pixel coordinates
