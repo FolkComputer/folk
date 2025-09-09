@@ -221,6 +221,9 @@ typedef struct Match {
     // Immutable match properties:
 
     int workerThreadIndex;
+    // Subscriptions cannot have child statements, so
+    // we need to track this
+    int isSubscription;
 
     // Mutable match properties:
 
@@ -657,7 +660,7 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db, int workerThreadIndex) {
+static MatchRef matchNew(Db* db, int workerThreadIndex, int isSubscription) {
     MatchRef ret;
     Match* match = NULL;
 
@@ -681,6 +684,7 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
 
     // We should have exclusive access to match right now.
 
+    match->isSubscription = isSubscription;
     match->childStatements = listOfEdgeToNew(8);
 
     pthread_mutexattr_t mta;
@@ -721,6 +725,9 @@ void matchAddDestructor(Match* m, Destructor* d) {
     pthread_mutex_unlock(&m->destructorSetMutex);
 }
 
+int matchIsSubscription(Match* match) {
+    return match->isSubscription;
+}
 void matchCompleted(Match* match) {
     match->isCompleted = true;
 }
@@ -1028,8 +1035,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     int workerThreadIndex) {
-    MatchRef ref = matchNew(db, workerThreadIndex);
+                     int workerThreadIndex, int isSubscription) {
+    MatchRef ref = matchNew(db, workerThreadIndex, isSubscription);
     Match* match = matchAcquire(db, ref);
     assert(match != NULL);
 

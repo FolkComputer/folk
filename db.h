@@ -78,6 +78,7 @@ bool matchCheck(Db* db, MatchRef ref);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
+int matchIsSubscription(Match* m);
 void matchCompleted(Match* m);
 void matchRemoveSelf(Db* db, Match* m);
 
@@ -126,7 +127,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 // The new Match is returned acquired and needs to be released by the
 // caller.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
-                     int workerThreadIndex);
+                     int workerThreadIndex, int isSubscription);
 
 void dbRetractStatements(Db* db, Clause* pattern);
 

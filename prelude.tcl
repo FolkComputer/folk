@@ -123,10 +123,9 @@ proc applyBlock {body envStack} {
     tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateWhenBlock {whenBody envStack} {
+proc evaluateBlock {whenBody envStack} {
     try {
         applyBlock $whenBody $envStack
-
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
@@ -457,6 +456,19 @@ proc When {args} {
         tailcall SayWithSource {*}$sourceInfo 0 {} \
             when {*}$pattern $body with environment $envStack
     }
+}
+proc Subscribe {args} {
+    set pattern [lrange $args 0 end-1]
+    set body [lindex $args end]
+
+    set sourceInfo [info source $body]
+    set envStack [uplevel captureEnvStack]
+
+    tailcall SayWithSource {*}$sourceInfo 0 {} \
+        subscribe {*}$pattern $body with environment $envStack
+}
+proc Publish {args} {
+    PublishImpl {*}$args
 }
 proc Every {_time args} {
     if {$_time eq "time"} {

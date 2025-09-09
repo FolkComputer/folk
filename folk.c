@@ -331,7 +331,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
-    if (self->currentMatch) {
+    if (self->currentMatch && !matchIsSubscription(self->currentMatch)) {
         parent = matchRef(db, self->currentMatch);
     } else {
         parent = MATCH_REF_NULL;
@@ -421,6 +421,16 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     matchRemoveSelf(db, unmatch);
     matchRelease(db, unmatch);
     return JIM_OK;
+}
+
+static void Publish(Clause* toPublish);
+static int PublishFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc >= 2);
+
+    Clause* toPublish = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+
+    Publish(toPublish);
+    clauseFree(toPublish);
 }
 
 Jim_Obj* QuerySimple(Clause* pattern) {
@@ -522,8 +532,8 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
     assert(argc == 1);
     StatementRef whenRef = STATEMENT_REF_NULL;
     mutexLock(&self->currentItemMutex);
-    if (self->currentItem.op == RUN) {
-        whenRef = self->currentItem.run.when;
+    if (self->currentItem.op == RUN_WHEN) {
+        whenRef = self->currentItem.runWhen.when;
     }
     mutexUnlock(&self->currentItemMutex);
 
@@ -596,6 +606,8 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
+    Jim_CreateCommand(interp, "PublishImpl", PublishFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
@@ -638,6 +650,93 @@ void eval(const char* code) {
 
 void workerExit();
 
+static void runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
+                     const char *sourceFileName, int sourceLineNumber,
+                     Jim_Obj *envStackObj) {
+    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
+    // Set the source info for the bodyObj:
+    const char *ptr;
+    if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
+        // HACK: We only set the source info if it's not already
+        // there, because setting the source info destroys the
+        // internal script representation and forces the code to be
+        // reparsed (why??).
+        Jim_SetSourceInfo(interp, bodyObj,
+                          Jim_NewStringObj(interp, sourceFileName, -1),
+                          sourceLineNumber);
+    }
+
+    {
+        // Figure out all the bound match variables by unifying when &
+        // stmt:
+        Environment* env = clauseUnify(interp, bodyPattern, toUnifyWith);
+        assert(env != NULL);
+
+        if (env->nBindings > 50) {
+            fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
+                    env->nBindings);
+            return;
+        }
+
+        Jim_Obj *objs[env->nBindings*2];
+        for (int i = 0; i < env->nBindings; i++) {
+            objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
+            objs[i*2 + 1] = env->bindings[i].value;
+        }
+
+        Jim_Obj *boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
+        Jim_ListAppendElement(interp, envStackObj, boundEnvObj);
+
+        free(env);
+    }
+
+    // Rule: you should never be holding a lock while doing a Tcl
+    // evaluation.
+    interp->signal_level++;
+    int error;
+    {
+#ifdef TRACY_ENABLE
+        const char *source = statementSourceFileName(when);
+        char name[1000];
+        int namesz = snprintf(name, 1000, "%s:%d",
+                              source, statementSourceLineNumber(when));
+        uint64_t srcloc = ___tracy_alloc_srcloc(statementSourceLineNumber(when),
+                                               source, strlen(source),
+                                               name, namesz,
+                                               0);
+        TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
+#endif
+
+        Jim_Obj *objv[] = {
+            // TODO: pool this string?
+            Jim_NewStringObj(interp, "evaluateBlock", -1),
+            bodyObj,
+            envStackObj
+        };
+        error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+
+#ifdef TRACY_ENABLE
+        ___tracy_emit_zone_end(ctx);
+#endif
+    }
+    interp->signal_level--;
+
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
+                body, errorMessage);
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+
+    } else if (error == JIM_SIGNAL) {
+        // FIXME: I think this is the only signal handler path that
+        // actually runs mostly.
+        interp->sigmask = 0;
+        workerExit();
+    }
+}
+
 static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
@@ -663,62 +762,14 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
-    assert(whenClause->nTerms >= 5);
-
-    // when the time is /t/ /body/ with environment /capturedEnvStack/
-    const char* body = whenClause->terms[whenClause->nTerms - 4];
-    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
-    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
-
-    Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
-    // Set the source info for the bodyObj:
-    const char *ptr;
-    if (Jim_ScriptGetSourceFileName(interp, bodyObj, &ptr) == JIM_ERR) {
-        // HACK: We only set the source info if it's not already
-        // there, because setting the source info destroys the
-        // internal script representation and forces the code to be
-        // reparsed (why??).
-        Jim_SetSourceInfo(interp, bodyObj,
-                          Jim_NewStringObj(interp, statementSourceFileName(when), -1),
-                          statementSourceLineNumber(when));
-    }
-
-    {
-        // Figure out all the bound match variables by unifying when &
-        // stmt:
-        Environment* env = clauseUnify(interp, whenPattern, stmtClause);
-        assert(env != NULL);
-
-        if (env->nBindings > 50) {
-            fprintf(stderr, "runWhenBlock: Too many bindings in env: %d\n",
-                    env->nBindings);
-            return;
-        }
-        
-        Jim_Obj *objs[env->nBindings*2];
-        for (int i = 0; i < env->nBindings; i++) {
-            objs[i*2] = Jim_NewStringObj(interp, env->bindings[i].name, -1);
-            objs[i*2 + 1] = env->bindings[i].value;
-        }
-
-        Jim_Obj *boundEnvObj = Jim_NewDictObj(interp, objs, env->nBindings*2);
-        Jim_ListAppendElement(interp, envStackObj, boundEnvObj);
-
-        free(env);
-    }
-
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
+        self->currentMatch = dbInsertMatch(db, 2, parents, self->index, false);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
+        self->currentMatch = dbInsertMatch(db, 1, parents, self->index, false);
     }
     if (!self->currentMatch) {
-        // A parent is gone. Abort.
-        Jim_DecrRefCount(interp, envStackObj);
-        Jim_DecrRefCount(interp, bodyObj);
-
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
@@ -726,65 +777,79 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         return;
     }
 
-    // Rule: you should never be holding a lock while doing a Tcl
-    // evaluation.
-    interp->signal_level++;
-    int error;
-    {
-#ifdef TRACY_ENABLE
-        const char *source = statementSourceFileName(when);
-        char name[1000];
-        int namesz = snprintf(name, 1000, "%s:%d",
-                              source, statementSourceLineNumber(when));
-        uint64_t srcloc = ___tracy_alloc_srcloc(statementSourceLineNumber(when),
-                                               source, strlen(source),
-                                               name, namesz,
-                                               0);
-        TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
-#endif
+    assert(whenClause->nTerms >= 5);
 
-        Jim_Obj *objv[] = {
-            // TODO: pool this string?
-            Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
-            bodyObj,
-            envStackObj
-        };
-        error = Jim_EvalObjVector(interp, sizeof(objv)/sizeof(objv[0]), objv);
+    // when the time is /t/ /body/ with environment /capturedEnvStack/
+    const char* body = whenClause->terms[whenClause->nTerms - 4];
+    const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
+    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
-#ifdef TRACY_ENABLE
-        ___tracy_emit_zone_end(ctx);
-#endif
-    }
-    interp->signal_level--;
+    runBlock(whenPattern, stmtClause, body,
+        statementSourceFileName(when), statementSourceLineNumber(when), envStackObj);
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
-
-    if (error == JIM_ERR) {
-        Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
-        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                body, errorMessage);
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
-
-    } else if (error == JIM_SIGNAL) {
-        // FIXME: I think this is the only signal handler path that
-        // actually runs mostly.
-        interp->sigmask = 0;
-        workerExit();
-    }
 
     matchCompleted(self->currentMatch);
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
 }
+
+// Caller is responsible for freeing passed in clauses
+static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePattern,
+                              Clause* publishClause) {
+    Statement* subscribeStmt = statementAcquire(db, subscribeRef);
+    if (subscribeStmt == NULL) {  return; }
+
+    StatementRef parents[] = { subscribeRef };
+    self->currentMatch = dbInsertMatch(db, 1, parents, self->index, true);
+
+    if (!self->currentMatch) {
+        statementRelease(db, subscribeStmt);
+        return;
+    }
+
+    Clause* subscribeClause = statementClause(subscribeStmt);
+    assert(subscribeClause->nTerms >= 5);
+
+    // key x was pressed
+    // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
+    const char* body = subscribeClause->terms[subscribeClause->nTerms - 4];
+    const char* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
+    Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
+
+    runBlock(subscribePattern, publishClause, body,
+        statementSourceFileName(subscribeStmt),
+        statementSourceLineNumber(subscribeStmt),
+        envStackObj);
+
+    statementRelease(db, subscribeStmt);
+
+    matchCompleted(self->currentMatch);
+    matchRelease(db, self->currentMatch);
+    self->currentMatch = NULL;
+}
+
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
 static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
     appropriateWorkQueuePush((WorkQueueItem) {
-       .op = RUN,
-       .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
+       .op = RUN_WHEN,
+       .runWhen = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
+    });
+}
+
+// Copies the clauses and all their terms so it can be owned (and
+// freed) by the eventual handler of the block.
+static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscribePattern,
+                              Clause* publishClause) {
+    appropriateWorkQueuePush((WorkQueueItem) {
+       .op = RUN_SUBSCRIBE,
+       .runSubscribe = { 
+            .subscribeRef = subscribeRef,
+            .subscribePattern = clauseDup(subscribePattern),
+            .publishClause = clauseDup(publishClause)
+        }
     });
 }
 
@@ -842,6 +907,32 @@ static Clause* unwhenizeClause(Clause* whenClause) {
     }
     return ret;
 }
+static Clause* subscriptionizeClause(Clause* publishClause) {
+    // key x was pressed
+    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    Clause* ret = malloc(SIZEOF_CLAUSE(publishClause->nTerms + 5));
+    ret->nTerms = publishClause->nTerms + 5;
+    ret->terms[0] = "subscribe";
+    for (int i = 0; i < publishClause->nTerms; i++) {
+        ret->terms[1 + i] = publishClause->terms[i];
+    }
+    ret->terms[1 + publishClause->nTerms] = "/__lambda/";
+    ret->terms[2 + publishClause->nTerms] = "with";
+    ret->terms[3 + publishClause->nTerms] = "environment";
+    ret->terms[4 + publishClause->nTerms] = "/__env/";
+    return ret;
+}
+// currently the same as unwhenizeClause, but semantically different
+static Clause* unsubscriptionizeClause(Clause* subscribeClause) {
+    // subscribe the time is /t/ /lambda/ with environment /env/
+    //        -> the time is /t/
+    Clause* ret = malloc(SIZEOF_CLAUSE(subscribeClause->nTerms - 5));
+    ret->nTerms = 0;
+    for (int i = 1; i < subscribeClause->nTerms - 4; i++) {
+        ret->terms[ret->nTerms++] = subscribeClause->terms[i];
+    }
+    return ret;
+}
 
 // React to the addition of a new statement: fire any pertinent
 // existing Whens & if the new statement is a When, then fire it with
@@ -853,6 +944,13 @@ static void reactToNewStatement(StatementRef ref) {
 
     Clause* clause = statementClause(stmt);
     assert(clause != NULL);
+
+    if (strcmp(clause->terms[0], "subscribe") == 0) {
+        // nothing to do, as subscribe is handled when events are
+        // fired
+        statementRelease(db, stmt);
+        return;
+    }
 
     if (strcmp(clause->terms[0], "when") == 0) {
         // Find the query pattern of the when:
@@ -966,6 +1064,28 @@ static void reactToNewStatement(StatementRef ref) {
     statementRelease(db, stmt);
 }
 
+static void Publish(Clause* toPublish) {
+    // key x was pressed
+    // -> subscribe key x was pressed /lambda/ with environment /__env/
+    Clause* query = subscriptionizeClause(toPublish);
+    ResultSet* rs = dbQuery(db, query);
+
+    for (size_t i = 0; i < rs->nResults; i++) {
+        Statement* subscription = statementAcquire(db, rs->results[i]);
+        if (subscription == NULL) { continue; }
+
+        Clause* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
+
+        pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toPublish);
+        free(subscriptionPattern); // doesn't own any terms.
+
+        statementRelease(db, subscription);
+    }
+
+    free(rs);
+    free(query);
+}
+
 void workerRun(WorkQueueItem item) {
 #ifdef TRACY_ENABLE
     TracyCZoneCtx zone;
@@ -973,8 +1093,10 @@ void workerRun(WorkQueueItem item) {
         TracyCZoneN(ctx, "ASSERT", 1); zone = ctx;
     } else if (item.op == RETRACT) {
         TracyCZoneN(ctx, "RETRACT", 1); zone = ctx;
-    } else if (item.op == RUN) {
-        TracyCZoneN(ctx, "RUN", 1); zone = ctx;
+    } else if (item.op == RUN_WHEN) {
+        TracyCZoneN(ctx, "RUN_WHEN", 1); zone = ctx;
+    } else if (item.op == RUN_SUBSCRIBE) {
+        TracyCZoneN(ctx, "RUN_SUBSCRIBE", 1); zone = ctx;
     } else if (item.op == EVAL) {
         TracyCZoneN(ctx, "EVAL", 1); zone = ctx;
     } else {
@@ -1011,11 +1133,17 @@ void workerRun(WorkQueueItem item) {
         dbRetractStatements(db, item.retract.pattern);
         clauseFree(item.retract.pattern);
 
-    } else if (item.op == RUN) {
+    } else if (item.op == RUN_WHEN) {
         /* printf("  when: %d:%d; stmt: %d:%d\n", item.run.when.idx, item.run.when.gen, */
         /*        item.run.stmt.idx, item.run.stmt.gen); */
-        runWhenBlock(item.run.when, item.run.whenPattern, item.run.stmt);
-        clauseFree(item.run.whenPattern);
+        runWhenBlock(item.runWhen.when, item.runWhen.whenPattern, item.runWhen.stmt);
+        clauseFree(item.runWhen.whenPattern);
+
+    } else if (item.op == RUN_SUBSCRIBE) {
+        runSubscribeBlock(item.runSubscribe.subscribeRef, item.runSubscribe.subscribePattern,
+                          item.runSubscribe.publishClause);
+        clauseFree(item.runSubscribe.subscribePattern);
+        clauseFree(item.runSubscribe.publishClause);
 
     } else if (item.op == EVAL) {
         // Used for destructors.
@@ -1072,13 +1200,19 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
     } else if (item.op == RETRACT) {
         snprintf(buf, bufsz, "Retract (%.100s)",
                  clauseToString(item.retract.pattern));
-    } else if (item.op == RUN) {
-        Statement* when = statementUnsafeGet(db, item.run.when);
-        Statement* stmt = statementUnsafeGet(db, item.run.stmt);
+    } else if (item.op == RUN_WHEN) {
+        Statement* when = statementUnsafeGet(db, item.runWhen.when);
+        Statement* stmt = statementUnsafeGet(db, item.runWhen.stmt);
         snprintf(buf, bufsz, "Run when(%.100s) pattern(%.100s) stmt(%.100s)",
                  when != NULL ? clauseToString(statementClause(when)) : "NULL",
-                 clauseToString(item.run.whenPattern),
+                 clauseToString(item.runWhen.whenPattern),
                  stmt != NULL ? clauseToString(statementClause(stmt)) : "NULL");
+    } else if (item.op == RUN_SUBSCRIBE) {
+        Statement* subscribe = statementUnsafeGet(db, item.runSubscribe.subscribeRef);
+        snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
+                 subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
+                 clauseToString(item.runSubscribe.subscribePattern),
+                 clauseToString(item.runSubscribe.publishClause));
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {
