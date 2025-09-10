@@ -244,7 +244,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   # Desired behavior: query all the other stuff every time you hit a
   # key, then destroy the when (don't want _any_ reaction after the
   # original firing, and don't want to keep the match around).
-  Subscribe keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+  Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
     ForEach! the $kbPath cursor is /cursor/ &\
              $id has program code /code/ &\
              $id has editor code /editorCode/ &\
@@ -367,7 +367,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
 
                 Hold! -key print { Claim $id has printed $code at $timestamp}
                 set jobid [expr {rand()}]
-                Publish print code $code
+                Notify: print code $code
                 Hold! -key print-${jobid} {
                   Claim $id' is printing $jobid
                 }

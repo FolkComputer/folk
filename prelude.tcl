@@ -473,7 +473,7 @@ proc When {args} {
 
     tailcall SayWithSource {*}$sourceInfo 0 false {} {*}$statement
 }
-proc Subscribe {args} {
+proc Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
     set body [lindex $args end]
 
@@ -483,8 +483,8 @@ proc Subscribe {args} {
     tailcall SayWithSource {*}$sourceInfo 0 false {} \
         subscribe {*}$pattern $body with environment $envStack
 }
-proc Publish {args} {
-    PublishImpl {*}$args
+proc Notify: {args} {
+    NotifyImpl {*}$args
 }
 proc Every {_time args} {
     if {$_time eq "time"} {

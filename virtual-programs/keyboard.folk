@@ -152,7 +152,7 @@ When /keyboard/ is a keyboard device {
             if {$keychar ne "" && $modKeyNotHeld} {
                 dict set options printable $keychar
             }
-            Publish keyboard $keyboard claims key $key is $keyState with {*}$options
+            Notify: keyboard $keyboard claims key $key is $keyState with {*}$options
         }
     }
 }

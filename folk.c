@@ -436,14 +436,14 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static void Publish(Clause* toPublish);
-static int PublishFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+static void Notify(Clause* toNotify);
+static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
-    Clause* toPublish = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+    Clause* toNotify = jimObjsToClauseWithCaching(argc - 1, argv + 1);
 
-    Publish(toPublish);
-    clauseFree(toPublish);
+    Notify(toNotify);
+    clauseFree(toNotify);
 }
 
 Jim_Obj* QuerySimple(Clause* pattern) {
@@ -619,7 +619,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "Retract!", RetractFunc, NULL, NULL);
     Jim_CreateCommand(interp, "HoldStatementGlobally!", HoldStatementGloballyFunc, NULL, NULL);
 
-    Jim_CreateCommand(interp, "PublishImpl", PublishFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "NotifyImpl", NotifyFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
@@ -810,7 +810,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
 // Caller is responsible for freeing passed in clauses
 static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePattern,
-                              Clause* publishClause) {
+                              Clause* notifyClause) {
     Statement* subscribeStmt = statementAcquire(db, subscribeRef);
     if (subscribeStmt == NULL) {  return; }
 
@@ -831,7 +831,7 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     const char* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
     Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
-    runBlock(subscribePattern, publishClause, body,
+    runBlock(subscribePattern, notifyClause, body,
         statementSourceFileName(subscribeStmt),
         statementSourceLineNumber(subscribeStmt),
         envStackObj);
@@ -855,13 +855,13 @@ static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRe
 // Copies the clauses and all their terms so it can be owned (and
 // freed) by the eventual handler of the block.
 static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscribePattern,
-                              Clause* publishClause) {
+                              Clause* notifyClause) {
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_SUBSCRIBE,
        .runSubscribe = { 
             .subscribeRef = subscribeRef,
             .subscribePattern = clauseDup(subscribePattern),
-            .publishClause = clauseDup(publishClause)
+            .notifyClause = clauseDup(notifyClause)
         }
     });
 }
@@ -920,19 +920,19 @@ static Clause* unwhenizeClause(Clause* whenClause) {
     }
     return ret;
 }
-static Clause* subscriptionizeClause(Clause* publishClause) {
+static Clause* subscriptionizeClause(Clause* notifyClause) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Clause* ret = malloc(SIZEOF_CLAUSE(publishClause->nTerms + 5));
-    ret->nTerms = publishClause->nTerms + 5;
+    Clause* ret = malloc(SIZEOF_CLAUSE(notifyClause->nTerms + 5));
+    ret->nTerms = notifyClause->nTerms + 5;
     ret->terms[0] = "subscribe";
-    for (int i = 0; i < publishClause->nTerms; i++) {
-        ret->terms[1 + i] = publishClause->terms[i];
+    for (int i = 0; i < notifyClause->nTerms; i++) {
+        ret->terms[1 + i] = notifyClause->terms[i];
     }
-    ret->terms[1 + publishClause->nTerms] = "/__lambda/";
-    ret->terms[2 + publishClause->nTerms] = "with";
-    ret->terms[3 + publishClause->nTerms] = "environment";
-    ret->terms[4 + publishClause->nTerms] = "/__env/";
+    ret->terms[1 + notifyClause->nTerms] = "/__lambda/";
+    ret->terms[2 + notifyClause->nTerms] = "with";
+    ret->terms[3 + notifyClause->nTerms] = "environment";
+    ret->terms[4 + notifyClause->nTerms] = "/__env/";
     return ret;
 }
 // currently the same as unwhenizeClause, but semantically different
@@ -1077,10 +1077,10 @@ static void reactToNewStatement(StatementRef ref) {
     statementRelease(db, stmt);
 }
 
-static void Publish(Clause* toPublish) {
+static void Notify(Clause* toNotify) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Clause* query = subscriptionizeClause(toPublish);
+    Clause* query = subscriptionizeClause(toNotify);
     ResultSet* rs = dbQuery(db, query);
 
     for (size_t i = 0; i < rs->nResults; i++) {
@@ -1089,7 +1089,7 @@ static void Publish(Clause* toPublish) {
 
         Clause* subscriptionPattern = unsubscriptionizeClause(statementClause(subscription));
 
-        pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toPublish);
+        pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toNotify);
         free(subscriptionPattern); // doesn't own any terms.
 
         statementRelease(db, subscription);
@@ -1154,9 +1154,9 @@ void workerRun(WorkQueueItem item) {
 
     } else if (item.op == RUN_SUBSCRIBE) {
         runSubscribeBlock(item.runSubscribe.subscribeRef, item.runSubscribe.subscribePattern,
-                          item.runSubscribe.publishClause);
+                          item.runSubscribe.notifyClause);
         clauseFree(item.runSubscribe.subscribePattern);
-        clauseFree(item.runSubscribe.publishClause);
+        clauseFree(item.runSubscribe.notifyClause);
 
     } else if (item.op == EVAL) {
         // Used for destructors.
@@ -1225,7 +1225,7 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
                  subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
                  clauseToString(item.runSubscribe.subscribePattern),
-                 clauseToString(item.runSubscribe.publishClause));
+                 clauseToString(item.runSubscribe.notifyClause));
     } else if (item.op == EVAL) {
         snprintf(buf, bufsz, "Eval");
     } else if (item.op == NONE) {

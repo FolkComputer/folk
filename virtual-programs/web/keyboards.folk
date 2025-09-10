@@ -49,7 +49,7 @@ Wish the web server handles route "/keyboards$" with handler {
 
           function handlePrint(kb) {
             ws.send(
-              tcl`Publish print code {Claim \$this is a keyboard with path \${kb}}`
+              tcl`Notify: print code {Claim \$this is a keyboard with path \${kb}}`
             );
           }
         </script>

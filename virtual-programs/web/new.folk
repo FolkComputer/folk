@@ -172,7 +172,7 @@ Wish the web server handles route "/new" with handler {
   function handlePrint() {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
-    ws.send(tcl`Publish print code ${code}`);
+    ws.send(tcl`Notify: print code ${code}`);
     let printBtn = document.getElementById("printBtn")
     printBtn.innerText = "Printing";
     printBtn.disabled = true;

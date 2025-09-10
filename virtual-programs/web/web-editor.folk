@@ -86,7 +86,7 @@ Wish the web server handles route {/page/(.*)$} with handler {
           function handlePrint() {
             const code = document.getElementById("code").value;
             jobid = String(Math.random());
-            ws.send(tcl`Publish print code ${code}`);
+            ws.send(tcl`Notify: print code ${code}`);
           }
         </script>
         </body>

@@ -35,7 +35,7 @@ typedef struct WorkQueueItem {
             // then the Run is invalidated.
             StatementRef subscribeRef;
             Clause* subscribePattern;
-            Clause* publishClause;
+            Clause* notifyClause;
         } runSubscribe;
         struct {
             char* code;
