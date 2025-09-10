@@ -49,7 +49,7 @@ Wish the web server handles route "/keyboards$" with handler {
 
           function handlePrint(kb) {
             ws.send(
-              tcl`Wish to print {Claim \$this is a keyboard with path \${kb}} with job-id \${String(Math.random())}`
+              tcl`Publish print code {Claim \$this is a keyboard with path \${kb}}`
             );
           }
         </script>
