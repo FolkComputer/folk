@@ -149,9 +149,11 @@ start: folk
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
 tracy-remote:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk'
 	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
 		make remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 sudo-tracy-remote:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk'
 	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
 		make sudo-remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 
