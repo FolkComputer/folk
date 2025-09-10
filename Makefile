@@ -86,8 +86,8 @@ kill-folk:
 	sudo systemctl stop folk
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
-		sudo kill -9 $$OLD_PID; \
-		while sudo kill -0 $$OLD_PID; do sleep 0.2; done; \
+		sudo pkill -9 --pgroup $$OLD_PID; \
+		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live

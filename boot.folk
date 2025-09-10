@@ -1,5 +1,10 @@
 puts "boot: Boot (PID [pid])"
 apply {{} {
+    # We setpgrp so that all subprocesses spawned by Folk, even ones
+    # that outlive Folk itself, can be killed later by their PGID (the
+    # PID in folk.pid).
+    setpgrp
+
     catch {
         set fp [open "folk.pid" r]
         set oldPid [read $fp]; close $fp
