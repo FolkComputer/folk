@@ -562,10 +562,10 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
 
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
-    if (ret == 0) {
+    if (ret != -1) {
         return JIM_OK;
     } else {
-        // TODO: Report the errno.
+        Jim_SetResultString(interp, strerror(errno), -1);
         return JIM_ERR;
     }
 }
