@@ -373,6 +373,57 @@ proc Say {args} {
 }
 proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+# returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
+proc desugarWhen {pattern body} {
+    set varNamesWillBeBound [list]
+    set isNegated false
+    for {set i 0} {$i < [llength $pattern]} {incr i} {
+        set term [lindex $pattern $i]
+        if {$term eq "&"} {
+            # Desugar this join into nested Whens.
+            set remainingPattern [lrange $pattern $i+1 end]
+            set pattern [lrange $pattern 0 $i-1]
+            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
+                set remainingTerm [lindex $remainingPattern $j]
+                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
+                    $remainingVarName in $varNamesWillBeBound} {
+                    lset remainingPattern $j \$$remainingVarName
+                }
+            }
+            set body [list When {*}$remainingPattern $body]
+            break
+
+        } elseif {[set varName [__scanVariable $term]] != 0} {
+            if {[__variableNameIsNonCapturing $varName]} {
+            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
+                # Rewrite this entire clause to be negated.
+                set isNegated true
+                lset pattern $i "/any/"
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                if {[string range $varName 0 2] eq "..."} {
+                    set varName [string range $varName 3 end]
+                }
+                lappend varNamesWillBeBound $varName
+            }
+        } elseif {[__startsWithDollarSign $term]} {
+            lset pattern $i [uplevel 2 [list subst $term]]
+        }
+    }
+
+    if {$isNegated} {
+        set negateBody [list if {[llength $__results] == 0} $body]
+        return [list \
+            [list when the collected results for $pattern are /__results/ \
+                $negateBody with environment] \
+            $varNamesWillBeBound]
+    } else {
+        return [list \
+            [list when {*}$pattern $body with environment] \
+            $varNamesWillBeBound]
+    }
+}
 proc When {args} {
     set body [lindex $args end]
     set sourceInfo [info source $body]
@@ -410,52 +461,10 @@ proc When {args} {
         set body "$prologue\n$body"
     }
 
-    set varNamesWillBeBound [list]
-    set isNegated false
-    for {set i 0} {$i < [llength $pattern]} {incr i} {
-        set term [lindex $pattern $i]
-        if {$term eq "&"} {
-            # Desugar this join into nested Whens.
-            set remainingPattern [lrange $pattern $i+1 end]
-            set pattern [lrange $pattern 0 $i-1]
-            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
-                set remainingTerm [lindex $remainingPattern $j]
-                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
-                    $remainingVarName in $varNamesWillBeBound} {
-                    lset remainingPattern $j \$$remainingVarName
-                }
-            }
-            set body [list When {*}$remainingPattern $body]
-            break
+    lassign [desugarWhen $pattern $body] statement boundVars
+    lappend statement $envStack
 
-        } elseif {[set varName [__scanVariable $term]] != 0} {
-            if {[__variableNameIsNonCapturing $varName]} {
-            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
-                # Rewrite this entire clause to be negated.
-                set isNegated true
-                lset pattern $i "/any/"
-            } else {
-                # Rewrite subsequent instances of this variable name /x/
-                # (in joined clauses) to be bound $x.
-                if {[string range $varName 0 2] eq "..."} {
-                    set varName [string range $varName 3 end]
-                }
-                lappend varNamesWillBeBound $varName
-            }
-        } elseif {[__startsWithDollarSign $term]} {
-            lset pattern $i [uplevel [list subst $term]]
-        }
-    }
-
-    if {$isNegated} {
-        set negateBody [list if {[llength $__results] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo 0 {} \
-            when the collected results for $pattern are /__results/ \
-            $negateBody with environment $envStack
-    } else {
-        tailcall SayWithSource {*}$sourceInfo 0 {} \
-            when {*}$pattern $body with environment $envStack
-    }
+    tailcall SayWithSource {*}$sourceInfo 0 {} {*}$statement
 }
 proc Subscribe {args} {
     set pattern [lrange $args 0 end-1]
