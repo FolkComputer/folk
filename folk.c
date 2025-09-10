@@ -331,7 +331,7 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
-    if (self->currentMatch && !matchIsSubscription(self->currentMatch)) {
+    if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
     } else {
         parent = MATCH_REF_NULL;
@@ -372,8 +372,8 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 6);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
+    assert(argc >= 7);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 6, argv + 6);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -388,10 +388,23 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
+    int forceParenting;
+    if (Jim_GetBoolean(interp, argv[4], &forceParenting) == JIM_ERR) {
+        return JIM_ERR;
+    }
+
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
+    }
+
+    // Error messages need to be parented to Subscriptions,
+    // but no other statements should be able to be parented
+    if (!forceParenting && matchIsSubscription(self->currentMatch)) {
+        Jim_SetResultFormatted(interp, "Cannot call Say within Subscribe (%#s)",
+            Jim_NewListObj(interp, argv + 6, argc - 6));
+        return JIM_ERR;
     }
 
     Say(clause, keepMs, destructorCode,

@@ -129,8 +129,7 @@ proc evaluateBlock {whenBody envStack} {
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
-        puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
-        Say $this has error $err with info $opts
+        Say -forceparenting $this has error $err with info $opts
     }
 }
 
@@ -341,6 +340,13 @@ proc Hold! {args} {
 }
 
 proc Say {args} {
+    if {[lindex $args 0] == "-forceparenting"} {
+        set args [lrange $args 1 end]
+        set forceParenting true
+    } else {
+        set forceParenting false
+    }
+
     set callerInfo [info frame -1]
     set sourceFileName [dict get $callerInfo file]
     set sourceLineNumber [dict get $callerInfo line]
@@ -368,6 +374,7 @@ proc Say {args} {
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
         $keepMs \
+        $forceParenting \
         $destructorCode \
         {*}$pattern
 }
@@ -464,7 +471,7 @@ proc When {args} {
     lassign [desugarWhen $pattern $body] statement boundVars
     lappend statement $envStack
 
-    tailcall SayWithSource {*}$sourceInfo 0 {} {*}$statement
+    tailcall SayWithSource {*}$sourceInfo 0 false {} {*}$statement
 }
 proc Subscribe {args} {
     set pattern [lrange $args 0 end-1]
@@ -473,7 +480,7 @@ proc Subscribe {args} {
     set sourceInfo [info source $body]
     set envStack [uplevel captureEnvStack]
 
-    tailcall SayWithSource {*}$sourceInfo 0 {} \
+    tailcall SayWithSource {*}$sourceInfo 0 false {} \
         subscribe {*}$pattern $body with environment $envStack
 }
 proc Publish {args} {
