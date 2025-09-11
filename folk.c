@@ -1291,6 +1291,7 @@ void workerExit() {
 
     // TODO: Clear everything else out?
     self->tid = 0;
+    Jim_FreeInterp(interp);
 
     pthread_exit(NULL);
 }
