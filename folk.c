@@ -419,22 +419,6 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     matchAddDestructor(self->currentMatch, d);
     return JIM_OK;
 }
-static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc == 2);
-
-    const char *unmatchRefStr = Jim_GetString(argv[1], NULL);
-    MatchRef unmatchRef;
-    if (sscanf(unmatchRefStr, "m%u:%u", &unmatchRef.idx, &unmatchRef.gen) != 2) {
-        return JIM_ERR;
-    }
-
-    Match *unmatch = matchAcquire(db, unmatchRef);
-    if (unmatch == NULL) { return JIM_OK; }
-
-    matchRemoveSelf(db, unmatch);
-    matchRelease(db, unmatch);
-    return JIM_OK;
-}
 
 static void Notify(Clause* toNotify);
 static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -623,7 +607,6 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "SayWithSource", SayWithSourceFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Destructor", DestructorFunc, NULL, NULL);
-    Jim_CreateCommand(interp, "Unmatch!", UnmatchFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "QuerySimple!", QuerySimpleFunc, NULL, NULL);
 

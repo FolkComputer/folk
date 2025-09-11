@@ -458,12 +458,12 @@ You can overwrite another program's Hold! with the `on` parameter, like
 virtual-programs/example.folk) { ... }` (if the Hold! is from the
 example.folk virtual program)
 
-### Every time
+### Subscribe:
 
-Experimental: `Every time` works almost like `When`, but it's used to
-hold when an 'event' happens without causing a reaction cascade.
+`Subscribe:` works almost like `When`, but it only executes once per `Notify:`
+and cannot support any Claims/Whens/Wishes.
 
-**You can't make Claims, Whens, or Wishes inside an `Every time`
+**You can't make Claims, Whens, or Wishes inside an `Subscribe:`
 block. You can only Hold!.**
 
 Example:
@@ -471,9 +471,13 @@ Example:
 ```
 Hold! { Claim $this has seen 0 boops }
 
-Every time there is a boop & $this has seen /n/ boops {
-  Hold! { Claim $this has seen [expr {$n + 1}] boops }
+Subscribe: there is a boop {
+  ForEach! $this has seen /n/ boops {
+    Hold! { Claim $this has seen [expr {$n + 1}] boops }
+  }
 }
+
+Notify: there is a boop
 ```
 
 If you had used `When` here, it wouldn't terminate, since the new
@@ -481,9 +485,8 @@ If you had used `When` here, it wouldn't terminate, since the new
 resulting in a `$this has seen n+2 boops` hold, then another
 retrigger, and so on.
 
-`Every time`, in contrast, will 'only react once' to the boop; nothing
-in its body will run again unless the boop goes away and an entirely
-new boop appears.
+`Subscribe:`, in contrast, will 'only react once' to the boop; nothing
+in its body will run again unless the boop notifies again.
 
 ### Animation
 

@@ -486,36 +486,6 @@ proc Subscribe: {args} {
 proc Notify: {args} {
     NotifyImpl {*}$args
 }
-proc Every {_time args} {
-    if {$_time eq "time"} {
-        # Set up a When for the outermost match, then query for any
-        # inner matches, then unmatch at the end.
-        set body [lindex $args end]
-        set src [info source $body]
-
-        set pattern [lreplace $args end end]
-        set andIdx [lsearch $pattern &]
-        if {$andIdx != -1} {
-            set firstPattern [lrange $pattern 0 $andIdx-1]
-            set restPatterns [lrange $pattern $andIdx+1 end]
-            set body [info source "set _unmatchRef \[__currentMatchRef]; \
-set __results \[Query! {*}{$restPatterns}]; \
-foreach __result \$__results { dict with __result { \
-$body
-} }
-Unmatch! \$_unmatchRef" {*}$src]
-        } else {
-            set firstPattern $pattern
-            set body [info source "set _unmatchRef \[__currentMatchRef]; \
-$body
-Unmatch! \$_unmatchRef" {*}$src]
-        }
-        tailcall When {*}$firstPattern $body
-    } else {
-        error "Every: Unknown first argument '$_time'"
-    }
-}
-
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]
