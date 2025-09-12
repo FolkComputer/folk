@@ -572,6 +572,16 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     Jim_SetResultInt(interp, self->index);
     return JIM_OK;
 }
+
+static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    int ret = setpgrp();
+    if (ret != -1) {
+        return JIM_OK;
+    } else {
+        Jim_SetResultString(interp, strerror(errno), -1);
+        return JIM_ERR;
+    }
+}
 static int exitFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
     long exitCode; Jim_GetLong(interp, argv[1], &exitCode);
@@ -625,10 +635,15 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
+
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
+
+    Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
+
     if (Jim_EvalFile(interp, "prelude.tcl") == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
         fprintf(stderr, "prelude: %s\n", Jim_GetString(Jim_GetResult(interp), NULL));
