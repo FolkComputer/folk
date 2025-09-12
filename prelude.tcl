@@ -129,7 +129,13 @@ proc evaluateBlock {whenBody envStack} {
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
-        Say -forceparenting $this has error $err with info $opts
+        if {[__isInSubscription]} {
+            # Can't Say inside of a subscription, so Hold! instead
+            # (TODO: might be a better way?)
+            Hold! -key $this-error -on $this $this has error $err with info $opts
+        } else {
+            Say $this has error $err with info $opts
+        }
     }
 }
 
@@ -340,13 +346,6 @@ proc Hold! {args} {
 }
 
 proc Say {args} {
-    if {[lindex $args 0] == "-forceparenting"} {
-        set args [lrange $args 1 end]
-        set forceParenting true
-    } else {
-        set forceParenting false
-    }
-
     set callerInfo [info frame -1]
     set sourceFileName [dict get $callerInfo file]
     set sourceLineNumber [dict get $callerInfo line]
@@ -374,7 +373,6 @@ proc Say {args} {
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
         $keepMs \
-        $forceParenting \
         $destructorCode \
         {*}$pattern
 }
@@ -471,7 +469,7 @@ proc When {args} {
     lassign [desugarWhen $pattern $body] statement boundVars
     lappend statement $envStack
 
-    tailcall SayWithSource {*}$sourceInfo 0 false {} {*}$statement
+    tailcall SayWithSource {*}$sourceInfo 0 {} {*}$statement
 }
 proc Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
@@ -480,7 +478,7 @@ proc Subscribe: {args} {
     set sourceInfo [info source $body]
     set envStack [uplevel captureEnvStack]
 
-    tailcall SayWithSource {*}$sourceInfo 0 false {} \
+    tailcall SayWithSource {*}$sourceInfo 0 {} \
         subscribe {*}$pattern $body with environment $envStack
 }
 proc Notify: {args} {

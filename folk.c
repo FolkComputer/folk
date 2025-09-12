@@ -372,8 +372,8 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 7);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 6, argv + 6);
+    assert(argc >= 6);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -388,22 +388,14 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    int forceParenting;
-    if (Jim_GetBoolean(interp, argv[4], &forceParenting) == JIM_ERR) {
-        return JIM_ERR;
-    }
-
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
-    // Error messages need to be parented to Subscriptions,
-    // but no other statements should be able to be parented
-    if (!forceParenting && matchIsSubscription(self->currentMatch)) {
-        Jim_SetResultFormatted(interp, "Cannot call Say within Subscribe (%#s)",
-            Jim_NewListObj(interp, argv + 6, argc - 6));
+    if (self->inSubscription) {
+        Jim_SetResultString(interp, "Cannot call Say within Subscribe", -1);
         return JIM_ERR;
     }
 
@@ -414,6 +406,11 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
 
 static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 2);
+    if (self->inSubscription) {
+        Jim_SetResultString(interp, "Cannot create destructor in a subscribe block", -1);
+        return JIM_ERR;
+    }
+
     Destructor* d = destructorNew(destructorHelper,
                                   strdup(Jim_GetString(argv[1], NULL)));
     matchAddDestructor(self->currentMatch, d);
@@ -520,6 +517,11 @@ static int __startsWithDollarSignFunc(Jim_Interp *interp, int argc, Jim_Obj *con
 }
 static int __currentMatchRefFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
+    if (self->currentMatch == NULL) {
+        Jim_SetEmptyResult(interp);
+        return JIM_OK;
+    }
+
     MatchRef ref = matchRef(db, self->currentMatch);
     char ret[100]; snprintf(ret, 100, "m%u:%u", ref.idx, ref.gen);
     Jim_SetResultString(interp, ret, strlen(ret));
@@ -547,6 +549,10 @@ static int __isWhenOfCurrentMatchAlreadyRunningFunc(Jim_Interp *interp, int argc
     Jim_SetResultBool(interp, statementHasOtherIncompleteChildMatch(db, when, currentMatchRef));
 
     statementRelease(db, when);
+    return JIM_OK;
+}
+static int __isInSubscriptionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    Jim_SetResultBool(interp, self->inSubscription);
     return JIM_OK;
 }
 static int __isTracyEnabledFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
@@ -618,6 +624,7 @@ static void interpBoot() {
     Jim_CreateCommand(interp, "__startsWithDollarSign", __startsWithDollarSignFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__currentMatchRef", __currentMatchRefFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isWhenOfCurrentMatchAlreadyRunning", __isWhenOfCurrentMatchAlreadyRunningFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__isInSubscription", __isInSubscriptionFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__isTracyEnabled", __isTracyEnabledFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
@@ -760,10 +767,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, self->index, false);
+        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, self->index, false);
+        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
     }
     if (!self->currentMatch) {
         statementRelease(db, when);
@@ -772,6 +779,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         }
         return;
     }
+    // make sure this is initialized
+    self->inSubscription = false;
 
     assert(whenClause->nTerms >= 5);
 
@@ -797,16 +806,11 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     Statement* subscribeStmt = statementAcquire(db, subscribeRef);
     if (subscribeStmt == NULL) {  return; }
 
-    StatementRef parents[] = { subscribeRef };
-    self->currentMatch = dbInsertMatch(db, 1, parents, self->index, true);
-
-    if (!self->currentMatch) {
-        statementRelease(db, subscribeStmt);
-        return;
-    }
-
     Clause* subscribeClause = statementClause(subscribeStmt);
     assert(subscribeClause->nTerms >= 5);
+
+    self->currentMatch = NULL;
+    self->inSubscription = true;
 
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /capturedEnvStack/
@@ -819,11 +823,8 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
         statementSourceLineNumber(subscribeStmt),
         envStackObj);
 
+    self->inSubscription = false;
     statementRelease(db, subscribeStmt);
-
-    matchCompleted(self->currentMatch);
-    matchRelease(db, self->currentMatch);
-    self->currentMatch = NULL;
 }
 
 // Copies the whenPattern Clause and all terms so it can be owned (and
@@ -841,7 +842,7 @@ static void pushRunSubscriptionBlock(StatementRef subscribeRef, Clause* subscrib
                               Clause* notifyClause) {
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN_SUBSCRIBE,
-       .runSubscribe = { 
+       .runSubscribe = {
             .subscribeRef = subscribeRef,
             .subscribePattern = clauseDup(subscribePattern),
             .notifyClause = clauseDup(notifyClause)

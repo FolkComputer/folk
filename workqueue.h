@@ -31,8 +31,7 @@ typedef struct WorkQueueItem {
         } runWhen;
         struct {
             // The subscribeRef may be invalidated while this Run is
-            // still in the workqueue -- if so,
-            // then the Run is invalidated.
+            // still in the workqueue -- if so, then the Run is invalidated.
             StatementRef subscribeRef;
             Clause* subscribePattern;
             Clause* notifyClause;
