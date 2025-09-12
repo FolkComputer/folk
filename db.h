@@ -9,6 +9,8 @@ typedef struct Statement Statement;
 typedef struct Match Match;
 typedef struct Db Db;
 
+typedef struct AtomicallyVersion AtomicallyVersion;
+
 typedef struct Destructor Destructor;
 Destructor* destructorNew(void (*fn)(void*), void* arg);
 void destructorRun(Destructor* d);
@@ -51,6 +53,7 @@ StatementRef statementRef(Db* db, Statement* stmt);
 
 // Getters:
 Clause* statementClause(Statement* stmt);
+AtomicallyVersion* statementAtomicallyVersion(Statement* stmt);
 char* statementSourceFileName(Statement* stmt);
 int statementSourceLineNumber(Statement* stmt);
 
@@ -75,6 +78,8 @@ Match* matchAcquire(Db* db, MatchRef match);
 void matchRelease(Db* db, Match* m);
 
 bool matchCheck(Db* db, MatchRef ref);
+
+AtomicallyVersion* matchAtomicallyVersion(Match* m);
 
 void matchAddDestructor(Match* m, Destructor* d);
 
@@ -103,6 +108,15 @@ typedef struct ResultSet {
 // Caller must free the returned ResultSet*.
 ResultSet* dbQuery(Db* db, Clause* pattern);
 
+// Creates and returns a new version (convergence-tracking subgraph)
+// on `key`.
+//
+// Copies `key` if needed (so the caller may safely free it
+// afterward). The returned pointer can be passed to Match and
+// Statement insertion to attach them to that version. The
+// AtomicallyVersion is guaranteed not to ever be freed.
+AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key);
+
 // Note: once you call this, ownership of `clause` transfers to the
 // DB, which then becomes responsible for freeing it later.
 //
@@ -112,7 +126,8 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // the caller. (This is mainly so that the caller can insert
 // destructors at will before doing the release.) Returns NULL if no
 // new statement was created.
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
+                                    long keepMs, AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parent,
                                     StatementRef* outReusedStatementRef);
@@ -126,6 +141,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 // The new Match is returned acquired and needs to be released by the
 // caller.
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
+                     AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex);
 
 void dbRetractStatements(Db* db, Clause* pattern);

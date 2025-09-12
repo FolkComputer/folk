@@ -328,21 +328,29 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
+static StatementRef Say(Clause* clause, long keepMs,
+                        const char *atomicallyWithKey,
+                        const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
+    AtomicallyVersion* atomicallyVersion = NULL;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
+        atomicallyVersion = matchAtomicallyVersion(self->currentMatch);
+
     } else {
         parent = MATCH_REF_NULL;
         char *s = clauseToString(clause);
-        fprintf(stderr, "Warning: Creating unparented Say (%.100s)\n",
+        fprintf(stderr, "Warning: Creating Say without parent match (%.100s)\n",
                 s);
         free(s);
     }
 
     Statement* stmt;
-    stmt = dbInsertOrReuseStatement(db, clause, keepMs,
+    if (atomicallyWithKey != NULL) {
+        atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, atomicallyWithKey);
+    }
+    stmt = dbInsertOrReuseStatement(db, clause, keepMs, atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -372,8 +380,8 @@ static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 6);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
+    assert(argc >= 7);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 6, argv + 6);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -388,13 +396,19 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
+    int atomicallyWithKeyLen;
+    const char* atomicallyWithKey = Jim_GetString(argv[4], &atomicallyWithKeyLen);
+    if (atomicallyWithKeyLen == 0) {
+        atomicallyWithKey = NULL;
+    }
+
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
 
-    Say(clause, keepMs, destructorCode,
+    Say(clause, keepMs, atomicallyWithKey, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
@@ -724,10 +738,27 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
-        self->currentMatch = dbInsertMatch(db, 2, parents, self->index);
+
+        AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
+        AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
+        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
+            whenAtomicallyVersion != stmtAtomicallyVersion) {
+            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
+                    "  when (%p): (%.150s)\n"
+                    "  stmt (%p): (%.150s)\n",
+                    whenAtomicallyVersion, clauseToString(statementClause(when)),
+                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
+        }
+        AtomicallyVersion* atomicallyVersion = stmtAtomicallyVersion ?
+            stmtAtomicallyVersion : whenAtomicallyVersion;
+        self->currentMatch = dbInsertMatch(db, 2, parents,
+                                           atomicallyVersion,
+                                           self->index);
     } else {
         StatementRef parents[] = { whenRef };
-        self->currentMatch = dbInsertMatch(db, 1, parents, self->index);
+        self->currentMatch = dbInsertMatch(db, 1, parents,
+                                           statementAtomicallyVersion(when),
+                                           self->index);
     }
     if (!self->currentMatch) {
         // A parent is gone. Abort.
@@ -1008,9 +1039,10 @@ void workerRun(WorkQueueItem item) {
         /* printf("Assert (%s)\n", clauseToString(item.assert.clause)); */
 
         Statement* stmt;
-        stmt = dbInsertOrReuseStatement(db, item.assert.clause, 0,
+        stmt = dbInsertOrReuseStatement(db, item.assert.clause,
+                                        0, NULL,
                                         item.assert.sourceFileName,
-                                       item.assert.sourceLineNumber,
+                                        item.assert.sourceLineNumber,
                                         MATCH_REF_NULL, NULL);
         if (stmt != NULL) {
             StatementRef ref = statementRef(db, stmt);

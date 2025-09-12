@@ -368,7 +368,7 @@ proc Say {args} {
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
-        $keepMs \
+        $keepMs {} \
         $destructorCode \
         {*}$pattern
 }
@@ -382,12 +382,15 @@ proc When {args} {
 
     set isNonCapturing false
     set isSerially false
+    set isAtomically false
     set pattern [list]
     foreach term $args {
         if {$term eq "(non-capturing)"} {
             set isNonCapturing true
         } elseif {$term eq "(serially)"} {
             set isSerially true
+        } elseif {$term eq "(atomically)"} {
+            set isAtomically true
         } else {
             lappend pattern $term
         }
@@ -409,6 +412,11 @@ proc When {args} {
             }
         }
         set body "$prologue\n$body"
+    }
+    if {$isAtomically} {
+        set atomicallyWithKey $pattern
+    } else {
+        set atomicallyWithKey {}
     }
 
     set varNamesWillBeBound [list]
@@ -450,11 +458,13 @@ proc When {args} {
 
     if {$isNegated} {
         set negateBody [list if {[llength $__results] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo 0 {} \
+        tailcall SayWithSource {*}$sourceInfo \
+            0 $atomicallyWithKey {} \
             when the collected results for $pattern are /__results/ \
             $negateBody with environment $envStack
     } else {
-        tailcall SayWithSource {*}$sourceInfo 0 {} \
+        tailcall SayWithSource {*}$sourceInfo \
+            0 $atomicallyWithKey {} \
             when {*}$pattern $body with environment $envStack
     }
 }
@@ -487,6 +497,7 @@ Unmatch! \$_unmatchRef" {*}$src]
         error "Every: Unknown first argument '$_time'"
     }
 }
+
 
 proc On {event args} {
     if {$event eq "unmatch"} {

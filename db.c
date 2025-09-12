@@ -187,6 +187,10 @@ typedef struct Statement {
     // removing its child matches.
     _Atomic long keepMs;
 
+    // Will be NULL if not running in an Atomically
+    // convergence-tracking subgraph.
+    AtomicallyVersion* atomicallyVersion;
+
     // Note that statement destructors are not mutable after statement
     // creation, so they can be safely looked up and inherited, unlike
     // match destructors.
@@ -219,10 +223,16 @@ typedef struct Match {
     _Atomic GenRc genRc;
 
     // Immutable match properties:
+    // -----
+
+    // Will be NULL if not running in an Atomically
+    // convergence-tracking subgraph.
+    AtomicallyVersion* atomicallyVersion;
 
     int workerThreadIndex;
 
     // Mutable match properties:
+    // -----
 
     // isCompleted is set to true once the Tcl evaluation that builds
     // the match is completed. As long as isCompleted is false,
@@ -249,6 +259,26 @@ typedef struct Hold {
     StatementRef statement;
 } Hold;
 
+typedef struct AtomicallyVersion {
+    int _Atomic version;
+
+    // When this is >0, there are still operations in flight within
+    // this Atomically context. When this is 0, this AtomicallyVersion
+    // is 'fully converged'. This should never be negative.
+    int _Atomic inflightCount;
+
+    int _Atomic refCount;
+} AtomicallyVersion;
+
+typedef struct Atomically {
+    // If key == NULL, then this Atomically is an empty slot that can
+    // be used for a new key.
+    const char* _Atomic key; // Owned by the DB.
+
+    int _Atomic latestVersion;
+    AtomicallyVersion versions[5];
+} Atomically;
+
 typedef struct Db {
     // Memory pool used to allocate statements.
     Statement statementPool[65536]; // slot 0 is reserved.
@@ -268,6 +298,12 @@ typedef struct Db {
     // statement.
     Hold holds[256];
     Mutex holdsMutex;
+
+    // One for each `atomically` key.
+    Atomically atomicallys[256];
+    // This Mutex guards the list but not the individual Atomically
+    // structs.
+    Mutex atomicallysMutex;
 } Db;
 
 ////////////////////////////////////////////////////////////
@@ -383,7 +419,8 @@ StatementRef statementRef(Db* db, Statement* stmt) {
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
 // becomes responsible for freeing it. 
-static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
+static StatementRef statementNew(Db* db, Clause* clause,
+                                 long keepMs, AtomicallyVersion* atomicallyVersion,
                                  const char* sourceFileName,
                                  int sourceLineNumber) {
     StatementRef ret;
@@ -408,10 +445,11 @@ static StatementRef statementNew(Db* db, Clause* clause, long keepMs,
     }
 
     // We should now have exclusive access to stmt, as its rc
-    // is 0 and we were the ones who made it alive
+    // is 0 and we were the ones who made it alive.
 
     atomic_store(&stmt->clause, clause);
     stmt->keepMs = keepMs;
+    stmt->atomicallyVersion = atomicallyVersion;
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
@@ -451,6 +489,10 @@ static void statementDestroy(Statement* stmt) {
 }
 
 Clause* statementClause(Statement* stmt) { return stmt->clause; }
+
+AtomicallyVersion* statementAtomicallyVersion(Statement* stmt) {
+    return stmt->atomicallyVersion;
+}
 
 char* statementSourceFileName(Statement* stmt) {
     return stmt->sourceFileName;
@@ -657,7 +699,9 @@ MatchRef matchRef(Db* db, Match* match) {
     };
 }
 
-static MatchRef matchNew(Db* db, int workerThreadIndex) {
+static MatchRef matchNew(Db* db,
+                         AtomicallyVersion* atomicallyVersion,
+                         int workerThreadIndex) {
     MatchRef ret;
     Match* match = NULL;
 
@@ -689,6 +733,7 @@ static MatchRef matchNew(Db* db, int workerThreadIndex) {
     pthread_mutex_init(&match->childStatementsMutex, &mta);
     pthread_mutexattr_destroy(&mta);
 
+    match->atomicallyVersion = atomicallyVersion;
     match->workerThreadIndex = workerThreadIndex;
     match->isCompleted = false;
 
@@ -705,6 +750,10 @@ static void matchDestroy(Match* match) {
     pthread_mutex_lock(&match->destructorSetMutex);
     destructorSetReleaseAll(&match->destructorSet);
     pthread_mutex_unlock(&match->destructorSetMutex);
+}
+
+AtomicallyVersion* matchAtomicallyVersion(Match* m) {
+    return m->atomicallyVersion;
 }
 
 static bool statementChecker(void* db, uint64_t ref) {
@@ -832,6 +881,21 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
     return resultSet;
 }
 
+AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
+    mutexLock(&db->atomicallysMutex);
+    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+        if (db->atomicallys[i].key == NULL) {
+            db->atomicallys[i].key = strdup(key);
+
+            mutexUnlock(&db->atomicallysMutex);
+            return &db->atomicallys[i];
+        }
+    }
+
+    fprintf(stderr, "dbGetOrCreateAtomicallyByKey: Ran out of Atomically slots\n");
+    exit(1);
+}
+
 // parentMatch is allowed to be NULL (meaning that no parent match is
 // specified; the statement impulse comes directly from Assert! or
 // Hold!). If parentMatch is not NULL, then you need to have
@@ -878,7 +942,8 @@ static bool tryReuseStatement(Db* db, Statement* stmt, Match* parentMatch) {
 //
 // Takes ownership of `clause` (i.e., you can't touch clause at the
 // caller after calling this!).
-Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
+Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
+                                    long keepMs, AtomicallyVersion* atomicallyVersion,
                                     const char* sourceFileName, int sourceLineNumber,
                                     MatchRef parentMatchRef,
                                     StatementRef* outReusedStatementRef) {
@@ -914,7 +979,8 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
     // We'll provisionally create a new statement to add.
     // 
     // Also transfers ownership of `clause` to the DB.
-    StatementRef ref = statementNew(db, clause, keepMs,
+    StatementRef ref = statementNew(db, clause,
+                                    keepMs, atomicallyVersion,
                                     sourceFileName, sourceLineNumber);
 
     // Now try to add to the trie: the trieAdd operation will
@@ -1028,8 +1094,9 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause, long keepMs,
 }
 
 Match* dbInsertMatch(Db* db, int nParents, StatementRef parents[],
+                     AtomicallyVersion* atomicallyVersion,
                      int workerThreadIndex) {
-    MatchRef ref = matchNew(db, workerThreadIndex);
+    MatchRef ref = matchNew(db, atomicallyVersion, workerThreadIndex);
     Match* match = matchAcquire(db, ref);
     assert(match != NULL);
 
@@ -1166,7 +1233,7 @@ Statement* dbHoldStatement(Db* db,
             hold->version = version;
 
             StatementRef reusedStatementRef;
-            newStmt = dbInsertOrReuseStatement(db, clause, keepMs,
+            newStmt = dbInsertOrReuseStatement(db, clause, keepMs, NULL,
                                                sourceFileName, sourceLineNumber,
                                                MATCH_REF_NULL,
                                                &reusedStatementRef);
