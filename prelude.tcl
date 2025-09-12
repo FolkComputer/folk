@@ -389,7 +389,7 @@ proc When {args} {
             set isNonCapturing true
         } elseif {$term eq "(serially)"} {
             set isSerially true
-        } elseif {$term eq "(atomically)"} {
+        } elseif {$term eq "-atomically"} {
             set isAtomically true
         } else {
             lappend pattern $term
