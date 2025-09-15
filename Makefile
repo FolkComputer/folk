@@ -53,7 +53,11 @@ test: folk
 test/%: test/%.folk folk
 	./folk $<
 debug-test/%: test/%.folk folk
-	lldb -- ./folk $<
+	if [ "$$(uname)" = "Darwin" ]; then \
+		lldb -o "process handle -p true -s false SIGUSR1" -- ./folk $<; \
+	else \
+		gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" --args ./folk $<; \
+	fi
 
 debug: folk
 	if [ "$$(uname)" = "Darwin" ]; then \
