@@ -25,7 +25,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	fi
 	# Hack for the gadget trigger button.
 	if [ "$$(uname)" = "Linux" ]; then \
-		sudo -n true 2>/dev/null || true && sudo setcap cap_sys_rawio+ep $@ || true; \
+		(sudo -n true 2>/dev/null && sudo setcap cap_sys_rawio+ep $@) || true; \
 	fi
 
 %.o: %.c trie.h CFLAGS
