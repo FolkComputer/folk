@@ -1,0 +1,70 @@
+set cc [C]
+
+$cc include <pthread.h>
+$cc include <assert.h>
+$cc include <stdio.h>
+$cc include <string.h>
+$cc include "jim.h"
+
+$cc code {
+    static char* holdState = NULL;
+    static pthread_mutex_t holdMutex = PTHREAD_MUTEX_INITIALIZER;
+}
+
+$cc proc init {Jim_Obj* holds} void {
+    pthread_mutex_lock(&holdMutex);
+    if (holdState == NULL) {
+        holdState = strdup(Jim_String(holds));
+    }
+    pthread_mutex_unlock(&holdMutex);
+}
+
+$cc proc saveHold {char* holdFile Jim_Obj* key Jim_Obj* clause} void {
+    pthread_mutex_lock(&holdMutex);
+    assert(holdState != NULL);
+
+    char* oldHoldState = holdState;
+
+    Jim_Obj* holdDict = Jim_NewStringObj(interp, holdState, -1);
+    Jim_DictAddElement(interp, holdDict, key, clause);
+
+    holdState = strdup(Jim_String(holdDict));
+    free(oldHoldState);
+    pthread_mutex_unlock(&holdMutex);
+
+    // write changes
+    FILE* toWrite = fopen(holdFile, "w+b");
+    assert(toWrite != NULL);
+    fwrite(Jim_String(holdDict), 1, Jim_Length(holdDict), toWrite);
+    fclose(toWrite);
+
+    Jim_FreeNewObj(interp, holdDict);
+}
+
+try {
+    set holdDeeplyLib [$cc compile]
+} on error {err opts} {
+    puts $err
+}
+
+set holdDirectory "$::env(HOME)/folk-holds"
+set holdLocation "$holdDirectory/holds.txt"
+
+if {[file exists $holdLocation]} {
+    set fd [open $holdLocation r]
+    set holds [read $fd]
+    close $fd
+
+    $holdDeeplyLib init $holds
+
+    foreach {key clause} $holds {
+        HoldStatementGlobally! $key -1 $clause 0 {} $holdLocation 0
+    }
+} else {
+    file mkdir $holdDirectory
+    $holdDeeplyLib init ""
+}
+
+Subscribe: hold deeply with key /key/ clause /clause/ {
+    $holdDeeplyLib saveHold $holdLocation $key $clause
+}

@@ -286,6 +286,7 @@ proc Hold! {args} {
     set keepMs 0
     set destructorCode {}
     set isNonCapturing false
+    set holdDeeply false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -307,6 +308,8 @@ proc Hold! {args} {
             incr i; set version [lindex $args $i]
         } elseif {$arg eq "-non-capturing"} {
             set isNonCapturing true
+        } elseif {$arg eq "-deeply"} {
+            set holdDeeply true
         } else {
             lappend clause $arg
         }
@@ -328,8 +331,6 @@ proc Hold! {args} {
         } elseif {[lindex $clause 0] eq "Wish"} {
             set clause [list $this wishes {*}[lrange $clause 1 end]]
         }
-    } else {
-        error "Hold!: empty clause"
     }
 
     if {![info exists filename] || ![info exists lineno]} {
@@ -339,6 +340,10 @@ proc Hold! {args} {
     }
 
     set key [list $on {*}$key]
+
+    if {$holdDeeply} {
+        Notify: hold deeply with key $key clause $clause
+    }
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
