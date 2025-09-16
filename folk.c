@@ -856,10 +856,14 @@ static void pushRunWhenBlock(StatementRef whenRef, Clause* whenPattern, Statemen
     // TODO: Ideally we wouldn't re-acquire.
     Statement* stmt = statementAcquire(db, whenRef);
     Statement* when = statementAcquire(db, stmtRef);
-    dbInflightIncr(stmt);
-    dbInflightIncr(when);
-    statementRelease(db, when);
-    statementRelease(db, stmt);
+    if (stmt != NULL) {
+        dbInflightIncr(stmt);
+        statementRelease(db, stmt);
+    }
+    if (when != NULL) {
+        dbInflightIncr(when);
+        statementRelease(db, when);
+    }
     
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN,
