@@ -41,11 +41,7 @@ $cc proc saveHold {char* holdFile Jim_Obj* key Jim_Obj* clause} void {
     Jim_FreeNewObj(interp, holdDict);
 }
 
-try {
-    set holdDeeplyLib [$cc compile]
-} on error {err opts} {
-    puts $err
-}
+set holdDeeplyLib [$cc compile]
 
 set holdDirectory "$::env(HOME)/folk-holds"
 set holdLocation "$holdDirectory/holds.txt"
