@@ -8,15 +8,18 @@ When -atomically whatever {
 }
 Claim whatever
 
-# FIXME: do an atomicity-respecting Query! for the earlier
-# Claims. they shouldn't show up
-When we started running {
-    assert {[llength [Query! -atomically stuff should run]] == 0}
-    assert {[llength [Query! -atomically we started running]] == 0}
+sleep 0.5
 
-    sleep 2
-    assert {[llength [Query! -atomically stuff should run]] == 1}
-    assert {[llength [Query! -atomically we started running]] == 1}
+assert {[llength [Query! -atomically stuff should run]] == 0}
+assert {[llength [Query! -atomically we started running]] == 0}
 
-    Exit! 0
-}
+sleep 2
+puts =====
+puts [join [Query! /someone/ claims /...xxx/] \n]
+puts =====
+
+assert {[llength [Query! -atomically stuff should run]] == 1}
+assert {[llength [Query! -atomically we started running]] == 1}
+
+Exit! 0
+

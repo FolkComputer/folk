@@ -287,6 +287,7 @@ Statement* HoldStatementGloballyAcquiring(const char *key, double version,
             statementRelease(db, stmt);
         }
     }
+
     return newStmt;
 }
 void HoldStatementGlobally(const char *key, double version,
@@ -296,6 +297,7 @@ void HoldStatementGlobally(const char *key, double version,
                                                      clause, keepMs, destructorCode,
                                                      sourceFileName, sourceLineNumber);
     if (stmt != NULL) {
+        dbInflightDecr(stmt);
         statementRelease(db, stmt);
     }
 }
@@ -365,9 +367,11 @@ static StatementRef Say(Clause* clause, long keepMs,
         }
 
         StatementRef ref = statementRef(db, stmt);
-        statementRelease(db, stmt);
 
         reactToNewStatement(ref);
+
+        dbInflightDecr(stmt);
+        statementRelease(db, stmt);
         return ref;
 
     } else {
@@ -437,13 +441,26 @@ static int UnmatchFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-Jim_Obj* QuerySimple(Clause* pattern) {
+Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
     ResultSet* rs = dbQuery(db, pattern);
 
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
+
+        // If `isAtomically` is on, then throw away any
+        // statement that has an AtomicallyVersion _and_ that
+        // AtomicallyVersion isn't converged yet.
+        if (isAtomically &&
+            statementAtomicallyVersion(result) != NULL &&
+            !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+
+            fprintf(stderr, "DISCARD %.100s\n",
+                    clauseToString(statementClause(result)));
+            statementRelease(db, result);
+            continue;
+        }
 
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
@@ -468,15 +485,20 @@ Jim_Obj* QuerySimple(Clause* pattern) {
 }
 
 static int QuerySimpleFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 2);
+    assert(argc >= 3);
 
-    Clause* pattern = jimObjsToClauseWithCaching(argc - 1, argv + 1);
+    int isAtomically;
+    if (Jim_GetBoolean(interp, argv[1], &isAtomically) != JIM_OK) {
+        return JIM_ERR;
+    }
+
+    Clause* pattern = jimObjsToClauseWithCaching(argc - 2, argv + 2);
 /* #ifdef TRACY_ENABLE */
 /*     char *s = clauseToString(pattern); */
 /*     TracyCMessageFmt("query: %.200s", s); free(s); */
 /* #endif */
 
-    Jim_Obj *retObj = QuerySimple(pattern);
+    Jim_Obj *retObj = QuerySimple(isAtomically, pattern);
     clauseFree(pattern);
     
     Jim_SetResult(interp, retObj);
@@ -803,6 +825,9 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     }
     interp->signal_level--;
 
+    dbInflightDecr(when);
+    dbInflightDecr(stmt);
+
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
 
@@ -827,10 +852,20 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
 }
 // Copies the whenPattern Clause and all terms so it can be owned (and
 // freed) by the eventual handler of the block.
-static void pushRunWhenBlock(StatementRef when, Clause* whenPattern, StatementRef stmt) {
+static void pushRunWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+    // TODO: Ideally we wouldn't re-acquire.
+    Statement* stmt = statementAcquire(db, whenRef);
+    Statement* when = statementAcquire(db, stmtRef);
+    dbInflightIncr(stmt);
+    dbInflightIncr(when);
+    statementRelease(db, when);
+    statementRelease(db, stmt);
+    
     appropriateWorkQueuePush((WorkQueueItem) {
        .op = RUN,
-       .run = { .when = when, .whenPattern = clauseDup(whenPattern), .stmt = stmt }
+       .run = { .when = whenRef,
+                .whenPattern = clauseDup(whenPattern),
+                .stmt = stmtRef }
     });
 }
 
@@ -1046,9 +1081,11 @@ void workerRun(WorkQueueItem item) {
                                         MATCH_REF_NULL, NULL);
         if (stmt != NULL) {
             StatementRef ref = statementRef(db, stmt);
-            statementRelease(db, stmt);
 
             reactToNewStatement(ref);
+
+            dbInflightDecr(stmt);
+            statementRelease(db, stmt);
         }
         free(item.assert.sourceFileName);
 

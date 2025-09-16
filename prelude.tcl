@@ -516,9 +516,11 @@ proc Query! {args} {
     # HACK: this (parsing &s and filling resolved vars) is mostly
     # copy-and-pasted from When.
 
+    set isAtomically false
+
     # TODO: refactor common logic out? is it worth it?
 
-    set pattern $args
+    set pattern [list]
     set varNamesWillBeBound [list]
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
@@ -534,6 +536,9 @@ proc Query! {args} {
             }
             break
 
+        } elseif {$term eq "-atomically"} {
+            set isAtomically true
+
         } elseif {[set varName [__scanVariable $term]] != 0} {
             if {[__variableNameIsNonCapturing $varName]} {
             } elseif {$varName eq "nobody" || $varName eq "nothing"} {
@@ -547,20 +552,25 @@ proc Query! {args} {
                 }
                 lappend varNamesWillBeBound $varName
             }
+
+            lappend pattern $term
+
         } elseif {[__startsWithDollarSign $term]} {
-            lset pattern $i [uplevel subst $term]
+            lappend pattern [uplevel subst $term]
+        } else {
+            lappend pattern $term
         }
     }
 
     if {[llength $pattern] >= 2 && ([lindex $pattern 1] eq "claims" ||
                                     [lindex $pattern 1] eq "wishes")} {
-        set results0 [QuerySimple! {*}$pattern]
+        set results0 [QuerySimple! $isAtomically {*}$pattern]
     } else {
         # If the pattern doesn't already have `claims` or `wishes` in
         # second position, then automatically query for the claimized
         # version of the pattern as well.
-        set results0 [concat [QuerySimple! {*}$pattern] \
-                          [QuerySimple! /someone/ claims {*}$pattern]]
+        set results0 [concat [QuerySimple! $isAtomically {*}$pattern] \
+                          [QuerySimple! $isAtomically /someone/ claims {*}$pattern]]
     }
 
     if {![info exists remainingPattern]} {
@@ -570,7 +580,8 @@ proc Query! {args} {
     set results [list]
     foreach result0 $results0 {
         dict with result0 {
-            foreach result [Query! {*}$remainingPattern] {
+            foreach result [Query! {*}[if $isAtomically [list -atomically] else list] \
+                                {*}$remainingPattern] {
                 lappend results [dict merge $result0 $result]
             }
         }

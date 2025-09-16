@@ -263,8 +263,9 @@ typedef struct AtomicallyVersion {
     int _Atomic version;
 
     // When this is >0, there are still operations in flight within
-    // this Atomically context. When this is 0, this AtomicallyVersion
-    // is 'fully converged'. This should never be negative.
+    // this AtomicallyVersion arena. When this is 0, this
+    // AtomicallyVersion is 'fully converged'. This should never be
+    // negative.
     int _Atomic inflightCount;
 
     int _Atomic refCount;
@@ -449,6 +450,13 @@ static StatementRef statementNew(Db* db, Clause* clause,
 
     atomic_store(&stmt->clause, clause);
     stmt->keepMs = keepMs;
+
+    // inflightCount must start incremented so that this
+    // atomicallyVersion never reports convergence (inflightCount = 0)
+    // before the first reaction is dispatched.
+    if (atomicallyVersion != NULL) {
+        atomicallyVersion->inflightCount++;
+    }
     stmt->atomicallyVersion = atomicallyVersion;
 
     destructorSetInit(&stmt->destructorSet);
@@ -838,6 +846,8 @@ Db* dbNew() {
 
     mutexInit(&ret->holdsMutex);
 
+    mutexInit(&ret->atomicallysMutex);
+
     return ret;
 }
 
@@ -883,17 +893,62 @@ ResultSet* dbQuery(Db* db, Clause* pattern) {
 
 AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     mutexLock(&db->atomicallysMutex);
-    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
-        if (db->atomicallys[i].key == NULL) {
-            db->atomicallys[i].key = strdup(key);
 
-            mutexUnlock(&db->atomicallysMutex);
-            return &db->atomicallys[i];
+    Atomically* atomically = NULL;
+    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+        if (db->atomicallys[i].key != NULL &&
+            strcmp(db->atomicallys[i].key, key) == 0) {
+
+            atomically = &db->atomicallys[i];
+            break;
         }
     }
+    if (atomically == NULL) {
+        for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+            if (db->atomicallys[i].key == NULL) {
+                db->atomicallys[i].key = strdup(key);
+                atomically = &db->atomicallys[i];
+                break;
+            }
+        }
+    }
+    if (atomically == NULL) {
+        fprintf(stderr, "dbGetOrCreateAtomicallyByKey: Ran out of Atomically slots\n");
+        exit(1);
+    }
+    mutexUnlock(&db->atomicallysMutex);
 
-    fprintf(stderr, "dbGetOrCreateAtomicallyByKey: Ran out of Atomically slots\n");
-    exit(1);
+    int version = (++atomically->latestVersion) %
+        sizeof(atomically->versions)/sizeof(atomically->versions[0]);
+
+    AtomicallyVersion* atomicallyVersion =
+        &atomically->versions[version];
+    // FIXME: assert old values are bad, do something with refcount
+    atomicallyVersion->version = version;
+    atomicallyVersion->inflightCount = 0;
+    return atomicallyVersion;
+}
+
+bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
+    return atomicallyVersion->inflightCount == 0;
+}
+int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
+    printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount);
+    return atomicallyVersion->inflightCount;
+}
+void dbInflightIncr(Statement* stmt) {
+    if (stmt != NULL && stmt->atomicallyVersion != NULL) {
+        stmt->atomicallyVersion->inflightCount++;
+        printf("dbInflightIncr (%s) -> %d\n", clauseToString(stmt->clause),
+               stmt->atomicallyVersion->inflightCount);
+    }
+}
+void dbInflightDecr(Statement* stmt) {
+    if (stmt != NULL && stmt->atomicallyVersion != NULL) {
+        stmt->atomicallyVersion->inflightCount--;
+        printf("dbInflightDecr (%s) -> %d\n", clauseToString(stmt->clause),
+               stmt->atomicallyVersion->inflightCount);
+    }
 }
 
 // parentMatch is allowed to be NULL (meaning that no parent match is

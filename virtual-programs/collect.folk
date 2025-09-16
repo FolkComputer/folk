@@ -181,6 +181,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         free(resultStmts);
 
         if (stmt != NULL) {
+            dbInflightDecr(stmt);
             statementRelease(db, stmt);
         }
     }
