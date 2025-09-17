@@ -286,7 +286,7 @@ proc Hold! {args} {
     set keepMs 0
     set destructorCode {}
     set isNonCapturing false
-    set holdDeeply false
+    set saveHold false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -308,8 +308,11 @@ proc Hold! {args} {
             incr i; set version [lindex $args $i]
         } elseif {$arg eq "-non-capturing"} {
             set isNonCapturing true
-        } elseif {$arg eq "-deeply"} {
-            set holdDeeply true
+        } elseif {$arg eq "-save"} {
+            set saveHold true
+        } elseif {$arg eq "--"} {
+            incr i; lappend clause {*}[lrange $args $i end]
+            break
         } else {
             lappend clause $arg
         }
@@ -339,11 +342,11 @@ proc Hold! {args} {
         set lineno [dict get $frame line]
     }
 
-    set key [list $on {*}$key]
-
-    if {$holdDeeply} {
-        Notify: hold deeply with key $key clause $clause
+    if {$saveHold} {
+        Notify: save hold on $on with key $key clause $clause
     }
+
+    set key [list $on {*}$key]
 
     tailcall HoldStatementGlobally! \
         $key $version $clause $keepMs $destructorCode \
