@@ -130,48 +130,37 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
 set savedHoldsLib [$cc compile]
 $savedHoldsLib init
 
-set holdDirectory "$::env(HOME)/folk-holds"
+When /someone/ wishes to deserialize a hold with filename /anything/ contents /holds/ {
+    # the hold file's first line is its canonical name (since
+    # having / in a filename would mess a lot of stuff up),
+    # while the rest of the file is a dict of holds
+    set canonicalName [lindex $holds 0]
+    set holdDict [lrange $holds 1 end]
 
-if {[file isdirectory $holdDirectory]} {
-    set holdFiles [glob -nocomplain $holdDirectory/*]
-
-    foreach holdFile $holdFiles {
-        set fd [open $holdFile r]
-        set holds [read $fd]
-        close $fd
-
-        # the hold file's first line is its canonical name (since
-        # having / in a filename would mess a lot of stuff up),
-        # while the rest of the file is a dict of holds
-        set canonicalName [lindex $holds 0]
-        set holdDict [lrange $holds 1 end]
-
-        dict for {key clause} $holdDict {
-            Hold! -on $canonicalName -key $key -- {*}$clause
-        }
-
-        $savedHoldsLib loadHolds $canonicalName $holdDict
+    dict for {key clause} $holdDict {
+        Hold! -on $canonicalName -key $key -- {*}$clause
     }
-} else {
-    puts "making hold directory"
-    file mkdir $holdDirectory
+
+    $savedHoldsLib loadHolds $canonicalName $holdDict
 }
 
-Subscribe: save hold on /on/ with key /key/ clause /clause/ {
-    set canonical $on
-    set tclEscaped [list $on]
-    set escapedFilename ""
+When the hold save directory is /holdDirectory/ {
+    Subscribe: save hold on /on/ with key /key/ clause /clause/ {
+        set canonical $on
+        set tclEscaped [list $on]
+        set escapedFilename ""
 
-    # does it match virtual-programs/**/*.folk? If so,
-    # chop off virtual-programs/
-    if {![regexp {^virtual-programs/(.*\.folk)} $canonical -> escapedFilename]} {
-        set escapedFilename $canonical
+        # does it match virtual-programs/**/*.folk? If so,
+        # chop off virtual-programs/
+        if {![regexp {^virtual-programs/(.*\.folk)} $canonical -> escapedFilename]} {
+            set escapedFilename $canonical
+        }
+
+        # replace all / with __
+        set escapedFilename [regsub -all -- / $escapedFilename __]
+        set escapedFilename "$holdDirectory/$escapedFilename"
+
+        $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
+            $key $clause
     }
-
-    # replace all / with __
-    set escapedFilename [regsub -all -- / $escapedFilename __]
-    set escapedFilename "$holdDirectory/$escapedFilename"
-
-    $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
-        $key $clause
 }
