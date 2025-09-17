@@ -175,5 +175,3 @@ Subscribe: save hold on /on/ with key /key/ clause /clause/ {
     $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
         $key $clause
 }
-
-Hold! -save -key something Claim test
