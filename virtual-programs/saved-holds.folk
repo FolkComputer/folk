@@ -86,7 +86,12 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
         holdDict = Jim_NewStringObj(interp, (char *)Jim_GetHashEntryVal(he), -1);
     }
 
-    Jim_DictAddElement(interp, holdDict, key, clause);
+    // empty clause, e.g. removal
+    if (Jim_Length(clause) == 0) {
+        Jim_DictAddElement(interp, holdDict, key, NULL);
+    } else {
+        Jim_DictAddElement(interp, holdDict, key, clause);
+    }
 
     if (he == NULL) {
         Jim_AddHashEntry(&holds, (const void *)canonical, (void *)Jim_String(holdDict));
@@ -169,7 +174,6 @@ Subscribe: save hold on /on/ with key /key/ clause /clause/ {
 
     $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
         $key $clause
-    puts written
 }
 
 Hold! -save -key something Claim test
