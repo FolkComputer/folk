@@ -6,40 +6,10 @@ When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     Claim (keep 100ms) tag $tag has a program
 }
 
-When (non-capturing) /type/ /obj/ has a program {
+When (non-capturing) /type/ /obj/ has a program &\
+                     /obj/ has program /code/ {
     puts stderr "Added $type $obj"
     On unmatch { puts "Removed $type $obj" }
 
-    try {
-        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.folk.temp"]} {
-            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk.temp" r]
-        } else {
-            if {![file exists "$::env(HOME)/folk-printed-programs/$obj.folk"] &&
-                ($::thisNode eq "folk-beads" || $::thisNode eq "folk-convivial" || $::thisNode eq "gadget-platinum")} {
-                # HACK: 'Page fault' to folk0, try getting page from
-                # there. Ideally we would have some general (Avahi?)
-                # way of finding the 'authoritative' node on the local
-                # network, or broadcasting out, and getting pages from
-                # there.
-                exec curl --output "$::env(HOME)/folk-printed-programs/$obj.folk" \
-                    "http://folk0.local:4273/printed-programs/$obj.folk" &
-                exec curl --output "$::env(HOME)/folk-printed-programs/$obj.meta.folk" \
-                    "http://folk0.local:4273/printed-programs/$obj.meta.folk" &
-                # HACK: It won't be reloaded until you redetect the tag.
-            }
-            set fd [open "$::env(HOME)/folk-printed-programs/$obj.folk" r]
-        }
-        set code [read $fd]
-        close $fd
-
-        Claim $obj has program code $code
-
-        if {[file exists "$::env(HOME)/folk-printed-programs/$obj.meta.folk"]} {
-            set mfd [open "$::env(HOME)/folk-printed-programs/$obj.meta.folk" r]
-            set metacode [read $mfd]; close $mfd
-            apply [list {this} $metacode] $obj
-        }
-    } on error err {
-        puts stderr "No code for $type $obj ($err):\n  [errorInfo $err [info stacktrace]]"
-    }
+    Claim $obj has program code $code
 }

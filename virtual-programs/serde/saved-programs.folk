@@ -1,0 +1,11 @@
+When /someone/ wishes to deserialize a program with filename /filename/ contents /programCode/ {
+    if {[file extension $filename] != ".folk"} {
+        # wrong type of program file
+        return
+    }
+
+    set programId [file rootname [file tail $filename]]
+    Claim $programId has program $programCode
+}
+
+# saving is handled in print.folk
