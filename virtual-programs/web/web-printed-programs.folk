@@ -1,6 +1,6 @@
 Wish the web server handles route {/printed-programs/[^/]+\.folk$} with handler {
     regexp {/printed-programs/([^/]+)\.folk$} $path -> prefix
-    set filename "../folk-printed-programs/$prefix.folk" 
+    set filename "../folk-data/program/$prefix.folk" 
     set fp [open $filename r]
     set data [read $fp]
     close $fp

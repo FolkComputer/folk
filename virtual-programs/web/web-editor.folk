@@ -1,7 +1,7 @@
 Wish the web server handles route {/page/(.*)$} with handler {
     regexp {/page/(.*)$} $path -> program_id
     set filenames [list \
-        "$::env(HOME)/folk-printed-programs/$program_id.folk" \
+        "$::env(HOME)/folk-data/program/$program_id.folk" \
         "$::env(HOME)/folk-live/$program_id.folk" \
         "user-programs/[info hostname]/$program_id.folk" \
         "virtual-programs/$program_id.folk" \
@@ -72,13 +72,13 @@ Wish the web server handles route {/page/(.*)$} with handler {
             const code = document.getElementById("code").value;
             ws.send(tcl`
               set fp [open file_name w]
-              puts -nonewline $fp [binary decode base64 ${btoa(code)}]
+              puts -nonewline $fp ${code}
               close $fp
               puts "Saved program_id.folk"
             `);
 
             if (isVirtualProgram) {
-              ws.send(tcl`EditVirtualProgram file_name [binary decode base64 ${btoa(code)}`)
+              ws.send(tcl`EditVirtualProgram file_name ${code}`)
             }
           }
 
