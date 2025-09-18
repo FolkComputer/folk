@@ -5,9 +5,7 @@ When when the /serdeType/ save directory is /anything/ \
     set serdeDirectory "$dataDirectory/$serdeType"
 
     # make sure directory exists
-    file mkdir $serdeDirectory
-    # folder randomly has wrong permissions??
-    exec chmod 775 $serdeDirectory
+    exec mkdir -p $serdeDirectory
 
     Claim the $serdeType save directory is $serdeDirectory
 }
@@ -28,7 +26,5 @@ if {[file isdirectory $dataDirectory]} {
         }
     }
 } else {
-    file mkdir $dataDirectory
-    # folder randomly has wrong permissions??
-    exec chmod 775 $dataDirectory
+    exec mkdir -p $dataDirectory
 }

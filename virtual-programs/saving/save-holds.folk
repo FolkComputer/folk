@@ -163,4 +163,5 @@ When the hold save directory is /holdDirectory/ {
         $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
             $key $clause
     }
+    Claim saving is ready
 }
