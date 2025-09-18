@@ -1026,7 +1026,4 @@ When the calibration matLib is /matLib/ &\
 
     Hold! -save -on calibration -key calibration \
         Claim the calibration is $calibration
-
-    set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
-    puts $fd $calibration; close $fd
 }

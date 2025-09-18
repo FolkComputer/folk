@@ -193,8 +193,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
 
                 ws.evaluate(`
                   set boardPdf [binary decode base64 {\${boardSrc}}]
-                  set fd [open /tmp/folk-calibration-board.pdf w]
-                  fconfigure \$fd -encoding binary -translation binary
+                  set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
                   exec lpr /tmp/folk-calibration-board.pdf
                 `);
