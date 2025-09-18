@@ -93,8 +93,8 @@ When /someone/ wishes /p/ runs Unix command /command/ with arguments /args/ {
 }
 
 # Convenience wrapper for commands without arguments
-When /someone/ wishes /p/ runs Unix command /command/ {
-	Say $someone wishes $p runs Unix command $command with arguments [list]
+When /wisher/ wishes /p/ runs Unix command /command/ {
+	Say $wisher wishes $p runs Unix command $command with arguments [list]
 }
 
 # When /someone/ wishes /p/ tests Unix commands {
