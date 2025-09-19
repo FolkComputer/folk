@@ -737,6 +737,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
 - weird extra space in editor on boot
+- ~~fix removal of program when tab closes~~
+- fix calibration screwing up system state
+- persist transient errors
+- invert changers
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
