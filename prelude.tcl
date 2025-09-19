@@ -129,6 +129,7 @@ proc evaluateBlock {whenBody envStack} {
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
+        puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
         if {[__isInSubscription]} {
             # Can't Say inside of a subscription, so Hold! instead
             # (TODO: might be a better way?)
