@@ -152,10 +152,20 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
 
     if {$cameraWidth < 1920} {
-        Retract! /someone/ wishes $::thisNode uses camera $camera \
-            with width $cameraWidth height $cameraHeight
-        Assert! $this wishes $::thisNode uses camera $camera with width 1920 height 1080
-        # TODO: restore old camera resolution later
+        set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
+        if {[llength $camResults] == 1} {
+            set camOpts [dict get [lindex $camResults 0] camOpts]
+            if {![dict exists $camOpts crop]} {
+                Retract! /someone/ wishes $::thisNode uses camera $camera \
+                    with width $cameraWidth height $cameraHeight
+                Assert! $this wishes $::thisNode uses camera $camera \
+                    with width 1920 height 1080
+                # TODO: restore old camera resolution later
+            }
+
+        } else {
+            puts stderr "calibrate: Warning: camera $camera has [llength $camResults] use wishes"
+        }
     }
 
     package require linalg
