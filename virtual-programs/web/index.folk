@@ -2,7 +2,7 @@ When the db library is /dbLib/ {
   Wish the web server handles route "/" with handler [list apply {{db dbLib} {
     set l [list]
     # You need to use the Simple form so it doesn't auto-claimize it.
-    set results [QuerySimple! /...terms/]
+    set results [QuerySimple! false /...terms/]
     foreach result $results { dict with result {
         set childMatchRefs [$dbLib childMatches $db $__ref]
         set childMatchInfo [join [lmap childMatchRef $childMatchRefs {
