@@ -4,7 +4,7 @@
 #include "db.h"
 #include "trie.h"
 
-typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, RUN, EVAL } WorkQueueOp;
+typedef enum WorkQueueOp { NONE, ASSERT, RETRACT, RUN_WHEN, RUN_SUBSCRIBE, EVAL } WorkQueueOp;
 typedef struct WorkQueueItem {
     WorkQueueOp op;
 
@@ -28,7 +28,14 @@ typedef struct WorkQueueItem {
             StatementRef when;
             Clause* whenPattern;
             StatementRef stmt;
-        } run;
+        } runWhen;
+        struct {
+            // The subscribeRef may be invalidated while this Run is
+            // still in the workqueue -- if so, then the Run is invalidated.
+            StatementRef subscribeRef;
+            Clause* subscribePattern;
+            Clause* notifyClause;
+        } runSubscribe;
         struct {
             char* code;
         } eval;

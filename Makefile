@@ -28,7 +28,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 		(sudo -n true 2>/dev/null && sudo setcap cap_sys_rawio+ep $@) || true; \
 	fi
 
-%.o: %.c trie.h CFLAGS
+%.o: %.c trie.h workqueue.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public

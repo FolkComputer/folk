@@ -123,15 +123,20 @@ proc applyBlock {body envStack} {
     tailcall apply [list $names $body] {*}$values
 }
 
-proc evaluateWhenBlock {whenBody envStack} {
+proc evaluateBlock {whenBody envStack} {
     try {
         applyBlock $whenBody $envStack
-
     } on error {err opts} {
         set errorInfo [dict get $opts -errorinfo]
         set this [lindex $errorInfo 1]
         puts stderr "\nError in $this: $err\n  [errorInfo $err $errorInfo]"
-        Say $this has error $err with info $opts
+        if {[__isInSubscription]} {
+            # Can't Say inside of a subscription, so Hold! instead
+            # (TODO: might be a better way?)
+            Hold! -key $this-error -on $this $this has error $err with info $opts
+        } else {
+            Say $this has error $err with info $opts
+        }
     }
 }
 
@@ -282,6 +287,7 @@ proc Hold! {args} {
     set keepMs 0
     set destructorCode {}
     set isNonCapturing false
+    set saveHold false
     for {set i 0} {$i < [llength $args]} {incr i} {
         set arg [lindex $args $i]
         if {$arg eq "-on"} {
@@ -303,6 +309,11 @@ proc Hold! {args} {
             incr i; set version [lindex $args $i]
         } elseif {$arg eq "-non-capturing"} {
             set isNonCapturing true
+        } elseif {$arg eq "-save"} {
+            set saveHold true
+        } elseif {$arg eq "--"} {
+            incr i; lappend clause {*}[lrange $args $i end]
+            break
         } else {
             lappend clause $arg
         }
@@ -324,14 +335,16 @@ proc Hold! {args} {
         } elseif {[lindex $clause 0] eq "Wish"} {
             set clause [list $this wishes {*}[lrange $clause 1 end]]
         }
-    } else {
-        error "Hold!: empty clause"
     }
 
     if {![info exists filename] || ![info exists lineno]} {
         set frame [info frame -1]
         set filename [dict get $frame file]
         set lineno [dict get $frame line]
+    }
+
+    if {$saveHold} {
+        Notify: save hold on $on with key $key clause $clause
     }
 
     set key [list $on {*}$key]
@@ -374,6 +387,57 @@ proc Say {args} {
 }
 proc Claim {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] claims {*}$args }
 proc Wish {args} { upvar this this; tailcall Say [expr {[info exists this] ? $this : "<unknown>"}] wishes {*}$args }
+# returns the statement to Say/Assert (minus the envStack), as well as all bound variable names
+proc desugarWhen {pattern body} {
+    set varNamesWillBeBound [list]
+    set isNegated false
+    for {set i 0} {$i < [llength $pattern]} {incr i} {
+        set term [lindex $pattern $i]
+        if {$term eq "&"} {
+            # Desugar this join into nested Whens.
+            set remainingPattern [lrange $pattern $i+1 end]
+            set pattern [lrange $pattern 0 $i-1]
+            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
+                set remainingTerm [lindex $remainingPattern $j]
+                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
+                    $remainingVarName in $varNamesWillBeBound} {
+                    lset remainingPattern $j \$$remainingVarName
+                }
+            }
+            set body [list When {*}$remainingPattern $body]
+            break
+
+        } elseif {[set varName [__scanVariable $term]] != 0} {
+            if {[__variableNameIsNonCapturing $varName]} {
+            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
+                # Rewrite this entire clause to be negated.
+                set isNegated true
+                lset pattern $i "/any/"
+            } else {
+                # Rewrite subsequent instances of this variable name /x/
+                # (in joined clauses) to be bound $x.
+                if {[string range $varName 0 2] eq "..."} {
+                    set varName [string range $varName 3 end]
+                }
+                lappend varNamesWillBeBound $varName
+            }
+        } elseif {[__startsWithDollarSign $term]} {
+            lset pattern $i [uplevel 2 [list subst $term]]
+        }
+    }
+
+    if {$isNegated} {
+        set negateBody [list if {[llength $__results] == 0} $body]
+        return [list \
+            [list when the collected results for $pattern are /__results/ \
+                $negateBody with environment] \
+            $varNamesWillBeBound]
+    } else {
+        return [list \
+            [list when {*}$pattern $body with environment] \
+            $varNamesWillBeBound]
+    }
+}
 proc When {args} {
     set body [lindex $args end]
     set sourceInfo [info source $body]
@@ -419,85 +483,27 @@ proc When {args} {
         set atomicallyWithKey {}
     }
 
-    set varNamesWillBeBound [list]
-    set isNegated false
-    for {set i 0} {$i < [llength $pattern]} {incr i} {
-        set term [lindex $pattern $i]
-        if {$term eq "&"} {
-            # Desugar this join into nested Whens.
-            set remainingPattern [lrange $pattern $i+1 end]
-            set pattern [lrange $pattern 0 $i-1]
-            for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
-                set remainingTerm [lindex $remainingPattern $j]
-                if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&
-                    $remainingVarName in $varNamesWillBeBound} {
-                    lset remainingPattern $j \$$remainingVarName
-                }
-            }
-            set body [list When {*}$remainingPattern $body]
-            break
+    lassign [desugarWhen $pattern $body] statement boundVars
+    lappend statement $envStack
 
-        } elseif {[set varName [__scanVariable $term]] != 0} {
-            if {[__variableNameIsNonCapturing $varName]} {
-            } elseif {$varName eq "nobody" || $varName eq "nothing"} {
-                # Rewrite this entire clause to be negated.
-                set isNegated true
-                lset pattern $i "/any/"
-            } else {
-                # Rewrite subsequent instances of this variable name /x/
-                # (in joined clauses) to be bound $x.
-                if {[string range $varName 0 2] eq "..."} {
-                    set varName [string range $varName 3 end]
-                }
-                lappend varNamesWillBeBound $varName
-            }
-        } elseif {[__startsWithDollarSign $term]} {
-            lset pattern $i [uplevel [list subst $term]]
-        }
-    }
-
-    if {$isNegated} {
-        set negateBody [list if {[llength $__results] == 0} $body]
-        tailcall SayWithSource {*}$sourceInfo \
-            0 $atomicallyWithKey {} \
-            when the collected results for $pattern are /__results/ \
-            $negateBody with environment $envStack
-    } else {
-        tailcall SayWithSource {*}$sourceInfo \
-            0 $atomicallyWithKey {} \
-            when {*}$pattern $body with environment $envStack
-    }
-}
-proc Every {_time args} {
-    if {$_time eq "time"} {
-        # Set up a When for the outermost match, then query for any
-        # inner matches, then unmatch at the end.
-        set body [lindex $args end]
-        set src [info source $body]
-
-        set pattern [lreplace $args end end]
-        set andIdx [lsearch $pattern &]
-        if {$andIdx != -1} {
-            set firstPattern [lrange $pattern 0 $andIdx-1]
-            set restPatterns [lrange $pattern $andIdx+1 end]
-            set body [info source "set _unmatchRef \[__currentMatchRef]; \
-set __results \[Query! {*}{$restPatterns}]; \
-foreach __result \$__results { dict with __result { \
-$body
-} }
-Unmatch! \$_unmatchRef" {*}$src]
-        } else {
-            set firstPattern $pattern
-            set body [info source "set _unmatchRef \[__currentMatchRef]; \
-$body
-Unmatch! \$_unmatchRef" {*}$src]
-        }
-        tailcall When {*}$firstPattern $body
-    } else {
-        error "Every: Unknown first argument '$_time'"
-    }
+    tailcall SayWithSource {*}$sourceInfo \
+        0 $atomicallyWithKey {} \
+        {*}$statement
 }
 
+proc Subscribe: {args} {
+    set pattern [lrange $args 0 end-1]
+    set body [lindex $args end]
+
+    set sourceInfo [info source $body]
+    set envStack [uplevel captureEnvStack]
+
+    tailcall SayWithSource {*}$sourceInfo 0 {} \
+        subscribe {*}$pattern $body with environment $envStack
+}
+proc Notify: {args} {
+    NotifyImpl {*}$args
+}
 
 proc On {event args} {
     if {$event eq "unmatch"} {

@@ -100,6 +100,15 @@ Wish the web server handles route "/new" with handler {
 
   let regionAngle = 0;
   const ws = new FolkWS(document.getElementById('status'));
+  ws.send(`
+    On unmatch {
+      Hold! -on $this -key canv {}
+      Hold! -on $this -key geom {}
+      Hold! -on $this -key quad {}
+      Hold! -on $this -key code {}
+    }
+  `);
+
   ws.hold('canv', tcl`
     Wish ${program} has a canvas
   `);
@@ -172,7 +181,7 @@ Wish the web server handles route "/new" with handler {
   function handlePrint() {
     const code = document.getElementById("code").value;
     const jobid = String(Math.random());
-    ws.send(tcl`Wish to print [binary decode base64 ${btoa(code)}] with job-id ${jobid}`);
+    ws.send(tcl`Notify: print code ${code}`);
     let printBtn = document.getElementById("printBtn")
     printBtn.innerText = "Printing";
     printBtn.disabled = true;
