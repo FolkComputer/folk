@@ -71,7 +71,7 @@ $cc code {
 $cc proc init {} void {
     pthread_mutex_init(&collectsMutex, NULL);
 }
-$cc proc Recollect! {Jim_Obj* patternObj} void {
+$cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
     // First, query for collect patterns.
     Clause* collectorPattern = malloc(SIZEOF_CLAUSE(10));
     collectorPattern->nTerms = 10;
@@ -122,6 +122,19 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
         for (size_t i = 0; i < rs->nResults; i++) {
             Statement* result = statementAcquire(db, rs->results[i]);
             if (result == NULL) { continue; }
+
+            // If `isAtomically` is on, then throw away any
+            // statement that has an AtomicallyVersion _and_ that
+            // AtomicallyVersion isn't converged yet.
+            if (isAtomically &&
+                statementAtomicallyVersion(result) != NULL &&
+                !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
+
+                // fprintf(stderr, "DISCARD %.100s\n",
+                //   clauseToString(statementClause(result)));
+                statementRelease(db, result);
+                continue;
+            }
 
             resultStmts[resultStmtsCount++] = result;
 
@@ -195,7 +208,7 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 # its next occurrence forward by the settle time.
 $cc proc ScheduleRecollect! {Jim_Obj* patternObj uint64_t settle} void {
     if (settle == 0) {
-        Recollect_(patternObj);
+        Recollect_(patternObj, false);
         return;
     }
 
@@ -236,7 +249,7 @@ $cc proc RunScheduledRecollects! {} void {
         if (collects[i].patternStr != NULL &&
             collects[i].collectAtTime <= now) {
 
-            Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1));
+            Recollect_(Jim_NewStringObj(interp, collects[i].patternStr, -1), true);
 
             free(collects[i].patternStr);
             collects[i].patternStr = NULL;
