@@ -933,21 +933,21 @@ bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
     return atomicallyVersion->inflightCount == 0;
 }
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
-    printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount);
+    /* printf("%p -- inflight count %d\n", atomicallyVersion, atomicallyVersion->inflightCount); */
     return atomicallyVersion->inflightCount;
 }
 void dbInflightIncr(Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
         stmt->atomicallyVersion->inflightCount++;
-        printf("dbInflightIncr (%s) -> %d\n", clauseToString(stmt->clause),
-               stmt->atomicallyVersion->inflightCount);
+        /* printf("dbInflightIncr (%s) -> %d\n", clauseToString(stmt->clause), */
+        /*        stmt->atomicallyVersion->inflightCount); */
     }
 }
 void dbInflightDecr(Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
         stmt->atomicallyVersion->inflightCount--;
-        printf("dbInflightDecr (%s) -> %d\n", clauseToString(stmt->clause),
-               stmt->atomicallyVersion->inflightCount);
+        /* printf("dbInflightDecr (%s) -> %d\n", clauseToString(stmt->clause), */
+        /*        stmt->atomicallyVersion->inflightCount); */
     }
 }
 
