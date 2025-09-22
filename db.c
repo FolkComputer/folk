@@ -989,6 +989,8 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     return atomicallyVersion;
 }
 
+AtomicallyVersion __atomicallyVersionNonatomically;
+
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
     return atomicallyVersion->inflightCount == 0;
 }

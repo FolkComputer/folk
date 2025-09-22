@@ -351,8 +351,7 @@ static StatementRef Say(Clause* clause, long keepMs,
     Statement* stmt;
     if (atomicallyWithKey != NULL) {
         if (strcmp(atomicallyWithKey, "NONATOMICALLY") == 0) {
-            // Note: unsets atomicallyVersion when previously set.
-            atomicallyVersion = NULL;
+            atomicallyVersion = ATOMICALLY_VERSION_NONATOMICALLY;
         } else {
             atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, atomicallyWithKey);
         }
@@ -822,21 +821,34 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
+    bool didInflightDecrStmt = false;
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
         AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
         AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
-        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
-            whenAtomicallyVersion != stmtAtomicallyVersion) {
-            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
-                    "  when (%p): (%.150s)\n"
-                    "  stmt (%p): (%.150s)\n",
-                    whenAtomicallyVersion, clauseToString(statementClause(when)),
-                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
+        AtomicallyVersion* atomicallyVersion = NULL;
+        // Keep atomicallyVersion as NULL, so the match and its
+        // descendants don't inherit the atomically.
+        if (whenAtomicallyVersion == ATOMICALLY_VERSION_NONATOMICALLY) {
+            dbInflightDecr(db, stmt);
+            didInflightDecrStmt = true;
+
+        } else if (stmtAtomicallyVersion == ATOMICALLY_VERSION_NONATOMICALLY) {
+            // FIXME: Implement.
+
+        } else {
+            if (whenAtomicallyVersion && stmtAtomicallyVersion &&
+                whenAtomicallyVersion != stmtAtomicallyVersion) {
+                fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
+                        "  when (%p): (%.150s)\n"
+                        "  stmt (%p): (%.150s)\n",
+                        whenAtomicallyVersion, clauseToString(statementClause(when)),
+                        stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
+            }
+            atomicallyVersion = stmtAtomicallyVersion ?
+                stmtAtomicallyVersion : whenAtomicallyVersion;
         }
-        AtomicallyVersion* atomicallyVersion = stmtAtomicallyVersion ?
-            stmtAtomicallyVersion : whenAtomicallyVersion;
         self->currentMatch = dbInsertMatch(db, 2, parents,
                                            atomicallyVersion,
                                            self->index);
@@ -867,7 +879,7 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         statementSourceFileName(when), statementSourceLineNumber(when), envStackObj);
 
     dbInflightDecr(db, when);
-    dbInflightDecr(db, stmt);
+    if (!didInflightDecrStmt) dbInflightDecr(db, stmt);
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }

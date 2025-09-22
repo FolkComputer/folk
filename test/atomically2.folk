@@ -11,10 +11,12 @@ When the version is /v/ {
 Hold! Claim the version is 1
 When -nonatomically the atomic version is 1 {
     Hold! Claim the version is 2
+    Claim blooper
     sleep 0.5
 
     set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
-    puts $atomicResults
     assert {[llength $atomicResults] == 1}
     assert {[dict get [lindex $atomicResults 0] v] == 1}
+
+    Exit! 0
 }
