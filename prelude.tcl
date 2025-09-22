@@ -498,7 +498,8 @@ proc Subscribe: {args} {
     set sourceInfo [info source $body]
     set envStack [uplevel captureEnvStack]
 
-    tailcall SayWithSource {*}$sourceInfo 0 {} \
+    tailcall SayWithSource {*}$sourceInfo \
+        0 {} {} \
         subscribe {*}$pattern $body with environment $envStack
 }
 proc Notify: {args} {
