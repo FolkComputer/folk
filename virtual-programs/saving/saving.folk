@@ -1,16 +1,12 @@
 set dataDirectory "$::env(HOME)/folk-data"
 
-When when the /serdeType/ save directory is /anything/ \
-          /body/ with environment /e/ {
-    set serdeDirectory "$dataDirectory/$serdeType"
-
-    # make sure directory exists
-    exec mkdir -p $serdeDirectory
-
-    Claim the $serdeType save directory is $serdeDirectory
+if {![file isdirectory $dataDirectory]} {
+    exec mkdir -p $dataDirectory
 }
 
-if {[file isdirectory $dataDirectory]} {
+# make sure the migration happens before loading everything,
+# so we load in the migrated data
+When the migration is complete {
     set namespaces [glob -nocomplain $dataDirectory/*]
 
     foreach namespace $namespaces {
@@ -25,6 +21,14 @@ if {[file isdirectory $dataDirectory]} {
             Wish to deserialize a $fileType with filename $file contents $contents
         }
     }
-} else {
-    exec mkdir -p $dataDirectory
+}
+
+When when the /fileType/ save directory is /anything/ \
+          /body/ with environment /e/ {
+    set serdeDirectory "$dataDirectory/$fileType"
+
+    # make sure directory exists
+    exec mkdir -p $serdeDirectory
+
+    Claim the $fileType save directory is $serdeDirectory
 }

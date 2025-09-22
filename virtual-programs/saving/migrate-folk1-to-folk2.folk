@@ -1,11 +1,12 @@
-# are we already on the new format?
-if {![file exists $::env(HOME)/folk-printed-programs]} {
-    return
-}
-
 When the hold save directory is /holdDirectory/ &\
      the program save directory is /programDirectory/ &\
      saving is ready {
+    # are we already on the new format?
+    if {[llength [glob -nocomplain $::env(HOME)/folk-data/hold/*]] > 0} {
+        Claim the migration is complete
+        return
+    }
+
     puts "### MIGRATING ###"
 
     proc tryReadFile {filename} {
@@ -22,7 +23,6 @@ When the hold save directory is /holdDirectory/ &\
 
     # copy programs to new location
     exec sh << "cp ~/folk-printed-programs/* ~/folk-data/program/"
-    exec mv $::env(HOME)/folk-printed-programs $::env(HOME)/folk-printed-programs.old
 
     # grab geometry before deleting
     set defaultGeom [tryReadFile "$::env(HOME)/folk-data/program/default.folkgeom"]
@@ -34,7 +34,6 @@ When the hold save directory is /holdDirectory/ &\
     # no need to save next-id, as folk already checks that an id doesn't exist
     exec rm "$::env(HOME)/folk-data/program/next-id.txt"
 
-    exec cp -R "$::env(HOME)/folk-live" "$::env(HOME)/folk-live.old"
     # transfer calibration
     set calibrationPoses [tryReadFile "$::env(HOME)/folk-live/folk-calibration-poses.txt"]
     set calibration [tryReadFile "$::env(HOME)/folk-live/folk-calibration-output.txt"]
@@ -44,11 +43,11 @@ When the hold save directory is /holdDirectory/ &\
         Hold! -save -on calibration -key poses \
             Claim the calibration poses are $calibrationPoses
     }
-    exec rm "$::env(HOME)/folk-live/folk-calibration-poses.txt"
-    exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"
 
     puts "\n\n\n### MIGRATION SUCCESSFUL ###\n"
-    puts {Note: folk-printed-programs and folk-live were both copied to folk-printed-programs.old and folk-live.old.\
-          Feel free to delete them once you've confirmed that everything works!}
+    puts "Note: folk-printed-programs, folk-live/folk-calibration-output.txt, and folk-live/folk-calibration-poses.txt\
+    are no longer needed. Feel free to delete them once you've confirmed that everything works!"
     puts "\n############################\n\n\n"
+
+    Claim the migration is complete
 }
