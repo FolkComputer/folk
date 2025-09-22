@@ -307,7 +307,7 @@ proc Hold! {args} {
             incr i; set destructorCode [lindex $args $i]
         } elseif {$arg eq "-version"} {
             incr i; set version [lindex $args $i]
-        } elseif {$arg eq "-non-capturing"} {
+        } elseif {$arg eq "-noncapturing"} {
             set isNonCapturing true
         } elseif {$arg eq "-save"} {
             set saveHold true
@@ -449,13 +449,13 @@ proc When {args} {
     set isAtomically 0
     set pattern [list]
     foreach term $args {
-        if {$term eq "(non-capturing)"} {
+        if {$term eq "-noncapturing"} {
             set isNonCapturing true
-        } elseif {$term eq "(serially)"} {
+        } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
             set isAtomically 1
-        } elseif {$term eq "-non-atomically"} {
+        } elseif {$term eq "-nonatomically"} {
             set isAtomically -1
         } else {
             lappend pattern $term
@@ -492,7 +492,7 @@ proc When {args} {
     } elseif {$isAtomically == 0} {
         set atomicallyWithKey {}
     } elseif {$isAtomically == -1} {
-        set atomicallyWithKey NON-ATOMICALLY
+        set atomicallyWithKey NONATOMICALLY
     }
 
     lassign [desugarWhen $pattern $body] statement boundVars

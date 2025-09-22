@@ -350,7 +350,7 @@ static StatementRef Say(Clause* clause, long keepMs,
 
     Statement* stmt;
     if (atomicallyWithKey != NULL) {
-        if (strcmp(atomicallyWithKey, "NON-ATOMICALLY") == 0) {
+        if (strcmp(atomicallyWithKey, "NONATOMICALLY") == 0) {
             // Note: unsets atomicallyVersion when previously set.
             atomicallyVersion = NULL;
         } else {

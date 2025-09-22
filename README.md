@@ -547,14 +547,14 @@ On unmatch {
 #### Non-capturing
 
 You can disable capturing of lexical context around a When with the
-`(non-capturing)` flag.
+`-noncapturing` flag.
 
 This is mostly to help runtime performance if a When is declared
 somewhere that has a lot of stuff in scope at declaration time.
 
 ```
 set foo 3
-When (non-capturing) /p/ is cool {
+When -noncapturing /p/ is cool {
    Claim $p is awesome
    # can't access $foo from in here
 }

@@ -37,7 +37,7 @@ typedef struct ThreadControlBlock {
 
     WorkQueue* workQueue;
 
-    // Used for (serially) and for profiling & diagnostics.
+    // Used for -serially and for profiling & diagnostics.
     WorkQueueItem currentItem;
     Mutex currentItemMutex;
 

@@ -366,7 +366,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    When (serially) camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
+    When -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \

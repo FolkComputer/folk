@@ -9,7 +9,7 @@ When the version is /v/ {
     }
 }
 Hold! Claim the version is 1
-When -non-atomically the atomic version is 1 {
+When -nonatomically the atomic version is 1 {
     Hold! Claim the version is 2
     sleep 0.5
 
