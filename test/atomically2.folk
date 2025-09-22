@@ -1,0 +1,17 @@
+When -atomically the version is /v/ {
+    Claim the atomic version is $v
+    if {$v == 2} {
+        # Keep v2 unconverged to make sure v1 still presents in that
+        # case.
+        sleep 10
+    }
+}
+Hold! Claim the version is 1
+When the atomic version is 1 {
+    Hold! Claim the version is 2
+    sleep 0.5
+
+    set atomicResults [Query! the atomic version is /v/]
+    assert {[llength $atomicResults] == 1}
+    assert {[dict get [lindex $atomicResults 0] v] == 1}
+}
