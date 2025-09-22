@@ -978,7 +978,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     mutexUnlock(&db->atomicallysMutex);
 
     int version = (++atomically->latestVersion) %
-        sizeof(atomically->versions)/sizeof(atomically->versions[0]);
+        (sizeof(atomically->versions)/sizeof(atomically->versions[0]));
 
     AtomicallyVersion* atomicallyVersion =
         &atomically->versions[version];
