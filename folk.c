@@ -350,9 +350,15 @@ static StatementRef Say(Clause* clause, long keepMs,
 
     Statement* stmt;
     if (atomicallyWithKey != NULL) {
-        atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, atomicallyWithKey);
+        if (strcmp(atomicallyWithKey, "NON-ATOMICALLY") == 0) {
+            // Note: unsets atomicallyVersion when previously set.
+            atomicallyVersion = NULL;
+        } else {
+            atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, atomicallyWithKey);
+        }
     }
-    stmt = dbInsertOrReuseStatement(db, clause, keepMs, atomicallyVersion,
+    stmt = dbInsertOrReuseStatement(db, clause,
+                                    keepMs, atomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 

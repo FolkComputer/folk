@@ -446,7 +446,7 @@ proc When {args} {
 
     set isNonCapturing false
     set isSerially false
-    set isAtomically false
+    set isAtomically 0
     set pattern [list]
     foreach term $args {
         if {$term eq "(non-capturing)"} {
@@ -454,10 +454,20 @@ proc When {args} {
         } elseif {$term eq "(serially)"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set isAtomically true
+            set isAtomically 1
+        } elseif {$term eq "-non-atomically"} {
+            set isAtomically -1
         } else {
             lappend pattern $term
         }
+    }
+    # HACK: Force atomically on certain patterns:
+    if {$isAtomically == 0 && [lrange $pattern 1 end] eq {has camera slice /slice/}} {
+        set isAtomically 1
+        puts "Atomic camera slice"
+    } elseif {$isAtomically == 0 && $pattern eq {the clock time is /t/}} {
+        set isAtomically 1
+        puts "Atomic clock time"
     }
 
     if {$isNonCapturing} {
@@ -477,10 +487,12 @@ proc When {args} {
         }
         set body "$prologue\n$body"
     }
-    if {$isAtomically} {
-        set atomicallyWithKey $pattern
-    } else {
+    if {$isAtomically == 1} {
+        set atomicallyWithKey [list k $pattern]
+    } elseif {$isAtomically == 0} {
         set atomicallyWithKey {}
+    } elseif {$isAtomically == -1} {
+        set atomicallyWithKey NON-ATOMICALLY
     }
 
     lassign [desugarWhen $pattern $body] statement boundVars
