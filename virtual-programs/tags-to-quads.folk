@@ -358,6 +358,7 @@ When the quad library is /quadLib/ &\
         package require linalg
         namespace import \
             ::math::linearalgebra::add \
+            ::math::linearalgebra::sub \
             ::math::linearalgebra::matmul
 
         set sourceSpace [$quadLib space $q]
@@ -372,11 +373,21 @@ When the quad library is /quadLib/ &\
 }
 
 When camera /camera/ to display /display/ has extrinsics /extrinsics/ {
+    package require linalg
+    set R [dict get $extrinsics R]
+    set t [dict get $extrinsics t]
+
     Claim the changer from space $camera to space "display $display" is \
         [list apply [list {R t v} {
             add [matmul $R $v] $t
-        }] [dict get $extrinsics R] [dict get $extrinsics t]]
+        }] $R $t]
+
+    Claim the changer from space "display $display" to space $camera is \
+        [list apply [list {Rt t v} {
+            add [matmul $Rt [sub $v $t]] $v
+        }] [math::linearalgebra::transpose $R] $t]
 }
+
 set quadLib [library create quadLib {} {
     package require linalg
     namespace import \
