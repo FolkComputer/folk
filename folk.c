@@ -297,7 +297,7 @@ void HoldStatementGlobally(const char *key, double version,
                                                      clause, keepMs, destructorCode,
                                                      sourceFileName, sourceLineNumber);
     if (stmt != NULL) {
-        dbInflightDecr(stmt);
+        dbInflightDecr(db, stmt);
         statementRelease(db, stmt);
     }
 }
@@ -370,7 +370,7 @@ static StatementRef Say(Clause* clause, long keepMs,
 
         reactToNewStatement(ref);
 
-        dbInflightDecr(stmt);
+        dbInflightDecr(db, stmt);
         statementRelease(db, stmt);
         return ref;
 
@@ -860,8 +860,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     runBlock(whenPattern, stmtClause, body,
         statementSourceFileName(when), statementSourceLineNumber(when), envStackObj);
 
-    dbInflightDecr(when);
-    dbInflightDecr(stmt);
+    dbInflightDecr(db, when);
+    dbInflightDecr(db, stmt);
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
@@ -1209,7 +1209,7 @@ void workerRun(WorkQueueItem item) {
 
             reactToNewStatement(ref);
 
-            dbInflightDecr(stmt);
+            dbInflightDecr(db, stmt);
             statementRelease(db, stmt);
         }
         free(item.assert.sourceFileName);

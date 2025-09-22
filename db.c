@@ -259,6 +259,11 @@ typedef struct Hold {
     StatementRef statement;
 } Hold;
 
+typedef struct StatementRefList {
+    StatementRef ref;
+    struct StatementRefList* next;
+} StatementRefList;
+
 typedef struct AtomicallyVersion {
     int _Atomic version;
 
@@ -268,7 +273,10 @@ typedef struct AtomicallyVersion {
     // negative.
     int _Atomic inflightCount;
 
+    // FIXME: Use this to dispose the AtomicallyVersion.
     int _Atomic refCount;
+
+    StatementRefList* _Atomic toRemoveList;
 } AtomicallyVersion;
 
 typedef struct Atomically {
@@ -576,7 +584,58 @@ bool statementTryIncrParentCount(Statement* stmt) {
     return true;
 }
 
+
+static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersion,
+                                             StatementRef stmt) {
+    StatementRefList* newNode = malloc(sizeof(StatementRefList));
+    newNode->ref = stmt;
+    newNode->next = NULL;
+
+    StatementRefList* oldList;
+    StatementRefList* newList;
+    do {
+        oldList = atomicallyVersion->toRemoveList;
+        newNode->next = oldList;
+    } while (!atomic_compare_exchange_weak(&atomicallyVersion->toRemoveList, 
+                                           &oldList, 
+                                           newNode));
+}
+static void atomicallyVersionDoRemoveList(Db* db, AtomicallyVersion* atomicallyVersion) {
+    StatementRefList* current = atomicallyVersion->toRemoveList;
+    while (current != NULL) {
+        StatementRefList* next = current->next;
+        Statement* stmt = statementAcquire(db, current->ref);
+        if (stmt != NULL) {
+            statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+            statementRelease(db, stmt);
+        }
+        free(current);
+        current = next;
+    }
+    atomicallyVersion->toRemoveList = NULL;
+}
+
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
+    if (stmt->atomicallyVersion != NULL) {
+        // This statement exists in an AtomicallyVersion arena.  We
+        // shouldn't remove it immediately, until the
+        // AtomicallyVersion can be completely discarded (because a
+        // new converged AtomicallyVersion is in place).
+        if (--stmt->parentCount == 0) {
+            // Note that we should have exclusive access to stmt at
+            // this point.
+            
+            // Tentatively trigger a removal when the
+            // AtomicallyVersion is reaped. But the statement will
+            // still be able to be revived in the intervening time.
+            AtomicallyVersion* version = stmt->atomicallyVersion;
+            atomicallyVersionAddToRemoveList(version, statementRef(db, stmt));
+
+            stmt->parentCount++;
+            return;
+        }
+    }
+    
     if (stmt->keepMs > 0) {
         if (--stmt->parentCount == 0) {
             // Note that we should have exclusive access to stmt at
@@ -926,6 +985,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     // FIXME: assert old values are bad, do something with refcount
     atomicallyVersion->version = version;
     atomicallyVersion->inflightCount = 0;
+    atomicallyVersion->toRemoveList = NULL;
     return atomicallyVersion;
 }
 
@@ -943,11 +1003,13 @@ void dbInflightIncr(Statement* stmt) {
         /*        stmt->atomicallyVersion->inflightCount); */
     }
 }
-void dbInflightDecr(Statement* stmt) {
+void dbInflightDecr(Db* db, Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
-        stmt->atomicallyVersion->inflightCount--;
-        /* printf("dbInflightDecr (%s) -> %d\n", clauseToString(stmt->clause), */
-        /*        stmt->atomicallyVersion->inflightCount); */
+        if (--stmt->atomicallyVersion->inflightCount == 0) {
+            atomicallyVersionDoRemoveList(db, stmt->atomicallyVersion);
+            /* printf("dbInflightDecr (%s) -> %d\n", clauseToString(stmt->clause), */
+            /*        stmt->atomicallyVersion->inflightCount); */
+        }
     }
 }
 

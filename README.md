@@ -740,7 +740,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - ~~fix removal of program when tab closes~~
 - fix calibration screwing up system state
 - persist transient errors
-- invert changers
+- ~~invert changers~~
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
@@ -748,3 +748,5 @@ executions of the block? if they are, then we warn on the page that it
 isn't meeting timing
 - delay the removal of the old hold until downstream statements of the
 old hold have fully converged? but WARN if this happens
+- build a settlement-based local fps counter like clock time labeler
+  (how many frames are we dropping?)

@@ -194,7 +194,7 @@ $cc proc Recollect! {Jim_Obj* patternObj bool isAtomically} void {
         free(resultStmts);
 
         if (stmt != NULL) {
-            dbInflightDecr(stmt);
+            dbInflightDecr(db, stmt);
             statementRelease(db, stmt);
         }
     }
