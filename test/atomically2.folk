@@ -1,18 +1,19 @@
-When the version is /v/ {
-    When -atomically {
-        Claim the atomic version is $v
-        if {$v == 2} {
-            # Keep v2 unconverged to make sure v1 still presents in that
-            # case.
-            sleep 10
-        }
+When -atomically the version is /v/ {
+    Claim the atomic version is $v
+    if {$v == 2} {
+        # Keep v2 unconverged to make sure v1 still presents in that
+        # case.
+        sleep 10
     }
 }
+
 Hold! Claim the version is 1
 When -nonatomically the atomic version is 1 {
     Hold! Claim the version is 2
     Claim blooper
     sleep 0.5
+
+    puts [join [QuerySimple! false /...clause/] \n]
 
     set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
     assert {[llength $atomicResults] == 1}

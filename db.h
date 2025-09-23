@@ -117,14 +117,13 @@ ResultSet* dbQuery(Db* db, Clause* pattern);
 // AtomicallyVersion is guaranteed not to ever be freed.
 AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key);
 
-extern AtomicallyVersion __atomicallyVersionNonatomically;
-#define ATOMICALLY_VERSION_NONATOMICALLY &__atomicallyVersionNonatomically
-
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion);
 int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion);
 
 void dbInflightIncr(Statement* stmt);
 void dbInflightDecr(Db* db, Statement* stmt);
+void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion);
+void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion);
 
 // Note: once you call this, ownership of `clause` transfers to the
 // DB, which then becomes responsible for freeing it later.

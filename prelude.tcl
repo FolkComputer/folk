@@ -381,7 +381,7 @@ proc Say {args} {
         }
     }
     tailcall SayWithSource $sourceFileName $sourceLineNumber \
-        $keepMs {} \
+        $keepMs \
         $destructorCode \
         {*}$pattern
 }
@@ -446,7 +446,8 @@ proc When {args} {
 
     set isNonCapturing false
     set isSerially false
-    set isAtomically 0
+    set isAtomically false
+    set isNonatomically false
     set pattern [list]
     foreach term $args {
         if {$term eq "-noncapturing"} {
@@ -454,19 +455,19 @@ proc When {args} {
         } elseif {$term eq "-serially"} {
             set isSerially true
         } elseif {$term eq "-atomically"} {
-            set isAtomically 1
+            set isAtomically true
         } elseif {$term eq "-nonatomically"} {
-            set isAtomically -1
+            set isNonatomically true
         } else {
             lappend pattern $term
         }
     }
     # HACK: Force atomically on certain patterns:
     if {$isAtomically == 0 && [lrange $pattern 1 end] eq {has camera slice /slice/}} {
-        set isAtomically 1
+        set isAtomically true
         puts "Atomic camera slice"
     } elseif {$isAtomically == 0 && $pattern eq {the clock time is /t/}} {
-        set isAtomically 1
+        set isAtomically true
         puts "Atomic clock time"
     }
 
@@ -487,22 +488,20 @@ proc When {args} {
         }
         set body "$prologue\n$body"
     }
-    if {$isAtomically == 1} {
-        set atomicallyWithKey [list k $pattern]
-    } elseif {$isAtomically == 0} {
-        set atomicallyWithKey {}
-    } elseif {$isAtomically == -1} {
-        set atomicallyWithKey NONATOMICALLY
+
+    if {$isAtomically} {
+        set prologue [list __setFreshAtomicallyVersionOnKey $pattern]
+        set body "$prologue;$body"
+    }
+    if {$isNonatomically} {
+        set body "__unsetAtomicallyVersion;$body"
     }
 
     lassign [desugarWhen $pattern $body] statement boundVars
     lappend statement $envStack
 
-    tailcall SayWithSource {*}$sourceInfo \
-        0 $atomicallyWithKey {} \
-        {*}$statement
+    tailcall SayWithSource {*}$sourceInfo 0 {} {*}$statement
 }
-
 proc Subscribe: {args} {
     set pattern [lrange $args 0 end-1]
     set body [lindex $args end]
@@ -510,14 +509,12 @@ proc Subscribe: {args} {
     set sourceInfo [info source $body]
     set envStack [uplevel captureEnvStack]
 
-    tailcall SayWithSource {*}$sourceInfo \
-        0 {} {} \
+    tailcall SayWithSource {*}$sourceInfo 0 {} \
         subscribe {*}$pattern $body with environment $envStack
 }
 proc Notify: {args} {
     NotifyImpl {*}$args
 }
-
 proc On {event args} {
     if {$event eq "unmatch"} {
         set body [lindex $args 0]

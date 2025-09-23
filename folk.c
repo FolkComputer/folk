@@ -330,15 +330,11 @@ static int HoldStatementGloballyFunc(Jim_Interp *interp, int argc, Jim_Obj *cons
 }
 
 
-static StatementRef Say(Clause* clause, long keepMs,
-                        const char *atomicallyWithKey,
-                        const char *destructorCode,
+static StatementRef Say(Clause* clause, long keepMs, const char *destructorCode,
                         const char *sourceFileName, int sourceLineNumber) {
     MatchRef parent;
-    AtomicallyVersion* atomicallyVersion = NULL;
     if (self->currentMatch) {
         parent = matchRef(db, self->currentMatch);
-        atomicallyVersion = matchAtomicallyVersion(self->currentMatch);
 
     } else {
         parent = MATCH_REF_NULL;
@@ -349,15 +345,8 @@ static StatementRef Say(Clause* clause, long keepMs,
     }
 
     Statement* stmt;
-    if (atomicallyWithKey != NULL) {
-        if (strcmp(atomicallyWithKey, "NONATOMICALLY") == 0) {
-            atomicallyVersion = ATOMICALLY_VERSION_NONATOMICALLY;
-        } else {
-            atomicallyVersion = dbFreshAtomicallyVersionOnKey(db, atomicallyWithKey);
-        }
-    }
     stmt = dbInsertOrReuseStatement(db, clause,
-                                    keepMs, atomicallyVersion,
+                                    keepMs, self->currentAtomicallyVersion,
                                     sourceFileName, sourceLineNumber,
                                     parent, NULL);
 
@@ -389,8 +378,8 @@ static StatementRef Say(Clause* clause, long keepMs,
 }
 
 static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
-    assert(argc >= 7);
-    Clause* clause = jimObjsToClauseWithCaching(argc - 6, argv + 6);
+    assert(argc >= 6);
+    Clause* clause = jimObjsToClauseWithCaching(argc - 5, argv + 5);
 
     const char* sourceFileName;
     long sourceLineNumber;
@@ -405,14 +394,8 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    int atomicallyWithKeyLen;
-    const char* atomicallyWithKey = Jim_GetString(argv[4], &atomicallyWithKeyLen);
-    if (atomicallyWithKeyLen == 0) {
-        atomicallyWithKey = NULL;
-    }
-
     int destructorCodeLen;
-    const char* destructorCode = Jim_GetString(argv[5], &destructorCodeLen);
+    const char* destructorCode = Jim_GetString(argv[4], &destructorCodeLen);
     if (destructorCodeLen == 0) {
         destructorCode = NULL;
     }
@@ -422,7 +405,7 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    Say(clause, keepMs, atomicallyWithKey, destructorCode,
+    Say(clause, keepMs, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
@@ -473,17 +456,29 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
 
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
-        Jim_Obj* envDict[(env->nBindings + 1) * 2];
+        Jim_Obj* envDict[(env->nBindings + 2) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
         envDict[1] = Jim_NewStringObj(interp, buf, -1);
+
+        envDict[2] = Jim_NewStringObj(interp, "__atomically", -1);
+        AtomicallyVersion* atomicallyVer = statementAtomicallyVersion(result);
+        char atomicallyBuf[100];
+        if (atomicallyVer != NULL) {
+            snprintf(atomicallyBuf, 100, "%p:%d", (void*)atomicallyVer,
+                     dbAtomicallyVersionInflightCount(atomicallyVer));
+        } else {
+            snprintf(atomicallyBuf, 100, "null:0");
+        }
+        envDict[3] = Jim_NewStringObj(interp, atomicallyBuf, -1);
+
         for (int j = 0; j < env->nBindings; j++) {
-            envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
-            envDict[(j+1)*2+1] = env->bindings[j].value;
+            envDict[(j+2)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+            envDict[(j+2)*2+1] = env->bindings[j].value;
         }
         statementRelease(db, result);
 
-        Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
+        Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 2) * 2);
         Jim_ListAppendElement(interp, ret, resultObj);
 
         free(env);
@@ -614,6 +609,24 @@ static int __threadIdFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
+static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 2);
+    const char* key = Jim_String(argv[1]);
+    self->currentAtomicallyVersion = dbFreshAtomicallyVersionOnKey(db, key);
+    dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
+    printf("new fresh version on %s: %p\n", key, self->currentAtomicallyVersion);
+    return JIM_OK;
+}
+
+static int __unsetAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
+    assert(argc == 1);
+    if (self->currentAtomicallyVersion != NULL) {
+        dbInflightDecr(db, self->currentAtomicallyVersion);
+    }
+    self->currentAtomicallyVersion = NULL;
+    return JIM_OK;
+}
+
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
     if (ret != -1) {
@@ -681,6 +694,8 @@ static void interpBoot() {
 
     Jim_CreateCommand(interp, "__db", __dbFunc, NULL, NULL);
     Jim_CreateCommand(interp, "__threadId", __threadIdFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__setFreshAtomicallyVersionOnKey", __setFreshAtomicallyVersionOnKeyFunc, NULL, NULL);
+    Jim_CreateCommand(interp, "__unsetAtomicallyVersion", __unsetAtomicallyVersionFunc, NULL, NULL);
 
     Jim_CreateCommand(interp, "setpgrp", setpgrpFunc, NULL, NULL);
     Jim_CreateCommand(interp, "Exit!", exitFunc, NULL, NULL);
@@ -821,42 +836,32 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     Clause* whenClause = statementClause(when);
     Clause* stmtClause = stmt == NULL ? whenPattern : statementClause(stmt);
 
-    bool didInflightDecrStmt = false;
     if (stmt != NULL) {
         StatementRef parents[] = { whenRef, stmtRef };
 
         AtomicallyVersion* whenAtomicallyVersion = statementAtomicallyVersion(when);
         AtomicallyVersion* stmtAtomicallyVersion = statementAtomicallyVersion(stmt);
         AtomicallyVersion* atomicallyVersion = NULL;
-        // Keep atomicallyVersion as NULL, so the match and its
-        // descendants don't inherit the atomically.
-        if (whenAtomicallyVersion == ATOMICALLY_VERSION_NONATOMICALLY) {
-            dbInflightDecr(db, stmt);
-            didInflightDecrStmt = true;
-
-        } else if (stmtAtomicallyVersion == ATOMICALLY_VERSION_NONATOMICALLY) {
-            // FIXME: Implement.
-
-        } else {
-            if (whenAtomicallyVersion && stmtAtomicallyVersion &&
-                whenAtomicallyVersion != stmtAtomicallyVersion) {
-                fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
-                        "  when (%p): (%.150s)\n"
-                        "  stmt (%p): (%.150s)\n",
-                        whenAtomicallyVersion, clauseToString(statementClause(when)),
-                        stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
-            }
-            atomicallyVersion = stmtAtomicallyVersion ?
-                stmtAtomicallyVersion : whenAtomicallyVersion;
+        if (whenAtomicallyVersion && stmtAtomicallyVersion &&
+            whenAtomicallyVersion != stmtAtomicallyVersion) {
+            fprintf(stderr, "runWhenBlock: Warning: Conflicting atomicallyVersion between:\n"
+                    "  when (%p): (%.150s)\n"
+                    "  stmt (%p): (%.150s)\n",
+                    whenAtomicallyVersion, clauseToString(statementClause(when)),
+                    stmtAtomicallyVersion, clauseToString(statementClause(stmt)));
         }
+        atomicallyVersion = stmtAtomicallyVersion ?
+            stmtAtomicallyVersion : whenAtomicallyVersion;
         self->currentMatch = dbInsertMatch(db, 2, parents,
                                            atomicallyVersion,
                                            self->index);
+        self->currentAtomicallyVersion = atomicallyVersion;
     } else {
         StatementRef parents[] = { whenRef };
         self->currentMatch = dbInsertMatch(db, 1, parents,
                                            statementAtomicallyVersion(when),
                                            self->index);
+        self->currentAtomicallyVersion = statementAtomicallyVersion(when);
     }
     if (!self->currentMatch) {
         statementRelease(db, when);
@@ -878,8 +883,11 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     runBlock(whenPattern, stmtClause, body,
         statementSourceFileName(when), statementSourceLineNumber(when), envStackObj);
 
-    dbInflightDecr(db, when);
-    if (!didInflightDecrStmt) dbInflightDecr(db, stmt);
+    if (self->currentAtomicallyVersion != NULL) {
+        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+    }
+    /* dbInflightDecr(db, when); */
+    /* dbInflightDecr(db, stmt); */
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
