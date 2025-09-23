@@ -448,37 +448,26 @@ Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
             statementAtomicallyVersion(result) != NULL &&
             !dbAtomicallyVersionHasConverged(statementAtomicallyVersion(result))) {
 
-            fprintf(stderr, "DISCARD %.100s\n",
-                    clauseToString(statementClause(result)));
+            /* fprintf(stderr, "DISCARD %.100s\n", */
+            /*         clauseToString(statementClause(result))); */
             statementRelease(db, result);
             continue;
         }
 
         Environment* env = clauseUnify(interp, pattern, statementClause(result));
         assert(env != NULL);
-        Jim_Obj* envDict[(env->nBindings + 2) * 2];
+        Jim_Obj* envDict[(env->nBindings + 1) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
         char buf[100]; snprintf(buf, 100,  "s%d:%d", rs->results[i].idx, rs->results[i].gen);
         envDict[1] = Jim_NewStringObj(interp, buf, -1);
 
-        envDict[2] = Jim_NewStringObj(interp, "__atomically", -1);
-        AtomicallyVersion* atomicallyVer = statementAtomicallyVersion(result);
-        char atomicallyBuf[100];
-        if (atomicallyVer != NULL) {
-            snprintf(atomicallyBuf, 100, "%p:%d", (void*)atomicallyVer,
-                     dbAtomicallyVersionInflightCount(atomicallyVer));
-        } else {
-            snprintf(atomicallyBuf, 100, "null:0");
-        }
-        envDict[3] = Jim_NewStringObj(interp, atomicallyBuf, -1);
-
         for (int j = 0; j < env->nBindings; j++) {
-            envDict[(j+2)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
-            envDict[(j+2)*2+1] = env->bindings[j].value;
+            envDict[(j+1)*2] = Jim_NewStringObj(interp, env->bindings[j].name, -1);
+            envDict[(j+1)*2+1] = env->bindings[j].value;
         }
         statementRelease(db, result);
 
-        Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 2) * 2);
+        Jim_Obj *resultObj = Jim_NewDictObj(interp, envDict, (env->nBindings + 1) * 2);
         Jim_ListAppendElement(interp, ret, resultObj);
 
         free(env);

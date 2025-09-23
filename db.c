@@ -1001,31 +1001,31 @@ int dbAtomicallyVersionInflightCount(AtomicallyVersion* atomicallyVersion) {
 void dbInflightIncr(Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
         stmt->atomicallyVersion->inflightCount++;
-        printf("dbInflightIncr (%s) %p -> %d\n", clauseToString(stmt->clause),
-               stmt->atomicallyVersion,
-               stmt->atomicallyVersion->inflightCount);
+        /* printf("dbInflightIncr (%s) %p -> %d\n", clauseToString(stmt->clause), */
+        /*        stmt->atomicallyVersion, */
+        /*        stmt->atomicallyVersion->inflightCount); */
     }
 }
 void dbInflightDecr(Db* db, Statement* stmt) {
     if (stmt != NULL && stmt->atomicallyVersion != NULL) {
-        printf("dbInflightDecr (%s) %p\n", clauseToString(stmt->clause),
-               stmt->atomicallyVersion);
+        /* printf("dbInflightDecr (%s) %p\n", clauseToString(stmt->clause), */
+        /*        stmt->atomicallyVersion); */
         dbAtomicallyVersionInflightDecr(db, stmt->atomicallyVersion);
     }
 }
 void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
     atomicallyVersion->inflightCount++;
-    printf("dbAtomicallyVersionInflightIncr %p -> %d\n",
-           atomicallyVersion,
-           atomicallyVersion->inflightCount);
+    /* printf("dbAtomicallyVersionInflightIncr %p -> %d\n", */
+    /*        atomicallyVersion, */
+    /*        atomicallyVersion->inflightCount); */
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
     if (--atomicallyVersion->inflightCount == 0) {
         atomicallyVersionDoRemoveList(db, atomicallyVersion);
     }
-    printf("dbAtomicallyVersionInflightDecr %p -> %d\n",
-           atomicallyVersion,
-           atomicallyVersion->inflightCount);
+    /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
+    /*        atomicallyVersion, */
+    /*        atomicallyVersion->inflightCount); */
 }
 
 // parentMatch is allowed to be NULL (meaning that no parent match is

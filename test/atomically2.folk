@@ -13,7 +13,7 @@ When -nonatomically the atomic version is 1 {
     Claim blooper
     sleep 0.5
 
-    puts [join [QuerySimple! false /...clause/] \n]
+    # puts [join [QuerySimple! false /...clause/] \n]
 
     set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
     assert {[llength $atomicResults] == 1}
