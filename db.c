@@ -984,7 +984,9 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
         &atomically->versions[version];
     // FIXME: assert old values are bad, do something with refcount
     atomicallyVersion->version = version;
-    atomicallyVersion->inflightCount = 0;
+    // An AtomicallyVersion should start unconverged, assuming that it
+    // always gets locked into a currently running (incomplete) match.
+    atomicallyVersion->inflightCount = 1;
     atomicallyVersion->toRemoveList = NULL;
     return atomicallyVersion;
 }

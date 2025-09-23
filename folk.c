@@ -613,19 +613,18 @@ static int __setFreshAtomicallyVersionOnKeyFunc(Jim_Interp *interp, int argc, Ji
     assert(argc == 2);
     const char* key = Jim_String(argv[1]);
     self->currentAtomicallyVersion = dbFreshAtomicallyVersionOnKey(db, key);
-    dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
-    printf("new fresh version on %s: %p\n", key, self->currentAtomicallyVersion);
     return JIM_OK;
 }
 
 static int __unsetAtomicallyVersionFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc == 1);
     if (self->currentAtomicallyVersion != NULL) {
-        dbInflightDecr(db, self->currentAtomicallyVersion);
+        dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
     }
     self->currentAtomicallyVersion = NULL;
     return JIM_OK;
 }
+
 
 static int setpgrpFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     int ret = setpgrp();
@@ -863,6 +862,14 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
                                            self->index);
         self->currentAtomicallyVersion = statementAtomicallyVersion(when);
     }
+    if (self->currentAtomicallyVersion != NULL) {
+        dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
+    }
+    // We don't want to hang onto these inflight when running the
+    // block. If we're keeping one, we've incr-ed it above.
+    dbInflightDecr(db, when);
+    dbInflightDecr(db, stmt);
+
     if (!self->currentMatch) {
         statementRelease(db, when);
         if (stmt != NULL) {
@@ -886,8 +893,6 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     if (self->currentAtomicallyVersion != NULL) {
         dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
     }
-    /* dbInflightDecr(db, when); */
-    /* dbInflightDecr(db, stmt); */
 
     statementRelease(db, when);
     if (stmt != NULL) { statementRelease(db, stmt); }
