@@ -860,6 +860,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     dbInflightDecr(db, stmt);
 
     if (!self->currentMatch) {
+        if (self->currentAtomicallyVersion != NULL) {
+            dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
+        }
+
         statementRelease(db, when);
         if (stmt != NULL) {
             statementRelease(db, stmt);
