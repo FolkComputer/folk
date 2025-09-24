@@ -1029,15 +1029,14 @@ void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
     if (--atomicallyVersion->inflightCount == 0) {
-        AtomicallyVersion* expectedPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
+        AtomicallyVersion* originalPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
+        AtomicallyVersion* expectedPrevVersion = originalPrevVersion;
         AtomicallyVersion* newVersion = atomicallyVersion;
 
-        while (!atomic_compare_exchange_weak(&(atomicallyVersion->atomically->latestConvergedVersion), 
-                                             &expectedPrevVersion, 
-                                             newVersion)) {
-            if (expectedPrevVersion != NULL) {
-                atomicallyVersionDoRemoveList(db, expectedPrevVersion);
-            }
+        while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->latestConvergedVersion,
+                                             &expectedPrevVersion, newVersion)) {
+            // expectedPrevVersion now contains the current value, reset it
+            expectedPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
         }
 
         if (expectedPrevVersion != NULL) {
