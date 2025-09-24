@@ -3,7 +3,7 @@ When -atomically the version is /v/ {
     if {$v == 2} {
         # Keep v2 unconverged to make sure v1 still presents in that
         # case.
-        sleep 10
+        sleep 1
     }
 }
 
@@ -18,6 +18,14 @@ When -nonatomically the atomic version is 1 {
     set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
     assert {[llength $atomicResults] == 1}
     assert {[dict get [lindex $atomicResults 0] v] == 1}
+}
+When -nonatomically the atomic version is 2 {
+    sleep 2
+
+    set atomicResults [QuerySimple! true /someone/ claims the atomic version is /v/]
+    puts $atomicResults
+    assert {[llength $atomicResults] == 1}
+    assert {[dict get [lindex $atomicResults 0] v] == 2}
 
     Exit! 0
 }

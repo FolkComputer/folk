@@ -265,7 +265,8 @@ typedef struct StatementRefList {
 } StatementRefList;
 
 typedef struct AtomicallyVersion {
-    int _Atomic version;
+    // Used to find older version to reap.
+    struct Atomically* atomically;
 
     // When this is >0, there are still operations in flight within
     // this AtomicallyVersion arena. When this is 0, this
@@ -284,8 +285,9 @@ typedef struct Atomically {
     // be used for a new key.
     const char* _Atomic key; // Owned by the DB.
 
-    int _Atomic latestVersion;
-    AtomicallyVersion versions[5];
+    // This is used by newer versions to reap older version once they
+    // converge.
+    AtomicallyVersion* _Atomic latestConvergedVersion;
 } Atomically;
 
 typedef struct Db {
@@ -587,6 +589,7 @@ bool statementTryIncrParentCount(Statement* stmt) {
 
 static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersion,
                                              StatementRef stmt) {
+    /* printf("atomicallyVersionAddToRemoveList(%p)\n", atomicallyVersion); */
     StatementRefList* newNode = malloc(sizeof(StatementRefList));
     newNode->ref = stmt;
     newNode->next = NULL;
@@ -602,11 +605,17 @@ static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersio
 }
 static void atomicallyVersionDoRemoveList(Db* db, AtomicallyVersion* atomicallyVersion) {
     StatementRefList* current = atomicallyVersion->toRemoveList;
+    /* printf("atomicallyVersionDoRemoveList(%p). current %p\n", */
+    /*        atomicallyVersion, current); */
     while (current != NULL) {
         StatementRefList* next = current->next;
         Statement* stmt = statementAcquire(db, current->ref);
+        /* printf("  stmt %p\n", stmt); */
         if (stmt != NULL) {
-            statementDecrParentCountAndMaybeRemoveSelf(db, stmt);
+            if (--stmt->parentCount == 0) {
+                statementRemoveSelf(db, stmt, true);
+            }
+            stmt->atomicallyVersion = NULL;
             statementRelease(db, stmt);
         }
         free(current);
@@ -977,15 +986,14 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     }
     mutexUnlock(&db->atomicallysMutex);
 
-    int version = (++atomically->latestVersion) %
-        (sizeof(atomically->versions)/sizeof(atomically->versions[0]));
+    AtomicallyVersion* atomicallyVersion = malloc(sizeof(AtomicallyVersion));
+    atomicallyVersion->atomically = atomically;
 
-    AtomicallyVersion* atomicallyVersion =
-        &atomically->versions[version];
     // FIXME: assert old values are bad, do something with refcount
-    atomicallyVersion->version = version;
+
     // An AtomicallyVersion should start unconverged, assuming that it
-    // always gets locked into a currently running (incomplete) match.
+    // always gets set into a currently running (incomplete) match
+    // that can mark it as converged when done.
     atomicallyVersion->inflightCount = 1;
     atomicallyVersion->toRemoveList = NULL;
     return atomicallyVersion;
@@ -1021,7 +1029,20 @@ void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
     if (--atomicallyVersion->inflightCount == 0) {
-        atomicallyVersionDoRemoveList(db, atomicallyVersion);
+        AtomicallyVersion* expectedPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
+        AtomicallyVersion* newVersion = atomicallyVersion;
+
+        while (!atomic_compare_exchange_weak(&(atomicallyVersion->atomically->latestConvergedVersion), 
+                                             &expectedPrevVersion, 
+                                             newVersion)) {
+            if (expectedPrevVersion != NULL) {
+                atomicallyVersionDoRemoveList(db, expectedPrevVersion);
+            }
+        }
+
+        if (expectedPrevVersion != NULL) {
+            atomicallyVersionDoRemoveList(db, expectedPrevVersion);
+        }
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
