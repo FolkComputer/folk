@@ -25,6 +25,7 @@ Claim the db library is [apply {{} {
     $cc code [lindex [regexp -inline {typedef struct Statement \{.*\} Statement;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Match \{.*\} Match;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Hold \{.*\} Hold;} $dbC] 0]
+    $cc code [lindex [regexp -inline {typedef struct StatementRefList \{.*\} StatementRefList;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct AtomicallyVersion \{.*\} AtomicallyVersion;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Atomically \{.*\} Atomically;} $dbC] 0]
     $cc code [lindex [regexp -inline {typedef struct Db \{.*\} Db;} $dbC] 0]
