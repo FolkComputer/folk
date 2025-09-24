@@ -490,7 +490,8 @@ proc When {args} {
     }
 
     if {$isAtomically} {
-        set prologue [list __setFreshAtomicallyVersionOnKey $pattern]
+        set key [list [uplevel set this] $pattern]
+        set prologue [list __setFreshAtomicallyVersionOnKey $key]
         set body "$prologue;$body"
     }
     if {$isNonatomically} {
