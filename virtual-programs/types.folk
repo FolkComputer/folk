@@ -1,0 +1,414 @@
+set isNumberVerifier {{x} { string is double -strict $x }}
+
+# start of scientific types
+Claim type millimeter exists
+Claim type millimeter has verifier $isNumberVerifier
+Claim type millimeter has alias mm
+
+Claim type centimeter exists
+Claim type centimeter has verifier $isNumberVerifier
+Claim type centimeter has alias cm
+
+Claim type meter exists
+Claim type meter has verifier $isNumberVerifier
+Claim type meter has alias m
+Claim type meter has description "Standard SI unit"
+
+Claim type velocity exists
+Claim type velocity has verifier $isNumberVerifier
+Claim type velocity has inline representation distance/time
+Claim type velocity has alias vel
+
+Claim type acceleration exists
+Claim type acceleration has verifier $isNumberVerifier
+Claim type acceleration has inline representation distance/time^2
+Claim type acceleration has alias accel
+
+# start of code
+set typesLib [library create typesLib {
+    proc regexEscape {str} {
+        regsub -all {\W} $str {\\&}
+    }
+
+    proc convertInlineRepToRegex {inlineRep} {
+        # escape all regex symbols
+        set inlineRep [regexEscape $inlineRep]
+        set regex [regsub -nocase -all {[a-z]+} $inlineRep {([a-z]+)}]
+    }
+}]
+
+
+When the collected results for {/someone/ claims type /type/ /...rest/} are /matches/ {
+    set types [dict create]
+
+    # first, enumerate all the types
+    foreach match $matches {
+        set type [dict get $match type]
+        set rest [dict get $match rest]
+
+        if {[lrange $rest 0 1] == "a program"} {
+            continue
+        }
+
+        # if there's only one item, then the key must be the first item
+        if {[llength $rest] == 1} {
+            set key $rest
+        } else {
+            set key [lrange $rest 0 end-1]
+            set value [lindex $rest end]
+        }
+
+        switch $key {
+            "exists" {
+                dict set types $type [dict create]
+                dict set types $type aliases [list {*}[dict getdef $types $type aliases [list]] $type]
+            }
+            "has verifier" {
+                dict set types $type verifier $value
+            }
+            "has inline representation" {
+                dict set types $type inlineRep $value
+                dict set types $type inlineRegex [$typesLib convertInlineRepToRegex $value]
+            }
+            "has alias" {
+                dict set types $value aliasFor $type
+                dict set types $type aliases [list {*}[dict getdef $types $type aliases [list]] $value]
+            }
+            "has description" {
+                dict set types $type description $value
+            }
+        }
+    }
+
+    # we'll generate some code that is used frequently here
+    local proc generateTypeNameAndValueParser {varName} {
+        set varName "\$$varName"
+        return [subst {
+    if {\[llength $varName\] > 1} {
+        set typeName \[lindex $varName 1 0\]
+        set typeValue \[lindex $varName 0\]
+    } else {
+        set result \[regexp {(\[0-9.\]+)(.*)} $varName -> typeValue typeName\]
+        if {!\$result} {
+            error "Could not parse $varName"
+        }
+    }}]
+    }
+
+
+    # now we'll create a library for each of the type operations: unbox, box, is, typeName, and description
+    set unboxProcs [list]
+    set boxProcs [list]
+    set isProcs [list]
+    set validateProcs [list]
+    set descriptionProcs [list]
+
+    # unbox
+    dict for {typeName props} $types {
+        set sourceTypeName $typeName
+
+        if {[dict exists $props aliasFor]} {
+            set sourceTypeName [dict get $props aliasFor]
+            set props [dict get $types $sourceTypeName]
+        }
+
+        set aliases [dict get $props aliases]
+
+        set lines [list]
+
+        # start of proc
+        lappend lines "proc $typeName \{toUnbox\} \{"
+        lappend lines "    # this procedure is auto-generated in types.folk"
+        # this line adds code that sets typeName and typeValue
+        lappend lines [generateTypeNameAndValueParser "toUnbox"]
+        lappend lines "    "
+
+
+        # First possiblity: check if type name(s) are correct
+        if {[llength $aliases] > 1} {
+            lappend lines "    if \{\[lsearch [list $aliases] \$typeName\] >= 0\} \{"
+            # this if body is empty, as it's used to build an elseif chain
+            lappend lines "    \}"
+        } else {
+            lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
+            lappend lines "    \}"
+        }
+
+        # Second possibility: maybe it's an inline type name?
+        if {[dict exists $props inlineRep]} {
+            set inlineRegex [dict get $props inlineRegex]
+            lset lines end "[lindex $lines end] elseif \{\[regexp [list $inlineRegex] \$typeName\]\} \{"
+            lappend lines "    \}"
+        }
+
+        # else throw an error
+        lset lines end "[lindex $lines end] else \{"
+        lappend lines "        error \"Type name was '\$typeName', but was expecting '$sourceTypeName'\""
+        lappend lines "    \}"
+        lappend lines "    "
+
+
+        # only insert the verifier if it exists
+        if {[dict exists $props verifier]} {
+            set verifier [dict get $props verifier]
+            lappend lines "    set verificationResult \[apply [list $verifier] \$typeValue\]"
+            lappend lines "    "
+            lappend lines "    if \{!\$verificationResult\} \{"
+            lappend lines "        error \"Validation failed for $sourceTypeName. Value passed in: '\$toUnbox'\""
+            lappend lines "    \}"
+            lappend lines "    "
+        }
+
+        lappend lines "    return \$typeValue"
+        lappend lines "\}"
+
+        set lines [join $lines "\n"]
+        lappend unboxProcs $lines
+    }
+
+    # box
+    dict for {typeName props} $types {
+        if {[dict exists $props aliasFor]} {
+            set props [dict get $types $sourceTypeName]
+        }
+
+        set lines [list]
+
+        # start of proc
+        lappend lines "proc $typeName \{args\} \{"
+        lappend lines "    # this procedure is auto-generated in types.folk"
+        lappend lines "    set typeName [list $typeName]"
+        lappend lines {
+            set value [lindex $args 0]
+
+            if {[llength $args] > 1} {
+                set typeName [list $typeName {*}[lrange $args 1 end]]
+            }
+
+            return [list $value $typeName]
+        }
+        lappend lines "\}"
+
+        set lines [join $lines "\n"]
+        lappend boxProcs $lines
+    }
+
+    # is
+    dict for {typeName props} $types {
+        set sourceTypeName $typeName
+
+        if {[dict exists $props aliasFor]} {
+            set sourceTypeName [dict get $props aliasFor]
+            set props [dict get $types $sourceTypeName]
+        }
+
+        set aliases [dict get $props aliases]
+
+        set lines [list]
+
+        # start of proc
+        lappend lines "proc $typeName \{toCheck\} \{"
+        lappend lines "    # this procedure is auto-generated in types.folk"
+        # this line adds code that sets typeName and typeValue
+        lappend lines [generateTypeNameAndValueParser "toCheck"]
+        lappend lines "    "
+
+
+        # check if type name(s) are correct
+        if {[llength $aliases] > 1} {
+            lappend lines "    if \{\[lsearch [list $aliases] \$typeName\] >= 0\} \{"
+            lappend lines "        return true"
+            lappend lines "    \}"
+        } else {
+            lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
+            lappend lines "        return true"
+            lappend lines "    \}"
+        }
+
+        lappend lines "    "
+
+        # maybe it's an inline type name?
+        if {[dict exists $props inlineRep]} {
+            set inlineRegex [dict get $props inlineRegex]
+            lappend lines "    if \{\[regexp [list $inlineRegex] \$typeName\]\} \{"
+            lappend lines "        return true"
+            lappend lines "    \}"
+            lappend lines "    "
+        }
+
+        lappend lines "    return false"
+        lappend lines "\}"
+
+        set lines [join $lines "\n"]
+        lappend isProcs $lines
+    }
+
+    # validate
+    dict for {typeName props} $types {
+        set sourceTypeName $typeName
+
+        if {[dict exists $props aliasFor]} {
+            set sourceTypeName [dict get $props aliasFor]
+            set props [dict get $types $sourceTypeName]
+        }
+
+        set aliases [dict get $props aliases]
+
+        set lines [list]
+
+        # start of proc
+        lappend lines "proc $typeName \{toValidate\} \{"
+        lappend lines "    # this procedure is auto-generated in types.folk"
+        # this line adds code that sets typeName and typeValue
+        lappend lines [generateTypeNameAndValueParser "toValidate"]
+        lappend lines "    "
+
+
+        # check if type name(s) are correct
+        if {[llength $aliases] > 1} {
+            lappend lines "    if \{\[lsearch [list $aliases] \$typeName\] >= 0\} \{"
+            lappend lines "    \}"
+        } else {
+            lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
+            lappend lines "    \}"
+        }
+
+        # maybe it's an inline type name?
+        if {[dict exists $props inlineRep]} {
+            set inlineRegex [dict get $props inlineRegex]
+            lset lines end "[lindex $lines end] elseif \{\[regexp [list $inlineRegex] \$typeName\]\} \{"
+            lappend lines "    \}"
+        }
+
+        # else return that it's not this type
+        lset lines end "[lindex $lines end] else \{"
+        lappend lines "        return false"
+        lappend lines "    \}"
+        lappend lines "    "
+
+
+        # only insert the verifier if it exists
+        if {[dict exists $props verifier]} {
+            set verifier [dict get $props verifier]
+            lappend lines "    set verificationResult \[apply [list $verifier] \$typeValue\]"
+            lappend lines "    return \$verificationResult"
+        }
+
+        lappend lines "\}"
+
+        set lines [join $lines "\n"]
+        lappend validateProcs $lines
+    }
+
+    # description
+    dict for {typeName props} $types {
+        if {[dict exists $props aliasFor]} {
+            set props [dict get $types $sourceTypeName]
+        }
+
+        set description "No description provided."
+        if {[dict exists $props description]} {
+            set description [dict get $props description]
+        }
+
+        set lines [list]
+
+        # start of proc
+        lappend lines "proc $typeName \{\} \{"
+        lappend lines "    # this procedure is auto-generated in types.folk"
+        lappend lines "    return [list $description]"
+        lappend lines "\}"
+
+        set lines [join $lines "\n"]
+        lappend descriptionProcs $lines
+    }
+
+    # typeof
+    set typeofMapping [dict create]
+    set typeofRegexes [dict create]
+
+    dict for {typeName props} $types {
+        if {[dict exists $props aliasFor]} {
+            dict set typeofMapping $typeName [dict get $props aliasFor]
+        } else {
+            dict set typeofMapping $typeName $typeName
+        }
+
+        if {[dict exists $props inlineRep]} {
+            # how's regex as a key, eh?
+            dict set typeofRegexes [dict get $props inlineRegex] $typeName
+        }
+    }
+
+    set unboxLib [library create unboxLib [join $unboxProcs "\n\n"]]
+    set boxLib [library create boxLib [join $boxProcs "\n\n"]]
+    set isLib [library create isLib [join $isProcs "\n\n"]]
+    set typeLib [library create typeofLib {typeofMapping typeofRegexes} {
+        proc of {instance} {
+            variable typeofMapping
+            variable typeofRegexes
+
+            # copied from generateTypeNameAndValueParser
+            if {[llength $instance] > 1} {
+                set typeName [lindex $instance 1 0]
+                set typeValue [lindex $instance 0]
+            } else {
+                set result [regexp {([0-9.]+)(.*)} $instance -> typeValue typeName]
+                if {!$result} {
+                    error "Could not parse $instance"
+                }
+            }
+
+            if {[dict exists $typeofMapping $typeName]} {
+                return [dict get $typeofMapping $typeName]
+            }
+
+            dict for {regex matchingTypeName} $typeofRegexes {
+                if {[regexp $regex $typeName]} {
+                    return $matchingTypeName
+                }
+            }
+
+            return ""
+        }
+
+        proc params {instance} {
+            set typeName [lindex $instance 1]
+
+            if {[llength $typeName] > 1} {
+                return [lrange $typeName 1 end]
+            } else {
+                return [regexp -inline -nocase -all {[a-z]+} [lindex $typeName 0]]
+            }
+        }
+    }]
+    set validateLib [library create validateLib [join $validateProcs "\n\n"]]
+    set descriptionLib [library create descriptionLib [join $descriptionProcs "\n\n"]]
+
+    Claim the types are [list $unboxLib $boxLib $isLib $typeLib $validateLib $descriptionLib]
+}
+
+When the types are /types/ {
+    return
+
+    # type testing
+    lassign $types unbox box is type validate description
+
+    set distance "10 mm"
+    puts "distance: $distance"
+    puts "unboxed: [$unbox mm $distance]"
+    puts "--"
+
+    set distance "20mm"
+    puts "distance: $distance"
+    puts "unboxed: [$unbox mm $distance]"
+    puts "--"
+
+    set speed "20 mm/s"
+    puts "speed: $speed"
+    puts "type of 'speed': [$type of $speed]"
+    puts "unboxed: [$unbox vel $speed]"
+    puts "type params: [$type params $speed]"
+    puts "reboxed: [$box vel [$unbox vel $speed] {*}[$type params $speed]]"
+    puts "unreboxed: [$unbox vel [$box vel [$unbox vel $speed] {*}[$type params $speed]]]"
+}
