@@ -1,7 +1,8 @@
 Wish the web server handles route {/page/(.*)$} with handler {
+    set programDir [dict get [QueryOne! the program save directory is /saveDir/] saveDir]
     regexp {/page/(.*)$} $path -> program_id
     set filenames [list \
-        "$::env(HOME)/folk-data/program/$program_id.folk" \
+        "$programDir/$program_id.folk" \
         "$::env(HOME)/folk-live/$program_id.folk" \
         "user-programs/[info hostname]/$program_id.folk" \
         "virtual-programs/$program_id.folk" \
