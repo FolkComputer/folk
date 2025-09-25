@@ -1,0 +1,163 @@
+set editorUtilsLib [library create editorUtilsLib {
+    proc applyTextViewport {originalText x y width height} {
+        set lines [split $originalText \n]
+        set lines [lrange $lines $y [expr {($height - 1) + $y}]]
+        set lines [lmap line $lines {
+            set line [string range $line $x [expr {($width - 1) + $x}]]
+        }]
+        return [join $lines \n]
+    }
+
+    proc cursorToXy {code cursor} {
+        set codeBeforeCursor [string range $code 0 [- $cursor 1]]
+        set linesBeforeCursor [split $codeBeforeCursor "\n"]
+        set lineCountBeforeCursor [llength $linesBeforeCursor]
+
+        set cursorX [string length [lindex $linesBeforeCursor end]]
+        set cursorY [expr {max($lineCountBeforeCursor - 1, 0)}]
+
+        return [list $cursorX $cursorY]
+    }
+
+    proc xyToCursor {code cursorX cursorY} {
+        if { $cursorX < 0 } { set cursorX 0 }
+        if { $cursorY < 0 } { set cursorY 0 }
+
+        set lines [split $code "\n"]
+        set maxCursorY [max 0 [- [llength $lines] 1]]
+        set cursorY [min $cursorY $maxCursorY]
+
+        set relevantLines [lrange $lines 0 [- $cursorY 1]]
+        set relevantLineLen [string length [lindex $lines $cursorY]]
+        set joined [join $relevantLines "\n"]
+        # make sure cursorX < line length
+        set cursorX [min $cursorX $relevantLineLen]
+        set cursor [+ [string length $joined] $cursorX]
+        # don't forget to add the length of \n at the beginning
+        if {$cursorY > 0} { incr cursor }
+
+        return $cursor
+    }
+
+    proc insertText {code cursor newText} {
+        set before [string range $code 0 [- $cursor 1]]
+        set after [string range $code $cursor end]
+        set joined [join [list $before $newText $after] ""]
+
+        return $joined
+    }
+
+    proc deleteText {code cursor count} {
+        set before [string range $code 0 [- $cursor 1]]
+        set after [string range $code [+ $cursor $count] end]
+        set joined [join [list $before $after] ""]
+
+        return $joined
+    }
+
+    proc deleteToBeginning {code cursor} {
+        lassign [cursorToXy $code $cursor] x y
+
+        set lines [split $code "\n"]
+        set line [lindex $lines $y]
+        set newLine [string range $line $x end]
+        lset lines $y $newLine
+        return [join $lines "\n"]
+    }
+
+    proc getLine {code cursor} {
+        lassign [cursorToXy $code $cursor] x y
+
+        set lines [split $code "\n"]
+        set line [lindex $lines $y]
+    }
+
+    proc getLineLength {code cursor} {
+        set line [getLine $code $cursor]
+        set ll [string length $line]
+        return $ll
+    }
+
+    # returns {newCursor newMaxCursorX}
+    proc handleNavigation {key code cursor maxCursorX} {
+        switch $key {
+            Left {
+                set cursor [- $cursor 1]
+                set cursor [max $cursor 0]
+
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set maxCursorX $cursorX
+            }
+            Right {
+                set cursor [+ $cursor 1]
+                set codeLength [string length $code]
+                set cursor [min $cursor $codeLength]
+
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set maxCursorX $cursorX
+            }
+            Up {
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set cursorX $maxCursorX
+                set cursorY [- $cursorY 1]
+                set cursor [xyToCursor $code $cursorX $cursorY]
+            }
+            Down {
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set cursorX $maxCursorX
+                set cursorY [+ $cursorY 1]
+                set cursor [xyToCursor $code $cursorX $cursorY]
+            }
+            Control_a {
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set newX 0
+                set maxCursorX $newX
+                set cursor [xyToCursor $code $newX $cursorY]
+            }
+            Control_e {
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set newX [getLineLength $code $cursor]
+                set maxCursorX $newX
+                set cursor [xyToCursor $code $newX $cursorY]
+            }
+        }
+
+        return [list $cursor $maxCursorX]
+    }
+
+    # returns {newCode newCursor newMaxCursorX}
+    proc handleRemovalAndReturn {key code cursor maxCursorX} {
+        switch $key {
+            Delete {
+                if { $cursor != 0 } {
+                set cursor [- $cursor 1]
+                set code [deleteText $code $cursor 1]
+                set maxCursorX [lindex [cursorToXy $code $cursor] 0]
+                }
+            }
+            Remove {
+                set code [deleteText $code $cursor 1]
+            }
+            Control_u {
+                # delete from cursor back to 0 and move cursor to 0
+                lassign [cursorToXy $code $cursor] cursorX cursorY
+                set code [deleteToBeginning $code $cursor]
+                set newX 0
+                set cursor [xyToCursor $code $newX $cursorY]
+            }
+            Return {
+                # figure out how many spaces there are before the current line
+                regexp {^(\s*)} [getLine $code $cursor] -> spacing
+                set spacingLen [string length $spacing]
+                set code [insertText $code $cursor "\n$spacing"]
+
+                set maxCursorX $spacingLen
+                set cursor [+ $cursor [+ 1 $spacingLen]]
+            }
+        }
+
+        return [list $code $cursor $maxCursorX]
+    }
+}]
+
+Claim the editor utils library is $editorUtilsLib
