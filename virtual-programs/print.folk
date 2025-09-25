@@ -237,7 +237,7 @@ fn nextId {} {
         incr id
     }
 
-    Hold! -save the next program id is $id
+    Hold! -save -key next-id the next program id is $id
 
     set id
 }

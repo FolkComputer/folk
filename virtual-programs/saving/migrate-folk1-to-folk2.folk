@@ -21,6 +21,12 @@ When the hold save directory is /holdDirectory/ &\
         return $contents
     }
 
+    proc tryRm {filename} {
+        try {
+            exec rm $filename
+        } on error e {}
+    }
+
     # copy programs to new location
     exec sh << "cp ~/folk-printed-programs/* ~/folk-data/program/"
 
@@ -30,9 +36,15 @@ When the hold save directory is /holdDirectory/ &\
         Hold! -save -on calibration -key default-program-geometry \
             Claim the default program geometry is $defaultGeom
     }
-    exec rm "$::env(HOME)/folk-data/program/default.folkgeom"
-    # no need to save next-id, as folk already checks that an id doesn't exist
-    exec rm "$::env(HOME)/folk-data/program/next-id.txt"
+    tryRm "$::env(HOME)/folk-data/program/default.folkgeom"
+
+    # also grab next id
+    set nextId [tryReadFile "$::env(HOME)/folk-data/program/next-id.txt"]
+    if {$nextId != ""} {
+        Hold! -save -on virtual-programs/print.folk -key next-id \
+            the next program id is [string trim $nextId]
+    }
+    tryRm "$::env(HOME)/folk-data/program/next-id.txt"
 
     # transfer calibration
     set calibrationPoses [tryReadFile "$::env(HOME)/folk-live/folk-calibration-poses.txt"]
