@@ -716,7 +716,7 @@ extern "C" \{
         set asan_flags "-fsanitize=address -fsanitize-recover=address"
     }
     set out [exec $compiler {*}$asan_flags -Wall -g -fno-omit-frame-pointer -fPIC \
-                 {*}$cflags $cfile -c -o [file rootname $cfile].o]
+             {*}$cflags {*}$::env(CFLAGS) $cfile -c -o [file rootname $cfile].o]
     if {[string trim $out] ne ""} {
         puts $out
     }
@@ -731,7 +731,7 @@ extern "C" \{
 
     exec $compiler {*}$asan_flags -shared $ignoreUnresolved \
         -O2 -o /tmp/$cid.so [file rootname $cfile].o \
-        {*}$endcflags
+        {*}$endcflags {*}$::env(LDFLAGS)
 
     # HACK: Why do we need this / only when running in lldb?
     set n 0

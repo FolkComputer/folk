@@ -2,6 +2,9 @@
 #
 #     Implements a virtual terminal with basic read/write procs.
 #
+if [expr {$::tcl_platform(os) eq "darwin"}] {
+    return
+}
 
 namespace eval Terminal {
   # From `man console_codes`

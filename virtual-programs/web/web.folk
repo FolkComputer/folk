@@ -1,3 +1,7 @@
+if [expr {$::tcl_platform(os) eq "darwin"}] {
+    source lib/c.tcl
+}
+
 puts "web: [__threadId] (PID [pid])"
 
 # We need to handle SIGPIPE so closing a tab doesn't crash Folk, but

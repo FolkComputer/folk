@@ -171,6 +171,13 @@ $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
 }
 $cc endcflags -lwslay
 
+
+if {[expr {$::tcl_platform(os) eq "darwin"}]} {
+    set include_path "-I[exec brew --prefix libwebsockets]/include"
+    puts "DEBUG WS.TCL: Set CFLAGS to: $include_path"
+    $cc cflags $include_path
+}
+
 set wsLib [$cc compile]
 # This pipe is used so that other threads can queue up messages to
 # send out through WebSockets.

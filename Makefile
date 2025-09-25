@@ -2,6 +2,11 @@ ifeq ($(shell uname -s),Linux)
 	override BUILTIN_CFLAGS += -Wl,--export-dynamic
 endif
 
+ifeq ($(shell uname -s),Darwin)
+	override BUILTIN_CFLAGS += -I$(shell brew --prefix openssl)/include
+	override LDFLAGS += -L$(shell brew --prefix openssl)/lib
+endif
+
 ifneq (,$(filter -DTRACY_ENABLE,$(CFLAGS)))
 # Tracy is enabled
 	TRACY_TARGET = vendor/tracy/public/TracyClient.o
@@ -18,6 +23,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 	$(LINKER) -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@ \
 		$(CFLAGS) $(BUILTIN_CFLAGS) \
 		-L./vendor/jimtcl \
+		$(LDFLAGS) \
 		$(filter %.o %.a,$^) \
 		-ljim -lm -lssl -lcrypto -lz
 	if [ "$$(uname)" = "Darwin" ]; then \
