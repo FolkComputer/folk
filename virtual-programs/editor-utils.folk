@@ -158,6 +158,15 @@ set editorUtilsLib [library create editorUtilsLib {
 
         return [list $code $cursor $maxCursorX]
     }
+
+    proc lineNumberView {ystart linecount} {
+        set yend [expr {$ystart + $linecount}]
+        set numbers [list]
+        for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
+            lappend numbers $i
+        }
+        join $numbers "\n"
+    }
 }]
 
 Claim the editor utils library is $editorUtilsLib

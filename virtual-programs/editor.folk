@@ -78,15 +78,6 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   }
 }
 
-fn lineNumberView {ystart linecount} {
-  set yend [expr {$ystart + $linecount}]
-  set numbers [list]
-  for {set i [expr {$ystart + 1}]} {$i <= $yend} {incr i} {
-    lappend numbers $i
-  }
-  join $numbers "\n"
-}
-
 When /page/ is an editor with path /kbPath/ /...anything/ {
     set id [list editing $page $kbPath]
 
@@ -119,7 +110,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
         # Draw line numbers
         set lp [list 0.005 0.01]
         set linecount [llength [split $editorCode "\n"]]
-        set linenumbers [lineNumberView 0 $linecount]
+        set linenumbers [$utils lineNumberView 0 $linecount]
         Wish to draw text onto $id' with \
             position $lp text $linenumbers \
             scale $scale anchor topleft font NeomatrixCode

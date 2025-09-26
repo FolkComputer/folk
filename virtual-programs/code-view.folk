@@ -3,7 +3,7 @@ When type library for millimeter is /mm/ &\
      the editor utils library is /utils/ {
 
 # TODO: also don't hardcode this?
-set margin [list 0.02 0.09]
+set margin [list 0.035 0.09]
 set defaults { textScale 0.01 }
 
 set codeViewLib [library create codeViewLib {margin defaults} {
@@ -145,7 +145,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                     }
                     Control_t {
                         # remove the edited code to restore the program to its original code
-                        Hold -key new-code-for:$program {}
+                        Hold! -key new-code-for:$program {}
                         set resetCode true
                         file delete "$programDir/$program.folk.edited"
                     }
@@ -202,7 +202,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
             }
 
             if {$resetCode} {
-                set originalCode [dict get [QueryOne! view code for $program is /code/] code]
+                set originalCode [dict get [QueryOne! $program has program code /code/] code]
                 Hold! -key code-for:$program \
                     Claim view code for $program is $originalCode
             } else {
@@ -274,6 +274,11 @@ When /view/ is a code view with /...anything/ &\
     When $view has selected program /program/ &\
          view code for /program/ is /code/ &\
          $view has cursor position /cursorPos/ {
+        set lineNumbers [$utils lineNumberView $vpY $vpHeight]
+        Wish to draw text onto $view with \
+            position [vec2 sub $margin [list 0.005 0.0]] text $lineNumbers \
+            scale $textScale anchor topright font NeomatrixCode
+
         set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
         set pos $margin
         Wish to draw text onto $view with \
