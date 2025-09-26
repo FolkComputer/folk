@@ -1,9 +1,5 @@
 if [expr {$::tcl_platform(os) eq "darwin"}] {
-    puts "opting out of blobdetect ($::tcl_platform(os))"
     return
-} else {
-    puts "loading blobdetect ($::tcl_platform(os))"
-
 }
 
 namespace eval ::BlobDetect {

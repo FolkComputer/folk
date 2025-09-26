@@ -1,3 +1,7 @@
+# if [expr {$::tcl_platform(os) eq "darwin"}] {
+#     return;
+# }
+
 # We use `apply` to seal this code's local variables in so they don't
 # get captured by any Whens.
 apply {{this} {
