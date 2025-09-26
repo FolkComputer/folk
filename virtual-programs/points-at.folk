@@ -30,7 +30,7 @@ When the quad library is /quadLib/ &\
     if {$direction eq "up"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set up [sub $topCenter $bottomCenter]
+        set up [scale $scale [sub $topCenter $bottomCenter]]
 
         set from $topCenter
         set to [add $topCenter $up]
@@ -39,7 +39,7 @@ When the quad library is /quadLib/ &\
     } elseif {$direction eq "left"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set left [sub $leftCenter $rightCenter]
+        set left [scale $scale [sub $leftCenter $rightCenter]]
 
         set from $leftCenter
         set to [add $leftCenter $left]
@@ -48,16 +48,16 @@ When the quad library is /quadLib/ &\
     } elseif {$direction eq "right"} {
         set leftCenter [scale 0.5 [add $topLeft $bottomLeft]]
         set rightCenter [scale 0.5 [add $topRight $bottomRight]]
-        set right [sub $rightCenter $leftCenter]
+        set right [scale $scale [sub $rightCenter $leftCenter]]
 
         set from $rightCenter
         set to [add $rightCenter $right]
-        set color green
+        set color red
 
     } elseif {$direction eq "down"} {
         set topCenter [scale 0.5 [add $topLeft $topRight]]
         set bottomCenter [scale 0.5 [add $bottomLeft $bottomRight]]
-        set down [sub $bottomCenter $topCenter]
+        set down [scale $scale [sub $bottomCenter $topCenter]]
 
         set from $bottomCenter
         set to [add $bottomCenter $down]
@@ -80,13 +80,6 @@ When the quad library is /quadLib/ &\
                 $displayWidth $displayHeight \
                 $to]
 
-    Wish to draw a line onto $disp with \
-        points [list $from $to] width 4 \
-        color $color
-    Wish to draw a circle onto $disp with \
-        center $to radius 10 thickness 5 \
-        color $color filled false
-
     When /target/ has quad /q2/ {
         if {$target eq $rect} { return }
 
@@ -98,6 +91,23 @@ When the quad library is /quadLib/ &\
         if {[::math::geometry::pointInsidePolygon $to $displayVertices]} {
             Claim (keep 20ms) $rect points $direction at $target
             Claim (keep 20ms) $rect points $direction with length $l at $target
+
+            set color green
+            Wish (keep 20ms) to draw a line onto $disp with \
+                points [list $from $to] width 4 \
+                color $color
+            Wish (keep 20ms) to draw a circle onto $disp with \
+                center $to radius 10 thickness 5 \
+                color $color filled false
         }
+    }
+
+    When /nobody/ claims $rect points /anything/ at /anything/ {
+        Wish (keep 20ms) to draw a line onto $disp with \
+            points [list $from $to] width 4 \
+            color $color
+        Wish (keep 20ms) to draw a circle onto $disp with \
+            center $to radius 10 thickness 5 \
+            color $color filled false
     }
 }

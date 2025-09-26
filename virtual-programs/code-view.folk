@@ -1,0 +1,293 @@
+When type library for millimeter is /mm/ &\
+     the program save directory is /programDir/ &\
+     the editor utils library is /utils/ {
+
+# TODO: also don't hardcode this?
+set margin [list 0.02 0.09]
+set defaults { textScale 0.01 }
+
+set codeViewLib [library create codeViewLib {margin defaults} {
+    proc getEmAndAdvance {textScale} {
+        set em [expr {$textScale * 1}]
+        # From NeomatrixCode.csv
+        set advance [expr {0.5859375 * $em}]
+
+        return [list $em $advance]
+    }
+
+    proc widthAndHeight {resolvedGeom} {
+        set tagSize [dict get $resolvedGeom tagSize]
+        set left [dict get $resolvedGeom left]
+        set right [dict get $resolvedGeom right]
+        set top [dict get $resolvedGeom top]
+        set bottom [dict get $resolvedGeom bottom]
+
+        set width [expr {$left + $tagSize + $right}]
+        set height [expr {$top + $tagSize + $bottom}]
+
+        return [list $width $height]
+    }
+
+    # given program and the code view options, figure out how many characters can
+    # fit in this code view
+    proc viewCharacterSize {resolvedGeom options} {
+        variable margin
+
+        set textScale [dict get $options textScale]
+        lassign [getEmAndAdvance $textScale] em advance
+
+        lassign [widthAndHeight $resolvedGeom] width height
+        set width [expr {$width - [lindex $margin 0]}]
+        set height [expr {$height - [lindex $margin 1]}]
+
+        set widthInCharacters [expr {int($width / $advance)}]
+        set heightInCharacters [expr {int($height / $em)}]
+
+        return [list $widthInCharacters $heightInCharacters]
+    }
+}]
+
+When /someone/ claims /view/ is a code view {
+    Claim $view is a code view with {*}$defaults
+}
+
+# initial setup
+When /view/ is a code view with /...options/ {
+    set options [dict merge $defaults $options]
+
+    # select which program the view is viewing
+    When $view points up with length 0.3 at /program/ {
+        Hold! -key selected-program:$view \
+            Claim $view has selected program $program
+    }
+
+    # reset selected program when it's not pointing at anything
+    When /nobody/ claims $view points up at /anything/ {
+        Hold! -key selected-program:$view {}
+    }
+
+    # load in defaults for the view if it hasn't been initialized
+    set results [Query! /somebody/ claims $view has cursor /anything/]
+    if {[llength $results] == 0} {
+        # We need the view's region in geometry to get its size.
+        # We then use its size to figure out how many characters we can fit in it,
+        # width-wise and height-wise
+        When $view has resolved geometry /geom/ {
+            Hold! -key text-params-of:$view {
+                set textScale [dict get $options textScale]
+                lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+
+                Claim $view has text settings with em $em advance $advance scale $textScale
+            }
+
+            Hold! -key view-state-of:$view {
+                lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
+
+                Claim $view has view dimensions [list 0 0 $widthInCharacters $heightInCharacters]
+                Claim $view has cursor 0
+                Claim $view has max cursor x 0
+            }
+        }
+    }
+
+    # load in initial program code
+    When $view has selected program /program/ &\
+         /program/ has program code /programCode/ {
+        set results [Query! view code for $program is /anything/]
+        if {[llength $results] == 0} {
+            Hold! -key code-for:$program \
+                Claim view code for $program is $programCode
+        }
+    }
+
+    Wish tag $view is stabilized
+}
+
+When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+     /nobody/ claims /keyboard/ is an editor with /...anything/ &\
+     /keyboard/ points up at /view/ &\
+     /view/ is a code view with /...anything/ &\
+     /view/ has selected program /program/ {
+    Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
+        ForEach! $view has view dimensions /dims/ &\
+                 view code for $program is /code/ &\
+                 $view has max cursor x /maxCursorX/ &\
+                 $view has cursor /cursor/ &\
+                 $view has text settings with /...textOptions/ {
+            lassign $dims vpX vpY vpWidth vpHeight
+
+            if {$keyState == "up"} { return }
+
+            # if this is true, the code will remove the hold for program code
+            # (triggering a reinitialization)
+            set resetCode false
+
+            if {[dict exists $options printable]} {
+                set code [$utils insertText $code $cursor [dict get $options printable]]
+
+                incr cursor
+                incr maxCursorX
+            } else {
+                # general editor functionality
+                lassign [$utils handleNavigation $key $code $cursor $maxCursorX] cursor maxCursorX
+                lassign [$utils handleRemovalAndReturn $key $code $cursor $maxCursorX] code cursor maxCursorX
+
+                # specific editor functionality
+                switch $key {
+                    Control_r {
+                        set resetCode true
+                    }
+                    Control_s {
+                        Notify: save code on view $view
+                    }
+                    Control_p {
+                        Notify: print code $code
+                    }
+                    Control_t {
+                        # remove the edited code to restore the program to its original code
+                        Hold -key new-code-for:$program {}
+                        set resetCode true
+                        file delete "$programDir/$program.folk.edited"
+                    }
+                    Control_underscore {
+                        # ctrl and - (zoom out)
+                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
+
+                        set textScale [dict get $textOptions scale]
+                        set textScale [/ $textScale 1.1]
+
+                        Hold! -key text-params-of:$view {
+                            lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+                            Claim $view has text settings with em $em advance $advance scale $textScale
+                        }
+
+                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+                        set codeViewOptions [dict create textScale $textScale]
+                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                    }
+                    equal {
+                        # Dunno why it registers as equal instead of Control_equal? It works regardless, lol
+                        # ctrl and + (zoom in)
+                        set geom [dict get [QueryOne! $view has resolved geometry /geom/] geom]
+
+                        set textScale [dict get $textOptions scale]
+                        set textScale [* $textScale 1.1]
+
+                        Hold! -key text-params-of:$view {
+                            lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+                            Claim $view has text settings with em $em advance $advance scale $textScale
+                        }
+
+                        # overwrite vpWidth and vpHeight as it's used later when updating the viewport
+                        set codeViewOptions [dict create textScale $textScale]
+                        lassign [$codeViewLib viewCharacterSize $geom $codeViewOptions] vpWidth vpHeight
+                    }
+                }
+            }
+
+            lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+            if {$cursorX < $vpX} { set vpX $cursorX }
+            if {$cursorX >= $vpX + $vpWidth} {
+                set vpX [expr {$cursorX - $vpWidth}]
+            }
+            if {$cursorY < $vpY} { set vpY $cursorY }
+            if {$cursorY >= $vpY + $vpHeight - 1} {
+                set vpY [expr {$cursorY - $vpHeight + 1}]
+            }
+
+            Hold! -key view-state-of:$view {
+                Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
+                Claim $view has cursor $cursor
+                Claim $view has max cursor x $maxCursorX
+            }
+
+            if {$resetCode} {
+                set originalCode [dict get [QueryOne! view code for $program is /code/] code]
+                Hold! -key code-for:$program \
+                    Claim view code for $program is $originalCode
+            } else {
+                Hold! -keep 12ms -key code-for:$program \
+                    Claim view code for $program is $code
+            }
+        }
+    }
+}
+
+Subscribe: save code on view /view/ {
+    ForEach! /view/ has selected program /program/ &\
+             view code for /program/ is /programCode/ {
+        Hold! -key new-code-for:$program \
+            Wish program $program is replaced with code $programCode
+
+        set fp [open "$programDir/[set program].folk.edited" w]
+        puts -nonewline $fp $programCode
+        close $fp
+
+        # code may be saved even without an attached keyboard, hence
+        # feedback being optional
+        set results [Query! /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
+                            /keyboard/ points up at $view]
+        if {[llength $results] > 0} {
+            set keyboard [dict get [lindex $results 0] keyboard]
+
+            # give the user some feedback
+            Hold! -key saved-alert:$keyboard \
+                Wish $keyboard is labelled "Saved!"
+
+            sleep 0.25
+            Hold! -key saved-alert:$keyboard {}
+        }
+    }
+}
+
+# calculate cursor position
+When /view/ is a code view with /...anything/ &\
+     /view/ has cursor /cursor/ &\
+     /view/ has selected program /program/ &\
+     view code for /program/ is /code/ &\
+     /view/ has view dimensions /dims/ &\
+     /view/ has text settings with /...textOptions/ {
+    lassign $dims vpX vpY vpWidth vpHeight
+
+    lassign [$utils cursorToXy $code $cursor] cursorX cursorY
+
+    set em [dict get $textOptions em]
+    set advance [dict get $textOptions advance]
+
+    set offsetX [expr {($cursorX - $vpX) * $advance}]
+    set offsetY [expr {($cursorY - $vpY) * $em}]
+
+    Claim $view has cursor position [list $offsetX $offsetY]
+}
+
+# Draw text and cursor
+When /view/ is a code view with /...anything/ &\
+     /view/ has view dimensions /dims/ &\
+     /view/ has resolved geometry /geom/ &\
+     /view/ has text settings with /...textOptions/ {
+    # vp = viewport
+    lassign $dims vpX vpY vpWidth vpHeight
+
+    set textScale [dict get $textOptions scale]
+    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
+
+    When $view has selected program /program/ &\
+         view code for /program/ is /code/ &\
+         $view has cursor position /cursorPos/ {
+        set text [$utils applyTextViewport $code $vpX $vpY $vpWidth $vpHeight]
+        set pos $margin
+        Wish to draw text onto $view with \
+            position $pos text $text \
+            scale $textScale anchor topleft font NeomatrixCode
+
+        set p1 [vec2 add $cursorPos $pos]
+        set p2 [vec2 add $p1 [list 0 [expr {$em + 0.004}]]]
+        set s [expr {$textScale / 6}]
+        Wish to draw a circle onto $view with center $p1 radius $s thickness 0 color green filled true
+        Wish to draw a line onto $view with points [list $p1 $p2] width $s color green
+    }
+}
+
+
+# end of library code
+}
