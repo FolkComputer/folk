@@ -14,7 +14,7 @@ set editorUtilsLib [library create editorUtilsLib {
         set lineCountBeforeCursor [llength $linesBeforeCursor]
 
         set cursorX [string length [lindex $linesBeforeCursor end]]
-        set cursorY [expr {max($lineCountBeforeCursor - 1, 0)}]
+        set cursorY [max [- $lineCountBeforeCursor 1] 0]
 
         return [list $cursorX $cursorY]
     }
