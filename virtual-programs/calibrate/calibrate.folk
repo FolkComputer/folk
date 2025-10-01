@@ -189,8 +189,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagsSize`.
-    Hold! -on calibration -key last-seen-poses \
+    Hold! -key last-seen-poses \
         Claim the calibration last-seen poses are [list]
+    On unmatch { Hold! -key last-seen-poses {} }
     set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
@@ -582,7 +583,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         set poseRmse [expr {sqrt($totalError / ([llength $projectedTags] * 4))}]
         if {$poseRmse > 5} {
-            puts "Pose has too-high rmse ($poseRmse); skipping"
+            puts "calibrate: Pose has too-high rmse ($poseRmse); skipping"
             return
         }
 
@@ -597,12 +598,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
-        set seenPoses [dict get [lindex [Query! /someone/ claims the calibration last-seen poses are /seenPoses/] 0] seenPoses]
+        set seenPoses [dict get [lindex [Query! the calibration last-seen poses are /seenPoses/] 0] seenPoses]
         lappend seenPoses $pose
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        Hold! -on calibration -key last-seen-poses \
+        Hold! -key last-seen-poses \
             -version $nextModelFrameTimestamp \
             Claim the calibration last-seen poses are $seenPoses
 
