@@ -194,7 +194,6 @@ int Jim_OpenForRead(const char *filename)
 int Jim_MakeTempFile(Jim_Interp *interp, const char *filename_template, int unlink_file)
 {
     int fd;
-    mode_t mask;
     Jim_Obj *filenameObj;
 
     if (filename_template == NULL) {
