@@ -953,7 +953,10 @@ fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
 When the calibration matLib is /matLib/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
+     the calibration estimateHomography is /estimateHomography/ &\
      the calibration refiner is /refineCalibration/ {
+
+    fn estimateHomography
 
     if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
         return
