@@ -693,11 +693,8 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - fix remaining display/ primitives
 - rebuild live image
 - why is web endpoints so slow?
-- ~~drop support for multiarg Hold keys~~
 - optimize jpeg decoding
 - vendor wslay?
-- ~~ports~~
-  - ~~points-up port~~
 - only intern long strings?
 - stack traces don't work inside web handlers
 - accidentally matches prefixes even when not all teh way up to end of statement
@@ -709,10 +706,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
   - some kind of new scheduler? priorities? convergence zones?
   - allocate a fixed texture slot for the camera slice?
 - camera slices cause hop/distortion when pulled off
-- ~~keyboard boot bug~~
-- ~~Assert wrapper with deprecation complaint~~
 - ForEach! stack fix
-- ~~make new.folk generate a quad~~
 
 ### perf
 - on folk-live at home, folk2-leakfix: 160ms calibration cycle
@@ -722,7 +716,6 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - minor memory leak
 - on old folk2 with term copying:, in tracy 245 microseconds --
   apriltags.folk:170 (collection)
-- fix uncalibrated Folk message
 - **calibrate render loop blinks out regularly**
 - calibrate doesn't click in afterward, have to restart system (is it
   because of kill refiner?)
@@ -730,17 +723,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
-- ~~blinking on overlaid pages -- either fix an order or enable alpha
-  blending~~
 - fix sprite blinking
-- test calibration
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
 - weird extra space in editor on boot
-- ~~fix removal of program when tab closes~~
 - fix calibration screwing up system state
 - persist transient errors
-- invert changers
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
@@ -748,3 +736,54 @@ executions of the block? if they are, then we warn on the page that it
 isn't meeting timing
 - delay the removal of the old hold until downstream statements of the
 old hold have fully converged? but WARN if this happens
+
+### crash: vulkan size=0
+
+```
+Oct 01 18:00:14 folk0 make[70345]: VUID-VkBufferCreateInfo-size-00912(ERROR / SPEC): msgNum: 2085897310 - Validation Error: [ VUID-VkBufferCreateInfo-size-00912 ] | MessageID = 0x7c54445e | vkCreateBuffer(): pCreateInfo->size is zero.
+Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: size must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkBufferCreateInfo-size-00912)
+Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07897(ERROR / SPEC): msgNum: -1452819968 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07897 ] | MessageID = 0xa967ba00 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
+Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters do not define an import or export operation, allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07897)
+Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07899(ERROR / SPEC): msgNum: 1579783047 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07899 ] | MessageID = 0x5e299387 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
+Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters define an export operation and the handle type is not VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID , allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07899)
+Oct 01 18:00:14 folk0 make[70345]: UNASSIGNED-GeneralParameterError-RequiredHandle(ERROR / SPEC): msgNum: -1881362053 - Validation Error: [ UNASSIGNED-GeneralParameterError-RequiredHandle ] | MessageID = 0x8fdcb17b | vkBindBufferMemory(): memory is VK_NULL_HANDLE.
+Oct 01 18:00:14 folk0 make[70345]: VUID-vkBindBufferMemory-memoryOffset-01031(ERROR / SPEC): msgNum: -143326275 - Validation Error: [ VUID-vkBindBufferMemory-memoryOffset-01031 ] Object 0: handle = 0xfd2fa90000007a9e, type = VK_OBJECT_TYPE_BUFFER; | MessageID = 0xf77503bd | vkBindBufferMemory(): attempting to bind VkDeviceMemory 0x0[] to VkBuffer 0xfd2fa90000007a9e[], memoryOffset (0) must be less than the memory allocation size (0).
+Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: memoryOffset must be less than the size of memory (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-vkBindBufferMemory-memoryOffset-01031)
+Oct 01 18:00:14 folk0 make[70345]:     Objects: 1
+Oct 01 18:00:14 folk0 make[70345]:         [0] 0xfd2fa90000007a9e, type: 9, name: NULL
+Oct 01 18:00:17 folk0 make[70337]: Segmentation fault (core dumped)
+Oct 01 18:00:17 folk0 make[70333]: make: *** [Makefile:138: start] Error 139
+Oct 01 18:00:17 folk0 make[70333]: make: Leaving directory '/home/folk/folk2'
+Oct 01 18:00:17 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+```
+
+### crash: Vulkan crash 2
+
+```
+Oct 01 18:26:59 folk0 make[71943]: Empty input file
+Oct 01 18:26:59 folk0 make[71943]: folk: /home/folk/Vulkan-ValidationLayers/layers/vulkan/generated/command_validation.cpp:1852: bool CoreChecks::ValidateCmd(const vvl::CommandBuffer&, const Location&) const: Assertion `false' failed.
+Oct 01 18:27:03 folk0 make[71935]: Aborted (core dumped)
+Oct 01 18:27:03 folk0 make[71931]: make: *** [Makefile:138: start] Error 134
+Oct 01 18:27:03 folk0 make[71931]: make: Leaving directory '/home/folk/folk2'
+Oct 01 18:27:03 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+```
+
+### crash: Hold overflow
+with animation + editors
+
+```
+Oct 01 18:12:56 folk0 make[70753]:   251. {virtual-programs/tags-to-quads.folk 1335 image}
+Oct 01 18:12:56 folk0 make[70753]:   252. {collect /wisher/ wishes the GPU draws pipeline /name/ onto canvas {1335 canvas} with /...options/}
+Oct 01 18:12:56 folk0 make[70753]:   253. {collect /someone/ claims tag 1336 has geometry /geom/}
+Oct 01 18:12:56 folk0 make[70753]:   254. {virtual-programs/tags-to-quads.folk tag pose 1336}
+Oct 01 18:12:56 folk0 make[70753]:   255. {virtual-programs/tags-to-quads.folk 1336 image}
+Oct 01 18:12:56 folk0 make[70753]: camera 19; bufcount 4
+Oct 01 18:12:56 folk0 make[70753]: camera_start(0): Success
+Oct 01 18:12:56 folk0 make[70753]: camera_start(1): Success
+Oct 01 18:12:56 folk0 make[70753]: camera_start(2): Success
+Oct 01 18:12:56 folk0 make[70753]: camera_start(3): Success
+Oct 01 18:12:56 folk0 make[70753]: Found 1 Vulkan devices
+Oct 01 18:12:56 folk0 make[70753]: Gpu: Found 1 displays
+Oct 01 18:12:56 folk0 make[70741]: make: *** [Makefile:138: start] Error 1
+Oct 01 18:12:56 folk0 make[70741]: make: Leaving directory '/home/folk/folk2'
+```
