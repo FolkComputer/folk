@@ -24,8 +24,12 @@ When display /disp/ has width /displayWidth/ height /displayHeight/ &\
 
     puts stderr "calibrate: $warning"
     set cx [/ $displayWidth 2.0]
-    Wish to draw text with x $cx y [* $displayHeight 0.3] text $warning color red
-    Wish to draw text with x $cx y [* $displayHeight 0.7] text $warning color red
+    Wish to draw text onto $disp with \
+        x $cx y [* $displayHeight 0.3] \
+        text $warning color red scale 40
+    Wish to draw text onto $disp with \
+        x $cx y [* $displayHeight 0.7] radians 3.14159 \
+        text $warning color red scale 40
 }
 
 When the calibration is /calibration/ {
