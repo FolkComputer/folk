@@ -37,8 +37,9 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
   }
 
   if {[llength [Query! /someone/ claims $id has program code /c/]] == 0} {
-      Hold! -key "code$kbPath" {
+      Hold! -key "programCode$kbPath" \
           Claim $id has program code $baseCode
+      Hold! -key "code$kbPath" {
           Claim $id has editor code $baseCode
       }
   }
@@ -263,10 +264,8 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
         if {[dict exists $options printable]} {
           Hold! -key "cursor$kbPath" {
             Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-            Hold! -key "code$kbPath" {
-              Claim $id has program code $code
+            Hold! -key "code$kbPath" \
               Claim $id has editor code [insertCharacter $editorCode [dict get $options printable] $cursor]
-            }
           }
         } else {
           Hold! -key "cursor$kbPath" {
@@ -329,25 +328,19 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 } else {
                   Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
                 }
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code [deleteCharacter $editorCode $cursor]
-                }
               }
               Remove {
                 Claim the $kbPath cursor is $cursor
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code [deleteCharacter $editorCode [updateCursor $cursor {x 1}]]
-                }
               }
               Return {
                 set updatedCursor [updateCursor $cursor {y 1}]
                 Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code [insertNewline $editorCode $cursor]
-                }
               }
               Control_p {
                 # TODO: Implement DELETE, operates like BACKSPACE, but in the opposite direction
@@ -357,10 +350,8 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 #       Perhaps `Wish $system volume is 0.5` or something
                 When $id has printed /lastPrintedCode/ at /previousTime/ {
                   if {($timestamp - $previousTime) < 1000} {
-                    Hold! -key "code$kbPath" {
-                      Claim $id has program code $code
+                    Hold! -key "code$kbPath" \
                       Claim $id has editor code $editorCode
-                    }
                     Claim the $kbPath cursor is $cursor
                   }
                 }
@@ -374,48 +365,38 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 sleep 2
                 Hold! -key print-${jobid} {}
 
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code $editorCode
-                }
                 Claim the $kbPath cursor is $cursor
               }
               Control_r {
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $baseCode
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code $baseCode
-                }
                 Claim the $kbPath cursor is [list 0 0]
               }
               Control_s {
-                Hold! -key "code$kbPath" {
+                Hold! -key "programCode$kbPath" \
                   Claim $id has program code $editorCode
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code $editorCode
-                }
                 Claim the $kbPath cursor is $cursor
               }
               Control_a {
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code $editorCode
-                }
                 lassign $cursor x y
                 Claim the $kbPath cursor is [list 0 $y]
               }
               Control_e {
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code $editorCode
-                }
                 lassign $cursor x y
                 Claim the $kbPath cursor is [list [getLineLength $editorCode $cursor] $y]
               }
               Control_u {
                 # delete from cursor back to 0 and move cursor to 0
-                Hold! -key "code$kbPath" {
-                  Claim $id has program code $code
+                Hold! -key "code$kbPath" \
                   Claim $id has editor code [deleteToBeginning $editorCode $cursor]
-                }
                 lassign $cursor x y
                 Claim the $kbPath cursor is [list 0 $y]
               }
