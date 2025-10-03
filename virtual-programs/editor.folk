@@ -263,7 +263,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
         if {[dict exists $options printable]} {
           Hold! -key "cursor$kbPath" {
             Claim the $kbPath cursor is [updateCursor $cursor {x 1}]
-            Hold! -keep 12ms -key "code$kbPath" {
+            Hold! -key "code$kbPath" {
               Claim $id has program code $code
               Claim $id has editor code [insertCharacter $editorCode [dict get $options printable] $cursor]
             }
@@ -329,14 +329,14 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 } else {
                   Claim the $kbPath cursor is [updateCursor $cursor {x -1}]
                 }
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code [deleteCharacter $editorCode $cursor]
                 }
               }
               Remove {
                 Claim the $kbPath cursor is $cursor
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code [deleteCharacter $editorCode [updateCursor $cursor {x 1}]]
                 }
@@ -344,7 +344,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
               Return {
                 set updatedCursor [updateCursor $cursor {y 1}]
                 Claim the $kbPath cursor is [list 0 [y $updatedCursor]]
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code [insertNewline $editorCode $cursor]
                 }
@@ -357,7 +357,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 #       Perhaps `Wish $system volume is 0.5` or something
                 When $id has printed /lastPrintedCode/ at /previousTime/ {
                   if {($timestamp - $previousTime) < 1000} {
-                    Hold! -keep 12ms -key "code$kbPath" {
+                    Hold! -key "code$kbPath" {
                       Claim $id has program code $code
                       Claim $id has editor code $editorCode
                     }
@@ -374,28 +374,28 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 sleep 2
                 Hold! -key print-${jobid} {}
 
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code $editorCode
                 }
                 Claim the $kbPath cursor is $cursor
               }
               Control_r {
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $baseCode
                   Claim $id has editor code $baseCode
                 }
                 Claim the $kbPath cursor is [list 0 0]
               }
               Control_s {
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $editorCode
                   Claim $id has editor code $editorCode
                 }
                 Claim the $kbPath cursor is $cursor
               }
               Control_a {
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code $editorCode
                 }
@@ -403,7 +403,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 Claim the $kbPath cursor is [list 0 $y]
               }
               Control_e {
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code $editorCode
                 }
@@ -412,7 +412,7 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
               }
               Control_u {
                 # delete from cursor back to 0 and move cursor to 0
-                Hold! -keep 12ms -key "code$kbPath" {
+                Hold! -key "code$kbPath" {
                   Claim $id has program code $code
                   Claim $id has editor code [deleteToBeginning $editorCode $cursor]
                 }
