@@ -415,9 +415,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     }
 
     When /someone/ wishes /p/ has a canvas {
+        Wish $p has a canvas with width 1024 height 1024 settle 3ms
+    }
+    When /someone/ wishes /p/ has a canvas with /...options/ {
         set pCanvas [list $p canvas]
-        Wish the GPU creates canvas $pCanvas with \
-            width 1024 height 1024
+        Wish the GPU creates canvas $pCanvas with {*}$options
         When the GPU has created canvas $pCanvas with /...canvOpts/ {
             Claim $p has canvas $pCanvas with {*}$canvOpts
 

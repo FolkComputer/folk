@@ -729,6 +729,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - weird extra space in editor on boot
 - fix calibration screwing up system state
 - persist transient errors
+- fix error report in web editor
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
