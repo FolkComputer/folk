@@ -1,0 +1,394 @@
+# Provides WAV, FLAC, and MP3 file playback using the miniaudio library. Requires
+# ALSA, PulseAudio, or JACK drivers.
+#
+# See https://miniaud.io/. We are using Miniaudio v0.11.23.
+#
+# Examples:
+#
+# Play a sound file in assets/sounds/ or user-programs/$hostname/sounds:
+#
+#    Wish to play audio drums.wav
+#
+# Play a sound file by absolute path:
+#
+#    Wish to play audio /home/folk/sounds/drums.wav
+
+set cc [C]
+$cc cflags -I./vendor/miniaudio
+
+$cc code {
+  #define MINIAUDIO_IMPLEMENTATION
+}
+
+$cc include <pthread.h>
+$cc include <stdio.h>
+$cc include <stdint.h>
+$cc include <stdlib.h>
+$cc include <unistd.h>
+$cc include <miniaudio.h>
+
+if {$::tcl_platform(os) ne "Darwin"} {
+    $cc endcflags -lpthread -lm -ldl
+}
+
+$cc code {
+    static ma_context     g_ctx;
+    static ma_engine      g_engine;
+    static ma_sound_group g_group;
+
+    static bool g_ctx_initialized    = false;
+    static bool g_engine_initialized = false;
+    static bool g_engine_started     = false;
+    static bool g_group_initialized  = false;
+
+    static pthread_mutex_t g_state_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+    typedef struct SoundNode {
+        ma_sound*         snd;
+        struct SoundNode* next;
+    } SoundNode;
+
+    static SoundNode*      g_head            = NULL;
+    static pthread_mutex_t g_list_mtx        = PTHREAD_MUTEX_INITIALIZER;
+    static bool            g_reaper_running  = false;
+    static pthread_t       g_reaper_thr;
+    static bool            g_shutdown_reaper = false;
+
+    /* Maintains linked list of active sounds */
+    static bool registry_add(ma_sound* snd) {
+        SoundNode* node = (SoundNode*)malloc(sizeof *node);
+
+        if (!node) {
+            FOLK_ERROR("miniaudio: registry_add: alloc failed\n");
+            return false;
+        }
+
+        node->snd = snd;
+
+        pthread_mutex_lock(&g_list_mtx);
+        node->next = g_head;
+        g_head = node;
+        pthread_mutex_unlock(&g_list_mtx);
+
+        return true;
+    }
+
+    /* Removes and uninitializes all sounds from the registry */
+    static void registry_clear_locked(void) {
+        SoundNode* node = g_head;
+
+        while (node) {
+            SoundNode* next = node->next;
+
+            if (node->snd) {
+                ma_sound_uninit(node->snd);
+                free(node->snd);
+            }
+
+            free(node);
+            node = next;
+        }
+
+        g_head = NULL;
+    }
+
+    /* Background thread that periodically removes finished sounds from the registry */
+    static void* reaper_main(void* arg) {
+        (void)arg;
+
+        while (!g_shutdown_reaper) {
+            pthread_mutex_lock(&g_list_mtx);
+
+            SoundNode** pprev = &g_head;
+            SoundNode*  node  = g_head;
+
+            while (node) {
+                ma_sound* snd = node->snd;
+                bool remove = false;
+
+                if (snd && !ma_sound_is_playing(snd) && !ma_sound_is_looping(snd)) {
+                    /* Collect finished sounds */
+                    ma_sound_uninit(snd);
+                    free(snd);
+                    remove = true;
+                }
+
+                if (remove) {
+                    SoundNode* to_free = node;
+
+                    *pprev = node->next;
+                    node = node->next;
+                    free(to_free);
+
+                    continue;
+                }
+
+                pprev = &node->next;
+                node = node->next;
+            }
+
+            pthread_mutex_unlock(&g_list_mtx);
+            usleep(50 * 1000);
+        }
+
+        pthread_mutex_lock(&g_list_mtx);
+        registry_clear_locked();
+        pthread_mutex_unlock(&g_list_mtx);
+
+        g_reaper_running = false;
+        return NULL;
+    }
+
+    static int reaper_start(void) {
+        if (g_reaper_running) return 0;
+        g_shutdown_reaper = false;
+
+        int err = pthread_create(&g_reaper_thr, NULL, reaper_main, NULL);
+
+        if (err == 0) {
+            g_reaper_running = true;
+        }
+
+        return err;
+    }
+
+    /* Initializes the audio backend and sound group, and starts the reaper thread */
+    static bool audio_init_impl(void) {
+        ma_result r;
+
+        if (!g_ctx_initialized) {
+            r = ma_context_init(NULL, 0, NULL, &g_ctx);
+
+            if (r != MA_SUCCESS) {
+                FOLK_ERROR("miniaudio: context init failed: %s (%d)\n",
+                        ma_result_description(r), (int)r);
+
+                return false;
+            }
+
+            g_ctx_initialized = true;
+        }
+
+        if (!g_engine_initialized) {
+            ma_engine_config cfg = ma_engine_config_init();
+            cfg.pContext = &g_ctx;
+
+            r = ma_engine_init(&cfg, &g_engine);
+
+            if (r != MA_SUCCESS) {
+                FOLK_ERROR("miniaudio: engine init failed: %s (%d)\n",
+                        ma_result_description(r), (int)r);
+                return false;
+            }
+
+            fprintf(stderr, "miniaudio: engine initialized with %s backend\n",
+                ma_get_backend_name(g_ctx.backend));
+
+            g_engine_initialized = true;
+        }
+
+        if (!g_engine_started) {
+            r = ma_engine_start(&g_engine);
+
+            if (r != MA_SUCCESS) {
+                FOLK_ERROR("miniaudio: engine start failed: %s (%d)\n",
+                        ma_result_description(r), (int)r);
+                return false;
+            }
+
+            g_engine_started = true;
+        }
+
+        if (!g_group_initialized) {
+            r = ma_sound_group_init(&g_engine, 0, NULL, &g_group);
+
+            if (r != MA_SUCCESS) {
+                FOLK_ERROR("miniaudio: group init failed: %s (%d)\n",
+                        ma_result_description(r), (int)r);
+
+                /* Unwind engine on group failure; context remains for future attempts */
+                if (g_engine_initialized) {
+                    ma_engine_uninit(&g_engine);
+                    memset(&g_engine, 0, sizeof g_engine);
+                    g_engine_initialized = false;
+                }
+
+                g_engine_started = false;
+
+                return false;
+            }
+
+            g_group_initialized = true;
+        }
+
+        int err = reaper_start();
+
+        if (err != 0) {
+            FOLK_ERROR("audio: reaper thread create failed: %d\n", err);
+            return false;
+        }
+
+        return true;
+    }
+}
+
+$cc proc audioInit {} bool {
+    pthread_mutex_lock(&g_state_mtx);
+    bool success = audio_init_impl();
+    pthread_mutex_unlock(&g_state_mtx);
+
+    if (success) {
+        return true;
+    }
+
+    FOLK_ERROR("miniaudio: audio init failed\n");
+    return false;
+}
+
+$cc proc audioStop {uint64_t handle} void {
+    ma_sound* target = (ma_sound*)(uintptr_t)handle;
+    SoundNode* to_free = NULL;
+    ma_sound* snd = NULL;
+
+    pthread_mutex_lock(&g_list_mtx);
+
+    SoundNode** pprev = &g_head;
+    SoundNode* node = g_head;
+
+    /* Find the sound to stop. TODO: this duplicates traversal logic from the reaper thread */
+    while (node) {
+        if (node->snd == target) {
+            snd = node->snd;
+            node->snd = NULL;
+            *pprev = node->next;
+            to_free = node;
+
+            break;
+        }
+
+        pprev = &node->next;
+        node = node->next;
+    }
+
+    pthread_mutex_unlock(&g_list_mtx);
+
+    /* Sound already reaped or never registered */
+    if (!to_free) return;
+
+    if (snd) {
+        ma_sound_stop(snd);
+        ma_sound_uninit(snd);
+        free(snd);
+        snd = NULL;
+    }
+
+    free(to_free);
+}
+
+$cc proc playSound {char* path} uint64_t {
+    ma_sound* snd = (ma_sound*)malloc(sizeof *snd);
+
+    if (!snd) {
+        FOLK_ERROR("miniaudio: playSound: alloc sound failed\n");
+        return (uint64_t)0;
+    }
+
+    ma_result r = ma_sound_init_from_file(&g_engine,
+                                          path,
+                                          MA_SOUND_FLAG_DECODE | MA_SOUND_FLAG_NO_SPATIALIZATION,
+                                          &g_group,
+                                          NULL,
+                                          snd);
+
+    if (r != MA_SUCCESS) {
+        FOLK_ERROR("miniaudio: playSound: init failed for %s: %s (%d)\n",
+                   path,
+                   ma_result_description(r),
+                   (int)r);
+        free(snd);
+
+        return (uint64_t)0;
+    }
+
+    r = ma_sound_start(snd);
+
+    if (r != MA_SUCCESS) {
+        FOLK_ERROR("miniaudio: playSound: start failed for %s: %s (%d)\n",
+                   path,
+                   ma_result_description(r),
+                   (int)r);
+
+        ma_sound_uninit(snd);
+        free(snd);
+
+        return (uint64_t)0;
+    }
+
+    if (!registry_add(snd)) {
+        FOLK_ERROR("miniaudio: playSound: registry add failed for %s\n", path);
+
+        ma_sound_stop(snd);
+        ma_sound_uninit(snd);
+        free(snd);
+
+        return (uint64_t)0;
+    }
+
+    fprintf(stderr, "miniaudio: playing %s\n", path);
+    return (uint64_t)(uintptr_t)snd;
+}
+
+try {
+    set soundLib [$cc compile]
+    set success [$soundLib audioInit]
+
+    if {!$success} {
+        puts stderr "audio: init failed"
+        return
+    }
+
+    Claim the sound library is $soundLib
+} on error e {
+    puts stderr "audio: compile failed: $e"
+}
+
+When the sound library is /soundLib/ &\
+     /someone/ wishes to play audio /sound/ {
+
+    # Check if the sound file exists in the user-programs/$hostname/sounds directory
+    # or in the working directory's assets/sounds subdirectory. Otherwise, assume
+    # it's an absolute path.
+    proc resolveSoundPath {filename} {
+        set scriptDir [file dirname [info script]]
+        set projectRoot [pwd]
+        set hostname [info hostname]
+        set path "$projectRoot/user-programs/$hostname/sounds/$filename"
+
+        if {[file exists $path]} { return $path }
+
+        set path "$projectRoot/assets/sounds/$filename"
+        if {[file exists $path]} { return $path }
+
+        # treat as an absolute path
+        return $path
+    }
+
+    set path [resolveSoundPath $sound]
+
+    if {![file exists $path]} {
+        puts stderr "audio: File not found '$path'"
+        return
+    }
+
+    set handle [$soundLib playSound $path]
+
+    if {$handle == 0} {
+        puts stderr "audio: Failed to play '$path'"
+        return
+    }
+
+    On unmatch {
+        puts "audio: stopping audio '$path'"
+        $soundLib audioStop $handle
+    }
+}
