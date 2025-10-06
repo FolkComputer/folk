@@ -362,15 +362,15 @@ When the sound library is /soundLib/ &\
         set scriptDir [file dirname [info script]]
         set projectRoot [pwd]
         set hostname [info hostname]
-        set path "$projectRoot/user-programs/$hostname/sounds/$filename"
+        set path "$projectRoot/user-programs/$hostname/audio/$filename"
 
         if {[file exists $path]} { return $path }
 
-        set path "$projectRoot/assets/sounds/$filename"
+        set path "$projectRoot/audio/$filename"
         if {[file exists $path]} { return $path }
 
         # treat as an absolute path
-        return $path
+        return $filename
     }
 
     set path [resolveSoundPath $sound]
