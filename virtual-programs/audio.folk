@@ -245,8 +245,7 @@ $cc proc audioInit {} bool {
     return false;
 }
 
-$cc proc audioStop {uint64_t handle} void {
-    ma_sound* target = (ma_sound*)(uintptr_t)handle;
+$cc proc audioStop {ma_sound* target} void {
     SoundNode* to_free = NULL;
     ma_sound* snd = NULL;
 
@@ -285,12 +284,11 @@ $cc proc audioStop {uint64_t handle} void {
     free(to_free);
 }
 
-$cc proc playSound {char* path} uint64_t {
+$cc proc playSound {char* path} ma_sound* {
     ma_sound* snd = (ma_sound*)malloc(sizeof *snd);
 
     if (!snd) {
         FOLK_ERROR("miniaudio: playSound: alloc sound failed\n");
-        return (uint64_t)0;
     }
 
     ma_result r = ma_sound_init_from_file(&g_engine,
@@ -301,58 +299,53 @@ $cc proc playSound {char* path} uint64_t {
                                           snd);
 
     if (r != MA_SUCCESS) {
+        free(snd);
+
         FOLK_ERROR("miniaudio: playSound: init failed for %s: %s (%d)\n",
                    path,
                    ma_result_description(r),
                    (int)r);
-        free(snd);
-
-        return (uint64_t)0;
     }
 
     r = ma_sound_start(snd);
 
     if (r != MA_SUCCESS) {
+        ma_sound_uninit(snd);
+        free(snd);
+
         FOLK_ERROR("miniaudio: playSound: start failed for %s: %s (%d)\n",
                    path,
                    ma_result_description(r),
                    (int)r);
-
-        ma_sound_uninit(snd);
-        free(snd);
-
-        return (uint64_t)0;
     }
 
     if (!registry_add(snd)) {
-        FOLK_ERROR("miniaudio: playSound: registry add failed for %s\n", path);
-
         ma_sound_stop(snd);
         ma_sound_uninit(snd);
         free(snd);
 
-        return (uint64_t)0;
+        FOLK_ERROR("miniaudio: playSound: registry add failed for %s\n", path);
     }
 
     fprintf(stderr, "miniaudio: playing %s\n", path);
-    return (uint64_t)(uintptr_t)snd;
+    return snd;
 }
 
 try {
-    set soundLib [$cc compile]
-    set success [$soundLib audioInit]
+    set audioLib [$cc compile]
+    set success [$audioLib audioInit]
 
     if {!$success} {
         puts stderr "audio: init failed"
         return
     }
 
-    Claim the sound library is $soundLib
+    Claim the audio library is $audioLib
 } on error e {
     puts stderr "audio: compile failed: $e"
 }
 
-When the sound library is /soundLib/ &\
+When the audio library is /audioLib/ &\
      /someone/ wishes to play audio /sound/ {
 
     # Check if the sound file exists in the user-programs/$hostname/sounds directory
@@ -380,7 +373,7 @@ When the sound library is /soundLib/ &\
         return
     }
 
-    set handle [$soundLib playSound $path]
+    set handle [$audioLib playSound $path]
 
     if {$handle == 0} {
         puts stderr "audio: Failed to play '$path'"
@@ -389,6 +382,6 @@ When the sound library is /soundLib/ &\
 
     On unmatch {
         puts "audio: stopping audio '$path'"
-        $soundLib audioStop $handle
+        $audioLib audioStop $handle
     }
 }
