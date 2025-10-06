@@ -336,17 +336,20 @@ C method typedef {t newt {emitC true}} {
     }
     set argtype $t; set rtype $t
 
+    # We suppress the errors because you often just use typedef for
+    # opaque pointers where c.tcl doesn't know the actual struct
+    # definition.
     try {
         $self argtype $newt [eval [dict getdef $argtypes $argtype \
                                        [dict get $argtypes default]]]
     } on error e {
-        puts stderr "C typedef: $e"
+        # puts stderr "C typedef: $e"
     }
     try {
         $self rtype $newt [eval [dict getdef $rtypes $rtype \
                                      [dict get $rtypes default]]]
     } on error e {
-        puts stderr "C typedef: $e"
+        # puts stderr "C typedef: $e"
     }
 }
 
