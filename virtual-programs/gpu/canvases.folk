@@ -418,6 +418,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         Wish $p has a canvas with width 1024 height 1024 settle 3ms
     }
     When /someone/ wishes /p/ has a canvas with /...options/ {
+        if {![info exists options]} {
+            # HACK: this matches even if the options aren't
+            # there. just return early
+            return
+        }
         set pCanvas [list $p canvas]
         Wish the GPU creates canvas $pCanvas with {*}$options
         When the GPU has created canvas $pCanvas with /...canvOpts/ {
