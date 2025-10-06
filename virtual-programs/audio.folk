@@ -16,8 +16,17 @@
 set cc [C]
 $cc cflags -I./vendor/miniaudio
 
+if {![catch {exec which sclang}]} {
+    # HACK: We're running msuic.folk and therefore are running JACK,
+    # so we should force miniaudio to not use ALSA directly (because
+    # that won't work).
+    $cc code {
+        #define MA_NO_ALSA
+        #define MA_NO_PULSEAUDIO
+    }
+}
 $cc code {
-  #define MINIAUDIO_IMPLEMENTATION
+   #define MINIAUDIO_IMPLEMENTATION
 }
 
 $cc include <pthread.h>
