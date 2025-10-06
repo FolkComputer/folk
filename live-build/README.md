@@ -9,6 +9,14 @@ Follow the instructions there.
 
 ---
 
+Make sure you have [`nix` installed](https://nixos.org/download/) and then run:
+
+``` bash
+nix develop --system x86_64-linux
+```
+
+---
+
 Below are details on how the Folk OS image is constructed; **you don't
 need to worry about any of the below if you're just trying to install
 Folk.**
