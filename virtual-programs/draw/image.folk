@@ -63,7 +63,7 @@ When the image library is /imageLib/ {
         set impath $im
         if {[string match "http*://*" $impath]} {
             set im /tmp/[regsub -all {\W+} $impath "_"]
-            exec -ignorestderr curl -o$im $impath
+            exec curl -o$im $impath
         }
         if {[string match "*jpg" $im] ||
             [string match "*jpeg" $im] ||

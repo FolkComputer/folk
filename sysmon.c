@@ -23,7 +23,7 @@ extern void trace(const char* format, ...);
 extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
-extern void workerReactivateOrSpawn();
+extern void workerReactivateOrSpawn(int64_t msSinceBoot);
 
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
@@ -87,7 +87,9 @@ void sysmon() {
     for (i = 0; i < REMOVE_LATER_MAX; i++) {
         StatementRef stmtRef = removeLater[i].stmt;
         if (!statementRefIsNull(stmtRef)) {
-            if (currentTick >= removeLater[i].canRemoveAtTick) {
+            int64_t canRemoveAt = removeLater[i].canRemoveAtTick;
+            // Skip if canRemoveAtTick hasn't been written yet (still 0)
+            if (canRemoveAt > 0 && currentTick >= canRemoveAt) {
                 // Remove immediately on sysmon thread so there's no
                 // pileup.
                 Statement* stmt;
@@ -146,7 +148,7 @@ void sysmon() {
     if (notBlockedWorkersCount < 3) {
         // Too many threads are blocked on I/O. Let's pull in another
         // one to occupy a CPU and do Folk work.
-        workerReactivateOrSpawn();
+        workerReactivateOrSpawn(currentMs);
     }
 #endif
 
@@ -197,6 +199,8 @@ void *sysmonMain(void *ptr) {
 #endif
 
     epochThreadInit();
+
+    tick = 0;
 
     struct timespec tickTime;
     tickTime.tv_sec = 0;

@@ -1,0 +1,2 @@
+puts "Playing Folk boot sound"
+Assert! $this wishes to play audio folk_boot_guitar.wav

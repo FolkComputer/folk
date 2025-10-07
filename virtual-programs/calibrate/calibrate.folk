@@ -152,10 +152,20 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     catch { exec v4l2-ctl --device=$camera --set-ctrl=focus_automatic_continuous=0 }
 
     if {$cameraWidth < 1920} {
-        Retract! /someone/ wishes $::thisNode uses camera $camera \
-            with width $cameraWidth height $cameraHeight
-        Assert! $this wishes $::thisNode uses camera $camera with width 1920 height 1080
-        # TODO: restore old camera resolution later
+        set camResults [Query! /someone/ wishes $::thisNode uses camera $camera with /...camOpts/]
+        if {[llength $camResults] == 1} {
+            set camOpts [dict get [lindex $camResults 0] camOpts]
+            if {![dict exists $camOpts crop]} {
+                Retract! /someone/ wishes $::thisNode uses camera $camera \
+                    with width $cameraWidth height $cameraHeight
+                Assert! $this wishes $::thisNode uses camera $camera \
+                    with width 1920 height 1080
+                # TODO: restore old camera resolution later
+            }
+
+        } else {
+            puts stderr "calibrate: Warning: camera $camera has [llength $camResults] use wishes"
+        }
     }
 
     package require linalg
@@ -179,8 +189,9 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # projector plane) and `tags` (tag ID => dictionary of tag
     # detection info from camera and AprilTag detector) and
     # `displayResolution` and `cameraResolution` and `tagsSize`.
-    Hold! -on calibration -key last-seen-poses \
+    Hold! -key last-seen-poses \
         Claim the calibration last-seen poses are [list]
+    On unmatch { Hold! -key last-seen-poses {} }
     set SEEN_POSES_MAX 3
 
     # The poses to use for actual calibration at the end. We'll want
@@ -572,7 +583,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
         set poseRmse [expr {sqrt($totalError / ([llength $projectedTags] * 4))}]
         if {$poseRmse > 5} {
-            puts "Pose has too-high rmse ($poseRmse); skipping"
+            puts "calibrate: Pose has too-high rmse ($poseRmse); skipping"
             return
         }
 
@@ -587,12 +598,12 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                       rmse $poseRmse \
                       tags [dict merge $printedTags $projectedTags]]
 
-        set seenPoses [dict get [lindex [Query! /someone/ claims the calibration last-seen poses are /seenPoses/] 0] seenPoses]
+        set seenPoses [dict get [lindex [Query! the calibration last-seen poses are /seenPoses/] 0] seenPoses]
         lappend seenPoses $pose
         if {[llength $seenPoses] > $SEEN_POSES_MAX} {
             set seenPoses [lreplace $seenPoses 0 0]
         }
-        Hold! -on calibration -key last-seen-poses \
+        Hold! -key last-seen-poses \
             -version $nextModelFrameTimestamp \
             Claim the calibration last-seen poses are $seenPoses
 
@@ -942,7 +953,10 @@ fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
 When the calibration matLib is /matLib/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
+     the calibration estimateHomography is /estimateHomography/ &\
      the calibration refiner is /refineCalibration/ {
+
+    fn estimateHomography
 
     if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
         return

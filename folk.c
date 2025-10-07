@@ -428,9 +428,10 @@ static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
     Clause* toNotify = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-
     Notify(toNotify);
+
     clauseFree(toNotify);
+    return JIM_OK;
 }
 
 Jim_Obj* QuerySimple(bool isAtomically, Clause* pattern) {
@@ -1493,7 +1494,7 @@ static void workerInfo(int threadIndex) {
     printf("Elapsed time: %.3f us\n", elapsed);
 }
 
-void workerReactivateOrSpawn() {
+void workerReactivateOrSpawn(int64_t msSinceBoot) {
     int nLivingThreads = 0;
     for (int i = 0; i < THREADS_MAX; i++) {
         if (threads[i].tid != 0) {
@@ -1505,7 +1506,13 @@ void workerReactivateOrSpawn() {
         }
     }
     if (nLivingThreads > 20) {
-        fprintf(stderr, "folk: workerReactivateOrSpawn: Not spawning new thread; too many already\n");
+        if (msSinceBoot > 10000) {
+            // (Don't print a warning before 10 seconds have elapsed
+            // since boot, because we expect to have to do a lot of
+            // work at startup, and we don't want to spam stderr.)
+            fprintf(stderr, "folk: workerReactivateOrSpawn: "
+                    "Not spawning new thread; too many already\n");
+        }
 
         /* { */
         /*     printf("SPAWN NEW WORKER\n" */
