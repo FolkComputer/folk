@@ -422,9 +422,10 @@ static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
     Clause* toNotify = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-
     Notify(toNotify);
+
     clauseFree(toNotify);
+    return JIM_OK;
 }
 
 Jim_Obj* QuerySimple(Clause* pattern) {
