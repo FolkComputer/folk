@@ -1,7 +1,7 @@
 # Watch for virtual-programs/ changes.
 try {
-    set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
-                             "$::env(HOME)/folk-live/setup.folk" :
+    set setupFilename [expr {[file exists "$::env(HOME)/folk-data/setup.folk"] ?
+                             "$::env(HOME)/folk-data/setup.folk" :
                              "setup.folk.default"}]
     set fd [open "|fswatch --event Updated --event Created virtual-programs $setupFilename" r]
     fconfigure $fd -buffering line
