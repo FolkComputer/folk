@@ -130,7 +130,8 @@ fn lsort-indices {itemL} {
     set indexL
 }
 
-set CALIBRATION_POSES_MAX 10
+Hold! -key {calibration poses max} \
+    Claim the calibration poses max is 10
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
@@ -243,6 +244,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # homography (which gets dynamically updated as you move the board
     # around):
     When $board has canvas /any/ with /...wiOpts/ &\
+         the calibration poses max is /calibrationPosesMax/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ &\
          the calibration poses are /calibrationPoses/ &\
@@ -302,7 +304,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list $boardBottomLeft $boardTopLeft] \
                  [list $boardTopRight $boardBottomRight]]
 
-        set text "[llength $calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($cycleTime*1000)}] ms)"
+        set text "[llength $calibrationPoses]/$calibrationPosesMax poses ([expr {round($cycleTime*1000)}] ms)"
         foreach p {add norm sub scale matmul
             getelem transpose determineSVD shape mkIdentity show
             solvePGauss crossproduct getcol setcol unitLengthVector det
@@ -377,7 +379,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    When (serially) camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
+    When the calibration poses max is /calibrationPosesMax/ &\
+         (serially) camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
@@ -646,22 +649,22 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
-        puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
+        puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
         Hold! -on calibration -key poses \
             -version $nextModelFrameTimestamp \
             Claim the calibration poses are $calibrationPoses
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
-        if {[llength $calibrationPoses] >= $CALIBRATION_POSES_MAX} {
-            puts "READY CALIBRATION POSES!"
+        if {[llength $calibrationPoses] >= $calibrationPosesMax} {
+            puts "calibrate: GOT ALL CALIBRATION POSES!"
 
             Hold! -save -on calibration -key poses \
                 Claim the calibration poses are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
             Hold! -save -on calibration -key calibration {}
 
-            Retract! /someone/ wishes to calibrate
+            Hold! -key {start calibration} {}
         }
     }
 }
@@ -947,6 +950,7 @@ fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
 }
 
 When the calibration matLib is /matLib/ &\
+     the calibration poses max is /calibrationPosesMax/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration estimateHomography is /estimateHomography/ &\
@@ -954,7 +958,7 @@ When the calibration matLib is /matLib/ &\
 
     fn estimateHomography
 
-    if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
+    if {[llength $calibrationPoses] < $calibrationPosesMax} {
         return
     }
 

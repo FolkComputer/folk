@@ -226,12 +226,10 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
                   return;
                 }
 
-                // TODO: using Assert is a little ugly (it's so it can be
-                // retracted when calibration is done)
-                ws.send(tcl`
+                ws.hold('start calibration', tcl`
                   Claim the printed calibration tag size is \${mm} mm
-                  Assert! \${self} wishes to calibrate
-                `);
+                  Wish to calibrate
+                `, 'virtual-programs/calibrate/calibrate.folk');
               });
             </script>
 
@@ -258,6 +256,18 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
               function advanceCamera() {
                 cameraFrame.src = '/camera-frame?' + Math.random()
               }
+            </script>
+
+            <p>Adjust this slider to choose how many calibration poses you want to record:
+              <input type="range" min="10" max="25" value="10" class="slider" id="calibration-poses-max-slider">
+            </p>
+            <script>
+              document.getElementById('calibration-poses-max-slider').addEventListener('input', (e) => {
+                const calibrationPosesMax = parseInt(e.target.value);
+                ws.hold(`calibration poses max`, tcl`
+Claim the calibration poses max is \${calibrationPosesMax}
+                `, 'virtual-programs/calibrate/calibrate.folk');
+              });
             </script>
 
             <p>Use this camera preview to debug why printed and/or projected tags aren't being recognized (maybe overexposure, maybe your camera isn't in a good position): <button id="refreshButton" onclick="advanceCamera()">Refresh Preview</button> <input type="checkbox" value="true" id="auto-refresh-checkbox" checked>
@@ -448,11 +458,10 @@ Camera Controls
                  top: geomTopMm.value + 'mm',
                  bottom: geomBottomMm.value + 'mm'
                };
-               ws.hold('default program geometry',
-                       tcl`
-Hold! -save -on calibration -key default-program-geometry Claim the default program geometry is \$geom
-`,
-                       '<global>');
+               ws.evaluate(tcl`
+Hold! -save -on calibration -key default-program-geometry \
+  Claim the default program geometry is \$geom
+`);
              });
             </script>
 
