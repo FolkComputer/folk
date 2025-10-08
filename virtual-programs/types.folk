@@ -4,10 +4,19 @@ set isNumberVerifier {{x} { string is double -strict $x }}
 Claim type millimeter exists
 Claim type millimeter has verifier $isNumberVerifier
 Claim type millimeter has alias mm
+Claim type millimeter converts to cm with {{mm} {
+    return [/ $mm 10]
+}}
 
 Claim type centimeter exists
 Claim type centimeter has verifier $isNumberVerifier
 Claim type centimeter has alias cm
+Claim type centimeter converts to m with {{cm} {
+    return [/ $mm 100]
+}}
+Claim type centimeter converts to mm with {{cm} {
+    return [* $cm 10]
+}}
 
 Claim type meter exists
 Claim type meter has verifier $isNumberVerifier

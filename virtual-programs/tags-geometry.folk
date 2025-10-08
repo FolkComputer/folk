@@ -1,3 +1,25 @@
+When type library for millimeter is /mm/ &\
+     the default program geometry is /defaultGeom/ &\
+     program /program/ is scaled by x /xScale/ y /yScale/ {
+    set tagSize [$mm unbox [dict get $defaultGeom tagSize]]
+    set left [$mm unbox [dict get $defaultGeom left]]
+    set right [$mm unbox [dict get $defaultGeom right]]
+    set top [$mm unbox [dict get $defaultGeom top]]
+    set bottom [$mm unbox [dict get $defaultGeom bottom]]
+
+    set width [expr {$left + $tagSize + $right}]
+    set height [expr {$top + $tagSize + $bottom}]
+
+    set left "[set left]mm"
+    set right "[expr {$right + ($width * $xScale - $width)}]mm"
+    set top "[set top]mm"
+    set bottom "[expr {$bottom + ($height * $yScale - $height)}]mm"
+
+    set newGeom [list tagSize "[set tagSize]mm" left $left right $right top $top bottom $bottom]
+
+    Claim tag $program has geometry $newGeom
+}
+
 When the default program geometry is /defaultGeom/ &\
      /someone/ wishes /tag/ has resolved geometry {
 
