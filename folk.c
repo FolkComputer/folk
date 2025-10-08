@@ -759,11 +759,12 @@ static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
     int error;
     {
 #ifdef TRACY_ENABLE
-        char name[1000];
+char name[1000];
         int namesz = snprintf(name, 1000, "%s:%d",
                               sourceFileName, sourceLineNumber);
         uint64_t srcloc = ___tracy_alloc_srcloc(sourceLineNumber,
-                                               sourceFileName, strlen(sourceFileName),
+                                               sourceFileName,
+                                               strlen(sourceFileName),
                                                name, namesz,
                                                0);
         TracyCZoneCtx ctx = ___tracy_emit_zone_begin_alloc(srcloc, 1);
