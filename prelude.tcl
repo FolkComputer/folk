@@ -318,7 +318,9 @@ proc Hold! {args} {
             lappend clause $arg
         }
     }
-    if {[llength $clause] == 1} {
+    if {[llength $clause] == 1 && [lindex $clause 0] == ""} {
+        set clause ""
+    } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
 
