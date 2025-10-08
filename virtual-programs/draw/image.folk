@@ -159,6 +159,9 @@ When the image library is /imageLib/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
 
+    # HACK: because we match partially
+    if {![info exists options]} { return }
+
     fn loadImage
     set im [loadImage $im]
 
