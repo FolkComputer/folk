@@ -100,6 +100,11 @@ When /view/ is a code view with /...options/ {
         }
     }
 
+    # feedback: show that the editor is not active
+    When /nobody/ claims $view is outlined green {
+        Wish $view is outlined blue
+    }
+
     Wish tag $view is stabilized
 }
 
@@ -108,6 +113,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /keyboard/ points up at /view/ &\
      /view/ is a code view with /...anything/ &\
      /view/ has selected program /program/ {
+    Wish $view is outlined green
+
     Subscribe: keyboard $kbPath claims key /key/ is /keyState/ with /...options/ {
         ForEach! $view has view dimensions /dims/ &\
                  view code for $program is /code/ &\
@@ -185,6 +192,20 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 }
             }
 
+            if {$resetCode} {
+                set cursor 0
+                set maxCursorX 0
+
+                Hold! -keep 12ms -key code-for:$program {
+                    When $program has program code /originalCode/ {
+                        Claim view code for $program is $originalCode
+                    }
+                }
+            } else {
+                Hold! -keep 12ms -key code-for:$program \
+                    Claim view code for $program is $code
+            }
+
             lassign [$utils cursorToXy $code $cursor] cursorX cursorY
             if {$cursorX < $vpX} { set vpX $cursorX }
             if {$cursorX >= $vpX + $vpWidth} {
@@ -199,15 +220,6 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                 Claim $view has view dimensions [list $vpX $vpY $vpWidth $vpHeight]
                 Claim $view has cursor $cursor
                 Claim $view has max cursor x $maxCursorX
-            }
-
-            if {$resetCode} {
-                set originalCode [dict get [QueryOne! $program has program code /code/] code]
-                Hold! -key code-for:$program \
-                    Claim view code for $program is $originalCode
-            } else {
-                Hold! -keep 12ms -key code-for:$program \
-                    Claim view code for $program is $code
             }
         }
     }
@@ -274,7 +286,8 @@ When /view/ is a code view with /...anything/ &\
     When $view has selected program /program/ &\
          view code for /program/ is /code/ &\
          $view has cursor position /cursorPos/ {
-        set lineNumbers [$utils lineNumberView $vpY $vpHeight]
+        set lineCount [- [llength [split $code "\n"]] $vpY]
+        set lineNumbers [$utils lineNumberView $vpY $lineCount]
         Wish to draw text onto $view with \
             position [vec2 sub $margin [list 0.005 0.0]] text $lineNumbers \
             scale $textScale anchor topright font NeomatrixCode
