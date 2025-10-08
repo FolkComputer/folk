@@ -1,6 +1,8 @@
 When stuff is cool with /...opts/ {
     if {![info exists opts]} { Exit! 1 }
+
     assert {[dict get $opts number] == 2}
+    Exit! 0
 }
 
 Claim stuff is cool
