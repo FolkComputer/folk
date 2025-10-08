@@ -7,19 +7,11 @@ if {![file isdirectory $dataDirectory]} {
 # make sure the migration happens before loading everything,
 # so we load in the migrated data
 When the migration is complete {
-    set namespaces [glob -nocomplain $dataDirectory/*]
+    set namespaces [glob -nocomplain $dataDirectory/*/]
 
     foreach namespace $namespaces {
-        set files [glob -nocomplain $namespace/*]
-
-        foreach file $files {
-            set fd [open $file r]
-            set contents [read $fd]
-            close $fd
-
-            set fileType [file tail $namespace]
-            Wish to deserialize a $fileType with filename $file contents $contents
-        }
+        set namespaceName [file tail $namespace]
+        Wish to deserialize namespace $namespaceName with directory $namespace
     }
 }
 

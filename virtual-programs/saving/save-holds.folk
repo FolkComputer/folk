@@ -137,18 +137,26 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
 set savedHoldsLib [$cc compile]
 $savedHoldsLib init
 
-When /someone/ wishes to deserialize a hold with filename /anything/ contents /holds/ {
-    # the hold file's first line is its canonical name (since
-    # having / in a filename would mess a lot of stuff up),
-    # while the rest of the file is a dict of holds
-    set canonicalName [lindex $holds 0]
-    set holdDict [lrange $holds 1 end]
+When /someone/ wishes to deserialize namespace hold with directory /directory/ {
+    set holdFiles [glob $directory/*]
 
-    dict for {key clause} $holdDict {
-        Hold! -on $canonicalName -key $key -- {*}$clause
+    foreach holdFile $holdFiles {
+        set fd [open $holdFile r]
+        set holds [read $fd]
+        close $fd
+
+        # the hold file's first line is its canonical name (since
+        # having / in a filename would mess a lot of stuff up),
+        # while the rest of the file is a dict of holds
+        set canonicalName [lindex $holds 0]
+        set holdDict [lrange $holds 1 end]
+
+        dict for {key clause} $holdDict {
+            Hold! -on $canonicalName -key $key -- {*}$clause
+        }
+
+        $savedHoldsLib loadHolds $canonicalName $holdDict
     }
-
-    $savedHoldsLib loadHolds $canonicalName $holdDict
 }
 
 When the hold save directory is /holdDirectory/ {
