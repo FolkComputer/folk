@@ -138,7 +138,7 @@ set savedHoldsLib [$cc compile]
 $savedHoldsLib init
 
 When /someone/ wishes to deserialize namespace hold with directory /directory/ {
-    set holdFiles [glob $directory/*]
+    set holdFiles [glob -nocomplain $directory/*]
 
     foreach holdFile $holdFiles {
         set fd [open $holdFile r]

@@ -7,7 +7,12 @@ When the hold save directory is /holdDirectory/ &\
         return
     }
 
-    puts "### MIGRATING ###"
+    # is this a brand new system?
+    if {![file exists "$::env(HOME)/folk-live"] && ![file exists "$::env(HOME)/folk-printed-programs"]} {
+        Claim this is a first boot
+        Claim the migration is complete
+        return
+    }
 
     proc tryReadFile {filename} {
         set contents ""
@@ -28,7 +33,9 @@ When the hold save directory is /holdDirectory/ &\
     }
 
     # copy programs to new location
-    exec sh << "cp ~/folk-printed-programs/* ~/folk-data/program/"
+    try {
+        exec sh << "cp ~/folk-printed-programs/* ~/folk-data/program/"
+    } on error e {}
 
     # grab geometry before deleting
     set defaultGeom [tryReadFile "$::env(HOME)/folk-data/program/default.folkgeom"]
@@ -56,9 +63,14 @@ When the hold save directory is /holdDirectory/ &\
             Claim the calibration poses are $calibrationPoses
     }
 
+    # move setup.folk to its new home
+    try {
+        exec cp "$::env(HOME)/folk-live/setup.folk" "$::env(HOME)/folk-data/setup.folk"
+    } on error e {}
+
     puts "\n\n\n### MIGRATION SUCCESSFUL ###\n"
-    puts "Note: folk-printed-programs, folk-live/folk-calibration-output.txt, and folk-live/folk-calibration-poses.txt\
-    are no longer needed. Feel free to delete them once you've confirmed that everything works!"
+    puts "Note: folk-printed-programs/ and folk-live/ are no longer needed. \
+Feel free to delete them once you've confirmed that everything works!"
     puts "\n############################\n\n\n"
 
     Claim the migration is complete
