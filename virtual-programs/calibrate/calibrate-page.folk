@@ -193,8 +193,7 @@ Wish the web server handles route "/calibrate$" with handler [list applyBlock {
 
                 ws.evaluate(`
                   set boardPdf [binary decode base64 {\${boardSrc}}]
-                  set fd [open /tmp/folk-calibration-board.pdf w]
-                  fconfigure \$fd -encoding binary -translation binary
+                  set fd [open /tmp/folk-calibration-board.pdf wb]
                   puts \$fd \$boardPdf; close \$fd
                   exec lpr /tmp/folk-calibration-board.pdf
                 `);
@@ -451,9 +450,7 @@ Camera Controls
                };
                ws.hold('default program geometry',
                        tcl`
-set fd [open "\$::env(HOME)/folk-printed-programs/default.folkgeom" w]
-set geom \${geom}; puts \$fd \$geom; close \$fd
-Claim the default program geometry is \$geom
+Hold! -save -on calibration -key default-program-geometry Claim the default program geometry is \$geom
 `,
                        '<global>');
              });

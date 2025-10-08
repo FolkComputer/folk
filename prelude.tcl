@@ -318,7 +318,9 @@ proc Hold! {args} {
             lappend clause $arg
         }
     }
-    if {[llength $clause] == 1} {
+    if {[llength $clause] == 1 && [lindex $clause 0] == ""} {
+        set clause ""
+    } elseif {[llength $clause] == 1} {
         # Hold! { ... body ... }
         set body [lindex $clause 0]
 
@@ -570,6 +572,15 @@ proc Query! {args} {
         }
     }
     return $results
+}
+proc QueryOne! {args} {
+    set results [Query! {*}$args]
+
+    if {[llength $results] != 1} {
+        return -error "QueryOne! of ($args) had [llength $results] results. Should be one result!"
+    }
+
+    return [lindex $results 0]
 }
 proc ForEach! {args} {
     set body [lindex $args end]

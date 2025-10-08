@@ -656,14 +656,10 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         if {[llength $calibrationPoses] >= $CALIBRATION_POSES_MAX} {
             puts "READY CALIBRATION POSES!"
 
-            catch { exec mkdir "$::env(HOME)/folk-live" }
-            catch {exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"}
-
-            set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
-            puts $fd $calibrationPoses; close $fd
-
+            Hold! -save -on calibration -key poses \
+                Claim the calibration poses are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
-            Hold! -on calibration -key calibration {}
+            Hold! -save -on calibration -key calibration {}
 
             Retract! /someone/ wishes to calibrate
         }
@@ -1042,9 +1038,6 @@ When the calibration matLib is /matLib/ &\
         }
     }
 
-    Hold! -on calibration -key calibration \
+    Hold! -save -on calibration -key calibration \
         Claim the calibration is $calibration
-
-    set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
-    puts $fd $calibration; close $fd
 }

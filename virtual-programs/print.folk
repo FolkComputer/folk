@@ -17,7 +17,8 @@
 #     Claim printer my-printer is the default printer
 #     Claim paper format a4 is the default paper format
 
-When the image library is /imageLib/ {
+When the image library is /imageLib/ &\
+     the program save directory is /saveDir/ {
 
 set cc [C]
 $cc extend $imageLib
@@ -224,30 +225,22 @@ fn programToPs {id text {format "letter"} {mixins {}}} {
     return $out
 }
 Claim the programToPs is [fn programToPs]
-
-if {![file exists "$::env(HOME)/folk-printed-programs"]} {
-    exec mkdir -p "$::env(HOME)/folk-printed-programs"
-}
 fn nextId {} {
-    try {
-        set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" r]
-        set id [string trim [read $fp]]
-        close $fp
-    } trap {POSIX ENOENT} {} {
+    set idResults [Query! the next program id is /id/]
+    if {[llength $idResults] == 0} {
         set id 0
+    } else {
+        set id [dict get [lindex $idResults 0] id]
     }
 
-    while {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+    while {[file exists "$saveDir/$id.folk"]} {
         incr id
     }
 
-    set fp [open "$::env(HOME)/folk-printed-programs/next-id.txt" w]
-    puts $fp [expr {$id + 1}]
-    close $fp
+    Hold! -save -key next-id the next program id is $id
 
     set id
 }
-
 proc remotePrintRequest {remoteNode clause} {
     ::websocket::open "ws://$remoteNode.local:4273/ws" [list apply {{clause sock type msg} {
         if {$type eq "connect"} {
@@ -333,19 +326,19 @@ Subscribe: print program /id/ with /...options/ {
     set ps [programToPs $id $code $format]
 
     # save code and ps to disk
-    if {[file exists "$::env(HOME)/folk-printed-programs/$id.folk"]} {
+    if {[file exists "$saveDir/$id.folk"]} {
         error "Program $id already exists on disk. Aborting print."
     }
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.folk" w]
+    set fp [open "$saveDir/$id.folk" w]
     puts $fp $code
     close $fp
 
-    set fp [open "$::env(HOME)/folk-printed-programs/$id.ps" w]
+    set fp [open "$saveDir/$id.ps" w]
     puts $fp $ps
     close $fp
 
-    exec ps2pdf $::env(HOME)/folk-printed-programs/$id.ps $::env(HOME)/folk-printed-programs/$id.pdf
-    exec lpr {*}$args $::env(HOME)/folk-printed-programs/$id.pdf
+    exec ps2pdf $saveDir/$id.ps $saveDir/$id.pdf
+    exec lpr {*}$args $saveDir/$id.pdf
 }
 
 }
