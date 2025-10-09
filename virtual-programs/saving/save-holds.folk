@@ -17,7 +17,7 @@ static unsigned int cacheGenHashFunction(const unsigned char *string, int length
     }
     return result;
 }
-static unsigned int holdHTHashFunction(const void *key) {
+static unsigned int holdHTHashFunction(void *privdata, const void *key) {
     return cacheGenHashFunction(key, strlen(key));
 }
 static void *holdHTKeyDup(void *privdata, const void *key) {
@@ -60,14 +60,14 @@ $cc proc init {} void {
     pthread_mutex_lock(&holdMutex);
     if (!areHoldsInitialized) {
         areHoldsInitialized = 1;
-        Jim_InitHashTable(&holds, &holdHashTableType, interp);
+        Jim_InitHashTable(&holds, &holdHashTableType);
     }
     pthread_mutex_unlock(&holdMutex);
 }
 
 $cc proc loadHolds {char* canonicalName char* holdStr} void {
     pthread_mutex_lock(&holdMutex);
-    Jim_AddHashEntry(&holds, (const void *)canonicalName, (void *)holdStr);
+    Jim_AddHashEntry(&holds, interp, (const void *)canonicalName, (void *)holdStr);
     pthread_mutex_unlock(&holdMutex);
 }
 
@@ -78,7 +78,7 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
 
     Jim_Obj* holdDict = NULL;
 
-    Jim_HashEntry* he = Jim_FindHashEntry(&holds, canonical);
+    Jim_HashEntry* he = Jim_FindHashEntry(&holds, interp, canonical);
     if (he == NULL) {
         // this is this files' first hold
         holdDict = Jim_NewDictObj(interp, NULL, 0);
@@ -87,16 +87,16 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
     }
 
     // empty clause, e.g. removal
-    if (Jim_Length(clause) == 0) {
+    if (Jim_Length(interp, clause) == 0) {
         Jim_DictAddElement(interp, holdDict, key, NULL);
     } else {
         Jim_DictAddElement(interp, holdDict, key, clause);
     }
 
     if (he == NULL) {
-        Jim_AddHashEntry(&holds, (const void *)canonical, (void *)Jim_String(holdDict));
+        Jim_AddHashEntry(&holds, interp, (const void *)canonical, (void *)Jim_String(interp, holdDict));
     } else {
-        Jim_SetHashVal(&holds, he, (void *)Jim_String(holdDict));
+        Jim_SetHashVal(&holds, interp, he, (void *)Jim_String(interp, holdDict));
     }
 
     pthread_mutex_unlock(&holdMutex);
@@ -111,7 +111,7 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
         assert(file != NULL);
 
         // write the filename in tcl form at the top of the file
-        fwrite(Jim_String(tclEscaped), 1, Jim_Length(tclEscaped), file);
+        fwrite(Jim_String(interp, tclEscaped), 1, Jim_Length(interp, tclEscaped), file);
         fwrite("\n\n", 1, 2, file);
 
         // write all hash entries, with one entry per line
@@ -119,10 +119,10 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
             Jim_Obj* pair[] = { dictValues[i], dictValues[i + 1] };
             Jim_Obj* tmpListObj = Jim_NewListObj(interp, pair, 2);
 
-            fwrite(Jim_String(tmpListObj), 1, Jim_Length(tmpListObj), file);
+            fwrite(Jim_String(interp, tmpListObj), 1, Jim_Length(interp, tmpListObj), file);
             fwrite("\n", 1, 1, file);
 
-            Jim_FreeNewObj(interp, tmpListObj);
+            Jim_FreeNewObj(tmpListObj);
         }
 
         fclose(file);
@@ -131,7 +131,7 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
         remove(filename); // no need to check error
     }
 
-    Jim_FreeNewObj(interp, holdDict);
+    Jim_FreeNewObj( holdDict);
 }
 
 set savedHoldsLib [$cc compile]

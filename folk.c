@@ -394,7 +394,7 @@ static int SayWithSourceFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv)
         return JIM_ERR;
     }
 
-    Say(clause, keepMs, destructorCode,
+    Say(jimClause, keepMs, destructorCode,
         sourceFileName, (int) sourceLineNumber);
     return JIM_OK;
 }
@@ -412,14 +412,12 @@ static int DestructorFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     return JIM_OK;
 }
 
-static void Notify(Clause* toNotify);
+static void Notify(Jim_Obj* toNotify);
 static int NotifyFunc(Jim_Interp *interp, int argc, Jim_Obj *const *argv) {
     assert(argc >= 2);
 
-    Clause* toNotify = jimObjsToClauseWithCaching(argc - 1, argv + 1);
-    Notify(toNotify);
+    Notify(Jim_NewListObj(interp, argv + 1, argc - 1));
 
-    clauseFree(toNotify);
     return JIM_OK;
 }
 
@@ -439,7 +437,7 @@ Jim_Obj* QuerySimple(Jim_Obj* pattern) {
         Statement* result = statementAcquire(db, rs->results[i]);
         if (result == NULL) { continue; }
 
-        Environment* env = clauseUnify(pattern, statementJimClause(result));
+        Environment* env = clauseUnify(interp, pattern, statementJimClause(result));
         assert(env != NULL);
         Jim_Obj* envDict[(env->nBindings + 1) * 2];
         envDict[0] = Jim_NewStringObj(interp, "__ref", -1);
@@ -700,8 +698,8 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
         // internal script representation and forces the code to be
         // reparsed (why??).
         Jim_SetSourceInfo(interp, bodyObj,
-                          Jim_NewStringObj(interp, statementSourceFileName(when), -1),
-                          statementSourceLineNumber(when));
+                          Jim_NewStringObj(interp, sourceFileName, -1),
+                          sourceLineNumber);
     }
 
     {
@@ -749,7 +747,7 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
 
         Jim_Obj *objv[] = {
             // TODO: pool this string?
-            Jim_NewStringObj(interp, "evaluateWhenBlock", -1),
+            Jim_NewStringObj(interp, "evaluateBlock", -1),
             bodyObj,
             combinedEnvStack
         };
@@ -763,7 +761,7 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
 
     if (error == JIM_ERR) {
         Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        const char *errorMessage = Jim_GetString(interp, Jim_GetResult(interp), NULL);
         fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
                 Jim_String(interp, bodyObj), errorMessage);
         Jim_FreeInterp(interp);
@@ -779,7 +777,7 @@ static void runBlock(Jim_Obj* bodyPattern, Jim_Obj* toUnifyWith, Jim_Obj* bodyOb
     Jim_DecrRefCount(combinedEnvStack);
 }
 
-static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
+static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRef stmtRef) {
     // Dereference refs. if any fail, then skip this work item.
     // Exception: stmtRef can be a null ref if and only if whenPattern
     // is {}.
@@ -1009,7 +1007,7 @@ static Jim_Obj* unwhenizeClause(Jim_Obj* jimClause) {
 
     return ret;
 }
-static Jim_Obj* whenizeClause(Jim_Obj* notifyClause) {
+static Jim_Obj* subscriptionizeClause(Jim_Obj* notifyClause) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
     Jim_Obj* ret = Jim_NewListObj(interp, NULL, 0);
@@ -1206,8 +1204,9 @@ static void reactToNewStatement(StatementRef ref) {
 static void Notify(Jim_Obj* toNotify) {
     // key x was pressed
     // -> subscribe key x was pressed /lambda/ with environment /__env/
-    Jim_Obj* query = subscriptionizeClause(toNotify);
-    ResultSet* rs = dbQuery(db, query);
+    Jim_Obj* jimQuery = subscriptionizeClause(toNotify);
+    Clause* clauseQuery = jimClauseToTrieClause(interp, jimQuery);
+    ResultSet* rs = dbQuery(db, clauseQuery);
 
     for (size_t i = 0; i < rs->nResults; i++) {
         Statement* subscription = statementAcquire(db, rs->results[i]);
@@ -1222,7 +1221,8 @@ static void Notify(Jim_Obj* toNotify) {
     }
 
     free(rs);
-    free(query);
+    clauseFree(clauseQuery);
+    Jim_FreeNewObj(jimQuery);
 }
 
 void workerRun(WorkQueueItem item) {
@@ -1360,7 +1360,7 @@ void traceItem(char* buf, size_t bufsz, WorkQueueItem item) {
         Clause* trieSubscribePattern = jimClauseToTrieClause(interp, item.runSubscribe.subscribePattern);
         Clause* trieNotifyClause = jimClauseToTrieClause(interp, item.runSubscribe.notifyClause);
         snprintf(buf, bufsz, "Run subscribe(%.100s) pattern(%.100s) stmt(%.100s)",
-                 subscribe != NULL ? clauseToString(statementClause(subscribe)) : "NULL",
+                 subscribe != NULL ? clauseToString(statementTrieClause(subscribe)) : "NULL",
                  clauseToString(trieSubscribePattern),
                  clauseToString(trieNotifyClause));
         clauseFree(trieSubscribePattern);
