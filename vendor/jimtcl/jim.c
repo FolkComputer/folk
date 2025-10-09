@@ -2496,7 +2496,7 @@ inline void Jim_FreeIfZeroRef(Jim_Obj *objPtr)
     Jim_DecrRefCount(objPtr);
 }
 
-int Jim_RelaxedRefCount(Jim_Obj *objPtr)
+int Jim_GetRefCount(Jim_Obj *objPtr)
 {
     if (Jim_IsImmutable(objPtr)) {
         return atomic_load_explicit(&(objPtr->refCount.atomic), memory_order_relaxed);
@@ -2507,7 +2507,7 @@ int Jim_RelaxedRefCount(Jim_Obj *objPtr)
 
 inline int Jim_IsShared(Jim_Obj *objPtr)
 {
-    return Jim_RelaxedRefCount(objPtr) > 1;
+    return Jim_GetRefCount(objPtr) > 1;
 }
 
 
@@ -3150,7 +3150,7 @@ static Jim_Obj *JimStringTrim(Jim_Interp *interp, Jim_Obj *strObjPtr, Jim_Obj *t
     strObjPtr = JimStringTrimRight(interp, objPtr, trimcharsObjPtr);
 
     /* Note: refCount check is needed since objPtr may be emptyObj */
-    if (objPtr != strObjPtr && Jim_RelaxedRefCount(objPtr) == 0) {
+    if (objPtr != strObjPtr && Jim_GetRefCount(objPtr) == 0) {
         /* We don't want this object to be leaked */
         Jim_FreeNewObj(objPtr);
     }
@@ -4282,7 +4282,7 @@ static void JimCreateCommand(Jim_Interp *interp, Jim_Obj *nameObjPtr, Jim_Cmd *c
      * so the refCount of nameObjPtr can't be zero, relying on this function to
      * release it in that case.
      */
-    JimPanic((Jim_RelaxedRefCount(nameObjPtr) == 0, "JimCreateCommand called with zero ref count name"));
+    JimPanic((Jim_GetRefCount(nameObjPtr) == 0, "JimCreateCommand called with zero ref count name"));
 
     /* It may already exist, so we try to delete the old one.
      * Note that reference count means that it won't be deleted yet if
@@ -5733,7 +5733,7 @@ void Jim_RewindTempListTo(Jim_Interp *interp, size_t after)
         JimPanic((Jim_IsImmutable(&tempList->objects[i]),
                   "tempList object %p became immutable", &tempList->objects[i]));
 
-        int refCount = Jim_RelaxedRefCount(&tempList->objects[i]);
+        int refCount = Jim_GetRefCount(&tempList->objects[i]);
         JimPanic((refCount != 1,
                   "tempList object %p with bad refCount %d (should be 1)",
                   &tempList->objects[i], refCount));
@@ -8079,7 +8079,7 @@ static int SetIndexFromAny(Jim_Interp *interp, Jim_Obj *objPtr)
     const char *str;
     Jim_Obj *exprObj = objPtr;
 
-    JimPanic((Jim_RelaxedRefCount(objPtr) == 0, "SetIndexFromAny() called with zero refcount object"));
+    JimPanic((Jim_GetRefCount(objPtr) == 0, "SetIndexFromAny() called with zero refcount object"));
     JimPanic((Jim_IsImmutable(objPtr), "SetIndexFromAny() called with immutable object"));
 
     /* Get the string representation */
@@ -11948,7 +11948,7 @@ int Jim_SubstObj(Jim_Interp *interp, Jim_Obj *substObjPtr, Jim_Obj **resObjPtrPt
 {
     ScriptObj *script;
 
-    JimPanic((Jim_RelaxedRefCount(substObjPtr) == 0, "Jim_SubstObj() called with zero refcount object"));
+    JimPanic((Jim_GetRefCount(substObjPtr) == 0, "Jim_SubstObj() called with zero refcount object"));
 
     script = Jim_GetSubst(interp, substObjPtr, flags);
 
@@ -13807,7 +13807,7 @@ static int Jim_DebugCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
     /* (ct - cmds) is the index into the table */
     switch (ct - cmds) {
         case OPT_REFCOUNT:
-            Jim_SetResultInt(interp, Jim_RelaxedRefCount(argv[2]));
+            Jim_SetResultInt(interp, Jim_GetRefCount(argv[2]));
             return JIM_OK;
 
         case OPT_OBJCOUNT:{
@@ -13840,7 +13840,7 @@ static int Jim_DebugCoreCommand(Jim_Interp *interp, int argc, Jim_Obj *const *ar
             char buf[256];
             snprintf(buf, sizeof(buf), "refcount: %d, type: %s\n"
                 "chars (%d):",
-                Jim_RelaxedRefCount(argv[2]), JimObjTypeName(argv[2]), charlen);
+                Jim_GetRefCount(argv[2]), JimObjTypeName(argv[2]), charlen);
             Jim_SetResultFormatted(interp, "%s <<%s>>\n", buf, s);
             snprintf(buf, sizeof(buf), "bytes (%d):", len);
             Jim_AppendString(interp, Jim_GetResult(interp), buf, -1);

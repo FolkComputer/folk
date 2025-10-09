@@ -32,7 +32,7 @@ $cc code {
         int nBindings;
         EnvironmentBinding bindings[];
     } Environment;
-    extern Environment* clauseUnify(Jim_Obj* a, Jim_Obj* b);
+    extern Environment* clauseUnify(Jim_Interp* interp, Jim_Obj* a, Jim_Obj* b);
 
     typedef struct Collect {
         char* _Atomic patternStr;
@@ -126,7 +126,8 @@ $cc proc Recollect! {Jim_Obj* patternObj} void {
 
             resultStmts[resultStmtsCount++] = result;
 
-            Environment* env = clauseUnify(i >= unclaimizedNResults ? claimizedPattern : patternObj,
+            Environment* env = clauseUnify(interp, 
+                                           i >= unclaimizedNResults ? claimizedPattern : patternObj,
                                            statementJimClause(result));
             Jim_Obj* envDict[env->nBindings * 2];
             for (int j = 0; j < env->nBindings; j++) {

@@ -784,16 +784,12 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
     Statement* when = NULL;
     Statement* stmt = NULL;
     when = statementAcquire(db, whenRef);
-    if (when == NULL) {
-        Jim_DecrRefCount(whenPattern);
-        return;
-    }
+    if (when == NULL) return;
 
     if (!statementRefIsNull(stmtRef)) {
         stmt = statementAcquire(db, stmtRef);
         if (stmt == NULL) {
             statementRelease(db, when);
-            Jim_DecrRefCount(whenPattern);
             return;
         }
     }
@@ -819,7 +815,7 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
         if (stmt != NULL) {
             statementRelease(db, stmt);
         }
-        goto jimObjDecr;
+        return;
     }
 
     // make sure this is initialized
@@ -854,7 +850,6 @@ static void runWhenBlock(StatementRef whenRef, Jim_Obj* whenPattern, StatementRe
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
 
-jimObjDecr:
     Jim_DecrRefCount(stmtClause);
     Jim_DecrRefCount(bodyObj);
     Jim_DecrRefCount(capturedEnvStack);
@@ -1213,9 +1208,7 @@ static void Notify(Jim_Obj* toNotify) {
         if (subscription == NULL) { continue; }
 
         Jim_Obj* subscriptionPattern = unsubscriptionizeClause(statementJimClause(subscription));
-
         pushRunSubscriptionBlock(rs->results[i], subscriptionPattern, toNotify);
-        free(subscriptionPattern); // doesn't own any terms.
 
         statementRelease(db, subscription);
     }

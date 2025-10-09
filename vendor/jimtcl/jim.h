@@ -393,7 +393,7 @@ void Jim_IncrRefCount(Jim_Obj *objPtr);
 void Jim_DecrRefCount(Jim_Obj *objPtr);
 void Jim_FreeIfZeroRef(Jim_Obj *objPtr);
 void Jim_FreeNewObj(Jim_Obj *objPtr);
-int Jim_RelaxedRefCount(Jim_Obj *objPtr);
+int Jim_GetRefCount(Jim_Obj *objPtr);
 int Jim_IsShared(Jim_Obj *objPtr);
 int Jim_IsImmutable(Jim_Obj *objPtr);
 

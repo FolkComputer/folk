@@ -73,8 +73,8 @@ Jim_Obj *JimCanonicalNamespace(Jim_Interp *interp, Jim_Obj *nsObj, Jim_Obj *name
 {
     Jim_Obj *objPtr;
     const char *name = Jim_String(interp, nameObj);
-    assert(Jim_RelaxedRefCount(nameObj) != 0);
-    assert(Jim_RelaxedRefCount(nsObj) != 0);
+    assert(Jim_GetRefCount(nameObj) != 0);
+    assert(Jim_GetRefCount(nsObj) != 0);
     if (name[0] == ':' && name[1] == ':') {
         /* Absolute namespace */
         while (*++name == ':') {
