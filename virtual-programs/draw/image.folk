@@ -159,6 +159,9 @@ When the image library is /imageLib/ &\
      /p/ has resolved geometry /geom/ {
          # TODO: Mask the tag out?
 
+    # HACK: because we match partially
+    if {![info exists options]} { return }
+
     fn loadImage
     set im [loadImage $im]
 
@@ -171,7 +174,7 @@ When the image library is /imageLib/ &\
     Wish to draw an image onto $p with \
         image $im \
         position [list 0 0] \
-        anchor topleft width $width
+        anchor topleft width [dict getdef $options width $width]
 
 }
 

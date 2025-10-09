@@ -226,17 +226,11 @@ fn getCurrentLineLength {lines cursor} {
   string length $currentLine
 }
 
-# OK, what's next?
-
-# - figure out how to speed up Hold serialization when you edit the code (cache the outgoing env? share env values instead of whole env?)
-# - figure out how to KEEP PRESENTATION VISUALS so the page doesn't vanish but NOT MATCH ON DATA QUERY so you don't get weird behavior when editing the code
-#   - maybe you can set a query policy?
-
-When /page/ is printing /jobid/ & /page/ has region /r/ {
-  set r [region move $r left 50px]
-  lassign [region left $r] x y
-  set angle [region angle $r]
-  Wish to draw text with x $x y $y text  "Printing (jobid: $jobid)" radians [+ $angle 1.55] font NeomatrixCode
+When /id/ is printing /code/ & /id/ has resolved geometry /geom/ {
+  Wish to draw text onto $id' with text "Printing..." \
+      x [- [dict get $geom width] 0.01] y 0.01 \
+      anchor bottomright \
+      radians 1.55 font NeomatrixCode color green
 }
 
 When /page/ is an editor with path /kbPath/ /...anything/ {
@@ -348,25 +342,13 @@ When /page/ is an editor with path /kbPath/ /...anything/ {
                 #       implement sound.folk that allows a system-wide
                 #       volume setting to be adjusted.
                 #       Perhaps `Wish $system volume is 0.5` or something
-                When $id has printed /lastPrintedCode/ at /previousTime/ {
-                  if {($timestamp - $previousTime) < 1000} {
-                    Hold! -key "code$kbPath" \
-                      Claim $id has editor code $editorCode
-                    Claim the $kbPath cursor is $cursor
-                  }
-                }
 
-                Hold! -key print { Claim $id has printed $code at $timestamp}
-                set jobid [expr {rand()}]
                 Notify: print code $code
-                Hold! -key print-${jobid} {
-                  Claim $id' is printing $jobid
-                }
-                sleep 2
-                Hold! -key print-${jobid} {}
 
-                Hold! -key "code$kbPath" \
-                  Claim $id has editor code $editorCode
+                Hold! -key "print$kbPath" { Claim $id is printing $code }
+                sleep 2
+                Hold! -key "print$kbPath" {}
+
                 Claim the $kbPath cursor is $cursor
               }
               Control_r {

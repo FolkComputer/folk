@@ -1,23 +1,3 @@
-# We use `apply` to seal this code's local variables in so they don't
-# get captured by any Whens.
-apply {{this} {
-    try {
-        set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" r]
-        set calibrationPoses [read $fd]; close $fd
-        Hold! -on calibration -key poses \
-            Claim the calibration poses are $calibrationPoses
-
-        if {[file exists "$::env(HOME)/folk-live/folk-calibration-output.txt"]} {
-            set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" r]
-            set calibration [read $fd]; close $fd
-            Hold! -on calibration -key calibration \
-                Claim the calibration is $calibration
-        }
-    } on error e {
-        puts stderr "Failed to load calibration: $e"
-    }
-}} $this
-
 When display /disp/ has width /displayWidth/ height /displayHeight/ &\
      the calibration is /nothing/ {
     set warning "WARNING: Folk hasn't been calibrated!"
@@ -47,21 +27,12 @@ When the calibration is /calibration/ {
     Claim camera $camera to display $display has extrinsics $extrinsics
 }
 
-# Read the default program geometry (create a default default if it
-# doesn't exist).
-apply {{this} {
-    if {![file exists "$::env(HOME)/folk-printed-programs"]} {
-        exec mkdir -p "$::env(HOME)/folk-printed-programs"
-    }
-    if {[file exists "$::env(HOME)/folk-printed-programs/default.folkgeom"]} {
-        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" r]
-        set defaultGeom [read $fd]; close $fd
-    } else {
-        set fd [open "$::env(HOME)/folk-printed-programs/default.folkgeom" w]
-        set defaultGeom {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
-        puts $fd $defaultGeom; close $fd
-    }
+When the collected results for {/somebody/ claims the default program geometry is /geom/} are /results/ {
+    set defaultGeometry {tagSize 30mm top 28mm right 28mm left 157mm bottom 80mm}
+    set shouldClaim false
 
-    Hold! -on calibration -key {default program geometry} \
-        Claim the default program geometry is $defaultGeom
-}} $this
+    if {[llength $results] == 0 ||
+        [llength $results] == 1 && [dict get [lindex $results 0] geom] == $defaultGeometry} {
+        Claim the default program geometry is $defaultGeometry
+    }
+}

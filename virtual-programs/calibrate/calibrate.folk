@@ -130,7 +130,8 @@ fn lsort-indices {itemL} {
     set indexL
 }
 
-set CALIBRATION_POSES_MAX 10
+Hold! -key {calibration poses max} \
+    Claim the calibration poses max is 10
 
 When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
      display /display/ has width /displayWidth/ height /displayHeight/ &\
@@ -243,6 +244,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     # homography (which gets dynamically updated as you move the board
     # around):
     When $board has canvas /any/ with /...wiOpts/ &\
+         the calibration poses max is /calibrationPosesMax/ &\
          the calibration model-to-display homography is /H_modelToDisplay/ \
              with /...modelToDisplayOpts/ &\
          the calibration poses are /calibrationPoses/ &\
@@ -302,7 +304,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
                  [list $boardBottomLeft $boardTopLeft] \
                  [list $boardTopRight $boardBottomRight]]
 
-        set text "[llength $calibrationPoses]/$CALIBRATION_POSES_MAX poses ([expr {round($cycleTime*1000)}] ms)"
+        set text "[llength $calibrationPoses]/$calibrationPosesMax poses ([expr {round($cycleTime*1000)}] ms)"
         foreach p {add norm sub scale matmul
             getelem transpose determineSVD shape mkIdentity show
             solvePGauss crossproduct getcol setcol unitLengthVector det
@@ -377,7 +379,8 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
         }
     }
 
-    When -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
+    When the calibration poses max is /calibrationPosesMax/ &\
+         -serially camera $camera has frame /frame/ at timestamp /frameTimestamp/ {
         # HACK: so we just lookup whatever is latest _right now_,
         # instead of subscribing.
         set calibrationStates \
@@ -646,26 +649,22 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
 
         # OK, let's save this calibration pose.
         lappend calibrationPoses $pose
-        puts "APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
+        puts "calibrate: APPENDED CALIBRATION TO POSES ([llength $calibrationPoses] poses collected)"
         Hold! -on calibration -key poses \
             -version $nextModelFrameTimestamp \
             Claim the calibration poses are $calibrationPoses
 
         # If we have enough poses, then stop the calibration process
         # (retract the printed side length?) and do a calibration. :-)
-        if {[llength $calibrationPoses] >= $CALIBRATION_POSES_MAX} {
-            puts "READY CALIBRATION POSES!"
+        if {[llength $calibrationPoses] >= $calibrationPosesMax} {
+            puts "calibrate: GOT ALL CALIBRATION POSES!"
 
-            catch { exec mkdir "$::env(HOME)/folk-live" }
-            catch {exec rm "$::env(HOME)/folk-live/folk-calibration-output.txt"}
-
-            set fd [open "$::env(HOME)/folk-live/folk-calibration-poses.txt" w]
-            puts $fd $calibrationPoses; close $fd
-
+            Hold! -save -on calibration -key poses \
+                Claim the calibration poses are $calibrationPoses
             # Destroy the old calibration and trigger a new one.
-            Hold! -on calibration -key calibration {}
+            Hold! -save -on calibration -key calibration {}
 
-            Retract! /someone/ wishes to calibrate
+            Hold! -key {start calibration} {}
         }
     }
 }
@@ -951,6 +950,7 @@ fn unrefinedCalibrateCameraAndProjector {matLib calibrationPoses} {
 }
 
 When the calibration matLib is /matLib/ &\
+     the calibration poses max is /calibrationPosesMax/ &\
      the calibration poses are /calibrationPoses/ &\
      /nobody/ claims the calibration is /anything/ &\
      the calibration estimateHomography is /estimateHomography/ &\
@@ -958,7 +958,7 @@ When the calibration matLib is /matLib/ &\
 
     fn estimateHomography
 
-    if {[llength $calibrationPoses] < $CALIBRATION_POSES_MAX} {
+    if {[llength $calibrationPoses] < $calibrationPosesMax} {
         return
     }
 
@@ -977,74 +977,6 @@ When the calibration matLib is /matLib/ &\
     puts $calibration
     puts "."
 
-    When the pose library is /poseLib/ &\
-         the printed calibration tag size is /tagSizeMm/ mm {
-        puts "======== Reproject pose 0 ========="
-        set pose [lindex $calibrationPoses 0]
-        set tagSize [expr {$tagSizeMm / 1000.0}]
-        set cameraIntrinsics [dict get $calibration camera intrinsics]
-        set cameraWidth [dict get $calibration camera intrinsics width]
-        set cameraHeight [dict get $calibration camera intrinsics height]
-        set projectorIntrinsics [dict get $calibration projector intrinsics]
-        set projectorWidth [dict get $calibration projector intrinsics width]
-        set projectorHeight [dict get $calibration projector intrinsics height]
-        dict for {id det} [dict get $pose tags] {
-            # Look through all the projected tags that we detected on
-            # camera in this pose.
-            if {![isProjectedTag $id]} { continue }
-
-            puts "Tag $id:"
-
-            set p [dict get $det p] ;# Camera detected corners.
-
-            # Pose-estimate this tag.
-            set tagPose [$poseLib baseEstimateTagPose $cameraIntrinsics \
-                             $cameraWidth $cameraHeight \
-                             $tagSize \
-                             $p]
-            set tagPose [$poseLib servoingEstimateTagPose $cameraIntrinsics \
-                             $cameraWidth $cameraHeight \
-                             $tagSize \
-                             $tagPose $p]
-
-            set r [expr {$tagSize / 2}]
-            set tagVertices \
-                [list [list [- $r]    $r  0] \
-                     [list     $r     $r  0] \
-                     [list     $r  [- $r] 0] \
-                     [list  [- $r] [- $r] 0]]
-            # Move the pose to camera-space.
-            set cameraVertices [lmap v $tagVertices {
-                set R [dict get $tagPose R]; set t [dict get $tagPose t]
-                add [matmul $R $v] $t
-            }]
-
-            # Move the pose to projector-space.
-            set projectorVertices [lmap v $cameraVertices {
-                set R [dict get $calibration R_cameraToProjector]
-                set t [dict get $calibration t_cameraToProjector]
-                add [matmul $R $v] $t
-            }]
-
-            # Downproject to the projector pixel plane.
-            set modelTag [dict get $pose model $id]
-            for {set i 0} {$i < 4} {incr i} {
-                set modelCorner [lindex [dict get $modelTag p] $i]
-                lassign [$matLib applyHomography [dict get $pose H_modelToDisplay] $modelCorner] px py
-                puts [format "Corner $i (real)  : (%.3f %.3f)" $px $py]
-
-                set v [lindex $projectorVertices $i]
-                lassign [intrinsics project $projectorIntrinsics \
-                             $projectorWidth $projectorHeight \
-                             $v] rpx rpy
-                puts [format "Corner $i (reproj): (%.3f %.3f)" $rpx $rpy]
-            }
-        }
-    }
-
-    Hold! -on calibration -key calibration \
+    Hold! -save -on calibration -key calibration \
         Claim the calibration is $calibration
-
-    set fd [open "$::env(HOME)/folk-live/folk-calibration-output.txt" w]
-    puts $fd $calibration; close $fd
 }

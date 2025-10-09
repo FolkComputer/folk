@@ -726,10 +726,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - fix sprite blinking
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
-- weird extra space in editor on boot
+- ~~weird extra space in editor on boot~~
 - fix calibration screwing up system state
 - persist transient errors
 - fix error report in web editor
+- ~~fix print message in table editor~~
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of

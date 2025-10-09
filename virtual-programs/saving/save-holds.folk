@@ -71,7 +71,7 @@ $cc proc loadHolds {char* canonicalName char* holdStr} void {
     pthread_mutex_unlock(&holdMutex);
 }
 
-# canonical, tclEscaled, and filename all have to do with the value from -on in Hold!
+# canonical, tclEscaped, and filename all have to do with the value from -on in Hold!
 $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* key Jim_Obj* clause} void {
     pthread_mutex_lock(&holdMutex);
     assert(areHoldsInitialized);
@@ -101,39 +101,44 @@ $cc proc saveHold {char* canonical Jim_Obj* tclEscaped char* filename Jim_Obj* k
 
     pthread_mutex_unlock(&holdMutex);
 
-    // write changes
-    FILE* file = fopen(filename, "w+b");
-    assert(file != NULL);
-
-    // write the unescaped filename (at least the regex escaping)
-    fwrite(Jim_String(tclEscaped), 1, Jim_Length(tclEscaped), file);
-    fwrite("\n\n", 1, 2, file);
-
-    // write all hash entries, with one entry per line
+    // grab entries from dict
     int dictLen = 0;
     Jim_Obj** dictValues = Jim_DictPairs(interp, holdDict, &dictLen);
 
-    for (int i = 0; i < dictLen; i += 2) {
-        Jim_Obj* pair[] = { dictValues[i], dictValues[i + 1] };
-        Jim_Obj* tmpListObj = Jim_NewListObj(interp, pair, 2);
+    if (dictLen > 0) {
+        // write changes
+        FILE* file = fopen(filename, "w+b");
+        assert(file != NULL);
 
-        fwrite(Jim_String(tmpListObj), 1, Jim_Length(tmpListObj), file);
-        fwrite("\n", 1, 1, file);
+        // write the filename in tcl form at the top of the file
+        fwrite(Jim_String(tclEscaped), 1, Jim_Length(tclEscaped), file);
+        fwrite("\n\n", 1, 2, file);
 
-        Jim_FreeNewObj(interp, tmpListObj);
+        // write all hash entries, with one entry per line
+        for (int i = 0; i < dictLen; i += 2) {
+            Jim_Obj* pair[] = { dictValues[i], dictValues[i + 1] };
+            Jim_Obj* tmpListObj = Jim_NewListObj(interp, pair, 2);
+
+            fwrite(Jim_String(tmpListObj), 1, Jim_Length(tmpListObj), file);
+            fwrite("\n", 1, 1, file);
+
+            Jim_FreeNewObj(interp, tmpListObj);
+        }
+
+        fclose(file);
+    } else {
+        // the dict is empty, so we should delete its hold file if it exists
+        remove(filename); // no need to check error
     }
 
-    fclose(file);
     Jim_FreeNewObj(interp, holdDict);
 }
 
 set savedHoldsLib [$cc compile]
 $savedHoldsLib init
 
-set holdDirectory "$::env(HOME)/folk-holds"
-
-if {[file isdirectory $holdDirectory]} {
-    set holdFiles [glob -nocomplain $holdDirectory/*]
+When /someone/ wishes to deserialize namespace hold with directory /directory/ {
+    set holdFiles [glob -nocomplain $directory/*]
 
     foreach holdFile $holdFiles {
         set fd [open $holdFile r]
@@ -152,26 +157,27 @@ if {[file isdirectory $holdDirectory]} {
 
         $savedHoldsLib loadHolds $canonicalName $holdDict
     }
-} else {
-    puts "saved-holds: making hold directory $holdDirectory"
-    file mkdir $holdDirectory
 }
 
-Subscribe: save hold on /on/ with key /key/ clause /clause/ {
-    set canonical $on
-    set tclEscaped [list $on]
-    set escapedFilename ""
+When the hold save directory is /holdDirectory/ {
+    Subscribe: save hold on /on/ with key /key/ clause /clause/ {
+        set canonical $on
+        set tclEscaped [list $on]
+        set escapedFilename ""
 
-    # does it match virtual-programs/**/*.folk? If so,
-    # chop off virtual-programs/
-    if {![regexp {^virtual-programs/(.*\.folk)} $canonical -> escapedFilename]} {
-        set escapedFilename $canonical
+        # does it match virtual-programs/**/*.folk? If so,
+        # chop off virtual-programs/
+        if {![regexp {^virtual-programs/(.*\.folk)} $canonical -> escapedFilename]} {
+            set escapedFilename $canonical
+        }
+
+        # replace all / with __
+        set escapedFilename [regsub -all -- / $escapedFilename __]
+        set escapedFilename "$holdDirectory/$escapedFilename"
+
+        $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
+            $key $clause
     }
 
-    # replace all / with __
-    set escapedFilename [regsub -all -- / $escapedFilename __]
-    set escapedFilename "$holdDirectory/$escapedFilename"
-
-    $savedHoldsLib saveHold $canonical $tclEscaped $escapedFilename \
-        $key $clause
+    Claim saving is ready
 }
