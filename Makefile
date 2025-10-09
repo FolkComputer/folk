@@ -28,7 +28,7 @@ folk: workqueue.o db.o trie.o sysmon.o epoch.o cache.o folk.o \
 		sudo -n true 2>/dev/null || true && sudo setcap cap_sys_rawio+ep $@ || true; \
 	fi
 
-%.o: %.c trie.h CFLAGS
+%.o: %.c trie.h workqueue.h CFLAGS
 	cc -c -O2 -g -fno-omit-frame-pointer $(if $(ASAN_ENABLE),-fsanitize=address -fsanitize-recover=address,) -o$@  \
 		-D_GNU_SOURCE $(CFLAGS) $(BUILTIN_CFLAGS) \
 		$< -I./vendor/jimtcl -I./vendor/tracy/public
@@ -86,8 +86,8 @@ kill-folk:
 	sudo systemctl stop folk
 	if [ -f folk.pid ]; then \
 		OLD_PID=`cat folk.pid`; \
-		sudo kill -9 $$OLD_PID; \
-		while sudo kill -0 $$OLD_PID; do sleep 0.2; done; \
+		sudo pkill -9 --pgroup $$OLD_PID; \
+		while sudo pkill -0 --pgroup $$OLD_PID; do sleep 0.2; done; \
 	fi
 
 FOLK_REMOTE_NODE ?= folk-live
@@ -149,9 +149,11 @@ start: folk
 run-tracy:
 	vendor/tracy/profiler/build/tracy-profiler
 tracy-remote:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk'
 	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
 		make remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 sudo-tracy-remote:
+	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make kill-folk'
 	vendor/tracy/profiler/build/tracy-profiler -a `ssh -G $(FOLK_REMOTE_NODE) | awk '$$1 == "hostname" { print $$2 }'` & \
 		make sudo-remote CFLAGS=-DTRACY_ENABLE FOLK_REMOTE_NODE=$(FOLK_REMOTE_NODE)
 

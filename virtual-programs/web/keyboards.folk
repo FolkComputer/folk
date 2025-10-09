@@ -42,15 +42,14 @@ Wish the web server handles route "/keyboards$" with handler {
         <script>
           const ws = new FolkWS(document.getElementById('status'));
 
-          ws.watch("keyboard /kb/ claims key /something/ is down with timestamp /something/ printable /p/", {
-            add: ({ kb, p }) => {
-              document.getElementById(kb + "-presses").innerText += p + " ";
-            },
+          ws.subscribe("keyboard /kb/ claims key /anything/ is down with /...options/", ({ kb, options }) => {
+            const { printable } = loadDict(options);
+            document.getElementById(kb + "-presses").innerText += printable + " ";
           });
 
           function handlePrint(kb) {
             ws.send(
-              tcl`Wish to print {Claim \$this is a keyboard with path \${kb}} with job-id \${String(Math.random())}`
+              tcl`Notify: print code {Claim \$this is a keyboard with path \${kb}}`
             );
           }
         </script>

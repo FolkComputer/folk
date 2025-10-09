@@ -25,8 +25,7 @@ proc htmlEscape {s} { string map {& "&amp;" < "&lt;" > "&gt;" "\"" "&quot;"} $s 
 
 proc readFile {filename contentTypeVar} {
     upvar $contentTypeVar contentType
-    set fd [open $filename r]
-    fconfigure $fd -translation binary
+    set fd [open $filename rb]
     set response [read $fd]; close $fd; return $response
 }
 

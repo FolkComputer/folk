@@ -271,6 +271,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         When /someone/ wishes the GPU creates canvas /id/ with /...options/ {
             set width [dict get $options width]
             set height [dict get $options height]
+            set settle [dict getdef $options settle 3ms]
+
             set wi [$gpuCanvasLib create $width $height]
 
             Claim the GPU has created canvas $id with \
@@ -282,7 +284,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             Wish to collect results for \
                 [list /wisher/ wishes the GPU draws pipeline /name/ \
                      onto canvas $id with /...options/] \
-                with settle 3ms
+                with settle $settle
         }
 
         Wish the GPU runs frame prelude handler [list apply {{gpuCanvasLib} {
@@ -413,9 +415,16 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     }
 
     When /someone/ wishes /p/ has a canvas {
+        Wish $p has a canvas with width 1024 height 1024 settle 3ms
+    }
+    When /someone/ wishes /p/ has a canvas with /...options/ {
+        if {![info exists options]} {
+            # HACK: this matches even if the options aren't
+            # there. just return early
+            return
+        }
         set pCanvas [list $p canvas]
-        Wish the GPU creates canvas $pCanvas with \
-            width 1024 height 1024
+        Wish the GPU creates canvas $pCanvas with {*}$options
         When the GPU has created canvas $pCanvas with /...canvOpts/ {
             Claim $p has canvas $pCanvas with {*}$canvOpts
 
@@ -437,7 +446,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         # blinking.
         set dispCanvas [list $disp canvas]
         Wish the GPU creates canvas $dispCanvas with \
-            width $dispWidth height $dispHeight
+            width $dispWidth height $dispHeight settle 0ms
 
         When the GPU has created canvas $dispCanvas with /...canvOpts/ {
             Claim $disp has canvas $dispCanvas with {*}$canvOpts

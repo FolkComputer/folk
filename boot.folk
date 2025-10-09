@@ -1,5 +1,10 @@
 puts "boot: Boot (PID [pid])"
 apply {{} {
+    # We setpgrp so that all subprocesses spawned by Folk, even ones
+    # that outlive Folk itself, can be killed later by their PGID (the
+    # PID in folk.pid).
+    setpgrp
+
     catch {
         set fp [open "folk.pid" r]
         set oldPid [read $fp]; close $fp
@@ -35,9 +40,14 @@ local proc LoadProgram! {programFilename} {
 
 # Load the setup program -- setup.folk.default gets overridden
 # if the user made their own setup.folk.
-set setupFilename [expr {[file exists "$::env(HOME)/folk-live/setup.folk"] ?
-                         "$::env(HOME)/folk-live/setup.folk" :
-                         "setup.folk.default"}]
+if {[file exists "$::env(HOME)/folk-data/setup.folk"]} {
+    set setupFilename "$::env(HOME)/folk-data/setup.folk"
+} elseif {[file exists "$::env(HOME)/folk-live/setup.folk"] &&
+          ![file exists "$::env(HOME)/folk-data"]} {
+    set setupFilename "$::env(HOME)/folk-live/setup.folk"
+} else {
+    set setupFilename "setup.folk.default"
+}
 puts "boot: Using config at $setupFilename"
 LoadProgram! $setupFilename
 

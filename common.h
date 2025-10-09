@@ -53,6 +53,8 @@ typedef struct ThreadControlBlock {
 
     // Current match being constructed (if applicable).
     Match* currentMatch;
+    // If running in subscription
+    int inSubscription;
 
     // FOR DEBUGGING:
     int _Atomic _allocs;

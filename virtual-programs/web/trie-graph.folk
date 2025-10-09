@@ -161,8 +161,7 @@ set trieDotify {{trieLib tclifiedTrie} {
 }}
 
 set getDotAsPdf {{dot} {
-    set fd [open |[list dot -Tpdf <<$dot] r]
-    fconfigure $fd -translation binary
+    set fd [open |[list dot -Tpdf <<$dot] rb]
     set response [read $fd]; close $fd; return $response
 }}
 

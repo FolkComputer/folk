@@ -8,16 +8,18 @@
 When the image library is /imageLib/ &\
      the quad library is /quadLib/ &\
      the pose library is /poseLib/ &\
+     the quad changer is /quadChange/ &\
      /someone/ wishes /p/ has camera slice &\
      camera /cam/ has intrinsics /cameraIntrinsics/ &\
      camera /cam/ has frame /f/ at timestamp /timestamp/ &\
      /p/ has quad /q/ {
+    fn quadChange
 
     set fWidth [$imageLib Image_width $f]
     set fHeight [$imageLib Image_height $f]
 
     # Convert quad to camera coordinates
-    set q [$quadLib change $q $cam]
+    set q [quadChange $q $cam]
     set minX 10000; set minY 10000
     set maxX -10000; set maxY -10000
     foreach v [$quadLib vertices $q] {

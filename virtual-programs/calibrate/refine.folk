@@ -76,7 +76,6 @@ $cc include <common/matd.h>
 
 $cc code [csubst {
     #define MAX_POINTS_PER_POSE $[* $NUM_TAGS_IN_MODEL 4]
-    #define MAX_POSES 10
 
     typedef struct Intrinsics {
         double fx;
@@ -111,16 +110,26 @@ $cc code [csubst {
 
     int MonoPoseCount;
     int MonoPointsCount;
-    int MonoPosePointsCount[MAX_POSES];
-    double MonoPoseModelPoints[MAX_POSES][MAX_POINTS_PER_POSE][3];
-    double MonoPosePoints[MAX_POSES][MAX_POINTS_PER_POSE][2];
+    int* MonoPosePointsCount;
+    double (*MonoPoseModelPoints)[MAX_POINTS_PER_POSE][3];
+    double (*MonoPosePoints)[MAX_POINTS_PER_POSE][2];
 }]
 $cc proc monoSetPoints {int poseCount
                         int[] posePointsCount
                         double[] poseModelPoints
                         double[] posePoints} void {
-    int mi = 0; int pi = 0;
+    // Free previously allocated memory
+    free(MonoPosePointsCount);
+    free(MonoPoseModelPoints);
+    free(MonoPosePoints);
+
+    // Allocate new arrays based on poseCount
     MonoPoseCount = poseCount;
+    MonoPosePointsCount = malloc(poseCount * sizeof(int));
+    MonoPoseModelPoints = malloc(poseCount * sizeof(double[MAX_POINTS_PER_POSE][3]));
+    MonoPosePoints = malloc(poseCount * sizeof(double[MAX_POINTS_PER_POSE][2]));
+
+    int mi = 0; int pi = 0;
     MonoPointsCount = 0;
     for (int poseIdx = 0; poseIdx < MonoPoseCount; poseIdx++) {
         MonoPosePointsCount[poseIdx] = posePointsCount[poseIdx];
@@ -308,10 +317,10 @@ $cc proc monoRefineCalibrationOptimize {double[] params int paramsCount} Jim_Obj
 $cc code {
     int StereoPoseCount;
     int StereoPointsCount;
-    int StereoPosePointsCount[MAX_POSES];
-    double StereoPoseModelPoints[MAX_POSES][MAX_POINTS_PER_POSE][3];
-    double StereoPoseCameraPoints[MAX_POSES][MAX_POINTS_PER_POSE][2];
-    double StereoPoseProjectorPoints[MAX_POSES][MAX_POINTS_PER_POSE][2];
+    int* StereoPosePointsCount;
+    double (*StereoPoseModelPoints)[MAX_POINTS_PER_POSE][3];
+    double (*StereoPoseCameraPoints)[MAX_POINTS_PER_POSE][2];
+    double (*StereoPoseProjectorPoints)[MAX_POINTS_PER_POSE][2];
 
     Intrinsics StereoCameraIntrinsics;
     Intrinsics StereoProjectorIntrinsics;
@@ -321,8 +330,20 @@ $cc proc stereoSetPoints {int poseCount
                           double[] poseModelPoints
                           double[] poseCameraPoints
                           double[] poseProjectorPoints} void {
-    int mi = 0; int ci = 0; int pi = 0;
+    // Free previously allocated memory
+    free(StereoPosePointsCount);
+    free(StereoPoseModelPoints);
+    free(StereoPoseCameraPoints);
+    free(StereoPoseProjectorPoints);
+
+    // Allocate new arrays based on poseCount
     StereoPoseCount = poseCount;
+    StereoPosePointsCount = malloc(poseCount * sizeof(int));
+    StereoPoseModelPoints = malloc(poseCount * sizeof(double[MAX_POINTS_PER_POSE][3]));
+    StereoPoseCameraPoints = malloc(poseCount * sizeof(double[MAX_POINTS_PER_POSE][2]));
+    StereoPoseProjectorPoints = malloc(poseCount * sizeof(double[MAX_POINTS_PER_POSE][2]));
+
+    int mi = 0; int ci = 0; int pi = 0;
     StereoPointsCount = 0;
     for (int poseIdx = 0; poseIdx < StereoPoseCount; poseIdx++) {
         StereoPosePointsCount[poseIdx] = posePointsCount[poseIdx];

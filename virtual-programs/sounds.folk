@@ -1,6 +1,0 @@
-When /someone/ wishes /p/ plays sound /sound/ {
-	if {[file exists "/home/folk/sounds/$sound"]} {
-		set sound "/home/folk/sounds/$sound"
-	}
-	Wish $this runs Unix command "mpv -ao jack $sound"
-}

@@ -3,7 +3,7 @@ set x 3
 fn hello {} {
     set y 10
     assert {$x == 3}
-    Hold! boom {
+    Hold! -key boom {
         assert {$x == 3}
         Exit! 0
     }
