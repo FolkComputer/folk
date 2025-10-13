@@ -265,6 +265,8 @@ typedef struct StatementRefList {
 } StatementRefList;
 
 typedef struct AtomicallyVersion {
+    int number;
+
     // Used to find older version to reap.
     struct Atomically* atomically;
 
@@ -280,13 +282,22 @@ typedef struct AtomicallyVersion {
     StatementRefList* _Atomic toRemoveList;
 } AtomicallyVersion;
 
+typedef struct AtomicallyVersionList {
+    AtomicallyVersion* version;
+    struct AtomicallyVersionList* next;
+} AtomicallyVersionList;
+
 typedef struct Atomically {
     // If key == NULL, then this Atomically is an empty slot that can
     // be used for a new key.
     const char* _Atomic key; // Owned by the DB.
 
-    // This is used by newer versions to reap older version once they
-    // converge.
+    int _Atomic nextNumber;
+
+    // This is used by a newly converged version to reap older
+    // versions.
+    AtomicallyVersionList* _Atomic allVersions;
+
     AtomicallyVersion* _Atomic latestConvergedVersion;
 } Atomically;
 
@@ -595,7 +606,6 @@ static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersio
     newNode->next = NULL;
 
     StatementRefList* oldList;
-    StatementRefList* newList;
     do {
         oldList = atomicallyVersion->toRemoveList;
         newNode->next = oldList;
@@ -605,10 +615,10 @@ static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersio
 }
 static void atomicallyVersionDoRemoveList(Db* db, AtomicallyVersion* atomicallyVersion) {
     StatementRefList* current = atomicallyVersion->toRemoveList;
-    /* printf("atomicallyVersionDoRemoveList(%p). current %p\n", */
-    /*        atomicallyVersion, current); */
+    /* printf("atomicallyVersionDoRemoveList(%p)\n", atomicallyVersion); */
     while (current != NULL) {
         StatementRefList* next = current->next;
+
         Statement* stmt = statementAcquire(db, current->ref);
         /* printf("  stmt %p\n", stmt); */
         if (stmt != NULL) {
@@ -634,14 +644,26 @@ void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
             // Note that we should have exclusive access to stmt at
             // this point.
             
-            // Tentatively trigger a removal when the
-            // AtomicallyVersion is reaped. But the statement will
-            // still be able to be revived in the intervening time.
             AtomicallyVersion* version = stmt->atomicallyVersion;
-            atomicallyVersionAddToRemoveList(version, statementRef(db, stmt));
+            if (version->atomically->latestConvergedVersion == NULL ||
+                (version->atomically->latestConvergedVersion != NULL &&
+                 version->atomically->latestConvergedVersion->number <=
+                 version->number)) {
+                // Don't remove yet. We're newer than whatever the
+                // latest converged version is.
 
+                // Tentatively schedule a removal for when the
+                // AtomicallyVersion is reaped. But the statement will
+                // still be able to be revived in the intervening
+                // time.
+                atomicallyVersionAddToRemoveList(version, statementRef(db, stmt));
+
+                stmt->parentCount++;
+                return;
+            }
+
+            // Otherwise, fall through and do the normal thing below.
             stmt->parentCount++;
-            return;
         }
     }
     
@@ -974,8 +996,10 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     if (atomically == NULL) {
         for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
             if (db->atomicallys[i].key == NULL) {
-                db->atomicallys[i].key = strdup(key);
                 atomically = &db->atomicallys[i];
+                atomically->key = strdup(key);
+                atomically->nextNumber = 0;
+                atomically->allVersions = NULL;
                 break;
             }
         }
@@ -991,11 +1015,25 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
 
     // FIXME: assert old values are bad, do something with refcount
 
+    atomicallyVersion->number = atomically->nextNumber++;
     // An AtomicallyVersion should start unconverged, assuming that it
     // always gets set into a currently running (incomplete) match
     // that can mark it as converged when done.
     atomicallyVersion->inflightCount = 1;
     atomicallyVersion->toRemoveList = NULL;
+
+    // Add this version to atomically->allVersions list
+    AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
+    newNode->version = atomicallyVersion;
+
+    AtomicallyVersionList* oldList;
+    do {
+        oldList = atomically->allVersions;
+        newNode->next = oldList;
+    } while (!atomic_compare_exchange_weak(&atomically->allVersions,
+                                           &oldList,
+                                           newNode));
+
     return atomicallyVersion;
 }
 
@@ -1029,18 +1067,27 @@ void dbAtomicallyVersionInflightIncr(AtomicallyVersion* atomicallyVersion) {
 }
 void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersion) {
     if (--atomicallyVersion->inflightCount == 0) {
-        AtomicallyVersion* originalPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
-        AtomicallyVersion* expectedPrevVersion = originalPrevVersion;
-        AtomicallyVersion* newVersion = atomicallyVersion;
+        Atomically* atomically = atomicallyVersion->atomically;
+        atomically->latestConvergedVersion = atomicallyVersion;
 
-        while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->latestConvergedVersion,
-                                             &expectedPrevVersion, newVersion)) {
-            // expectedPrevVersion now contains the current value, reset it
-            expectedPrevVersion = atomicallyVersion->atomically->latestConvergedVersion;
-        }
+        // Get the list of all living versions.
+        AtomicallyVersionList* allVersions;
+        do {
+            allVersions = atomicallyVersion->atomically->allVersions;
+        } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
+                                               &allVersions,
+                                               NULL));
 
-        if (expectedPrevVersion != NULL) {
-            atomicallyVersionDoRemoveList(db, expectedPrevVersion);
+        // Do removal on all of them.
+        AtomicallyVersionList* current = allVersions;
+        while (current != NULL) {
+            AtomicallyVersionList* next = current->next;
+            if (current->version != NULL) {
+                /* printf("Remove %p\n", current->version); */
+                atomicallyVersionDoRemoveList(db, current->version);
+            }
+            free(current);
+            current = next;
         }
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
