@@ -488,10 +488,8 @@ static StatementRef statementNew(Db* db, Clause* clause,
         stmt->parentCount = 1;
     }
     stmt->atomicallyVersion = atomicallyVersion;
-    if (atomicallyVersion != NULL) {
-        atomicallyVersionAddToStatementList(stmt->atomicallyVersion,
-                                            statementRef(db, stmt));
-    }
+    atomicallyVersionAddToStatementList(stmt->atomicallyVersion,
+                                        statementRef(db, stmt));
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
@@ -615,6 +613,8 @@ bool statementTryIncrParentCount(Statement* stmt) {
 
 static void atomicallyVersionAddToStatementList(AtomicallyVersion* atomicallyVersion,
                                                 StatementRef stmt) {
+    if (atomicallyVersion == NULL) return;
+
     /* printf("atomicallyVersionAddToRemoveList(%p)\n", atomicallyVersion); */
     StatementRefList* newNode = malloc(sizeof(StatementRefList));
     newNode->ref = stmt;

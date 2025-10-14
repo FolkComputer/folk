@@ -856,7 +856,8 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
         dbAtomicallyVersionInflightIncr(self->currentAtomicallyVersion);
     }
     // We don't want to hang onto these inflight when running the
-    // block. If we're keeping one, we've incr-ed it above.
+    // block. (If we're keeping one, we've just incr-ed it for
+    // ourselves before this.)
     dbInflightDecr(db, when);
     dbInflightDecr(db, stmt);
 
