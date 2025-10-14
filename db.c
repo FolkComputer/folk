@@ -279,7 +279,11 @@ typedef struct AtomicallyVersion {
     // FIXME: Use this to dispose the AtomicallyVersion.
     int _Atomic refCount;
 
-    StatementRefList* _Atomic toRemoveList;
+    // This is used as new statements are created within the
+    // version. When a newer version converges, we walk all older
+    // versions' statementLists and decr parentCount and wipe away the
+    // version pointer.
+    StatementRefList* _Atomic statementList;
 } AtomicallyVersion;
 
 typedef struct AtomicallyVersionList {
@@ -437,6 +441,8 @@ StatementRef statementRef(Db* db, Statement* stmt) {
     };
 }
 
+static void atomicallyVersionAddToStatementList(AtomicallyVersion* atomicallyVersion,
+                                                StatementRef stmt);
 // Creates a new statement. Internal helper for the DB, not callable
 // from the outside (they need to insert into the DB as a complete
 // operation). Note: clause ownership transfers to the DB, which then
@@ -477,13 +483,19 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // before the first reaction is dispatched.
     if (atomicallyVersion != NULL) {
         atomicallyVersion->inflightCount++;
+        stmt->parentCount = 2;
+    } else {
+        stmt->parentCount = 1;
     }
     stmt->atomicallyVersion = atomicallyVersion;
+    if (atomicallyVersion != NULL) {
+        atomicallyVersionAddToStatementList(stmt->atomicallyVersion,
+                                            statementRef(db, stmt));
+    }
 
     destructorSetInit(&stmt->destructorSet);
     pthread_mutex_init(&stmt->destructorSetMutex, NULL);
 
-    stmt->parentCount = 1;
     stmt->childMatches = listOfEdgeToNew(8);
 
     pthread_mutexattr_t mta;
@@ -521,6 +533,9 @@ Clause* statementClause(Statement* stmt) { return stmt->clause; }
 
 AtomicallyVersion* statementAtomicallyVersion(Statement* stmt) {
     return stmt->atomicallyVersion;
+}
+int statementParentCount(Statement* stmt) {
+    return stmt->parentCount;
 }
 
 char* statementSourceFileName(Statement* stmt) {
@@ -598,8 +613,8 @@ bool statementTryIncrParentCount(Statement* stmt) {
 }
 
 
-static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersion,
-                                             StatementRef stmt) {
+static void atomicallyVersionAddToStatementList(AtomicallyVersion* atomicallyVersion,
+                                                StatementRef stmt) {
     /* printf("atomicallyVersionAddToRemoveList(%p)\n", atomicallyVersion); */
     StatementRefList* newNode = malloc(sizeof(StatementRefList));
     newNode->ref = stmt;
@@ -607,14 +622,14 @@ static void atomicallyVersionAddToRemoveList(AtomicallyVersion* atomicallyVersio
 
     StatementRefList* oldList;
     do {
-        oldList = atomicallyVersion->toRemoveList;
+        oldList = atomicallyVersion->statementList;
         newNode->next = oldList;
-    } while (!atomic_compare_exchange_weak(&atomicallyVersion->toRemoveList, 
+    } while (!atomic_compare_exchange_weak(&atomicallyVersion->statementList, 
                                            &oldList, 
                                            newNode));
 }
-static void atomicallyVersionDoRemoveList(Db* db, AtomicallyVersion* atomicallyVersion) {
-    StatementRefList* current = atomicallyVersion->toRemoveList;
+static void atomicallyVersionClearStatementList(Db* db, AtomicallyVersion* atomicallyVersion) {
+    StatementRefList* current = atomicallyVersion->statementList;
     /* printf("atomicallyVersionDoRemoveList(%p)\n", atomicallyVersion); */
     while (current != NULL) {
         StatementRefList* next = current->next;
@@ -631,42 +646,10 @@ static void atomicallyVersionDoRemoveList(Db* db, AtomicallyVersion* atomicallyV
         free(current);
         current = next;
     }
-    atomicallyVersion->toRemoveList = NULL;
+    atomicallyVersion->statementList = NULL;
 }
 
 void statementDecrParentCountAndMaybeRemoveSelf(Db* db, Statement* stmt) {
-    if (stmt->atomicallyVersion != NULL) {
-        // This statement exists in an AtomicallyVersion arena.  We
-        // shouldn't remove it immediately, until the
-        // AtomicallyVersion can be completely discarded (because a
-        // new converged AtomicallyVersion is in place).
-        if (--stmt->parentCount == 0) {
-            // Note that we should have exclusive access to stmt at
-            // this point.
-            
-            AtomicallyVersion* version = stmt->atomicallyVersion;
-            if (version->atomically->latestConvergedVersion == NULL ||
-                (version->atomically->latestConvergedVersion != NULL &&
-                 version->atomically->latestConvergedVersion->number <=
-                 version->number)) {
-                // Don't remove yet. We're newer than whatever the
-                // latest converged version is.
-
-                // Tentatively schedule a removal for when the
-                // AtomicallyVersion is reaped. But the statement will
-                // still be able to be revived in the intervening
-                // time.
-                atomicallyVersionAddToRemoveList(version, statementRef(db, stmt));
-
-                stmt->parentCount++;
-                return;
-            }
-
-            // Otherwise, fall through and do the normal thing below.
-            stmt->parentCount++;
-        }
-    }
-    
     if (stmt->keepMs > 0) {
         if (--stmt->parentCount == 0) {
             // Note that we should have exclusive access to stmt at
@@ -1020,7 +1003,7 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
     // always gets set into a currently running (incomplete) match
     // that can mark it as converged when done.
     atomicallyVersion->inflightCount = 1;
-    atomicallyVersion->toRemoveList = NULL;
+    atomicallyVersion->statementList = NULL;
 
     // Add this version to atomically->allVersions list
     AtomicallyVersionList* newNode = malloc(sizeof(AtomicallyVersionList));
@@ -1084,7 +1067,7 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
             AtomicallyVersionList* next = current->next;
             if (current->version != NULL) {
                 /* printf("Remove %p\n", current->version); */
-                atomicallyVersionDoRemoveList(db, current->version);
+                atomicallyVersionClearStatementList(db, current->version);
             }
             free(current);
             current = next;
