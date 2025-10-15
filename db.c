@@ -1061,17 +1061,25 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
                                                &allVersions,
                                                NULL));
 
-        // Do removal only on versions older than the one that just converged.
+        // Reap older versions and rebuild the list with only versions >= the one that just converged.
+        AtomicallyVersionList* newList = NULL;
         AtomicallyVersionList* current = allVersions;
         while (current != NULL) {
             AtomicallyVersionList* next = current->next;
             if (current->version != NULL && current->version->number < atomicallyVersion->number) {
                 /* printf("Remove %p\n", current->version); */
                 atomicallyVersionClearStatementList(db, current->version);
+                free(current);
+            } else {
+                // Keep this version in the list
+                current->next = newList;
+                newList = current;
             }
-            free(current);
             current = next;
         }
+
+        // Restore the allVersions list with only the kept versions
+        atomically->allVersions = newList;
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
