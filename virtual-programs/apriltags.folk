@@ -25,6 +25,7 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
     }
     $cc proc detect {Image gray} Jim_Obj* {
         // FIXME: this mutex holds up the whole system.
+        // FIXME: if a process is killed, this mutex is still held...
         pthread_mutex_lock(&tmutex);
 
         assert(gray.components == 1);

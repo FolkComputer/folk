@@ -1053,33 +1053,32 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
 
-        // Get the list of all living versions.
-        AtomicallyVersionList* allVersions;
+        // CAS loop to safely update allVersions even if new versions are added concurrently
+        AtomicallyVersionList* allVersions = atomicallyVersion->atomically->allVersions;
+        AtomicallyVersionList* newList;
         do {
-            allVersions = atomicallyVersion->atomically->allVersions;
+            // Reap older versions and rebuild the list with only versions >= the one that just converged.
+            newList = NULL;
+            AtomicallyVersionList* current = allVersions;
+            while (current != NULL) {
+                AtomicallyVersionList* next = current->next;
+                if (current->version != NULL && current->version->number < atomicallyVersion->number) {
+                    /* printf("Remove %p\n", current->version); */
+                    atomicallyVersionClearStatementList(db, current->version);
+                    free(current);
+                } else {
+                    // Keep this version in the list
+                    current->next = newList;
+                    newList = current;
+                }
+                current = next;
+            }
+
+            // Try to CAS the new list back. If it fails, allVersions will be updated with the
+            // current value, and we retry the loop.
         } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
                                                &allVersions,
-                                               NULL));
-
-        // Reap older versions and rebuild the list with only versions >= the one that just converged.
-        AtomicallyVersionList* newList = NULL;
-        AtomicallyVersionList* current = allVersions;
-        while (current != NULL) {
-            AtomicallyVersionList* next = current->next;
-            if (current->version != NULL && current->version->number < atomicallyVersion->number) {
-                /* printf("Remove %p\n", current->version); */
-                atomicallyVersionClearStatementList(db, current->version);
-                free(current);
-            } else {
-                // Keep this version in the list
-                current->next = newList;
-                newList = current;
-            }
-            current = next;
-        }
-
-        // Restore the allVersions list with only the kept versions
-        atomically->allVersions = newList;
+                                               newList));
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
