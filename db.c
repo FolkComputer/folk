@@ -1061,11 +1061,11 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
                                                &allVersions,
                                                NULL));
 
-        // Do removal on all of them.
+        // Do removal only on versions older than the one that just converged.
         AtomicallyVersionList* current = allVersions;
         while (current != NULL) {
             AtomicallyVersionList* next = current->next;
-            if (current->version != NULL) {
+            if (current->version != NULL && current->version->number < atomicallyVersion->number) {
                 /* printf("Remove %p\n", current->version); */
                 atomicallyVersionClearStatementList(db, current->version);
             }
@@ -1203,6 +1203,16 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                                              &parentMatch->destructorSet);
                         pthread_mutex_unlock(&stmt->destructorSetMutex);
                         pthread_mutex_unlock(&parentMatch->destructorSetMutex);
+                    }
+
+                    if (stmt->atomicallyVersion == NULL) {
+                        stmt->atomicallyVersion = atomicallyVersion;
+                        atomicallyVersionAddToStatementList(stmt->atomicallyVersion,
+                                                            statementRef(db, stmt));
+                    } else if (stmt->atomicallyVersion != atomicallyVersion) {
+                        stmt->atomicallyVersion = atomicallyVersion;
+                        atomicallyVersionAddToStatementList(stmt->atomicallyVersion,
+                                                            statementRef(db, stmt));                        
                     }
 
                     statementRelease(db, stmt);
