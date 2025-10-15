@@ -1053,7 +1053,8 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
 
-        // Swap out the entire list atomically, then process it outside the CAS loop
+        // Swap out the entire list atomically, then process it after
+        // the CAS loop.
         AtomicallyVersionList* allVersions;
         do {
             allVersions = atomicallyVersion->atomically->allVersions;
@@ -1061,12 +1062,14 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
                                                &allVersions,
                                                NULL));
 
-        // Now we have exclusive ownership of allVersions. Process it to separate old versions.
+        // Now we have exclusive ownership of allVersions. Process it
+        // to separate old versions.
         AtomicallyVersionList* newList = NULL;
         AtomicallyVersionList* current = allVersions;
         while (current != NULL) {
             AtomicallyVersionList* next = current->next;
-            if (current->version != NULL && current->version->number < atomicallyVersion->number) {
+            if (current->version != NULL &&
+                current->version->number < atomicallyVersion->number) {
                 // Old version - clear and free it
                 /* printf("Remove %p\n", current->version); */
                 atomicallyVersionClearStatementList(db, current->version);
@@ -1079,25 +1082,28 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
             current = next;
         }
 
-        // Write back the filtered list. Use a CAS loop to merge with any versions added concurrently.
-        AtomicallyVersionList* expected;
-        do {
-            expected = atomicallyVersion->atomically->allVersions;
-            // Append newList to the end of whatever is currently in allVersions
-            if (newList != NULL) {
-                // Find the end of newList
-                AtomicallyVersionList* tail = newList;
-                while (tail->next != NULL) {
-                    tail = tail->next;
-                }
-                tail->next = expected;
-            } else {
-                // newList is empty, just use expected
-                newList = expected;
+        // Write back the filtered list. We need to handle
+        // concurrently-added versions. Find the tail of newList once,
+        // then use CAS loop to atomically append.
+        if (newList != NULL) {
+            // Find the end of newList (which was built in reverse order)
+            AtomicallyVersionList* tail = newList;
+            while (tail->next != NULL) {
+                tail = tail->next;
             }
-        } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
-                                               &expected,
-                                               newList));
+
+            // CAS loop to atomically set tail->next and update allVersions
+            AtomicallyVersionList* expected;
+            do {
+                expected = atomicallyVersion->atomically->allVersions;
+                tail->next = expected;  // Point tail to current head
+            } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
+                                                   &expected,
+                                                   newList));
+        } else {
+            // newList is empty - nothing to write back
+            // Any concurrently added versions are already in allVersions, which is fine
+        }
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
