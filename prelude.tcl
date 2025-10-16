@@ -546,8 +546,8 @@ proc Query! {args} {
     for {set i 0} {$i < [llength $args]} {incr i} {
         set term [lindex $args $i]
         if {$term eq "&"} {
-            set remainingPattern [lrange $pattern $i+1 end]
-            set pattern [lrange $pattern 0 $i-1]
+            set remainingPattern [lrange $args $i+1 end]
+            # pattern is already built up correctly before the &
             for {set j 0} {$j < [llength $remainingPattern]} {incr j} {
                 set remainingTerm [lindex $remainingPattern $j]
                 if {[regexp {^/([^/ ]+)/$} $remainingTerm -> remainingVarName] &&

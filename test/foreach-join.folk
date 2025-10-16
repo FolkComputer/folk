@@ -1,0 +1,13 @@
+Claim the first step is A
+Claim the second step is B
+Claim the third step is C
+
+ForEach! the first step is /a/ &\
+    the second step is /b/ &\
+    the third step is /c/ {
+        puts "$a $b $c"
+        Exit! 0
+}
+
+Exit! 1
+
