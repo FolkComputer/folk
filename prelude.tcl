@@ -465,12 +465,14 @@ proc When {args} {
         }
     }
     # HACK: Force atomically on certain patterns:
-    if {$isAtomically == 0 && [lrange $pattern 1 end] eq {has camera slice /slice/}} {
-        set isAtomically true
-        puts "Atomic camera slice"
-    } elseif {$isAtomically == 0 && $pattern eq {the clock time is /t/}} {
-        set isAtomically true
-        puts "Atomic clock time"
+    if {!$isAtomically && !$isNonatomically} {
+        if {[lrange $pattern 1 end-1] eq {has camera slice}} {
+            set isAtomically true
+            puts "Atomic camera slice"
+        } elseif {[lrange $pattern 0 end-1] eq {the clock time is}} {
+            set isAtomically true
+            puts "Atomic clock time"
+        }
     }
 
     if {$isNonCapturing} {
@@ -492,7 +494,7 @@ proc When {args} {
     }
 
     if {$isAtomically} {
-        set key [list [uplevel set this] $pattern]
+        set key [list [uplevel set this] $sourceInfo $pattern]
         set prologue [list __setFreshAtomicallyVersionOnKey $key]
         set body "$prologue;$body"
     }

@@ -1071,7 +1071,6 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
             if (current->version != NULL &&
                 current->version->number < atomicallyVersion->number) {
                 // Old version - clear and free it
-                /* printf("Remove %p\n", current->version); */
                 atomicallyVersionClearStatementList(db, current->version);
                 free(current);
             } else {
@@ -1100,10 +1099,11 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
             } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
                                                    &expected,
                                                    newList));
-        } else {
-            // newList is empty - nothing to write back
-            // Any concurrently added versions are already in allVersions, which is fine
         }
+        // Note: If newList is NULL (all versions were reaped), we
+        // don't write anything back.  Concurrently-added versions
+        // remain in allVersions and will be handled on next
+        // convergence.
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */
