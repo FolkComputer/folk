@@ -1,0 +1,124 @@
+set cc [C]
+
+$cc cflags -O2 -Wall
+$cc include <math.h>
+$cc include <stdlib.h>
+
+$cc code {
+    typedef struct BallState {
+        double x, y, vx, vy, lastT;
+        int initialized;
+    } BallState;
+
+    static BallState ball = {0, 0, 250.0, 200.0, 0, 0};
+
+    static double random_bounce_factor() {
+        return 0.95 + ((double)rand() / RAND_MAX) * 0.1;
+    }
+
+    static char* updateBallPhysics(double t, double displayWidth,
+                                   double displayHeight, double radius) {
+        static char buffer[100];
+        double dt = t - ball.lastT;
+
+        // Update position
+        double newX = ball.x + ball.vx * dt;
+        double newY = ball.y + ball.vy * dt;
+        double newVx = ball.vx;
+        double newVy = ball.vy;
+
+        // Collision detection and response
+        if (newX < radius) {
+            newX = radius;
+            newVx = fabs(ball.vx) * random_bounce_factor();
+        } else if (newX > displayWidth - radius) {
+            newX = displayWidth - radius;
+            newVx = -fabs(ball.vx) * random_bounce_factor();
+        }
+
+        if (newY < radius) {
+            newY = radius;
+            newVy = fabs(ball.vy) * random_bounce_factor();
+        } else if (newY > displayHeight - radius) {
+            newY = displayHeight - radius;
+            newVy = -fabs(ball.vy) * random_bounce_factor();
+        }
+
+        // Update ball state
+        ball.x = newX;
+        ball.y = newY;
+        ball.vx = newVx;
+        ball.vy = newVy;
+        ball.lastT = t;
+
+        // Return position as string
+        snprintf(buffer, 100, "%.2f %.2f", ball.x, ball.y);
+        return buffer;
+    }
+}
+
+$cc proc initBall {double displayWidth double displayHeight double t} void {
+    ball.x = displayWidth * 0.5;
+    ball.y = displayHeight * 0.5;
+    ball.lastT = t;
+    ball.initialized = 1;
+}
+
+$cc proc updateBall {double t double displayWidth double displayHeight double radius} char* {
+    return updateBallPhysics(t, displayWidth, displayHeight, radius);
+}
+
+$cc proc isBallInitialized {} int {
+    return ball.initialized;
+}
+
+set ballLib [$cc compile]
+set radius 100
+
+When tag /nobody/ has a program & \
+     display /disp/ has width /displayWidth/ height /displayHeight/ & \
+     the clock time is /t/ {
+
+    if {![$ballLib isBallInitialized]} {
+        $ballLib initBall $displayWidth $displayHeight $t
+        return
+    }
+
+    # Update physics in C and get position
+    set pos [$ballLib updateBall $t $displayWidth $displayHeight $radius]
+    lassign $pos x y
+
+    Wish to draw a circle onto $disp with \
+        center [list $x $y] \
+        radius $radius \
+        thickness 1 \
+        color green \
+        filled true
+}
+
+When tag /nobody/ has a program & display /disp/ has width /displayWidth/ height /displayHeight/ {
+    puts "Starting display-saver"
+
+    set cx [/ $displayWidth 2.0]
+    set cy [* $displayHeight 0.3]
+    set host [info hostname]
+    set msg "Welcome to Folk\n$host"
+
+    Wish to draw text onto $disp with \
+        x $cx \
+        y $cy \
+        text $msg \
+        color green \
+        scale 80
+
+	set borderPoints [list \
+	    [list 0 0] \
+	    [list $displayWidth 0] \
+	    [list $displayWidth $displayHeight] \
+	    [list 0 $displayHeight] \
+	    [list 0 0]]
+
+	Wish to draw a line onto $disp with points $borderPoints width 6 color white
+}
+
+Claim $this has a display saver
