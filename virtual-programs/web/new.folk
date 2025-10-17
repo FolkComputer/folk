@@ -113,9 +113,49 @@ Wish the web server handles route "/new" with handler {
     Wish ${program} has a canvas
   `);
 
+  function formatErrorInfo(errorInfoDict) {
+    errorInfoDict = loadDict(errorInfoDict);
+    const stacktrace = errorInfoDict['-errorinfo'];
+
+    // Parse the stacktrace list (simplified Tcl list parser)
+    // Format: [proc file line cmd proc file line cmd ...]
+    const frames = [];
+    const tokens = loadList(stacktrace);
+
+    // Group tokens into frames of 4: proc, file, line, cmd
+    for (let i = 0; i + 3 < tokens.length; i += 4) {
+      const [proc, file, line, cmd] = tokens.slice(i, i + 4);
+      frames.push({ proc, file, line, cmd });
+    }
+
+    if (frames.length === 0) return errorInfoDict;
+
+    // Format like Jim's errorInfo: "file:line: Error: msg\nstackdump"
+    const firstFrame = frames[0];
+    let result = "";
+
+    if (firstFrame.file && firstFrame.file !== "") {
+      result = `${firstFrame.file}:${firstFrame.line}: Error: `;
+    }
+
+    // Extract error message (usually in the cmd of first frame)
+    result += `${firstFrame.cmd}\n`;
+
+    // Add stackdump
+    for (const frame of frames) {
+      if (frame.file && frame.file !== "") {
+        result += `in ${frame.proc} called at ${frame.file}:${frame.line}\n`;
+      } else {
+        result += `in ${frame.proc}\n`;
+      }
+    }
+
+    return result.trim();
+  }
+
   ws.watchCollected(tcl`${program} has error /something/ with info /errorInfo/`, errors => {
     errorEle.style.backgroundColor = errors.length ? "#f55" : "";
-    errorEle.innerText = errors.map(e => e.errorInfo).join('\n');
+    errorEle.innerText = errors.map(e => formatErrorInfo(e.errorInfo)).join('\n');
   });
 
   function handleDrag() {
