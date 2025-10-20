@@ -483,7 +483,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
     // atomicallyVersion never reports convergence (inflightCount = 0)
     // before the first reaction is dispatched.
     if (atomicallyVersion != NULL &&
-        atomicallyVersionAddToStatementList(stmt->atomicallyVersion, db,
+        atomicallyVersionAddToStatementList(atomicallyVersion, db,
                                             statementRef(db, stmt))) {
         atomicallyVersion->inflightCount++;
         stmt->parentCount = 2;
@@ -1262,7 +1262,7 @@ Statement* dbInsertOrReuseStatement(Db* db, Clause* clause,
                     // When reusing a statement, check if we need to adopt it into
                     // a new atomically version
                     if (stmt->atomicallyVersion == NULL && atomicallyVersion != NULL) {
-                        if (atomicallyVersionAddToStatementList(stmt->atomicallyVersion, db,
+                        if (atomicallyVersionAddToStatementList(atomicallyVersion, db,
                                                                 statementRef(db, stmt))) {
                             stmt->atomicallyVersion = atomicallyVersion;
                             stmt->parentCount++;  // Increment for the new version ownership
