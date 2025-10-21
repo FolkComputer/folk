@@ -468,10 +468,10 @@ proc When {args} {
     if {!$isAtomically && !$isNonatomically} {
         if {[lrange $pattern 1 end-1] eq {has camera slice}} {
             set isAtomically true
-            puts "Atomic camera slice"
+            # puts "Atomic camera slice"
         } elseif {[lrange $pattern 0 end-1] eq {the clock time is}} {
             set isAtomically true
-            puts "Atomic clock time"
+            # puts "Atomic clock time"
         }
     }
 
