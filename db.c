@@ -490,6 +490,7 @@ static StatementRef statementNew(Db* db, Clause* clause,
         stmt->atomicallyVersion = atomicallyVersion;
     } else {
         stmt->parentCount = 1;
+        stmt->atomicallyVersion = NULL;
     }
 
     destructorSetInit(&stmt->destructorSet);
