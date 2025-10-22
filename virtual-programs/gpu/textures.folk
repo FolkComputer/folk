@@ -507,6 +507,7 @@ $gpuc proc copyImageToGpuTexture {Image im} GpuTextureHandle {
     VkFence fence = getFence();
 
     size_t size = im.width * im.height * 4;
+    FOLK_ENSURE(size > 0);
 
     VkBuffer stagingBuffer;
     VkDeviceMemory stagingBufferMemory;
