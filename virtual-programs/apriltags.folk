@@ -13,7 +13,6 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
     $cc code {
         static apriltag_detector_t *td;
         static apriltag_family_t *tf;
-        static pthread_mutex_t tmutex;
     }
 
     $cc proc detectInit {} void {
@@ -21,13 +20,8 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 1);
         td->nthreads = ${NTHREADS};
-        pthread_mutex_init(&tmutex, NULL);
     }
     $cc proc detect {Image gray} Jim_Obj* {
-        // FIXME: this mutex holds up the whole system.
-        // FIXME: if a process is killed, this mutex is still held...
-        pthread_mutex_lock(&tmutex);
-
         assert(gray.components == 1);
         image_u8_t im = (image_u8_t) { .width = gray.width, .height = gray.height, .stride = gray.bytesPerRow, .buf = gray.data };
 
@@ -52,8 +46,6 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
         }
 
         zarray_destroy(detections);
-
-        pthread_mutex_unlock(&tmutex);
 
         Jim_Obj* result = Jim_NewListObj(interp, detectionObjs, detectionCount);
         return result;
