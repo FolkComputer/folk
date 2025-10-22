@@ -685,7 +685,7 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 
 ## todo
 
-- event statements?
+- ~~event statements?~~
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
 - remove live queries from region generation?
@@ -696,15 +696,15 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - optimize jpeg decoding
 - vendor wslay?
 - only intern long strings?
-- stack traces don't work inside web handlers
+- ~~stack traces don't work inside web handlers~~
 - accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
 - ~~develop new animation program~~
   - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
     for a program
-- *camera slices blinking*
-  - some kind of new scheduler? priorities? convergence zones?
-  - allocate a fixed texture slot for the camera slice?
+- ~~camera slices blinking~~
+  - ~~some kind of new scheduler? priorities? convergence zones?~~
+  - ~~allocate a fixed texture slot for the camera slice?~~
 - camera slices cause hop/distortion when pulled off
 - ForEach! stack fix
 
@@ -723,14 +723,12 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
-- fix sprite blinking
+- ~~fix sprite blinking~~
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
-- ~~weird extra space in editor on boot~~
 - fix calibration screwing up system state
 - persist transient errors
-- fix error report in web editor
-- ~~fix print message in table editor~~
+- ~~fix error report in web editor~~
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
@@ -740,26 +738,6 @@ isn't meeting timing
 old hold have fully converged? but WARN if this happens
 - build a settlement-based local fps counter like clock time labeler
   (how many frames are we dropping?)
-
-### crash: vulkan size=0
-
-```
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkBufferCreateInfo-size-00912(ERROR / SPEC): msgNum: 2085897310 - Validation Error: [ VUID-VkBufferCreateInfo-size-00912 ] | MessageID = 0x7c54445e | vkCreateBuffer(): pCreateInfo->size is zero.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: size must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkBufferCreateInfo-size-00912)
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07897(ERROR / SPEC): msgNum: -1452819968 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07897 ] | MessageID = 0xa967ba00 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters do not define an import or export operation, allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07897)
-Oct 01 18:00:14 folk0 make[70345]: VUID-VkMemoryAllocateInfo-allocationSize-07899(ERROR / SPEC): msgNum: 1579783047 - Validation Error: [ VUID-VkMemoryAllocateInfo-allocationSize-07899 ] | MessageID = 0x5e299387 | vkAllocateMemory(): pAllocateInfo->allocationSize is 0.
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: If the parameters define an export operation and the handle type is not VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID , allocationSize must be greater than 0 (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-VkMemoryAllocateInfo-allocationSize-07899)
-Oct 01 18:00:14 folk0 make[70345]: UNASSIGNED-GeneralParameterError-RequiredHandle(ERROR / SPEC): msgNum: -1881362053 - Validation Error: [ UNASSIGNED-GeneralParameterError-RequiredHandle ] | MessageID = 0x8fdcb17b | vkBindBufferMemory(): memory is VK_NULL_HANDLE.
-Oct 01 18:00:14 folk0 make[70345]: VUID-vkBindBufferMemory-memoryOffset-01031(ERROR / SPEC): msgNum: -143326275 - Validation Error: [ VUID-vkBindBufferMemory-memoryOffset-01031 ] Object 0: handle = 0xfd2fa90000007a9e, type = VK_OBJECT_TYPE_BUFFER; | MessageID = 0xf77503bd | vkBindBufferMemory(): attempting to bind VkDeviceMemory 0x0[] to VkBuffer 0xfd2fa90000007a9e[], memoryOffset (0) must be less than the memory allocation size (0).
-Oct 01 18:00:14 folk0 make[70345]: The Vulkan spec states: memoryOffset must be less than the size of memory (https://www.khronos.org/registry/vulkan/specs/1.3-extensions/html/vkspec.html#VUID-vkBindBufferMemory-memoryOffset-01031)
-Oct 01 18:00:14 folk0 make[70345]:     Objects: 1
-Oct 01 18:00:14 folk0 make[70345]:         [0] 0xfd2fa90000007a9e, type: 9, name: NULL
-Oct 01 18:00:17 folk0 make[70337]: Segmentation fault (core dumped)
-Oct 01 18:00:17 folk0 make[70333]: make: *** [Makefile:138: start] Error 139
-Oct 01 18:00:17 folk0 make[70333]: make: Leaving directory '/home/folk/folk2'
-Oct 01 18:00:17 folk0 systemd[1]: folk.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
-```
 
 ### crash: Vulkan crash 2
 
