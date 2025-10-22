@@ -713,9 +713,9 @@ void eval(const char* code) {
 
 void workerExit();
 
-static void runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
-                     const char *sourceFileName, int sourceLineNumber,
-                     Jim_Obj *envStackObj) {
+static int runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
+                    const char *sourceFileName, int sourceLineNumber,
+                    Jim_Obj *envStackObj) {
     Jim_Obj *bodyObj = cacheGetOrInsert(cache, interp, body);
     // Set the source info for the bodyObj:
     const char *ptr;
@@ -738,7 +738,7 @@ static void runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
         if (env->nBindings > 50) {
             fprintf(stderr, "runBlock: Too many bindings in env: %d\n",
                     env->nBindings);
-            return;
+            return JIM_OK;
         }
 
         Jim_Obj *objs[env->nBindings*2];
@@ -783,20 +783,7 @@ static void runBlock(Clause* bodyPattern, Clause* toUnifyWith, const char* body,
     }
     interp->signal_level--;
 
-    if (error == JIM_ERR) {
-        Jim_MakeErrorMessage(interp);
-        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
-        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
-                body, errorMessage);
-        Jim_FreeInterp(interp);
-        exit(EXIT_FAILURE);
-
-    } else if (error == JIM_SIGNAL) {
-        // FIXME: I think this is the only signal handler path that
-        // actually runs mostly.
-        interp->sigmask = 0;
-        workerExit();
-    }
+    return error;
 }
 
 static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef stmtRef) {
@@ -881,8 +868,10 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     const char* capturedEnvStack = whenClause->terms[whenClause->nTerms - 1];
     Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
-    runBlock(whenPattern, stmtClause, body,
-        statementSourceFileName(when), statementSourceLineNumber(when), envStackObj);
+    int error = runBlock(whenPattern, stmtClause, body,
+                         statementSourceFileName(when),
+                         statementSourceLineNumber(when),
+                         envStackObj);
 
     if (self->currentAtomicallyVersion != NULL) {
         dbAtomicallyVersionInflightDecr(db, self->currentAtomicallyVersion);
@@ -894,6 +883,21 @@ static void runWhenBlock(StatementRef whenRef, Clause* whenPattern, StatementRef
     matchCompleted(self->currentMatch);
     matchRelease(db, self->currentMatch);
     self->currentMatch = NULL;
+
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
+                body, errorMessage);
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+
+    } else if (error == JIM_SIGNAL) {
+        // FIXME: I think this is the only signal handler path that
+        // actually runs mostly.
+        interp->sigmask = 0;
+        workerExit();
+    }
 }
 
 // Caller is responsible for freeing passed in clauses
@@ -914,13 +918,31 @@ static void runSubscribeBlock(StatementRef subscribeRef, Clause* subscribePatter
     const char* capturedEnvStack = subscribeClause->terms[subscribeClause->nTerms - 1];
     Jim_Obj *envStackObj = Jim_NewStringObj(interp, capturedEnvStack, -1);
 
-    runBlock(subscribePattern, notifyClause, body,
-        statementSourceFileName(subscribeStmt),
-        statementSourceLineNumber(subscribeStmt),
-        envStackObj);
+    int error = runBlock(subscribePattern, notifyClause, body,
+                         statementSourceFileName(subscribeStmt),
+                         statementSourceLineNumber(subscribeStmt),
+                         envStackObj);
 
     self->inSubscription = false;
     statementRelease(db, subscribeStmt);
+
+    // TODO: Remove duplication of this error handling with
+    // runWhenBlock.
+
+    if (error == JIM_ERR) {
+        Jim_MakeErrorMessage(interp);
+        const char *errorMessage = Jim_GetString(Jim_GetResult(interp), NULL);
+        fprintf(stderr, "Fatal (uncaught) error running When (%.100s):\n  %s\n",
+                body, errorMessage);
+        Jim_FreeInterp(interp);
+        exit(EXIT_FAILURE);
+
+    } else if (error == JIM_SIGNAL) {
+        // FIXME: I think this is the only signal handler path that
+        // actually runs mostly.
+        interp->sigmask = 0;
+        workerExit();
+    }
 }
 
 // Copies the whenPattern Clause and all terms so it can be owned (and
