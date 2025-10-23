@@ -78,12 +78,17 @@ remote-distclean: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk2; make distclean'
 deps:
 	if [ ! -f vendor/jimtcl/Makefile ]; then \
-		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer' && cd -; \
+		cd vendor/jimtcl && ./configure CFLAGS='-g -fno-omit-frame-pointer'; \
 	fi
 	make -C vendor/jimtcl
 	make -C vendor/apriltag libapriltag.so
+	if [ ! -f vendor/wslay/Makefile ]; then \
+		cd vendor/wslay && autoreconf -i && automake && autoconf && ./configure; \
+	fi
+	make -C vendor/wslay
 	if [ "$$(uname)" = "Darwin" ]; then \
 		install_name_tool -id @executable_path/vendor/apriltag/libapriltag.so vendor/apriltag/libapriltag.so; \
+		install_name_tool -id @executable_path/vendor/wslay/lib/.libs/libwslay.0.dylib vendor/wslay/lib/.libs/libwslay.0.dylib; \
 	fi
 
 kill-folk:

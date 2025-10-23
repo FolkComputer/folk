@@ -1,4 +1,7 @@
 set cc [C]
+$cc cflags -I./vendor/wslay/lib/includes
+$cc endcflags -L./vendor/wslay/lib/.libs
+
 $cc include <errno.h>
 $cc include <sys/socket.h>
 $cc include <string.h>
