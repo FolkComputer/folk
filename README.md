@@ -32,21 +32,14 @@ We tend to recommend a Beelink mini-PC (or _maybe_ a Pi 5).
 
 See <https://folk.computer/pilot/>
 
-## Linux tabletop installation using live USB
-
-**Experimental:** If you have an amd64 PC, you can use the live USB
-image which has Folk and all dependencies pre-installed.
-
-**See <https://github.com/FolkComputer/folk/releases> to
-get the Linux live USB image.**
-
-You can update Folk by running `git pull` in the `folk` subfolder of
-the FOLK-LIVE partition once you've flashed the live USB.
-
 ## Manual Linux tabletop installation
 
 On an Intel/AMD PC, set up [Ubuntu **Server** 24.04 LTS (Noble
 Numbat)](https://ubuntu.com/download/server#releases).
+
+(if you have an NVIDIA GPU, don't install the drivers in the Ubuntu OS
+installer. we'll install manually later. or if you do, install driver
+version 570 or newer)
 
 (for a Pi 4/5, use Raspberry Pi Imager and get Raspberry Pi OS Lite
 64-bit version [also see [this

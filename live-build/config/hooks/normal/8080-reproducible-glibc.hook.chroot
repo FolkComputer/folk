@@ -1,9 +1,0 @@
-#!/bin/sh
-
-set -e
-
-# Remove the non-reproducible file that is created by ldconfig
-#
-# The file does not need to exist, see elf/cache.c:load_aux_cache
-# The file and folder will be recreated when needed, see elf/cache.c:save_aux_cache
-rm -fr /var/cache/ldconfig
