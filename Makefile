@@ -116,11 +116,11 @@ remote-setup:
 remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make start CFLAGS="$(CFLAGS)" ASAN_ENABLE=$(ASAN_ENABLE)'
 sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 ./folk'
+	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 ./folk'
 debug-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop" ./folk'
 debug-sudo-remote: sync
-	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
+	ssh -tt $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make CFLAGS="$(CFLAGS)" && sudo HOME=/home/folk TRACY_SAMPLING_HZ=31000 gdb -ex "handle SIGUSR1 nostop" -ex "handle SIGPIPE nostop"  ./folk'
 valgrind-remote: sync
 	ssh $(FOLK_REMOTE_NODE) -- 'cd folk; make kill-folk; make deps && make && valgrind --leak-check=yes ./folk'
 heapprofile-remote: sync
