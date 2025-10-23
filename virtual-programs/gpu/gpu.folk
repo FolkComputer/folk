@@ -146,6 +146,7 @@ $gpuc define {
 
     VkSwapchainKHR swapchain;
     uint32_t swapchainImageCount;
+    VkFormat swapchainImageFormat;
     VkFramebuffer* swapchainFramebuffers;
     VkExtent2D swapchainExtent;
 
@@ -459,7 +460,6 @@ $gpuc proc init {int displayIdx} void {
     // Set up uint32_t swapchainImageCount:
     vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL);
     VkImage swapchainImages[swapchainImageCount];
-    VkFormat swapchainImageFormat;
     // Set up VkExtent2D swapchainExtent:
     {
         vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages);

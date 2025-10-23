@@ -30,6 +30,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
     $gpuc code {
         VkDevice device;
+        VkFormat swapchainImageFormat;
 
         // This render pass is used to draw on all canvases.
         VkRenderPass renderPass;
@@ -41,10 +42,12 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         device = *device_ptr();
         volkLoadDevice(device);
 
+        swapchainImageFormat = *swapchainImageFormat_ptr();
+
         // Set up VkRenderPass renderPass:
         {
             VkAttachmentDescription colorAttachment = {0};
-            colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
+            colorAttachment.format = swapchainImageFormat;
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
             colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -102,10 +105,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         GpuCanvas* wi = malloc(sizeof(GpuCanvas));
         wi->extent.width = width; wi->extent.height = height;
 
-        GpuTextureBlock* block = createGpuTexture(width, height, VK_FORMAT_B8G8R8A8_SRGB);
+        GpuTextureBlock* block = createGpuTexture(width, height, swapchainImageFormat);
         wi->gpuTexture = block->handle;
         // make it immediately renderable
-        transitionImageLayout(block->textureImage, VK_FORMAT_B8G8R8A8_SRGB,
+        transitionImageLayout(block->textureImage, swapchainImageFormat,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         addToTextureDescriptorSet(block->handle);
