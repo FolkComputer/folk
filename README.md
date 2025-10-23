@@ -121,7 +121,9 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
        [Install]
        WantedBy=multi-user.target
 
-       # Run these commands after editing the file above:
+   Run these commands as root after editing the file above:
+
+       # chmod 644 /etc/systemd/system/folk.service
        # systemctl start folk
        # systemctl enable folk
 
