@@ -68,7 +68,7 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
    `folk@folk-WHATEVER.local` by name, `sudo apt install avahi-daemon`
    and then on your laptop: `ssh-copy-id folk@folk-WHATEVER.local`
 
-1. Install dependencies: `sudo apt install rsync tcl-thread tcl8.6-dev
+1. Install dependencies: `sudo apt install rsync 
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
    libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
@@ -98,8 +98,6 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 1. `sudo nano /etc/udev/rules.d/99-input.rules`. add
    `SUBSYSTEM=="input", GROUP="input", MODE="0666"`. `sudo udevadm
    control --reload-rules && sudo udevadm trigger`
-
-1. Get AprilTags: `cd ~ && git clone https://github.com/FolkComputer/apriltag.git && cd apriltag && make libapriltag.so libapriltag.a`
 
 1. Add the systemd service so it starts on boot and can be managed
    when you run it from laptop. On Ubuntu Server or Raspberry Pi OS
