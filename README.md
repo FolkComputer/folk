@@ -116,11 +116,12 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
        RestartSec=1
        User=folk
        WorkingDirectory=/home/folk/folk
-       ExecStart=make && ./folk
+       ExecStart=make -C /home/folk/folk start
 
        [Install]
        WantedBy=multi-user.target
 
+       # Run these commands after editing the file above:
        # systemctl start folk
        # systemctl enable folk
 
