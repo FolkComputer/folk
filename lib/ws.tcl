@@ -1,6 +1,5 @@
 set cc [C]
 $cc cflags -I./vendor/wslay/lib/includes
-$cc endcflags -L./vendor/wslay/lib/.libs
 
 $cc include <errno.h>
 $cc include <sys/socket.h>
@@ -172,7 +171,7 @@ $cc proc wsDestroy {wslay_event_context_ptr ctx} void {
     // FIXME: free the WsSession
     wslay_event_context_free(ctx);
 }
-$cc endcflags -lwslay
+$cc endcflags ./vendor/wslay/lib/.libs/libwslay.a
 
 set wsLib [$cc compile]
 # This pipe is used so that other threads can queue up messages to
@@ -191,7 +190,7 @@ $cc proc sha1 {char* d} Jim_Obj* {
     SHA1((unsigned char *)d, strlen(d), md);
     return Jim_NewStringObj(interp, (char *)md, 20);
 }
-$cc endcflags -lssl
+$cc endcflags -lssl -lcrypto
 set sha1Lib [$cc compile]
 
 class WsConnection {
