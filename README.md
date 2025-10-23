@@ -71,9 +71,15 @@ if flashing from a Mac] -- Ubuntu doesn't have a good kernel for Pi 5)
 1. Install dependencies: `sudo apt install rsync 
    git libjpeg-dev libpng-dev libdrm-dev pkg-config v4l-utils
    mesa-vulkan-drivers vulkan-tools libvulkan-dev libvulkan1 meson
-   libgbm-dev glslc vulkan-validationlayers ghostscript console-data kbd`
+   libgbm-dev glslc vulkan-validationlayers ghostscript console-data
+   kbd libwslay-dev psmisc zlib1g-dev`
 
-   (When prompted while installing `console-data` for `Policy for handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and press `Enter`)
+   (When prompted while installing `console-data` for `Policy for
+   handling keymaps` type `3` (meaning `3. Keep kernel keymap`) and
+   press `Enter`)
+
+     1. for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
+`libgoogle-perftools-dev`
 
 1. Vulkan testing (optional):
      1. Try `vulkaninfo` and see if it works.
@@ -217,7 +223,7 @@ and Set as Server Default.
 Try printing from Folk!
 
 You can also test printing again with `lpr
-~/folk-printed-programs/SOMETHING.pdf` (you have to print the PDF and
+~/folk-data/program/SOMETHING.pdf` (you have to print the PDF and
 not the PS for it to work, probably)
 
 ### Projector-camera calibration
@@ -658,11 +664,8 @@ create`.
 
 Capitalized namespace, like `Statements`.
 
------
 
-# folk2 notes
-
-## thanks
+## Thanks
 
 - Omar Rizwan: evaluator; display, AprilTag, camera subsystems
 - Andrés Cuervo: keyboard library and code editor, sprites
@@ -671,19 +674,11 @@ Capitalized namespace, like `Statements`.
 - Arcade Wise: fonts
 - s-ol bekic: WebSocket library, keyboard locale support
 - terminal subsystem
-- Mason Jones: tag stabilization
-
-## requirements
-
-on Debian bookworm amd64: `psmisc`, `build-essential`, `git`,
-`libssl-dev`, `zlib1g-dev`, `libjpeg-dev`, `glslc`, `libwslay-dev`, `console-data`
-
-for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
-`libgoogle-perftools-dev`
+- Mason Jones: tag stabilization, `Notify:`/`Subscribe:` event system,
+  `-save` statement persistence
 
 ## todo
 
-- ~~event statements?~~
 - clean up shader reference errors (use trick from main?)
 - **fix camera-rpi corruption**
 - remove live queries from region generation?
@@ -694,15 +689,11 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - optimize jpeg decoding
 - vendor wslay?
 - only intern long strings?
-- ~~stack traces don't work inside web handlers~~
 - accidentally matches prefixes even when not all teh way up to end of statement
 - camera stops working when calibration terminates
 - ~~develop new animation program~~
   - laser-cut or cnc or 3d print a plate with 2 sliders and a slot
     for a program
-- ~~camera slices blinking~~
-  - ~~some kind of new scheduler? priorities? convergence zones?~~
-  - ~~allocate a fixed texture slot for the camera slice?~~
 - camera slices cause hop/distortion when pulled off
 - ForEach! stack fix
 
@@ -721,12 +712,10 @@ for debugging: `elfutils` (provides `eu-stack`), `google-perftools`,
 - On unmatch doesn't work if run at start of When block instead of
   end? -- **it's probably because it gets pinned through descendant
   statements**
-- ~~fix sprite blinking~~
 - ~~fix error reporting on table~~ clean up title, clean up points-at
 - "Added tag 1313" pileup (and removal pileup when flipped over)
 - fix calibration screwing up system state
 - persist transient errors
-- ~~fix error report in web editor~~
 
 ### ideas
 - aborted executions shouldn't be too high a percentage of total # of
