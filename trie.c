@@ -6,49 +6,6 @@
 
 #include "trie.h"
 
-Clause* clauseDup(Clause* c) {
-    Clause* ret = malloc(SIZEOF_CLAUSE(c->nTerms));
-    ret->nTerms = c->nTerms;
-    for (int i = 0; i < c->nTerms; i++) {
-        ret->terms[i] = strdup(c->terms[i]);
-    }
-    return ret;
-}
-void clauseFree(Clause* c) {
-    for (int i = 0; i < c->nTerms; i++) {
-        free(c->terms[i]);
-    }
-    free(c);
-}
-
-char* clauseToString(Clause* c) {
-    if (c == NULL) {
-        return strdup("<null clause>");
-    } else if (c->nTerms <= 0 || c->nTerms > 100) {
-        return strdup("<invalid clause>");
-    }
-
-    int totalLength = 0;
-    for (int i = 0; i < c->nTerms; i++) {
-        totalLength += strlen(c->terms[i]) + 1;
-    }
-    char* ret; char* s; ret = s = malloc(totalLength);
-    for (int i = 0; i < c->nTerms; i++) {
-        s += snprintf(s, totalLength - (s - ret), "%s ",
-                      c->terms[i]);
-    }
-    return ret;
-}
-bool clauseIsEqual(Clause* a, Clause* b) {
-    if (a->nTerms != b->nTerms) { return false; }
-    for (int32_t i = 0; i < a->nTerms; i++) {
-        if (strcmp(a->terms[i], b->terms[i]) != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
 const Trie* trieNew() {
     size_t size = sizeof(Trie);
     Trie* ret = (Trie*) calloc(size, 1);
@@ -72,7 +29,7 @@ static char *trieStrdup(void *(*alloc)(size_t), char *s0) {
 // in it.
 static const Trie* trieAddImpl(const Trie* trie,
                                void *(*alloc)(size_t), void (*retire)(void*),
-                               int32_t nTerms, char* terms[], uint64_t value) {
+                               int32_t nTerms, Jim_Obj* terms[], uint64_t value) {
     if (nTerms == 0) {
         if (trie->hasValue) {
             // This clause is already present.

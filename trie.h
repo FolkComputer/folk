@@ -5,24 +5,11 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-typedef struct Clause {
-    int32_t nTerms;
-    char* terms[];
-} Clause;
-#define SIZEOF_CLAUSE(NTERMS) (sizeof(Clause) + (NTERMS)*sizeof(char*))
-
-Clause* clauseDup(Clause* c);
-void clauseFree(Clause* c);
-
-// Caller must free the string.
-char* clauseToString(Clause* c);
-
-bool clauseIsEqual(Clause* a, Clause* b);
 
 typedef struct Trie Trie;
 struct Trie {
     // This term string is owned by the trie.
-    char* key;
+    Jim_Obj* key;
 
     // In practice, we store a statement ref in this slot.
     bool hasValue;
