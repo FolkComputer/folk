@@ -1,37 +1,32 @@
 set isNumberVerifier {{x} { string is double -strict $x }}
 
 # start of scientific types
-Claim type millimeter exists
-Claim type millimeter has verifier $isNumberVerifier
-Claim type millimeter has alias mm
-Claim type millimeter converts to cm with {{mm} {
+Claim type mm exists
+Claim type mm has verifier $isNumberVerifier
+Claim type mm converts to cm with {{mm} {
     return [/ $mm 10]
 }}
 
-Claim type centimeter exists
-Claim type centimeter has verifier $isNumberVerifier
-Claim type centimeter has alias cm
-Claim type centimeter converts to m with {{cm} {
+Claim type cm exists
+Claim type cm has verifier $isNumberVerifier
+Claim type cm converts to m with {{cm} {
     return [/ $mm 100]
 }}
-Claim type centimeter converts to mm with {{cm} {
+Claim type cm converts to mm with {{cm} {
     return [* $cm 10]
 }}
 
-Claim type meter exists
-Claim type meter has verifier $isNumberVerifier
-Claim type meter has alias m
-Claim type meter has description "Standard SI unit"
+Claim type m exists
+Claim type m has verifier $isNumberVerifier
+Claim type m has description "Meter, standard SI unit"
 
 Claim type velocity exists
 Claim type velocity has verifier $isNumberVerifier
 Claim type velocity has inline representation distance/time
-Claim type velocity has alias vel
 
 Claim type acceleration exists
 Claim type acceleration has verifier $isNumberVerifier
 Claim type acceleration has inline representation distance/time^2
-Claim type acceleration has alias accel
 
 # start of code
 set typesLib [library create typesLib {
@@ -42,9 +37,14 @@ set typesLib [library create typesLib {
     proc convertInlineRepToRegex {inlineRep} {
         # escape all regex symbols
         set inlineRep [regexEscape $inlineRep]
-        set regex [regsub -nocase -all {[a-z]+} $inlineRep {([a-z]+)}]
+        set regex "^[regsub -nocase -all {[a-z]+} $inlineRep {([a-z]+)}]$"
     }
 
+    # This is a bit tricky to explain the reason for, but let me give some example inputs:
+    # `{10 mm}`: enters the first branch, `[llength $varName] > 1`
+    # `10mm`: this hits the second branch. The numerical part is the type value,
+    #         while everything after is the type name
+    # So, this generates code that accounts for both the single-item and normal representation
     proc generateTypeNameAndValueParser {varName} {
         set varName "\$$varName"
 
@@ -63,13 +63,10 @@ set typesLib [library create typesLib {
 }]
 
 When type /typeName/ exists {
-    if {$typeName == "library"} { return }
-
+    puts "Type: $typeName"
     When the collected results for [list /someone/ claims type $typeName /...rest/] are /results/ {
         # the properties of this type
         set type [dict create]
-        # type is an alias for itself
-        dict set type aliases [list $typeName]
 
         foreach result $results {
             set rest [dict get $result rest]
@@ -97,9 +94,6 @@ When type /typeName/ exists {
                     dict set type inlineRep $value
                     dict set type inlineRegex [$typesLib convertInlineRepToRegex $value]
                 }
-                "has alias" {
-                    dict set type aliases [list {*}[dict get $type aliases] $value]
-                }
                 "has description" {
                     dict set type description $value
                 }
@@ -107,8 +101,6 @@ When type /typeName/ exists {
         }
 
         # now we'll create a library for each of the type operations: unbox, box, check, and description
-        set aliases [dict get $type aliases]
-
         ## unbox ##
         set lines [list]
 
@@ -119,15 +111,9 @@ When type /typeName/ exists {
         lappend lines "    "
 
 
-        # First possiblity: check if type name(s) are correct
-        if {[llength $aliases] > 1} {
-            lappend lines "    if \{\[lsearch [list $aliases] \$typeName\] != -1\} \{"
-            # this if body is empty, as it's used to build an elseif chain
-            lappend lines "    \}"
-        } else {
-            lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
-            lappend lines "    \}"
-        }
+        # First possibility: check if type name is correct
+        lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
+        lappend lines "    \}"
 
         # Second possibility: maybe it's an inline type name?
         if {[dict exists $type inlineRep]} {
@@ -138,8 +124,7 @@ When type /typeName/ exists {
 
         # else throw an error
         lset lines end "[lindex $lines end] else \{"
-        set allTypeNames [join $aliases " or "]
-        lappend lines "        error \"Type name was '\$typeName', but was expecting $allTypeNames.\""
+        lappend lines "        error \"Type name was '\$typeName', but was expecting $typeName.\""
         lappend lines "    \}"
         lappend lines "    "
 
@@ -189,14 +174,9 @@ When type /typeName/ exists {
         lappend lines "    "
 
 
-        # check if type name(s) are correct
-        if {[llength $aliases] > 1} {
-            lappend lines "    if \{\[lsearch [list $aliases] \$typeName\] >= 0\} \{"
-            lappend lines "    \}"
-        } else {
-            lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
-            lappend lines "    \}"
-        }
+        # check if type name iscorrect
+        lappend lines "    if \{\$typeName == \"$typeName\"\} \{"
+        lappend lines "    \}"
 
         # maybe it's an inline type name?
         if {[dict exists $type inlineRep]} {
@@ -244,6 +224,8 @@ When type /typeName/ exists {
         set typeLib [library create typeLibFor_$typeName $allFunctions]
 
         Claim type library for $typeName is $typeLib
+
+        puts "type library for $typeName is $typeLib"
     }
 }
 
@@ -277,7 +259,6 @@ When the collected results for {/someone/ claims type /type/ /...rest/} are /mat
                 if {![dict exists $types $type]} {
                     dict set types $type [dict create]
                 }
-                dict set types $type aliases [list {*}[dict getdef $types $type aliases [list]] $type]
             }
             "has verifier" {
                 dict set types $type verifier $value
@@ -285,10 +266,6 @@ When the collected results for {/someone/ claims type /type/ /...rest/} are /mat
             "has inline representation" {
                 dict set types $type inlineRep $value
                 dict set types $type inlineRegex [$typesLib convertInlineRepToRegex $value]
-            }
-            "has alias" {
-                dict set types $value aliasFor $type
-                dict set types $type aliases [list {*}[dict getdef $types $type aliases [list]] $value]
             }
         }
     }
@@ -298,11 +275,9 @@ When the collected results for {/someone/ claims type /type/ /...rest/} are /mat
     set typeofRegexes [dict create]
 
     dict for {typeName props} $types {
-        if {[dict exists $props aliasFor]} {
-            dict set typeofMapping $typeName [dict get $props aliasFor]
-        } else {
-            dict set typeofMapping $typeName $typeName
-        }
+        # Right now this is a simple one-to-one mapping, but we may add
+        # more information later.
+        dict set typeofMapping $typeName $typeName
 
         if {[dict exists $props inlineRep]} {
             # how's regex as a key, eh?
@@ -326,10 +301,12 @@ When the collected results for {/someone/ claims type /type/ /...rest/} are /mat
                 }
             }
 
+            # Does it exist as a type name?
             if {[dict exists $typeofMapping $typeName]} {
                 return [dict get $typeofMapping $typeName]
             }
 
+            # Else, run through the inline regexes to see if any match
             dict for {regex matchingTypeName} $typeofRegexes {
                 if {[regexp $regex $typeName]} {
                     return $matchingTypeName

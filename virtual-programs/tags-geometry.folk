@@ -1,4 +1,4 @@
-When type library for millimeter is /mm/ &\
+When type library for mm is /mm/ &\
      the default program geometry is /defaultGeom/ &\
      program /program/ is scaled by x /xScale/ y /yScale/ {
     set tagSize [$mm unbox [dict get $defaultGeom tagSize]]
