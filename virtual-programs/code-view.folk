@@ -66,6 +66,14 @@ When /view/ is a code view with /...options/ {
         Hold! -key selected-program:$view {}
     }
 
+    # Load initial text settings if not set
+    When /nobody/ claims $view has text settings /...anything/ {
+        set textScale [dict get $options textScale]
+
+        Hold! -save -key text-params-of:$view \
+            Claim $view has text settings with scale $textScale
+    }
+
     # load in defaults for the view if it hasn't been initialized
     set results [Query! /somebody/ claims $view has cursor /anything/]
     if {[llength $results] == 0} {
@@ -73,13 +81,6 @@ When /view/ is a code view with /...options/ {
         # We then use its size to figure out how many characters we can fit in it,
         # width-wise and height-wise
         When $view has resolved geometry /geom/ {
-            Hold! -key text-params-of:$view {
-                set textScale [dict get $options textScale]
-                lassign [$codeViewLib getEmAndAdvance $textScale] em advance
-
-                Claim $view has text settings with em $em advance $advance scale $textScale
-            }
-
             Hold! -key view-state-of:$view {
                 lassign [$codeViewLib viewCharacterSize $geom $options] widthInCharacters heightInCharacters
 
@@ -163,10 +164,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                         set textScale [dict get $textOptions scale]
                         set textScale [/ $textScale 1.1]
 
-                        Hold! -key text-params-of:$view {
-                            lassign [$codeViewLib getEmAndAdvance $textScale] em advance
-                            Claim $view has text settings with em $em advance $advance scale $textScale
-                        }
+                        Hold! -save -key text-params-of:$view \
+                            Claim $view has text settings with scale $textScale
 
                         # overwrite vpWidth and vpHeight as it's used later when updating the viewport
                         set codeViewOptions [dict create textScale $textScale]
@@ -180,10 +179,8 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                         set textScale [dict get $textOptions scale]
                         set textScale [* $textScale 1.1]
 
-                        Hold! -key text-params-of:$view {
-                            lassign [$codeViewLib getEmAndAdvance $textScale] em advance
-                            Claim $view has text settings with em $em advance $advance scale $textScale
-                        }
+                        Hold! -save -key text-params-of:$view \
+                            Claim $view has text settings with scale $textScale
 
                         # overwrite vpWidth and vpHeight as it's used later when updating the viewport
                         set codeViewOptions [dict create textScale $textScale]
@@ -263,8 +260,8 @@ When /view/ is a code view with /...anything/ &\
 
     lassign [$utils cursorToXy $code $cursor] cursorX cursorY
 
-    set em [dict get $textOptions em]
-    set advance [dict get $textOptions advance]
+    set textScale [dict get $textOptions scale]
+    lassign [$codeViewLib getEmAndAdvance $textScale] em advance
 
     set offsetX [expr {($cursorX - $vpX) * $advance}]
     set offsetY [expr {($cursorY - $vpY) * $em}]
