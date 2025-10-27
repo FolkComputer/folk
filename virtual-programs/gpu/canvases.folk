@@ -15,7 +15,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
 
     $gpuc extend -noprocs $gpuLib
     $gpuc import $gpuLib VkResultToString
-    $gpuc import $gpuLib getCommandBuffer
+    $gpuc import $gpuLib getCommandPool
 
     $gpuc extend $imageLib
     $gpuc extend $gpuTextureLib
@@ -94,6 +94,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             GpuTextureHandle gpuTexture;
             VkFramebuffer framebuffer;
 
+            VkCommandBuffer commandBuffer;
             VkFence inFlightFence;
         } GpuCanvas;
     }
@@ -126,6 +127,15 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         $[vktry {vkCreateFramebuffer(device, &framebufferInfo, NULL, &wi->framebuffer)}]
 
         {
+            VkCommandBufferAllocateInfo allocInfo = {0};
+            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool = getCommandPool();
+            allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &wi->commandBuffer)}]
+        }
+
+        {
             VkFenceCreateInfo fenceInfo = {0};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -137,6 +147,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     $gpuc proc destroy {GpuCanvas* wi} void {
         freeGpuTexture(wi->gpuTexture);
         vkDestroyFramebuffer(device, wi->framebuffer, NULL);
+        vkFreeCommandBuffers(device, getCommandPool(), 1, &wi->commandBuffer);
         vkDestroyFence(device, wi->inFlightFence, NULL);
         free(wi);
     }
@@ -149,10 +160,11 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         FOLK_ENSURE(boundCanvas == NULL);
         boundCanvas = wi;
 
+        // Wait for any previous rendering to this canvas to complete
+        vkWaitForFences(device, 1, &wi->inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &wi->inFlightFence);
 
-        VkCommandBuffer commandBuffer = getCommandBuffer();
-        vkResetCommandBuffer(commandBuffer, 0);
+        vkResetCommandBuffer(wi->commandBuffer, 0);
 
         // We can't have this texture in the descriptor set while
         // we're rendering to it.
@@ -164,7 +176,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         beginInfo.pInheritanceInfo = NULL;
 
         pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
-        $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
+        $[vktry {vkBeginCommandBuffer(wi->commandBuffer, &beginInfo)}]
 
         {
             VkRenderPassBeginInfo renderPassInfo = {0};
@@ -178,7 +190,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
-            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBeginRenderPass(wi->commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         }
 
         boundCanvas = wi;
@@ -186,7 +198,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         boundDescriptorSet = VK_NULL_HANDLE;
     }
     $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
-        VkCommandBuffer commandBuffer = getCommandBuffer();
+        VkCommandBuffer commandBuffer = boundCanvas->commandBuffer;
 
         if (boundPipeline != pipeline.pipeline) {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
@@ -233,7 +245,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         vkCmdDraw(commandBuffer, 6, 1, 0, 0);
     }
     $gpuc proc drawEnd {} void {
-        VkCommandBuffer commandBuffer = getCommandBuffer();
+        VkCommandBuffer commandBuffer = boundCanvas->commandBuffer;
 
         vkCmdEndRenderPass(commandBuffer);
         $[vktry {vkEndCommandBuffer(commandBuffer)}]
