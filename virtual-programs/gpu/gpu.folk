@@ -151,15 +151,20 @@ $gpuc define {
     VkExtent2D swapchainExtent;
 
     uint32_t imageIndex;
-
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
 }
 
 $gpuc code {
+    #define MAX_FRAMES_IN_FLIGHT 2
+    VkSemaphore imageAvailableSemaphores[MAX_FRAMES_IN_FLIGHT];
+    VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
+    VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
+
     __thread VkCommandPool _commandPool;
-    __thread VkCommandBuffer _commandBuffer;
+    // Note that there are MAX_FRAMES * <number of threads> command
+    // buffers at maximum, but they should be lazily allocated.
+    __thread VkCommandBuffer _commandBuffers[MAX_FRAMES_IN_FLIGHT];
+
+    __thread uint32_t currentFrame;
 }
 defineVulkanHandleType $gpuc VkCommandPool
 defineVulkanHandleType $gpuc VkCommandBuffer
@@ -174,19 +179,21 @@ $gpuc proc getCommandPool {} VkCommandPool {
     }
     return _commandPool;
 }
-# Returns a thread-local command buffer. This assumes that you only
-# work on one command buffer at a time in a given thread.
+# Returns a thread-local command buffer for the current frame
+# (guaranteed to not be currently in use elsewhere, either by another
+# thread or by a GPU-rendering frame in this thread).
 $gpuc proc getCommandBuffer {} VkCommandBuffer {
-    if (_commandBuffer == 0) {
+    if (_commandBuffers[currentFrame] == 0) {
         VkCommandBufferAllocateInfo allocInfo = {0};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = getCommandPool();
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = 1;
 
-        $[vktry {vkAllocateCommandBuffers(device, &allocInfo, &_commandBuffer)}]
+        $[vktry {vkAllocateCommandBuffers(device, &allocInfo,
+                                          &_commandBuffers[currentFrame])}]
     }
-    return _commandBuffer;
+    return _commandBuffers[currentFrame];
 }
 
 $gpuc proc init {int displayIdx} void {
@@ -201,6 +208,7 @@ $gpuc proc init {int displayIdx} void {
         const char* validationLayers[] = {
            "VK_LAYER_KHRONOS_validation"
         };
+        // TODO: Detect if running in Nvidia Nsight and set this to 0 if so.
         createInfo.enabledLayerCount = sizeof(validationLayers)/sizeof(validationLayers[0]);
         createInfo.ppEnabledLayerNames = validationLayers;
 
@@ -562,10 +570,14 @@ $gpuc proc init {int displayIdx} void {
         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphore)}]
-        $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphore)}]
-        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFence)}]
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &imageAvailableSemaphores[i])}]
+            $[vktry {vkCreateSemaphore(device, &semaphoreInfo, NULL, &renderFinishedSemaphores[i])}]
+            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &inFlightFences[i])}]
+        }
     }
+
+    currentFrame = 0;
 }
 $gpuc proc getWidth {} uint32_t { return swapchainExtent.width; }
 $gpuc proc getHeight {} uint32_t { return swapchainExtent.height; }
@@ -788,9 +800,15 @@ $gpuc code {
 $gpuc proc drawStart {} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
-    vkResetFences(device, 1, &inFlightFence);
+    // Wait for this frame's fence (from MAX_FRAMES_IN_FLIGHT ago)
+    vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+                          imageAvailableSemaphores[currentFrame],
+                          VK_NULL_HANDLE, &imageIndex);
+
+    // Now reset the fence for this frame
+    vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
     vkResetCommandBuffer(commandBuffer, 0);
 
@@ -871,18 +889,20 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
     vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 }
 
+$gpuc cflags -I./vendor/tracy/public
+$gpuc include "tracy/TracyC.h"
 $gpuc proc drawEnd {} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
     vkCmdEndRenderPass(commandBuffer);
     $[vktry {vkEndCommandBuffer(commandBuffer)}]
 
-    VkSemaphore signalSemaphores[] = {renderFinishedSemaphore};
+    VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
     {
         VkSubmitInfo submitInfo = {0};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore waitSemaphores[] = {imageAvailableSemaphore};
+        VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
@@ -895,7 +915,7 @@ $gpuc proc drawEnd {} void {
         submitInfo.pSignalSemaphores = signalSemaphores;
 
         pthread_mutex_lock(&graphicsQueueMutex);
-        $[vktry {vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFence)}]
+        $[vktry {vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame])}]
         pthread_mutex_unlock(&graphicsQueueMutex);
     }
     {
@@ -915,8 +935,9 @@ $gpuc proc drawEnd {} void {
         pthread_mutex_unlock(&graphicsQueueMutex);
     }
 
-    vkWaitForFences(device, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
     pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 $gpuc proc poll {} void {
