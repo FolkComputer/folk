@@ -3,16 +3,16 @@ set isNumberVerifier {{x} { string is double -strict $x }}
 # start of scientific types
 Claim type mm exists
 Claim type mm has verifier $isNumberVerifier
-Claim type mm converts to cm with {{mm} {
+Claim type mm converts to cm using {{mm} {
     return [/ $mm 10]
 }}
 
 Claim type cm exists
 Claim type cm has verifier $isNumberVerifier
-Claim type cm converts to m with {{cm} {
+Claim type cm converts to m using {{cm} {
     return [/ $mm 100]
 }}
-Claim type cm converts to mm with {{cm} {
+Claim type cm converts to mm using {{cm} {
     return [* $cm 10]
 }}
 
@@ -63,7 +63,6 @@ set typesLib [library create typesLib {
 }]
 
 When type /typeName/ exists {
-    puts "Type: $typeName"
     When the collected results for [list /someone/ claims type $typeName /...rest/] are /results/ {
         # the properties of this type
         set type [dict create]
@@ -224,8 +223,6 @@ When type /typeName/ exists {
         set typeLib [library create typeLibFor_$typeName $allFunctions]
 
         Claim type library for $typeName is $typeLib
-
-        puts "type library for $typeName is $typeLib"
     }
 }
 

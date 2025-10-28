@@ -153,7 +153,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
                     }
                     Control_t {
                         # remove the edited code to restore the program to its original code
-                        Hold! -key new-code-for:$program {}
+                        Hold! -on virtual-programs/programs.folk -key new-code-for:$program {}
                         set resetCode true
                         file delete "$programDir/$program.folk.edited"
                     }
@@ -225,7 +225,7 @@ When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
 Subscribe: save code on view /view/ {
     ForEach! /view/ has selected program /program/ &\
              view code for /program/ is /programCode/ {
-        Hold! -key new-code-for:$program \
+        Hold! -on virtual-programs/programs.folk -key new-code-for:$program \
             Wish program $program is replaced with code $programCode
 
         set fp [open "$programDir/[set program].folk.edited" w]

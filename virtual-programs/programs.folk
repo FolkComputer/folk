@@ -33,6 +33,15 @@ When -noncapturing the program save directory is /saveDir/ {
             set code [read $fd]
             close $fd
 
+            if {[file exists "$saveDir/$obj.folk.edited"]} {
+                set fd [open "$saveDir/$obj.folk.edited" r]
+                set editedCode [read $fd]
+                close $fd
+
+                Hold! -key new-code-for:$obj \
+                    Wish program $obj is replaced with code $editedCode
+            }
+
             Claim $obj has original program code $code
             When /nobody/ wishes program $obj is replaced with code /anything/ {
                 Claim $obj has program code $code
