@@ -110,7 +110,7 @@ sync:
     --archive --delete --itemize-changes \
     --exclude='/.git' \
     --exclude-from='.git/ignores.tmp' \
-    ./ $(FOLK_REMOTE_NODE):~/folk/ || true
+    ./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
 	ssh-copy-id $(FOLK_REMOTE_NODE)
