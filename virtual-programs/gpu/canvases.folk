@@ -16,6 +16,8 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     $gpuc extend -noprocs $gpuLib
     $gpuc import $gpuLib VkResultToString
     $gpuc import $gpuLib getCommandPool
+    $gpuc import $gpuLib getTextureDescriptorSetPtr
+    $gpuc import $gpuLib getCurrentFrame
 
     $gpuc extend $imageLib
     $gpuc extend $gpuTextureLib
@@ -112,7 +114,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         transitionImageLayout(block->textureImage, swapchainImageFormat,
                               VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        addToTextureDescriptorSet(block->handle);
+        block->readyToDraw = true;
 
         VkImageView attachments[] = { block->textureImageView };
 
@@ -160,22 +162,37 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         FOLK_ENSURE(boundCanvas == NULL);
         boundCanvas = wi;
 
-        // Wait for any previous rendering to this canvas to complete
+        // Wait for any previous rendering to this canvas to complete.
         vkWaitForFences(device, 1, &wi->inFlightFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &wi->inFlightFence);
 
         vkResetCommandBuffer(wi->commandBuffer, 0);
 
         // We can't have this texture in the descriptor set while
-        // we're rendering to it.
-        replaceInTextureDescriptorSet(wi->gpuTexture, 0);
+        // we're rendering to it, so temporarily remove it.
+        {
+            GpuTextureBlock* placeholderBlock = getGpuTexture(0);
+            VkDescriptorImageInfo imageInfo = {0};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = placeholderBlock->textureImageView;
+            imageInfo.sampler = placeholderBlock->textureSampler;
+
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = *getTextureDescriptorSetPtr(getCurrentFrame());
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = wi->gpuTexture;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        }
 
         VkCommandBufferBeginInfo beginInfo = {0};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         beginInfo.pInheritanceInfo = NULL;
 
-        pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
         $[vktry {vkBeginCommandBuffer(wi->commandBuffer, &beginInfo)}]
 
         {
@@ -220,10 +237,13 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
         }
 
-        if (boundDescriptorSet != *textureDescriptorSet_ptr()) {
+        VkDescriptorSet currentFrameDescriptorSet =
+            *getTextureDescriptorSetPtr(getCurrentFrame());
+        if (boundDescriptorSet != currentFrameDescriptorSet) {
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipeline.pipelineLayout, 0, 1, textureDescriptorSet_ptr(), 0, NULL);
-            boundDescriptorSet = *textureDescriptorSet_ptr();
+                                    pipeline.pipelineLayout, 0, 1,
+                                    &currentFrameDescriptorSet, 0, NULL);
+            boundDescriptorSet = currentFrameDescriptorSet;
         }
 
         {
@@ -267,10 +287,28 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         }
 
         vkWaitForFences(device, 1, &boundCanvas->inFlightFence, VK_TRUE, UINT64_MAX);
-        pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
-        replaceInTextureDescriptorSet(boundCanvas->gpuTexture,
-                                      boundCanvas->gpuTexture);
+        // Now that we're done drawing to this canvas, re-add it to
+        // the descriptor set so the canvas itself can be drawn onto
+        // other canvases/the screen.
+        {
+            GpuTextureBlock* block = getGpuTexture(boundCanvas->gpuTexture);
+            VkDescriptorImageInfo imageInfo = {0};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = block->textureImageView;
+            imageInfo.sampler = block->textureSampler;
+
+            VkWriteDescriptorSet descriptorWrite = {0};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = *getTextureDescriptorSetPtr(getCurrentFrame());
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = boundCanvas->gpuTexture;
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrite.descriptorCount = 1;
+            descriptorWrite.pImageInfo = &imageInfo;
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+        }
+
         boundCanvas = NULL;
     }
 
@@ -426,7 +464,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             foreach ref $acquiredRefs {
                 StatementRelease! $ref
             }
-        }} $gpuCanvasLib]
+        }} $gpuCanvasLib] with priority 50
     }
 
     When /someone/ wishes /p/ has a canvas {

@@ -159,12 +159,14 @@ $gpuc code {
     VkSemaphore renderFinishedSemaphores[MAX_FRAMES_IN_FLIGHT];
     VkFence inFlightFences[MAX_FRAMES_IN_FLIGHT];
 
+    VkDescriptorSet textureDescriptorSets[MAX_FRAMES_IN_FLIGHT];
+
     __thread VkCommandPool _commandPool;
     // Note that there are MAX_FRAMES * <number of threads> command
     // buffers at maximum, but they should be lazily allocated.
     __thread VkCommandBuffer _commandBuffers[MAX_FRAMES_IN_FLIGHT];
 
-    __thread uint32_t currentFrame;
+    uint32_t currentFrame;
 }
 defineVulkanHandleType $gpuc VkCommandPool
 defineVulkanHandleType $gpuc VkCommandBuffer
@@ -179,6 +181,11 @@ $gpuc proc getCommandPool {} VkCommandPool {
     }
     return _commandPool;
 }
+$gpuc proc getTextureDescriptorSetPtr {int i} VkDescriptorSet* {
+    return &textureDescriptorSets[i];
+}
+$gpuc proc getCurrentFrame {} int { return currentFrame; }
+
 # Returns a thread-local command buffer for the current frame
 # (guaranteed to not be currently in use elsewhere, either by another
 # thread or by a GPU-rendering frame in this thread).
@@ -629,8 +636,6 @@ $gpuc code {
 }
 $gpuc define {
     VkDescriptorSetLayout textureDescriptorSetLayout;
-    VkDescriptorSet textureDescriptorSet;
-    pthread_rwlock_t textureDescriptorSetLock;
 }
 $gpuc struct Pipeline {
     VkPipeline pipeline;
@@ -800,14 +805,13 @@ $gpuc code {
 $gpuc proc drawStart {} void {
     VkCommandBuffer commandBuffer = getCommandBuffer();
 
-    // Wait for this frame's fence (from MAX_FRAMES_IN_FLIGHT ago)
+    // Wait for this frame's fence (from MAX_FRAMES_IN_FLIGHT ago).
     vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
                           imageAvailableSemaphores[currentFrame],
                           VK_NULL_HANDLE, &imageIndex);
 
-    // Now reset the fence for this frame
     vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
     vkResetCommandBuffer(commandBuffer, 0);
@@ -816,9 +820,7 @@ $gpuc proc drawStart {} void {
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo = NULL;
-    pthread_rwlock_rdlock(textureDescriptorSetLock_ptr());
     $[vktry {vkBeginCommandBuffer(commandBuffer, &beginInfo)}]
-
     {
         VkRenderPassBeginInfo renderPassInfo = {0};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -864,10 +866,11 @@ $gpuc proc draw {Pipeline pipeline Jim_Obj* argsObj} void {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     }
 
-    if (boundDescriptorSet != textureDescriptorSet) {
+    if (boundDescriptorSet != textureDescriptorSets[currentFrame]) {
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline.pipelineLayout, 0, 1, &textureDescriptorSet, 0, NULL);
-        boundDescriptorSet = textureDescriptorSet;
+                                pipeline.pipelineLayout, 0, 1,
+                                &textureDescriptorSets[currentFrame], 0, NULL);
+        boundDescriptorSet = textureDescriptorSets[currentFrame];
     }
 
     {
@@ -934,8 +937,6 @@ $gpuc proc drawEnd {} void {
         vkQueuePresentKHR(presentQueue, &presentInfo);
         pthread_mutex_unlock(&graphicsQueueMutex);
     }
-
-    pthread_rwlock_unlock(textureDescriptorSetLock_ptr());
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
@@ -1408,8 +1409,13 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
 
     set missingPipelines [dict create]
     while true {
-        ForEach! /someone/ wishes the GPU runs frame prelude handler /hd/ {
-            {*}$hd
+        set handlers [Query! /someone/ wishes the GPU runs \
+                          frame prelude handler /hd/ with priority /priority/]
+        set handlers [lsort -command [list apply {{a b} {
+            expr {[dict get $a priority] < [dict get $b priority]}
+        }}] $handlers]
+        foreach handler $handlers {
+            {*}[dict get $handler hd]
         }
 
         tracy zoneBegin
