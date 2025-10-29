@@ -10,12 +10,12 @@ When type library for mm is /mm/ &\
     set width [expr {$left + $tagSize + $right}]
     set height [expr {$top + $tagSize + $bottom}]
 
-    set left "[set left]mm"
-    set right "[expr {$right + ($width * $xScale - $width)}]mm"
-    set top "[set top]mm"
-    set bottom "[expr {$bottom + ($height * $yScale - $height)}]mm"
+    set left [$mm box $left]
+    set right [$mm box [expr {$right + ($width * $xScale - $width)}]]
+    set top [$mm box $top]
+    set bottom [$mm box [expr {$bottom + ($height * $yScale - $height)}]]
 
-    set newGeom [list tagSize "[set tagSize]mm" left $left right $right top $top bottom $bottom]
+    set newGeom [list tagSize [$mm box $tagSize] left $left right $right top $top bottom $bottom]
 
     Claim tag $program has geometry $newGeom
 }

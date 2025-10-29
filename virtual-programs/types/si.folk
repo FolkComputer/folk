@@ -1,0 +1,37 @@
+set isNumberVerifier {{x} { string is double -strict $x }}
+
+Claim type mm exists
+Claim type mm has verifier $isNumberVerifier
+Claim type mm converts from cm using {{cm} {
+    return [list [* $cm 10] mm]
+}}
+Claim type mm converts from m using {{m} {
+    return [list [* $m 1000] mm]
+}}
+
+Claim type cm exists
+Claim type cm has verifier $isNumberVerifier
+Claim type cm converts from mm using {{mm} {
+    return [list [/ $mm 10] cm]
+}}
+Claim type cm converts from m using {{m} {
+    return [list [* $m 100] cm]
+}}
+
+Claim type m exists
+Claim type m has verifier $isNumberVerifier
+Claim type m has description "Meter, standard SI unit"
+Claim type m converts from mm using {{mm} {
+    return [list [/ $mm 1000] m]
+}}
+Claim type m converts from cm using {{cm} {
+    return [list [/ $cm 100] m]
+}}
+
+Claim type velocity exists
+Claim type velocity has verifier $isNumberVerifier
+Claim type velocity has inline representation distance/time
+
+Claim type acceleration exists
+Claim type acceleration has verifier $isNumberVerifier
+Claim type acceleration has inline representation distance/time^2
