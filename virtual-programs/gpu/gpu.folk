@@ -352,18 +352,32 @@ $gpuc proc init {int displayIdx} void {
         VkDisplayPropertiesKHR displayProps[displayCount];
         vkGetPhysicalDeviceDisplayPropertiesKHR(physicalDevice, &displayCount, displayProps);
 
-        uint32_t modeCount = 1; VkDisplayModePropertiesKHR modeProps;
-        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display, &modeCount, &modeProps);
-        // modeProps is now the 0th display mode, which is probably
-        // the best one (and we default to it for now).
+        uint32_t modeCount;
+        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display,
+                                      &modeCount, NULL);
+
+        VkDisplayModePropertiesKHR modeProps[modeCount];
+        vkGetDisplayModePropertiesKHR(physicalDevice, displayProps[displayIdx].display,
+                                      &modeCount, modeProps);
+        int chosenMode = 0;
+        // HACK: On Nvidia GPU, for some reason 60Hz is not mode 0, so
+        // we manually find it.
+        if (modeProps[chosenMode].parameters.refreshRate < 60000) {
+            for (int i = 0; i < modeCount; i++) {
+                if (modeProps[i].parameters.refreshRate == 60000) {
+                    chosenMode = i;
+                    break;
+                }
+            }
+        }
 
         VkDisplaySurfaceCreateInfoKHR createInfo = {0};
         createInfo.sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR;
-        createInfo.displayMode = modeProps.displayMode;
+        createInfo.displayMode = modeProps[chosenMode].displayMode;
         createInfo.planeIndex = 0;
         createInfo.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         createInfo.alphaMode = VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
-        createInfo.imageExtent = modeProps.parameters.visibleRegion;
+        createInfo.imageExtent = modeProps[chosenMode].parameters.visibleRegion;
         if (vkCreateDisplayPlaneSurfaceKHR(instance, &createInfo, NULL, &surface) != VK_SUCCESS) {
             fprintf(stderr, "Failed to create Vulkan display plane surface\n"); exit(1);
         }
