@@ -445,7 +445,11 @@ $gpuc proc updateTextureDescriptorSet {} void {
 
         block->upToDate[currentFrame] = true;
     }
-    vkUpdateDescriptorSets(device, descriptorWriteIdx, descriptorWrites, 0, NULL);
+    if (descriptorWriteIdx > 0) {
+        /* printf("vkUpdateDescriptorSet %llx <- %d updates\n", */
+        /*        currentTextureDescriptorSet, descriptorWriteIdx); */
+        vkUpdateDescriptorSets(device, descriptorWriteIdx, descriptorWrites, 0, NULL);
+    }
     free(descriptorWrites);
 }
 

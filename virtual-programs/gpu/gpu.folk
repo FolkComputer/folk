@@ -184,6 +184,9 @@ $gpuc proc getCommandPool {} VkCommandPool {
 $gpuc proc getTextureDescriptorSetPtr {int i} VkDescriptorSet* {
     return &textureDescriptorSets[i];
 }
+$gpuc proc getInFlightFencePtr {int i} VkFence* {
+    return &inFlightFences[i];
+}
 $gpuc proc getCurrentFrame {} int { return currentFrame; }
 
 # Returns a thread-local command buffer for the current frame

@@ -17,6 +17,7 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
     $gpuc import $gpuLib VkResultToString
     $gpuc import $gpuLib getCommandPool
     $gpuc import $gpuLib getTextureDescriptorSetPtr
+    $gpuc import $gpuLib getInFlightFencePtr
     $gpuc import $gpuLib getCurrentFrame
 
     $gpuc extend $imageLib
@@ -167,6 +168,10 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
         vkResetFences(device, 1, &wi->inFlightFence);
 
         vkResetCommandBuffer(wi->commandBuffer, 0);
+
+        // Wait for any draw that uses this descriptor set to complete.
+        vkWaitForFences(device, 1, getInFlightFencePtr(getCurrentFrame()),
+                        VK_TRUE, UINT64_MAX);
 
         // We can't have this texture in the descriptor set while
         // we're rendering to it, so temporarily remove it.
