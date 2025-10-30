@@ -508,6 +508,11 @@ $gpuc proc createGpuTexture {int width int height int format} GpuTextureBlock* {
 
     block->description = malloc(32);
     snprintf(block->description, 32, "%dx%d texture", width, height);
+
+    block->readyToDraw = false;
+    block->shouldFree = false;
+    block->upToDate[0] = false;
+    block->upToDate[1] = false;
     return block;
 }
 $gpuc proc freeGpuTexture {GpuTextureHandle textureId} void {
