@@ -147,7 +147,7 @@ $gpuc proc textureManagerInit {} void {
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = descriptorPool;
         allocInfo.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-        VkDescriptorSetLayout setLayouts[MAX_FRAMES_IN_FLIGHT] = {
+        VkDescriptorSetLayout setLayouts[] = {
             *textureDescriptorSetLayout_ptr(),
             *textureDescriptorSetLayout_ptr()
         };
@@ -411,6 +411,13 @@ $gpuc proc updateTextureDescriptorSet {} void {
     VkWriteDescriptorSet* descriptorWrites =
         calloc(sizeof(VkWriteDescriptorSet), getMaxTextures());
     int descriptorWriteIdx = 0;
+
+    GpuTextureBlock* placeholderBlock = &gpuTextures[0];
+    VkDescriptorImageInfo placeholderInfo = {0};
+    placeholderInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    placeholderInfo.imageView = placeholderBlock->textureImageView;
+    placeholderInfo.sampler = placeholderBlock->textureSampler;
+
     for (int textureId = 0; textureId < getMaxTextures(); textureId++) {
         GpuTextureBlock* block = &gpuTextures[textureId];
         if (!block->alive) { continue; }
@@ -430,9 +437,13 @@ $gpuc proc updateTextureDescriptorSet {} void {
         if (block->upToDate[currentFrame]) { continue; }
 
         VkDescriptorImageInfo imageInfo = {0};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = block->textureImageView;
-        imageInfo.sampler = block->textureSampler;
+        if (!block->readyToDraw || block->shouldFree) {
+            imageInfo = placeholderInfo;
+        } else {
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView = block->textureImageView;
+            imageInfo.sampler = block->textureSampler;
+        }
 
         VkWriteDescriptorSet* descriptorWrite = &descriptorWrites[descriptorWriteIdx++];
         descriptorWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
