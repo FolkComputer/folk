@@ -1422,9 +1422,9 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         }
 
         tracy zoneBegin
-        tracy zoneName "gpu-draw-start"
+        tracy zoneName "gpu-draw"
+
         $gpu drawStart
-        tracy zoneEnd
 
         # We do the queries now (when we are about to draw) so we get
         # the most up-to-date information.
@@ -1480,10 +1480,8 @@ When' /someone/ wishes $::thisNode uses display /displayIdx/ &\
         # tracy plot $kRegionCount [llength [Query! /someone/ claims {editing 785 /dev/input/by-path/pci-0000:02:00.0-usb-0:2:1.2-event-mouse} has region /r/]]
         # tracy plot $kDrawCount $drawCount
 
-        # This blocks until the frame is actually drawn:
-        tracy zoneBegin
-        tracy zoneName "gpu-draw-end"
         $gpu drawEnd
+
         tracy zoneEnd
 
         tracy frameMarkNamed $kGpu
