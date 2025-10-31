@@ -11,6 +11,8 @@ When -noncapturing the program save directory is /saveDir/ {
         puts stderr "Added $type $obj"
         On unmatch { puts "Removed $type $obj" }
 
+        if {$obj >= 45000} { return }
+
         try {
             if {[file exists "$saveDir/$obj.folk.temp"]} {
                 set fd [open "$saveDir/$obj.folk.temp" r]
