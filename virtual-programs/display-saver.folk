@@ -1,5 +1,5 @@
 When tag /nobody/ has a program & /nobody/ has a display saver & \
-    /disp/ has width /displayWidth/ height /displayHeight/ {
+     display /disp/ has width /displayWidth/ height /displayHeight/ {
     puts "Starting display-saver"
 
     set cx [/ $displayWidth 2.0]
