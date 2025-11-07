@@ -1,6 +1,6 @@
 When tag /tag/ has detection /any/ on camera /any/ at timestamp /any/ {
     # Setting aside this tag space (48600 to 48713) for calibration.
-    if {$tag >= 48600} { return }
+    if {$tag >= 45000} { return }
 
     Claim (keep 100ms) tag $tag is a tag
     Claim (keep 100ms) tag $tag has a program
@@ -10,8 +10,6 @@ When -noncapturing the program save directory is /saveDir/ {
     When /type/ /obj/ has a program {
         puts stderr "Added $type $obj"
         On unmatch { puts "Removed $type $obj" }
-
-        if {$obj >= 45000} { return }
 
         try {
             if {[file exists "$saveDir/$obj.folk.temp"]} {
