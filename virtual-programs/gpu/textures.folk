@@ -253,19 +253,19 @@ $gpuc proc endSingleTimeCommands {VkCommandBuffer commandBuffer VkFence fence} v
     pthread_mutex_unlock(graphicsQueueMutex_ptr());
 }
 
-$gpuc code [csubst {
+$gpuc code {
     static __thread VkFence _fence = VK_NULL_HANDLE;
-    static VkFence getFence() {
-        if (_fence == VK_NULL_HANDLE) {
-            VkFenceCreateInfo fenceInfo = {0};
-            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
-        } else {
-            vkResetFences(device, 1, &_fence);
-        }
-        return _fence;
+}
+$gpuc proc getFence {} VkFence {
+    if (_fence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fenceInfo = {0};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        $[vktry {vkCreateFence(device, &fenceInfo, NULL, &_fence)}]
+    } else {
+        vkResetFences(device, 1, &_fence);
     }
-}]
+    return _fence;
+}
 
 $gpuc typedef int VkFormat false
 $gpuc typedef int VkImageLayout false

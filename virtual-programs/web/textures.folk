@@ -113,7 +113,9 @@ When the GPU library is /gpuLib/ & the image library is /imageLib/ &\
             1, &barrier
         );
 
-        endSingleTimeCommands(commandBuffer, VK_NULL_HANDLE);
+        VkFence fence = getFence();
+        endSingleTimeCommands(commandBuffer, fence);
+        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         // Copy staging buffer back to CPU
         void* data;
