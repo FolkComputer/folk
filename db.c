@@ -276,13 +276,11 @@ typedef struct AtomicallyVersion {
     // negative.
     int _Atomic inflightCount;
 
-    // FIXME: Use this to dispose the AtomicallyVersion.
-    int _Atomic refCount;
-
     // This is used as new statements are created within the
-    // version. When a newer version converges, we walk all older
-    // versions' statementLists and decr parentCount and wipe away the
-    // version pointer.
+    // version. When a newer version converges (or when the Atomically
+    // times out), we walk all older versions' statementLists and, on
+    // each statement in the older version's statementList, decr its
+    // parentCount and wipe away its version pointer.
     StatementRefList* _Atomic statementList;
 } AtomicallyVersion;
 
@@ -303,6 +301,12 @@ typedef struct Atomically {
     AtomicallyVersionList* _Atomic allVersions;
 
     AtomicallyVersion* _Atomic latestConvergedVersion;
+
+    // Records the last time that a version of this Atomically
+    // converged. The sysmon will check this every 50ms or so and
+    // reap any Atomicallys that haven't converged in a while.
+    int64_t latestConvergedTime;
+    int64_t timeout;
 } Atomically;
 
 typedef struct Db {
@@ -1000,6 +1004,8 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
                 atomically->key = strdup(key);
                 atomically->nextNumber = 0;
                 atomically->allVersions = NULL;
+                atomically->timeout = 30000000;
+                atomically->latestConvergedTime = 0;
                 break;
             }
         }
@@ -1035,6 +1041,74 @@ AtomicallyVersion* dbFreshAtomicallyVersionOnKey(Db* db, const char* key) {
                                            newNode));
 
     return atomicallyVersion;
+}
+static void dbAtomicallyReapAllVersions(Db* db, Atomically* atomically,
+                                        AtomicallyVersion* newlyConvergedVersion,
+                                        bool onlyReapConvergedVersions) {
+    // Swap out the entire list atomically, then process it after the
+    // CAS loop.
+    AtomicallyVersionList* allVersions;
+    do {
+        allVersions = atomically->allVersions;
+    } while (!atomic_compare_exchange_weak(&atomically->allVersions,
+                                           &allVersions,
+                                           NULL));
+
+    // Now we have exclusive ownership of allVersions. Process it to
+    // separate old versions.
+    AtomicallyVersionList* newList = NULL;
+    AtomicallyVersionList* current = allVersions;
+    while (current != NULL) {
+        AtomicallyVersionList* next = current->next;
+        if (current->version != NULL &&
+            (newlyConvergedVersion == NULL ||
+             current->version->number < newlyConvergedVersion->number) &&
+            (!onlyReapConvergedVersions || current->version->inflightCount == 0)) {
+            // Old version - clear and free it
+            atomicallyVersionClearStatementList(db, current->version);
+            free(current);
+        } else {
+            // Keep this version - add to new list
+            current->next = newList;
+            newList = current;
+        }
+        current = next;
+    }
+
+    // Write back the filtered list. We need to handle
+    // concurrently-added versions. Find the tail of newList once,
+    // then use CAS loop to atomically append.
+    if (newList != NULL) {
+        // Find the end of newList (which was built in reverse order)
+        AtomicallyVersionList* tail = newList;
+        while (tail->next != NULL) {
+            tail = tail->next;
+        }
+
+        // CAS loop to atomically set tail->next and update allVersions
+        AtomicallyVersionList* expected;
+        do {
+            expected = atomically->allVersions;
+            tail->next = expected;  // Point tail to current head
+        } while (!atomic_compare_exchange_weak(&atomically->allVersions,
+                                               &expected,
+                                               newList));
+    }
+    // Note: If newList is NULL (all versions were reaped), we
+    // don't write anything back.  Concurrently-added versions
+    // remain in allVersions and will be handled on next
+    // convergence.
+}
+void dbGarbageCollectAtomicallys(Db* db, int64_t now) {
+    mutexLock(&db->atomicallysMutex);
+    for (int i = 0; i < sizeof(db->atomicallys)/sizeof(db->atomicallys[0]); i++) {
+        if (db->atomicallys[i].key != NULL &&
+            now - db->atomicallys[i].latestConvergedTime > db->atomicallys[i].timeout) {
+
+            dbAtomicallyReapAllVersions(db, &db->atomicallys[i], NULL, true);
+        }
+    }
+    mutexUnlock(&db->atomicallysMutex);
 }
 
 bool dbAtomicallyVersionHasConverged(AtomicallyVersion* atomicallyVersion) {
@@ -1075,58 +1149,8 @@ void dbAtomicallyVersionInflightDecr(Db* db, AtomicallyVersion* atomicallyVersio
     if (--atomicallyVersion->inflightCount == 0) {
         Atomically* atomically = atomicallyVersion->atomically;
         atomically->latestConvergedVersion = atomicallyVersion;
-
-        // Swap out the entire list atomically, then process it after
-        // the CAS loop.
-        AtomicallyVersionList* allVersions;
-        do {
-            allVersions = atomicallyVersion->atomically->allVersions;
-        } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
-                                               &allVersions,
-                                               NULL));
-
-        // Now we have exclusive ownership of allVersions. Process it
-        // to separate old versions.
-        AtomicallyVersionList* newList = NULL;
-        AtomicallyVersionList* current = allVersions;
-        while (current != NULL) {
-            AtomicallyVersionList* next = current->next;
-            if (current->version != NULL &&
-                current->version->number < atomicallyVersion->number) {
-                // Old version - clear and free it
-                atomicallyVersionClearStatementList(db, current->version);
-                free(current);
-            } else {
-                // Keep this version - add to new list
-                current->next = newList;
-                newList = current;
-            }
-            current = next;
-        }
-
-        // Write back the filtered list. We need to handle
-        // concurrently-added versions. Find the tail of newList once,
-        // then use CAS loop to atomically append.
-        if (newList != NULL) {
-            // Find the end of newList (which was built in reverse order)
-            AtomicallyVersionList* tail = newList;
-            while (tail->next != NULL) {
-                tail = tail->next;
-            }
-
-            // CAS loop to atomically set tail->next and update allVersions
-            AtomicallyVersionList* expected;
-            do {
-                expected = atomicallyVersion->atomically->allVersions;
-                tail->next = expected;  // Point tail to current head
-            } while (!atomic_compare_exchange_weak(&atomicallyVersion->atomically->allVersions,
-                                                   &expected,
-                                                   newList));
-        }
-        // Note: If newList is NULL (all versions were reaped), we
-        // don't write anything back.  Concurrently-added versions
-        // remain in allVersions and will be handled on next
-        // convergence.
+        atomically->latestConvergedTime = timestamp_get(CLOCK_MONOTONIC);
+        dbAtomicallyReapAllVersions(db, atomically, atomicallyVersion, false);
     }
     /* printf("dbAtomicallyVersionInflightDecr %p -> %d\n", */
     /*        atomicallyVersion, */

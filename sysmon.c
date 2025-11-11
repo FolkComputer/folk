@@ -24,6 +24,7 @@ extern void HoldStatementGlobally(const char *key, double version,
                                   Clause *clause, long keepMs, const char *destructorCode,
                                   const char *sourceFileName, int sourceLineNumber);
 extern void workerReactivateOrSpawn(int64_t msSinceBoot);
+extern void dbGarbageCollectAtomicallys(Db* db, int64_t now);
 
 // How many ms are in each tick? You probably want this to be less
 // than half of 16ms (1 frame).
@@ -107,13 +108,20 @@ void sysmon() {
     // Third: collect garbage.
     epochGlobalCollect();
 
+    // Fourth: reap Atomically versions / attached statements that
+    // haven't had a new convergence in 'a long time'.
+    if (currentTick % 20 == 0) { // every 60ms or so.
+        int64_t nowNs = timestamp_get(CLOCK_MONOTONIC);
+        dbGarbageCollectAtomicallys(db, nowNs);
+    }
+
     ///////////////////////////////////
     if (currentMs < 1000) { return; }
     // Don't do the management tasks after this if the system isn't
     // fully online yet.
     ///////////////////////////////////
 
-    // Fourth: manage the pool of worker threads.
+    // Fifth: manage the pool of worker threads.
     // How many workers are _not_ blocked on I/O?
 #ifdef __linux__
     int notBlockedWorkersCount = 0;
@@ -152,8 +160,7 @@ void sysmon() {
     }
 #endif
 
-    // Fifth: update the time statements in the database.
-
+    // Sixth: update the time statements in the database.
     int64_t timeNs = timestamp_get(CLOCK_REALTIME);
 
     // sysmon.c claims the internal time is <TIME> (used internally)
