@@ -145,7 +145,7 @@ When camera /camera/ has width /cameraWidth/ height /cameraHeight/ &\
     fn estimateHomography
 
     fn makeAprilTagDetector
-    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 3]
+    set calibrationTagDetector [makeAprilTagDetector "tagStandard52h13" 2.0 3]
 
     set calibrationId [clock milliseconds]
 

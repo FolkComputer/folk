@@ -1,6 +1,6 @@
 When the image library is /imageLib/ {
 
-fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
+fn makeAprilTagDetector {TAG_FAMILY QUAD_DECIMATE NTHREADS} {
     set cc [C]
     $cc extend $imageLib
 
@@ -19,6 +19,7 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
         td = apriltag_detector_create();
         tf = ${TAG_FAMILY}_create();
         apriltag_detector_add_family_bits(td, tf, 1);
+        td->quad_decimate = ${QUAD_DECIMATE};
         td->nthreads = ${NTHREADS};
     }
     $cc proc detect {Image gray} Jim_Obj* {
@@ -62,8 +63,8 @@ fn makeAprilTagDetector {TAG_FAMILY NTHREADS} {
 Claim the AprilTag detector maker is [fn makeAprilTagDetector]
 
 set tagFamily "tagStandard52h13"
-set entireFrameDetector [makeAprilTagDetector $tagFamily 1]
-set incrementalDetector [makeAprilTagDetector $tagFamily 1]
+set entireFrameDetector [makeAprilTagDetector $tagFamily 4.0 1]
+set incrementalDetector [makeAprilTagDetector $tagFamily 1.5 1]
 
 # Entire-frame tag detector:
 When /nobody/ wishes to calibrate &\
