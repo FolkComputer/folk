@@ -110,6 +110,8 @@ sync:
     --archive --delete --itemize-changes \
     --exclude='/.git' \
     --exclude-from='.git/ignores.tmp' \
+    --include='vendor/tracy/client/***' \
+    --exclude='vendor/tracy/*' \
     ./ $(FOLK_REMOTE_NODE):~/folk/
 
 remote-setup:
