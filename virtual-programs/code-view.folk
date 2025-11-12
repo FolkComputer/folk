@@ -108,6 +108,12 @@ When /view/ is a code view with /...options/ {
     Wish tag $view is stabilized
 }
 
+Subscribe: keyboard /keyboard/ claims key /key/ is /keyState/ with /...options/ {
+    if {$keyState == "down" && $key == "Control_b"} {
+        Notify: print code "# blank"
+    }
+} 
+
 When /keyboard/ is a keyboard with path /kbPath/ /...anything/ &\
      /nobody/ claims /keyboard/ is an editor with /...anything/ &\
      /keyboard/ points up at /view/ &\
